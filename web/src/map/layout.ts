@@ -35,10 +35,12 @@ export interface LayoutOptions {
 
 // --- Documented constants -------------------------------------------------
 
-/** Planet scale for any non-ended session (working / idle / needs_input). */
+/** Planet scale for a working / needs-input session (canvas 1a: 96px body). */
 export const ACTIVE_SCALE = 1.0
-/** Planet scale for an ended session. */
-export const ENDED_SCALE = 0.45
+/** Planet scale for an idle session (canvas 1a: 68px body → 68/96). */
+export const IDLE_SCALE = 0.71
+/** Planet scale for an ended session (canvas 1a: ~42px body → 42/96). */
+export const ENDED_SCALE = 0.44
 
 /**
  * Layout units are arbitrary (the map scene, Task 9, maps them to world
@@ -124,7 +126,9 @@ export function clusterSessions(sessions: ApiSession[], tags: Tag[]): Cluster[] 
 // --- layoutClusters ---------------------------------------------------------
 
 function scaleFor(session: ApiSession): number {
-  return session.status === 'ended' ? ENDED_SCALE : ACTIVE_SCALE
+  if (session.status === 'ended') return ENDED_SCALE
+  if (session.status === 'idle') return IDLE_SCALE
+  return ACTIVE_SCALE
 }
 
 function resolveOptions(opts?: LayoutOptions) {

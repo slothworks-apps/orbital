@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Html, Stars } from '@react-three/drei'
+import { Html } from '@react-three/drei'
 import type { OrthographicCamera } from 'three'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { Planet } from './Planet'
-import { nebulaTexture } from './textures'
 import { Moon } from './Moon'
 import { useSceneModel } from './useSceneModel'
 import { applyPan, applyZoom, fitView, zoomFromWheel, type CameraState } from './camera'
@@ -51,18 +50,18 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
   return null
 }
 
-/** Faint nebula gradient behind the starfield, per artboard 1a. */
-function NebulaBackdrop() {
-  const map = nebulaTexture()
+/**
+ * Space backdrop, verbatim from artboard 1a: nebula wash + two star layers
+ * as plain DOM behind the transparent WebGL canvas (the design builds them
+ * from CSS gradients, so we reuse those exact declarations in theme.css).
+ */
+function SpaceBackdrop() {
   return (
-    <mesh position={[0, 0, -50]}>
-      <planeGeometry args={[600, 600]} />
-      {map ? (
-        <meshBasicMaterial map={map} transparent depthWrite={false} />
-      ) : (
-        <meshBasicMaterial color="#0f1830" transparent opacity={0.35} depthWrite={false} />
-      )}
-    </mesh>
+    <div aria-hidden className="pointer-events-none absolute inset-0">
+      <div className="orbital-nebula absolute inset-0" />
+      <div className="orbital-stars-far absolute inset-0" />
+      <div className="orbital-stars-near absolute inset-0" />
+    </div>
   )
 }
 
@@ -76,6 +75,7 @@ export function SpaceMap() {
   const model = useSceneModel()
   const select = useOrbital((s) => s.select)
   const setDialog = useOrbital((s) => s.setDialog)
+  const selectedId = useOrbital((s) => s.ui.selectedId)
 
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -183,11 +183,10 @@ export function SpaceMap() {
       onPointerCancel={handlePointerUp}
       onWheel={handleWheel}
     >
+      <SpaceBackdrop />
       <Canvas orthographic camera={{ zoom: INITIAL_CAMERA.zoom, position: [0, 0, 100] }}>
         <CameraRig camera={camera} />
         <ambientLight intensity={0.6} />
-        <Stars radius={80} depth={40} count={2600} factor={3} saturation={0} fade speed={0.25} />
-        <NebulaBackdrop />
 
         {model.planets.map((planet) => (
           <Planet
@@ -244,24 +243,49 @@ export function SpaceMap() {
           {zoomPercent}% · x {camX} y {camY}
         </div>
 
-        <div className="pointer-events-auto absolute bottom-6 right-6 flex flex-col gap-1.5">
-          <Button variant="ghost" size="sm" aria-label="Zoom in" onClick={zoomIn}>
+        {/* Joined zoom stack per artboard 1a; slides left of the detail panel when one is open. */}
+        <div
+          className={[
+            'pointer-events-auto absolute bottom-6 flex flex-col overflow-hidden rounded-[9px] border border-panel-border bg-[rgba(10,14,24,.7)] backdrop-blur-lg transition-[right] duration-300',
+            selectedId ? 'right-[29.5rem]' : 'right-6',
+          ].join(' ')}
+        >
+          <button
+            type="button"
+            aria-label="Zoom in"
+            onClick={zoomIn}
+            className="grid h-[34px] w-[34px] place-items-center border-b border-panel-border/60 text-base text-text-bright hover:bg-white/5"
+          >
             +
-          </Button>
-          <Button variant="ghost" size="sm" aria-label="Zoom out" onClick={zoomOut}>
+          </button>
+          <button
+            type="button"
+            aria-label="Zoom out"
+            onClick={zoomOut}
+            className="grid h-[34px] w-[34px] place-items-center border-b border-panel-border/60 text-base text-text-bright hover:bg-white/5"
+          >
             −
-          </Button>
-          <Button variant="ghost" size="sm" aria-label="Fit view" onClick={handleFit}>
-            ⛶
-          </Button>
+          </button>
+          <button
+            type="button"
+            aria-label="Fit view"
+            onClick={handleFit}
+            className="grid h-[34px] w-[34px] place-items-center text-sm text-text-bright hover:bg-white/5"
+          >
+            ⌖
+          </button>
         </div>
 
         <Button
-          className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full"
+          variant="cta"
+          className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2"
           onClick={() => setDialog('new')}
         >
-          + New session
-          <span className="font-mono text-[10px] text-text-muted">⌘N</span>
+          <span aria-hidden className="text-base leading-none text-accent">+</span>
+          New session
+          <span className="rounded border border-panel-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
+            ⌘N
+          </span>
         </Button>
 
         <div
@@ -270,7 +294,7 @@ export function SpaceMap() {
         >
           <div className="orbital-sloth-bob">
             <img
-              src="/sloth.svg"
+              src="/sloth.png"
               alt=""
               style={{
                 display: 'block',

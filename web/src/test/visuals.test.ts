@@ -12,12 +12,15 @@ const MOON_STATES: Subagent['state'][] = [
 ]
 
 describe('planetVisuals', () => {
-  it('working: ticks rotate, core pulses, halo breathes, no ripple, not dimmed', () => {
+  it('working: dense bright spinning ticks, pulsing core, breathing halo ring (canvas 1a/1f)', () => {
     const v = planetVisuals('working', false)
     expect(v).toEqual<PlanetVisuals>({
       tickSpin: 0.4,
+      tickCount: 60,
+      tickOpacity: 0.9,
       corePulse: 1,
-      haloOpacity: 0.5,
+      coreOpacity: 1,
+      haloOpacity: 0.18,
       haloBreathes: true,
       rippleActive: false,
       dimmed: false,
@@ -25,12 +28,15 @@ describe('planetVisuals', () => {
     })
   })
 
-  it('idle: ticks static, steady (non-pulsing) core, dimmer halo', () => {
+  it('idle: sparser static ticks at .45, steady .8 core, no halo (canvas 1a/1f)', () => {
     const v = planetVisuals('idle', false)
     expect(v).toEqual<PlanetVisuals>({
       tickSpin: 0,
+      tickCount: 38,
+      tickOpacity: 0.45,
       corePulse: 0,
-      haloOpacity: 0.25,
+      coreOpacity: 0.8,
+      haloOpacity: 0,
       haloBreathes: false,
       rippleActive: false,
       dimmed: false,
@@ -42,8 +48,11 @@ describe('planetVisuals', () => {
     const v = planetVisuals('needs_input', false)
     expect(v).toEqual<PlanetVisuals>({
       tickSpin: 0,
+      tickCount: 60,
+      tickOpacity: 0.9,
       corePulse: 1,
-      haloOpacity: 0.5,
+      coreOpacity: 1,
+      haloOpacity: 0,
       haloBreathes: false,
       rippleActive: true,
       dimmed: false,
@@ -51,11 +60,14 @@ describe('planetVisuals', () => {
     })
   })
 
-  it('ended: dimmed, no halo, no tick spin, no core pulse, no ripple', () => {
+  it('ended: dimmed, sparse grey ticks, no core, no halo (canvas 1a/1f)', () => {
     const v = planetVisuals('ended', false)
     expect(v).toEqual<PlanetVisuals>({
       tickSpin: 0,
+      tickCount: 26,
+      tickOpacity: 0.4,
       corePulse: 0,
+      coreOpacity: 0,
       haloOpacity: 0,
       haloBreathes: false,
       rippleActive: false,

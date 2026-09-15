@@ -5,6 +5,7 @@ import {
   layoutClusters,
   clusterLabelPos,
   ACTIVE_SCALE,
+  IDLE_SCALE,
   ENDED_SCALE,
   PLANET_BASE_RADIUS,
   MIN_GAP,
@@ -103,7 +104,7 @@ describe('layoutClusters', () => {
     expect(Array.from(second.entries())).toEqual(Array.from(first.entries()))
   })
 
-  it('assigns scale 1.0 to active sessions and 0.45 to ended sessions', () => {
+  it('assigns canvas size tiers: working/needs_input 1.0, idle 0.71, ended 0.44', () => {
     const sessions = [
       makeSession({ id: 'active', tagIds: [1], status: 'working' }),
       makeSession({ id: 'idle', tagIds: [1], status: 'idle' }),
@@ -113,11 +114,12 @@ describe('layoutClusters', () => {
     const clusters = clusterSessions(sessions, tags)
     const positions = layoutClusters(clusters)
     expect(positions.get('active')?.scale).toBe(ACTIVE_SCALE)
-    expect(positions.get('idle')?.scale).toBe(ACTIVE_SCALE)
+    expect(positions.get('idle')?.scale).toBe(IDLE_SCALE)
     expect(positions.get('needs')?.scale).toBe(ACTIVE_SCALE)
     expect(positions.get('ended')?.scale).toBe(ENDED_SCALE)
     expect(ACTIVE_SCALE).toBe(1.0)
-    expect(ENDED_SCALE).toBe(0.45)
+    expect(IDLE_SCALE).toBe(0.71)
+    expect(ENDED_SCALE).toBe(0.44)
   })
 
   it('places sessions within a cluster on a golden-angle spiral (radius grows with sqrt(i))', () => {

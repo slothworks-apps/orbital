@@ -17,9 +17,15 @@ import type { SessionStatus, Subagent } from '../lib/types'
 export interface PlanetVisuals {
   /** Tick-ring rotation speed (radians/sec applied in useFrame). 0 = static. */
   tickSpin: number
+  /** Number of radial ticks — dense for working, sparser as activity fades (canvas 1a: 60/38/26). */
+  tickCount: number
+  /** Tick opacity (canvas: working .9, idle .45, ended .4 grey). */
+  tickOpacity: number
   /** Core pulse amplitude (0 = steady, no pulse; 1 = full breathing pulse). */
   corePulse: number
-  /** Opacity of the soft halo circle behind the planet. */
+  /** Core disc opacity (canvas: working 1, idle .8, ended none). */
+  coreOpacity: number
+  /** Opacity of the breathing halo ring hugging the body (canvas peak .18, working only). */
   haloOpacity: number
   /** Whether the halo breathes (soft opacity oscillation) — true only for `working`; steady otherwise. */
   haloBreathes: boolean
@@ -36,60 +42,55 @@ export interface PlanetVisuals {
   reticle: boolean
 }
 
-/** Working: ticks rotate, core pulses, halo breathes (state sheet 2d). */
-const WORKING_TICK_SPIN = 0.4
-const WORKING_CORE_PULSE = 1
-const WORKING_HALO_OPACITY = 0.5
-
-/** Idle: ticks static, steady (non-pulsing) core, dimmer halo. */
-const IDLE_TICK_SPIN = 0
-const IDLE_CORE_PULSE = 0
-const IDLE_HALO_OPACITY = 0.25
-
 /**
- * Needs input: white expanding ripple + white core (component swaps the
- * core material to white; this table only says the core pulses and the
- * ripple runs). Ticks stay static like idle — the ripple carries the
- * attention cue, not tick motion.
+ * Values below are transcribed from the design export's inline CSS
+ * (artboard 1a planets + 1f state sheet in `Orbital.dc.html`):
+ * working = dense bright spinning ticks (repeating-conic 1.2deg/6deg → 60),
+ * pulsing full core, breathing halo ring at .18 peak; idle = sparser static
+ * ticks (1.5deg/9.5deg → 38) at .45, steady .8 core, no halo; ended = grey
+ * sparse ticks (2deg/14deg → 26) at .4, no core, no halo, dimmed.
  */
-const NEEDS_INPUT_TICK_SPIN = 0
-const NEEDS_INPUT_CORE_PULSE = 1
-const NEEDS_INPUT_HALO_OPACITY = 0.5
-
-/** Ended: grey ticks (static), no core, no halo, dimmed + small (state sheet). */
-const ENDED_TICK_SPIN = 0
-const ENDED_CORE_PULSE = 0
-const ENDED_HALO_OPACITY = 0
-
 const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
   working: {
-    tickSpin: WORKING_TICK_SPIN,
-    corePulse: WORKING_CORE_PULSE,
-    haloOpacity: WORKING_HALO_OPACITY,
+    tickSpin: 0.4,
+    tickCount: 60,
+    tickOpacity: 0.9,
+    corePulse: 1,
+    coreOpacity: 1,
+    haloOpacity: 0.18,
     haloBreathes: true,
     rippleActive: false,
     dimmed: false,
   },
   idle: {
-    tickSpin: IDLE_TICK_SPIN,
-    corePulse: IDLE_CORE_PULSE,
-    haloOpacity: IDLE_HALO_OPACITY,
+    tickSpin: 0,
+    tickCount: 38,
+    tickOpacity: 0.45,
+    corePulse: 0,
+    coreOpacity: 0.8,
+    haloOpacity: 0,
     haloBreathes: false,
     rippleActive: false,
     dimmed: false,
   },
   needs_input: {
-    tickSpin: NEEDS_INPUT_TICK_SPIN,
-    corePulse: NEEDS_INPUT_CORE_PULSE,
-    haloOpacity: NEEDS_INPUT_HALO_OPACITY,
+    tickSpin: 0,
+    tickCount: 60,
+    tickOpacity: 0.9,
+    corePulse: 1,
+    coreOpacity: 1,
+    haloOpacity: 0,
     haloBreathes: false,
     rippleActive: true,
     dimmed: false,
   },
   ended: {
-    tickSpin: ENDED_TICK_SPIN,
-    corePulse: ENDED_CORE_PULSE,
-    haloOpacity: ENDED_HALO_OPACITY,
+    tickSpin: 0,
+    tickCount: 26,
+    tickOpacity: 0.4,
+    corePulse: 0,
+    coreOpacity: 0,
+    haloOpacity: 0,
     haloBreathes: false,
     rippleActive: false,
     dimmed: true,

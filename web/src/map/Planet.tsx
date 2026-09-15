@@ -4,7 +4,7 @@ import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
 import { planetVisuals, truncateLabel } from './visuals'
-import { glowTexture } from './textures'
+import { glowTexture, bodyTexture } from './textures'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
@@ -22,33 +22,44 @@ import { glowTexture } from './textures'
  */
 
 // --- geometry constants (local units, before the `scale` prop is applied) --
+// Transcribed from the design export's working planet (96px body = 0.96
+// units, so 1 design px = 0.01 units): ticks band at inset -25 (band outer
+// 73px), breathing halo ring peaking ~54px, 1px hue-tinted body border,
+// 15px core, `0 0 22px hue/.25` glow.
 
-/** Dark matte body disc — fixed neutral tone per the canvas (not tag-hued; only the atmosphere ring/ticks/core carry hue). */
-const BODY_HUE = 220
-const BODY_LIGHTNESS = 0.28
-const BODY_CHROMA = 0.05
-const BODY_RADIUS = 0.46
+const BODY_RADIUS = 0.48
 
-const ATMOSPHERE_INNER = BODY_RADIUS
-const ATMOSPHERE_OUTER = 0.52
-const HALO_RADIUS = 0.95
+/** Ended body: flat `oklch(16% .01 230)` per the canvas, no gradient. */
+const BODY_ENDED_LIGHTNESS = 0.16
+const BODY_ENDED_CHROMA = 0.01
+const BODY_ENDED_HUE = 230
 
-/** Bright core is a small accent inside the body, not a dominant sphere. */
-const CORE_RADIUS_RATIO = 0.15
-const CORE_RADIUS = BODY_RADIUS * CORE_RADIUS_RATIO
+/** 1px hue border on the body edge; alpha varies by state (canvas .6/.45; grey .35 ended). */
+const BORDER_INNER = 0.47
+const BORDER_OUTER = 0.485
+const BORDER_OPACITY_ACTIVE = 0.6
+const BORDER_OPACITY_IDLE = 0.45
+const BORDER_OPACITY_ENDED = 0.35
 
-const TICK_COUNT = 45
-const TICK_RADIUS = 0.68
-const TICK_WIDTH = 0.03
-const TICK_LENGTH = 0.1
+/** Breathing halo ring hugging the body, canvas gradient peak at ~54px. */
+const HALO_RING_INNER = 0.45
+const HALO_RING_OUTER = 0.62
+
+/** Soft glow behind working/needs-input planets (`box-shadow: 0 0 22px hue/.25`). */
+const GLOW_SIZE = 2.1
+const GLOW_OPACITY = 0.25
+
+const CORE_RADIUS = 0.078
+
+const TICK_RADIUS = 0.69
+const TICK_WIDTH = 0.025
+const TICK_LENGTH = 0.08
 
 const RIPPLE_MIN_SCALE = 0.55
 const RIPPLE_MAX_SCALE = 1.9
 const RIPPLE_DURATION_SEC = 1.6
 const RIPPLE_INNER = 0.5
 const RIPPLE_OUTER = 0.56
-
-const HALO_GRADIENT_BOOST = 2.4
 
 const CORE_PULSE_SPEED = 2.2
 const CORE_PULSE_AMPLITUDE = 0.14
@@ -62,11 +73,13 @@ const RETICLE_DASH_GAP = 0.06
 const BRACKET_INSET = 0.62
 const BRACKET_LENGTH = 0.18
 
+/** Ended body-disc opacity (design dims the whole ended planet to .6). */
 const ENDED_LINE_OPACITY = 0.6
-const GREY = '#a0b4cc'
+/** Ended grey — `rgba(200,215,235)` in the canvas export. */
+const GREY = '#c8d7eb'
 const WHITE = '#ffffff'
 
-const LABEL_OFFSET_Y = -(HALO_RADIUS + 0.22)
+const LABEL_OFFSET_Y = -(BODY_RADIUS + 0.34)
 const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
 const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
 
@@ -84,7 +97,7 @@ const RIPPLE_Z = 0.02
 const RETICLE_Z = 0.02
 
 /** Needs-input pill badge, positioned right of the planet (state sheet artboard 1f). */
-const BADGE_OFFSET_X = HALO_RADIUS + 0.18
+const BADGE_OFFSET_X = TICK_RADIUS + 0.3
 const BADGE_OFFSET_Y = BODY_RADIUS * 0.6
 
 export interface PlanetProps {
@@ -139,8 +152,8 @@ export function oklchTagColor(hue: number, lightness = 0.8, chroma = 0.13): THRE
   return color
 }
 
-/** Fixed dark matte body-disc color — not tag-hued, see `BODY_HUE` above. */
-const BODY_COLOR = oklchTagColor(BODY_HUE, BODY_LIGHTNESS, BODY_CHROMA)
+/** Flat ended-body color (`oklch(16% .01 230)` in the canvas) — active bodies use `bodyTexture()`. */
+const BODY_ENDED_COLOR = oklchTagColor(BODY_ENDED_HUE, BODY_ENDED_LIGHTNESS, BODY_ENDED_CHROMA)
 
 /**
  * Radial ring of thin instanced tick marks; rotated as a group in useFrame.
@@ -276,9 +289,14 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
   const tickColor = visuals.dimmed ? GREY : color
   const coreColor = session.status === 'needs_input' ? WHITE : color
   const glowMap = glowTexture()
-  // The gradient glow spends most of its area near-transparent, so its peak
-  // runs brighter than the flat-disc fallback for the same visual weight.
-  const haloBaseOpacity = glowMap ? Math.min(1, visuals.haloOpacity * HALO_GRADIENT_BOOST) : visuals.haloOpacity
+  const bodyMap = bodyTexture()
+  // Canvas: only working/needs-input bodies carry the `0 0 22px hue/.25` glow.
+  const glowOn = session.status === 'working' || session.status === 'needs_input'
+  const borderOpacity = visuals.dimmed
+    ? BORDER_OPACITY_ENDED
+    : session.status === 'idle'
+      ? BORDER_OPACITY_IDLE
+      : BORDER_OPACITY_ACTIVE
 
   const tickGroupRef = useRef<THREE.Group>(null!)
   const coreRef = useRef<THREE.Mesh>(null!)
@@ -302,10 +320,10 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
     if (haloMaterialRef.current) {
       const breathing =
-        haloBaseOpacity > 0 && visuals.haloBreathes
-          ? haloBaseOpacity *
+        visuals.haloOpacity > 0 && visuals.haloBreathes
+          ? visuals.haloOpacity *
             (1 - HALO_BREATH_AMPLITUDE / 2 + (HALO_BREATH_AMPLITUDE / 2) * Math.sin(state.clock.elapsedTime * HALO_BREATH_SPEED))
-          : haloBaseOpacity
+          : visuals.haloOpacity
       haloMaterialRef.current.opacity = breathing
     }
 
@@ -333,47 +351,65 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
   return (
     <group position={[x, y, 0]} scale={scale} onClick={onClick ? handleClick : undefined}>
-      <mesh position={[0, 0, HALO_Z]}>
-        {glowMap ? (
-          <planeGeometry args={[HALO_RADIUS * 2.4, HALO_RADIUS * 2.4]} />
-        ) : (
-          <circleGeometry args={[HALO_RADIUS, 48]} />
-        )}
-        <meshBasicMaterial
-          ref={haloMaterialRef}
-          color={color}
-          transparent
-          opacity={haloBaseOpacity}
-          depthWrite={false}
-          map={glowMap ?? undefined}
-        />
-      </mesh>
+      {glowOn && glowMap && (
+        <mesh position={[0, 0, HALO_Z]}>
+          <planeGeometry args={[GLOW_SIZE, GLOW_SIZE]} />
+          <meshBasicMaterial color={color} transparent opacity={GLOW_OPACITY} depthWrite={false} map={glowMap} />
+        </mesh>
+      )}
+
+      {visuals.haloOpacity > 0 && (
+        <mesh position={[0, 0, HALO_Z]}>
+          <ringGeometry args={[HALO_RING_INNER, HALO_RING_OUTER, 64]} />
+          <meshBasicMaterial
+            ref={haloMaterialRef}
+            color={color}
+            transparent
+            opacity={visuals.haloOpacity}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
 
       <mesh position={[0, 0, BODY_Z]}>
         <circleGeometry args={[BODY_RADIUS, 48]} />
-        <meshBasicMaterial color={BODY_COLOR} transparent opacity={visuals.dimmed ? ENDED_LINE_OPACITY : 1} />
+        {visuals.dimmed || !bodyMap ? (
+          <meshBasicMaterial
+            color={BODY_ENDED_COLOR}
+            transparent
+            opacity={visuals.dimmed ? ENDED_LINE_OPACITY : 1}
+          />
+        ) : (
+          <meshBasicMaterial map={bodyMap} />
+        )}
       </mesh>
 
       <mesh position={[0, 0, BODY_Z]}>
-        <ringGeometry args={[ATMOSPHERE_INNER, ATMOSPHERE_OUTER, 64]} />
-        <meshBasicMaterial color={color} transparent opacity={visuals.dimmed ? ENDED_LINE_OPACITY : 1} depthWrite={false} />
+        <ringGeometry args={[BORDER_INNER, BORDER_OUTER, 64]} />
+        <meshBasicMaterial
+          color={visuals.dimmed ? GREY : color}
+          transparent
+          opacity={borderOpacity}
+          depthWrite={false}
+        />
       </mesh>
 
       <group ref={tickGroupRef} position={[0, 0, BODY_Z]}>
         <TickRing
-          count={TICK_COUNT}
+          key={visuals.tickCount}
+          count={visuals.tickCount}
           radius={TICK_RADIUS}
           width={TICK_WIDTH}
           length={TICK_LENGTH}
           color={tickColor}
-          opacity={visuals.dimmed ? ENDED_LINE_OPACITY : 1}
+          opacity={visuals.tickOpacity}
         />
       </group>
 
-      {!visuals.dimmed && (
+      {visuals.coreOpacity > 0 && (
         <mesh ref={coreRef} position={[0, 0, CORE_Z]}>
           <circleGeometry args={[CORE_RADIUS, 32]} />
-          <meshBasicMaterial color={coreColor} />
+          <meshBasicMaterial color={coreColor} transparent opacity={visuals.coreOpacity} />
         </mesh>
       )}
 

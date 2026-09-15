@@ -31,43 +31,39 @@ export function glowTexture(): THREE.Texture | null {
   return glow
 }
 
-let nebula: THREE.Texture | null | undefined
+let body: THREE.Texture | null | undefined
 
 /**
- * Faint blue-teal nebula clouds on transparent black, per artboard 1a.
- * Blob positions are fixed (not random) so the backdrop is stable across
- * mounts and sessions.
+ * Planet body disc, per the canvas export's inline CSS:
+ * `radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%, oklch(16% .03 230))`.
+ * Neutral (not tag-hued) and state-independent, so one shared texture.
  */
-export function nebulaTexture(): THREE.Texture | null {
-  if (nebula !== undefined) return nebula
-  const size = 512
+export function bodyTexture(): THREE.Texture | null {
+  if (body !== undefined) return body
+  const size = 256
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = size
   const ctx = canvas.getContext('2d')
   if (!ctx) {
-    nebula = null
-    return nebula
+    body = null
+    return body
   }
-  const blobs: Array<{ x: number; y: number; r: number; color: string }> = [
-    { x: 0.32, y: 0.38, r: 0.45, color: 'rgba(38, 70, 120, 0.16)' },
-    { x: 0.72, y: 0.24, r: 0.35, color: 'rgba(24, 90, 110, 0.12)' },
-    { x: 0.62, y: 0.72, r: 0.5, color: 'rgba(46, 58, 110, 0.14)' },
-    { x: 0.15, y: 0.78, r: 0.3, color: 'rgba(20, 80, 95, 0.1)' },
-  ]
-  for (const blob of blobs) {
-    const gradient = ctx.createRadialGradient(
-      blob.x * size,
-      blob.y * size,
-      0,
-      blob.x * size,
-      blob.y * size,
-      blob.r * size
-    )
-    gradient.addColorStop(0, blob.color)
-    gradient.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = gradient
-    ctx.fillRect(0, 0, size, size)
+  const cx = size * 0.5
+  const cy = size * 0.45
+  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.62)
+  try {
+    gradient.addColorStop(0, 'oklch(30% 0.05 220)')
+    gradient.addColorStop(0.7, 'oklch(20% 0.04 225)')
+    gradient.addColorStop(1, 'oklch(16% 0.03 230)')
+  } catch {
+    // Older canvas without oklch() parsing — close sRGB approximations.
+    gradient.addColorStop(0, '#20303f')
+    gradient.addColorStop(0.7, '#111c28')
+    gradient.addColorStop(1, '#0b141d')
   }
-  nebula = new THREE.CanvasTexture(canvas)
-  return nebula
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  body = new THREE.CanvasTexture(canvas)
+  body.colorSpace = THREE.SRGBColorSpace
+  return body
 }

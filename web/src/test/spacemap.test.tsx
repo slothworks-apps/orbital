@@ -109,7 +109,7 @@ describe('buildSceneModel', () => {
     const a = model.planets.find((p) => p.session.id === 'a')
     const b = model.planets.find((p) => p.session.id === 'b')
     expect(a?.scale).toBe(1.0)
-    expect(b?.scale).toBe(0.45)
+    expect(b?.scale).toBe(0.44)
   })
 
   it('only marks the selected session as selected', () => {
