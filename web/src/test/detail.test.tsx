@@ -123,20 +123,27 @@ describe('DetailPanel header', () => {
     expect(screen.getByText(/WORKING/)).toBeInTheDocument()
   })
 
-  it('renders a token-stats row and a context-usage bar from turn_result usage', async () => {
+  it('renders a token-stats row and a context-usage bar from turn_result usage, including cache creation tokens', async () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a' }) },
-      // 1000 + 500 + 2242 = 3742 tokens -> round(3742 / 200_000 * 100) = 2%
-      usage: { a: { input_tokens: 1000, cache_read_input_tokens: 500, output_tokens: 2242 } },
+      // 1000 + 500 + 6000 + 2242 = 9742 tokens -> round(9742 / 200_000 * 100) = 5%
+      usage: {
+        a: {
+          input_tokens: 1000,
+          cache_read_input_tokens: 500,
+          cache_creation_input_tokens: 6000,
+          output_tokens: 2242,
+        },
+      },
       ui: { selectedId: 'a' },
     })
 
     render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(screen.getByText(/3,742/)).toBeInTheDocument()
+    expect(screen.getByText(/9,742/)).toBeInTheDocument()
     const bar = screen.getByRole('progressbar', { name: /context usage/i })
-    expect(bar).toHaveAttribute('aria-valuenow', '2')
+    expect(bar).toHaveAttribute('aria-valuenow', '5')
   })
 
   it('does not render the context-usage bar when there is no usage yet', async () => {

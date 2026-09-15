@@ -23,7 +23,13 @@ function extractUsageTokens(usage: unknown): { total: number } | undefined {
   if (!usage || typeof usage !== 'object') return undefined
   const u = usage as Record<string, unknown>
   const num = (key: string) => (typeof u[key] === 'number' ? (u[key] as number) : 0)
-  return { total: num('input_tokens') + num('cache_read_input_tokens') + num('output_tokens') }
+  return {
+    total:
+      num('input_tokens') +
+      num('cache_read_input_tokens') +
+      num('cache_creation_input_tokens') +
+      num('output_tokens'),
+  }
 }
 
 /**
