@@ -39,6 +39,20 @@ function textOf(content: string | Array<Record<string, unknown>>): string {
     .join('\n');
 }
 
+// CLI transcripts wrap machine-generated user turns in tags like
+// <local-command-caveat>, <command-message>, <system-reminder>. A closing tag
+// may be missing when the block runs to the end of the message.
+const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents)>[\s\S]*?(<\/\1>|$)/g;
+
+export function cleanTitle(text: string): string {
+  const commandName = /<command-name>([^<\n]+)<\/command-name>/.exec(text)?.[1]?.trim();
+  const commandArgs = /<command-args>([^<\n]*)/.exec(text)?.[1]?.trim();
+  const stripped = text.replace(NOISE_BLOCK, ' ').replace(/\s+/g, ' ').trim();
+  if (stripped) return stripped;
+  if (commandName) return commandArgs ? `${commandName} ${commandArgs}` : commandName;
+  return '';
+}
+
 export function extractMeta(entries: TranscriptEntry[]) {
   let cwd = '';
   let title = '';
@@ -56,7 +70,7 @@ export function extractMeta(entries: TranscriptEntry[]) {
       lastAt = t;
     }
     if (!title && e.type === 'user' && e.message) {
-      const text = textOf(e.message.content).trim();
+      const text = cleanTitle(textOf(e.message.content));
       if (text) title = text.slice(0, 120);
     }
   }

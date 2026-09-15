@@ -12,6 +12,13 @@ export function indexProjects(
 ): { scanned: number; indexed: number } {
   let scanned = 0;
   let indexed = 0;
+  // Titles indexed before cleanTitle existed may still be CLI wrapper noise
+  // (<local-command-caveat>…, <command-message>…). Blank them and drop the
+  // mtime short-circuit so those transcripts re-derive a clean title below.
+  db.update(sessions)
+    .set({ title: '', indexedMtime: 0 })
+    .where(sql`${sessions.title} LIKE '<local-command-%' OR ${sessions.title} LIKE '<command-%' OR ${sessions.title} LIKE '<system-reminder%'`)
+    .run();
   let dirs: string[] = [];
   try {
     dirs = readdirSync(projectsDir, { withFileTypes: true })
