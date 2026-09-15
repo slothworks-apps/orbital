@@ -55,6 +55,7 @@ export function useSceneModel(): SceneModel {
         subagents,
         usage: {},
         historyLoaded: {},
+        transcriptErrors: {},
         toast: null,
         ui: {
           selectedId,

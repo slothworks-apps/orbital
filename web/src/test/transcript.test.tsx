@@ -366,6 +366,7 @@ function resetStore(
     subagents: {},
     usage: {},
     historyLoaded: {},
+    transcriptErrors: {},
     toast: null,
     ...overrides,
     ui: { ...defaultUi, ...overrides.ui },
@@ -395,6 +396,28 @@ describe('Transcript', () => {
     // The tool_result is folded into the ToolRow, not rendered as its own
     // top-level message bubble.
     expect(screen.queryByText('PASS')).not.toBeInTheDocument()
+  })
+
+  it('renders an error row when the store flags the session as crashed (task 14 error state)', () => {
+    resetStore({
+      transcripts: { s1: [{ id: '1', role: 'user', text: 'go' }] },
+      transcriptErrors: { s1: true },
+    })
+
+    render(<Transcript sessionId="s1" />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/ended unexpectedly/i)
+  })
+
+  it('does not render an error row for a session without the crashed flag', () => {
+    resetStore({
+      transcripts: { s1: [{ id: '1', role: 'user', text: 'go' }] },
+      transcriptErrors: { s2: true },
+    })
+
+    render(<Transcript sessionId="s1" />)
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('renders a "Load older" button that calls the store\'s loadOlder with the session id', async () => {

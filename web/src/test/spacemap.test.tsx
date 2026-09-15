@@ -59,6 +59,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     subagents: {},
     usage: {},
     historyLoaded: {},
+    transcriptErrors: {},
     toast: null,
     ui: defaultUi,
     ...overrides,

@@ -56,6 +56,12 @@ export interface OrbitalState {
    * `select()` only ever fetches once per session regardless of how many
    * live messages have already arrived over the WS for that session. */
   historyLoaded: Record<string, boolean>
+  /** Sessions that transitioned `working` -> `ended` on the `session:<id>`
+   * topic without an intervening `turn_result` — the "SDK process crash"
+   * error state from the spec (`docs/superpowers/specs/2026-09-15-orbital-design.md`
+   * § Error states). `Transcript` renders an error row when a session's
+   * flag here is set. See `turnResultSeen` below for how it's derived. */
+  transcriptErrors: Record<string, boolean>
   toast: Toast | null
   ui: OrbitalUiState
 }
@@ -87,6 +93,23 @@ function nextLocalMessageId(): string {
   return `local:${Date.now()}:${localMessageCounter}`
 }
 
+/**
+ * Non-reactive bookkeeping (not store state — nothing needs to re-render off
+ * this changing, only off the `transcriptErrors` flag it feeds) tracking
+ * whether the session's current turn has already produced a `turn_result`.
+ * Reset to `false` when a session's `status` event reports `working`
+ * (a new turn starting), set `true` when a `turn_result` event arrives.
+ * If `status` then reports `ended` while this is still `false`, the turn
+ * ended without ever resolving — the SDK process crash error state.
+ *
+ * Caveat: a session whose `working` transition happened before this app
+ * subscribed to its `session:<id>` topic (e.g. it was already `working` at
+ * `loadInitial()` time) has no entry here yet, so an `ended` arriving for it
+ * reads as "crashed" even if the turn actually completed normally off-screen.
+ * Acceptable for this minimal v1 implementation — noted per the task brief.
+ */
+const turnResultSeen: Record<string, boolean> = {}
+
 function sortIdsByLastAtDesc(sessions: Record<string, ApiSession>): string[] {
   return Object.values(sessions)
     .sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
@@ -113,6 +136,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   subagents: {},
   usage: {},
   historyLoaded: {},
+  transcriptErrors: {},
   toast: null,
   ui: initialUiState,
 
@@ -200,11 +224,25 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (msg.event === 'status') {
       const session = state.sessions[sessionId]
       if (!session) return
+      const previousStatus = session.status
+
+      if (msg.status === 'working') {
+        turnResultSeen[sessionId] = false
+      }
+
+      // SDK process crash: a turn started (`working`) and the session ended
+      // without ever producing a `turn_result` in between.
+      const crashed =
+        msg.status === 'ended' && previousStatus === 'working' && !turnResultSeen[sessionId]
+
       set({
         sessions: {
           ...state.sessions,
           [sessionId]: { ...session, status: msg.status },
         },
+        ...(crashed
+          ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } }
+          : {}),
       })
       return
     }
@@ -221,6 +259,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
 
     if (msg.event === 'turn_result') {
+      turnResultSeen[sessionId] = true
       set({ usage: { ...state.usage, [sessionId]: msg.usage } })
     }
   },

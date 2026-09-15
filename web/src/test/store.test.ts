@@ -71,6 +71,7 @@ const initialSnapshot: OrbitalState = {
   subagents: {},
   usage: {},
   historyLoaded: {},
+  transcriptErrors: {},
   toast: null,
   ui: {
     selectedId: null,
@@ -202,6 +203,35 @@ describe('applySessionEvent', () => {
   it('turn_result stores usage keyed by session id', () => {
     useOrbital.getState().applySessionEvent('s1', { event: 'turn_result', usage: { inputTokens: 10 } })
     expect(useOrbital.getState().usage.s1).toEqual({ inputTokens: 10 })
+  })
+
+  // Task 14 error state: a session that goes `working` -> `ended` without an
+  // intervening `turn_result` is flagged as an SDK process crash (spec §
+  // Error states) so `Transcript` can render an error row. Distinct session
+  // ids per test below, deliberately — the `working`/`turn_result` tracking
+  // this feeds off is non-reactive module state in store.ts (`turnResultSeen`),
+  // not reset by this file's `beforeEach`, so reusing an id already touched
+  // by an earlier test (e.g. 's1') would make these order-dependent.
+  it('flags transcriptErrors when status goes working -> ended with no turn_result in between', () => {
+    useOrbital.setState({ sessions: { crash1: makeSession({ id: 'crash1', status: 'idle' }) } })
+    useOrbital.getState().applySessionEvent('crash1', { event: 'status', status: 'working' })
+    useOrbital.getState().applySessionEvent('crash1', { event: 'status', status: 'ended' })
+    expect(useOrbital.getState().transcriptErrors.crash1).toBe(true)
+    expect(useOrbital.getState().sessions.crash1.status).toBe('ended')
+  })
+
+  it('does not flag transcriptErrors when a turn_result lands before ended', () => {
+    useOrbital.setState({ sessions: { ok1: makeSession({ id: 'ok1', status: 'idle' }) } })
+    useOrbital.getState().applySessionEvent('ok1', { event: 'status', status: 'working' })
+    useOrbital.getState().applySessionEvent('ok1', { event: 'turn_result', usage: {} })
+    useOrbital.getState().applySessionEvent('ok1', { event: 'status', status: 'ended' })
+    expect(useOrbital.getState().transcriptErrors.ok1).toBeUndefined()
+  })
+
+  it('does not flag transcriptErrors for an ended transition that did not come from working', () => {
+    useOrbital.setState({ sessions: { idle1: makeSession({ id: 'idle1', status: 'idle' }) } })
+    useOrbital.getState().applySessionEvent('idle1', { event: 'status', status: 'ended' })
+    expect(useOrbital.getState().transcriptErrors.idle1).toBeUndefined()
   })
 })
 

@@ -106,6 +106,26 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const [previewResult, setPreviewResult] = useState<{ tagId: number | null; ruleId: number | null } | null>(null)
   const [patternDrafts, setPatternDrafts] = useState<Record<number, string>>({})
 
+  // Per-row debounce for the pattern field, keyed by rule id — a keystroke
+  // in one row only resets that row's own timer, never every other row's
+  // (the previous implementation re-derived every rule's timer from a
+  // single effect over the whole `patternDrafts` object on every keystroke
+  // in any field). Declared here (before the `if (!open) return null` below)
+  // rather than down by `handlePatternDraft` — this component stays mounted
+  // across `open` toggling (App renders it unconditionally), so every hook
+  // must run on every render regardless of `open`, or React errors with
+  // "Rendered more hooks than during the previous render" the first time
+  // `open` flips. `handlePatternDraft` itself stays below; it just closes
+  // over this ref.
+  const patternTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+
+  useEffect(() => {
+    // Unmount cleanup only — timers are otherwise managed per-call below.
+    return () => {
+      Object.values(patternTimers.current).forEach(clearTimeout)
+    }
+  }, [])
+
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -237,20 +257,6 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       void resyncRules()
     }
   }
-
-  // Per-row debounce for the pattern field, keyed by rule id — a keystroke
-  // in one row only resets that row's own timer, never every other row's
-  // (the previous implementation re-derived every rule's timer from a
-  // single effect over the whole `patternDrafts` object on every keystroke
-  // in any field).
-  const patternTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
-
-  useEffect(() => {
-    // Unmount cleanup only — timers are otherwise managed per-call below.
-    return () => {
-      Object.values(patternTimers.current).forEach(clearTimeout)
-    }
-  }, [])
 
   function handlePatternDraft(rule: TagRule, value: string) {
     setPatternDrafts((drafts) => ({ ...drafts, [rule.id]: value }))

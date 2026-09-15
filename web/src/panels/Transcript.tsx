@@ -120,6 +120,10 @@ export interface TranscriptProps {
 export function Transcript({ sessionId }: TranscriptProps) {
   const messages = useOrbital(useShallow((s) => s.transcripts[sessionId] ?? []))
   const loadOlder = useOrbital((s) => s.loadOlder)
+  // SDK process crash error state (spec § Error states): set by the store
+  // when this session went `working` -> `ended` without a `turn_result` in
+  // between. See `store.ts`'s `turnResultSeen` bookkeeping.
+  const hasError = useOrbital((s) => Boolean(s.transcriptErrors[sessionId]))
 
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [exhausted, setExhausted] = useState(false)
@@ -234,6 +238,15 @@ export function Transcript({ sessionId }: TranscriptProps) {
         ) : (
           <MessageView key={item.key} message={item.message} />
         )
+      )}
+      {hasError && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 font-mono text-xs text-red-300"
+        >
+          <span aria-hidden>⚠</span>
+          <span>Session ended unexpectedly — the assistant process may have crashed.</span>
+        </div>
       )}
     </div>
   )
