@@ -38,7 +38,7 @@ export interface OrbitalUiState {
   search: string
   sourceFilter: 'all' | SessionSource
   wsStatus: string
-  dialog: null | 'new' | 'clear' | 'stop' | 'tags'
+  dialog: null | 'new' | 'clear' | 'stop' | 'tags' | 'settings'
   /** Sidebar collapsed to its narrow rail (Panel's `collapsed` prop). See Sidebar.tsx (task 10). */
   sidebarCollapsed: boolean
 }
