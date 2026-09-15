@@ -485,8 +485,9 @@ describe('DetailPanel clear flow', () => {
     expect(useOrbital.getState().ui.dialog).toBe('clear')
     const clearDialog = screen.getByRole('dialog', { name: /clear and start a new session/i })
     expect(clearDialog).toBeInTheDocument()
-    // Spec uses lowercase "/clear", not "/CLEAR".
-    expect(clearDialog).toHaveAccessibleName('/clear — Clear and start a new session?')
+    // Spec uses lowercase "/clear", not "/CLEAR" — rendered as the dialog eyebrow.
+    expect(clearDialog).toHaveAccessibleName('Clear and start a new session?')
+    expect(within(clearDialog).getByText('/clear')).toBeInTheDocument()
   })
 
   it('skips the dialog and clears directly when confirm_before_clear is "false"', async () => {

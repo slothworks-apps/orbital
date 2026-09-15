@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
+import { shortenPath } from '../lib/format'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Input, TextArea } from '../ui/Input'
@@ -137,7 +138,16 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     <Dialog
       open={open}
       title="New session"
+      eyebrow="LAUNCH"
+      size="lg"
       onClose={onClose}
+      footerCaption={
+        footerTagName ? (
+          <>
+            spawns a new planet in <span className="text-text-soft">{footerTagName.toUpperCase()}</span>
+          </>
+        ) : undefined
+      }
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={pending}>
@@ -161,12 +171,22 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             onChange={(e) => setCwd(e.target.value)}
             placeholder="/path/to/project"
           />
-          <span className="text-[11px] text-text-muted">Browse omitted in v1 — type or paste a path.</span>
           {recentDirs.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label="Recent directories">
-              {recentDirs.map((dir) => (
-                <Chip key={dir} label={dir} active={dir === cwd} onClick={() => setCwd(dir)} />
-              ))}
+            <div className="mt-1 flex items-center gap-1.5" role="group" aria-label="Recent directories">
+              <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted">
+                recent
+              </span>
+              <div className="flex min-w-0 flex-wrap gap-1.5">
+                {recentDirs.slice(0, 4).map((dir) => (
+                  <Chip
+                    key={dir}
+                    label={shortenPath(dir)}
+                    title={dir}
+                    active={dir === cwd}
+                    onClick={() => setCwd(dir)}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -210,11 +230,6 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           />
         </div>
 
-        {footerTagName && (
-          <p className="text-[11px] text-text-muted">
-            spawns a new planet in <span className="text-text-soft">{footerTagName.toUpperCase()}</span>
-          </p>
-        )}
       </div>
     </Dialog>
   )

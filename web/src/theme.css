@@ -8,6 +8,8 @@
   --color-text-bright: #e8eef8;
   --color-text-soft: #cfe6ff;
   --color-text-muted: rgb(160 190 225 / 0.7);
+  --color-accent: #7ee7ff;
+  --color-panel-solid: #0a1220;
   --font-sans: 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }

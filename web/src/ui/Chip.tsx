@@ -10,11 +10,13 @@ export interface ChipProps {
   dot?: boolean
   /** Animates the dot with the shared pulse treatment (e.g. a subagent still working). Only visible when a dot is actually rendered (`hue` or `dot`). */
   pulse?: boolean
+  /** Native tooltip — e.g. the full path behind a shortened label. */
+  title?: string
   onClick?: () => void
   onRemove?: () => void
 }
 
-export function Chip({ label, active = false, hue, dot = false, pulse = false, onClick, onRemove }: ChipProps) {
+export function Chip({ label, active = false, hue, dot = false, pulse = false, title, onClick, onRemove }: ChipProps) {
   const interactive = Boolean(onClick)
   const showDot = hue !== undefined || dot
   const style: CSSProperties | undefined =
@@ -38,6 +40,7 @@ export function Chip({ label, active = false, hue, dot = false, pulse = false, o
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
       data-active={active}
+      title={title}
       onClick={onClick}
       onKeyDown={handleKeyDown}
       style={style}

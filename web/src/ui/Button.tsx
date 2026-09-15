@@ -1,16 +1,17 @@
 import type { ButtonHTMLAttributes } from 'react'
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'ghost' | 'danger'
+  variant?: 'primary' | 'ghost' | 'danger' | 'warning'
   size?: 'sm' | 'md'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
 
 const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
-  primary: 'bg-text-bright text-space hover:bg-text-soft',
+  primary: 'bg-accent text-space hover:bg-text-soft',
   ghost: 'bg-transparent text-text-soft border border-panel-border hover:bg-white/5',
   danger: 'bg-transparent text-red-400 border border-red-400/40 hover:bg-red-400/10',
+  warning: 'bg-amber-400 text-space hover:bg-amber-300',
 }
 
 const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {

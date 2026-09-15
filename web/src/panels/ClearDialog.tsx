@@ -109,8 +109,10 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
   return (
     <Dialog
       open={open}
-      title="/clear — Clear and start a new session?"
+      title="Clear and start a new session?"
+      eyebrow="/clear"
       onClose={onClose}
+      footerCaption="esc cancel · ⏎ start new"
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={pending}>

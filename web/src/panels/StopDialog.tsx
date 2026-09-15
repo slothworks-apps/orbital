@@ -66,14 +66,16 @@ export function StopDialog({ open, sessionId, onClose }: StopDialogProps) {
     <Dialog
       open={open}
       title="Stop the running turn?"
+      eyebrow="TURN IN PROGRESS"
       onClose={onClose}
+      footerCaption="esc cancel · ⏎ stop"
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={pending}>
             Keep running
           </Button>
-          <Button variant="danger" onClick={() => void handleStop()} disabled={pending}>
-            Stop turn
+          <Button variant="warning" onClick={() => void handleStop()} disabled={pending}>
+            ■ Stop turn
           </Button>
         </>
       }

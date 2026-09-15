@@ -96,8 +96,8 @@ describe('NewSessionDialog', () => {
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
 
-    await waitFor(() => expect(chip('/a/proj')).toBeInTheDocument())
-    fireEvent.click(chip('/b/proj'))
+    await waitFor(() => expect(chip('~/a/proj')).toBeInTheDocument())
+    fireEvent.click(chip('~/b/proj'))
     expect(screen.getByLabelText(/working directory/i)).toHaveValue('/b/proj')
   })
 
