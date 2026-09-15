@@ -70,10 +70,16 @@ describe('Chip', () => {
     expect(screen.getByText('work').closest('[data-active]')).toHaveAttribute('data-active', 'false')
   })
 
-  it('tints border/dot via tagColor(hue) inline style', () => {
-    const { container } = render(<Chip label="work" hue={210} />)
+  it('keeps resting chips neutral (hue only in the dot); active chips get the hue-tinted border', () => {
+    const { container, rerender } = render(<Chip label="work" hue={210} />)
     const root = container.firstElementChild as HTMLElement
-    expect(root).toHaveStyle('border-color: oklch(80% 0.13 210)')
+    // Resting: no inline tint on the chip itself — the dot carries the hue.
+    expect(root.getAttribute('style')).toBeNull()
+    const dot = root.querySelector('span[aria-hidden]') as HTMLElement
+    expect(dot.getAttribute('style')).toContain('210')
+
+    rerender(<Chip label="work" hue={210} active />)
+    expect(root.getAttribute('style') ?? '').toContain('210')
   })
 
   it('fires onClick when clicked and exposes a button role', async () => {

@@ -19,8 +19,16 @@ export interface ChipProps {
 export function Chip({ label, active = false, hue, dot = false, pulse = false, title, onClick, onRemove }: ChipProps) {
   const interactive = Boolean(onClick)
   const showDot = hue !== undefined || dot
+  // Canvas 1a/1b: resting chips are neutral (hue lives only in the dot);
+  // an ACTIVE hued chip gets a hue-tinted border + faint hue fill.
   const style: CSSProperties | undefined =
-    hue !== undefined ? { borderColor: tagColor(hue), color: tagColor(hue) } : undefined
+    active && hue !== undefined
+      ? {
+          borderColor: `oklch(80% .13 ${hue} / .4)`,
+          background: `oklch(80% .13 ${hue} / .1)`,
+          color: '#e8eef8',
+        }
+      : undefined
 
   const handleKeyDown = (e: KeyboardEvent<HTMLSpanElement>) => {
     if (!interactive) return
@@ -45,9 +53,11 @@ export function Chip({ label, active = false, hue, dot = false, pulse = false, t
       onKeyDown={handleKeyDown}
       style={style}
       className={[
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-mono transition-colors',
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors',
         interactive ? 'cursor-pointer select-none' : '',
-        active ? 'border-text-bright text-text-bright bg-white/10' : 'border-panel-border text-text-muted',
+        active
+          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+          : 'border-panel-border text-[rgba(220,235,255,.8)]',
       ]
         .filter(Boolean)
         .join(' ')}

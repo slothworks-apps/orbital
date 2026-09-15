@@ -278,6 +278,7 @@ export function SpaceMap() {
 
         <Button
           variant="cta"
+          size="lg"
           className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2"
           onClick={() => setDialog('new')}
         >

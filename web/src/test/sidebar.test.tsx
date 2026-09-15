@@ -228,7 +228,7 @@ describe('Sidebar', () => {
 
     render(<Sidebar observerFactory={noopObserverFactory} />)
 
-    const search = screen.getByRole('textbox', { name: /search sessions/i })
+    const search = screen.getByRole('searchbox', { name: /search sessions/i })
     await user.type(search, 'Alpha')
 
     expect(screen.getByText('Alpha session')).toBeInTheDocument()
@@ -397,7 +397,7 @@ describe('Sidebar', () => {
     resetStore({ sessions: {} })
     render(<Sidebar observerFactory={noopObserverFactory} />)
 
-    const search = screen.getByRole('textbox', { name: /search sessions/i })
+    const search = screen.getByRole('searchbox', { name: /search sessions/i })
     expect(search).not.toHaveFocus()
 
     const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true })

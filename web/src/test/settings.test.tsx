@@ -184,7 +184,7 @@ describe('Settings', () => {
     expect(useOrbital.getState().settings.default_permission_mode).toBe('acceptEdits')
   })
 
-  it('lists General/Permissions/Appearance/Shortcuts as disabled nav items with a "soon" caption', () => {
+  it('lists General/Permissions/Appearance/Shortcuts as disabled nav items', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
@@ -192,15 +192,14 @@ describe('Settings', () => {
       const button = screen.getByRole('button', { name: new RegExp(`^${label}`) })
       expect(button).toBeDisabled()
     }
-    expect(screen.getAllByText('soon')).toHaveLength(4)
     expect(screen.getByRole('button', { name: /^Sessions$/ })).not.toBeDisabled()
   })
 
-  it('shows the orbital version in the footer', () => {
+  it('shows the orbital version in the nav footer', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    expect(screen.getByText(`orbital v${pkg.version}`)).toBeInTheDocument()
+    expect(screen.getByText(`orbital ${pkg.version}`)).toBeInTheDocument()
   })
 
   it('closes on Escape', () => {

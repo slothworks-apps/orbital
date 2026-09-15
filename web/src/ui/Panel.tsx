@@ -14,7 +14,7 @@ export interface PanelProps {
 }
 
 const sideWidth: Record<NonNullable<PanelProps['side']>, string> = {
-  left: 'w-80',
+  left: 'w-[300px]',
   right: 'w-96',
   float: '',
 }
@@ -41,7 +41,8 @@ export function Panel({ side = 'float', collapsed = false, className, children }
         'shadow-[0_30px_80px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.06)]',
         sideRounding[side],
         width,
-        'transition-[width] duration-200',
+        // Collapse/expand timing verbatim from the canvas export.
+        'transition-[width] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
         className ?? '',
       ]
         .filter(Boolean)

@@ -8,7 +8,6 @@ import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
 import { Button } from '../ui/Button'
-import { Input } from '../ui/Input'
 import { Logo } from '../ui/Logo'
 import { timeAgo, shortenPath } from '../lib/format'
 
@@ -232,32 +231,45 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     return () => observer.disconnect()
   }, [observerFactory, loadMore, exhausted])
 
-  if (collapsed) {
-    // Rail per canvas 1b: logo, expand toggle, divider, one hue dot per
-    // active session (blinking while working).
-    return (
-      <Panel side="left" collapsed className="h-full">
-        <div className="flex h-full flex-col items-center gap-3.5 py-4">
-          <Logo />
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Expand sidebar"
-            onClick={() => setSidebarCollapsed(false)}
-          >
-            »
-          </Button>
-          <span aria-hidden className="h-px w-5 bg-panel-border" />
-          {active.slice(0, 8).map((s) => (
-            <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} />
-          ))}
-        </div>
-      </Panel>
-    )
-  }
-
+  // Both layers stay mounted inside one width-animating Panel and cross-fade,
+  // per the canvas export's collapse transition (width .42s cubic-bezier +
+  // content opacity/shift, rail fading in with a .1s delay). `inert` keeps
+  // the hidden layer out of the focus order and accessibility tree.
   return (
-    <Panel side="left" className="flex h-full flex-col gap-4 overflow-hidden p-4">
+    <Panel side="left" collapsed={collapsed} className="relative h-full overflow-hidden">
+      {/* Collapsed rail per canvas 1b: logo, expand toggle, divider, one hue
+          dot per active session (blinking while working). */}
+      <div
+        inert={!collapsed || undefined}
+        className={[
+          'absolute inset-y-0 left-0 flex w-14 flex-col items-center gap-3.5 py-4',
+          'transition-opacity duration-300',
+          collapsed ? 'opacity-100 delay-100' : 'pointer-events-none opacity-0',
+        ].join(' ')}
+      >
+        <Logo />
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Expand sidebar"
+          onClick={() => setSidebarCollapsed(false)}
+        >
+          »
+        </Button>
+        <span aria-hidden className="h-px w-5 bg-panel-border" />
+        {active.slice(0, 8).map((s) => (
+          <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} />
+        ))}
+      </div>
+
+      <div
+        inert={collapsed || undefined}
+        className={[
+          'absolute inset-y-0 left-0 flex w-[300px] flex-col gap-4 p-4',
+          'transition-[opacity,transform] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
+          collapsed ? 'pointer-events-none -translate-x-3 opacity-0' : 'translate-x-0 opacity-100',
+        ].join(' ')}
+      >
       <div className="flex items-center justify-between gap-2.5">
         <span className="flex items-center gap-2.5">
           <Logo />
@@ -273,19 +285,22 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         </Button>
       </div>
 
-      <div className="relative">
-        <Input
+      {/* Search field verbatim from canvas 1a: dark inset container with a ⌕ glyph and a ⌘K keycap. */}
+      <label className="flex items-center gap-2 rounded-[9px] border border-panel-border bg-[rgba(4,8,16,.6)] px-3 py-2 text-[13px] text-[rgba(160,190,225,.6)]">
+        <span aria-hidden className="text-sm">⌕</span>
+        <input
           id={SEARCH_INPUT_ID}
+          type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search"
+          placeholder="Search sessions"
           aria-label="Search sessions"
-          className="pr-9"
+          className="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-text-bright outline-none placeholder:text-[rgba(160,190,225,.6)]"
         />
-        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-text-muted">
+        <span className="rounded border border-panel-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
           ⌘K
         </span>
-      </div>
+      </label>
 
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by tag">
         <Chip label="All" active={filterTagId === 'all'} onClick={() => setFilterTag('all')} />
@@ -362,6 +377,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <button type="button" className="hover:text-text-bright" onClick={() => setDialog('tags')}>
           tags &amp; rules ›
         </button>
+      </div>
       </div>
     </Panel>
   )

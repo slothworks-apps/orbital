@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes } from 'react'
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'ghost' | 'danger' | 'warning' | 'cta'
-  size?: 'sm' | 'md'
+  size?: 'sm' | 'md' | 'lg'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -18,6 +18,7 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
 const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   sm: 'px-2.5 py-1 text-xs',
   md: 'px-3.5 py-1.5 text-sm',
+  lg: 'px-4 py-2.5 text-[13px]',
 }
 
 export function Button({
@@ -33,7 +34,7 @@ export function Button({
       data-variant={variant}
       data-size={size}
       className={[
-        'inline-flex items-center justify-center gap-1.5 rounded-md font-sans font-semibold transition-colors',
+        'inline-flex items-center justify-center gap-2 rounded-md font-sans font-semibold transition-colors',
         'disabled:cursor-not-allowed disabled:opacity-40',
         variantClasses[variant],
         sizeClasses[size],
