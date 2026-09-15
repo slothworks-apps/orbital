@@ -135,6 +135,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       const permissionMode = (row.permission_mode ??
         ctx.settings.get('default_permission_mode')) as PermissionMode;
       await ctx.runner.start({ cwd: row.cwd, prompt: text, permissionMode, resume: id });
+      const revivedRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+      ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, revivedRow) });
       return { ok: true, revived: true };
     }
   });

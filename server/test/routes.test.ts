@@ -205,6 +205,21 @@ describe('REST routes', () => {
     expect(startCalls.at(-1)).toMatchObject({ resume: 's2', prompt: 'wake up', cwd: '/w/y' });
   });
 
+  it('POST /sessions/:id/messages revive publishes an upsert with status "working" on the sessions topic (F1)', async () => {
+    // The runner reports the revived session as 'working' once start() has
+    // registered it — mirrors a real runner picking the resumed session up.
+    runner.status = (id: string) => (id === 's2' ? 'working' : undefined);
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'wake up' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, revived: true });
+    const upserts = received.filter((r) => r.event === 'upsert' && r.session.id === 's2');
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].session).toMatchObject({ id: 's2', status: 'working' });
+  });
+
   it('POST /sessions/:id/messages 409s for a live terminal session', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/sessions/s1/messages', payload: { text: 'hi' },
