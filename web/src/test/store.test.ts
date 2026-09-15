@@ -47,7 +47,6 @@ import {
 
 function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSession {
   return {
-    id: overrides.id,
     cwd: '/home/a',
     title: 'Session',
     firstAt: 1,

@@ -71,6 +71,11 @@ class FakeWebSocketFactory {
   reset() {
     this.instances = []
   }
+
+  // Type-safe wrapper that satisfies the WebSocketImpl union type
+  createTyped(): (url: string) => WebSocket {
+    return (url: string): WebSocket => this.create(url) as unknown as WebSocket
+  }
 }
 
 describe('resolveWsUrl', () => {
@@ -120,12 +125,12 @@ describe('OrbitalSocket', () => {
   describe('basic subscribe/unsubscribe', () => {
     it('should send subscribe frame on first handler for a topic', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
       const handler = vi.fn()
-      const unsub = socket.subscribe('test-topic', handler)
+      socket.subscribe('test-topic', handler)
 
       // Wait for socket to open
       await vi.runAllTimersAsync()
@@ -139,7 +144,7 @@ describe('OrbitalSocket', () => {
 
     it('should not send duplicate subscribe frames for same topic', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -160,7 +165,7 @@ describe('OrbitalSocket', () => {
 
     it('should send unsubscribe only when last handler leaves', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -195,7 +200,7 @@ describe('OrbitalSocket', () => {
   describe('message routing', () => {
     it('should route messages by topic to correct handler', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -222,7 +227,7 @@ describe('OrbitalSocket', () => {
 
     it('should call all handlers for the same topic', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -254,7 +259,7 @@ describe('OrbitalSocket', () => {
   describe('malformed JSON handling', () => {
     it('should ignore malformed JSON without throwing', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -276,7 +281,7 @@ describe('OrbitalSocket', () => {
   describe('status tracking', () => {
     it('should start with connecting status', () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -285,7 +290,7 @@ describe('OrbitalSocket', () => {
 
     it('should transition to open when socket opens', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -303,7 +308,7 @@ describe('OrbitalSocket', () => {
 
     it('should transition to closed when socket closes', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -322,7 +327,7 @@ describe('OrbitalSocket', () => {
 
     it('should call onStatusChange callback', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -339,7 +344,7 @@ describe('OrbitalSocket', () => {
   describe('reconnect behavior', () => {
     it('should create new socket after close with delay', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 5000,
       })
 
@@ -361,7 +366,7 @@ describe('OrbitalSocket', () => {
 
     it('should resubscribe to all active topics on reconnect', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -374,7 +379,6 @@ describe('OrbitalSocket', () => {
       await vi.runAllTimersAsync()
       factory.instances[0].simulateOpen()
 
-      const firstSent = [...factory.instances[0].sent]
       factory.instances[0].simulateClose()
 
       // Advance past reconnect delay
@@ -393,7 +397,7 @@ describe('OrbitalSocket', () => {
 
     it('should not resubscribe to unsubscribed topics after reconnect', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -401,7 +405,7 @@ describe('OrbitalSocket', () => {
       const handler2 = vi.fn()
 
       const unsub1 = socket.subscribe('topic-1', handler1)
-      const unsub2 = socket.subscribe('topic-2', handler2)
+      socket.subscribe('topic-2', handler2)
 
       await vi.runAllTimersAsync()
       factory.instances[0].simulateOpen()
@@ -430,7 +434,7 @@ describe('OrbitalSocket', () => {
   describe('message queuing before open', () => {
     it('should queue subscribe messages before socket opens', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -456,7 +460,7 @@ describe('OrbitalSocket', () => {
 
     it('should flush queued messages in order when socket opens', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -492,7 +496,7 @@ describe('OrbitalSocket', () => {
   describe('edge cases', () => {
     it('should handle unsubscribe before socket opens', () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -508,7 +512,7 @@ describe('OrbitalSocket', () => {
 
     it('should handle calling close()', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -524,7 +528,7 @@ describe('OrbitalSocket', () => {
 
     it('should cancel pending reconnect when close() is called', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 5000,
       })
 
@@ -545,7 +549,7 @@ describe('OrbitalSocket', () => {
 
     it('should handle receiving message before any handlers are registered', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -565,7 +569,7 @@ describe('OrbitalSocket', () => {
   describe('C1: subscribe while socket already open', () => {
     it('should send subscribe frame immediately when socket is already open', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -584,7 +588,7 @@ describe('OrbitalSocket', () => {
 
     it('should not double-send subscribe on reconnect after subscribing while open', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -595,7 +599,6 @@ describe('OrbitalSocket', () => {
       const handler = vi.fn()
       socket.subscribe('test-topic', handler)
 
-      const sentBeforeClose = factory.instances[0].sent.length
       factory.instances[0].simulateClose()
 
       // Advance past reconnect delay
@@ -613,7 +616,7 @@ describe('OrbitalSocket', () => {
   describe('C2: default URL', () => {
     it('should use /ws as default URL', async () => {
       socket = new OrbitalSocket(undefined as any, {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -626,14 +629,14 @@ describe('OrbitalSocket', () => {
   describe('I3: stale unsubscribe on reconnect', () => {
     it('should not send stale unsubscribe frames when reconnecting', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
       const handler1 = vi.fn()
       const handler2 = vi.fn()
 
-      const unsub1 = socket.subscribe('topic-1', handler1)
+      socket.subscribe('topic-1', handler1)
       const unsub2 = socket.subscribe('topic-2', handler2)
 
       await vi.runAllTimersAsync()
@@ -664,7 +667,7 @@ describe('OrbitalSocket', () => {
   describe('I4: WebSocketImpl as class constructor', () => {
     it('should accept WebSocketImpl as a class constructor', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: FakeWebSocket,
+        WebSocketImpl: FakeWebSocket as unknown as typeof WebSocket,
         reconnectDelayMs: 1000,
       })
 
@@ -678,7 +681,7 @@ describe('OrbitalSocket', () => {
   describe('I5: duplicate unsubscribe from same handler', () => {
     it('should make each unsubscribe closure idempotent', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -729,7 +732,7 @@ describe('OrbitalSocket', () => {
   describe('I6: handler exception handling', () => {
     it('should catch handler exceptions and continue calling other handlers', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -769,7 +772,7 @@ describe('OrbitalSocket', () => {
   describe('M7: onStatusChange immediate invoke', () => {
     it('should call onStatusChange immediately with current status', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
@@ -783,7 +786,7 @@ describe('OrbitalSocket', () => {
 
     it('should call onStatusChange immediately with "open" if registered after open', async () => {
       socket = new OrbitalSocket('ws://localhost/ws', {
-        WebSocketImpl: (url: string) => factory.create(url),
+        WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })
 
