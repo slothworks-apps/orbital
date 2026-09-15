@@ -369,4 +369,21 @@ describe('statusCounts (pure)', () => {
       ended: 0,
     })
   })
+
+  it('aggregates over visibleSessions, not the full session map — a tag filter excludes non-matching sessions', () => {
+    const sessions: Record<string, ApiSession> = {
+      a: makeSession({ id: 'a', status: 'working', tagIds: [1] }),
+      b: makeSession({ id: 'b', status: 'working', tagIds: [2] }), // filtered out
+      c: makeSession({ id: 'c', status: 'idle', tagIds: [1] }),
+      d: makeSession({ id: 'd', status: 'needs_input', tagIds: [2] }), // filtered out
+      e: makeSession({ id: 'e', status: 'ended', tagIds: [1] }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      ui: { ...initialSnapshot.ui, filterTagId: 1 },
+    }
+    // Only sessions a, c, e (tagIds includes 1) should be counted.
+    expect(statusCounts(state)).toEqual({ working: 1, idle: 1, needs_input: 0, ended: 1 })
+  })
 })

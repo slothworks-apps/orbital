@@ -339,7 +339,9 @@ export function statusCounts(
     needs_input: 0,
     ended: 0,
   }
-  for (const session of Object.values(state.sessions)) {
+  // Aggregates over visibleSessions (post tag/search/source filters), since
+  // the aggregate is meant to describe what's currently rendered on the map.
+  for (const session of visibleSessions(state)) {
     counts[session.status] += 1
   }
   return counts
