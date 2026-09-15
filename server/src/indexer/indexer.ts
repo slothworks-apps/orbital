@@ -19,7 +19,7 @@ export function indexProjects(
     return { scanned: 0, indexed: 0 };
   }
   const getExisting = db.prepare(
-    `SELECT indexed_mtime, indexed_size, title FROM sessions WHERE id=?`,
+    `SELECT indexed_mtime, indexed_size FROM sessions WHERE id=?`,
   );
   const upsert = db.prepare(`
     INSERT INTO sessions (id, project_dir, cwd, title, first_at, last_at,

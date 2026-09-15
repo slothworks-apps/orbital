@@ -44,4 +44,32 @@ describe('indexProjects', () => {
     const { db } = setup();
     expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0 });
   });
+  it('preserves title, source, permission_mode, parent_id on re-index', () => {
+    const { db, projects, transcriptPath } = setup();
+    indexProjects(db, projects);
+    // Manually update session with custom values
+    db.prepare(
+      `UPDATE sessions SET title='My renamed title', source='web', permission_mode='plan', parent_id='xyz' WHERE id='aaaa-bbbb'`,
+    ).run();
+    // Verify the custom values were set
+    let row = db.prepare(`SELECT title, source, permission_mode, parent_id, message_count FROM sessions WHERE id='aaaa-bbbb'`).get() as any;
+    expect(row.title).toBe('My renamed title');
+    expect(row.source).toBe('web');
+    expect(row.permission_mode).toBe('plan');
+    expect(row.parent_id).toBe('xyz');
+    expect(row.message_count).toBe(3);
+    // Append a line and re-index
+    appendFileSync(
+      transcriptPath,
+      '\n{"type":"user","uuid":"u9","timestamp":"2026-09-01T12:00:00.000Z","message":{"role":"user","content":"more"}}',
+    );
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
+    // Verify title and other fields are preserved, but message_count updated
+    row = db.prepare(`SELECT title, source, permission_mode, parent_id, message_count FROM sessions WHERE id='aaaa-bbbb'`).get() as any;
+    expect(row.title).toBe('My renamed title');
+    expect(row.source).toBe('web');
+    expect(row.permission_mode).toBe('plan');
+    expect(row.parent_id).toBe('xyz');
+    expect(row.message_count).toBe(4);
+  });
 });
