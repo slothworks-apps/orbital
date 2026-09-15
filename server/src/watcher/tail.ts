@@ -1,9 +1,11 @@
 import { EventEmitter } from 'node:events';
-import { openSync, readSync, closeSync, statSync, watchFile, unwatchFile } from 'node:fs';
+import { openSync, readSync, closeSync, statSync, watch, type FSWatcher } from 'node:fs';
+import { dirname, basename } from 'node:path';
 import { parseTranscriptLine, type TranscriptEntry } from '../transcript/parser.js';
 
 export class TranscriptTail extends EventEmitter {
   offset = 0;
+  private watcher: FSWatcher | null = null;
   private debounce: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private filePath: string) {
@@ -47,8 +49,17 @@ export class TranscriptTail extends EventEmitter {
   start(fromByte = 0): void {
     this.offset = fromByte;
     this.readNew();
+    // Watch the containing directory rather than the file itself. On macOS,
+    // fs.watch(filePath) registers its kqueue vnode watch with enough latency
+    // that a write occurring synchronously right after the watch() call (as
+    // happens whenever a caller writes immediately after start()) can be
+    // missed entirely — reproduced deterministically outside this class with
+    // plain fs.watch + appendFileSync. Watching the parent directory does not
+    // suffer from this race, so filter events down to this file by name.
+    const target = basename(this.filePath);
     try {
-      watchFile(this.filePath, { interval: 100 }, () => {
+      this.watcher = watch(dirname(this.filePath), (_eventType, filename) => {
+        if (filename && filename !== target) return;
         if (this.debounce) clearTimeout(this.debounce);
         this.debounce = setTimeout(() => this.readNew(), 150);
       });
@@ -59,7 +70,8 @@ export class TranscriptTail extends EventEmitter {
 
   stop(): void {
     if (this.debounce) clearTimeout(this.debounce);
-    unwatchFile(this.filePath);
+    this.watcher?.close();
+    this.watcher = null;
   }
 }
 
