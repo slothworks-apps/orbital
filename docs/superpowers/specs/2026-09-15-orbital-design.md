@@ -1,3 +1,9 @@
+---
+id: 2026-09-15-orbital-design
+title: 2026-09-15-orbital-design
+status: active
+type: spec
+---
 # Orbital — Design Spec
 
 **Date:** 2026-09-15 (updated after visual design review)
