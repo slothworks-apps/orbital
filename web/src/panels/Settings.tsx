@@ -7,6 +7,8 @@ import { Panel } from '../ui/Panel'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { ModeCards } from '../ui/ModeCards'
+import { Select } from '../ui/Select'
+import { Checkbox, Toggle } from '../ui/Checkbox'
 import type { PermissionMode } from '../lib/types'
 import pkg from '../../package.json'
 
@@ -179,58 +181,49 @@ export function Settings({ open, onClose }: SettingsProps) {
             </section>
 
             <section className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-sm text-text-soft">
-                <input
-                  type="checkbox"
-                  checked={confirmBeforeClear}
-                  onChange={(e) =>
-                    void patchAndSet({ confirm_before_clear: e.target.checked ? 'true' : 'false' })
-                  }
-                />
-                Confirm before clear
-              </label>
+              <Toggle
+                checked={confirmBeforeClear}
+                onChange={(checked) =>
+                  void patchAndSet({ confirm_before_clear: checked ? 'true' : 'false' })
+                }
+                label="Confirm before clear"
+              />
             </section>
 
             <section className="flex flex-col gap-2">
               <h3 className="font-mono text-[11px] tracking-[0.15em] text-text-muted">
                 NEW SESSION INHERITS
               </h3>
-              <label className="flex items-center gap-2 text-sm text-text-soft">
-                <input
-                  type="checkbox"
-                  checked={inheritTags}
-                  onChange={(e) => void patchAndSet({ inherit_tags: e.target.checked ? 'true' : 'false' })}
-                />
-                Tags
-              </label>
-              <label className="flex items-center gap-2 text-sm text-text-soft">
-                <input
-                  type="checkbox"
-                  checked={inheritPermissionMode}
-                  onChange={(e) =>
-                    void patchAndSet({ inherit_permission_mode: e.target.checked ? 'true' : 'false' })
-                  }
-                />
-                Permission mode
-              </label>
+              <Checkbox
+                checked={inheritTags}
+                onChange={(checked) => void patchAndSet({ inherit_tags: checked ? 'true' : 'false' })}
+                label="Tags"
+              />
+              <Checkbox
+                checked={inheritPermissionMode}
+                onChange={(checked) =>
+                  void patchAndSet({ inherit_permission_mode: checked ? 'true' : 'false' })
+                }
+                label="Permission mode"
+              />
             </section>
 
             <section className="flex flex-col gap-2">
               <label htmlFor="settings-ended-after" className="font-mono text-[11px] tracking-[0.15em] text-text-muted">
                 MARK SESSION ENDED AFTER
               </label>
-              <select
+              <Select
                 id="settings-ended-after"
                 value={endedAfterIdle}
                 onChange={(e) => void patchAndSet({ ended_after_idle_minutes: e.target.value })}
-                className="w-32 rounded-md border border-panel-border bg-panel px-2 py-1 text-sm"
+                className="w-32"
               >
                 {IDLE_OPTIONS.map((minutes) => (
                   <option key={minutes} value={minutes}>
                     {minutes} min
                   </option>
                 ))}
-              </select>
+              </Select>
             </section>
           </div>
         </div>

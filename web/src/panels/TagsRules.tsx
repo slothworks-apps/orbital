@@ -8,6 +8,8 @@ import { tagColor } from '../lib/types'
 import type { Tag, TagRule } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Button } from '../ui/Button'
+import { Select } from '../ui/Select'
+import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
 import { Chip } from '../ui/Chip'
 
@@ -464,20 +466,19 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                         </div>
                       </td>
                       <td className="py-1.5 pr-2">
-                        <select
+                        <Select
                           aria-label={`Condition for rule ${idx + 1}`}
                           value={rule.condition}
                           onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                             void handleCondition(rule, e.target.value as TagRule['condition'])
                           }
-                          className="rounded border border-panel-border bg-panel px-1 py-0.5"
                         >
                           {CONDITION_OPTIONS.map((opt) => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </td>
                       <td className="py-1.5 pr-2">
                         <Input
@@ -488,27 +489,25 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                         />
                       </td>
                       <td className="py-1.5 pr-2">
-                        <select
+                        <Select
                           aria-label={`Target tag for rule ${idx + 1}`}
                           value={rule.tag_id}
                           onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                             void handleTargetTag(rule, Number(e.target.value))
                           }
-                          className="rounded border border-panel-border bg-panel px-1 py-0.5"
                         >
                           {tags.map((tag) => (
                             <option key={tag.id} value={tag.id}>
                               {tag.name}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </td>
                       <td className="py-1.5 pr-2">
-                        <input
-                          type="checkbox"
+                        <Toggle
                           aria-label={`Enable rule ${idx + 1}`}
                           checked={rule.enabled === 1}
-                          onChange={(e) => void handleEnabled(rule, e.target.checked)}
+                          onChange={(checked) => void handleEnabled(rule, checked)}
                         />
                       </td>
                       <td className="py-1.5">

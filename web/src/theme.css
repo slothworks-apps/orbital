@@ -20,6 +20,32 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Native scrollbars read as foreign chrome on the space theme — swap every
+   scrollable for a thin, translucent-blue thumb on an invisible track. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(150 205 255 / 0.18) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgb(150 205 255 / 0.18);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(150 205 255 / 0.32);
+}
+
 /* State is carried by motion, never by hue — working sessions/planets pulse. */
 @keyframes orbital-pulse {
   0%,

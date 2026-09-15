@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
+import { Checkbox } from '../ui/Checkbox'
 
 export interface ClearDialogProps {
   open: boolean
@@ -138,14 +139,16 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
           inherits: {session?.permissionMode ?? 'mode'} · {tagNames.length > 0 ? tagNames.join(', ') : 'tags'} · same
           directory
         </p>
-        <label className="flex items-center gap-2 text-xs text-text-muted">
-          <input
-            type="checkbox"
-            checked={dontAskAgain}
-            onChange={(e) => setDontAskAgain(e.target.checked)}
-          />
-          Don&apos;t ask again
-        </label>
+        <Checkbox
+          checked={dontAskAgain}
+          onChange={setDontAskAgain}
+          label={
+            <>
+              Don&apos;t ask again{' '}
+              <span className="font-mono text-[11px] text-text-muted">(Settings → Sessions)</span>
+            </>
+          }
+        />
       </div>
     </Dialog>
   )
