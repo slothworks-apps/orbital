@@ -4,11 +4,13 @@ import type { TagRule } from '../types.js';
 
 function globToRegExp(glob: string): RegExp {
   const expanded = glob.startsWith('~') ? homedir() + glob.slice(1) : glob;
-  const escaped = expanded
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '.*')
-    .replace(/\*/g, '[^/]*');
-  return new RegExp(`^${escaped}$`);
+  let out = '';
+  for (let i = 0; i < expanded.length; i++) {
+    if (expanded.startsWith('**', i)) { out += '.*'; i++; }
+    else if (expanded[i] === '*') out += '[^/]*';
+    else out += expanded[i].replace(/[.+^${}()|[\]\\?]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
 }
 
 export function matchRule(

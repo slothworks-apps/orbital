@@ -26,6 +26,30 @@ describe('matchRule', () => {
     const s = { cwd: '/elsewhere', title: 'EXP-run', permissionMode: null };
     expect(matchRule(rules, s)?.tag_id).toBe(11);
   });
+  it('** glob matches deep paths (multiple segments)', () => {
+    const deepRule: TagRule = { id: 4, tag_id: 20, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/**' };
+    const s = { cwd: join(homedir(), 'work/a/b/c.ts'), title: '', permissionMode: null };
+    expect(matchRule([deepRule], s)?.tag_id).toBe(20);
+  });
+  it('** glob matches zero segments (directory itself)', () => {
+    const deepRule: TagRule = { id: 4, tag_id: 20, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/**' };
+    const s = { cwd: join(homedir(), 'work/'), title: '', permissionMode: null };
+    expect(matchRule([deepRule], s)?.tag_id).toBe(20);
+  });
+  it('single * does not cross directory boundaries', () => {
+    const singleRule: TagRule = { id: 5, tag_id: 21, position: 0, enabled: 1, condition: 'path_matches', pattern: '/a/*/b' };
+    const sMatch = { cwd: '/a/x/b', title: '', permissionMode: null };
+    const sNoMatch = { cwd: '/a/x/y/b', title: '', permissionMode: null };
+    expect(matchRule([singleRule], sMatch)?.tag_id).toBe(21);
+    expect(matchRule([singleRule], sNoMatch)).toBeNull();
+  });
+  it('dot in pattern is literal, not regex wildcard', () => {
+    const dotRule: TagRule = { id: 6, tag_id: 22, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/*.ts' };
+    const sMatch = { cwd: join(homedir(), 'work/file.ts'), title: '', permissionMode: null };
+    const sNoMatch = { cwd: join(homedir(), 'work/fileXts'), title: '', permissionMode: null };
+    expect(matchRule([dotRule], sMatch)?.tag_id).toBe(22);
+    expect(matchRule([dotRule], sNoMatch)).toBeNull();
+  });
 });
 
 describe('regenerateRuleTags + effectiveTagIds', () => {
