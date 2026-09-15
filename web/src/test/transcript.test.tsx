@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ChatMessage } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
@@ -53,6 +53,31 @@ describe('highlightCode', () => {
     vi.doUnmock('shiki')
     vi.resetModules()
   })
+
+  it('clears the cached singleton promise on failure so a later call can retry instead of staying wedged', async () => {
+    vi.resetModules()
+    let attempt = 0
+    vi.doMock('shiki', async () => {
+      attempt += 1
+      if (attempt === 1) throw new Error('simulated transient failure')
+      return vi.importActual<typeof import('shiki')>('shiki')
+    })
+
+    const fresh = await import('../lib/highlight')
+
+    // First call: the mocked import throws -> safe fallback, no highlighting.
+    const first = await fresh.highlightCode('const x = 1', 'javascript')
+    expect(first).toBe('<pre><code>const x = 1</code></pre>')
+
+    // Second call: import succeeds this time -> real shiki highlighting,
+    // proving the failed attempt didn't permanently cache a rejected promise.
+    const second = await fresh.highlightCode('const x = 1', 'javascript')
+    expect(second).toContain('shiki')
+    expect(attempt).toBe(2)
+
+    vi.doUnmock('shiki')
+    vi.resetModules()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -94,6 +119,19 @@ describe('MessageView', () => {
     await waitFor(() => {
       expect(container.querySelector('pre.shiki')).toBeInTheDocument()
     })
+  })
+
+  it('renders a fenced code block with no language as block-level markup, not inline code styling', () => {
+    const text = '```\nplain block\n```'
+    const { container } = render(<MessageView message={makeMessage({ id: '1', text })} />)
+
+    const pre = container.querySelector('pre')
+    expect(pre).toBeInTheDocument()
+    expect(pre?.textContent).toContain('plain block')
+    // Block-level styling (matches CodeBlock's own pending-state fallback),
+    // not the inline `code` chip styling (bg-white/10 px-1 py-0.5).
+    expect(pre?.className).toContain('bg-black/30')
+    expect(pre?.querySelector('code')?.className ?? '').not.toContain('bg-white/10')
   })
 
   it('marks the role via data-role, distinguishing user from assistant styling', () => {
@@ -207,7 +245,7 @@ describe('ToolRow', () => {
 // Transcript
 // ---------------------------------------------------------------------------
 
-import { Transcript, pairMessages, isNearBottom } from '../panels/Transcript'
+import { Transcript, pairMessages, isNearBottom, compensatePrepend } from '../panels/Transcript'
 
 describe('isNearBottom', () => {
   it('is true when the bottom of the content is within the threshold', () => {
@@ -217,6 +255,18 @@ describe('isNearBottom', () => {
 
   it('is false when scrolled well away from the bottom', () => {
     expect(isNearBottom({ scrollTop: 0, scrollHeight: 1000, clientHeight: 100 })).toBe(false)
+  })
+})
+
+describe('compensatePrepend', () => {
+  it('grows scrollTop by exactly the amount the container grew, keeping the same content anchored', () => {
+    // Container grew by 300px (older content prepended above); scrollTop
+    // must grow by the same 300px so the pixel that was at the top stays there.
+    expect(compensatePrepend(1000, 1300, 400)).toBe(700)
+  })
+
+  it('is a no-op when the container did not grow', () => {
+    expect(compensatePrepend(1000, 1000, 400)).toBe(400)
   })
 })
 
@@ -384,5 +434,81 @@ describe('Transcript', () => {
 
     expect(await screen.findByText('older message')).toBeInTheDocument()
     expect(screen.getByText('newer message')).toBeInTheDocument()
+  })
+
+  it('grows the visible window so newly loaded older messages actually appear (regression: window used to stay pinned to the last 200 raw messages, hiding anything loadOlder prepended)', async () => {
+    const user = userEvent.setup()
+    const initial: ChatMessage[] = Array.from({ length: 250 }, (_, i) => ({
+      id: `m${i}`,
+      role: 'user',
+      text: `message ${i}`,
+    }))
+    resetStore({ transcripts: { s1: initial } })
+
+    render(<Transcript sessionId="s1" />)
+
+    // Sanity check on the initial 200-message window: the oldest 50 of the
+    // 250 are not shown yet, the newest is.
+    expect(screen.queryByText('message 0')).not.toBeInTheDocument()
+    expect(screen.getByText('message 249')).toBeInTheDocument()
+
+    const older: ChatMessage[] = Array.from({ length: 50 }, (_, i) => ({
+      id: `older${i}`,
+      role: 'user',
+      text: `older message ${i}`,
+    }))
+    const loadOlderSpy = vi.fn().mockImplementation(async (id: string) => {
+      useOrbital.setState((state) => ({
+        transcripts: { ...state.transcripts, [id]: [...older, ...state.transcripts[id]] },
+      }))
+      return older
+    })
+    act(() => {
+      useOrbital.setState({ loadOlder: loadOlderSpy })
+    })
+
+    await user.click(screen.getByRole('button', { name: /load older/i }))
+
+    // The newly prepended page must actually render, not just sit in the
+    // store while the window stays pinned to its old size.
+    expect(await screen.findByText('older message 0')).toBeInTheDocument()
+    expect(screen.getByText('older message 49')).toBeInTheDocument()
+  })
+
+  it('hides the "Load older" button once loadOlder reports an empty page', async () => {
+    const user = userEvent.setup()
+    resetStore({ transcripts: { s1: [{ id: '1', role: 'user', text: 'only message' }] } })
+    useOrbital.setState({ loadOlder: vi.fn().mockResolvedValue([]) })
+
+    render(<Transcript sessionId="s1" />)
+    await user.click(screen.getByRole('button', { name: /load older/i }))
+
+    expect(await screen.findByText('only message')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /load older/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps a tool_use visible together with its tool_result even though raw-message windowing alone would split them (regression: pairing must happen on the full array before windowing)', () => {
+    // 201 raw messages: a tool_use+tool_result pair (2 raw messages) at the
+    // very front, followed by 199 plain messages. Windowing the RAW array
+    // to the last 200 would drop the tool_use (index 0) while keeping the
+    // now-orphaned tool_result (index 1) — which the old pair-after-window
+    // code silently discarded entirely, losing the whole tool call from
+    // view. Pairing first collapses the pair into a single atomic item
+    // before windowing ever runs, so it can only be shown or hidden whole.
+    const plain: ChatMessage[] = Array.from({ length: 199 }, (_, i) => ({
+      id: `p${i}`,
+      role: 'user',
+      text: `plain ${i}`,
+    }))
+    const messages: ChatMessage[] = [
+      { id: 'tu', role: 'tool_use', toolName: 'Bash', toolInput: { command: 'npm test' }, toolUseId: 'tu1' },
+      { id: 'tr', role: 'tool_result', toolUseId: 'tu1', text: 'PASS' },
+      ...plain,
+    ]
+    resetStore({ transcripts: { s1: messages } })
+
+    render(<Transcript sessionId="s1" />)
+
+    expect(screen.getByText('Bash: npm test')).toBeInTheDocument()
   })
 })

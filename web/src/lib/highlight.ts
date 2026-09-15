@@ -11,9 +11,15 @@ let highlighterPromise: Promise<Highlighter> | null = null
 
 function getHighlighterInstance(): Promise<Highlighter> {
   if (!highlighterPromise) {
-    highlighterPromise = import('shiki').then(({ createHighlighter }) =>
-      createHighlighter({ themes: [THEME], langs: [] })
-    )
+    highlighterPromise = import('shiki')
+      .then(({ createHighlighter }) => createHighlighter({ themes: [THEME], langs: [] }))
+      .catch((err: unknown) => {
+        // Don't let a transient failure (network blip, etc) permanently
+        // wedge highlighting for the rest of the page's life — clear the
+        // cached promise so the next call gets a fresh attempt.
+        highlighterPromise = null
+        throw err
+      })
   }
   return highlighterPromise
 }

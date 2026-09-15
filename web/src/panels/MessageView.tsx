@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ComponentPropsWithoutRef } from 'react'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../lib/types'
@@ -50,15 +50,57 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
 
 type CodeProps = ComponentPropsWithoutRef<'code'> & { className?: string }
 
-function Code({ className, children, ...rest }: CodeProps) {
-  const match = LANGUAGE_CLASS.exec(className ?? '')
-  if (match) {
-    return <CodeBlock code={String(children).replace(/\n$/, '')} lang={match[1]} />
-  }
+/**
+ * INLINE code only. Fenced code blocks — even ones with no language, e.g.
+ * a plain ``` ``` block — are always wrapped by remark/rehype in a `<pre>`
+ * parent, and that parent is fully handled by the `Pre` override below
+ * (which reads this element's raw props before it ever gets rendered). This
+ * component is only reached for standalone `code` nodes that have no `pre`
+ * parent, i.e. genuinely inline code.
+ */
+function Code({ children, ...rest }: CodeProps) {
   return (
     <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em]" {...rest}>
       {children}
     </code>
+  )
+}
+
+type PreProps = ComponentPropsWithoutRef<'pre'>
+
+/**
+ * Fenced code blocks always render as `<pre><code>…</code></pre>` — with a
+ * `language-xxx` class on the `code` element only when a language was
+ * specified on the fence. Overriding `pre` (rather than only `code`) is
+ * what lets a language-less fenced block still get block-level treatment:
+ * react-markdown builds `codeEl` (a `<Code className=… children=…>`
+ * element) as a leaf *before* calling this component, so its `.props` here
+ * are still the pristine, unrendered language-class + text — reading them
+ * doesn't invoke `Code` at all, so its inline styling is never applied to
+ * a fenced block, with or without a language.
+ */
+function Pre({ children, className, ...rest }: PreProps) {
+  const codeEl = Array.isArray(children) ? children[0] : children
+  if (codeEl && typeof codeEl === 'object' && 'props' in codeEl) {
+    const codeProps = (codeEl as { props: { className?: string; children?: ReactNode } }).props
+    const match = LANGUAGE_CLASS.exec(codeProps.className ?? '')
+    const code = String(codeProps.children ?? '').replace(/\n$/, '')
+
+    if (match) {
+      return <CodeBlock code={code} lang={match[1]} />
+    }
+    // Fenced, but no language on the fence — still a block, not inline.
+    return (
+      <pre className="overflow-x-auto rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft">
+        <code>{code}</code>
+      </pre>
+    )
+  }
+
+  return (
+    <pre className={className} {...rest}>
+      {children}
+    </pre>
   )
 }
 
@@ -90,7 +132,7 @@ export function MessageView({ message }: MessageViewProps) {
           isUser ? 'bg-white/10 text-text-bright' : 'bg-transparent text-text-soft',
         ].join(' ')}
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: Code }}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: Code, pre: Pre }}>
           {message.text ?? ''}
         </ReactMarkdown>
       </div>
