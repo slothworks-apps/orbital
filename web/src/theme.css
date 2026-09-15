@@ -17,3 +17,18 @@ body {
   color: var(--color-text-bright);
   font-family: var(--font-sans);
 }
+
+/* State is carried by motion, never by hue — working sessions/planets pulse. */
+@keyframes orbital-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.orbital-pulse {
+  animation: orbital-pulse 1.8s ease-in-out infinite;
+}
