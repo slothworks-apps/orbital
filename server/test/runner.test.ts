@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Hub } from '../src/api/hub.js';
-import { Runner } from '../src/runner/runner.js';
+import { Runner, sdkToChatMessages } from '../src/runner/runner.js';
 
 /** Fake SDK: echoes each user message, then emits a result. */
 function fakeQueryFn() {
@@ -34,6 +34,115 @@ function subscribed(hub: Hub, topic: string) {
   hub.handleSocket(socket);
   socket.handlers['message'](JSON.stringify({ type: 'subscribe', topic }));
   return received;
+}
+
+/** Fake SDK whose generator ends on its own after one turn — no end() call, simulating the SDK process exiting. */
+function fakeQueryFnSelfEnding() {
+  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+    async function* gen() {
+      yield { type: 'system', subtype: 'init', session_id: 'web-1' };
+      // Pull exactly one input message off the queue, then finish without
+      // looping back to ask for another — the generator just ends.
+      const iterator = prompt[Symbol.asyncIterator]();
+      await iterator.next();
+      yield {
+        type: 'assistant', session_id: 'web-1',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+      };
+      yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: {} };
+    }
+    return gen() as any;
+  };
+  return { fn };
+}
+
+/**
+ * Fake SDK that stalls mid-turn on the second message: it yields an assistant
+ * message but never yields a `result`, and it parks on a test-controlled gate
+ * instead of looping back to request the next prompt value — so at the moment
+ * end() is called, no dequeue() waiter is registered on Runner's input queue.
+ */
+function fakeQueryFnMidTurnStall() {
+  let releaseGate!: () => void;
+  const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
+  let finished!: () => void;
+  const finishedPromise = new Promise<void>((resolve) => { finished = resolve; });
+  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+    async function* gen() {
+      try {
+        yield { type: 'system', subtype: 'init', session_id: 'web-1' };
+        let turn = 0;
+        for await (const userMsg of prompt) {
+          turn++;
+          const text = userMsg.message.content[0].text;
+          if (turn === 1) {
+            yield {
+              type: 'assistant', session_id: 'web-1',
+              message: { role: 'assistant', content: [{ type: 'text', text: `echo:${text}` }] },
+            };
+            yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: {} };
+          } else {
+            yield {
+              type: 'assistant', session_id: 'web-1',
+              message: { role: 'assistant', content: [{ type: 'text', text: 'working...' }] },
+            };
+            // Stall here — no `result`, and no loop-back to `for await` yet,
+            // so no dequeue() waiter is parked until the gate is released.
+            await gate;
+          }
+        }
+      } finally {
+        finished();
+      }
+    }
+    return gen() as any;
+  };
+  return { fn, releaseGate: () => releaseGate(), finishedPromise };
+}
+
+/** Fake SDK that yields a stray assistant message for an unrelated session before the real system/init. */
+function fakeQueryFnStrayBeforeInit() {
+  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+    async function* gen() {
+      yield {
+        type: 'assistant', session_id: 'x',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'stray' }] },
+      };
+      yield { type: 'system', subtype: 'init', session_id: 'web-1' };
+      for await (const userMsg of prompt) {
+        const text = userMsg.message.content[0].text;
+        yield {
+          type: 'assistant', session_id: 'web-1',
+          message: { role: 'assistant', content: [{ type: 'text', text: `echo:${text}` }] },
+        };
+        yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: {} };
+      }
+    }
+    return gen() as any;
+  };
+  return { fn };
+}
+
+/** Fake SDK that emits a tool_use then a tool_result in the same turn, each as content index 0. */
+function fakeQueryFnToolMessages() {
+  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+    async function* gen() {
+      yield { type: 'system', subtype: 'init', session_id: 'web-1' };
+      for await (const _userMsg of prompt) {
+        yield {
+          type: 'assistant', session_id: 'web-1',
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: {} }] },
+        };
+        yield {
+          type: 'user', session_id: 'web-1',
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok' }] },
+        };
+        yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: {} };
+      }
+    }
+    return gen() as any;
+  };
+  return { fn };
 }
 
 describe('Runner', () => {
@@ -86,13 +195,87 @@ describe('Runner', () => {
       return fakeQueryFn().fn(args);
     };
     const runner = new Runner({ hub, queryFn: fn as any });
-    await runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'acceptEdits', resume: 'old-1' });
+    await runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'acceptEdits', resume: 'old-1', model: 'claude-opus' });
     expect(captured).toMatchObject({
       cwd: '/p',
       permissionMode: 'acceptEdits',
       resume: 'old-1',
+      model: 'claude-opus',
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       settingSources: ['user', 'project', 'local'],
     });
+  });
+
+  it('ends the session cleanly when the SDK generator finishes on its own (no end() call)', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFnSelfEnding();
+    const runner = new Runner({ hub, queryFn: fn as any });
+    const received = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'hi', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.active()).toEqual([]));
+    expect(runner.status('web-1')).toBe('ended');
+    const endedEvents = received.filter((r) => r.event === 'status' && r.status === 'ended');
+    expect(endedEvents).toHaveLength(1);
+  });
+
+  it('end() while working with no waiter parked still terminates the input stream (not a hang)', async () => {
+    const hub = new Hub();
+    const { fn, releaseGate, finishedPromise } = fakeQueryFnMidTurnStall();
+    const runner = new Runner({ hub, queryFn: fn as any });
+    const received = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    runner.send('web-1', 'two');
+    // Wait until the fake has yielded the mid-turn "working..." message and is
+    // parked on the gate — at this point no dequeue() waiter is registered.
+    await vi.waitFor(() =>
+      expect(received.some((r) => r.event === 'message' && r.message.text === 'working...')).toBe(true),
+    );
+    expect(runner.status('web-1')).toBe('working');
+
+    await runner.end('web-1');
+    expect(runner.status('web-1')).toBe('ended');
+
+    releaseGate();
+    await Promise.race([
+      finishedPromise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timed out waiting for the SDK generator to terminate')), 1000),
+      ),
+    ]);
+  });
+
+  it('resolves start() only on the system/init message, ignoring stray early messages', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFnStrayBeforeInit();
+    const runner = new Runner({ hub, queryFn: fn as any });
+    const id = await runner.start({ cwd: '/p', prompt: 'hello', permissionMode: 'plan' });
+    expect(id).toBe('web-1');
+  });
+
+  it('assigns distinct message ids even when messages land in the same millisecond', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFnToolMessages();
+    const runner = new Runner({ hub, queryFn: fn as any });
+    const received = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(received.filter((r) => r.event === 'turn_result')).toHaveLength(1));
+    const ids = received.filter((r) => r.event === 'message').map((r) => r.message.id);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it('sdkToChatMessages: nextSeq is called once per content block, producing distinct ids', () => {
+    let seq = 0;
+    const nextSeq = () => ++seq;
+    const toolUse = sdkToChatMessages(
+      { type: 'assistant', session_id: 'x', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: {} }] } },
+      nextSeq,
+    );
+    const toolResult = sdkToChatMessages(
+      { type: 'user', session_id: 'x', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok' }] } },
+      nextSeq,
+    );
+    expect(toolUse[0].id).not.toBe(toolResult[0].id);
   });
 });

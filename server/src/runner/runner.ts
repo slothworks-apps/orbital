@@ -15,12 +15,18 @@ interface ManagedSession {
   idleTimer: ReturnType<typeof setTimeout> | null;
 }
 
-export function sdkToChatMessages(sdkMsg: any): ChatMessage[] {
+/**
+ * Converts one SDK message into zero or more ChatMessages.
+ * `nextSeq` must return a monotonically increasing number per call — callers
+ * (Runner) bind it to a per-instance counter so ids can't collide when two
+ * messages land in the same millisecond with the same block index.
+ */
+export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number): ChatMessage[] {
   const content = sdkMsg.message?.content;
   if (!Array.isArray(content)) return [];
   const out: ChatMessage[] = [];
   content.forEach((block: any, i: number) => {
-    const id = `${sdkMsg.session_id}:${Date.now()}:${i}`;
+    const id = `${sdkMsg.session_id}:${nextSeq()}:${i}`;
     if (block.type === 'text' && block.text?.trim()) {
       out.push({ id, role: sdkMsg.type === 'user' ? 'user' : 'assistant', text: block.text });
     } else if (block.type === 'tool_use') {
@@ -38,6 +44,7 @@ export function sdkToChatMessages(sdkMsg: any): ChatMessage[] {
 export class Runner {
   private sessions = new Map<string, ManagedSession>();
   private ended = new Set<string>();
+  private seq = 0;
   private hub: Hub;
   private queryFn: QueryFn;
   private idleTimeoutMs: number;
@@ -141,7 +148,7 @@ export class Runner {
             }
             if (!id) continue;
             if (msg.type === 'assistant' || msg.type === 'user') {
-              for (const chat of sdkToChatMessages(msg)) {
+              for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
                 this.hub.publish(`session:${id}`, { event: 'message', message: chat });
               }
             } else if (msg.type === 'result') {
