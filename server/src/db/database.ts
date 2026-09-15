@@ -34,9 +34,11 @@ export function openDb(dbPath: string): OrbitalDb {
   }
   db.insert(tags).values({ name: 'personal', hue: 330, isDefault: 1 }).onConflictDoNothing().run();
   // Migration baseline (M12): a fresh or pre-Drizzle database has
-  // user_version 0. Stamp it to 1 so a future Drizzle migration runner has a
-  // starting point to diff against, without ever overwriting a version an
-  // actual migration already advanced.
+  // user_version 0. Drizzle itself tracks applied migrations in its own
+  // `__drizzle_migrations` table and never reads/writes this pragma — this
+  // stamp exists purely for legacy/rollback compatibility (older orbital
+  // builds, or any external tooling, that key off `PRAGMA user_version`),
+  // and is never overwritten once a real migration has advanced it past 0.
   const userVersion = sqlite.pragma('user_version', { simple: true }) as number;
   if (userVersion === 0) sqlite.pragma('user_version = 1');
   return db;

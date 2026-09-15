@@ -3,9 +3,18 @@ import { and, desc, eq, inArray, max, ne, sql } from 'drizzle-orm';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
-import { effectiveTagIds, regenerateRuleTags, matchRule, tagRuleColumns } from '../tags/rules.js';
+import { effectiveTagIds, regenerateRuleTags, matchRule } from '../tags/rules.js';
 import type { OrbitalDb } from '../db/database.js';
-import { sessions, sessionTags, settings as settingsTable, tagRules, tags } from '../db/schema.js';
+import {
+  sessionColumns,
+  sessions,
+  sessionTags,
+  settings as settingsTable,
+  tagColumns,
+  tagRuleColumns,
+  tagRules,
+  tags,
+} from '../db/schema.js';
 import type { Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
@@ -19,32 +28,6 @@ export interface RouteContext {
   hub: Hub;
   settings: { get(key: string): string; set(key: string, value: string): void };
 }
-
-// Mirrors SessionRow (snake_case, matching the original sqlite column
-// names) so downstream code (toApi, tests, the wire format) is unaffected
-// by the switch to Drizzle's camelCase schema accessors.
-const sessionColumns = {
-  id: sessions.id,
-  project_dir: sessions.projectDir,
-  cwd: sessions.cwd,
-  title: sessions.title,
-  first_at: sessions.firstAt,
-  last_at: sessions.lastAt,
-  message_count: sessions.messageCount,
-  file_size: sessions.fileSize,
-  source: sessions.source,
-  permission_mode: sessions.permissionMode,
-  parent_id: sessions.parentId,
-  indexed_mtime: sessions.indexedMtime,
-  indexed_size: sessions.indexedSize,
-};
-
-const tagColumns = {
-  id: tags.id,
-  name: tags.name,
-  hue: tags.hue,
-  is_default: tags.isDefault,
-};
 
 function statusOf(ctx: RouteContext, row: SessionRow): SessionStatus {
   const fromRunner = ctx.runner.status(row.id);
@@ -77,7 +60,6 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .from(sessions)
       .orderBy(desc(sessions.lastAt))
       .limit(limit * 4 + offset) // over-fetch, filter, then page
-      .offset(0)
       .all() as SessionRow[];
     if (q.source) rows = rows.filter((r) => r.source === q.source);
     if (q.q) rows = rows.filter((r) => r.title.toLowerCase().includes(q.q.toLowerCase()));
@@ -311,7 +293,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const { id } = req.params as { id: string };
     const body = req.body as Partial<Pick<TagRule, 'position' | 'enabled' | 'condition' | 'pattern' | 'tag_id'>>;
     const set: Partial<{
-      position: number; enabled: number; condition: string; pattern: string; tagId: number;
+      position: number; enabled: 0 | 1; condition: TagRule['condition']; pattern: string; tagId: number;
     }> = {};
     if (body.position != null) set.position = body.position;
     if (body.enabled != null) set.enabled = body.enabled;
@@ -332,7 +314,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
   app.post('/api/tag-rules/preview', (req) => {
     const body = req.body as { cwd: string; title: string; permissionMode: string | null };
-    const rules = db.select(tagRuleColumns).from(tagRules).orderBy(tagRules.position).all() as unknown as TagRule[];
+    const rules = db.select(tagRuleColumns).from(tagRules).orderBy(tagRules.position).all();
     const rule = matchRule(rules, body);
     return rule ? { tagId: rule.tag_id, ruleId: rule.id } : { tagId: null, ruleId: null };
   });

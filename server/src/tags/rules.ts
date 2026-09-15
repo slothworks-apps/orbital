@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { homedir } from 'node:os';
 import type { OrbitalDb } from '../db/database.js';
-import { sessions, sessionTags, tagRules, tags } from '../db/schema.js';
+import { sessions, sessionTags, tagRuleColumns, tagRules, tags } from '../db/schema.js';
 import type { TagRule } from '../types.js';
 
 function globToRegExp(glob: string): RegExp {
@@ -37,20 +37,8 @@ export function matchRule(
   return null;
 }
 
-// Mirrors the TagRule shape (snake_case, matching the original sqlite
-// column names) so callers throughout the codebase — and the raw
-// GET /api/tag-rules passthrough — keep seeing the same field names.
-export const tagRuleColumns = {
-  id: tagRules.id,
-  tag_id: tagRules.tagId,
-  position: tagRules.position,
-  enabled: tagRules.enabled,
-  condition: tagRules.condition,
-  pattern: tagRules.pattern,
-};
-
 export function regenerateRuleTags(db: OrbitalDb): void {
-  const rules = db.select(tagRuleColumns).from(tagRules).all() as unknown as TagRule[];
+  const rules = db.select(tagRuleColumns).from(tagRules).all();
   const sessionRows = db
     .select({
       id: sessions.id,

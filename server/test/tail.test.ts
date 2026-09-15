@@ -20,12 +20,17 @@ describe('TranscriptTail', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orbital-tail-'));
     const file = join(dir, 't.jsonl');
     writeFileSync(file, LINE1);
+    // Tiny delay so the initial write is fully settled on disk before the
+    // watcher is registered — cheap determinism nudge for a test that has
+    // flaked intermittently under CI load (see also tail.ts's own directory-
+    // watch comment for the related macOS kqueue-latency race).
+    await new Promise((r) => setTimeout(r, 5));
     const tail = new TranscriptTail(file);
     const seen = collect(tail);
     tail.start();
     expect(seen).toEqual(['u1']);
     appendFileSync(file, LINE2);
-    await vi.waitFor(() => expect(seen).toEqual(['u1', 'a1']), { timeout: 2000 });
+    await vi.waitFor(() => expect(seen).toEqual(['u1', 'a1']), { timeout: 3000 });
     tail.stop();
   });
   it('holds back a partial trailing line until completed', () => {

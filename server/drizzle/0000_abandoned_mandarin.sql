@@ -9,6 +9,16 @@
 -- migration against a brand new database. Do not remove IF NOT EXISTS from
 -- this file, and do not add IF NOT EXISTS by default to *future* migrations
 -- without the same reasoning.
+--
+-- One side effect of the baseline: the legacy schema declared
+-- `tags.name TEXT NOT NULL UNIQUE` inline, which SQLite backs with an
+-- implicit `sqlite_autoindex_tags_1` index. This migration's `CREATE UNIQUE
+-- INDEX IF NOT EXISTS tags_name_unique` runs alongside it on an upgraded
+-- legacy database, so such databases end up with both
+-- `sqlite_autoindex_tags_1` and `tags_name_unique` enforcing the same
+-- uniqueness constraint redundantly (harmless — not a correctness issue,
+-- just two indexes doing one job). A brand-new, Drizzle-created database
+-- only ever gets `tags_name_unique`.
 CREATE TABLE IF NOT EXISTS `session_tags` (
 	`session_id` text NOT NULL,
 	`tag_id` integer NOT NULL,

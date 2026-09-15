@@ -154,6 +154,20 @@ describe('REST routes', () => {
     expect(preview.json()).toMatchObject({ tagId });
   });
 
+  it('GET /api/tags and /api/tag-rules preserve original snake_case key order (derived projection maps)', async () => {
+    const tagsRes = await app.inject({ method: 'GET', url: '/api/tags' });
+    expect(Object.keys(tagsRes.json().tags[0])).toEqual(['id', 'name', 'hue', 'is_default']);
+
+    await app.inject({
+      method: 'POST', url: '/api/tag-rules',
+      payload: { tagId: 10, condition: 'path_matches', pattern: '/w/x' },
+    });
+    const rulesRes = await app.inject({ method: 'GET', url: '/api/tag-rules' });
+    expect(Object.keys(rulesRes.json().rules[0])).toEqual([
+      'id', 'tag_id', 'position', 'enabled', 'condition', 'pattern',
+    ]);
+  });
+
   it('POST /api/sessions starts a web session via the runner', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/sessions',

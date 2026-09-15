@@ -1,4 +1,5 @@
-import { sql } from 'drizzle-orm';
+import { sql, getTableColumns } from 'drizzle-orm';
+import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import {
   sqliteTable,
   text,
@@ -7,6 +8,7 @@ import {
   index,
   check,
 } from 'drizzle-orm/sqlite-core';
+import type { PermissionMode, SessionSource, TagRule } from '../types.js';
 
 export const sessions = sqliteTable(
   'sessions',
@@ -19,8 +21,8 @@ export const sessions = sqliteTable(
     lastAt: integer('last_at'),
     messageCount: integer('message_count').notNull().default(0),
     fileSize: integer('file_size').notNull().default(0),
-    source: text('source').notNull().default('terminal'),
-    permissionMode: text('permission_mode'),
+    source: text('source').$type<SessionSource>().notNull().default('terminal'),
+    permissionMode: text('permission_mode').$type<PermissionMode>(),
     parentId: text('parent_id'),
     indexedMtime: integer('indexed_mtime').notNull().default(0),
     indexedSize: integer('indexed_size').notNull().default(0),
@@ -56,8 +58,8 @@ export const tagRules = sqliteTable(
       .notNull()
       .references(() => tags.id, { onDelete: 'cascade' }),
     position: integer('position').notNull(),
-    enabled: integer('enabled').notNull().default(1),
-    condition: text('condition').notNull(),
+    enabled: integer('enabled').$type<0 | 1>().notNull().default(1),
+    condition: text('condition').$type<TagRule['condition']>().notNull(),
     pattern: text('pattern').notNull(),
   },
   (table) => [
@@ -72,6 +74,30 @@ export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
 });
+
+/**
+ * Projects a table's columns keyed by their actual DB column name
+ * (snake_case) rather than the JS-side camelCase accessor used elsewhere in
+ * this file. Passed straight into `db.select(...)`, this keeps the JSON
+ * wire format of the raw-passthrough endpoints (e.g. `is_default`,
+ * `tag_id`) identical to what the pre-Drizzle `SELECT *` queries produced,
+ * without hand-maintaining a parallel column list per table. Key order
+ * follows declaration order (`Object.values` over `getTableColumns`
+ * preserves insertion order), matching what `SELECT *` would have produced.
+ */
+type ColumnsByDbName<T extends SQLiteTable> = {
+  [C in T['_']['columns'][keyof T['_']['columns']] as C['_']['name']]: C;
+};
+
+function snakeColumns<T extends SQLiteTable>(table: T): ColumnsByDbName<T> {
+  return Object.fromEntries(
+    Object.values(getTableColumns(table)).map((c) => [c.name, c]),
+  ) as ColumnsByDbName<T>;
+}
+
+export const sessionColumns = snakeColumns(sessions);
+export const tagColumns = snakeColumns(tags);
+export const tagRuleColumns = snakeColumns(tagRules);
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;

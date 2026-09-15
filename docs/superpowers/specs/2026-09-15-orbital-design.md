@@ -122,7 +122,7 @@ waits for the user (also moons/planets show white ripple per state sheet).
 process. Terminal sessions only use `working`/`idle`/`ended` (we cannot
 reliably detect needs-input for them); web sessions use all four.
 
-## Data model (SQLite, better-sqlite3)
+## Data model (SQLite via Drizzle ORM, better-sqlite3 driver)
 
 DB file: `~/Library/Application Support/orbital/index.db`. Simple versioned
 migrations at server startup.

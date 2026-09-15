@@ -3,9 +3,22 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { openDb } from '../src/db/database.js';
 import { tags, settings } from '../src/db/schema.js';
+import { effectiveTagIds, regenerateRuleTags } from '../src/tags/rules.js';
+
+// Verbatim copy of the DEFAULT_SETTINGS the pre-Drizzle database.ts used to
+// seed via INSERT OR IGNORE, for the legacy-baseline fixture below.
+const LEGACY_SETTINGS: Record<string, string> = {
+  default_permission_mode: 'acceptEdits',
+  default_project_dir: '',
+  lineage_depth: '3',
+  confirm_before_clear: 'true',
+  inherit_tags: 'true',
+  inherit_permission_mode: 'true',
+  ended_after_idle_minutes: '30',
+};
 
 // The pre-Drizzle hand-rolled schema (verbatim, as it existed before Task
 // 12) used to seed a legacy-baseline fixture DB below.
@@ -80,27 +93,53 @@ describe('openDb', () => {
     again.$client.close();
   });
 
-  it('opens cleanly against a legacy (pre-Drizzle) database, keeps existing rows, and drizzle queries work', () => {
+  it('opens cleanly against a legacy (pre-Drizzle) database, keeps existing rows across all five tables, honors manual_removed on rule regeneration, does not duplicate seeds, and is idempotent on a second open', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orbital-db-legacy-'));
     const dbPath = join(dir, 'index.db');
 
     // Build a legacy fixture DB exactly the way the old hand-rolled
     // database.ts used to: raw better-sqlite3, old SCHEMA string, seeds via
-    // INSERT OR IGNORE, WAL + user_version=1 stamp.
+    // INSERT OR IGNORE, WAL + user_version=1 stamp. Populate all five
+    // tables so the migration's IF NOT EXISTS baseline is exercised against
+    // real pre-existing data everywhere, not just `sessions`.
     const legacy = new BetterSqlite3(dbPath);
     legacy.pragma('journal_mode = WAL');
     legacy.exec(LEGACY_SCHEMA);
-    legacy
-      .prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`)
-      .run('default_permission_mode', 'acceptEdits');
+    const insertSetting = legacy.prepare(
+      `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
+    );
+    for (const [k, v] of Object.entries(LEGACY_SETTINGS)) insertSetting.run(k, v);
     legacy
       .prepare(`INSERT OR IGNORE INTO tags (name, hue, is_default) VALUES ('personal', 330, 1)`)
       .run();
-    // A pre-existing row that must survive the new openDb() running its
-    // migration on top of this database.
+    // A second, non-default tag with a rule that matches by title, to
+    // exercise rule regeneration below.
+    legacy
+      .prepare(`INSERT INTO tags (id, name, hue, is_default) VALUES (10, 'work', 210, 0)`)
+      .run();
     legacy
       .prepare(
-        `INSERT INTO sessions (id, project_dir, cwd, title) VALUES ('legacy-1', 'p', '/x', 'pre-existing session')`,
+        `INSERT INTO tag_rules (id, tag_id, position, enabled, condition, pattern)
+         VALUES (1, 10, 0, 1, 'title_contains', 'legacy')`,
+      )
+      .run();
+    // Three pre-existing sessions that must survive the new openDb()
+    // running its migration on top of this database:
+    //  - legacy-1: title doesn't match the rule -> falls back to default tag.
+    //  - legacy-2: title matches the rule, no manual removal -> gets the rule tag.
+    //  - legacy-3: title matches the rule, but has a pre-existing
+    //    'manual_removed' session_tags row -> the rule tag must stay suppressed.
+    legacy
+      .prepare(
+        `INSERT INTO sessions (id, project_dir, cwd, title) VALUES
+         ('legacy-1', 'p', '/x', 'pre-existing session'),
+         ('legacy-2', 'p', '/x', 'legacy match'),
+         ('legacy-3', 'p', '/x', 'legacy removed')`,
+      )
+      .run();
+    legacy
+      .prepare(
+        `INSERT INTO session_tags (session_id, tag_id, origin) VALUES ('legacy-3', 10, 'manual_removed')`,
       )
       .run();
     legacy.pragma('user_version = 1');
@@ -115,13 +154,45 @@ describe('openDb', () => {
     )[0];
     expect(session).toMatchObject({ id: 'legacy-1', title: 'pre-existing session' });
 
-    // The pre-existing default tag is untouched (seed is INSERT OR IGNORE,
-    // so it must not have been duplicated).
-    const tagRows = db.select().from(tags).where(sql`${tags.isDefault} = 1`).all();
-    expect(tagRows).toHaveLength(1);
-    expect(tagRows[0].name).toBe('personal');
+    // The pre-existing default tag is untouched (seed is onConflictDoNothing,
+    // so it must not have been duplicated), and the pre-existing non-default
+    // tag survived too.
+    const defaultTagRows = db.select().from(tags).where(eq(tags.isDefault, 1)).all();
+    expect(defaultTagRows).toHaveLength(1);
+    expect(defaultTagRows[0].name).toBe('personal');
+    const workTag = db.select().from(tags).where(eq(tags.name, 'work')).get();
+    expect(workTag).toMatchObject({ id: 10, hue: 210 });
+
+    // Settings seeds are not duplicated: exactly the known keys, with the
+    // legacy DB's pre-existing values preserved (openDb's seed is
+    // onConflictDoNothing, so it must not overwrite them).
+    const settingsRows = db.select().from(settings).all();
+    expect(settingsRows).toHaveLength(Object.keys(LEGACY_SETTINGS).length);
+    expect(Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))).toEqual(
+      LEGACY_SETTINGS,
+    );
+
+    // Rule regeneration works against the migrated legacy data, and honors
+    // the pre-existing manual_removed row.
+    regenerateRuleTags(db);
+    const defaultTagId = defaultTagRows[0].id;
+    expect(effectiveTagIds(db, 'legacy-1')).toEqual([defaultTagId]); // no rule match
+    expect(effectiveTagIds(db, 'legacy-2')).toEqual([10]); // rule match, not removed
+    expect(effectiveTagIds(db, 'legacy-3')).toEqual([defaultTagId]); // rule match, but manual_removed
 
     expect(db.$client.pragma('user_version', { simple: true })).toBe(1);
     db.$client.close();
+
+    // Re-opening the same (now-migrated) database a second time must be a
+    // pure no-op: no error, and Drizzle's own migration bookkeeping table
+    // must still show exactly one applied migration (not re-applied, not
+    // applied twice).
+    const reopened = openDb(dbPath);
+    const migrationCount = reopened.all<{ c: number }>(
+      sql`SELECT COUNT(*) c FROM __drizzle_migrations`,
+    )[0];
+    expect(migrationCount.c).toBe(1);
+    expect(reopened.$client.pragma('user_version', { simple: true })).toBe(1);
+    reopened.$client.close();
   });
 });
