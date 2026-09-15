@@ -18,6 +18,7 @@ describe('planetVisuals', () => {
       tickSpin: 0.4,
       corePulse: 1,
       haloOpacity: 0.5,
+      haloBreathes: true,
       rippleActive: false,
       dimmed: false,
       reticle: false,
@@ -30,6 +31,7 @@ describe('planetVisuals', () => {
       tickSpin: 0,
       corePulse: 0,
       haloOpacity: 0.25,
+      haloBreathes: false,
       rippleActive: false,
       dimmed: false,
       reticle: false,
@@ -42,6 +44,7 @@ describe('planetVisuals', () => {
       tickSpin: 0,
       corePulse: 1,
       haloOpacity: 0.5,
+      haloBreathes: false,
       rippleActive: true,
       dimmed: false,
       reticle: false,
@@ -54,10 +57,18 @@ describe('planetVisuals', () => {
       tickSpin: 0,
       corePulse: 0,
       haloOpacity: 0,
+      haloBreathes: false,
       rippleActive: false,
       dimmed: true,
       reticle: false,
     })
+  })
+
+  it('haloBreathes is true only for working — the halo is otherwise steady', () => {
+    expect(planetVisuals('working', false).haloBreathes).toBe(true)
+    expect(planetVisuals('idle', false).haloBreathes).toBe(false)
+    expect(planetVisuals('needs_input', false).haloBreathes).toBe(false)
+    expect(planetVisuals('ended', false).haloBreathes).toBe(false)
   })
 
   it('selected flag only ever changes `reticle`, orthogonal to state', () => {
@@ -145,5 +156,15 @@ describe('moonVisuals', () => {
       const keys = Object.keys(moonVisuals(state))
       expect(keys.some((k) => /hue|color/i.test(k))).toBe(false)
     }
+  })
+
+  it('returns a fresh object each call, never the shared table entry', () => {
+    const a = moonVisuals('working')
+    const b = moonVisuals('working')
+    expect(a).not.toBe(b)
+    expect(a).toEqual(b)
+    // Mutating one caller's result must never leak into another caller's.
+    a.coreOpacity = 0
+    expect(moonVisuals('working').coreOpacity).toBe(1)
   })
 })

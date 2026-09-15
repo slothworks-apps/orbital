@@ -92,13 +92,17 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: Mo
   const color = useMemo(() => oklchTagColor(hue), [hue])
   const coreColor = subagent.state === 'needs_input' ? WHITE : visuals.dimmed ? GREY : color
 
-  const orbitGroupRef = useRef<THREE.Group>(null!)
   const bodyGroupRef = useRef<THREE.Group>(null!)
   const tickGroupRef = useRef<THREE.Group>(null!)
   const rippleRef = useRef<THREE.Mesh>(null!)
   const shellRef = useRef<ComponentRef<typeof Line>>(null)
   const shellProgress = useRef(0)
   const rippleElapsed = useRef(0)
+  // Seeded from the `phase` prop once on mount, then advanced every frame in
+  // useFrame — this is the moon's own running angle, not `phase` re-read
+  // each render. `phase` only decides WHERE on the orbit each moon starts
+  // (so multiple moons around one planet don't all launch from the same
+  // point); it intentionally has no effect after the first render.
   const angle = useRef(phase)
 
   useFrame((_state, delta) => {
@@ -134,7 +138,7 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: Mo
   })
 
   return (
-    <group ref={orbitGroupRef} position={[parentX, parentY, 0]}>
+    <group position={[parentX, parentY, 0]}>
       <OrbitRing radius={orbitRadius} color={color} opacity={visuals.trailOpacity} />
 
       <group ref={bodyGroupRef}>

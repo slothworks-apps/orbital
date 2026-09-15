@@ -21,9 +21,16 @@ export interface PlanetVisuals {
   corePulse: number
   /** Opacity of the soft halo circle behind the planet. */
   haloOpacity: number
+  /** Whether the halo breathes (soft opacity oscillation) — true only for `working`; steady otherwise. */
+  haloBreathes: boolean
   /** Whether the needs-input expanding white ripple ring is active. */
   rippleActive: boolean
-  /** Ended: whole group rendered dimmed (lower opacity) and at reduced scale. */
+  /**
+   * Ended: session rendered dimmed (lower opacity). Reduced scale is NOT
+   * carried by this flag — it comes from the layout's `scale` prop
+   * (`ENDED_SCALE` in `map/layout.ts`, Task 7), which the component applies
+   * directly to its root group regardless of this table.
+   */
   dimmed: boolean
   /** Selection reticle (slow dashed ring + corner brackets) shown. */
   reticle: boolean
@@ -59,6 +66,7 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     tickSpin: WORKING_TICK_SPIN,
     corePulse: WORKING_CORE_PULSE,
     haloOpacity: WORKING_HALO_OPACITY,
+    haloBreathes: true,
     rippleActive: false,
     dimmed: false,
   },
@@ -66,6 +74,7 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     tickSpin: IDLE_TICK_SPIN,
     corePulse: IDLE_CORE_PULSE,
     haloOpacity: IDLE_HALO_OPACITY,
+    haloBreathes: false,
     rippleActive: false,
     dimmed: false,
   },
@@ -73,6 +82,7 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     tickSpin: NEEDS_INPUT_TICK_SPIN,
     corePulse: NEEDS_INPUT_CORE_PULSE,
     haloOpacity: NEEDS_INPUT_HALO_OPACITY,
+    haloBreathes: false,
     rippleActive: true,
     dimmed: false,
   },
@@ -80,6 +90,7 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     tickSpin: ENDED_TICK_SPIN,
     corePulse: ENDED_CORE_PULSE,
     haloOpacity: ENDED_HALO_OPACITY,
+    haloBreathes: false,
     rippleActive: false,
     dimmed: true,
   },
@@ -175,7 +186,12 @@ const MOON_VISUALS: Record<Subagent['state'], MoonVisuals> = {
   },
 }
 
-/** Visual params for a moon given its subagent state. */
+/**
+ * Visual params for a moon given its subagent state. Returns a fresh copy
+ * each call (not the shared table entry) so a caller mutating the result
+ * can never corrupt the shared state table for every other moon in that
+ * state.
+ */
 export function moonVisuals(state: Subagent['state']): MoonVisuals {
-  return MOON_VISUALS[state]
+  return { ...MOON_VISUALS[state] }
 }

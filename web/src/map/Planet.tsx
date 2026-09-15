@@ -9,20 +9,34 @@ import { planetVisuals } from './visuals'
  * Flat 2D parametric planet for the orthographic top-down space map.
  * Pure props in, no store/api imports — Task 9 wires this to live data.
  *
- * BINDING rule: hue (via `oklchTagColor`) always paints the core/atmosphere;
- * session STATE is expressed only through `planetVisuals` (tick spin, core
- * pulse, halo breathing, ripple) plus a white core/ripple for needs-input —
- * never by picking a different hue.
+ * BINDING rule: hue (via `oklchTagColor`) always paints the atmosphere ring
+ * and (for non-ended states) the bright core; session STATE is expressed
+ * only through `planetVisuals` (tick spin, core pulse, halo breathing,
+ * ripple) plus a white core/ripple for needs-input — never by picking a
+ * different hue.
+ *
+ * Layout per the "2d Instrument" canvas variant (`design/.../Planet
+ * Variants.dc.html`): a dark matte body disc inside a rotating tick ring,
+ * with a small bright core — reads as a gauge, not a ball.
  */
 
 // --- geometry constants (local units, before the `scale` prop is applied) --
 
-const CORE_RADIUS = 0.4
-const ATMOSPHERE_INNER = 0.46
+/** Dark matte body disc — fixed neutral tone per the canvas (not tag-hued; only the atmosphere ring/ticks/core carry hue). */
+const BODY_HUE = 220
+const BODY_LIGHTNESS = 0.28
+const BODY_CHROMA = 0.05
+const BODY_RADIUS = 0.46
+
+const ATMOSPHERE_INNER = BODY_RADIUS
 const ATMOSPHERE_OUTER = 0.52
 const HALO_RADIUS = 0.95
 
-const TICK_COUNT = 20
+/** Bright core is a small accent inside the body, not a dominant sphere. */
+const CORE_RADIUS_RATIO = 0.15
+const CORE_RADIUS = BODY_RADIUS * CORE_RADIUS_RATIO
+
+const TICK_COUNT = 45
 const TICK_RADIUS = 0.68
 const TICK_WIDTH = 0.03
 const TICK_LENGTH = 0.1
@@ -50,6 +64,25 @@ const GREY = '#a0b4cc'
 const WHITE = '#ffffff'
 
 const LABEL_OFFSET_Y = -(HALO_RADIUS + 0.22)
+const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
+const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
+
+/**
+ * Per-layer z offsets so the (visually transparent) halo never composites
+ * OVER the opaque body/core — everything otherwise sits at the group's
+ * local origin (z=0), which would let render order + alpha blending paint
+ * the halo on top of, say, a white needs-input core and hue-tint it.
+ * Ordered back (halo, furthest) to front (ripple/reticle, closest).
+ */
+const HALO_Z = -0.02
+const BODY_Z = 0
+const CORE_Z = 0.01
+const RIPPLE_Z = 0.02
+const RETICLE_Z = 0.02
+
+/** Needs-input pill badge, positioned right of the planet (state sheet artboard 1f). */
+const BADGE_OFFSET_X = HALO_RADIUS + 0.18
+const BADGE_OFFSET_Y = BODY_RADIUS * 0.6
 
 export interface PlanetProps {
   session: ApiSession
@@ -67,6 +100,14 @@ export interface PlanetProps {
  * THREE.Color. three@0.162's `Color.setStyle` does not parse `oklch()`
  * strings, so the OKLCH -> linear-sRGB math (Björn Ottosson's OKLab) is
  * inlined here rather than passing the CSS string straight into a material.
+ *
+ * The matrices below produce LINEAR sRGB primaries — three's default
+ * working color space — so the result is loaded via
+ * `THREE.LinearSRGBColorSpace` (a no-op copy). Loading it as
+ * `THREE.SRGBColorSpace` instead would tell three the values are still
+ * gamma-encoded and re-linearize them, darkening every color and shifting
+ * its hue (pinned by `colors.test.ts` against independently computed CSS
+ * Color 4 reference hex values).
  */
 export function oklchTagColor(hue: number, lightness = 0.8, chroma = 0.13): THREE.Color {
   const hRad = (hue * Math.PI) / 180
@@ -86,9 +127,17 @@ export function oklchTagColor(hue: number, lightness = 0.8, chroma = 0.13): THRE
   const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
 
   const color = new THREE.Color()
-  color.setRGB(THREE.MathUtils.clamp(r, 0, 1), THREE.MathUtils.clamp(g, 0, 1), THREE.MathUtils.clamp(bl, 0, 1), THREE.SRGBColorSpace)
+  color.setRGB(
+    THREE.MathUtils.clamp(r, 0, 1),
+    THREE.MathUtils.clamp(g, 0, 1),
+    THREE.MathUtils.clamp(bl, 0, 1),
+    THREE.LinearSRGBColorSpace
+  )
   return color
 }
+
+/** Fixed dark matte body-disc color — not tag-hued, see `BODY_HUE` above. */
+const BODY_COLOR = oklchTagColor(BODY_HUE, BODY_LIGHTNESS, BODY_CHROMA)
 
 /**
  * Radial ring of thin instanced tick marks; rotated as a group in useFrame.
@@ -116,7 +165,11 @@ export function TickRing({
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2
       dummy.position.set(radius * Math.cos(angle), radius * Math.sin(angle), 0)
-      dummy.rotation.z = angle
+      // planeGeometry's long axis (length, local Y) defaults to pointing at
+      // 90°; adding 90° here aligns it with the radius direction at this
+      // tick's own placement angle, so ticks read as radial "clock marks"
+      // (matching the canvas) rather than tangential dashes.
+      dummy.rotation.z = angle + Math.PI / 2
       dummy.updateMatrix()
       meshRef.current.setMatrixAt(i, dummy.matrix)
     }
@@ -133,13 +186,19 @@ export function TickRing({
 
 /** One L-shaped corner bracket of the selection reticle. */
 function CornerBracket({ signX, signY, color }: { signX: 1 | -1; signY: 1 | -1; color: THREE.Color | string }) {
-  const cx = signX * BRACKET_INSET
-  const cy = signY * BRACKET_INSET
-  const points: [number, number, number][] = [
-    [cx - signX * BRACKET_LENGTH, cy, 0],
-    [cx, cy, 0],
-    [cx, cy - signY * BRACKET_LENGTH, 0],
-  ]
+  // Memoized: a fresh array reference every render makes drei's <Line> tear
+  // down and rebuild its live geometry/material each time the parent
+  // re-renders, even though these 4 points never actually change.
+  const points = useMemo<[number, number, number][]>(() => {
+    const cx = signX * BRACKET_INSET
+    const cy = signY * BRACKET_INSET
+    return [
+      [cx - signX * BRACKET_LENGTH, cy, 0],
+      [cx, cy, 0],
+      [cx, cy - signY * BRACKET_LENGTH, 0],
+    ]
+  }, [signX, signY])
+
   return <Line points={points} color={color} lineWidth={1} transparent opacity={0.85} />
 }
 
@@ -156,7 +215,7 @@ function SelectionReticle({ color, groupRef }: { color: THREE.Color | string; gr
   }, [])
 
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} position={[0, 0, RETICLE_Z]}>
       <Line
         points={ringPoints}
         color={color}
@@ -172,6 +231,37 @@ function SelectionReticle({ color, groupRef }: { color: THREE.Color | string; gr
       <CornerBracket signX={1} signY={-1} color={color} />
       <CornerBracket signX={-1} signY={-1} color={color} />
     </group>
+  )
+}
+
+/** "NEEDS INPUT" pill badge — mono, blinking dot, right of the planet (state sheet artboard 1f). */
+function NeedsInputBadge() {
+  return (
+    <Html position={[BADGE_OFFSET_X, BADGE_OFFSET_Y, CORE_Z]} style={{ pointerEvents: 'none' }}>
+      <span
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '3px 8px',
+          borderRadius: 999,
+          background: 'rgba(6,10,20,.85)',
+          border: '1px solid rgba(240,248,255,.6)',
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          fontSize: 9.5,
+          letterSpacing: '0.1em',
+          color: '#fff',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        <span
+          aria-hidden
+          className="orbital-pulse"
+          style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff' }}
+        />
+        NEEDS INPUT
+      </span>
+    </Html>
   )
 }
 
@@ -203,7 +293,7 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
     if (haloMaterialRef.current) {
       const breathing =
-        visuals.haloOpacity > 0 && session.status === 'working'
+        visuals.haloOpacity > 0 && visuals.haloBreathes
           ? visuals.haloOpacity *
             (1 - HALO_BREATH_AMPLITUDE / 2 + (HALO_BREATH_AMPLITUDE / 2) * Math.sin(state.clock.elapsedTime * HALO_BREATH_SPEED))
           : visuals.haloOpacity
@@ -234,17 +324,22 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
   return (
     <group position={[x, y, 0]} scale={scale} onClick={onClick ? handleClick : undefined}>
-      <mesh>
+      <mesh position={[0, 0, HALO_Z]}>
         <circleGeometry args={[HALO_RADIUS, 48]} />
         <meshBasicMaterial ref={haloMaterialRef} color={color} transparent opacity={visuals.haloOpacity} depthWrite={false} />
       </mesh>
 
-      <mesh>
+      <mesh position={[0, 0, BODY_Z]}>
+        <circleGeometry args={[BODY_RADIUS, 48]} />
+        <meshBasicMaterial color={BODY_COLOR} transparent opacity={visuals.dimmed ? ENDED_LINE_OPACITY : 1} />
+      </mesh>
+
+      <mesh position={[0, 0, BODY_Z]}>
         <ringGeometry args={[ATMOSPHERE_INNER, ATMOSPHERE_OUTER, 64]} />
         <meshBasicMaterial color={color} transparent opacity={visuals.dimmed ? ENDED_LINE_OPACITY : 1} depthWrite={false} />
       </mesh>
 
-      <group ref={tickGroupRef}>
+      <group ref={tickGroupRef} position={[0, 0, BODY_Z]}>
         <TickRing
           count={TICK_COUNT}
           radius={TICK_RADIUS}
@@ -256,14 +351,14 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
       </group>
 
       {!visuals.dimmed && (
-        <mesh ref={coreRef}>
+        <mesh ref={coreRef} position={[0, 0, CORE_Z]}>
           <circleGeometry args={[CORE_RADIUS, 32]} />
           <meshBasicMaterial color={coreColor} />
         </mesh>
       )}
 
       {visuals.rippleActive && (
-        <mesh ref={rippleRef}>
+        <mesh ref={rippleRef} position={[0, 0, RIPPLE_Z]}>
           <ringGeometry args={[RIPPLE_INNER, RIPPLE_OUTER, 48]} />
           <meshBasicMaterial color={WHITE} transparent opacity={1} depthWrite={false} />
         </mesh>
@@ -271,13 +366,15 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
       {visuals.reticle && <SelectionReticle color={color} groupRef={reticleGroupRef} />}
 
+      {visuals.rippleActive && <NeedsInputBadge />}
+
       <Html center position={[0, LABEL_OFFSET_Y, 0]} style={{ pointerEvents: 'none' }}>
         <span
           style={{
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 11,
             letterSpacing: '0.06em',
-            color: 'rgba(220,235,255,.85)',
+            color: visuals.dimmed ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
             whiteSpace: 'nowrap',
           }}
         >
