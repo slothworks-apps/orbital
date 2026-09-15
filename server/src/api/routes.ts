@@ -183,6 +183,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .onConflictDoNothing()
         .run();
     }
+    const newRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, newId)).get() as SessionRow;
+    ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, newRow) });
     return { ok: true, sessionId: newId };
   });
 

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
+import { reportError } from '../lib/errors'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 
@@ -9,6 +10,8 @@ export interface ClearDialogProps {
   open: boolean
   sessionId: string | null
   onClose: () => void
+  /** Called with the cleared session's id right after a successful `clearSession` — lets the caller drop any cached data (e.g. DetailPanel's lineage cache) keyed to it, since a clear can change what `getSession` would now report. */
+  onCleared?: (id: string) => void
 }
 
 /**
@@ -19,10 +22,21 @@ export interface ClearDialogProps {
  * `confirm_before_clear: 'false'` so `DetailPanel`'s header Clear button
  * skips this dialog entirely next time (clear-only, per the task ruling).
  */
-export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
+export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialogProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
-  const session = useOrbital((s) => (sessionId ? s.sessions[sessionId] : undefined))
   const tags = useOrbital(useShallow((s) => s.tags))
+
+  // Captured at the moment the dialog opens, not the live `sessionId` prop —
+  // see StopDialog for the same reasoning: the selection can change
+  // elsewhere while this dialog is still open.
+  const [targetId, setTargetId] = useState<string | null>(null)
+  const wasOpenRef = useRef(false)
+  useEffect(() => {
+    if (open && !wasOpenRef.current) setTargetId(sessionId)
+    wasOpenRef.current = open
+  }, [open, sessionId])
+
+  const session = useOrbital((s) => (targetId ? s.sessions[targetId] : undefined))
 
   const [lineageLength, setLineageLength] = useState<number | null>(null)
   const [dontAskAgain, setDontAskAgain] = useState(false)
@@ -32,12 +46,13 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
     if (!open) {
       setDontAskAgain(false)
       setLineageLength(null)
+      setPending(false)
       return
     }
-    if (!sessionId) return
+    if (!targetId) return
     let cancelled = false
     api
-      .getSession(sessionId)
+      .getSession(targetId)
       .then(({ lineage }) => {
         if (!cancelled) setLineageLength(lineage.length)
       })
@@ -48,23 +63,38 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
     return () => {
       cancelled = true
     }
-  }, [open, sessionId])
+  }, [open, targetId])
+
+  async function persistDontAskAgain() {
+    if (!dontAskAgain) return
+    try {
+      // Await the API call BEFORE touching the store — a rejected PATCH
+      // must never leave the store claiming a preference the server never
+      // actually saved.
+      await api.patchSettings({ confirm_before_clear: 'false' })
+      useOrbital.setState((state) => ({
+        settings: { ...state.settings, confirm_before_clear: 'false' },
+      }))
+    } catch (err) {
+      reportError(err, 'Failed to save "don\'t ask again"')
+      // Non-fatal to the clear itself — the user's primary action (clearing)
+      // still proceeds; only the "don't ask again" preference didn't stick.
+    }
+  }
 
   async function handleClear(startNew: boolean) {
-    if (!sessionId || pending) return
+    if (!targetId || pending) return
     setPending(true)
     try {
-      if (dontAskAgain) {
-        useOrbital.setState((state) => ({
-          settings: { ...state.settings, confirm_before_clear: 'false' },
-        }))
-        await api.patchSettings({ confirm_before_clear: 'false' })
-      }
-      const result = await api.clearSession(sessionId, startNew)
+      await persistDontAskAgain()
+      const result = await api.clearSession(targetId, startNew)
+      onCleared?.(targetId)
       if (startNew && result.sessionId) {
         void useOrbital.getState().select(result.sessionId)
       }
       onClose()
+    } catch (err) {
+      reportError(err, 'Failed to clear session')
     } finally {
       setPending(false)
     }
@@ -79,7 +109,7 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
   return (
     <Dialog
       open={open}
-      title="/CLEAR — Clear and start a new session?"
+      title="/clear — Clear and start a new session?"
       onClose={onClose}
       footer={
         <>

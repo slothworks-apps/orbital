@@ -3,35 +3,34 @@ import type { KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
+import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
 import { Badge } from '../ui/Badge'
 import { Chip } from '../ui/Chip'
 import { Button } from '../ui/Button'
-import { TextArea } from '../ui/Input'
+import { Input, TextArea } from '../ui/Input'
 import { Transcript } from './Transcript'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { shortenPath } from '../lib/format'
 
-/** Sets the shared toast for a failed fire-and-forget API call kicked off
- * directly from this component (rename/tag-toggle), mirroring the pattern
- * `sendPrompt` already uses in the store for the same class of error. */
-function reportError(err: unknown, fallback: string) {
-  const message = err instanceof Error ? err.message : fallback
-  useOrbital.setState({ toast: { kind: 'error', message } })
-}
+/** Roughly Claude's context window, in tokens — the denominator for the
+ * header's context-usage bar. Not read from settings/the API; it's a fixed
+ * budget the bar is scaled against. */
+const CONTEXT_BUDGET = 200_000
 
-function extractOutputTokens(usage: unknown): number | undefined {
+function extractUsageTokens(usage: unknown): { total: number } | undefined {
   if (!usage || typeof usage !== 'object') return undefined
-  const value = (usage as Record<string, unknown>).output_tokens
-  return typeof value === 'number' ? value : undefined
+  const u = usage as Record<string, unknown>
+  const num = (key: string) => (typeof u[key] === 'number' ? (u[key] as number) : 0)
+  return { total: num('input_tokens') + num('cache_read_input_tokens') + num('output_tokens') }
 }
 
 /**
  * Right-hand detail panel (artboard 1b): editable header (title, cwd, tag
- * chips, permission/status badges, token usage, lineage dots), the
- * session's transcript + live subagents strip, and a footer that varies by
- * session kind — a prompt composer for web/ended sessions, or a read-only
+ * chips, permission/status badges, token usage + context bar, lineage dots),
+ * the session's transcript + live subagents strip, and a footer that varies
+ * by session kind — a prompt composer for web/ended sessions, or a read-only
  * bar for a session still live in a terminal (which this UI can never take
  * over; the server's 409 on `POST .../messages` is the real backstop).
  */
@@ -47,16 +46,25 @@ export function DetailPanel() {
   const sendPrompt = useOrbital((s) => s.sendPrompt)
 
   const [titleDraft, setTitleDraft] = useState('')
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [lineageCache, setLineageCache] = useState<Record<string, string[]>>({})
 
-  // Reseed local edit state whenever the selection (or its title) changes —
-  // not on every store update, so mid-edit keystrokes aren't clobbered by
-  // e.g. a WS status event for the same session.
+  // Prompt draft is reset ONLY when the selected session actually changes —
+  // never on a title/session update for the SAME session (a rename firing
+  // mid-draft used to wipe whatever the user had typed; see fix round 2).
   useEffect(() => {
-    setTitleDraft(session?.title ?? '')
     setPrompt('')
-  }, [id, session?.title])
+    setIsEditingTitle(false)
+  }, [id])
+
+  // Title draft reseeds whenever the session (or its title) changes, but
+  // never while the field is actively being edited — a WS-delivered upsert
+  // for the same session must not clobber in-progress keystrokes.
+  useEffect(() => {
+    if (isEditingTitle) return
+    setTitleDraft(session?.title ?? '')
+  }, [id, session?.title, isEditingTitle])
 
   // Lazily fetch + cache the lineage chain per session id (component state
   // per the brief — `sessions` doesn't carry `lineage`, only `getSession`
@@ -80,38 +88,68 @@ export function DetailPanel() {
 
   if (!id) return null
 
+  function invalidateLineage(clearedId: string) {
+    setLineageCache((cache) => {
+      if (!(clearedId in cache)) return cache
+      const next = { ...cache }
+      delete next[clearedId]
+      return next
+    })
+  }
+
   function commitTitle() {
+    setIsEditingTitle(false)
     if (!id || !session) return
     const next = titleDraft.trim()
     if (!next || next === session.title) {
       setTitleDraft(session.title)
       return
     }
+    const previousTitle = session.title
     useOrbital.setState((state) => {
       const current = state.sessions[id]
       if (!current) return state
       return { sessions: { ...state.sessions, [id]: { ...current, title: next } } }
     })
-    api.renameSession(id, next).catch((err) => reportError(err, 'Failed to rename session'))
+    api.renameSession(id, next).catch((err) => {
+      useOrbital.setState((state) => {
+        const current = state.sessions[id]
+        if (!current) return state
+        return { sessions: { ...state.sessions, [id]: { ...current, title: previousTitle } } }
+      })
+      setTitleDraft(previousTitle)
+      reportError(err, 'Failed to rename session')
+    })
   }
 
   function toggleTag(tagId: number) {
     if (!id || !session) return
-    const nextIds = session.tagIds.includes(tagId)
-      ? session.tagIds.filter((t) => t !== tagId)
-      : [...session.tagIds, tagId]
+    const previousTagIds = session.tagIds
+    const nextIds = previousTagIds.includes(tagId)
+      ? previousTagIds.filter((t) => t !== tagId)
+      : [...previousTagIds, tagId]
     useOrbital.setState((state) => {
       const current = state.sessions[id]
       if (!current) return state
       return { sessions: { ...state.sessions, [id]: { ...current, tagIds: nextIds } } }
     })
-    api.setSessionTags(id, nextIds).catch((err) => reportError(err, 'Failed to update tags'))
+    api.setSessionTags(id, nextIds).catch((err) => {
+      useOrbital.setState((state) => {
+        const current = state.sessions[id]
+        if (!current) return state
+        return { sessions: { ...state.sessions, [id]: { ...current, tagIds: previousTagIds } } }
+      })
+      reportError(err, 'Failed to update tags')
+    })
   }
 
   function handleClearClick() {
     if (!id) return
     if (settings.confirm_before_clear === 'false') {
-      void api.clearSession(id, false).catch((err) => reportError(err, 'Failed to clear session'))
+      void api
+        .clearSession(id, false)
+        .then(() => invalidateLineage(id))
+        .catch((err) => reportError(err, 'Failed to clear session'))
       return
     }
     setDialog('clear')
@@ -132,17 +170,22 @@ export function DetailPanel() {
   }
 
   const lineage = lineageCache[id]
-  const outputTokens = extractOutputTokens(usage)
+  const usageTokens = extractUsageTokens(usage)
+  const contextPercent =
+    usageTokens !== undefined ? Math.min(100, Math.round((usageTokens.total / CONTEXT_BUDGET) * 100)) : undefined
   const isTerminalLive = session?.source === 'terminal' && session.status !== 'ended'
+  const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
 
   return (
     <Panel side="right" className="flex h-full flex-col gap-3 overflow-hidden p-4">
       <div className="flex flex-col gap-2 border-b border-panel-border pb-3">
         <div className="flex items-center gap-2">
-          <input
+          <Input
+            variant="inline"
             aria-label="Session title"
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
+            onFocus={() => setIsEditingTitle(true)}
             onBlur={commitTitle}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -150,7 +193,7 @@ export function DetailPanel() {
                 ;(e.target as HTMLInputElement).blur()
               }
             }}
-            className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 font-sans text-sm font-semibold text-text-bright focus:border-panel-border focus:outline-none"
+            className="min-w-0 flex-1"
           />
           {lineage && lineage.length > 0 && (
             <span aria-label="Lineage" className="flex shrink-0 items-center gap-1">
@@ -190,23 +233,34 @@ export function DetailPanel() {
               </div>
             )}
 
-            {outputTokens !== undefined && (
-              <div className="font-mono text-[11px] text-text-muted">Tokens: {outputTokens}</div>
+            {usageTokens !== undefined && contextPercent !== undefined && (
+              <div className="flex flex-col gap-1" aria-label="Context usage">
+                <div className="flex items-center justify-between font-mono text-[11px] text-text-muted">
+                  <span>{usageTokens.total.toLocaleString()} tokens</span>
+                  <span>{contextPercent}%</span>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label="Context usage"
+                  aria-valuenow={contextPercent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  className="h-1 w-full overflow-hidden rounded-full bg-white/10"
+                >
+                  <div className="h-full rounded-full bg-text-soft" style={{ width: `${contextPercent}%` }} />
+                </div>
+              </div>
             )}
 
             {subagents.length > 0 && (
               <div className="flex flex-wrap gap-1.5" aria-label="Subagents">
                 {subagents.map((agent) => (
-                  <span
+                  <Chip
                     key={agent.id}
-                    className="inline-flex items-center gap-1 rounded-full border border-panel-border px-2 py-0.5 font-mono text-[11px] text-text-soft"
-                  >
-                    <span
-                      aria-hidden
-                      className={`h-1.5 w-1.5 rounded-full ${agent.state === 'working' ? 'orbital-pulse bg-text-soft' : 'bg-text-muted'}`}
-                    />
-                    {agent.name} · {agent.state}
-                  </span>
+                    label={`${agent.name} · ${agent.state}`}
+                    dot
+                    pulse={agent.state === 'working'}
+                  />
                 ))}
               </div>
             )}
@@ -230,7 +284,7 @@ export function DetailPanel() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handlePromptKeyDown}
-              placeholder="Send a message…"
+              placeholder={promptPlaceholder}
               rows={2}
             />
             <div className="flex justify-end gap-2">
@@ -248,7 +302,12 @@ export function DetailPanel() {
       </div>
 
       <StopDialog open={dialog === 'stop'} sessionId={id} onClose={() => setDialog(null)} />
-      <ClearDialog open={dialog === 'clear'} sessionId={id} onClose={() => setDialog(null)} />
+      <ClearDialog
+        open={dialog === 'clear'}
+        sessionId={id}
+        onClose={() => setDialog(null)}
+        onCleared={invalidateLineage}
+      />
     </Panel>
   )
 }

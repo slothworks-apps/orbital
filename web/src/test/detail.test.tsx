@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ApiSession, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
@@ -123,17 +123,32 @@ describe('DetailPanel header', () => {
     expect(screen.getByText(/WORKING/)).toBeInTheDocument()
   })
 
-  it('renders output_tokens from usage[id] when present', async () => {
+  it('renders a token-stats row and a context-usage bar from turn_result usage', async () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a' }) },
-      usage: { a: { output_tokens: 4242 } },
+      // 1000 + 500 + 2242 = 3742 tokens -> round(3742 / 200_000 * 100) = 2%
+      usage: { a: { input_tokens: 1000, cache_read_input_tokens: 500, output_tokens: 2242 } },
       ui: { selectedId: 'a' },
     })
 
     render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(screen.getByText(/4242/)).toBeInTheDocument()
+    expect(screen.getByText(/3,742/)).toBeInTheDocument()
+    const bar = screen.getByRole('progressbar', { name: /context usage/i })
+    expect(bar).toHaveAttribute('aria-valuenow', '2')
+  })
+
+  it('does not render the context-usage bar when there is no usage yet', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 
   it('renames the session on Enter, updating the store optimistically and firing the API', async () => {
@@ -172,6 +187,44 @@ describe('DetailPanel header', () => {
     expect(useOrbital.getState().sessions.a.title).toBe('Blurred title')
   })
 
+  it('rolls back the optimistic rename and shows a toast when renameSession rejects', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.renameSession).mockRejectedValue(new Error('server exploded'))
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', title: 'Old title' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    const titleInput = screen.getByDisplayValue('Old title')
+    await user.clear(titleInput)
+    await user.type(titleInput, 'Rejected title{Enter}')
+
+    await waitFor(() => expect(useOrbital.getState().sessions.a.title).toBe('Old title'))
+    expect(screen.getByDisplayValue('Old title')).toBeInTheDocument()
+    expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'server exploded' })
+  })
+
+  it('does not wipe an in-progress prompt draft when the title is renamed (C1 regression)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.renameSession).mockResolvedValue({ ok: true })
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', title: 'Old title', source: 'web', status: 'idle' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    const promptBox = screen.getByRole('textbox', { name: /prompt/i })
+    await user.type(promptBox, 'a prompt in progress')
+
+    const titleInput = screen.getByDisplayValue('Old title')
+    await user.clear(titleInput)
+    await user.type(titleInput, 'New title{Enter}')
+
+    await waitFor(() => expect(useOrbital.getState().sessions.a.title).toBe('New title'))
+    expect(promptBox).toHaveValue('a prompt in progress')
+  })
+
   it('toggles tag membership on click, updating the store optimistically and calling setSessionTags', async () => {
     const user = userEvent.setup()
     vi.mocked(api.setSessionTags).mockResolvedValue({ ok: true })
@@ -191,6 +244,21 @@ describe('DetailPanel header', () => {
     await user.click(screen.getByRole('button', { name: 'personal' }))
     expect(api.setSessionTags).toHaveBeenCalledWith('a', [2])
     expect(useOrbital.getState().sessions.a.tagIds).toEqual([2])
+  })
+
+  it('rolls back the optimistic tag toggle and shows a toast when setSessionTags rejects', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.setSessionTags).mockRejectedValue(new Error('tags server down'))
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', tagIds: [1] }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await user.click(screen.getByRole('button', { name: 'work' }))
+
+    await waitFor(() => expect(useOrbital.getState().sessions.a.tagIds).toEqual([1]))
+    expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'tags server down' })
   })
 
   it('shows a subagents strip with name and state when any are present', async () => {
@@ -349,6 +417,36 @@ describe('DetailPanel footer', () => {
     expect(screen.getByRole('textbox', { name: /prompt/i })).toBeInTheDocument()
     expect(screen.queryByText(/runs in terminal/i)).not.toBeInTheDocument()
   })
+
+  it('shows a "Continue conversation…" placeholder for an ended session (C4)', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'ended' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(screen.getByRole('textbox', { name: /prompt/i })).toHaveAttribute(
+      'placeholder',
+      'Continue conversation…'
+    )
+  })
+
+  it('shows a generic "Send a message…" placeholder for a non-ended session', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(screen.getByRole('textbox', { name: /prompt/i })).toHaveAttribute(
+      'placeholder',
+      'Send a message…'
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -378,7 +476,10 @@ describe('DetailPanel clear flow', () => {
 
     expect(api.clearSession).not.toHaveBeenCalled()
     expect(useOrbital.getState().ui.dialog).toBe('clear')
-    expect(screen.getByRole('dialog', { name: /clear and start a new session/i })).toBeInTheDocument()
+    const clearDialog = screen.getByRole('dialog', { name: /clear and start a new session/i })
+    expect(clearDialog).toBeInTheDocument()
+    // Spec uses lowercase "/clear", not "/CLEAR".
+    expect(clearDialog).toHaveAccessibleName('/clear — Clear and start a new session?')
   })
 
   it('skips the dialog and clears directly when confirm_before_clear is "false"', async () => {
@@ -464,6 +565,96 @@ describe('DetailPanel clear flow', () => {
     expect(api.clearSession).not.toHaveBeenCalled()
     expect(useOrbital.getState().ui.dialog).toBe(null)
   })
+
+  it('shows a toast and keeps the dialog open when clearSession rejects (I6)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.clearSession).mockRejectedValue(new Error('clear failed'))
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      ui: { selectedId: 'a', dialog: 'clear' },
+    })
+
+    render(<DetailPanel />)
+    await user.click(screen.getByRole('button', { name: /clear only/i }))
+
+    await waitFor(() =>
+      expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'clear failed' })
+    )
+    expect(useOrbital.getState().ui.dialog).toBe('clear')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('does not persist confirm_before_clear and still reports a toast when patchSettings rejects (I7)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.clearSession).mockResolvedValue({ ok: true })
+    vi.mocked(api.patchSettings).mockRejectedValue(new Error('settings unreachable'))
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      ui: { selectedId: 'a', dialog: 'clear' },
+    })
+
+    render(<DetailPanel />)
+    await user.click(screen.getByRole('checkbox', { name: /don't ask again/i }))
+    await user.click(screen.getByRole('button', { name: /clear only/i }))
+
+    await waitFor(() =>
+      expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'settings unreachable' })
+    )
+    // The rejected PATCH must never leave the store claiming the preference stuck.
+    expect(useOrbital.getState().settings.confirm_before_clear).toBeUndefined()
+    // The clear itself still proceeds even though the preference failed to save.
+    expect(api.clearSession).toHaveBeenCalledWith('a', false)
+  })
+
+  it('invalidates the cached lineage for a session after clearing it, so it refetches', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.clearSession).mockResolvedValue({ ok: true })
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      ui: { selectedId: 'a', dialog: 'clear' },
+    })
+
+    render(<DetailPanel />)
+    // Initial lineage fetch (DetailPanel's header effect + ClearDialog's own preview fetch).
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+    const callsBeforeClear = vi.mocked(api.getSession).mock.calls.length
+
+    await user.click(screen.getByRole('button', { name: /clear only/i }))
+    await waitFor(() => expect(api.clearSession).toHaveBeenCalledWith('a', false))
+
+    // Selection is unchanged (clear-only) and the cache entry for 'a' was
+    // dropped, so DetailPanel's lineage effect must refire for the same id.
+    await waitFor(() =>
+      expect(vi.mocked(api.getSession).mock.calls.length).toBeGreaterThan(callsBeforeClear)
+    )
+  })
+
+  it('acts on the session the dialog was opened for even if the selection changes while it is open', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.clearSession).mockResolvedValue({ ok: true })
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', source: 'web' }),
+        b: makeSession({ id: 'b', source: 'web' }),
+      },
+      ui: { selectedId: 'a', dialog: 'clear' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    // Selection changes elsewhere (e.g. a sidebar click) while the dialog
+    // the user opened for 'a' is still open.
+    await act(async () => {
+      useOrbital.setState((state) => ({ ui: { ...state.ui, selectedId: 'b' } }))
+      await Promise.resolve()
+    })
+
+    await user.click(screen.getByRole('button', { name: /clear only/i }))
+
+    expect(api.clearSession).toHaveBeenCalledWith('a', false)
+    expect(api.clearSession).not.toHaveBeenCalledWith('b', expect.anything())
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -514,5 +705,121 @@ describe('DetailPanel stop flow', () => {
 
     expect(api.interrupt).not.toHaveBeenCalled()
     expect(useOrbital.getState().ui.dialog).toBe(null)
+  })
+
+  it('shows a toast and keeps the dialog open (does not close as-if-success) when interrupt rejects (I6)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.interrupt).mockRejectedValue(new Error('interrupt failed'))
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'working' }) },
+      ui: { selectedId: 'a', dialog: 'stop' },
+    })
+
+    render(<DetailPanel />)
+    await user.click(screen.getByRole('button', { name: /stop turn/i }))
+
+    await waitFor(() =>
+      expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'interrupt failed' })
+    )
+    expect(useOrbital.getState().ui.dialog).toBe('stop')
+    expect(screen.getByRole('dialog', { name: /stop the running turn/i })).toBeInTheDocument()
+  })
+
+  it('disables "Stop turn" while the interrupt request is in flight', async () => {
+    const user = userEvent.setup()
+    let resolveInterrupt!: (v: { ok: boolean }) => void
+    vi.mocked(api.interrupt).mockReturnValue(
+      new Promise((resolve) => {
+        resolveInterrupt = resolve
+      })
+    )
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'working' }) },
+      ui: { selectedId: 'a', dialog: 'stop' },
+    })
+
+    render(<DetailPanel />)
+    const stopTurnButton = screen.getByRole('button', { name: /stop turn/i })
+    await user.click(stopTurnButton)
+
+    expect(stopTurnButton).toBeDisabled()
+
+    resolveInterrupt({ ok: true })
+    await waitFor(() => expect(useOrbital.getState().ui.dialog).toBe(null))
+  })
+
+  it('shows the tool call currently mid-edit in the dialog (C3)', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'working' }) },
+      transcripts: {
+        a: [
+          { id: '1', role: 'user', text: 'run the tests' },
+          {
+            id: '2',
+            role: 'tool_use',
+            toolName: 'Bash',
+            toolInput: { command: 'npm test' },
+            toolUseId: 'tu1',
+          },
+        ],
+      },
+      ui: { selectedId: 'a', dialog: 'stop' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    const dialog = screen.getByRole('dialog', { name: /stop the running turn/i })
+    expect(within(dialog).getByText(/Bash: npm test/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Bash: npm test · running/)).toBeInTheDocument()
+  })
+
+  it('does not show a mid-edit tool row when nothing is running', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'working' }) },
+      transcripts: {
+        a: [
+          {
+            id: '2',
+            role: 'tool_use',
+            toolName: 'Bash',
+            toolInput: { command: 'npm test' },
+            toolUseId: 'tu1',
+          },
+          { id: '3', role: 'tool_result', toolUseId: 'tu1', text: 'PASS' },
+        ],
+      },
+      ui: { selectedId: 'a', dialog: 'stop' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    const dialog = screen.getByRole('dialog', { name: /stop the running turn/i })
+    expect(within(dialog).queryByText(/Bash: npm test/)).not.toBeInTheDocument()
+  })
+
+  it('acts on the session the dialog was opened for even if the selection changes while it is open', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.interrupt).mockResolvedValue({ ok: true })
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', source: 'web', status: 'working' }),
+        b: makeSession({ id: 'b', source: 'web', status: 'working' }),
+      },
+      ui: { selectedId: 'a', dialog: 'stop' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+    await act(async () => {
+      useOrbital.setState((state) => ({ ui: { ...state.ui, selectedId: 'b' } }))
+      await Promise.resolve()
+    })
+
+    await user.click(screen.getByRole('button', { name: /stop turn/i }))
+
+    await waitFor(() => expect(api.interrupt).toHaveBeenCalledWith('a'))
+    expect(api.interrupt).not.toHaveBeenCalledWith('b')
   })
 })

@@ -57,6 +57,22 @@ export function pairMessages(messages: ChatMessage[]): TranscriptItem[] {
   return items
 }
 
+/**
+ * The most recent tool call still awaiting its result — i.e. what's
+ * mid-edit right now — or `undefined` if nothing is running. Reuses
+ * `pairMessages` (built for `Transcript`'s own rendering) rather than
+ * re-deriving the tool_use/tool_result pairing logic, so `StopDialog` can
+ * show the same "what's running" row the transcript itself would.
+ */
+export function openToolUse(messages: ChatMessage[]): ChatMessage | undefined {
+  const items = pairMessages(messages)
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i]
+    if (item.kind === 'tool' && !item.toolResult) return item.toolUse
+  }
+  return undefined
+}
+
 /** Minimal shape `isNearBottom` needs from a scroll container — lets tests
  * inject fixture values, since jsdom never computes real scroll metrics. */
 export interface ScrollMetrics {

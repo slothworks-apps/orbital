@@ -6,12 +6,17 @@ export interface ChipProps {
   active?: boolean
   /** Hue (0-360). When given, the dot and border are tinted via tagColor(hue) — never via a state/hue swap. */
   hue?: number
+  /** Renders a leading dot without hue tinting (neutral, `currentColor`) — for non-tag indicators (e.g. a subagent's live state) that have no hue of their own. Implied when `hue` is set. */
+  dot?: boolean
+  /** Animates the dot with the shared pulse treatment (e.g. a subagent still working). Only visible when a dot is actually rendered (`hue` or `dot`). */
+  pulse?: boolean
   onClick?: () => void
   onRemove?: () => void
 }
 
-export function Chip({ label, active = false, hue, onClick, onRemove }: ChipProps) {
+export function Chip({ label, active = false, hue, dot = false, pulse = false, onClick, onRemove }: ChipProps) {
   const interactive = Boolean(onClick)
+  const showDot = hue !== undefined || dot
   const style: CSSProperties | undefined =
     hue !== undefined ? { borderColor: tagColor(hue), color: tagColor(hue) } : undefined
 
@@ -44,8 +49,12 @@ export function Chip({ label, active = false, hue, onClick, onRemove }: ChipProp
         .filter(Boolean)
         .join(' ')}
     >
-      {hue !== undefined && (
-        <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: tagColor(hue) }} />
+      {showDot && (
+        <span
+          aria-hidden
+          className={['h-1.5 w-1.5 rounded-full', pulse ? 'orbital-pulse' : ''].filter(Boolean).join(' ')}
+          style={{ background: hue !== undefined ? tagColor(hue) : 'currentColor' }}
+        />
       )}
       <span>{label}</span>
       {onRemove && (

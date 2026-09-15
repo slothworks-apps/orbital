@@ -325,6 +325,19 @@ describe('REST routes', () => {
     expect(copiedTags).toHaveLength(1);
     expect(copiedTags[0].tagId).toBe(10);
   });
+
+  it('POST /api/sessions/:id/clear with startNew publishes an upsert for the new session on the sessions topic', async () => {
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s1/clear',
+      payload: { startNew: true },
+    });
+    expect(res.statusCode).toBe(200);
+    const newId = res.json().sessionId;
+    const upserts = received.filter((r) => r.event === 'upsert' && r.session.id === newId);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].session).toMatchObject({ id: newId, parentId: 's1', source: 'web' });
+  });
 });
 
 describe('buildServer smoke', () => {
