@@ -195,3 +195,12 @@ const MOON_VISUALS: Record<Subagent['state'], MoonVisuals> = {
 export function moonVisuals(state: Subagent['state']): MoonVisuals {
   return { ...MOON_VISUALS[state] }
 }
+
+/** Max characters shown in a planet's map label (design shows short names). */
+export const LABEL_MAX_CHARS = 26
+
+/** Shorten a session title for the map label, appending an ellipsis. */
+export function truncateLabel(title: string, max: number = LABEL_MAX_CHARS): string {
+  if (title.length <= max) return title
+  return `${title.slice(0, max - 1).trimEnd()}…`
+}

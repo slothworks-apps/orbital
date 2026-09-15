@@ -3,7 +3,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { planetVisuals } from './visuals'
+import { planetVisuals, truncateLabel } from './visuals'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
@@ -378,7 +378,7 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
             whiteSpace: 'nowrap',
           }}
         >
-          {session.title}
+          {truncateLabel(session.title)}
         </span>
       </Html>
     </group>

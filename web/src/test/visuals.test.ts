@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { SessionStatus, Subagent } from '../lib/types'
-import { planetVisuals, moonVisuals, type PlanetVisuals, type MoonVisuals } from '../map/visuals'
+import { planetVisuals, moonVisuals, truncateLabel, type PlanetVisuals, type MoonVisuals } from '../map/visuals'
 
 const PLANET_STATES: SessionStatus[] = ['working', 'idle', 'needs_input', 'ended']
 const MOON_STATES: Subagent['state'][] = [
@@ -166,5 +166,18 @@ describe('moonVisuals', () => {
     // Mutating one caller's result must never leak into another caller's.
     a.coreOpacity = 0
     expect(moonVisuals('working').coreOpacity).toBe(1)
+  })
+})
+
+describe('truncateLabel', () => {
+  it('passes short titles through unchanged', () => {
+    expect(truncateLabel('auth-refactor')).toBe('auth-refactor')
+  })
+
+  it('shortens long titles with an ellipsis at the cap', () => {
+    const long = 'Pomoz mi vymyslet finální název pro tento projekt a jeho moduly'
+    const out = truncateLabel(long)
+    expect(out.length).toBeLessThanOrEqual(26)
+    expect(out.endsWith('…')).toBe(true)
   })
 })
