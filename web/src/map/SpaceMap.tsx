@@ -214,8 +214,9 @@ export function SpaceMap() {
           />
         ))}
 
+        {/* zIndexRange keeps map text under the z-10 side panels and z-50 dialogs (drei's default range is in the millions). */}
         {model.labels.map((label) => (
-          <Html key={label.tagId} position={[label.x, label.y, 0]} center style={{ pointerEvents: 'none' }}>
+          <Html key={label.tagId} position={[label.x, label.y, 0]} center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
             <span
               style={{
                 fontFamily: "'JetBrains Mono', ui-monospace, monospace",

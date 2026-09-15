@@ -239,8 +239,10 @@ function SelectionReticle({ color, groupRef }: { color: THREE.Color | string; gr
 
 /** "NEEDS INPUT" pill badge — mono, blinking dot, right of the planet (state sheet artboard 1f). */
 function NeedsInputBadge() {
+  // zIndexRange keeps map text under the z-10 side panels and z-50 dialogs
+  // (drei's default range is in the millions).
   return (
-    <Html position={[BADGE_OFFSET_X, BADGE_OFFSET_Y, CORE_Z]} style={{ pointerEvents: 'none' }}>
+    <Html position={[BADGE_OFFSET_X, BADGE_OFFSET_Y, CORE_Z]} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
       <span
         style={{
           display: 'flex',
@@ -386,7 +388,7 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
       {visuals.rippleActive && <NeedsInputBadge />}
 
-      <Html center position={[0, LABEL_OFFSET_Y, 0]} style={{ pointerEvents: 'none' }}>
+      <Html center position={[0, LABEL_OFFSET_Y, 0]} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
         <span
           style={{
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
