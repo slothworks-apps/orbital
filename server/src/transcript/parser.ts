@@ -32,6 +32,7 @@ export function parseTranscript(text: string): TranscriptEntry[] {
 
 function textOf(content: string | Array<Record<string, unknown>>): string {
   if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
   return content
     .filter((b) => b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text as string)
@@ -72,6 +73,7 @@ export function entriesToMessages(entries: TranscriptEntry[]): ChatMessage[] {
       out.push({ id: `${e.uuid}:0`, role: e.type, text: content, ...base });
       continue;
     }
+    if (!Array.isArray(content)) continue;
     content.forEach((block, i) => {
       const id = `${e.uuid}:${i}`;
       if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {

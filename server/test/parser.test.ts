@@ -29,4 +29,27 @@ describe('entriesToMessages', () => {
     expect(msgs[2]).toMatchObject({ toolName: 'Bash', toolUseId: 't1' });
     expect(msgs[3]).toMatchObject({ toolUseId: 't1', text: '3 passing' });
   });
+
+  it('handles malformed content without throwing', () => {
+    const malformed = [
+      { type: 'assistant', uuid: 'a9', message: { role: 'assistant', content: null } },
+      { type: 'assistant', uuid: 'a10', message: { role: 'assistant' } },
+      { type: 'assistant', uuid: 'a11', message: { role: 'assistant', content: 42 } },
+    ];
+    expect(() => entriesToMessages(malformed as any)).not.toThrow();
+    expect(entriesToMessages(malformed as any)).toEqual([]);
+  });
+});
+
+describe('extractMeta', () => {
+  it('handles malformed content without throwing', () => {
+    const malformed = [
+      { type: 'user', uuid: 'u1', timestamp: '2026-09-01T10:00:00.000Z', message: { role: 'user', content: null } },
+      { type: 'assistant', uuid: 'a1', timestamp: '2026-09-01T10:00:05.000Z', message: { role: 'assistant' } },
+    ];
+    expect(() => extractMeta(malformed as any)).not.toThrow();
+    const meta = extractMeta(malformed as any);
+    expect(meta.title).toBe('');
+    expect(meta.messageCount).toBe(2);
+  });
 });
