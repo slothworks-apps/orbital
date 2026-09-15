@@ -32,3 +32,46 @@ body {
 .orbital-pulse {
   animation: orbital-pulse 1.8s ease-in-out infinite;
 }
+
+/* Sloth easter egg (SpaceMap): slow wander across the map + a gentle bob. */
+@keyframes orbital-drift {
+  0% {
+    transform: translate(0, 0) rotate(-8deg);
+  }
+  18% {
+    transform: translate(130px, -45px) rotate(6deg);
+  }
+  38% {
+    transform: translate(310px, 20px) rotate(18deg);
+  }
+  55% {
+    transform: translate(430px, -70px) rotate(2deg);
+  }
+  72% {
+    transform: translate(260px, -130px) rotate(-14deg);
+  }
+  88% {
+    transform: translate(90px, -80px) rotate(-22deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(-8deg);
+  }
+}
+
+@keyframes orbital-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-14px);
+  }
+}
+
+.orbital-sloth {
+  animation: orbital-drift 90s ease-in-out infinite;
+}
+
+.orbital-sloth-bob {
+  animation: orbital-bob 5s ease-in-out infinite;
+}
