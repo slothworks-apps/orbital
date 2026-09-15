@@ -89,7 +89,7 @@ describe('Settings', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Plan' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'plan' }))
 
     await waitFor(() =>
       expect(api.patchSettings).toHaveBeenCalledWith({ default_permission_mode: 'plan' })
@@ -176,7 +176,7 @@ describe('Settings', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Plan' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'plan' }))
 
     await waitFor(() =>
       expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'settings unreachable' })

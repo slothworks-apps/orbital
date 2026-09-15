@@ -451,7 +451,7 @@ describe('App: dialog ownership', () => {
     await renderApp()
 
     fireEvent.click(screen.getByRole('button', { name: /settings/i }))
-    expect(screen.getByText('Settings')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sessions' })).toBeInTheDocument()
     act(() => {
       useOrbital.getState().setDialog(null)
     })

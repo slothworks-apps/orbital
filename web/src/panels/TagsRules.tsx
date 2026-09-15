@@ -351,8 +351,11 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
         side="float"
         className="flex max-h-full w-full max-w-4xl flex-col gap-4 overflow-y-auto p-5"
       >
-        <div className="flex items-center justify-between">
-          <h2 className="font-mono text-sm font-semibold tracking-wide text-text-soft">Tags &amp; rules</h2>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="font-mono text-[10px] tracking-[0.25em] text-accent">SETTINGS</div>
+            <h2 className="text-lg font-semibold text-text-bright">Tags &amp; rules</h2>
+          </div>
           <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
             Close
           </Button>
@@ -372,6 +375,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                       style={{ background: tagColor(tag.hue) }}
                     />
                     <TagNameField tag={tag} onCommit={(name) => void handleRenameTag(tag.id, name)} />
+                    <span className="shrink-0 font-mono text-[10px] text-text-muted">hue {tag.hue}</span>
                     <Button
                       variant="danger"
                       size="sm"

@@ -45,6 +45,7 @@ const DEBOUNCE_MS = 400
 export function Settings({ open, onClose }: SettingsProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (open) setProjectDirDraft(settings.default_project_dir ?? '')
@@ -57,6 +58,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     try {
       await api.patchSettings(patch)
       useOrbital.setState((state) => ({ settings: { ...state.settings, ...patch } }))
+      setSaved(true)
     } catch (err) {
       reportError(err, 'Failed to save settings')
     }
@@ -94,11 +96,17 @@ export function Settings({ open, onClose }: SettingsProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-space/70 p-6 backdrop-blur-sm">
       <Panel side="float" className="flex max-h-full w-full max-w-3xl flex-col gap-4 overflow-hidden p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="font-mono text-sm font-semibold tracking-wide text-text-soft">Settings</h2>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
-            Close
-          </Button>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="font-mono text-[10px] tracking-[0.25em] text-accent">SETTINGS</div>
+            <h2 className="text-lg font-semibold text-text-bright">Sessions</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            {saved && <span className="font-mono text-[11px] text-text-muted">saved · just now</span>}
+            <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+              Close
+            </Button>
+          </div>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-[10rem_1fr] gap-6">
@@ -157,7 +165,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                     className={[
                       'h-7 w-7 rounded-md border font-mono text-xs',
                       lineageDepth === step
-                        ? 'border-text-bright bg-white/10 text-text-bright'
+                        ? 'border-accent bg-accent text-space'
                         : 'border-panel-border text-text-soft hover:bg-white/5',
                     ].join(' ')}
                   >
@@ -171,7 +179,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   className={[
                     'h-7 w-7 rounded-md border font-mono text-xs',
                     lineageDepth === 'Infinity'
-                      ? 'border-text-bright bg-white/10 text-text-bright'
+                      ? 'border-accent bg-accent text-space'
                       : 'border-panel-border text-text-soft hover:bg-white/5',
                   ].join(' ')}
                 >
