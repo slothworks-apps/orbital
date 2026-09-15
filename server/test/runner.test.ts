@@ -290,6 +290,16 @@ describe('Runner', () => {
     expect(new Set(ids).size).toBe(2);
   });
 
+  it('start() with resume of an active session throws (collision guard)', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFn();
+    const runner = new Runner({ hub, queryFn: fn as any });
+    await runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'plan' });
+    await expect(
+      runner.start({ cwd: '/p', prompt: 'y', permissionMode: 'plan', resume: 'web-1' }),
+    ).rejects.toThrow(/collision/);
+  });
+
   it('sdkToChatMessages: nextSeq is called once per content block, producing distinct ids', () => {
     let seq = 0;
     const nextSeq = () => ++seq;

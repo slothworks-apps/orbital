@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, max, ne, sql } from 'drizzle-orm';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
-import { effectiveTagIds, regenerateRuleTags, matchRule } from '../tags/rules.js';
+import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
   sessionColumns,
@@ -18,7 +18,8 @@ import {
 import type { Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
-import type { SessionRow, SessionStatus, TagRule } from '../types.js';
+import { toApiSession } from './shape.js';
+import type { PermissionMode, SessionRow, TagRule } from '../types.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -27,25 +28,6 @@ export interface RouteContext {
   projectsDir: string;
   hub: Hub;
   settings: { get(key: string): string; set(key: string, value: string): void };
-}
-
-function statusOf(ctx: RouteContext, row: SessionRow): SessionStatus {
-  const fromRunner = ctx.runner.status(row.id);
-  if (fromRunner) return fromRunner;
-  const live = ctx.registry.get(row.id);
-  if (live) return live.status;
-  return 'ended';
-}
-
-function toApi(ctx: RouteContext, row: SessionRow) {
-  return {
-    id: row.id, cwd: row.cwd, title: row.title,
-    firstAt: row.first_at, lastAt: row.last_at,
-    messageCount: row.message_count, source: row.source,
-    permissionMode: row.permission_mode, parentId: row.parent_id,
-    tagIds: effectiveTagIds(ctx.db, row.id),
-    status: statusOf(ctx, row),
-  };
 }
 
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
@@ -63,7 +45,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .all() as SessionRow[];
     if (q.source) rows = rows.filter((r) => r.source === q.source);
     if (q.q) rows = rows.filter((r) => r.title.toLowerCase().includes(q.q.toLowerCase()));
-    let sessionsOut = rows.map((r) => toApi(ctx, r));
+    let sessionsOut = rows.map((r) => toApiSession(ctx, r));
     if (q.tag) sessionsOut = sessionsOut.filter((s) => s.tagIds.includes(Number(q.tag)));
     return { sessions: sessionsOut.slice(offset, offset + limit) };
   });
@@ -85,7 +67,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .get() as { parent_id: string | null } | undefined;
       cursor = parent?.parent_id ?? null;
     }
-    return { session: toApi(ctx, row), lineage };
+    return { session: toApiSession(ctx, row), lineage };
   });
 
   app.get('/api/sessions/:id/messages', (req, reply) => {
@@ -130,19 +112,31 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .run();
     }
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow;
-    ctx.hub.publish('sessions', { event: 'upsert', session: toApi(ctx, row) });
+    ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
     return reply.code(201).send({ sessionId });
   });
 
-  app.post('/api/sessions/:id/messages', (req, reply) => {
+  app.post('/api/sessions/:id/messages', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { text } = req.body as { text: string };
     try {
       ctx.runner.send(id, text);
+      return { ok: true };
     } catch {
-      return reply.code(409).send({ error: 'session not active; use POST /api/sessions with resume' });
+      // Inactive in the runner — revive by resuming, unless it's live in a
+      // terminal (which owns the SDK process and can't be taken over).
+      const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+        | SessionRow
+        | undefined;
+      if (!row) return reply.code(404).send({ error: 'not found' });
+      if (ctx.registry.get(id)) {
+        return reply.code(409).send({ error: 'session is live in a terminal' });
+      }
+      const permissionMode = (row.permission_mode ??
+        ctx.settings.get('default_permission_mode')) as PermissionMode;
+      await ctx.runner.start({ cwd: row.cwd, prompt: text, permissionMode, resume: id });
+      return { ok: true, revived: true };
     }
-    return { ok: true };
   });
 
   app.post('/api/sessions/:id/interrupt', async (req) => {

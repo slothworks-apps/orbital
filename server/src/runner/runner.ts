@@ -105,6 +105,9 @@ export class Runner {
     resume?: string;
     model?: string;
   }): Promise<string> {
+    if (opts.resume && this.sessions.has(opts.resume)) {
+      throw new Error(`resume collision: session ${opts.resume} already active`);
+    }
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
     };

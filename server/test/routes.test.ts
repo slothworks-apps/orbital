@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
 import { sessions, sessionTags, settings as settingsTable, tags } from '../src/db/schema.js';
 import { registerRoutes } from '../src/api/routes.js';
-import { buildServer } from '../src/index.js';
+import { buildServer, publishLiveSession } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
 
 function makeApp() {
@@ -30,9 +30,12 @@ function makeApp() {
     get: (id: string) => (id === 's1' ? { sessionId: 's1', status: 'working' } : undefined),
     all: () => [{ sessionId: 's1', status: 'working' }],
   };
+  const startCalls: any[] = [];
   const runner = {
     status: () => undefined, active: () => [],
-    start: async () => 'web-9', send: () => {}, interrupt: async () => {}, end: async () => {},
+    start: async (body: any) => { startCalls.push(body); return 'web-9'; },
+    send: (id: string) => { throw new Error(`session ${id} is not active`); },
+    interrupt: async () => {}, end: async () => {},
   };
   const hub = new Hub();
   const app = Fastify();
@@ -50,7 +53,7 @@ function makeApp() {
           .run(),
     },
   });
-  return { app, db, runner, hub };
+  return { app, db, runner, hub, registry, startCalls };
 }
 
 /** Subscribes a fake socket to a Hub topic and collects published payloads. */
@@ -71,12 +74,16 @@ describe('REST routes', () => {
   let db: any;
   let runner: any;
   let hub: Hub;
+  let registry: any;
+  let startCalls: any[];
   beforeEach(() => {
     const result = makeApp();
     app = result.app;
     db = result.db;
     runner = result.runner;
     hub = result.hub;
+    registry = result.registry;
+    startCalls = result.startCalls;
   });
 
   it('GET /api/sessions lists by recency with merged status and tags', async () => {
@@ -187,6 +194,56 @@ describe('REST routes', () => {
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: 'web-9', status: 'ended' });
+  });
+
+  it('POST /sessions/:id/messages revives an ended session via resume', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'wake up' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, revived: true });
+    expect(startCalls.at(-1)).toMatchObject({ resume: 's2', prompt: 'wake up', cwd: '/w/y' });
+  });
+
+  it('POST /sessions/:id/messages 409s for a live terminal session', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s1/messages', payload: { text: 'hi' },
+    });
+    expect(res.statusCode).toBe(409); // s1 is live in the registry fake
+  });
+
+  it('POST /sessions/:id/messages 404s for an unknown session', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/does-not-exist/messages', payload: { text: 'hi' },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('registry upsert publishes REST-shaped session on the sessions topic', () => {
+    const received = subscribeFake(hub, 'sessions');
+    const live = {
+      sessionId: 's1', pid: 1, cwd: '/w/x', name: 'auth fix',
+      status: 'working' as const, kind: 'claude', startedAt: 0, updatedAt: 500,
+    };
+    publishLiveSession({ hub, db, registry: registry as any, runner: runner as any }, live);
+    const upserts = received.filter((r) => r.event === 'upsert');
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].session).toMatchObject({ id: 's1', status: 'working', tagIds: [10] });
+  });
+
+  it('registry upsert for a session with no DB row falls back to the live-only shape', () => {
+    const received = subscribeFake(hub, 'sessions');
+    const live = {
+      sessionId: 'term-9', pid: 1, cwd: '/w/z', name: 'untracked',
+      status: 'idle' as const, kind: 'claude', startedAt: 0, updatedAt: 700,
+    };
+    publishLiveSession({ hub, db, registry: registry as any, runner: runner as any }, live);
+    const upserts = received.filter((r) => r.event === 'upsert');
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].session).toMatchObject({
+      id: 'term-9', cwd: '/w/z', title: 'untracked', source: 'terminal',
+      status: 'idle', tagIds: [], lastAt: 700,
+    });
   });
 
   it('GET and PATCH /api/settings', async () => {

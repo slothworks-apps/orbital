@@ -5,17 +5,49 @@ import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { CONFIG } from './config.js';
-import { openDb } from './db/database.js';
-import { sessions, settings as settingsTable } from './db/schema.js';
+import { openDb, type OrbitalDb } from './db/database.js';
+import { sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
 import { indexProjects } from './indexer/indexer.js';
-import { SessionRegistry } from './watcher/registry.js';
+import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { Hub } from './api/hub.js';
 import { Runner, type QueryFn } from './runner/runner.js';
 import { registerRoutes } from './api/routes.js';
+import { toApiSession } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentTracker } from './transcript/subagents.js';
+import type { SessionRow } from './types.js';
 import chokidar from 'chokidar';
+
+/**
+ * Publishes a REST-shaped `ApiSession` on the `sessions` topic for a live
+ * terminal-registry session, so WS consumers get the same shape for both
+ * terminal-registry upserts and web-session creation (final-review ruling).
+ *
+ * `live.status` is passed straight through as the status override rather
+ * than recomputed via `ctx.registry`: this runs from `registry.on('upsert')`
+ * while the registry's internal map still holds the *previous* scan's
+ * state (it swaps in the new map only after emitting), so `ctx.registry.get`
+ * would not yet reflect `live` here.
+ */
+export function publishLiveSession(
+  ctx: { hub: Hub; db: OrbitalDb; registry: SessionRegistry; runner: Runner },
+  live: LiveSession,
+): void {
+  const row = ctx.db
+    .select(sessionColumns)
+    .from(sessions)
+    .where(eq(sessions.id, live.sessionId))
+    .get() as SessionRow | undefined;
+  const session = row
+    ? toApiSession(ctx, row, live.status)
+    : {
+        id: live.sessionId, cwd: live.cwd, title: live.name, firstAt: null,
+        lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
+        permissionMode: null, parentId: null, tagIds: [], status: live.status,
+      };
+  ctx.hub.publish('sessions', { event: 'upsert', session });
+}
 
 /**
  * Cross-site WebSocket hijacking guard (C2): the browser always sends an
@@ -86,10 +118,8 @@ export async function buildServer(overrides: {
     indexTimer = setTimeout(() => indexProjects(db, projectsDir), 500);
   });
 
-  // Live registry → 'sessions' topic.
-  registry.on('upsert', (s) =>
-    hub.publish('sessions', { event: 'upsert', session: { ...s, source: 'terminal' } }),
-  );
+  // Live registry → 'sessions' topic, REST-shaped (final-review ruling).
+  registry.on('upsert', (s) => publishLiveSession({ hub, db, registry, runner }, s));
   registry.on('remove', (id) => hub.publish('sessions', { event: 'remove', sessionId: id }));
   registry.scan();
   registry.watch();
