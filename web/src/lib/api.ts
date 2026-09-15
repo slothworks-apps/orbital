@@ -3,7 +3,6 @@ import type {
   ChatMessage,
   Tag,
   TagRule,
-  Subagent,
   PermissionMode,
 } from './types'
 
