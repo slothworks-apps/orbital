@@ -57,6 +57,28 @@ async function resyncRules(): Promise<void> {
   }
 }
 
+/**
+ * Refetches sessions and re-applies them into the store as upserts.
+ *
+ * Rule/tag mutations that trigger server-side `regenerateRuleTags` (create,
+ * patch, delete of a rule; the reorder swap; tag delete) change which tags
+ * apply to which sessions, but the server has no push channel for that —
+ * only the sessions the runner/registry itself upserts get a WS event. Left
+ * alone, a session's `tagIds` in the client store would silently drift from
+ * what the server now computes until something else (a reload, an unrelated
+ * WS upsert) happened to refresh it. Called after every SUCCESSFUL mutation
+ * of that kind, in addition to (not instead of) `resyncRules` for the rules
+ * list itself.
+ */
+async function resyncSessions(): Promise<void> {
+  try {
+    const refreshed = await api.listSessions({ limit: 200 })
+    refreshed.forEach((session) => useOrbital.getState().applySessionsEvent({ event: 'upsert', session }))
+  } catch {
+    // Best-effort — same rationale as resyncRules above.
+  }
+}
+
 /** Inline-editable tag name — local draft so keystrokes don't get clobbered by store updates, committed on blur/Enter (mirrors DetailPanel's title field). */
 function TagNameField({ tag, onCommit }: { tag: Tag; onCommit: (name: string) => void }) {
   const [draft, setDraft] = useState(tag.name)
@@ -200,6 +222,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.deleteTag(tag.id)
       useOrbital.setState((state) => ({ tags: state.tags.filter((t) => t.id !== tag.id) }))
+      void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to delete tag')
     }
@@ -212,6 +235,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       await api.createTagRule({ tagId: targetTagId, condition: 'path_matches', pattern: '' })
       const refreshed = await api.listTagRules()
       useOrbital.setState({ rules: refreshed })
+      void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to add rule')
     }
@@ -238,6 +262,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
           return r
         }),
       }))
+      void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to reorder rules')
       // The two PATCHes above aren't transactional — one can have already
@@ -252,6 +277,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { condition })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { condition }) }))
+      void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to update rule')
       void resyncRules()
@@ -270,6 +296,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
         .patchTagRule(rule.id, { pattern: value })
         .then(() => {
           useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { pattern: value }) }))
+          void resyncSessions()
         })
         .catch((err) => {
           reportError(err, 'Failed to update rule pattern')
@@ -282,6 +309,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { tag_id: tagId })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { tag_id: tagId }) }))
+      void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to update rule target tag')
       void resyncRules()
@@ -293,6 +321,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { enabled: next })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { enabled: next }) }))
+      void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to toggle rule')
       void resyncRules()
@@ -303,6 +332,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.deleteTagRule(rule.id)
       useOrbital.setState((state) => ({ rules: state.rules.filter((r) => r.id !== rule.id) }))
+      void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to delete rule')
       void resyncRules()

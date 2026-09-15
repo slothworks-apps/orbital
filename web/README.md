@@ -1,3 +1,3 @@
 # @orbital/web
 
-Vite + React 18 + TypeScript + Tailwind v4 frontend for Orbital. Run `npm run dev -w web` (requires server on :4737).
+Vite + React 19 + TypeScript + Tailwind v4 frontend for Orbital. Run `npm run dev -w web` (requires server on :4737).

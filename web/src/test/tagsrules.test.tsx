@@ -259,6 +259,21 @@ describe('TagsRules', () => {
     expect(useOrbital.getState().rules.find((r) => r.id === 10)?.enabled).toBe(0)
   })
 
+  it('resyncs sessions from the server after a successful rule patch (F2)', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    const staleSession = makeSession({ id: 'sess1', tagIds: [1] })
+    const refreshedSession = makeSession({ id: 'sess1', tagIds: [2] })
+    vi.mocked(api.listSessions).mockResolvedValue([refreshedSession])
+    resetStore({ sessions: { sess1: staleSession } })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Enable rule 1'))
+
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { enabled: 0 }))
+    await waitFor(() => expect(api.listSessions).toHaveBeenCalledWith({ limit: 200 }))
+    await waitFor(() => expect(useOrbital.getState().sessions.sess1.tagIds).toEqual([2]))
+  })
+
   it('debounces the pattern field before patching', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore()

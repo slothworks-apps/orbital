@@ -174,6 +174,26 @@ describe('applySessionEvent', () => {
     expect(useOrbital.getState().transcripts.s1).toEqual([m1, m2])
   })
 
+  it('replaces the pending optimistic user bubble with the server echo instead of duplicating it (F3)', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
+
+    await useOrbital.getState().sendPrompt('s1', 'hello world')
+    const localId = useOrbital.getState().transcripts.s1[0].id
+    expect(localId.startsWith('local:')).toBe(true)
+
+    const serverEcho: ChatMessage = {
+      id: 'server-msg-1',
+      role: 'user',
+      text: 'hello world',
+      timestamp: new Date().toISOString(),
+    }
+    useOrbital.getState().applySessionEvent('s1', { event: 'message', message: serverEcho })
+
+    const transcript = useOrbital.getState().transcripts.s1
+    expect(transcript).toHaveLength(1)
+    expect(transcript[0]).toEqual(serverEcho)
+  })
+
   it('status merges into an existing session row', () => {
     const session = makeSession({ id: 's1', status: 'working' })
     useOrbital.setState({ sessions: { s1: session } })

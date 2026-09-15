@@ -212,6 +212,28 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (msg.event === 'message') {
       const existing = state.transcripts[sessionId] ?? []
       if (existing.some((m) => m.id === msg.message.id)) return
+
+      // The server echo of a user message we already appended optimistically
+      // (see `sendPrompt`) arrives with its own, server-issued id — dedup by
+      // id above can't catch it. Replace the matching pending `local:`
+      // message in place (same trimmed text) instead of appending, so the
+      // transcript doesn't show two copies of the same user bubble.
+      if (msg.message.role === 'user') {
+        const incomingText = (msg.message.text ?? '').trim()
+        const pendingIdx = existing.findIndex(
+          (m) =>
+            m.id.startsWith('local:') &&
+            m.role === 'user' &&
+            (m.text ?? '').trim() === incomingText,
+        )
+        if (pendingIdx >= 0) {
+          const updated = existing.slice()
+          updated[pendingIdx] = msg.message
+          set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
+          return
+        }
+      }
+
       set({
         transcripts: {
           ...state.transcripts,
