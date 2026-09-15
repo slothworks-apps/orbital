@@ -4,6 +4,7 @@ import type {
   Tag,
   TagRule,
   Subagent,
+  PermissionMode,
 } from './types'
 
 export class ApiError extends Error {
@@ -46,40 +47,49 @@ async function request<T>(
 
 // Sessions API
 export const api = {
-  async listSessions(params: {
+  async listSessions(params?: {
+    tag?: number
+    q?: string
+    source?: string
     limit?: number
     offset?: number
-    source?: string
-    status?: string
-    tag?: number
   }): Promise<ApiSession[]> {
     const url = new URL('/api/sessions', window.location.origin)
-    if (params.limit !== undefined) url.searchParams.set('limit', String(params.limit))
-    if (params.offset !== undefined) url.searchParams.set('offset', String(params.offset))
-    if (params.source !== undefined) url.searchParams.set('source', params.source)
-    if (params.status !== undefined) url.searchParams.set('status', params.status)
-    if (params.tag !== undefined) url.searchParams.set('tag', String(params.tag))
+    if (params?.tag !== undefined) url.searchParams.set('tag', String(params.tag))
+    if (params?.q !== undefined) url.searchParams.set('q', params.q)
+    if (params?.source !== undefined) url.searchParams.set('source', params.source)
+    if (params?.limit !== undefined) url.searchParams.set('limit', String(params.limit))
+    if (params?.offset !== undefined) url.searchParams.set('offset', String(params.offset))
 
-    return request<ApiSession[]>('GET', url.pathname + url.search)
+    const data = await request<{ sessions: ApiSession[] }>('GET', url.pathname + url.search)
+    return data.sessions
   },
 
-  async getSession(id: string): Promise<ApiSession> {
-    return request<ApiSession>('GET', `/api/sessions/${id}`)
+  async getSession(id: string): Promise<{ session: ApiSession; lineage: string[] }> {
+    return request<{ session: ApiSession; lineage: string[] }>('GET', `/api/sessions/${id}`)
   },
 
   async getMessages(
     id: string,
-    opts?: { limit?: number; offset?: number }
+    opts?: { before?: string; limit?: number }
   ): Promise<ChatMessage[]> {
     const url = new URL(`/api/sessions/${id}/messages`, window.location.origin)
+    if (opts?.before !== undefined) url.searchParams.set('before', opts.before)
     if (opts?.limit !== undefined) url.searchParams.set('limit', String(opts.limit))
-    if (opts?.offset !== undefined) url.searchParams.set('offset', String(opts.offset))
 
-    return request<ChatMessage[]>('GET', url.pathname + url.search)
+    const data = await request<{ messages: ChatMessage[] }>('GET', url.pathname + url.search)
+    return data.messages
   },
 
-  async createSession(body: { cwd: string; title: string }): Promise<ApiSession> {
-    return request<ApiSession>('POST', '/api/sessions', body)
+  async createSession(body: {
+    cwd: string
+    prompt: string
+    permissionMode: PermissionMode
+    tagId?: number
+    model?: string
+  }): Promise<string> {
+    const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
+    return data.sessionId
   },
 
   async sendMessage(
@@ -97,28 +107,32 @@ export const api = {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/interrupt`)
   },
 
-  async clearSession(id: string, startNew: boolean): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/clear`, { startNew })
+  async clearSession(id: string, startNew: boolean): Promise<{ ok: boolean; sessionId?: string }> {
+    return request<{ ok: boolean; sessionId?: string }>('POST', `/api/sessions/${id}/clear`, {
+      startNew,
+    })
   },
 
   async renameSession(id: string, title: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('PATCH', `/api/sessions/${id}/rename`, { title })
+    return request<{ ok: boolean }>('PATCH', `/api/sessions/${id}`, { title })
   },
 
   async setSessionTags(id: string, tagIds: number[]): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/tags`, { tagIds })
+    return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/tags`, { tagIds })
   },
 
   // Tags API
   async listTags(): Promise<Tag[]> {
-    return request<Tag[]>('GET', '/api/tags')
+    const data = await request<{ tags: Tag[] }>('GET', '/api/tags')
+    return data.tags
   },
 
-  async createTag(body: { name: string; hue: number }): Promise<Tag> {
-    return request<Tag>('POST', '/api/tags', body)
+  async createTag(body: { name: string; hue: number }): Promise<number> {
+    const data = await request<{ id: number }>('POST', '/api/tags', body)
+    return data.id
   },
 
-  async updateTag(id: number, body: Partial<{ name: string; hue: number }>): Promise<{ ok: boolean }> {
+  async patchTag(id: number, body: Partial<{ name: string; hue: number }>): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('PATCH', `/api/tags/${id}`, body)
   },
 
@@ -128,25 +142,27 @@ export const api = {
 
   // Tag Rules API
   async listTagRules(): Promise<TagRule[]> {
-    return request<TagRule[]>('GET', '/api/tag-rules')
+    const data = await request<{ rules: TagRule[] }>('GET', '/api/tag-rules')
+    return data.rules
   },
 
   async createTagRule(body: {
-    tag_id: number
+    tagId: number
     condition: 'path_matches' | 'title_contains' | 'permission_is'
     pattern: string
-  }): Promise<TagRule> {
-    return request<TagRule>('POST', '/api/tag-rules', body)
+  }): Promise<number> {
+    const data = await request<{ id: number }>('POST', '/api/tag-rules', body)
+    return data.id
   },
 
-  async updateTagRule(
+  async patchTagRule(
     id: number,
     body: Partial<{
-      tag_id: number
       position: number
       enabled: 0 | 1
       condition: 'path_matches' | 'title_contains' | 'permission_is'
       pattern: string
+      tag_id: number
     }>
   ): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('PATCH', `/api/tag-rules/${id}`, body)
@@ -157,25 +173,30 @@ export const api = {
   },
 
   async previewRule(body: {
-    tag_id: number
-    condition: 'path_matches' | 'title_contains' | 'permission_is'
-    pattern: string
-  }): Promise<{ matches: boolean }> {
-    return request<{ matches: boolean }>('POST', '/api/tag-rules/preview', body)
+    cwd: string
+    title: string
+    permissionMode: string | null
+  }): Promise<{ tagId: number | null; ruleId: number | null }> {
+    return request<{ tagId: number | null; ruleId: number | null }>(
+      'POST',
+      '/api/tag-rules/preview',
+      body
+    )
   },
 
   // Projects API
-  async listProjects(): Promise<unknown[]> {
-    return request<unknown[]>('GET', '/api/projects')
+  async listProjects(): Promise<string[]> {
+    const data = await request<{ projects: string[] }>('GET', '/api/projects')
+    return data.projects
   },
 
   // Settings API
-  async getSettings(): Promise<Record<string, unknown>> {
-    return request<Record<string, unknown>>('GET', '/api/settings')
+  async getSettings(): Promise<Record<string, string>> {
+    return request<Record<string, string>>('GET', '/api/settings')
   },
 
-  async patchSettings(partial: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return request<Record<string, unknown>>('PATCH', '/api/settings', partial)
+  async patchSettings(partial: Record<string, string>): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('PATCH', '/api/settings', partial)
   },
 }
 
