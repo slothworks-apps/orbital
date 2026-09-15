@@ -7,12 +7,12 @@ import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { Planet } from './Planet'
 import { Moon } from './Moon'
-import { buildSceneModel } from './sceneModel'
-import { applyPan, applyZoom, fitView, type CameraState } from './camera'
+import { useSceneModel } from './useSceneModel'
+import { applyPan, applyZoom, fitView, zoomFromWheel, type CameraState } from './camera'
 
 /**
  * Top-down space map scene: a `Canvas` (WebGL, untestable in jsdom) driven
- * entirely by `buildSceneModel` (pure, unit-tested in
+ * entirely by `useSceneModel`/`buildSceneModel` (pure, unit-tested in
  * `test/spacemap.test.tsx`) plus custom pan/zoom camera math (`camera.ts`,
  * also unit-tested there). This file just wires those two testable pieces
  * to React Three Fiber components and a plain-DOM HUD overlay.
@@ -20,9 +20,18 @@ import { applyPan, applyZoom, fitView, type CameraState } from './camera'
 
 const INITIAL_CAMERA: CameraState = { x: 0, y: 0, zoom: 60 }
 const ZOOM_STEP = 20
-const WHEEL_ZOOM_SENSITIVITY = 0.15
 /** Below this many screen px of movement, a pointer down+up is treated as a click, not a drag-pan. */
 const DRAG_THRESHOLD_PX = 3
+
+/**
+ * Sloth's resting position, expressed as a percentage of the map viewport
+ * rather than a fixed pixel offset — the original design artboard is a
+ * fixed 1440x900 canvas (sloth at left:120/top:640), but `SpaceMap` is a
+ * full-bleed, arbitrarily-sized viewport, so a literal pixel offset would
+ * drift off-proportion (or off-screen) at other viewport sizes.
+ */
+const SLOTH_LEFT_PERCENT = (120 / 1440) * 100
+const SLOTH_TOP_PERCENT = (640 / 900) * 100
 
 /** Imperatively syncs a plain `CameraState` onto the live three.js orthographic camera every frame. */
 function CameraRig({ camera: camState }: { camera: CameraState }) {
@@ -51,21 +60,35 @@ function NebulaBackdrop() {
   )
 }
 
+/** True while focus sits in a text input/textarea/contenteditable — global shortcuts should not fire there. */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+}
+
 export function SpaceMap() {
-  const model = useOrbital(buildSceneModel)
+  const model = useSceneModel()
   const select = useOrbital((s) => s.select)
   const setDialog = useOrbital((s) => s.setDialog)
 
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
   const containerRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null)
+  const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number; captured: boolean } | null>(null)
+  /** Set true once a drag crosses `DRAG_THRESHOLD_PX`; the click handler below checks this to ignore the trailing click a drag-release produces. Reset on the next pointerdown, not on pointerup — the native `click` event fires AFTER pointerup, so it must still see this drag's `true`. */
+  const draggedRef = useRef(false)
 
-  const handleSelect = useCallback((id: string) => void select(id), [select])
+  const handleSelect = useCallback(
+    (id: string) => {
+      if (draggedRef.current) return
+      void select(id)
+    },
+    [select]
+  )
 
   const handlePointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
-    dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY }
-    e.currentTarget.setPointerCapture(e.pointerId)
+    dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY, captured: false }
+    draggedRef.current = false
   }, [])
 
   const handlePointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -73,18 +96,33 @@ export function SpaceMap() {
     if (!drag || drag.pointerId !== e.pointerId) return
     const dx = e.clientX - drag.lastX
     const dy = e.clientY - drag.lastY
-    if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return
+
+    if (!drag.captured) {
+      // Don't capture the pointer (or count this as a drag) until it's
+      // actually moved past the click-jitter threshold — capturing
+      // eagerly on pointerdown steals the native click that would
+      // otherwise fire on a Planet mesh for a plain click, breaking
+      // click-to-select.
+      if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return
+      drag.captured = true
+      draggedRef.current = true
+      e.currentTarget.setPointerCapture(e.pointerId)
+    }
+
     drag.lastX = e.clientX
     drag.lastY = e.clientY
     setCamera((cam) => applyPan(cam, dx, dy))
   }, [])
 
   const handlePointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    if (drag.captured) e.currentTarget.releasePointerCapture(e.pointerId)
+    dragRef.current = null
   }, [])
 
   const handleWheel = useCallback((e: ReactWheelEvent<HTMLDivElement>) => {
-    setCamera((cam) => applyZoom(cam, -e.deltaY * WHEEL_ZOOM_SENSITIVITY))
+    setCamera((cam) => ({ ...cam, zoom: zoomFromWheel(cam.zoom, e.deltaY, e.deltaMode) }))
   }, [])
 
   const zoomIn = useCallback(() => setCamera((cam) => applyZoom(cam, ZOOM_STEP)), [])
@@ -100,13 +138,15 @@ export function SpaceMap() {
     setCamera(fitView(positions, viewport))
   }, [model.planets])
 
-  // ⌘N / Ctrl+N opens the new-session dialog, matching the floating button's shortcut hint.
+  // ⌘N / Ctrl+N opens the new-session dialog, matching the floating
+  // button's shortcut hint — but not while the user is typing somewhere
+  // (a search box, a dialog field), where "n" is just a letter.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
-        e.preventDefault()
-        setDialog('new')
-      }
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'n') return
+      if (isTypingTarget(e.target)) return
+      e.preventDefault()
+      setDialog('new')
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -116,10 +156,16 @@ export function SpaceMap() {
   const camX = Math.round(camera.x)
   const camY = Math.round(camera.y)
 
-  const aggregateLine = useMemo(
-    () => `${model.counts.working} WORKING · ${model.counts.idle} IDLE · ${model.counts.ended} ENDED`,
-    [model.counts]
-  )
+  const aggregateLine = useMemo(() => {
+    const { working, needs_input: needsInput, idle, ended } = model.counts
+    const segments = [
+      `${working} WORKING`,
+      ...(needsInput > 0 ? [`${needsInput} NEEDS INPUT`] : []),
+      `${idle} IDLE`,
+      `${ended} ENDED`,
+    ]
+    return segments.join(' · ')
+  }, [model.counts])
 
   return (
     <div
@@ -163,7 +209,7 @@ export function SpaceMap() {
         ))}
 
         {model.labels.map((label) => (
-          <Html key={label.text} position={[label.x, label.y, 0]} center style={{ pointerEvents: 'none' }}>
+          <Html key={label.tagId} position={[label.x, label.y, 0]} center style={{ pointerEvents: 'none' }}>
             <span
               style={{
                 fontFamily: "'JetBrains Mono', ui-monospace, monospace",
@@ -212,7 +258,7 @@ export function SpaceMap() {
 
         <div
           className="orbital-sloth pointer-events-none absolute"
-          style={{ left: 120, top: 640, width: 16, opacity: 0.7 }}
+          style={{ left: `${SLOTH_LEFT_PERCENT}%`, top: `${SLOTH_TOP_PERCENT}%`, width: 16, opacity: 0.7 }}
         >
           <div className="orbital-sloth-bob">
             <img

@@ -48,9 +48,42 @@ export function applyPan(cam: CameraState, dx: number, dy: number): CameraState 
   }
 }
 
-/** Adjusts zoom by a delta (positive = zoom in), clamped to [MIN_ZOOM, MAX_ZOOM]. */
+/** Adjusts zoom by a delta (positive = zoom in), clamped to [MIN_ZOOM, MAX_ZOOM]. Used by the +/- buttons (fixed step). */
 export function applyZoom(cam: CameraState, deltaZoom: number): CameraState {
   return { ...cam, zoom: clampZoom(cam.zoom + deltaZoom) }
+}
+
+/**
+ * `log(1.1) / 100`, chosen so that one standard Chrome mouse-wheel notch
+ * (`deltaY` of about ±100, `deltaMode` 0/pixel) changes zoom by about 10%.
+ */
+const WHEEL_ZOOM_K = Math.log(1.1) / 100
+
+/**
+ * `DOM_DELTA_LINE` (`deltaMode === 1`) wheel events report `deltaY` in
+ * "lines" rather than pixels; 16px approximates one line (a common browser
+ * default line-height) so line-mode wheels (some Firefox configs) feel
+ * roughly consistent with pixel-mode ones instead of being ~16x too slow.
+ */
+const DELTA_LINE_TO_PIXELS = 16
+
+/**
+ * Computes the next zoom for a wheel/trackpad event, multiplicatively
+ * (`zoom * exp(-deltaY * k)`) rather than additively (`applyZoom`'s fixed
+ * step). Multiplicative zoom means the same physical wheel gesture always
+ * reads as the same *relative* change — a notch at zoom 20 and a notch at
+ * zoom 200 both change zoom by ~10% — instead of the same fixed absolute
+ * amount swamping the low end and doing nothing at the high end.
+ *
+ * This zoom is anchored on the camera's current x/y (center-anchored), not
+ * the pointer position: `SpaceMap` never offsets `x`/`y` here, on purpose —
+ * panning and zooming stay orthogonal (no zoom-to-cursor), matching the
+ * task's "pan = drag, zoom = wheel, no rotation" scope. Result is clamped
+ * to [MIN_ZOOM, MAX_ZOOM].
+ */
+export function zoomFromWheel(zoom: number, deltaY: number, deltaMode = 0): number {
+  const normalizedDeltaY = deltaMode === 1 ? deltaY * DELTA_LINE_TO_PIXELS : deltaY
+  return clampZoom(zoom * Math.exp(-normalizedDeltaY * WHEEL_ZOOM_K))
 }
 
 /**

@@ -1,8 +1,18 @@
 import { describe, it, expect } from 'vitest'
+import { act, render } from '@testing-library/react'
 import type { ApiSession, Subagent, Tag } from '../lib/types'
-import type { OrbitalState, OrbitalUiState } from '../store/store'
-import { buildSceneModel } from '../map/sceneModel'
-import { applyPan, applyZoom, clampZoom, fitView, MAX_ZOOM, MIN_ZOOM } from '../map/camera'
+import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
+import { buildSceneModel, type SceneModel } from '../map/sceneModel'
+import { useSceneModel } from '../map/useSceneModel'
+import {
+  applyPan,
+  applyZoom,
+  clampZoom,
+  fitView,
+  zoomFromWheel,
+  MAX_ZOOM,
+  MIN_ZOOM,
+} from '../map/camera'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -193,6 +203,50 @@ describe('buildSceneModel', () => {
     expect(m1.phase).not.toBe(m2.phase)
   })
 
+  it('drops ended subagents — moons exist only for LIVE subagents', () => {
+    const sessions = [makeSession({ id: 'a', tagIds: [1] })]
+    const liveSubagent = makeSubagent({ id: 'sub-live', state: 'working' })
+    const endedSubagent = makeSubagent({ id: 'sub-ended', state: 'ended' })
+    const model = buildSceneModel(
+      withSessions(sessions, { subagents: { a: [liveSubagent, endedSubagent] } })
+    )
+
+    expect(model.moons).toHaveLength(1)
+    expect(model.moons[0].subagent.id).toBe('sub-live')
+    expect(model.planets[0].subagents.map((s) => s.id)).toEqual(['sub-live'])
+  })
+
+  it('drops every moon when a session has only ended subagents', () => {
+    const sessions = [makeSession({ id: 'a', tagIds: [1] })]
+    const model = buildSceneModel(
+      withSessions(sessions, { subagents: { a: [makeSubagent({ id: 'sub-1', state: 'ended' })] } })
+    )
+
+    expect(model.moons).toHaveLength(0)
+    expect(model.planets[0].subagents).toEqual([])
+  })
+
+  it('planet positions are independent of session recency order (stable id ordering feeds layout)', () => {
+    const sessions = [
+      makeSession({ id: 'a', tagIds: [1], lastAt: 100 }),
+      makeSession({ id: 'b', tagIds: [1], lastAt: 90 }),
+      makeSession({ id: 'c', tagIds: [1], lastAt: 80 }),
+    ]
+    const before = buildSceneModel(withSessions(sessions))
+    const positionsBefore = new Map(before.planets.map((p) => [p.session.id, { x: p.x, y: p.y }]))
+
+    // Bump session 'c' to the front of recency order — this must NOT
+    // reshuffle any planet's position (it would if layout used the
+    // recency-sorted array's index directly).
+    const reordered = sessions.map((s) => (s.id === 'c' ? { ...s, lastAt: 999 } : s))
+    const after = buildSceneModel(withSessions(reordered))
+    const positionsAfter = new Map(after.planets.map((p) => [p.session.id, { x: p.x, y: p.y }]))
+
+    for (const id of ['a', 'b', 'c']) {
+      expect(positionsAfter.get(id)).toEqual(positionsBefore.get(id))
+    }
+  })
+
   it('produces no moons when the session referenced by state.subagents is not visible', () => {
     const sessions = [makeSession({ id: 'a', tagIds: [2] })]
     const model = buildSceneModel(
@@ -288,11 +342,159 @@ describe('fitView', () => {
 
   it('picks the tighter axis so both width and height fit inside the viewport', () => {
     const positions = [
-      { x: -100, y: -1 },
-      { x: 100, y: 1 },
+      { x: -3, y: -1 },
+      { x: 3, y: 1 },
     ]
-    // Very wide, very short — height is the tight constraint on a square viewport.
-    const fit = fitView(positions, { width: 800, height: 800 })
-    expect(fit.zoom).toBeLessThanOrEqual(MAX_ZOOM)
+    // width = 6 + 2*padding(2) = 10 -> zoomX = 800/10 = 80
+    // height = 2 + 2*padding(2) = 6  -> zoomY = 300/6  = 50 (tighter, neither clamped)
+    const fit = fitView(positions, { width: 800, height: 300 })
+    expect(fit.zoom).toBeCloseTo(50)
+  })
+
+  it('picks the other axis when IT is the tighter constraint', () => {
+    const positions = [
+      { x: -1, y: -3 },
+      { x: 1, y: 3 },
+    ]
+    // width = 2 + 4 = 6   -> zoomX = 300/6  = 50 (tighter, neither clamped)
+    // height = 6 + 4 = 10 -> zoomY = 800/10 = 80
+    const fit = fitView(positions, { width: 300, height: 800 })
+    expect(fit.zoom).toBeCloseTo(50)
+  })
+})
+
+describe('zoomFromWheel', () => {
+  it('zooms in (increases zoom) for a negative deltaY (scroll up/forward)', () => {
+    const next = zoomFromWheel(60, -100)
+    expect(next).toBeGreaterThan(60)
+  })
+
+  it('zooms out (decreases zoom) for a positive deltaY (scroll down/back)', () => {
+    const next = zoomFromWheel(60, 100)
+    expect(next).toBeLessThan(60)
+  })
+
+  it('a standard Chrome notch (deltaY ~ -100, pixel mode) changes zoom by about 10%', () => {
+    const next = zoomFromWheel(100, -100)
+    expect(next).toBeCloseTo(110, 0)
+  })
+
+  it('is multiplicative: the same notch changes zoom by the same relative amount at any zoom level', () => {
+    const lowRatio = zoomFromWheel(40, -100) / 40
+    const highRatio = zoomFromWheel(160, -100) / 160
+    expect(lowRatio).toBeCloseTo(highRatio, 5)
+  })
+
+  it('clamps the result to [MIN_ZOOM, MAX_ZOOM]', () => {
+    expect(zoomFromWheel(MIN_ZOOM, 100000)).toBe(MIN_ZOOM)
+    expect(zoomFromWheel(MAX_ZOOM, -100000)).toBe(MAX_ZOOM)
+  })
+
+  it('normalizes DOM_DELTA_LINE (deltaMode 1) by treating deltaY as ~16px lines', () => {
+    // deltaMode 1, deltaY -100/16 "lines" should behave like -100px in pixel mode.
+    const pixelMode = zoomFromWheel(100, -100, 0)
+    const lineMode = zoomFromWheel(100, -100 / 16, 1)
+    expect(lineMode).toBeCloseTo(pixelMode)
+  })
+
+  it('defaults to pixel-mode normalization when deltaMode is omitted', () => {
+    expect(zoomFromWheel(100, -100)).toBe(zoomFromWheel(100, -100, 0))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// useSceneModel — mount safety + reference stability
+// ---------------------------------------------------------------------------
+
+describe('useSceneModel', () => {
+  function resetStore(overrides: Partial<OrbitalState> = {}) {
+    useOrbital.setState({
+      sessions: {},
+      order: [],
+      tags: [workTag, personalTag, defaultTag],
+      rules: [],
+      settings: {},
+      transcripts: {},
+      subagents: {},
+      usage: {},
+      historyLoaded: {},
+      toast: null,
+      ui: { ...defaultUi },
+      ...overrides,
+    })
+  }
+
+  it('mounts without exceeding the update depth (regression for `useOrbital(buildSceneModel)` looping forever)', () => {
+    resetStore()
+    const seen: SceneModel[] = []
+    function Probe() {
+      const model = useSceneModel()
+      seen.push(model)
+      return null
+    }
+
+    // Pre-fix, this either throws "Maximum update depth exceeded" or hangs
+    // the test — `buildSceneModel` allocated a fresh object every selector
+    // call, which zustand 5's default `Object.is` equality never settles
+    // on.
+    expect(() => render(<Probe />)).not.toThrow()
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen[seen.length - 1].planets).toEqual([])
+  })
+
+  it('returns a stable model reference across a re-render triggered by an unrelated store update', () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', tagIds: [1] }) },
+      order: ['a'],
+    })
+
+    const seen: SceneModel[] = []
+    function Probe() {
+      const model = useSceneModel()
+      seen.push(model)
+      return null
+    }
+
+    const { rerender } = render(<Probe />)
+    const beforeCount = seen.length
+    const first = seen[seen.length - 1]
+    expect(first.planets).toHaveLength(1)
+
+    // wsStatus isn't read by buildSceneModel — updating it must not change
+    // the memoized model reference, even when something forces a re-render.
+    act(() => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, wsStatus: 'reconnecting' } }))
+    })
+    rerender(<Probe />)
+
+    expect(seen.length).toBeGreaterThan(beforeCount)
+    const last = seen[seen.length - 1]
+    expect(last).toBe(first)
+  })
+
+  it('recomputes when a relevant slice (sessions) actually changes', () => {
+    resetStore()
+    const seen: SceneModel[] = []
+    function Probe() {
+      const model = useSceneModel()
+      seen.push(model)
+      return null
+    }
+
+    const { rerender } = render(<Probe />)
+    const first = seen[seen.length - 1]
+    expect(first.planets).toHaveLength(0)
+
+    act(() => {
+      useOrbital.setState((s) => ({
+        sessions: { ...s.sessions, a: makeSession({ id: 'a', tagIds: [1] }) },
+        order: [...s.order, 'a'],
+      }))
+    })
+    rerender(<Probe />)
+
+    const last = seen[seen.length - 1]
+    expect(last).not.toBe(first)
+    expect(last.planets).toHaveLength(1)
   })
 })

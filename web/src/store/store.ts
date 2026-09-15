@@ -302,8 +302,18 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Pure selector helpers (exported directly for testing; also usable inline
-// in components via `useOrbital(visibleSessions)`).
+// Pure selector helpers (exported directly for testing). Do NOT call these
+// as `useOrbital(visibleSessions)` / `useOrbital(statusCounts)` directly —
+// both allocate a brand new array/object on every call, so under zustand
+// 5's default `Object.is` equality the component never stops re-rendering
+// ("Maximum update depth exceeded": new result -> "state changed" -> re-run
+// selector -> new result -> ...). Either wrap the selector with
+// `useShallow` from `zustand/react/shallow` (shallow-compares the returned
+// array/object instead of reference-comparing it), or — for anything
+// derived further (e.g. the space map's scene model) — select the
+// individual primitive/reference slices these functions read and recompute
+// the derived value yourself in `useMemo` keyed on those slices. See
+// `map/useSceneModel.ts` for a worked example of the latter.
 // ---------------------------------------------------------------------------
 
 export function visibleSessions(state: OrbitalState): ApiSession[] {

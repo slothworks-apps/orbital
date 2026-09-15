@@ -7,6 +7,7 @@ import {
   layoutClusters,
   GOLDEN_ANGLE,
   PLANET_BASE_RADIUS,
+  type Cluster,
 } from './layout'
 
 /**
@@ -49,6 +50,8 @@ export interface SceneMoon {
 }
 
 export interface SceneLabel {
+  /** The cluster's tag id — the label's true identity, and the stable key `<SpaceMap>` renders it with (not `text`, which is derived/formatted and best treated as opaque display content, not an identity). */
+  tagId: number
   text: string
   x: number
   y: number
@@ -63,9 +66,33 @@ export interface SceneModel {
 }
 
 /**
+ * Sorts each cluster's sessions by stable id (not the recency order
+ * `visibleSessions` returns them in) before layout. `layoutClusters`
+ * places a cluster's sessions on a golden-angle spiral purely by each
+ * session's INDEX within `cluster.sessions` — so if that array's order
+ * depends on `lastAt` (recency), a new message bumping one session's
+ * `lastAt` reshuffles the index of every OTHER session in its cluster too,
+ * making already-placed planets visibly "teleport" on the map even though
+ * they themselves didn't change. Sorting by id first makes each session's
+ * spiral index depend only on which sessions exist, never on their
+ * recency — recency ordering still drives the sidebar list (via
+ * `visibleSessions`) and `cluster.sessions` as returned to any other
+ * caller; only the `positions` lookup below is computed from this
+ * re-sorted copy.
+ */
+function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
+  return clusters.map((cluster) => ({
+    ...cluster,
+    sessions: [...cluster.sessions].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+  }))
+}
+
+/**
  * Builds the render model for the space map: visible sessions laid out into
- * clusters, their moons (only for sessions with at least one live
- * subagent), cluster labels (`NAME · count`, uppercase), and status counts.
+ * clusters, their moons (only for LIVE subagents — an `ended` subagent is
+ * dropped from the model entirely; its `Moon` fade-out is a
+ * component-level nicety this v1 scene model doesn't attempt), cluster
+ * labels (`NAME · count`, uppercase), and status counts.
  *
  * Pure: same `state` in, same model out, every time — no Date.now, no
  * Math.random, no mutation of `state`.
@@ -73,7 +100,7 @@ export interface SceneModel {
 export function buildSceneModel(state: OrbitalState): SceneModel {
   const sessions = visibleSessions(state)
   const clusters = clusterSessions(sessions, state.tags)
-  const positions = layoutClusters(clusters)
+  const positions = layoutClusters(withStableSessionOrder(clusters))
   const counts = statusCounts(state)
   const selectedId = state.ui.selectedId
 
@@ -85,7 +112,7 @@ export function buildSceneModel(state: OrbitalState): SceneModel {
       const pos = positions.get(session.id)
       if (!pos) continue
 
-      const subagents = state.subagents[session.id] ?? []
+      const subagents = (state.subagents[session.id] ?? []).filter((a) => a.state !== 'ended')
 
       planets.push({
         session,
@@ -114,6 +141,7 @@ export function buildSceneModel(state: OrbitalState): SceneModel {
   const labels: SceneLabel[] = clusters.map((cluster) => {
     const pos = clusterLabelPos(cluster, positions)
     return {
+      tagId: cluster.tagId,
       text: `${cluster.label.toUpperCase()} · ${cluster.sessions.length}`,
       x: pos.x,
       y: pos.y,
