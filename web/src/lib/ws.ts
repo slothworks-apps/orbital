@@ -199,11 +199,24 @@ export class OrbitalSocket {
   /**
    * Register a callback to be called when status changes.
    * The callback is invoked immediately with the current status.
+   * Returns an unsubscribe function — callers (e.g. a React effect) must
+   * call it on cleanup, or repeated mount/unmount (StrictMode's dev-only
+   * double-invoke, or any component that mounts more than once over the
+   * page's lifetime) accumulates duplicate callbacks forever, each firing
+   * on every future status change.
    */
-  onStatusChange(cb: (status: WsStatus) => void): void {
+  onStatusChange(cb: (status: WsStatus) => void): () => void {
     this.statusCallbacks.push(cb)
     // Invoke immediately with current status
     cb(this._status)
+
+    let unsubscribed = false
+    return () => {
+      if (unsubscribed) return
+      unsubscribed = true
+      const idx = this.statusCallbacks.indexOf(cb)
+      if (idx !== -1) this.statusCallbacks.splice(idx, 1)
+    }
   }
 
   /**

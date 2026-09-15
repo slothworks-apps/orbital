@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import type { ApiSession } from '../lib/types'
@@ -35,11 +36,16 @@ const { MockOrbitalSocket, resolveWsUrl } = vi.hoisted(() => {
     active: boolean
   }
 
+  interface StatusSub {
+    cb: (status: string) => void
+    active: boolean
+  }
+
   class MockOrbitalSocket {
     static instances: MockOrbitalSocket[] = []
     url: string
     subscriptions: Subscription[] = []
-    statusCallbacks: Array<(status: string) => void> = []
+    statusSubs: StatusSub[] = []
     status = 'connecting'
 
     constructor(url: string) {
@@ -55,9 +61,17 @@ const { MockOrbitalSocket, resolveWsUrl } = vi.hoisted(() => {
       }
     }
 
-    onStatusChange(cb: (status: string) => void): void {
-      this.statusCallbacks.push(cb)
+    // Mirrors the real OrbitalSocket.onStatusChange contract (ws.ts): pushes
+    // the callback, invokes it immediately with the current status, and
+    // returns an unsubscribe function — App's effect relies on this return
+    // value for cleanup (task-14 review finding I1).
+    onStatusChange(cb: (status: string) => void): () => void {
+      const entry: StatusSub = { cb, active: true }
+      this.statusSubs.push(entry)
       cb(this.status)
+      return () => {
+        entry.active = false
+      }
     }
 
     close(): void {}
@@ -77,7 +91,17 @@ const { MockOrbitalSocket, resolveWsUrl } = vi.hoisted(() => {
     /** Test helper: simulate a connection status transition. */
     emitStatus(status: string): void {
       this.status = status
-      for (const cb of this.statusCallbacks) cb(status)
+      for (const s of this.statusSubs) {
+        if (s.active) s.cb(status)
+      }
+    }
+
+    /** Test helper: count of still-active onStatusChange registrations
+     * (registrations minus unsubscribes) — used to catch a leaked
+     * registration from a mount/unmount cycle whose effect cleanup didn't
+     * unsubscribe (task-14 review finding I1). */
+    activeStatusSubCount(): number {
+      return this.statusSubs.filter((s) => s.active).length
     }
 
     /** Test helper: wipe accumulated subscriptions/callbacks between tests —
@@ -86,7 +110,7 @@ const { MockOrbitalSocket, resolveWsUrl } = vi.hoisted(() => {
      * from one test's mount would bleed into the next. */
     reset(): void {
       this.subscriptions = []
-      this.statusCallbacks = []
+      this.statusSubs = []
       this.status = 'connecting'
     }
   }
@@ -229,6 +253,37 @@ describe('App: mount', () => {
   it('creates exactly one OrbitalSocket for the app', async () => {
     await renderApp()
     expect(MockOrbitalSocket.instances).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// StrictMode: React 18 double-invokes mount/cleanup/mount for every
+// component in dev. Task-14 review finding I1 — `onStatusChange` had no
+// unsubscribe, so the first (discarded) mount's callback registration was
+// never cleaned up, leaking a duplicate that fires on every future status
+// change. Fixed by having `onStatusChange` return an unsubscribe and using
+// it as the effect's cleanup; this asserts the fix holds under the exact
+// double-mount cycle that exposed the bug.
+// ---------------------------------------------------------------------------
+
+describe('App: StrictMode double-mount', () => {
+  it('does not crash under StrictMode, and leaves exactly one active onStatusChange registration', async () => {
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    )
+    await waitFor(() => expect(api.listSessions).toHaveBeenCalled())
+
+    expect(socket().activeStatusSubCount()).toBe(1)
+
+    // The single surviving registration still behaves correctly (not a
+    // leftover from the discarded first mount) — one emitStatus call
+    // should update wsStatus exactly once, not fire a duplicate/no-op path.
+    act(() => {
+      socket().emitStatus('open')
+    })
+    expect(useOrbital.getState().ui.wsStatus).toBe('open')
   })
 })
 

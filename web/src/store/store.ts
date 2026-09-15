@@ -260,7 +260,15 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
     if (msg.event === 'turn_result') {
       turnResultSeen[sessionId] = true
-      set({ usage: { ...state.usage, [sessionId]: msg.usage } })
+      // A turn_result means the session's current turn completed normally,
+      // clearing any earlier crash flag — otherwise a session that crashed
+      // once and was later successfully revived/continued would keep
+      // showing Transcript's error row forever, even after a subsequent
+      // clean turn (and clean end) had already happened.
+      const transcriptErrors = state.transcriptErrors[sessionId]
+        ? { ...state.transcriptErrors, [sessionId]: false }
+        : state.transcriptErrors
+      set({ usage: { ...state.usage, [sessionId]: msg.usage }, transcriptErrors })
     }
   },
 

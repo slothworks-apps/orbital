@@ -233,6 +233,25 @@ describe('applySessionEvent', () => {
     useOrbital.getState().applySessionEvent('idle1', { event: 'status', status: 'ended' })
     expect(useOrbital.getState().transcriptErrors.idle1).toBeUndefined()
   })
+
+  it('clears a crash flag once the session is revived and completes a turn, and a later graceful end keeps it cleared', () => {
+    useOrbital.setState({ sessions: { revived1: makeSession({ id: 'revived1', status: 'idle' }) } })
+
+    // Crashes once: working -> ended with no turn_result in between.
+    useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'working' })
+    useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'ended' })
+    expect(useOrbital.getState().transcriptErrors.revived1).toBe(true)
+
+    // Revived and completes a turn normally.
+    useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'working' })
+    useOrbital.getState().applySessionEvent('revived1', { event: 'turn_result', usage: {} })
+    expect(useOrbital.getState().transcriptErrors.revived1).toBe(false)
+
+    // A subsequent graceful end (turn_result already seen) must not
+    // re-flag it.
+    useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'ended' })
+    expect(useOrbital.getState().transcriptErrors.revived1).toBe(false)
+  })
 })
 
 describe('select', () => {

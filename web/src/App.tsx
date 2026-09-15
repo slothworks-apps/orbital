@@ -57,8 +57,11 @@ export default function App() {
   // WS connection status -> store, surfaced below as the reconnect banner.
   // `onStatusChange` invokes its callback immediately with the current
   // status, so this also seeds `ui.wsStatus` correctly on first mount.
+  // Returned unsubscribe is used as this effect's cleanup — without it,
+  // StrictMode's dev-only double mount/cleanup/mount (or any real remount
+  // over the page's lifetime) would register a second callback forever.
   useEffect(() => {
-    socket.onStatusChange((status) => setWsStatus(status))
+    return socket.onStatusChange((status) => setWsStatus(status))
   }, [setWsStatus])
 
   // `session:<id>` topic follows the current selection: subscribing to the
@@ -112,12 +115,18 @@ export default function App() {
 
       {/* No artboard specifies a Settings entry point (task-13 report
           flagged the gap for this task) — a small fixed corner button is
-          the pragmatic v1 placement. */}
+          the pragmatic v1 placement. Shifted left of DetailPanel's own
+          width (w-96 = 24rem) plus a gap whenever a session is selected
+          (DetailPanel renders), so it never sits on top of the panel's
+          title field. */}
       <Button
         variant="ghost"
         size="sm"
         aria-label="Settings"
-        className="fixed right-3 top-3 z-20 rounded-full"
+        className={[
+          'fixed top-3 z-20 rounded-full',
+          selectedId ? 'right-[25rem]' : 'right-3',
+        ].join(' ')}
         onClick={() => setDialog('settings')}
       >
         ⚙

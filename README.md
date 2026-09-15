@@ -9,6 +9,12 @@ with Claude from the browser, including resuming and continuing historical
 sessions. It runs only on your own machine, binds to `127.0.0.1`, and has no
 authentication.
 
+## Screenshot
+
+![Orbital map view](docs/screenshot.png)
+
+*(placeholder — capture after first run and drop the file at `docs/screenshot.png`)*
+
 ## Prerequisites
 
 - Node.js 20+

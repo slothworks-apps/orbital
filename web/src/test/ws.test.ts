@@ -799,5 +799,44 @@ describe('OrbitalSocket', () => {
       // Should have been called immediately with current status
       expect(callback).toHaveBeenCalledWith('open')
     })
+
+    it('returns an unsubscribe function that stops future status callbacks', async () => {
+      socket = new OrbitalSocket('ws://localhost/ws', {
+        WebSocketImpl: factory.createTyped(),
+        reconnectDelayMs: 1000,
+      })
+
+      const callback = vi.fn()
+      const unsubscribe = socket.onStatusChange(callback)
+      // Immediate invoke with the current ('connecting') status.
+      expect(callback).toHaveBeenCalledTimes(1)
+
+      unsubscribe()
+
+      await vi.runAllTimersAsync()
+      factory.instances[0].simulateOpen()
+
+      // No call for the transition to 'open' — unsubscribed before it happened.
+      expect(callback).toHaveBeenCalledTimes(1)
+    })
+
+    it('unsubscribe is idempotent (safe to call more than once)', async () => {
+      socket = new OrbitalSocket('ws://localhost/ws', {
+        WebSocketImpl: factory.createTyped(),
+        reconnectDelayMs: 1000,
+      })
+
+      const callback = vi.fn()
+      const unsubscribe = socket.onStatusChange(callback)
+
+      expect(() => {
+        unsubscribe()
+        unsubscribe()
+      }).not.toThrow()
+
+      await vi.runAllTimersAsync()
+      factory.instances[0].simulateOpen()
+      expect(callback).toHaveBeenCalledTimes(1)
+    })
   })
 })
