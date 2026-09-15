@@ -6,10 +6,10 @@ import { Button } from '../ui/Button'
 import { MessageView } from './MessageView'
 import { ToolRow } from './ToolRow'
 
-/** Initial size of the rendered window (in paired items) — windowing beyond
- * that (real virtualization) is explicitly deferred per the task brief. A
- * successful "load older" grows this to guarantee the newly fetched page is
- * visible; see `handleLoadOlder` below. */
+/** Initial size of the rendered window (in paired items), and the amount a
+ * successful "load older" grows it by (bounded — see `handleLoadOlder`
+ * below) — windowing beyond that (real virtualization) is explicitly
+ * deferred per the task brief. */
 const MAX_VISIBLE_MESSAGES = 200
 
 export type TranscriptItem =
@@ -93,11 +93,13 @@ export interface TranscriptProps {
  * Renders a session's transcript: tool_use/tool_result pairs collapsed into
  * `ToolRow`s (paired on the full history, then windowed — see
  * `pairMessages`), starting at the last `MAX_VISIBLE_MESSAGES` items and
- * growing as "load older" pulls more history in. Auto-scrolls to the
- * bottom on new messages, but only when the viewport was already scrolled
- * near the bottom (so reading scrollback isn't yanked out from under you);
- * prepending older history instead compensates `scrollTop` to keep the
- * reader's position visually anchored.
+ * growing by each fetched page's size as "load older" pulls more history
+ * in (bounded growth — a click reveals that page, not the whole backlog;
+ * `slice(-N)` clamps naturally once N reaches the array length). Auto-
+ * scrolls to the bottom on new messages, but only when the viewport was
+ * already scrolled near the bottom (so reading scrollback isn't yanked out
+ * from under you); prepending older history instead compensates
+ * `scrollTop` to keep the reader's position visually anchored.
  */
 export function Transcript({ sessionId }: TranscriptProps) {
   const messages = useOrbital(useShallow((s) => s.transcripts[sessionId] ?? []))
@@ -119,17 +121,24 @@ export function Transcript({ sessionId }: TranscriptProps) {
   // scrollHeight — checking "near bottom" post-append would always read as
   // "not near bottom" for a container that hadn't scrolled yet.
   const stickToBottomRef = useRef(true)
-  // Remembers the first item's key and the container's scrollHeight as of
-  // the end of the last layout effect run, so the next run can tell a
-  // prepend (first key changed) apart from an append, and compute how much
-  // the content grew for the scroll-position compensation.
-  const prevFirstKeyRef = useRef<string | undefined>(undefined)
+  // Explicit "a prepend is about to land" signal, set by handleLoadOlder
+  // right before it awaits loadOlder and consumed (cleared) by the layout
+  // effect below. This is deliberately NOT inferred from `items[0]`
+  // changing: at the MAX_VISIBLE_MESSAGES cap, a live WS-appended message
+  // at the *bottom* evicts the oldest visible item from the window too,
+  // which also changes `items[0]` — inferring prepend from that would
+  // misfire scroll-compensation (meant for content added above the
+  // viewport) on a bottom append, yanking the view for anyone reading
+  // scrollback during a long streaming session.
+  const prependPendingRef = useRef(false)
+  // The container's scrollHeight as of the end of the last layout effect
+  // run, used to compute how much a pending prepend grew the content by.
   const prevHeightRef = useRef(0)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setExhausted(false)
     setVisibleCount(MAX_VISIBLE_MESSAGES)
-    prevFirstKeyRef.current = undefined
+    prependPendingRef.current = false
     prevHeightRef.current = 0
   }, [sessionId])
 
@@ -153,41 +162,41 @@ export function Transcript({ sessionId }: TranscriptProps) {
     const el = containerRef.current
     if (!el) return
 
-    const firstKey = items[0]?.key
-    const wasPrepend =
-      prevFirstKeyRef.current !== undefined && firstKey !== undefined && firstKey !== prevFirstKeyRef.current
-
-    if (wasPrepend && !stickToBottomRef.current) {
+    if (prependPendingRef.current) {
       el.scrollTop = compensatePrepend(prevHeightRef.current, el.scrollHeight, el.scrollTop)
+      prependPendingRef.current = false
     } else if (stickToBottomRef.current) {
       el.scrollTop = el.scrollHeight
     }
+    // else: an `items` change that's neither a pending prepend nor while
+    // stuck to the bottom — e.g. a WS append evicting the window's oldest
+    // item while the reader is scrolled up. Left untouched on purpose
+    // (acceptable v1): that eviction can shift content by one row, but
+    // applying prepend-style compensation here would be the exact
+    // misclassification this ref exists to avoid.
 
-    prevFirstKeyRef.current = firstKey
     prevHeightRef.current = el.scrollHeight
   }, [items])
 
   const handleLoadOlder = useCallback(async () => {
     if (loadingOlder) return
     setLoadingOlder(true)
+    prependPendingRef.current = true
     try {
       const fetched = await loadOlder(sessionId)
       if (fetched.length === 0) {
         setExhausted(true)
+        // No content is actually landing above the viewport, so there's
+        // nothing for the layout effect to compensate — don't leave the
+        // flag armed for some unrelated later change to misfire on.
+        prependPendingRef.current = false
       } else {
-        // Growing visibleCount by just fetched.length is NOT enough to
-        // guarantee the newly prepended page is actually revealed: if the
-        // window was already behind the store's total before this click
-        // (e.g. several loadOlder pages accumulated, or the initial fetch
-        // already exceeded MAX_VISIBLE_MESSAGES), that pre-existing
-        // backlog sits *between* the old window boundary and the new
-        // page, and simply growing by the new page's size only eats into
-        // that backlog — the freshly fetched messages stay just as hidden
-        // as before. Reading the store directly for the up-to-date total
-        // and taking the max guarantees the whole thing (backlog + new
-        // page) becomes visible, while never shrinking the window.
-        const total = pairMessages(useOrbital.getState().transcripts[sessionId] ?? []).length
-        setVisibleCount((count) => Math.max(count + fetched.length, total))
+        // Bounded growth: reveal exactly this page, no more. `slice(-N)`
+        // clamps naturally when N exceeds the array length, so this never
+        // needs to know the store's total — it just grows the window by
+        // what was actually fetched, same as the "last 200" cap it started
+        // from, keeping the window's size predictable on every click.
+        setVisibleCount((count) => count + fetched.length)
       }
     } finally {
       setLoadingOlder(false)

@@ -438,7 +438,11 @@ describe('Transcript', () => {
 
   it('grows the visible window so newly loaded older messages actually appear (regression: window used to stay pinned to the last 200 raw messages, hiding anything loadOlder prepended)', async () => {
     const user = userEvent.setup()
-    const initial: ChatMessage[] = Array.from({ length: 250 }, (_, i) => ({
+    // The realistic steady state: exactly the window size already stored
+    // and visible (the server caps the initial select() fetch at 100 —
+    // see server/src/api/routes.ts — well under the 200-item window, so
+    // nothing is hidden yet when the first "load older" click happens).
+    const initial: ChatMessage[] = Array.from({ length: 200 }, (_, i) => ({
       id: `m${i}`,
       role: 'user',
       text: `message ${i}`,
@@ -446,11 +450,7 @@ describe('Transcript', () => {
     resetStore({ transcripts: { s1: initial } })
 
     render(<Transcript sessionId="s1" />)
-
-    // Sanity check on the initial 200-message window: the oldest 50 of the
-    // 250 are not shown yet, the newest is.
-    expect(screen.queryByText('message 0')).not.toBeInTheDocument()
-    expect(screen.getByText('message 249')).toBeInTheDocument()
+    expect(screen.getByText('message 0')).toBeInTheDocument()
 
     const older: ChatMessage[] = Array.from({ length: 50 }, (_, i) => ({
       id: `older${i}`,
@@ -473,6 +473,57 @@ describe('Transcript', () => {
     // store while the window stays pinned to its old size.
     expect(await screen.findByText('older message 0')).toBeInTheDocument()
     expect(screen.getByText('older message 49')).toBeInTheDocument()
+  })
+
+  it('grows the window by exactly the fetched page size, not by collapsing to the full stored history (bounded growth)', async () => {
+    const user = userEvent.setup()
+    // A backlog already sits beyond the window before any click (260
+    // stored, 200-item window -> the oldest 60 are hidden). A single
+    // "load older" click should grow the window by only the newly
+    // fetched page's size (5), not jump straight to showing everything
+    // ever stored.
+    const initial: ChatMessage[] = Array.from({ length: 260 }, (_, i) => ({
+      id: `m${i}`,
+      role: 'user',
+      text: `message ${i}`,
+    }))
+    resetStore({ transcripts: { s1: initial } })
+
+    render(<Transcript sessionId="s1" />)
+    expect(screen.queryByText('message 0')).not.toBeInTheDocument()
+
+    const loadOlderSpy = vi.fn().mockImplementation(async (id: string) => {
+      const extra: ChatMessage[] = Array.from({ length: 5 }, (_, i) => ({
+        id: `extra${i}`,
+        role: 'user',
+        text: `extra ${i}`,
+      }))
+      useOrbital.setState((state) => ({
+        transcripts: { ...state.transcripts, [id]: [...extra, ...state.transcripts[id]] },
+      }))
+      return extra
+    })
+    act(() => {
+      useOrbital.setState({ loadOlder: loadOlderSpy })
+    })
+
+    await user.click(screen.getByRole('button', { name: /load older/i }))
+
+    // 260 (pre-existing backlog beyond the window) + 5 (freshly fetched) =
+    // 265 total; window grows from 200 to 205. With the 5 extras prepended
+    // in front, the cutoff (still 60 items from the end of whatever's
+    // hidden) now lands 5 messages later into the original backlog:
+    // "message 55" through "message 59" become newly visible, but
+    // "message 54" and earlier, and the freshly fetched "extra*" messages,
+    // stay hidden — proving the window grew by exactly the fetched page's
+    // size (5), not by 60+5 (which a total-collapsing formula would have
+    // revealed all of, including the extras).
+    await waitFor(() => {
+      expect(screen.getByText('message 55')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('message 54')).not.toBeInTheDocument()
+    expect(screen.queryByText('extra 0')).not.toBeInTheDocument()
+    expect(screen.queryByText('extra 4')).not.toBeInTheDocument()
   })
 
   it('hides the "Load older" button once loadOlder reports an empty page', async () => {
