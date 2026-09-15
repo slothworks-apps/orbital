@@ -1,0 +1,6 @@
+{
+  "name": "orbital",
+  "private": true,
+  "type": "module",
+  "workspaces": ["server", "web"]
+}
