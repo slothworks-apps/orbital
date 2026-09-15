@@ -1,0 +1,19 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-space: #05070d;
+  --color-space-deep: #03111a;
+  --color-panel: rgb(10 16 28 / 0.72);
+  --color-panel-border: rgb(150 205 255 / 0.14);
+  --color-text-bright: #e8eef8;
+  --color-text-soft: #cfe6ff;
+  --color-text-muted: rgb(160 190 225 / 0.7);
+  --font-sans: 'Manrope', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-space);
+  color: var(--color-text-bright);
+  font-family: var(--font-sans);
+}
