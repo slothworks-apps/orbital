@@ -145,6 +145,33 @@ function fakeQueryFnToolMessages() {
   return { fn };
 }
 
+/**
+ * Fake SDK whose `system/init` message is held back until the test releases
+ * a manually-controlled gate — lets a test fire two `start()` calls for the
+ * same resume id before either has registered in `Runner.sessions`, to
+ * exercise the in-flight reservation race guard.
+ */
+function fakeQueryFnDelayedInit(sessionId: string) {
+  let releaseInit!: () => void;
+  const initGate = new Promise<void>((resolve) => { releaseInit = resolve; });
+  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+    async function* gen() {
+      await initGate;
+      yield { type: 'system', subtype: 'init', session_id: sessionId };
+      for await (const userMsg of prompt) {
+        const text = userMsg.message.content[0].text;
+        yield {
+          type: 'assistant', session_id: sessionId,
+          message: { role: 'assistant', content: [{ type: 'text', text: `echo:${text}` }] },
+        };
+        yield { type: 'result', subtype: 'success', session_id: sessionId, usage: {} };
+      }
+    }
+    return gen() as any;
+  };
+  return { fn, releaseInit: () => releaseInit() };
+}
+
 describe('Runner', () => {
   it('starts a session, streams messages, and lands in needs_input after the turn', async () => {
     const hub = new Hub();
@@ -298,6 +325,26 @@ describe('Runner', () => {
     await expect(
       runner.start({ cwd: '/p', prompt: 'y', permissionMode: 'plan', resume: 'web-1' }),
     ).rejects.toThrow(/collision/);
+  });
+
+  it('start() with two concurrent resumes of the same not-yet-registered session: only one wins (in-flight reservation)', async () => {
+    const hub = new Hub();
+    const { fn, releaseInit } = fakeQueryFnDelayedInit('old-1');
+    const runner = new Runner({ hub, queryFn: fn as any });
+
+    // Fire both start() calls before the SDK's init message arrives for
+    // either — neither is registered in `sessions` yet, so without the
+    // in-flight reservation both would pass the `sessions.has` check.
+    const p1 = runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'plan', resume: 'old-1' });
+    const p2 = runner.start({ cwd: '/p', prompt: 'y', permissionMode: 'plan', resume: 'old-1' });
+    releaseInit();
+
+    const results = await Promise.allSettled([p1, p2]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/collision/);
   });
 
   it('sdkToChatMessages: nextSeq is called once per content block, producing distinct ids', () => {

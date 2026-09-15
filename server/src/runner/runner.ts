@@ -43,6 +43,15 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number): ChatMessa
 
 export class Runner {
   private sessions = new Map<string, ManagedSession>();
+  /**
+   * Resume ids currently mid-`start()` but not yet registered in `sessions`
+   * (init message not yet received). Guards the race where two concurrent
+   * `start({resume: id})` calls both pass the synchronous `sessions.has`
+   * check before either has registered — the second reservation attempt
+   * throws instead. Always released before `start()` settles (resolve,
+   * reject, or an unexpected synchronous throw), so it never leaks.
+   */
+  private starting = new Set<string>();
   private ended = new Set<string>();
   private seq = 0;
   private hub: Hub;
@@ -105,82 +114,98 @@ export class Runner {
     resume?: string;
     model?: string;
   }): Promise<string> {
-    if (opts.resume && this.sessions.has(opts.resume)) {
-      throw new Error(`resume collision: session ${opts.resume} already active`);
-    }
-    const state: ManagedSession = {
-      status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
-    };
-    // Input stream: yields queued user messages; null closes it.
-    const dequeue = () =>
-      new Promise<unknown | null>((resolve) => {
-        if (state.pending.length) resolve(state.pending.shift()!);
-        else state.queue.push(resolve);
-      });
-    async function* input() {
-      while (true) {
-        const msg = await dequeue();
-        if (msg === null) return;
-        yield msg;
+    if (opts.resume) {
+      if (this.sessions.has(opts.resume) || this.starting.has(opts.resume)) {
+        throw new Error(`resume collision: session ${opts.resume} already active`);
       }
+      // Reserve synchronously (before any await below) so a second
+      // concurrent start() for the same resume id — even one whose SDK
+      // init hasn't arrived yet — sees the reservation and collides too.
+      this.starting.add(opts.resume);
     }
-    const options: Record<string, unknown> = {
-      cwd: opts.cwd,
-      permissionMode: opts.permissionMode,
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
-      settingSources: ['user', 'project', 'local'],
+    const releaseReservation = () => {
+      if (opts.resume) this.starting.delete(opts.resume);
     };
-    if (opts.resume) options.resume = opts.resume;
-    if (opts.model) options.model = opts.model;
-
-    const generator = this.queryFn({ prompt: input(), options });
-    state.generator = generator;
-
-    const sessionId = await new Promise<string>((resolve, reject) => {
-      let resolved = false;
-      const pump = async () => {
-        try {
-          for await (const msg of generator) {
-            const id: string | undefined = msg?.session_id;
-            if (!resolved && id && msg.type === 'system' && msg.subtype === 'init') {
-              resolved = true;
-              this.sessions.set(id, state);
-              resolve(id);
-              // First user message goes in only after the session is registered.
-              // An empty prompt (e.g. clear+startNew) means "start the session
-              // but wait for the caller's first send()" — enqueueing an empty
-              // user turn would otherwise burn a turn on nothing (I6).
-              if (opts.prompt) {
-                this.enqueue(id, this.userMessage(id, opts.prompt));
-              } else {
-                this.setStatus(id, 'needs_input');
-              }
-            }
-            if (!id) continue;
-            if (msg.type === 'assistant' || msg.type === 'user') {
-              for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
-                this.hub.publish(`session:${id}`, { event: 'message', message: chat });
-              }
-            } else if (msg.type === 'result') {
-              this.hub.publish(`session:${id}`, { event: 'turn_result', usage: msg.usage ?? {} });
-              this.setStatus(id, 'needs_input');
-              this.armIdleTimer(id);
-            }
-          }
-        } catch (err) {
-          console.warn('orbital: runner pump error:', err);
-        }
-        // Generator finished (SDK process exited, or the input stream was closed).
-        if (resolved) {
-          const id = [...this.sessions.entries()].find(([, s]) => s === state)?.[0];
-          if (id) this.finish(id);
-        } else {
-          reject(new Error('SDK query ended before init'));
-        }
+    try {
+      const state: ManagedSession = {
+        status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
       };
-      void pump();
-    });
-    return sessionId;
+      // Input stream: yields queued user messages; null closes it.
+      const dequeue = () =>
+        new Promise<unknown | null>((resolve) => {
+          if (state.pending.length) resolve(state.pending.shift()!);
+          else state.queue.push(resolve);
+        });
+      async function* input() {
+        while (true) {
+          const msg = await dequeue();
+          if (msg === null) return;
+          yield msg;
+        }
+      }
+      const options: Record<string, unknown> = {
+        cwd: opts.cwd,
+        permissionMode: opts.permissionMode,
+        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        settingSources: ['user', 'project', 'local'],
+      };
+      if (opts.resume) options.resume = opts.resume;
+      if (opts.model) options.model = opts.model;
+
+      const generator = this.queryFn({ prompt: input(), options });
+      state.generator = generator;
+
+      const sessionId = await new Promise<string>((resolve, reject) => {
+        let resolved = false;
+        const pump = async () => {
+          try {
+            for await (const msg of generator) {
+              const id: string | undefined = msg?.session_id;
+              if (!resolved && id && msg.type === 'system' && msg.subtype === 'init') {
+                resolved = true;
+                this.sessions.set(id, state);
+                releaseReservation();
+                resolve(id);
+                // First user message goes in only after the session is registered.
+                // An empty prompt (e.g. clear+startNew) means "start the session
+                // but wait for the caller's first send()" — enqueueing an empty
+                // user turn would otherwise burn a turn on nothing (I6).
+                if (opts.prompt) {
+                  this.enqueue(id, this.userMessage(id, opts.prompt));
+                } else {
+                  this.setStatus(id, 'needs_input');
+                }
+              }
+              if (!id) continue;
+              if (msg.type === 'assistant' || msg.type === 'user') {
+                for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
+                  this.hub.publish(`session:${id}`, { event: 'message', message: chat });
+                }
+              } else if (msg.type === 'result') {
+                this.hub.publish(`session:${id}`, { event: 'turn_result', usage: msg.usage ?? {} });
+                this.setStatus(id, 'needs_input');
+                this.armIdleTimer(id);
+              }
+            }
+          } catch (err) {
+            console.warn('orbital: runner pump error:', err);
+          }
+          // Generator finished (SDK process exited, or the input stream was closed).
+          if (resolved) {
+            const id = [...this.sessions.entries()].find(([, s]) => s === state)?.[0];
+            if (id) this.finish(id);
+          } else {
+            releaseReservation();
+            reject(new Error('SDK query ended before init'));
+          }
+        };
+        void pump();
+      });
+      return sessionId;
+    } catch (err) {
+      releaseReservation();
+      throw err;
+    }
   }
 
   private enqueue(sessionId: string, msg: unknown | null): void {

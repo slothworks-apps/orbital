@@ -2,7 +2,7 @@ import { effectiveTagIds } from '../tags/rules.js';
 import type { OrbitalDb } from '../db/database.js';
 import type { Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
-import type { SessionRow, SessionStatus } from '../types.js';
+import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '../types.js';
 
 /**
  * Minimal context `toApiSession` needs to compute the REST session shape.
@@ -23,8 +23,8 @@ export interface ApiSession {
   firstAt: number | null;
   lastAt: number | null;
   messageCount: number;
-  source: string;
-  permissionMode: string | null;
+  source: SessionSource;
+  permissionMode: PermissionMode | null;
   parentId: string | null;
   tagIds: number[];
   status: SessionStatus;
