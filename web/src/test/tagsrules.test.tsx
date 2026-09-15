@@ -41,6 +41,8 @@ const defaultTag: Tag = { id: 2, name: 'default', hue: 60, is_default: 1 }
 
 const rule1: TagRule = { id: 10, tag_id: 1, position: 0, enabled: 1, condition: 'path_matches', pattern: '/work/**' }
 const rule2: TagRule = { id: 20, tag_id: 2, position: 1, enabled: 1, condition: 'title_contains', pattern: 'bug' }
+/** Second rule in the SAME (work) tag — reorder swaps happen within one tag's list. */
+const workRule2: TagRule = { id: 20, tag_id: 1, position: 1, enabled: 1, condition: 'title_contains', pattern: 'bug' }
 
 function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSession {
   return {
@@ -109,15 +111,18 @@ describe('TagsRules', () => {
     render(<TagsRules open onClose={vi.fn()} />)
 
     expect(screen.getByText('2 sessions · 1 rules')).toBeInTheDocument()
-    expect(screen.getByText('0 sessions · 1 rules')).toBeInTheDocument()
+    expect(screen.getByText('0 sessions · 1 rules · default')).toBeInTheDocument()
   })
 
-  it('disables delete for the default tag but not others', () => {
+  it('disables delete for the default tag but not others (delete lives on the selected card)', () => {
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: 'Delete default' })).toBeDisabled()
+    // First tag (work) is selected by default and owns the visible delete.
     expect(screen.getByRole('button', { name: 'Delete work' })).not.toBeDisabled()
+    // Selecting the default tag's card swaps the delete over — disabled there.
+    fireEvent.click(screen.getByText('hue 60'))
+    expect(screen.getByRole('button', { name: 'Delete default' })).toBeDisabled()
   })
 
   it('renames a tag on blur', async () => {
@@ -164,7 +169,7 @@ describe('TagsRules', () => {
 
   it('reorders a rule down by swapping positions with the next rule via two PATCHes', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
-    resetStore()
+    resetStore({ rules: [rule1, workRule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
@@ -187,10 +192,10 @@ describe('TagsRules', () => {
     // the client can't know this without asking, hence the refetch.
     const serverRules = [
       { ...rule1, position: 1 },
-      rule2,
+      workRule2,
     ]
     vi.mocked(api.listTagRules).mockResolvedValue(serverRules)
-    resetStore()
+    resetStore({ rules: [rule1, workRule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
@@ -214,7 +219,7 @@ describe('TagsRules', () => {
   })
 
   it('disables the up arrow on the first rule and the down arrow on the last', () => {
-    resetStore()
+    resetStore({ rules: [rule1, workRule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
     expect(screen.getByRole('button', { name: 'Move rule 1 up' })).toBeDisabled()
@@ -228,9 +233,11 @@ describe('TagsRules', () => {
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
 
+    // Rules are managed per tag — select the default tag's card first; the
+    // new rule targets the selected tag.
+    fireEvent.click(screen.getByText('hue 60'))
     fireEvent.click(screen.getByRole('button', { name: '+ Add rule' }))
 
-    // Targets the default tag (id 2), not just the first tag in the list.
     await waitFor(() =>
       expect(api.createTagRule).toHaveBeenCalledWith({ tagId: 2, condition: 'path_matches', pattern: '' })
     )

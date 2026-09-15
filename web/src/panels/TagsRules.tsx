@@ -126,6 +126,8 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const sessions = useOrbital(useShallow((s) => s.sessions))
 
   const [newTagName, setNewTagName] = useState('')
+  /** Rules are managed per tag (canvas 1e): the selected tag card on the left drives the rules list. */
+  const [selectedTagId, setSelectedTagId] = useState<number | null>(null)
   const [previewPath, setPreviewPath] = useState('')
   const [previewResult, setPreviewResult] = useState<{ tagId: number | null; ruleId: number | null } | null>(null)
   const [patternDrafts, setPatternDrafts] = useState<Record<number, string>>({})
@@ -179,6 +181,8 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   if (!open) return null
 
   const sortedRules = [...rules].sort((a, b) => a.position - b.position)
+  const effectiveTagId = selectedTagId ?? tags[0]?.id ?? null
+  const tagRules = sortedRules.filter((r) => r.tag_id === effectiveTagId)
 
   function sessionCount(tagId: number): number {
     return Object.values(sessions).filter((s) => s.tagIds.includes(tagId)).length
@@ -231,7 +235,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   }
 
   async function handleAddRule() {
-    const targetTagId = tags.find((t) => t.is_default)?.id ?? tags[0]?.id
+    const targetTagId = effectiveTagId ?? tags.find((t) => t.is_default)?.id ?? tags[0]?.id
     if (targetTagId == null) return
     try {
       await api.createTagRule({ tagId: targetTagId, condition: 'path_matches', pattern: '' })
@@ -248,10 +252,12 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   // via two PATCHes, which is enough to express the same first-match-wins
   // ordering without a drag-and-drop implementation in v1.
   async function handleReorder(rule: TagRule, direction: 'up' | 'down') {
-    const idx = sortedRules.findIndex((r) => r.id === rule.id)
+    // Swap within the selected tag's own list — the design manages rules per
+    // tag, so "up/down" means the neighbor of the same tag.
+    const idx = tagRules.findIndex((r) => r.id === rule.id)
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (idx < 0 || swapIdx < 0 || swapIdx >= sortedRules.length) return
-    const other = sortedRules[swapIdx]
+    if (idx < 0 || swapIdx < 0 || swapIdx >= tagRules.length) return
+    const other = tagRules[swapIdx]
     try {
       await Promise.all([
         api.patchTagRule(rule.id, { position: other.position }),
@@ -366,47 +372,67 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
           <div className="flex flex-col gap-3">
             <h3 className="font-mono text-[11px] tracking-[0.15em] text-text-muted">TAGS</h3>
             <ul className="flex flex-col gap-2">
-              {tags.map((tag) => (
-                <li key={tag.id} className="flex flex-col gap-1.5 rounded-md border border-panel-border p-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ background: tagColor(tag.hue) }}
-                    />
-                    <TagNameField tag={tag} onCommit={(name) => void handleRenameTag(tag.id, name)} />
-                    <span className="shrink-0 font-mono text-[10px] text-text-muted">hue {tag.hue}</span>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      disabled={Boolean(tag.is_default)}
-                      onClick={() => void handleDeleteTag(tag)}
-                      aria-label={`Delete ${tag.name}`}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                  <div className="font-mono text-[11px] text-text-muted">
-                    {sessionCount(tag.id)} sessions · {ruleCount(tag.id)} rules
-                  </div>
-                  <div className="flex flex-wrap gap-1" role="group" aria-label={`Hue for ${tag.name}`}>
-                    {HUE_SWATCHES.map((hue) => (
-                      <button
-                        key={hue}
-                        type="button"
-                        aria-label={`Hue ${hue}`}
-                        aria-pressed={tag.hue === hue}
-                        onClick={() => void handleHue(tag.id, hue)}
-                        className={[
-                          'h-4 w-4 rounded-full border transition-transform',
-                          tag.hue === hue ? 'scale-110 border-text-bright' : 'border-transparent',
-                        ].join(' ')}
-                        style={{ background: tagColor(hue) }}
+              {tags.map((tag) => {
+                const isSelected = tag.id === effectiveTagId
+                return (
+                  // Canvas 1e: the selected card drives the rules list on the
+                  // right and is the only one showing swatches + delete.
+                  <li
+                    key={tag.id}
+                    onClick={() => setSelectedTagId(tag.id)}
+                    aria-selected={isSelected}
+                    className={[
+                      'flex cursor-pointer flex-col gap-1.5 rounded-md border p-2 transition-colors',
+                      isSelected
+                        ? 'border-accent/50 bg-[rgba(150,205,255,.05)]'
+                        : 'border-panel-border hover:bg-white/5',
+                    ].join(' ')}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ background: tagColor(tag.hue) }}
                       />
-                    ))}
-                  </div>
-                </li>
-              ))}
+                      <TagNameField tag={tag} onCommit={(name) => void handleRenameTag(tag.id, name)} />
+                      <span className="shrink-0 font-mono text-[10px] text-text-muted">hue {tag.hue}</span>
+                      {isSelected && (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          disabled={Boolean(tag.is_default)}
+                          onClick={() => void handleDeleteTag(tag)}
+                          aria-label={`Delete ${tag.name}`}
+                        >
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                    <div className="font-mono text-[11px] text-text-muted">
+                      {sessionCount(tag.id)} sessions · {ruleCount(tag.id)} rules
+                      {tag.is_default === 1 ? ' · default' : ''}
+                    </div>
+                    {isSelected && (
+                      <div className="flex flex-wrap gap-1" role="group" aria-label={`Hue for ${tag.name}`}>
+                        {HUE_SWATCHES.map((hue) => (
+                          <button
+                            key={hue}
+                            type="button"
+                            aria-label={`Hue ${hue}`}
+                            aria-pressed={tag.hue === hue}
+                            onClick={() => void handleHue(tag.id, hue)}
+                            className={[
+                              'h-4 w-4 rounded-full border transition-transform',
+                              tag.hue === hue ? 'scale-110 border-text-bright' : 'border-transparent',
+                            ].join(' ')}
+                            style={{ background: tagColor(hue) }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
             <div className="flex gap-1.5">
               <Input
@@ -424,7 +450,9 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
           {/* Right: rules table */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-              <h3 className="font-mono text-[11px] tracking-[0.15em] text-text-muted">AUTO-TAG RULES</h3>
+              <h3 className="font-mono text-[11px] tracking-[0.15em] text-text-muted">
+                AUTO-TAG RULES · {tagRules.length}
+              </h3>
               <Button variant="ghost" size="sm" onClick={() => void handleAddRule()}>
                 + Add rule
               </Button>
@@ -444,7 +472,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedRules.map((rule, idx) => (
+                  {tagRules.map((rule, idx) => (
                     <tr key={rule.id} className="border-t border-panel-border align-middle">
                       <td className="py-1.5 pr-2">
                         <div className="flex items-center gap-1">
@@ -460,7 +488,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                           <button
                             type="button"
                             aria-label={`Move rule ${idx + 1} down`}
-                            disabled={idx === sortedRules.length - 1}
+                            disabled={idx === tagRules.length - 1}
                             onClick={() => void handleReorder(rule, 'down')}
                             className="disabled:opacity-30"
                           >
