@@ -20,6 +20,7 @@ describe('openDb', () => {
     expect(def.hue).toBe(330);
     const mode = db.prepare(`SELECT value FROM settings WHERE key='default_permission_mode'`).get() as any;
     expect(mode.value).toBe('acceptEdits');
+    expect(db.pragma('user_version', { simple: true })).toBe(1);
     db.close();
     const again = openDb(join(dir, 'index.db')); // must not throw on re-run
     expect(again.prepare(`SELECT COUNT(*) c FROM tags`).get()).toMatchObject({ c: 1 });

@@ -67,5 +67,11 @@ export function openDb(dbPath: string): Database.Database {
   db.prepare(
     `INSERT OR IGNORE INTO tags (name, hue, is_default) VALUES ('personal', 330, 1)`,
   ).run();
+  // Migration baseline (M12): a fresh or pre-Drizzle database has
+  // user_version 0. Stamp it to 1 so a future Drizzle migration runner has a
+  // starting point to diff against, without ever overwriting a version an
+  // actual migration already advanced.
+  const userVersion = db.pragma('user_version', { simple: true }) as number;
+  if (userVersion === 0) db.pragma('user_version = 1');
   return db;
 }

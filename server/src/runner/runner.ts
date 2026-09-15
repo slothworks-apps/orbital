@@ -144,7 +144,14 @@ export class Runner {
               this.sessions.set(id, state);
               resolve(id);
               // First user message goes in only after the session is registered.
-              this.enqueue(id, this.userMessage(id, opts.prompt));
+              // An empty prompt (e.g. clear+startNew) means "start the session
+              // but wait for the caller's first send()" — enqueueing an empty
+              // user turn would otherwise burn a turn on nothing (I6).
+              if (opts.prompt) {
+                this.enqueue(id, this.userMessage(id, opts.prompt));
+              } else {
+                this.setStatus(id, 'needs_input');
+              }
             }
             if (!id) continue;
             if (msg.type === 'assistant' || msg.type === 'user') {

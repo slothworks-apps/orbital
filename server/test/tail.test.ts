@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,8 +25,7 @@ describe('TranscriptTail', () => {
     tail.start();
     expect(seen).toEqual(['u1']);
     appendFileSync(file, LINE2);
-    await new Promise((r) => setTimeout(r, 400));
-    expect(seen).toEqual(['u1', 'a1']);
+    await vi.waitFor(() => expect(seen).toEqual(['u1', 'a1']), { timeout: 2000 });
     tail.stop();
   });
   it('holds back a partial trailing line until completed', () => {

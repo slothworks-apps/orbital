@@ -161,6 +161,31 @@ describe('Runner', () => {
     expect(msg.message.text).toBe('echo:hello');
   });
 
+  it('start() with an empty prompt does not enqueue a first turn; waits in needs_input for send() (I6)', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFn();
+    const runner = new Runner({ hub, queryFn: fn as any });
+    const received = subscribed(hub, 'session:web-1');
+    const id = await runner.start({ cwd: '/p', prompt: '', permissionMode: 'acceptEdits' });
+    expect(id).toBe('web-1');
+
+    // No turn ran: the fake only ever yields a message/turn_result after
+    // pulling a user message off the input queue, so nothing should have
+    // reached the hub, and status should have moved off 'working' straight
+    // to 'needs_input' (a session that isn't running a turn shouldn't be
+    // reported as 'working').
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    expect(received.filter((r) => r.event === 'message')).toHaveLength(0);
+    expect(received.filter((r) => r.event === 'turn_result')).toHaveLength(0);
+
+    // send() delivers the first real message and runs a turn as normal.
+    runner.send('web-1', 'first real message');
+    expect(runner.status('web-1')).toBe('working');
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    const msg = received.find((r) => r.event === 'message');
+    expect(msg.message.text).toBe('echo:first real message');
+  });
+
   it('send() runs another turn; end() closes the session', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
