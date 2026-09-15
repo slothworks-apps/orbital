@@ -65,6 +65,7 @@ export interface OrbitalActions {
   applySessionsEvent(msg: SessionsEvent): void
   applySessionEvent(sessionId: string, msg: SessionEvent): void
   select(id: string): Promise<void>
+  loadOlder(id: string): Promise<ChatMessage[]>
   sendPrompt(id: string, text: string): Promise<void>
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
@@ -245,6 +246,37 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       })
     } catch {
       // Leave historyLoaded unset so a future select() can retry.
+    }
+  },
+
+  /**
+   * Fetches the page of messages just before the oldest one currently held
+   * for `id` and prepends it (deduped by id, same pattern as `select`).
+   * Returns the fetched page so callers (Transcript's "load older" button)
+   * can tell an empty response apart from one still in flight — there was
+   * no existing store action for this, so it's added here per task 11.
+   */
+  async loadOlder(id) {
+    const existing = get().transcripts[id] ?? []
+    const firstId = existing[0]?.id
+    if (!firstId) return []
+
+    try {
+      const fetched = await api.getMessages(id, { before: firstId })
+      set((state) => {
+        const current = state.transcripts[id] ?? []
+        const currentIds = new Set(current.map((m) => m.id))
+        const toPrepend = fetched.filter((m) => !currentIds.has(m.id))
+        return {
+          transcripts: {
+            ...state.transcripts,
+            [id]: [...toPrepend, ...current],
+          },
+        }
+      })
+      return fetched
+    } catch {
+      return []
     }
   },
 

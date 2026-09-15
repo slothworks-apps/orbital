@@ -237,6 +237,52 @@ describe('select', () => {
   })
 })
 
+describe('loadOlder', () => {
+  it('fetches messages before the oldest currently held and prepends them, deduped by id', async () => {
+    useOrbital.setState({
+      transcripts: {
+        s1: [
+          { id: 'm5', role: 'user', text: 'fifth' },
+          { id: 'm6', role: 'assistant', text: 'sixth' },
+        ],
+      },
+    })
+    const older: ChatMessage[] = [
+      { id: 'm3', role: 'user', text: 'third' },
+      { id: 'm4', role: 'assistant', text: 'fourth' },
+      { id: 'm5', role: 'user', text: 'fifth' }, // overlaps with what's already there
+    ]
+    vi.mocked(api.getMessages).mockResolvedValueOnce(older)
+
+    const fetched = await useOrbital.getState().loadOlder('s1')
+
+    expect(api.getMessages).toHaveBeenCalledWith('s1', { before: 'm5' })
+    expect(fetched).toEqual(older)
+    expect(useOrbital.getState().transcripts.s1).toEqual([
+      { id: 'm3', role: 'user', text: 'third' },
+      { id: 'm4', role: 'assistant', text: 'fourth' },
+      { id: 'm5', role: 'user', text: 'fifth' },
+      { id: 'm6', role: 'assistant', text: 'sixth' },
+    ])
+  })
+
+  it('resolves to an empty array without calling the API when there is no transcript yet', async () => {
+    const fetched = await useOrbital.getState().loadOlder('s1')
+    expect(fetched).toEqual([])
+    expect(api.getMessages).not.toHaveBeenCalled()
+  })
+
+  it('resolves to an empty array (leaving the transcript untouched) when the fetch fails', async () => {
+    useOrbital.setState({ transcripts: { s1: [{ id: 'm5', role: 'user', text: 'fifth' }] } })
+    vi.mocked(api.getMessages).mockRejectedValueOnce(new Error('network error'))
+
+    const fetched = await useOrbital.getState().loadOlder('s1')
+
+    expect(fetched).toEqual([])
+    expect(useOrbital.getState().transcripts.s1).toEqual([{ id: 'm5', role: 'user', text: 'fifth' }])
+  })
+})
+
 describe('sendPrompt', () => {
   it('optimistically appends a user message with a local:-prefixed id and calls api.sendMessage', async () => {
     vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
