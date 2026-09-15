@@ -12,20 +12,18 @@ interface ModeDescriptor {
   description: string
 }
 
-/** One-line descriptions per artboard 1d/1h — the design canvas text itself
- * isn't machine-readable from here, so these paraphrase Claude Code's actual
- * mode semantics rather than guessing at exact copy. */
+/** One-line descriptions per artboard 1d/1h — exact copy from the design canvas. */
 const MODES: ModeDescriptor[] = [
-  { value: 'plan', label: 'Plan', description: 'Plans changes without editing files or running commands.' },
+  { value: 'plan', label: 'Plan', description: 'Read-only. Proposes a plan before acting.' },
   {
     value: 'acceptEdits',
     label: 'Accept Edits',
-    description: 'Edits files automatically; still asks before running commands.',
+    description: 'Edits files freely; asks before shell commands.',
   },
   {
     value: 'bypassPermissions',
     label: 'Bypass Permissions',
-    description: 'Skips all permission prompts — full autonomy.',
+    description: 'Never asks. Use in sandboxes only.',
   },
 ]
 

@@ -179,6 +179,40 @@ describe('TagsRules', () => {
     })
   })
 
+  it('resyncs rules from the server when a reorder swap partially fails (one PATCH rejects)', async () => {
+    // The swap is two independent PATCHes with no DB-level transaction —
+    // simulate the first landing and the second rejecting.
+    vi.mocked(api.patchTagRule).mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('conflict'))
+    // What the server actually ended up with after the partial failure —
+    // the client can't know this without asking, hence the refetch.
+    const serverRules = [
+      { ...rule1, position: 1 },
+      rule2,
+    ]
+    vi.mocked(api.listTagRules).mockResolvedValue(serverRules)
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
+
+    await waitFor(() => expect(api.listTagRules).toHaveBeenCalled())
+    await waitFor(() => expect(useOrbital.getState().rules).toEqual(serverRules))
+    expect(useOrbital.getState().toast).toMatchObject({ kind: 'error' })
+  })
+
+  it('resyncs rules from the server when a single-PATCH mutation (enable toggle) fails', async () => {
+    vi.mocked(api.patchTagRule).mockRejectedValue(new Error('server down'))
+    const serverRules = [rule1, rule2]
+    vi.mocked(api.listTagRules).mockResolvedValue(serverRules)
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Enable rule 1'))
+
+    await waitFor(() => expect(api.listTagRules).toHaveBeenCalled())
+    await waitFor(() => expect(useOrbital.getState().rules).toEqual(serverRules))
+  })
+
   it('disables the up arrow on the first rule and the down arrow on the last', () => {
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
@@ -187,17 +221,18 @@ describe('TagsRules', () => {
     expect(screen.getByRole('button', { name: 'Move rule 2 down' })).toBeDisabled()
   })
 
-  it('creates a rule with a camelCase tagId payload, then refreshes rules', async () => {
+  it('creates a rule targeting the default tag with a camelCase tagId payload, then refreshes rules', async () => {
     vi.mocked(api.createTagRule).mockResolvedValue(30)
-    const refreshedRules = [rule1, rule2, { id: 30, tag_id: 1, position: 2, enabled: 1 as const, condition: 'path_matches' as const, pattern: '' }]
+    const refreshedRules = [rule1, rule2, { id: 30, tag_id: 2, position: 2, enabled: 1 as const, condition: 'path_matches' as const, pattern: '' }]
     vi.mocked(api.listTagRules).mockResolvedValue(refreshedRules)
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: '+ Add rule' }))
 
+    // Targets the default tag (id 2), not just the first tag in the list.
     await waitFor(() =>
-      expect(api.createTagRule).toHaveBeenCalledWith({ tagId: 1, condition: 'path_matches', pattern: '' })
+      expect(api.createTagRule).toHaveBeenCalledWith({ tagId: 2, condition: 'path_matches', pattern: '' })
     )
     await waitFor(() => expect(useOrbital.getState().rules).toEqual(refreshedRules))
   })

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
@@ -34,6 +34,27 @@ function replaceTag(tags: Tag[], id: number, patch: Partial<Tag>): Tag[] {
 
 function replaceRule(rules: TagRule[], id: number, patch: Partial<TagRule>): TagRule[] {
   return rules.map((r) => (r.id === id ? { ...r, ...patch } : r))
+}
+
+/**
+ * Refetches rules from the server and replaces the store's copy wholesale.
+ * Called from every rule-mutation handler's `catch` block (in addition to
+ * `reportError`'s toast) so a failed PATCH — or, for the reorder swap
+ * specifically, a *partial* failure where one of its two PATCHes succeeded
+ * and the other didn't — can never leave the client silently diverged from
+ * the server. There's no DB uniqueness constraint on `position`, so a
+ * half-applied swap is a real possibility, not just a theoretical one.
+ */
+async function resyncRules(): Promise<void> {
+  try {
+    const refreshed = await api.listTagRules()
+    useOrbital.setState({ rules: refreshed })
+  } catch {
+    // The resync itself failed (server unreachable, say) — nothing more to
+    // do here; the toast from the triggering mutation already told the user
+    // something went wrong, and the next successful mutation (or reopening
+    // the panel, which re-fetches via loadInitial) will resync again.
+  }
 }
 
 /** Inline-editable tag name — local draft so keystrokes don't get clobbered by store updates, committed on blur/Enter (mirrors DetailPanel's title field). */
@@ -165,7 +186,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   }
 
   async function handleAddRule() {
-    const targetTagId = tags[0]?.id
+    const targetTagId = tags.find((t) => t.is_default)?.id ?? tags[0]?.id
     if (targetTagId == null) return
     try {
       await api.createTagRule({ tagId: targetTagId, condition: 'path_matches', pattern: '' })
@@ -199,6 +220,11 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       }))
     } catch (err) {
       reportError(err, 'Failed to reorder rules')
+      // The two PATCHes above aren't transactional — one can have already
+      // landed server-side while the other rejected, so a plain toast would
+      // leave the store's optimistic-free (but now stale) view silently
+      // wrong. Refetch to find out what the server actually ended up with.
+      void resyncRules()
     }
   }
 
@@ -208,33 +234,43 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { condition }) }))
     } catch (err) {
       reportError(err, 'Failed to update rule')
+      void resyncRules()
     }
   }
+
+  // Per-row debounce for the pattern field, keyed by rule id — a keystroke
+  // in one row only resets that row's own timer, never every other row's
+  // (the previous implementation re-derived every rule's timer from a
+  // single effect over the whole `patternDrafts` object on every keystroke
+  // in any field).
+  const patternTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+
+  useEffect(() => {
+    // Unmount cleanup only — timers are otherwise managed per-call below.
+    return () => {
+      Object.values(patternTimers.current).forEach(clearTimeout)
+    }
+  }, [])
 
   function handlePatternDraft(rule: TagRule, value: string) {
     setPatternDrafts((drafts) => ({ ...drafts, [rule.id]: value }))
-  }
 
-  // Debounced pattern PATCH, one timer per rule.
-  useEffect(() => {
-    const timers = Object.entries(patternDrafts).map(([idStr, pattern]) => {
-      const id = Number(idStr)
-      const current = rules.find((r) => r.id === id)
-      if (!current || current.pattern === pattern) return undefined
-      return setTimeout(() => {
-        api
-          .patchTagRule(id, { pattern })
-          .then(() => {
-            useOrbital.setState((state) => ({ rules: replaceRule(state.rules, id, { pattern }) }))
-          })
-          .catch((err) => reportError(err, 'Failed to update rule pattern'))
-      }, DEBOUNCE_MS)
-    })
-    return () => {
-      timers.forEach((t) => t && clearTimeout(t))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patternDrafts])
+    const existing = patternTimers.current[rule.id]
+    if (existing) clearTimeout(existing)
+
+    patternTimers.current[rule.id] = setTimeout(() => {
+      delete patternTimers.current[rule.id]
+      api
+        .patchTagRule(rule.id, { pattern: value })
+        .then(() => {
+          useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { pattern: value }) }))
+        })
+        .catch((err) => {
+          reportError(err, 'Failed to update rule pattern')
+          void resyncRules()
+        })
+    }, DEBOUNCE_MS)
+  }
 
   async function handleTargetTag(rule: TagRule, tagId: number) {
     try {
@@ -242,6 +278,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { tag_id: tagId }) }))
     } catch (err) {
       reportError(err, 'Failed to update rule target tag')
+      void resyncRules()
     }
   }
 
@@ -252,6 +289,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { enabled: next }) }))
     } catch (err) {
       reportError(err, 'Failed to toggle rule')
+      void resyncRules()
     }
   }
 
@@ -261,6 +299,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       useOrbital.setState((state) => ({ rules: state.rules.filter((r) => r.id !== rule.id) }))
     } catch (err) {
       reportError(err, 'Failed to delete rule')
+      void resyncRules()
     }
   }
 
