@@ -4,8 +4,6 @@ import { parseTranscriptLine, type TranscriptEntry } from '../transcript/parser.
 
 export class TranscriptTail extends EventEmitter {
   offset = 0;
-  private watching = false;
-  private lastSize = 0;
   private debounce: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private filePath: string) {
@@ -50,14 +48,7 @@ export class TranscriptTail extends EventEmitter {
     this.offset = fromByte;
     this.readNew();
     try {
-      this.lastSize = statSync(this.filePath).size;
-    } catch {
-      // ignore
-    }
-    this.watching = true;
-    try {
       watchFile(this.filePath, { interval: 100 }, () => {
-        if (!this.watching) return;
         if (this.debounce) clearTimeout(this.debounce);
         this.debounce = setTimeout(() => this.readNew(), 150);
       });
@@ -68,7 +59,6 @@ export class TranscriptTail extends EventEmitter {
 
   stop(): void {
     if (this.debounce) clearTimeout(this.debounce);
-    this.watching = false;
     unwatchFile(this.filePath);
   }
 }
