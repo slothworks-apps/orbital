@@ -4,6 +4,7 @@ import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
 import { planetVisuals, truncateLabel } from './visuals'
+import { glowTexture } from './textures'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
@@ -46,6 +47,8 @@ const RIPPLE_MAX_SCALE = 1.9
 const RIPPLE_DURATION_SEC = 1.6
 const RIPPLE_INNER = 0.5
 const RIPPLE_OUTER = 0.56
+
+const HALO_GRADIENT_BOOST = 2.4
 
 const CORE_PULSE_SPEED = 2.2
 const CORE_PULSE_AMPLITUDE = 0.14
@@ -270,6 +273,10 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
   const color = useMemo(() => oklchTagColor(hue), [hue])
   const tickColor = visuals.dimmed ? GREY : color
   const coreColor = session.status === 'needs_input' ? WHITE : color
+  const glowMap = glowTexture()
+  // The gradient glow spends most of its area near-transparent, so its peak
+  // runs brighter than the flat-disc fallback for the same visual weight.
+  const haloBaseOpacity = glowMap ? Math.min(1, visuals.haloOpacity * HALO_GRADIENT_BOOST) : visuals.haloOpacity
 
   const tickGroupRef = useRef<THREE.Group>(null!)
   const coreRef = useRef<THREE.Mesh>(null!)
@@ -293,10 +300,10 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
     if (haloMaterialRef.current) {
       const breathing =
-        visuals.haloOpacity > 0 && visuals.haloBreathes
-          ? visuals.haloOpacity *
+        haloBaseOpacity > 0 && visuals.haloBreathes
+          ? haloBaseOpacity *
             (1 - HALO_BREATH_AMPLITUDE / 2 + (HALO_BREATH_AMPLITUDE / 2) * Math.sin(state.clock.elapsedTime * HALO_BREATH_SPEED))
-          : visuals.haloOpacity
+          : haloBaseOpacity
       haloMaterialRef.current.opacity = breathing
     }
 
@@ -325,8 +332,19 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
   return (
     <group position={[x, y, 0]} scale={scale} onClick={onClick ? handleClick : undefined}>
       <mesh position={[0, 0, HALO_Z]}>
-        <circleGeometry args={[HALO_RADIUS, 48]} />
-        <meshBasicMaterial ref={haloMaterialRef} color={color} transparent opacity={visuals.haloOpacity} depthWrite={false} />
+        {glowMap ? (
+          <planeGeometry args={[HALO_RADIUS * 2.4, HALO_RADIUS * 2.4]} />
+        ) : (
+          <circleGeometry args={[HALO_RADIUS, 48]} />
+        )}
+        <meshBasicMaterial
+          ref={haloMaterialRef}
+          color={color}
+          transparent
+          opacity={haloBaseOpacity}
+          depthWrite={false}
+          map={glowMap ?? undefined}
+        />
       </mesh>
 
       <mesh position={[0, 0, BODY_Z]}>

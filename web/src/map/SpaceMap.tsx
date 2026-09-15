@@ -6,6 +6,7 @@ import type { OrthographicCamera } from 'three'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { Planet } from './Planet'
+import { nebulaTexture } from './textures'
 import { Moon } from './Moon'
 import { useSceneModel } from './useSceneModel'
 import { applyPan, applyZoom, fitView, zoomFromWheel, type CameraState } from './camera'
@@ -52,10 +53,15 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
 
 /** Faint nebula gradient behind the starfield, per artboard 1a. */
 function NebulaBackdrop() {
+  const map = nebulaTexture()
   return (
     <mesh position={[0, 0, -50]}>
       <planeGeometry args={[600, 600]} />
-      <meshBasicMaterial color="#0f1830" transparent opacity={0.35} depthWrite={false} />
+      {map ? (
+        <meshBasicMaterial map={map} transparent depthWrite={false} />
+      ) : (
+        <meshBasicMaterial color="#0f1830" transparent opacity={0.35} depthWrite={false} />
+      )}
     </mesh>
   )
 }
@@ -180,7 +186,7 @@ export function SpaceMap() {
       <Canvas orthographic camera={{ zoom: INITIAL_CAMERA.zoom, position: [0, 0, 100] }}>
         <CameraRig camera={camera} />
         <ambientLight intensity={0.6} />
-        <Stars radius={80} depth={40} count={1200} factor={2} saturation={0} fade speed={0.25} />
+        <Stars radius={80} depth={40} count={2600} factor={3} saturation={0} fade speed={0.25} />
         <NebulaBackdrop />
 
         {model.planets.map((planet) => (
@@ -228,7 +234,8 @@ export function SpaceMap() {
 
       {/* Plain-DOM HUD overlay, outside the Canvas. */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="pointer-events-none absolute right-6 top-6 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
+        {/* right-14 keeps clear of App's fixed Settings gear (top-3 right-3). */}
+        <div className="pointer-events-none absolute right-14 top-6 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
           {aggregateLine}
         </div>
 
@@ -236,15 +243,15 @@ export function SpaceMap() {
           {zoomPercent}% · x {camX} y {camY}
         </div>
 
-        <div className="pointer-events-auto absolute bottom-6 right-6 flex gap-2">
+        <div className="pointer-events-auto absolute bottom-6 right-6 flex flex-col gap-1.5">
+          <Button variant="ghost" size="sm" aria-label="Zoom in" onClick={zoomIn}>
+            +
+          </Button>
           <Button variant="ghost" size="sm" aria-label="Zoom out" onClick={zoomOut}>
             −
           </Button>
           <Button variant="ghost" size="sm" aria-label="Fit view" onClick={handleFit}>
-            fit
-          </Button>
-          <Button variant="ghost" size="sm" aria-label="Zoom in" onClick={zoomIn}>
-            +
+            ⛶
           </Button>
         </div>
 
