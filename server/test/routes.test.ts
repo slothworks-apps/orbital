@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
 import { registerRoutes } from '../src/api/routes.js';
+import { buildServer } from '../src/index.js';
 
 function makeApp() {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
@@ -168,5 +169,19 @@ describe('REST routes', () => {
     const copiedTags = db.prepare(`SELECT tag_id FROM session_tags WHERE session_id=?`).all(newSessionId) as any[];
     expect(copiedTags).toHaveLength(1);
     expect(copiedTags[0].tag_id).toBe(10);
+  });
+});
+
+describe('buildServer smoke', () => {
+  it('boots, serves /api/sessions and /ws upgrade route exists', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-boot-'));
+    const app = await buildServer({
+      dbPath: join(dir, 'index.db'),
+      claudeDir: dir, // empty: no projects/, no sessions/ — must still boot
+    });
+    const res = await app.inject({ method: 'GET', url: '/api/sessions' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ sessions: [] });
+    await app.close();
   });
 });
