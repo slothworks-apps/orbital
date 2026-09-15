@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
 import { registerRoutes } from '../src/api/routes.js';
 import { buildServer } from '../src/index.js';
+import { Hub } from '../src/api/hub.js';
 
 function makeApp() {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
@@ -24,27 +25,43 @@ function makeApp() {
     status: () => undefined, active: () => [],
     start: async () => 'web-9', send: () => {}, interrupt: async () => {}, end: async () => {},
   };
+  const hub = new Hub();
   const app = Fastify();
   registerRoutes(app, {
-    db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent',
+    db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent', hub,
     settings: {
       get: (k: string) => (db.prepare(`SELECT value FROM settings WHERE key=?`).get(k) as any)?.value ?? '',
       set: (k: string, v: string) =>
         db.prepare(`INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(k, v),
     },
   });
-  return { app, db, runner };
+  return { app, db, runner, hub };
+}
+
+/** Subscribes a fake socket to a Hub topic and collects published payloads. */
+function subscribeFake(hub: Hub, topic: string) {
+  const received: any[] = [];
+  const socket: any = {
+    send: (d: string) => received.push(JSON.parse(d)),
+    handlers: {} as Record<string, Function>,
+    on(ev: string, cb: Function) { this.handlers[ev] = cb; },
+  };
+  hub.handleSocket(socket);
+  socket.handlers['message'](JSON.stringify({ type: 'subscribe', topic }));
+  return received;
 }
 
 describe('REST routes', () => {
   let app: FastifyInstance;
   let db: any;
   let runner: any;
+  let hub: Hub;
   beforeEach(() => {
     const result = makeApp();
     app = result.app;
     db = result.db;
     runner = result.runner;
+    hub = result.hub;
   });
 
   it('GET /api/sessions lists by recency with merged status and tags', async () => {
@@ -76,6 +93,34 @@ describe('REST routes', () => {
     expect(list.json().sessions.map((s: any) => s.id).sort()).toEqual(['s1', 's2']);
   });
 
+  it('PUT /api/sessions/:id/tags removing a rule-derived tag actually removes it (C1)', async () => {
+    // Create a tag whose rule matches s1's cwd, so session_tags gets a
+    // 'rule'-origin row for it.
+    const tagRes = await app.inject({
+      method: 'POST', url: '/api/tags', payload: { name: 'ruletag', hue: 5 },
+    });
+    const ruleTagId = tagRes.json().id;
+    const ruleRes = await app.inject({
+      method: 'POST', url: '/api/tag-rules',
+      payload: { tagId: ruleTagId, condition: 'path_matches', pattern: '/w/x' },
+    });
+    const ruleId = ruleRes.json().id;
+
+    const before = await app.inject({ method: 'GET', url: '/api/sessions/s1' });
+    expect(before.json().session.tagIds).toContain(ruleTagId);
+
+    // Remove every tag via PUT, including the rule-derived one.
+    await app.inject({ method: 'PUT', url: '/api/sessions/s1/tags', payload: { tagIds: [] } });
+    const after = await app.inject({ method: 'GET', url: '/api/sessions/s1' });
+    expect(after.json().session.tagIds).not.toContain(ruleTagId);
+
+    // An unrelated rule mutation re-runs regenerateRuleTags; the manual
+    // removal must still be honored (the tag must not come back).
+    await app.inject({ method: 'PATCH', url: `/api/tag-rules/${ruleId}`, payload: { position: 0 } });
+    const afterMutation = await app.inject({ method: 'GET', url: '/api/sessions/s1' });
+    expect(afterMutation.json().session.tagIds).not.toContain(ruleTagId);
+  });
+
   it('tags + rules CRUD and preview', async () => {
     const created = await app.inject({
       method: 'POST', url: '/api/tags', payload: { name: 'oncall', hue: 60 },
@@ -101,6 +146,18 @@ describe('REST routes', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ sessionId: 'web-9' });
+  });
+
+  it('POST /api/sessions publishes an upsert on the sessions topic (I3)', async () => {
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' },
+    });
+    expect(res.statusCode).toBe(201);
+    const upserts = received.filter((r) => r.event === 'upsert');
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].session).toMatchObject({ id: 'web-9', status: 'ended' });
   });
 
   it('GET and PATCH /api/settings', async () => {

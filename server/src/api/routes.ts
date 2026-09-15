@@ -6,6 +6,7 @@ import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
 import { effectiveTagIds, regenerateRuleTags, matchRule } from '../tags/rules.js';
 import type { Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
+import type { Hub } from './hub.js';
 import type { SessionRow, SessionStatus, TagRule } from '../types.js';
 
 export interface RouteContext {
@@ -13,6 +14,7 @@ export interface RouteContext {
   registry: SessionRegistry;
   runner: Runner;
   projectsDir: string;
+  hub: Hub;
   settings: { get(key: string): string; set(key: string, value: string): void };
 }
 
@@ -99,6 +101,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (body.tagId != null) {
       db.prepare(`INSERT OR IGNORE INTO session_tags VALUES (?, ?, 'manual')`).run(sessionId, body.tagId);
     }
+    const row = db.prepare(`SELECT * FROM sessions WHERE id=?`).get(sessionId) as SessionRow;
+    ctx.hub.publish('sessions', { event: 'upsert', session: toApi(ctx, row) });
     return reply.code(201).send({ sessionId });
   });
 
@@ -174,6 +178,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         }
       }
     })();
+    // A removed rule-derived tag leaves its 'rule' origin row in place unless
+    // we regenerate — without this, effectiveTagIds (which unions rule+manual)
+    // would keep showing the tag until an unrelated rule mutation happened to
+    // run regenerateRuleTags. See spec finding C1.
+    regenerateRuleTags(db);
     return { ok: true };
   });
 
