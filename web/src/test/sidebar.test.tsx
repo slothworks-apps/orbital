@@ -209,7 +209,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('Work session')).toBeInTheDocument()
     expect(screen.getByText('Personal session')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'work 1' }))
+    await user.click(screen.getByRole('button', { name: 'work' }))
 
     expect(screen.getByText('Work session')).toBeInTheDocument()
     expect(screen.queryByText('Personal session')).not.toBeInTheDocument()
@@ -382,7 +382,7 @@ describe('Sidebar', () => {
 
     // Switching the tag filter must re-arm pagination even though the
     // previous filter combination had already reached its end.
-    await user.click(screen.getByRole('button', { name: 'work 1' }))
+    await user.click(screen.getByRole('button', { name: 'work' }))
 
     await act(async () => {
       trigger()

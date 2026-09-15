@@ -20,11 +20,11 @@ const sideWidth: Record<NonNullable<PanelProps['side']>, string> = {
 }
 
 // Docked panels float with an outer margin (artboard 1a/1b), so every side
-// keeps the full rounding.
+// keeps the full rounding (canvas radius: 14px).
 const sideRounding: Record<NonNullable<PanelProps['side']>, string> = {
-  left: 'rounded-2xl',
-  right: 'rounded-2xl',
-  float: 'rounded-2xl',
+  left: 'rounded-[14px]',
+  right: 'rounded-[14px]',
+  float: 'rounded-[14px]',
 }
 
 export function Panel({ side = 'float', collapsed = false, className, children }: PanelProps) {
@@ -35,7 +35,10 @@ export function Panel({ side = 'float', collapsed = false, className, children }
       data-side={side}
       data-collapsed={collapsed}
       className={[
-        'bg-panel border border-panel-border backdrop-blur-md',
+        // Glass recipe verbatim from the design export: vertical gradient
+        // fill, 22px blur, drop shadow with a 1px white inner top highlight.
+        'bg-gradient-to-b from-[rgba(14,20,34,.85)] to-[rgba(8,12,22,.9)] border border-panel-border backdrop-blur-[22px]',
+        'shadow-[0_30px_80px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.06)]',
         sideRounding[side],
         width,
         'transition-[width] duration-200',

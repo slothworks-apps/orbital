@@ -13,6 +13,17 @@ import { Transcript } from './Transcript'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { shortenPath } from '../lib/format'
+import { tagColor } from '../lib/types'
+import type { ApiSession, Tag } from '../lib/types'
+
+/** First tag's hue, falling back to the default tag — mirrors the sidebar/map. */
+function sidebarHue(session: ApiSession, tags: Tag[]): number | undefined {
+  for (const tagId of session.tagIds) {
+    const tag = tags.find((t) => t.id === tagId)
+    if (tag) return tag.hue
+  }
+  return tags.find((t) => t.is_default === 1)?.hue
+}
 
 /** Roughly Claude's context window, in tokens — the denominator for the
  * header's context-usage bar. Not read from settings/the API; it's a fixed
@@ -182,8 +193,18 @@ export function DetailPanel() {
   const isTerminalLive = session?.source === 'terminal' && session.status !== 'ended'
   const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
 
+  const headerHue = session ? sidebarHue(session, tags) : undefined
+
   return (
-    <Panel side="right" className="flex h-full flex-col gap-3 overflow-hidden p-4">
+    <Panel side="right" className="relative flex h-full flex-col gap-3 overflow-hidden p-4">
+      {/* Top hairline glint in the session's tag hue (canvas 1b). */}
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-px"
+        style={{
+          background: `linear-gradient(90deg, transparent, ${headerHue !== undefined ? tagColor(headerHue) : 'rgba(126,231,255,.8)'}, transparent)`,
+        }}
+      />
       <div className="flex flex-col gap-2 border-b border-panel-border pb-3">
         <div className="flex items-center gap-2">
           <Input
@@ -214,6 +235,14 @@ export function DetailPanel() {
               Clear
             </Button>
           )}
+          <button
+            type="button"
+            aria-label="Close panel"
+            onClick={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-text-muted transition-colors hover:bg-white/5 hover:text-text-bright"
+          >
+            ×
+          </button>
         </div>
 
         {session && (
@@ -222,7 +251,7 @@ export function DetailPanel() {
 
             <div className="flex flex-wrap items-center gap-1.5">
               {session.permissionMode && <Badge variant="mode" value={session.permissionMode} />}
-              <Badge variant="status" value={session.status} />
+              <Badge variant="status" value={session.status} hue={headerHue} />
             </div>
 
             {tags.length > 0 && (

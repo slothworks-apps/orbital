@@ -119,7 +119,7 @@ describe('DetailPanel header', () => {
 
     expect(screen.getByDisplayValue('My session')).toBeInTheDocument()
     expect(screen.getByText(/orbital/)).toBeInTheDocument() // shortened cwd
-    expect(screen.getByText(/PLAN/)).toBeInTheDocument()
+    expect(screen.getByText('plan')).toBeInTheDocument()
     expect(screen.getByText(/WORKING/)).toBeInTheDocument()
   })
 

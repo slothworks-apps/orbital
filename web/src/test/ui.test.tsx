@@ -38,7 +38,7 @@ describe('Panel', () => {
   it('applies the glass styling classes (panel bg, border, blur, rounded)', () => {
     const { container } = render(<Panel side="float">content</Panel>)
     const el = container.firstElementChild as HTMLElement
-    expect(el.className).toMatch(/bg-panel/)
+    expect(el.className).toMatch(/from-\[rgba\(14,20,34/)
     expect(el.className).toMatch(/border-panel-border/)
     expect(el.className).toMatch(/backdrop-blur/)
     expect(el.className).toMatch(/rounded/)
@@ -52,7 +52,7 @@ describe('Panel', () => {
     )
     const el = container.firstElementChild as HTMLElement
     expect(el.className).toMatch(/mt-4/)
-    expect(el.className).toMatch(/bg-panel/)
+    expect(el.className).toMatch(/from-\[rgba\(14,20,34/)
   })
 })
 
@@ -121,7 +121,7 @@ describe('Badge', () => {
 
   it('renders a permission-mode badge', () => {
     render(<Badge variant="mode" value="acceptEdits" />)
-    expect(screen.getByText(/ACCEPT EDITS/i)).toBeInTheDocument()
+    expect(screen.getByText('acceptEdits')).toBeInTheDocument()
   })
 
   it('renders a count badge with optional label', () => {

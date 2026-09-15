@@ -7,10 +7,9 @@ import { tagColor } from '../lib/types'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
-import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
-import { StatusDot } from '../ui/StatusDot'
+import { Logo } from '../ui/Logo'
 import { timeAgo, shortenPath } from '../lib/format'
 
 /** How many sessions `loadMore` asks for per infinite-scroll page. */
@@ -52,19 +51,54 @@ const sourceOptions: Array<{ value: 'all' | SessionSource; label: string }> = [
   { value: 'web', label: 'web' },
 ]
 
-/** Small color swatches for a row's tags — not a Chip (no label/interaction), so kept inline rather than stretching Chip to a dot-only mode. */
-function TagDots({ tagIds, tags }: { tagIds: number[]; tags: Tag[] }) {
-  const hues = tagIds
-    .map((id) => tags.find((t) => t.id === id)?.hue)
-    .filter((h): h is number => h !== undefined)
+/** First tag's hue drives a row's dot color, matching the map (canvas 1a). */
+function rowHue(session: ApiSession, tags: Tag[]): number | undefined {
+  for (const id of session.tagIds) {
+    const tag = tags.find((t) => t.id === id)
+    if (tag) return tag.hue
+  }
+  return tags.find((t) => t.is_default === 1)?.hue
+}
 
-  if (hues.length === 0) return null
-
+/**
+ * Row lead dot per canvas 1a: solid tag-hue disc for active sessions
+ * (blinking + glowing while working), hollow hue ring for history rows.
+ */
+function RowDot({ hue, status }: { hue: number | undefined; status: ApiSession['status'] }) {
+  const color = hue !== undefined ? tagColor(hue) : 'rgba(160,190,225,.6)'
+  if (status === 'ended') {
+    return (
+      <span
+        aria-hidden
+        className="h-[7px] w-[7px] shrink-0 rounded-full border"
+        style={{ borderColor: color, opacity: 0.6 }}
+      />
+    )
+  }
+  const busy = status === 'working' || status === 'needs_input'
   return (
-    <span className="flex shrink-0 items-center gap-1">
-      {hues.map((hue, i) => (
-        <span key={i} aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: tagColor(hue) }} />
-      ))}
+    <span
+      aria-hidden
+      className={['h-[7px] w-[7px] shrink-0 rounded-full', busy ? 'orbital-pulse' : ''].filter(Boolean).join(' ')}
+      style={{
+        background: color,
+        boxShadow: busy ? `0 0 8px ${color}` : undefined,
+        opacity: busy ? 1 : 0.8,
+      }}
+    />
+  )
+}
+
+/** Mono uppercase status column per canvas 1a: hue-colored while working, muted otherwise. */
+function RowStatus({ status, hue }: { status: ApiSession['status']; hue: number | undefined }) {
+  const busy = status === 'working' || status === 'needs_input'
+  const color = busy && hue !== undefined ? tagColor(hue) : undefined
+  return (
+    <span
+      className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em]"
+      style={{ color: color ?? 'rgba(160,190,225,.6)' }}
+    >
+      {status === 'needs_input' ? 'NEEDS INPUT' : status.toUpperCase()}
     </span>
   )
 }
@@ -82,6 +116,7 @@ function SessionRow({
   onSelect: (id: string) => void
   right: ReactNode
 }) {
+  const hue = rowHue(session, tags)
   return (
     <li>
       <button
@@ -89,20 +124,17 @@ function SessionRow({
         onClick={() => onSelect(session.id)}
         aria-current={selected ? 'true' : undefined}
         className={[
-          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/5',
-          selected ? 'bg-white/10' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
+          'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/5',
+          selected ? 'border border-panel-border bg-[rgba(150,205,255,.07)]' : 'border border-transparent',
+        ].join(' ')}
       >
-        <StatusDot status={session.status} />
+        <RowDot hue={hue} status={session.status} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm text-text-bright">{session.title}</span>
-          <span className="block truncate font-mono text-[11px] text-text-muted">
+          <span className="block truncate text-[13px] font-semibold text-text-bright">{session.title}</span>
+          <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
             {shortenPath(session.cwd)}
           </span>
         </span>
-        <TagDots tagIds={session.tagIds} tags={tags} />
         <span className="shrink-0">{right}</span>
       </button>
     </li>
@@ -135,14 +167,6 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const sentinelRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
   const [exhausted, setExhausted] = useState(false)
-
-  const tagCounts = useMemo(() => {
-    const counts = new Map<number, number>()
-    for (const s of visible) {
-      for (const id of s.tagIds) counts.set(id, (counts.get(id) ?? 0) + 1)
-    }
-    return counts
-  }, [visible])
 
   const active = useMemo(() => visible.filter((s) => s.status !== 'ended'), [visible])
   const history = useMemo(() => visible.filter((s) => s.status === 'ended'), [visible])
@@ -209,9 +233,12 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   }, [observerFactory, loadMore, exhausted])
 
   if (collapsed) {
+    // Rail per canvas 1b: logo, expand toggle, divider, one hue dot per
+    // active session (blinking while working).
     return (
       <Panel side="left" collapsed>
-        <div className="flex h-full flex-col items-center gap-3 py-4">
+        <div className="flex h-full flex-col items-center gap-3.5 py-4">
+          <Logo />
           <Button
             variant="ghost"
             size="sm"
@@ -220,6 +247,10 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           >
             »
           </Button>
+          <span aria-hidden className="h-px w-5 bg-panel-border" />
+          {active.slice(0, 8).map((s) => (
+            <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} />
+          ))}
         </div>
       </Panel>
     )
@@ -227,8 +258,11 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
 
   return (
     <Panel side="left" className="flex h-full flex-col gap-4 overflow-hidden p-4">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-sm font-bold tracking-[0.2em] text-text-bright">ORBITAL</span>
+      <div className="flex items-center justify-between gap-2.5">
+        <span className="flex items-center gap-2.5">
+          <Logo />
+          <span className="text-[13px] font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
+        </span>
         <Button
           variant="ghost"
           size="sm"
@@ -258,7 +292,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         {tags.map((tag) => (
           <Chip
             key={tag.id}
-            label={`${tag.name} ${tagCounts.get(tag.id) ?? 0}`}
+            label={tag.name}
             hue={tag.hue}
             active={filterTagId === tag.id}
             onClick={() => setFilterTag(tag.id)}
@@ -278,7 +312,9 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       </div>
 
       <div className="-mx-1 flex-1 overflow-y-auto px-1">
-        <h3 className="mb-1.5 font-mono text-[10px] tracking-[0.15em] text-text-muted">ACTIVE</h3>
+        <h3 className="mb-1.5 flex items-center gap-2 font-mono text-[10px] tracking-[0.18em] text-text-muted">
+          ACTIVE <span className="tracking-normal text-accent">{active.length}</span>
+        </h3>
         <ul className="flex flex-col gap-0.5" aria-label="Active sessions">
           {active.map((s) => (
             <SessionRow
@@ -287,13 +323,18 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               tags={tags}
               selected={s.id === selectedId}
               onSelect={handleSelect}
-              right={<Badge variant="status" value={s.status} />}
+              right={<RowStatus status={s.status} hue={rowHue(s, tags)} />}
             />
           ))}
         </ul>
 
-        <h3 className="mb-1.5 mt-4 font-mono text-[10px] tracking-[0.15em] text-text-muted">HISTORY</h3>
-        <ul className="flex flex-col gap-0.5" aria-label="Session history">
+        <h3 className="mb-1.5 mt-4 flex items-center justify-between font-mono text-[10px] tracking-[0.18em] text-text-muted">
+          HISTORY
+          <span className="tracking-[0.04em]" title="sorted by most recent">
+            recent ▾
+          </span>
+        </h3>
+        <ul className="flex flex-col gap-0.5 opacity-75" aria-label="Session history">
           {history.map((s) => (
             <SessionRow
               key={s.id}
