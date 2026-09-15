@@ -1,0 +1,4 @@
+{"type":"user","uuid":"u1","timestamp":"2026-09-01T10:00:00.000Z","cwd":"/Users/tomin/Projects/slothworks/ergaily","message":{"role":"user","content":"Fix the login bug in the auth service please"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-09-01T10:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Looking at it."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm test"}}]}}
+{this line is corrupt garbage
+{"type":"user","uuid":"u2","timestamp":"2026-09-01T10:01:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"3 passing"}]}}
