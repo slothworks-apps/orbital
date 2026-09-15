@@ -38,7 +38,9 @@ export interface OrbitalUiState {
   search: string
   sourceFilter: 'all' | SessionSource
   wsStatus: string
-  dialog: null | 'new' | 'clear' | 'stop'
+  dialog: null | 'new' | 'clear' | 'stop' | 'tags'
+  /** Sidebar collapsed to its narrow rail (Panel's `collapsed` prop). See Sidebar.tsx (task 10). */
+  sidebarCollapsed: boolean
 }
 
 export interface OrbitalState {
@@ -68,6 +70,7 @@ export interface OrbitalActions {
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
   setDialog(dialog: OrbitalUiState['dialog']): void
+  setSidebarCollapsed(sidebarCollapsed: boolean): void
   setWsStatus(wsStatus: string): void
   clearToast(): void
 }
@@ -96,6 +99,7 @@ const initialUiState: OrbitalUiState = {
   sourceFilter: 'all',
   wsStatus: 'connecting',
   dialog: null,
+  sidebarCollapsed: false,
 }
 
 export const useOrbital = create<OrbitalStore>()((set, get) => ({
@@ -290,6 +294,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   setDialog(dialog) {
     set((state) => ({ ui: { ...state.ui, dialog } }))
+  },
+
+  setSidebarCollapsed(sidebarCollapsed) {
+    set((state) => ({ ui: { ...state.ui, sidebarCollapsed } }))
   },
 
   setWsStatus(wsStatus) {

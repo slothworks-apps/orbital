@@ -63,6 +63,7 @@ export function useSceneModel(): SceneModel {
           sourceFilter,
           wsStatus: '',
           dialog: null,
+          sidebarCollapsed: false,
         },
       }),
     [sessions, order, tags, subagents, selectedId, filterTagId, search, sourceFilter]

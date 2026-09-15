@@ -79,6 +79,7 @@ const initialSnapshot: OrbitalState = {
     sourceFilter: 'all',
     wsStatus: 'connecting',
     dialog: null,
+    sidebarCollapsed: false,
   },
 }
 
@@ -282,6 +283,7 @@ describe('filter/search/dialog setters', () => {
     useOrbital.getState().setSourceFilter('web')
     useOrbital.getState().setDialog('new')
     useOrbital.getState().setWsStatus('open')
+    useOrbital.getState().setSidebarCollapsed(true)
 
     expect(useOrbital.getState().ui).toEqual({
       selectedId: null,
@@ -290,6 +292,7 @@ describe('filter/search/dialog setters', () => {
       sourceFilter: 'web',
       wsStatus: 'open',
       dialog: 'new',
+      sidebarCollapsed: true,
     })
   })
 

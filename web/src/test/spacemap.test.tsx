@@ -45,6 +45,7 @@ const defaultUi: OrbitalUiState = {
   sourceFilter: 'all',
   wsStatus: 'connected',
   dialog: null,
+  sidebarCollapsed: false,
 }
 
 function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
