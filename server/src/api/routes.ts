@@ -126,16 +126,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     await ctx.runner.end(id);
     if (!startNew) return { ok: true };
     const inheritMode = ctx.settings.get('inherit_permission_mode') === 'true';
+    const permissionMode = (inheritMode && row.permission_mode
+      ? row.permission_mode
+      : ctx.settings.get('default_permission_mode')) as any;
     const newId = await ctx.runner.start({
       cwd: row.cwd, prompt: '',
-      permissionMode: (inheritMode && row.permission_mode
-        ? row.permission_mode
-        : ctx.settings.get('default_permission_mode')) as any,
+      permissionMode,
     });
     db.prepare(
       `INSERT OR IGNORE INTO sessions (id, project_dir, cwd, source, permission_mode, parent_id, last_at)
        VALUES (?, '', ?, 'web', ?, ?, ?)`,
-    ).run(newId, row.cwd, row.permission_mode, id, Date.now());
+    ).run(newId, row.cwd, permissionMode, id, Date.now());
     if (ctx.settings.get('inherit_tags') === 'true') {
       db.prepare(
         `INSERT OR IGNORE INTO session_tags (session_id, tag_id, origin)
