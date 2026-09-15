@@ -108,6 +108,11 @@ soft (skip unparseable records, log, never crash the server).
   sessions appear in the index with no extra bookkeeping (`source: web`).
 - No interactive approvals: whatever the permission mode + settings allowlists
   deny is auto-denied; the agent adapts.
+- **Billing guard:** web sessions must use the user's Claude subscription
+  (OAuth credentials from the CLI login), never per-token API billing. Because
+  the CLI prefers `ANTHROPIC_API_KEY` over OAuth when both are present, the
+  server deletes `ANTHROPIC_API_KEY` from its environment at boot unless
+  `ORBITAL_USE_API_KEY=1` is set explicitly.
 
 ### Session status model
 
