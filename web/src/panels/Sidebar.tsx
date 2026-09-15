@@ -236,7 +236,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     // Rail per canvas 1b: logo, expand toggle, divider, one hue dot per
     // active session (blinking while working).
     return (
-      <Panel side="left" collapsed>
+      <Panel side="left" collapsed className="h-full">
         <div className="flex h-full flex-col items-center gap-3.5 py-4">
           <Logo />
           <Button
