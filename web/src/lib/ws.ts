@@ -1,7 +1,7 @@
 export type WsStatus = 'connecting' | 'open' | 'closed'
 
 export interface OrbitalSocketOptions {
-  WebSocketImpl?: (url: string) => WebSocket
+  WebSocketImpl?: typeof WebSocket | ((url: string) => WebSocket)
   reconnectDelayMs?: number
 }
 
@@ -19,19 +19,25 @@ export function resolveWsUrl(path: string, location: Pick<Location, 'protocol' |
  */
 export class OrbitalSocket {
   private url: string
-  private opts: Required<OrbitalSocketOptions>
+  private opts: {
+    WebSocketImpl: typeof WebSocket | ((url: string) => WebSocket)
+    reconnectDelayMs: number
+  }
   private ws: WebSocket | null = null
   private _status: WsStatus = 'connecting'
   private statusCallbacks: ((status: WsStatus) => void)[] = []
+  // Track subscription ref counts: topic -> handler -> count
+  private subscriptions: Map<string, Map<(msg: any) => void, number>> = new Map()
+  // Track which topics have active subscriptions
   private handlers: Map<string, Set<(msg: any) => void>> = new Map()
   private messageQueue: any[] = []
   private reconnectTimeout: number | null = null
   private isClosed = false
 
-  constructor(url: string, opts?: OrbitalSocketOptions) {
+  constructor(url: string = '/ws', opts?: OrbitalSocketOptions) {
     this.url = url
     this.opts = {
-      WebSocketImpl: opts?.WebSocketImpl || ((url: string) => new WebSocket(url)),
+      WebSocketImpl: opts?.WebSocketImpl || WebSocket,
       reconnectDelayMs: opts?.reconnectDelayMs ?? 3000,
     }
     this.createSocket()
@@ -45,16 +51,26 @@ export class OrbitalSocket {
     this._status = 'connecting'
     this.notifyStatusChange('connecting')
 
-    const WebSocketImpl = this.opts.WebSocketImpl
-    this.ws = WebSocketImpl(this.url)
+    // Handle both class constructors and factory functions
+    const impl = this.opts.WebSocketImpl
+    this.ws = impl instanceof Function && impl.prototype
+      ? new (impl as typeof WebSocket)(this.url)
+      : (impl as (url: string) => WebSocket)(this.url)
 
     this.ws.onopen = () => {
       this._status = 'open'
       this.notifyStatusChange('open')
-      // Resubscribe to all active topics
+
+      // Clear all queued control frames (subscribe/unsubscribe) to avoid stale frames
+      this.messageQueue = this.messageQueue.filter(
+        (msg) => msg.type !== 'subscribe' && msg.type !== 'unsubscribe'
+      )
+
+      // Resend subscribe for all currently active topics
       for (const topic of this.handlers.keys()) {
         this.sendMessage({ type: 'subscribe', topic })
       }
+
       this.flushQueue()
     }
 
@@ -66,7 +82,11 @@ export class OrbitalSocket {
           const topicHandlers = this.handlers.get(topic)
           if (topicHandlers) {
             topicHandlers.forEach((handler) => {
-              handler(msg)
+              try {
+                handler(msg)
+              } catch (err) {
+                console.warn(`Handler error for topic ${topic}:`, err)
+              }
             })
           }
         }
@@ -110,33 +130,80 @@ export class OrbitalSocket {
 
   /**
    * Subscribe to a topic with a handler. Returns an unsubscribe function.
-   * Refcounted: first handler for a topic triggers a subscribe on the server,
-   * last handler leaving triggers an unsubscribe.
+   * Refcounted: first subscription to a topic triggers subscribe,
+   * last subscription leaving triggers unsubscribe. Supports same handler
+   * subscribed multiple times (each unsubscribe is idempotent).
    */
   subscribe(topic: string, handler: (msg: any) => void): () => void {
-    if (!this.handlers.has(topic)) {
+    // Initialize topic structures if needed
+    if (!this.subscriptions.has(topic)) {
+      this.subscriptions.set(topic, new Map())
       this.handlers.set(topic, new Set())
-      // Subscribe messages are sent when socket opens (see onopen handler)
-      // This ensures subscribes are sent for both initial connection and reconnects
+      // Send subscribe on first subscription to this topic
+      this.sendMessage({ type: 'subscribe', topic })
     }
 
+    // Track this subscription (increment ref count for this handler)
+    const topicSubs = this.subscriptions.get(topic)!
+    const currentCount = topicSubs.get(handler) ?? 0
+    topicSubs.set(handler, currentCount + 1)
+
+    // Add handler to active set (may already be there from previous subscription)
     const handlers = this.handlers.get(topic)!
     handlers.add(handler)
 
+    // Return idempotent unsubscribe function
+    let unsubCalled = false
     return () => {
-      handlers.delete(handler)
-      if (handlers.size === 0) {
-        this.handlers.delete(topic)
-        this.sendMessage({ type: 'unsubscribe', topic })
+      if (unsubCalled) {
+        return
+      }
+      unsubCalled = true
+
+      const topicSubs = this.subscriptions.get(topic)
+      if (!topicSubs) return
+
+      const count = topicSubs.get(handler) ?? 0
+      if (count > 1) {
+        // Decrement ref count, handler stays subscribed
+        topicSubs.set(handler, count - 1)
+      } else {
+        // Remove this handler's subscription
+        topicSubs.delete(handler)
+
+        // Check if any subscriptions remain for this topic
+        if (topicSubs.size === 0) {
+          // No more subscriptions for this topic
+          this.subscriptions.delete(topic)
+
+          // Remove handler from active set and cleanup
+          const handlers = this.handlers.get(topic)
+          if (handlers) {
+            handlers.delete(handler)
+            if (handlers.size === 0) {
+              this.handlers.delete(topic)
+              this.sendMessage({ type: 'unsubscribe', topic })
+            }
+          }
+        } else {
+          // Other handlers still subscribed, just remove this handler
+          const handlers = this.handlers.get(topic)
+          if (handlers) {
+            handlers.delete(handler)
+          }
+        }
       }
     }
   }
 
   /**
    * Register a callback to be called when status changes.
+   * The callback is invoked immediately with the current status.
    */
   onStatusChange(cb: (status: WsStatus) => void): void {
     this.statusCallbacks.push(cb)
+    // Invoke immediately with current status
+    cb(this._status)
   }
 
   /**
