@@ -40,11 +40,17 @@ Orbital is two processes: the server (API + WebSocket + the process that
 watches `~/.claude` and drives spawned sessions) and the web frontend (Vite
 dev server, which proxies `/api` and `/ws` to the server).
 
-Start both, each in its own terminal:
+Start both with one command:
 
 ```bash
-npm run dev -w server   # http://127.0.0.1:4737
-npm run dev -w web      # http://127.0.0.1:5173
+npm run dev             # server (http://127.0.0.1:4737) + web (http://127.0.0.1:5173)
+```
+
+Or each in its own terminal:
+
+```bash
+npm run dev:server
+npm run dev:web
 ```
 
 Open `http://localhost:5173`.
@@ -76,7 +82,7 @@ CLI itself does) rather than pay-per-token API billing, the server **deletes
 explicitly opt in:
 
 ```bash
-ORBITAL_USE_API_KEY=1 npm run dev -w server
+ORBITAL_USE_API_KEY=1 npm run dev:server
 ```
 
 Only set that if you actually want spawned sessions billed to an API key
