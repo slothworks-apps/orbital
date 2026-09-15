@@ -1,0 +1,47 @@
+import { describe, it, expect } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openDb } from '../src/db/database.js';
+import { indexProjects } from '../src/indexer/indexer.js';
+
+function setup() {
+  const dir = mkdtempSync(join(tmpdir(), 'orbital-idx-'));
+  const projects = join(dir, 'projects');
+  const pdir = join(projects, '-Users-tomin-Projects-slothworks-ergaily');
+  mkdirSync(pdir, { recursive: true });
+  const fixture = readFileSync(
+    join(import.meta.dirname, 'fixtures/transcript-basic.jsonl'), 'utf8',
+  );
+  writeFileSync(join(pdir, 'aaaa-bbbb.jsonl'), fixture);
+  const db = openDb(join(dir, 'index.db'));
+  return { db, projects, transcriptPath: join(pdir, 'aaaa-bbbb.jsonl') };
+}
+
+describe('indexProjects', () => {
+  it('indexes new transcripts and extracts meta', () => {
+    const { db, projects } = setup();
+    const result = indexProjects(db, projects);
+    expect(result).toEqual({ scanned: 1, indexed: 1 });
+    const row = db.prepare(`SELECT * FROM sessions WHERE id='aaaa-bbbb'`).get() as any;
+    expect(row.cwd).toBe('/Users/tomin/Projects/slothworks/ergaily');
+    expect(row.title).toBe('Fix the login bug in the auth service please');
+    expect(row.message_count).toBe(3);
+  });
+  it('is incremental: unchanged files are skipped, changed files re-indexed', () => {
+    const { db, projects, transcriptPath } = setup();
+    indexProjects(db, projects);
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0 });
+    appendFileSync(
+      transcriptPath,
+      '\n{"type":"user","uuid":"u9","timestamp":"2026-09-01T12:00:00.000Z","message":{"role":"user","content":"more"}}',
+    );
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
+    const row = db.prepare(`SELECT message_count FROM sessions WHERE id='aaaa-bbbb'`).get() as any;
+    expect(row.message_count).toBe(4);
+  });
+  it('returns zeros for a missing dir', () => {
+    const { db } = setup();
+    expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0 });
+  });
+});
