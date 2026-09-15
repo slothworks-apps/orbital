@@ -105,11 +105,11 @@ export default function App() {
         <SpaceMap />
       </div>
 
-      <div className="absolute inset-y-0 left-0 z-10">
+      <div className="absolute inset-y-3 left-3 z-10">
         <Sidebar />
       </div>
 
-      <div className="absolute inset-y-0 right-0 z-10">
+      <div className="absolute inset-y-3 right-3 z-10">
         <DetailPanel />
       </div>
 
@@ -125,7 +125,7 @@ export default function App() {
         aria-label="Settings"
         className={[
           'fixed top-3 z-20 rounded-full',
-          selectedId ? 'right-[25rem]' : 'right-3',
+          selectedId ? 'right-[26rem]' : 'right-3',
         ].join(' ')}
         onClick={() => setDialog('settings')}
       >

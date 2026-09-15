@@ -19,9 +19,11 @@ const sideWidth: Record<NonNullable<PanelProps['side']>, string> = {
   float: '',
 }
 
+// Docked panels float with an outer margin (artboard 1a/1b), so every side
+// keeps the full rounding.
 const sideRounding: Record<NonNullable<PanelProps['side']>, string> = {
-  left: 'rounded-r-2xl',
-  right: 'rounded-l-2xl',
+  left: 'rounded-2xl',
+  right: 'rounded-2xl',
   float: 'rounded-2xl',
 }
 
