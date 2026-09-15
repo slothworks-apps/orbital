@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#020308;color:#e8eef8;font-family:Manrope,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#8fd8ff}a:hover{color:#c6ecff}
+@keyframes orb-glow{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}
+@keyframes orb-ring{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes orb-spin{to{transform:rotate(360deg)}}
+@keyframes orb-blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes orb-mat{0%,100%{opacity:.3;transform:scale(.85)}50%{opacity:.95;transform:scale(1)}}
+@keyframes orb-matring{from{opacity:.8;transform:scale(.6)}to{opacity:0;transform:scale(2)}}
+@keyframes orb-cursor{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes orb-drift{0%{transform:translate(0,0) rotate(-8deg)}18%{transform:translate(260px,-90px) rotate(6deg)}38%{transform:translate(620px,40px) rotate(18deg)}55%{transform:translate(860px,-140px) rotate(2deg)}72%{transform:translate(520px,-260px) rotate(-14deg)}88%{transform:translate(180px,-160px) rotate(-22deg)}100%{transform:translate(0,0) rotate(-8deg)}}
+@keyframes orb-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+</style>
+</helmet>
+
+<!-- ═══ TURN 2: PLANET DESIGN VARIANTS ═══ -->
+<section style="display:flex;flex-direction:column;gap:28px;padding:96px;max-width:3300px">
+  <div style="display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono';font-size:12px;color:rgba(160,190,225,.75);letter-spacing:.08em">PLANET LANGUAGE VARIANTS — 2d chosen, applied in <a href="Orbital.dc.html" style="color:#8fd8ff;text-decoration:none">Orbital</a> <span style="color:rgba(160,190,225,.45)">· each shows working (with 2 moons), idle, ended · hue = tag</span></div>
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+    <!-- 2a Reticle -->
+    <div id="2a" style="display:flex;flex-direction:column;gap:12px;width:640px">
+      <div style="display:flex;align-items:baseline;gap:10px;font-family:'JetBrains Mono';font-size:12px;color:rgba(160,190,225,.75);letter-spacing:.08em"><span style="padding:3px 8px;border:1px solid rgba(150,205,255,.3);border-radius:4px;color:#cfe6ff">2a</span>RETICLE<span style="font-family:Manrope;letter-spacing:0;font-size:12.5px;color:rgba(160,190,225,.6)">— no sphere; a bright core inside thin instrument rings, radar sweep while working</span></div>
+      <div data-screen-label="2a Reticle" style="position:relative;width:640px;height:420px;overflow:hidden;background:#05070d;border-radius:10px;box-shadow:0 0 0 1px rgba(150,205,255,.08)">
+        <div style="position:absolute;inset:0;background:radial-gradient(ellipse 500px 320px at 40% 50%,rgba(70,90,220,.1),transparent)"></div>
+        <div style="position:absolute;inset:0;background-image:radial-gradient(circle at 6% 9%,rgba(255,255,255,.8) 0 .7px,transparent 1.4px),radial-gradient(circle at 37% 7%,rgba(255,255,255,.6) 0 .8px,transparent 1.6px),radial-gradient(circle at 52% 50%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px),radial-gradient(circle at 85% 65%,rgba(255,255,255,.7) 0 .8px,transparent 1.5px),radial-gradient(circle at 15% 75%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px),radial-gradient(circle at 62% 82%,rgba(255,255,255,.6) 0 .7px,transparent 1.4px),radial-gradient(circle at 95% 22%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px);background-size:420px 420px"></div>
+        <!-- working -->
+        <div style="position:absolute;left:170px;top:150px;width:120px;height:120px">
+          <div style="position:absolute;left:50%;top:50%;width:200px;height:200px;margin:-100px 0 0 -100px;border-radius:50%;border:1px solid oklch(80% .13 210 / .22)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:200px;height:200px;margin:-100px 0 0 -100px;animation:orb-spin 18s linear infinite"><span style="position:absolute;top:-3px;left:50%;margin-left:-3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 8px oklch(80% .13 210)"></span></div>
+          <div style="position:absolute;left:50%;top:50%;width:264px;height:264px;margin:-132px 0 0 -132px;border-radius:50%;border:1px solid oklch(80% .13 210 / .14)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:264px;height:264px;margin:-132px 0 0 -132px;animation:orb-spin 30s linear infinite;transform:rotate(150deg)"><span style="position:absolute;top:-2.5px;left:50%;margin-left:-2.5px;width:5px;height:5px;border-radius:50%;background:#fff;box-shadow:0 0 8px oklch(80% .13 210)"></span></div>
+          <div style="position:absolute;inset:0;border-radius:50%;border:1px solid oklch(80% .13 210 / .8);box-shadow:0 0 16px oklch(80% .13 210 / .35),inset 0 0 16px oklch(80% .13 210 / .15);animation:orb-ring 2.6s ease-in-out infinite"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 290deg,oklch(80% .13 210 / .38) 360deg);animation:orb-spin 3.2s linear infinite"></div>
+          <div style="position:absolute;inset:20px;border-radius:50%;border:1px solid oklch(80% .13 210 / .3)"></div>
+          <div style="position:absolute;inset:40px;border-radius:50%;border:1px dashed oklch(80% .13 210 / .3)"></div>
+          <span style="position:absolute;left:50%;top:-9px;width:1px;height:10px;background:oklch(80% .13 210 / .8)"></span>
+          <span style="position:absolute;left:50%;bottom:-9px;width:1px;height:10px;background:oklch(80% .13 210 / .8)"></span>
+          <span style="position:absolute;top:50%;left:-9px;height:1px;width:10px;background:oklch(80% .13 210 / .8)"></span>
+          <span style="position:absolute;top:50%;right:-9px;height:1px;width:10px;background:oklch(80% .13 210 / .8)"></span>
+          <div style="position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:#fff;box-shadow:0 0 14px 4px oklch(80% .13 210 / .9),0 0 40px 10px oklch(80% .13 210 / .4);animation:orb-glow 2.6s ease-in-out infinite"></div>
+          <div style="position:absolute;top:calc(100% + 24px);left:50%;transform:translateX(-50%);white-space:nowrap;font-family:'JetBrains Mono';font-size:11px;letter-spacing:.06em;color:rgba(220,235,255,.85)">auth-refactor</div>
+        </div>
+        <!-- idle -->
+        <div style="position:absolute;left:470px;top:110px;width:64px;height:64px">
+          <div style="position:absolute;inset:0;border-radius:50%;border:1px solid oklch(80% .13 210 / .55);box-shadow:0 0 10px oklch(80% .13 210 / .2)"></div>
+          <div style="position:absolute;inset:12px;border-radius:50%;border:1px solid oklch(80% .13 210 / .25)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:oklch(90% .08 210);box-shadow:0 0 10px 2px oklch(80% .13 210 / .6)"></div>
+          <div style="position:absolute;top:calc(100% + 14px);left:50%;transform:translateX(-50%);font-family:'JetBrains Mono';font-size:10px;letter-spacing:.14em;color:rgba(160,190,225,.6)">IDLE</div>
+        </div>
+        <!-- ended -->
+        <div style="position:absolute;left:484px;top:270px;width:36px;height:36px;opacity:.55">
+          <div style="position:absolute;inset:0;border-radius:50%;border:1px dotted rgba(180,200,225,.6)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:rgba(200,215,235,.8)"></div>
+          <div style="position:absolute;top:calc(100% + 12px);left:50%;transform:translateX(-50%);font-family:'JetBrains Mono';font-size:10px;letter-spacing:.14px;color:rgba(160,190,225,.6);letter-spacing:.14em">ENDED</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2b Eclipse -->
+    <div id="2b" style="display:flex;flex-direction:column;gap:12px;width:640px">
+      <div style="display:flex;align-items:baseline;gap:10px;font-family:'JetBrains Mono';font-size:12px;color:rgba(160,190,225,.75);letter-spacing:.08em"><span style="padding:3px 8px;border:1px solid rgba(150,205,255,.3);border-radius:4px;color:#cfe6ff">2b</span>ECLIPSE<span style="font-family:Manrope;letter-spacing:0;font-size:12.5px;color:rgba(160,190,225,.6)">— near-black body, thin crescent rim-light, corona breathes while working</span></div>
+      <div data-screen-label="2b Eclipse" style="position:relative;width:640px;height:420px;overflow:hidden;background:#05070d;border-radius:10px;box-shadow:0 0 0 1px rgba(150,205,255,.08)">
+        <div style="position:absolute;inset:0;background:radial-gradient(ellipse 500px 320px at 40% 50%,rgba(70,90,220,.1),transparent)"></div>
+        <div style="position:absolute;inset:0;background-image:radial-gradient(circle at 6% 9%,rgba(255,255,255,.8) 0 .7px,transparent 1.4px),radial-gradient(circle at 37% 7%,rgba(255,255,255,.6) 0 .8px,transparent 1.6px),radial-gradient(circle at 52% 50%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px),radial-gradient(circle at 85% 65%,rgba(255,255,255,.7) 0 .8px,transparent 1.5px),radial-gradient(circle at 15% 75%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px),radial-gradient(circle at 62% 82%,rgba(255,255,255,.6) 0 .7px,transparent 1.4px),radial-gradient(circle at 95% 22%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px);background-size:420px 420px"></div>
+        <div style="position:absolute;left:170px;top:150px;width:120px;height:120px">
+          <div style="position:absolute;inset:-70px;border-radius:50%;background:radial-gradient(circle,oklch(80% .13 210 / .45) 0,oklch(80% .13 210 / .12) 40%,transparent 68%);animation:orb-glow 3s ease-in-out infinite"></div>
+          <div style="position:absolute;left:50%;top:50%;width:200px;height:200px;margin:-100px 0 0 -100px;border-radius:50%;border:1px solid oklch(80% .13 210 / .2)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:200px;height:200px;margin:-100px 0 0 -100px;animation:orb-spin 18s linear infinite"><span style="position:absolute;top:-6px;left:50%;margin-left:-6px;width:12px;height:12px;border-radius:50%;background:#070a12;box-shadow:inset -2px -1.5px 3px oklch(80% .13 210 / .9),0 0 8px oklch(80% .13 210 / .4)"></span></div>
+          <div style="position:absolute;left:50%;top:50%;width:264px;height:264px;margin:-132px 0 0 -132px;border-radius:50%;border:1px solid oklch(80% .13 210 / .12)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:264px;height:264px;margin:-132px 0 0 -132px;animation:orb-spin 30s linear infinite;transform:rotate(150deg)"><span style="position:absolute;top:-5px;left:50%;margin-left:-5px;width:10px;height:10px;border-radius:50%;background:#070a12;box-shadow:inset -2px -1.5px 3px oklch(80% .13 210 / .9),0 0 8px oklch(80% .13 210 / .4)"></span></div>
+          <div style="position:absolute;inset:-2px;border-radius:50%;background:conic-gradient(from 150deg,transparent 0deg,oklch(90% .1 210 / .95) 90deg,oklch(80% .13 210 / .5) 160deg,transparent 230deg);mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 2px));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 2px));filter:blur(.4px)"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 70% 30%,#0b1020,#05070d 60%,#03040a);box-shadow:inset 0 0 0 1px rgba(255,255,255,.04),inset 8px -6px 24px rgba(0,0,0,.6)"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 72% 26%,oklch(80% .13 210 / .28),transparent 45%)"></div>
+          <div style="position:absolute;top:calc(100% + 24px);left:50%;transform:translateX(-50%);white-space:nowrap;font-family:'JetBrains Mono';font-size:11px;letter-spacing:.06em;color:rgba(220,235,255,.85)">auth-refactor</div>
+        </div>
+        <div style="position:absolute;left:470px;top:110px;width:64px;height:64px">
+          <div style="position:absolute;inset:-22px;border-radius:50%;background:radial-gradient(circle,oklch(80% .13 210 / .2),transparent 70%)"></div>
+          <div style="position:absolute;inset:-1.5px;border-radius:50%;background:conic-gradient(from 150deg,transparent 0deg,oklch(85% .12 210 / .8) 90deg,transparent 200deg);mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px))"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 70% 30%,#0b1020,#04060c 65%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.04)"></div>
+          <div style="position:absolute;top:calc(100% + 14px);left:50%;transform:translateX(-50%);font-family:'JetBrains Mono';font-size:10px;letter-spacing:.14em;color:rgba(160,190,225,.6)">IDLE</div>
+        </div>
+        <div style="position:absolute;left:484px;top:270px;width:36px;height:36px;opacity:.6">
+          <div style="position:absolute;inset:-1px;border-radius:50%;background:conic-gradient(from 150deg,transparent 0deg,rgba(200,215,235,.6) 90deg,transparent 190deg);mask:radial-gradient(farthest-side,transparent calc(100% - 1.5px),#000 calc(100% - 1px));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 1.5px),#000 calc(100% - 1px))"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:#05070d;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)"></div>
+          <div style="position:absolute;top:calc(100% + 12px);left:50%;transform:translateX(-50%);font-family:'JetBrains Mono';font-size:10px;letter-spacing:.14em;color:rgba(160,190,225,.6)">ENDED</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2c Diffuse -->
+    <div id="2c" style="display:flex;flex-direction:column;gap:12px;width:640px">
+      <div style="display:flex;align-items:baseline;gap:10px;font-family:'JetBrains Mono';font-size:12px;color:rgba(160,190,225,.75);letter-spacing:.08em"><span style="padding:3px 8px;border:1px solid rgba(150,205,255,.3);border-radius:4px;color:#cfe6ff">2c</span>DIFFUSE STAR<span style="font-family:Manrope;letter-spacing:0;font-size:12.5px;color:rgba(160,190,225,.6)">— no hard edge; a soft luminous mass with faint contour rings, like a star through haze</span></div>
+      <div data-screen-label="2c Diffuse" style="position:relative;width:640px;height:420px;overflow:hidden;background:#05070d;border-radius:10px;box-shadow:0 0 0 1px rgba(150,205,255,.08)">
+        <div style="position:absolute;inset:0;background:radial-gradient(ellipse 500px 320px at 40% 50%,rgba(70,90,220,.1),transparent)"></div>
+        <div style="position:absolute;inset:0;background-image:radial-gradient(circle at 6% 9%,rgba(255,255,255,.8) 0 .7px,transparent 1.4px),radial-gradient(circle at 37% 7%,rgba(255,255,255,.6) 0 .8px,transparent 1.6px),radial-gradient(circle at 52% 50%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px),radial-gradient(circle at 85% 65%,rgba(255,255,255,.7) 0 .8px,transparent 1.5px),radial-gradient(circle at 15% 75%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px),radial-gradient(circle at 62% 82%,rgba(255,255,255,.6) 0 .7px,transparent 1.4px),radial-gradient(circle at 95% 22%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px);background-size:420px 420px"></div>
+        <div style="position:absolute;left:170px;top:150px;width:120px;height:120px">
+          <div style="position:absolute;inset:-20px;border-radius:50%;border:1px solid oklch(80% .13 210 / .14)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:200px;height:200px;margin:-100px 0 0 -100px;border-radius:50%;border:1px solid oklch(80% .13 210 / .1)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:200px;height:200px;margin:-100px 0 0 -100px;animation:orb-spin 18s linear infinite"><span style="position:absolute;top:-8px;left:50%;margin-left:-8px;width:16px;height:16px;border-radius:50%;background:radial-gradient(circle,#fff 0,oklch(85% .12 210 / .9) 25%,oklch(80% .13 210 / .3) 55%,transparent 75%)"></span></div>
+          <div style="position:absolute;left:50%;top:50%;width:264px;height:264px;margin:-132px 0 0 -132px;border-radius:50%;border:1px solid oklch(80% .13 210 / .07)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:264px;height:264px;margin:-132px 0 0 -132px;animation:orb-spin 30s linear infinite;transform:rotate(150deg)"><span style="position:absolute;top:-7px;left:50%;margin-left:-7px;width:14px;height:14px;border-radius:50%;background:radial-gradient(circle,#fff 0,oklch(85% .12 210 / .9) 25%,oklch(80% .13 210 / .3) 55%,transparent 75%)"></span></div>
+          <div style="position:absolute;inset:-30px;border-radius:50%;background:radial-gradient(circle,#fff 0,oklch(92% .07 210) 6%,oklch(82% .13 210 / .85) 16%,oklch(68% .14 215 / .45) 32%,oklch(50% .12 220 / .14) 52%,transparent 70%);animation:orb-glow 3.4s ease-in-out infinite"></div>
+          <div style="position:absolute;top:calc(100% + 24px);left:50%;transform:translateX(-50%);white-space:nowrap;font-family:'JetBrains Mono';font-size:11px;letter-spacing:.06em;color:rgba(220,235,255,.85)">auth-refactor</div>
+        </div>
+        <div style="position:absolute;left:470px;top:110px;width:64px;height:64px">
+          <div style="position:absolute;inset:-6px;border-radius:50%;border:1px solid oklch(80% .13 210 / .12)"></div>
+          <div style="position:absolute;inset:-12px;border-radius:50%;background:radial-gradient(circle,oklch(92% .07 210) 0,oklch(80% .13 210 / .7) 14%,oklch(65% .13 215 / .3) 34%,transparent 66%)"></div>
+          <div style="position:absolute;top:calc(100% + 14px);left:50%;transform:translateX(-50%);font-family:'JetBrains Mono';font-size:10px;letter-spacing:.14em;color:rgba(160,190,225,.6)">IDLE</div>
+        </div>
+        <div style="position:absolute;left:484px;top:270px;width:36px;height:36px;opacity:.6">
+          <div style="position:absolute;inset:-6px;border-radius:50%;background:radial-gradient(circle,rgba(210,220,235,.8) 0,rgba(170,185,210,.35) 20%,transparent 62%)"></div>
+          <div style="position:absolute;top:calc(100% + 12px);left:50%;transform:translateX(-50%);font-family:'JetBrains Mono';font-size:10px;letter-spacing:.14em;color:rgba(160,190,225,.6)">ENDED</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2d Instrument -->
+    <div id="2d" style="display:flex;flex-direction:column;gap:12px;width:640px">
+      <div style="display:flex;align-items:baseline;gap:10px;font-family:'JetBrains Mono';font-size:12px;color:rgba(160,190,225,.75);letter-spacing:.08em"><span style="padding:3px 8px;border:1px solid rgba(150,205,255,.3);border-radius:4px;color:#cfe6ff">2d</span>INSTRUMENT<span style="font-family:Manrope;letter-spacing:0;font-size:12.5px;color:rgba(160,190,225,.6)">— flat matte disc inside a rotating tick ring; reads as a gauge, not a ball</span></div>
+      <div data-screen-label="2d Instrument" style="position:relative;width:640px;height:420px;overflow:hidden;background:#05070d;border-radius:10px;box-shadow:0 0 0 1px rgba(150,205,255,.08)">
+        <div style="position:absolute;inset:0;background:radial-gradient(ellipse 500px 320px at 40% 50%,rgba(70,90,220,.1),transparent)"></div>
+        <div style="position:absolute;inset:0;background-image:radial-gradient(circle at 6% 9%,rgba(255,255,255,.8) 0 .7px,transparent 1.4px),radial-gradient(circle at 37% 7%,rgba(255,255,255,.6) 0 .8px,transparent 1.6px),radial-gradient(circle at 52% 50%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px),radial-gradient(circle at 85% 65%,rgba(255,255,255,.7) 0 .8px,transparent 1.5px),radial-gradient(circle at 15% 75%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px),radial-gradient(circle at 62% 82%,rgba(255,255,255,.6) 0 .7px,transparent 1.4px),radial-gradient(circle at 95% 22%,rgba(255,255,255,.5) 0 .6px,transparent 1.2px);background-size:420px 420px"></div>
+        <div style="position:absolute;left:180px;top:160px;width:100px;height:100px">
+          <div style="position:absolute;left:50%;top:50%;width:210px;height:210px;margin:-105px 0 0 -105px;border-radius:50%;border:1px dashed oklch(80% .13 210 / .22)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:210px;height:210px;margin:-105px 0 0 -105px;animation:orb-spin 18s linear infinite"><span style="position:absolute;top:-5px;left:50%;margin-left:-5px;width:10px;height:10px;border-radius:50%;background:oklch(30% .05 220);border:1px solid oklch(80% .13 210 / .9);box-shadow:0 0 8px oklch(80% .13 210 / .5)"></span></div>
+          <div style="position:absolute;left:50%;top:50%;width:270px;height:270px;margin:-135px 0 0 -135px;border-radius:50%;border:1px dashed oklch(80% .13 210 / .14)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:270px;height:270px;margin:-135px 0 0 -135px;animation:orb-spin 30s linear infinite;transform:rotate(150deg)"><span style="position:absolute;top:-4px;left:50%;margin-left:-4px;width:8px;height:8px;border-radius:50%;background:oklch(30% .05 220);border:1px solid oklch(80% .13 210 / .9);box-shadow:0 0 8px oklch(80% .13 210 / .5)"></span></div>
+          <div style="position:absolute;inset:-28px;border-radius:50%;background:radial-gradient(circle,transparent 58%,oklch(80% .13 210 / .18) 72%,transparent 80%);animation:orb-ring 2.4s ease-in-out infinite"></div>
+          <div style="position:absolute;inset:-26px;border-radius:50%;background:repeating-conic-gradient(oklch(80% .13 210 / .9) 0 1.2deg,transparent 1.2deg 6deg);mask:radial-gradient(farthest-side,transparent calc(100% - 7px),#000 calc(100% - 6px));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 7px),#000 calc(100% - 6px));animation:orb-spin 24s linear infinite"></div>
+          <div style="position:absolute;inset:-14px;border-radius:50%;background:repeating-conic-gradient(oklch(80% .13 210 / .5) 0 60deg,transparent 60deg 90deg);mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1px));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 1px));animation:orb-spin 60s linear infinite reverse"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 50% 45%,oklch(30% .05 220),oklch(20% .04 225) 70%,oklch(16% .03 230));border:1px solid oklch(80% .13 210 / .6);box-shadow:0 0 22px oklch(80% .13 210 / .25),inset 0 0 0 6px rgba(0,0,0,.25)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:oklch(80% .13 210);box-shadow:0 0 12px oklch(80% .13 210 / .8);animation:orb-blink 2.4s ease-in-out infinite"></div>
+          <div style="position:absolute;top:calc(100% + 34px);left:50%;transform:translateX(-50%);white-space:nowrap;font-family:'JetBrains Mono';font-size:11px;letter-spacing:.06em;color:rgba(220,235,255,.85)">auth-refactor</div>
+        </div>
+        <div style="position:absolute;left:470px;top:110px;width:56px;height:56px">
+          <div style="position:absolute;inset:-12px;border-radius:50%;background:repeating-conic-gradient(oklch(80% .13 210 / .45) 0 1.5deg,transparent 1.5deg 8deg);mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px))"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 50% 45%,oklch(28% .05 220),oklch(18% .04 225) 70%);border:1px solid oklch(80% .13 210 / .45)"></div>
+          <div style="position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:oklch(80% .13 210 / .8)"></div>
+          <div style="position:absolute;top:calc(100% + 18px);left:50%;transform:translateX(-50%);font-family:'JetBrains Mono';font-size:10px;letter-spacing:.14em;color:rgba(160,190,225,.6)">IDLE</div>
+        </div>
+        <div style="position:absolute;left:484px;top:270px;width:32px;height:32px;opacity:.6">
+          <div style="position:absolute;inset:-7px;border-radius:50%;background:repeating-conic-gradient(rgba(200,215,235,.4) 0 2deg,transparent 2deg 12deg);mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 2px));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 2px))"></div>
+          <div style="position:absolute;inset:0;border-radius:50%;background:oklch(16% .01 230);border:1px solid rgba(200,215,235,.35)"></div>
+          <div style="position:absolute;top:calc(100% + 14px);left:50%;transform:translateX(-50%);font-family:'JetBrains Mono';font-size:10px;letter-spacing:.14em;color:rgba(160,190,225,.6)">ENDED</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+</x-dc>
+</body>
+</html>
