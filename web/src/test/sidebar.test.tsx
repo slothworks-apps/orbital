@@ -71,7 +71,9 @@ const defaultUi: OrbitalUiState = {
   sidebarCollapsed: false,
 }
 
-function resetStore(overrides: Partial<OrbitalState> = {}) {
+function resetStore(
+  overrides: Partial<Omit<OrbitalState, 'ui'>> & { ui?: Partial<OrbitalUiState> } = {}
+) {
   const sessions = overrides.sessions ?? {}
   useOrbital.setState({
     sessions,
@@ -84,8 +86,8 @@ function resetStore(overrides: Partial<OrbitalState> = {}) {
     usage: {},
     historyLoaded: {},
     toast: null,
-    ui: { ...defaultUi, ...overrides.ui },
     ...overrides,
+    ui: { ...defaultUi, ...overrides.ui },
   })
 }
 
@@ -303,6 +305,92 @@ describe('Sidebar', () => {
 
     expect(api.listSessions).toHaveBeenCalledWith(expect.objectContaining({ offset: 1 }))
     expect(await screen.findByText('Bravo')).toBeInTheDocument()
+  })
+
+  it('passes the active tag filter and the filtered-count offset to the next page fetch', async () => {
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Alpha', status: 'ended', tagIds: [1], lastAt: 1 }),
+        b: makeSession({ id: 'b', title: 'Bravo', status: 'ended', tagIds: [1], lastAt: 2 }),
+        c: makeSession({ id: 'c', title: 'Charlie', status: 'ended', tagIds: [2], lastAt: 3 }),
+      },
+      ui: { filterTagId: 1 },
+    })
+    vi.mocked(api.listSessions).mockResolvedValue([])
+
+    const { factory, trigger } = makeCapturingObserverFactory()
+    render(<Sidebar observerFactory={factory} />)
+
+    // Only 'a' and 'b' match filterTagId 1 — 'c' (tag 2) is excluded from
+    // the store-side visible count, which must be the offset cursor since
+    // the server applies the same tag filter before slicing by offset.
+    await act(async () => {
+      trigger()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(api.listSessions).toHaveBeenCalledWith(
+      expect.objectContaining({ offset: 2, tag: 1 })
+    )
+  })
+
+  it('passes the active search filter and its filtered-count offset to the next page fetch', async () => {
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Alpha session', status: 'ended', lastAt: 1 }),
+        b: makeSession({ id: 'b', title: 'Beta session', status: 'ended', lastAt: 2 }),
+      },
+      ui: { search: 'Alpha' },
+    })
+    vi.mocked(api.listSessions).mockResolvedValue([])
+
+    const { factory, trigger } = makeCapturingObserverFactory()
+    render(<Sidebar observerFactory={factory} />)
+
+    await act(async () => {
+      trigger()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(api.listSessions).toHaveBeenCalledWith(
+      expect.objectContaining({ offset: 1, q: 'Alpha' })
+    )
+  })
+
+  it('re-arms pagination (resets end-of-list) when the active filter changes', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Alpha', status: 'ended', tagIds: [1], lastAt: 1 }),
+      },
+    })
+    // First page comes back empty -> Sidebar marks the list exhausted for
+    // the current (no-op) filter and stops observing.
+    vi.mocked(api.listSessions).mockResolvedValue([])
+
+    const { factory, trigger } = makeCapturingObserverFactory()
+    render(<Sidebar observerFactory={factory} />)
+
+    await act(async () => {
+      trigger()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(api.listSessions).toHaveBeenCalledTimes(1)
+
+    // Switching the tag filter must re-arm pagination even though the
+    // previous filter combination had already reached its end.
+    await user.click(screen.getByRole('button', { name: 'work 1' }))
+
+    await act(async () => {
+      trigger()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(api.listSessions).toHaveBeenCalledTimes(2)
+    expect(api.listSessions).toHaveBeenLastCalledWith(expect.objectContaining({ tag: 1 }))
   })
 
   it('⌘K focuses the search input', () => {

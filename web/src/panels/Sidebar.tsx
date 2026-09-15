@@ -131,7 +131,6 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
 
   const tags = useOrbital(useShallow((s) => s.tags))
   const visible = useOrbital(useShallow(visibleSessions))
-  const totalLoaded = useOrbital((s) => s.order.length)
 
   const sentinelRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
@@ -169,11 +168,25 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  // A filter switch invalidates whatever offset/end-of-list state the
+  // previous filter combination had accumulated — the server applies
+  // tag/q/source filters BEFORE slicing by offset, so "offset" only means
+  // the same thing while the filter combination stays the same.
+  useEffect(() => {
+    setExhausted(false)
+  }, [filterTagId, search, sourceFilter])
+
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return
     loadingRef.current = true
     try {
-      const fetched = await api.listSessions({ offset: totalLoaded, limit: PAGE_SIZE })
+      const fetched = await api.listSessions({
+        offset: visible.length,
+        limit: PAGE_SIZE,
+        tag: filterTagId !== 'all' ? filterTagId : undefined,
+        q: search || undefined,
+        source: sourceFilter !== 'all' ? sourceFilter : undefined,
+      })
       for (const session of fetched) {
         applySessionsEvent({ event: 'upsert', session })
       }
@@ -181,7 +194,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     } finally {
       loadingRef.current = false
     }
-  }, [applySessionsEvent, totalLoaded])
+  }, [applySessionsEvent, visible.length, filterTagId, search, sourceFilter])
 
   // Infinite scroll: observe the sentinel at the bottom of the session
   // lists and fetch the next page once it enters the viewport.
@@ -301,7 +314,10 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       </div>
 
       <div className="flex items-center justify-between border-t border-panel-border pt-3 font-mono text-xs text-text-muted">
-        <span>{visible.length} sessions</span>
+        <span className="flex items-center gap-1.5">
+          <span>{visible.length} sessions</span>
+          <span aria-hidden>·</span>
+        </span>
         <button type="button" className="hover:text-text-bright" onClick={() => setDialog('tags')}>
           tags &amp; rules ›
         </button>
