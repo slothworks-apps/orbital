@@ -1,5 +1,7 @@
-import type Database from 'better-sqlite3';
+import { and, eq, inArray } from 'drizzle-orm';
 import { homedir } from 'node:os';
+import type { OrbitalDb } from '../db/database.js';
+import { sessions, sessionTags, tagRules, tags } from '../db/schema.js';
 import type { TagRule } from '../types.js';
 
 function globToRegExp(glob: string): RegExp {
@@ -35,34 +37,69 @@ export function matchRule(
   return null;
 }
 
-export function regenerateRuleTags(db: Database.Database): void {
-  const rules = db.prepare(`SELECT * FROM tag_rules`).all() as TagRule[];
-  const sessions = db
-    .prepare(`SELECT id, cwd, title, permission_mode FROM sessions`)
-    .all() as Array<{ id: string; cwd: string; title: string; permission_mode: string | null }>;
-  const removed = db.prepare(
-    `SELECT 1 FROM session_tags WHERE session_id=? AND tag_id=? AND origin='manual_removed'`,
-  );
-  const insert = db.prepare(`INSERT OR IGNORE INTO session_tags VALUES (?, ?, 'rule')`);
-  db.transaction(() => {
-    db.prepare(`DELETE FROM session_tags WHERE origin='rule'`).run();
-    for (const s of sessions) {
+// Mirrors the TagRule shape (snake_case, matching the original sqlite
+// column names) so callers throughout the codebase — and the raw
+// GET /api/tag-rules passthrough — keep seeing the same field names.
+export const tagRuleColumns = {
+  id: tagRules.id,
+  tag_id: tagRules.tagId,
+  position: tagRules.position,
+  enabled: tagRules.enabled,
+  condition: tagRules.condition,
+  pattern: tagRules.pattern,
+};
+
+export function regenerateRuleTags(db: OrbitalDb): void {
+  const rules = db.select(tagRuleColumns).from(tagRules).all() as unknown as TagRule[];
+  const sessionRows = db
+    .select({
+      id: sessions.id,
+      cwd: sessions.cwd,
+      title: sessions.title,
+      permission_mode: sessions.permissionMode,
+    })
+    .from(sessions)
+    .all();
+  db.transaction((tx) => {
+    tx.delete(sessionTags).where(eq(sessionTags.origin, 'rule')).run();
+    for (const s of sessionRows) {
       const rule = matchRule(rules, {
         cwd: s.cwd, title: s.title, permissionMode: s.permission_mode,
       });
-      if (rule && !removed.get(s.id, rule.tag_id)) insert.run(s.id, rule.tag_id);
+      if (!rule) continue;
+      const removed = tx
+        .select()
+        .from(sessionTags)
+        .where(
+          and(
+            eq(sessionTags.sessionId, s.id),
+            eq(sessionTags.tagId, rule.tag_id),
+            eq(sessionTags.origin, 'manual_removed'),
+          ),
+        )
+        .get();
+      if (!removed) {
+        tx.insert(sessionTags)
+          .values({ sessionId: s.id, tagId: rule.tag_id, origin: 'rule' })
+          .onConflictDoNothing()
+          .run();
+      }
     }
-  })();
+  });
 }
 
-export function effectiveTagIds(db: Database.Database, sessionId: string): number[] {
+export function effectiveTagIds(db: OrbitalDb, sessionId: string): number[] {
   const rows = db
-    .prepare(
-      `SELECT DISTINCT tag_id FROM session_tags
-       WHERE session_id=? AND origin IN ('rule','manual') ORDER BY tag_id`,
+    .selectDistinct({ tag_id: sessionTags.tagId })
+    .from(sessionTags)
+    .where(
+      and(eq(sessionTags.sessionId, sessionId), inArray(sessionTags.origin, ['rule', 'manual'])),
     )
-    .all(sessionId) as Array<{ tag_id: number }>;
+    .orderBy(sessionTags.tagId)
+    .all();
   if (rows.length > 0) return rows.map((r) => r.tag_id);
-  const def = db.prepare(`SELECT id FROM tags WHERE is_default=1`).get() as { id: number };
+  const def = db.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).get() as {
+    id: number;
+  };
   return [def.id];
 }

@@ -1,22 +1,31 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
+import { sessions, sessionTags, settings as settingsTable, tags } from '../src/db/schema.js';
 import { registerRoutes } from '../src/api/routes.js';
 import { buildServer } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
 
 function makeApp() {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
-  db.prepare(`INSERT INTO tags (id, name, hue) VALUES (10, 'work', 210)`).run();
-  db.prepare(
-    `INSERT INTO sessions (id, project_dir, cwd, title, last_at, source, permission_mode)
-     VALUES ('s1','p','/w/x','auth fix', 200, 'terminal', 'acceptEdits'),
-            ('s2','p','/w/y','recipe', 100, 'terminal', NULL)`,
-  ).run();
-  db.prepare(`INSERT INTO session_tags VALUES ('s1', 10, 'manual')`).run();
+  db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
+  db.insert(sessions)
+    .values([
+      {
+        id: 's1', projectDir: 'p', cwd: '/w/x', title: 'auth fix', lastAt: 200,
+        source: 'terminal', permissionMode: 'acceptEdits',
+      },
+      {
+        id: 's2', projectDir: 'p', cwd: '/w/y', title: 'recipe', lastAt: 100,
+        source: 'terminal', permissionMode: null,
+      },
+    ])
+    .run();
+  db.insert(sessionTags).values({ sessionId: 's1', tagId: 10, origin: 'manual' }).run();
   const registry = {
     get: (id: string) => (id === 's1' ? { sessionId: 's1', status: 'working' } : undefined),
     all: () => [{ sessionId: 's1', status: 'working' }],
@@ -30,9 +39,15 @@ function makeApp() {
   registerRoutes(app, {
     db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent', hub,
     settings: {
-      get: (k: string) => (db.prepare(`SELECT value FROM settings WHERE key=?`).get(k) as any)?.value ?? '',
+      get: (k: string) =>
+        db.select({ value: settingsTable.value }).from(settingsTable)
+          .where(eq(settingsTable.key, k)).get()?.value ?? '',
       set: (k: string, v: string) =>
-        db.prepare(`INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(k, v),
+        void db
+          .insert(settingsTable)
+          .values({ key: k, value: v })
+          .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
+          .run(),
     },
   });
   return { app, db, runner, hub };
@@ -201,13 +216,21 @@ describe('REST routes', () => {
     expect(startCalls[0].permissionMode).toBe('plan');
 
     // Verify new session in DB has the default mode
-    const newSession = db.prepare(`SELECT permission_mode, parent_id FROM sessions WHERE id=?`).get('web-10') as any;
-    expect(newSession.permission_mode).toBe('plan');
-    expect(newSession.parent_id).toBe('s1');
+    const newSession = db
+      .select({ permissionMode: sessions.permissionMode, parentId: sessions.parentId })
+      .from(sessions)
+      .where(eq(sessions.id, 'web-10'))
+      .get()!;
+    expect(newSession.permissionMode).toBe('plan');
+    expect(newSession.parentId).toBe('s1');
 
     // Verify manual tags are NOT copied (inherit_tags=false)
-    const tags = db.prepare(`SELECT tag_id FROM session_tags WHERE session_id=?`).all('web-10') as any[];
-    expect(tags).toHaveLength(0);
+    const newTags = db
+      .select({ tagId: sessionTags.tagId })
+      .from(sessionTags)
+      .where(eq(sessionTags.sessionId, 'web-10'))
+      .all();
+    expect(newTags).toHaveLength(0);
 
     // Now test with inherit_tags=true
     await app.inject({
@@ -223,9 +246,13 @@ describe('REST routes', () => {
     const newSessionId = res2.json().sessionId;
 
     // Verify manual tags ARE copied
-    const copiedTags = db.prepare(`SELECT tag_id FROM session_tags WHERE session_id=?`).all(newSessionId) as any[];
+    const copiedTags = db
+      .select({ tagId: sessionTags.tagId })
+      .from(sessionTags)
+      .where(eq(sessionTags.sessionId, newSessionId))
+      .all();
     expect(copiedTags).toHaveLength(1);
-    expect(copiedTags[0].tag_id).toBe(10);
+    expect(copiedTags[0].tagId).toBe(10);
   });
 });
 

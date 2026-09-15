@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import type Database from 'better-sqlite3';
-import { openDb } from '../src/db/database.js';
+import { openDb, type OrbitalDb } from '../src/db/database.js';
+import { sessions, sessionTags, tagRules, tags } from '../src/db/schema.js';
 import { matchRule, regenerateRuleTags, effectiveTagIds } from '../src/tags/rules.js';
 import type { TagRule } from '../src/types.js';
 
@@ -53,24 +54,27 @@ describe('matchRule', () => {
 });
 
 describe('regenerateRuleTags + effectiveTagIds', () => {
-  let db: Database.Database;
+  let db: OrbitalDb;
   beforeEach(() => {
     db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-rules-')), 'index.db'));
-    db.prepare(`INSERT INTO tags (id, name, hue) VALUES (10, 'work', 210)`).run();
-    db.prepare(
-      `INSERT INTO tag_rules (tag_id, position, enabled, condition, pattern)
-       VALUES (10, 0, 1, 'title_contains', 'auth')`,
-    ).run();
-    db.prepare(
-      `INSERT INTO sessions (id, project_dir, cwd, title) VALUES
-       ('s1', 'p', '/x', 'auth refactor'), ('s2', 'p', '/x', 'recipes')`,
-    ).run();
+    db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
+    db.insert(tagRules)
+      .values({ tagId: 10, position: 0, enabled: 1, condition: 'title_contains', pattern: 'auth' })
+      .run();
+    db.insert(sessions)
+      .values([
+        { id: 's1', projectDir: 'p', cwd: '/x', title: 'auth refactor' },
+        { id: 's2', projectDir: 'p', cwd: '/x', title: 'recipes' },
+      ])
+      .run();
   });
   it('assigns rule tags, respects manual_removed, falls back to default', () => {
-    db.prepare(`INSERT INTO session_tags VALUES ('s2', 10, 'manual_removed')`).run();
+    db.insert(sessionTags).values({ sessionId: 's2', tagId: 10, origin: 'manual_removed' }).run();
     regenerateRuleTags(db);
     expect(effectiveTagIds(db, 's1')).toEqual([10]);
-    const defaultId = (db.prepare(`SELECT id FROM tags WHERE is_default=1`).get() as any).id;
+    const defaultId = (
+      db.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).get() as { id: number }
+    ).id;
     expect(effectiveTagIds(db, 's2')).toEqual([defaultId]);
   });
 });

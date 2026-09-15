@@ -3,8 +3,10 @@ import websocket from '@fastify/websocket';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
+import { eq } from 'drizzle-orm';
 import { CONFIG } from './config.js';
 import { openDb } from './db/database.js';
+import { sessions, settings as settingsTable } from './db/schema.js';
 import { indexProjects } from './indexer/indexer.js';
 import { SessionRegistry } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
@@ -62,8 +64,11 @@ export async function buildServer(overrides: {
   const hub = new Hub();
   const registry = new SessionRegistry(sessionsDir);
   const idleMinutes = Number(
-    (db.prepare(`SELECT value FROM settings WHERE key='ended_after_idle_minutes'`).get() as any)
-      ?.value ?? 30,
+    db
+      .select({ value: settingsTable.value })
+      .from(settingsTable)
+      .where(eq(settingsTable.key, 'ended_after_idle_minutes'))
+      .get()?.value ?? 30,
   );
   const runner = new Runner({
     hub,
@@ -95,8 +100,11 @@ export async function buildServer(overrides: {
     if (!topic.startsWith('session:')) return;
     const id = topic.slice('session:'.length);
     if (runner.active().includes(id)) return; // web sessions publish directly
-    const row = db.prepare(`SELECT project_dir FROM sessions WHERE id=?`).get(id) as
-      | { project_dir: string } | undefined;
+    const row = db
+      .select({ project_dir: sessions.projectDir })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get() as { project_dir: string } | undefined;
     if (!row) return;
     const transcriptPath = join(projectsDir, row.project_dir, `${id}.jsonl`);
     const tail = new TranscriptTail(transcriptPath);
@@ -153,18 +161,21 @@ export async function buildServer(overrides: {
     db, registry, runner, projectsDir, hub,
     settings: {
       get: (k) =>
-        (db.prepare(`SELECT value FROM settings WHERE key=?`).get(k) as any)?.value ?? '',
+        db.select({ value: settingsTable.value }).from(settingsTable)
+          .where(eq(settingsTable.key, k)).get()?.value ?? '',
       set: (k, v) =>
-        db.prepare(
-          `INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-        ).run(k, v),
+        void db
+          .insert(settingsTable)
+          .values({ key: k, value: v })
+          .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
+          .run(),
     },
   });
   app.addHook('onClose', async () => {
     await registry.close();
     await projectsWatcher.close();
     for (const tail of tails.values()) tail.stop();
-    db.close();
+    db.$client.close();
   });
   return app;
 }

@@ -1,22 +1,50 @@
 import type { FastifyInstance } from 'fastify';
-import type Database from 'better-sqlite3';
+import { and, desc, eq, inArray, max, ne, sql } from 'drizzle-orm';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
-import { effectiveTagIds, regenerateRuleTags, matchRule } from '../tags/rules.js';
+import { effectiveTagIds, regenerateRuleTags, matchRule, tagRuleColumns } from '../tags/rules.js';
+import type { OrbitalDb } from '../db/database.js';
+import { sessions, sessionTags, settings as settingsTable, tagRules, tags } from '../db/schema.js';
 import type { Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import type { SessionRow, SessionStatus, TagRule } from '../types.js';
 
 export interface RouteContext {
-  db: Database.Database;
+  db: OrbitalDb;
   registry: SessionRegistry;
   runner: Runner;
   projectsDir: string;
   hub: Hub;
   settings: { get(key: string): string; set(key: string, value: string): void };
 }
+
+// Mirrors SessionRow (snake_case, matching the original sqlite column
+// names) so downstream code (toApi, tests, the wire format) is unaffected
+// by the switch to Drizzle's camelCase schema accessors.
+const sessionColumns = {
+  id: sessions.id,
+  project_dir: sessions.projectDir,
+  cwd: sessions.cwd,
+  title: sessions.title,
+  first_at: sessions.firstAt,
+  last_at: sessions.lastAt,
+  message_count: sessions.messageCount,
+  file_size: sessions.fileSize,
+  source: sessions.source,
+  permission_mode: sessions.permissionMode,
+  parent_id: sessions.parentId,
+  indexed_mtime: sessions.indexedMtime,
+  indexed_size: sessions.indexedSize,
+};
+
+const tagColumns = {
+  id: tags.id,
+  name: tags.name,
+  hue: tags.hue,
+  is_default: tags.isDefault,
+};
 
 function statusOf(ctx: RouteContext, row: SessionRow): SessionStatus {
   const fromRunner = ctx.runner.status(row.id);
@@ -45,25 +73,34 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const limit = Math.min(Number(q.limit ?? 50), 200);
     const offset = Number(q.offset ?? 0);
     let rows = db
-      .prepare(`SELECT * FROM sessions ORDER BY last_at DESC LIMIT ? OFFSET ?`)
-      .all(limit * 4 + offset, 0) as SessionRow[]; // over-fetch, filter, then page
+      .select(sessionColumns)
+      .from(sessions)
+      .orderBy(desc(sessions.lastAt))
+      .limit(limit * 4 + offset) // over-fetch, filter, then page
+      .offset(0)
+      .all() as SessionRow[];
     if (q.source) rows = rows.filter((r) => r.source === q.source);
     if (q.q) rows = rows.filter((r) => r.title.toLowerCase().includes(q.q.toLowerCase()));
-    let sessions = rows.map((r) => toApi(ctx, r));
-    if (q.tag) sessions = sessions.filter((s) => s.tagIds.includes(Number(q.tag)));
-    return { sessions: sessions.slice(offset, offset + limit) };
+    let sessionsOut = rows.map((r) => toApi(ctx, r));
+    if (q.tag) sessionsOut = sessionsOut.filter((s) => s.tagIds.includes(Number(q.tag)));
+    return { sessions: sessionsOut.slice(offset, offset + limit) };
   });
 
   app.get('/api/sessions/:id', (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = db.prepare(`SELECT * FROM sessions WHERE id=?`).get(id) as SessionRow | undefined;
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+      | SessionRow
+      | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     const lineage: string[] = [];
     let cursor: string | null = row.parent_id;
     while (cursor) {
       lineage.push(cursor);
-      const parent = db.prepare(`SELECT parent_id FROM sessions WHERE id=?`).get(cursor) as
-        | { parent_id: string | null } | undefined;
+      const parent = db
+        .select({ parent_id: sessions.parentId })
+        .from(sessions)
+        .where(eq(sessions.id, cursor))
+        .get() as { parent_id: string | null } | undefined;
       cursor = parent?.parent_id ?? null;
     }
     return { session: toApi(ctx, row), lineage };
@@ -72,8 +109,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.get('/api/sessions/:id/messages', (req, reply) => {
     const { id } = req.params as { id: string };
     const q = req.query as Record<string, string>;
-    const row = db.prepare(`SELECT project_dir FROM sessions WHERE id=?`).get(id) as
-      | { project_dir: string } | undefined;
+    const row = db
+      .select({ project_dir: sessions.projectDir })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get() as { project_dir: string } | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     let messages;
     try {
@@ -94,14 +134,20 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       tagId?: number; model?: string; resume?: string; parentId?: string;
     };
     const sessionId = await ctx.runner.start(body);
-    db.prepare(
-      `INSERT OR IGNORE INTO sessions (id, project_dir, cwd, source, permission_mode, parent_id, last_at)
-       VALUES (?, '', ?, 'web', ?, ?, ?)`,
-    ).run(sessionId, body.cwd, body.permissionMode, body.parentId ?? null, Date.now());
+    db.insert(sessions)
+      .values({
+        id: sessionId, projectDir: '', cwd: body.cwd, source: 'web',
+        permissionMode: body.permissionMode, parentId: body.parentId ?? null, lastAt: Date.now(),
+      })
+      .onConflictDoNothing()
+      .run();
     if (body.tagId != null) {
-      db.prepare(`INSERT OR IGNORE INTO session_tags VALUES (?, ?, 'manual')`).run(sessionId, body.tagId);
+      db.insert(sessionTags)
+        .values({ sessionId, tagId: body.tagId, origin: 'manual' })
+        .onConflictDoNothing()
+        .run();
     }
-    const row = db.prepare(`SELECT * FROM sessions WHERE id=?`).get(sessionId) as SessionRow;
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApi(ctx, row) });
     return reply.code(201).send({ sessionId });
   });
@@ -125,7 +171,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.post('/api/sessions/:id/clear', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { startNew } = (req.body ?? {}) as { startNew?: boolean };
-    const row = db.prepare(`SELECT * FROM sessions WHERE id=?`).get(id) as SessionRow | undefined;
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+      | SessionRow
+      | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     await ctx.runner.end(id);
     if (!startNew) return { ok: true };
@@ -137,15 +185,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       cwd: row.cwd, prompt: '',
       permissionMode,
     });
-    db.prepare(
-      `INSERT OR IGNORE INTO sessions (id, project_dir, cwd, source, permission_mode, parent_id, last_at)
-       VALUES (?, '', ?, 'web', ?, ?, ?)`,
-    ).run(newId, row.cwd, permissionMode, id, Date.now());
+    db.insert(sessions)
+      .values({
+        id: newId, projectDir: '', cwd: row.cwd, source: 'web',
+        permissionMode, parentId: id, lastAt: Date.now(),
+      })
+      .onConflictDoNothing()
+      .run();
     if (ctx.settings.get('inherit_tags') === 'true') {
-      db.prepare(
-        `INSERT OR IGNORE INTO session_tags (session_id, tag_id, origin)
-         SELECT ?, tag_id, 'manual' FROM session_tags WHERE session_id=? AND origin='manual'`,
-      ).run(newId, id);
+      db.insert(sessionTags)
+        .select(
+          db
+            .select({
+              sessionId: sql<string>`${newId}`.as('sessionId'),
+              tagId: sessionTags.tagId,
+              origin: sql<string>`'manual'`.as('origin'),
+            })
+            .from(sessionTags)
+            .where(and(eq(sessionTags.sessionId, id), eq(sessionTags.origin, 'manual'))),
+        )
+        .onConflictDoNothing()
+        .run();
     }
     return { ok: true, sessionId: newId };
   });
@@ -153,7 +213,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.patch('/api/sessions/:id', (req, reply) => {
     const { id } = req.params as { id: string };
     const { title } = req.body as { title: string };
-    const result = db.prepare(`UPDATE sessions SET title=? WHERE id=?`).run(title, id);
+    const result = db.update(sessions).set({ title }).where(eq(sessions.id, id)).run();
     if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
     return { ok: true };
   });
@@ -162,22 +222,39 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const { id } = req.params as { id: string };
     const { tagIds } = req.body as { tagIds: number[] };
     const current = new Set(
-      (db.prepare(`SELECT tag_id FROM session_tags WHERE session_id=? AND origin='rule'`)
-        .all(id) as Array<{ tag_id: number }>).map((r) => r.tag_id),
+      db
+        .select({ tag_id: sessionTags.tagId })
+        .from(sessionTags)
+        .where(and(eq(sessionTags.sessionId, id), eq(sessionTags.origin, 'rule')))
+        .all()
+        .map((r) => r.tag_id),
     );
-    db.transaction(() => {
-      db.prepare(`DELETE FROM session_tags WHERE session_id=? AND origin IN ('manual','manual_removed')`).run(id);
+    db.transaction((tx) => {
+      tx.delete(sessionTags)
+        .where(
+          and(
+            eq(sessionTags.sessionId, id),
+            inArray(sessionTags.origin, ['manual', 'manual_removed']),
+          ),
+        )
+        .run();
       for (const tagId of tagIds) {
         if (!current.has(tagId)) {
-          db.prepare(`INSERT OR IGNORE INTO session_tags VALUES (?, ?, 'manual')`).run(id, tagId);
+          tx.insert(sessionTags)
+            .values({ sessionId: id, tagId, origin: 'manual' })
+            .onConflictDoNothing()
+            .run();
         }
       }
       for (const ruleTag of current) {
         if (!tagIds.includes(ruleTag)) {
-          db.prepare(`INSERT OR IGNORE INTO session_tags VALUES (?, ?, 'manual_removed')`).run(id, ruleTag);
+          tx.insert(sessionTags)
+            .values({ sessionId: id, tagId: ruleTag, origin: 'manual_removed' })
+            .onConflictDoNothing()
+            .run();
         }
       }
-    })();
+    });
     // A removed rule-derived tag leaves its 'rule' origin row in place unless
     // we regenerate — without this, effectiveTagIds (which unions rule+manual)
     // would keep showing the tag until an unrelated rule mutation happened to
@@ -187,70 +264,93 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   app.get('/api/tags', () => ({
-    tags: db.prepare(`SELECT * FROM tags ORDER BY id`).all(),
+    tags: db.select(tagColumns).from(tags).orderBy(tags.id).all(),
   }));
   app.post('/api/tags', (req, reply) => {
     const { name, hue } = req.body as { name: string; hue: number };
-    const r = db.prepare(`INSERT INTO tags (name, hue) VALUES (?, ?)`).run(name, hue);
+    const r = db.insert(tags).values({ name, hue }).run();
     return reply.code(201).send({ id: Number(r.lastInsertRowid) });
   });
   app.patch('/api/tags/:id', (req) => {
     const { id } = req.params as { id: string };
     const { name, hue } = req.body as { name?: string; hue?: number };
-    if (name != null) db.prepare(`UPDATE tags SET name=? WHERE id=?`).run(name, id);
-    if (hue != null) db.prepare(`UPDATE tags SET hue=? WHERE id=?`).run(hue, id);
+    const set: Partial<{ name: string; hue: number }> = {};
+    if (name != null) set.name = name;
+    if (hue != null) set.hue = hue;
+    if (Object.keys(set).length > 0) {
+      db.update(tags).set(set).where(eq(tags.id, Number(id))).run();
+    }
     return { ok: true };
   });
   app.delete('/api/tags/:id', (req) => {
-    db.prepare(`DELETE FROM tags WHERE id=? AND is_default=0`).run((req.params as any).id);
+    const { id } = (req.params as any) as { id: string };
+    db.delete(tags).where(and(eq(tags.id, Number(id)), eq(tags.isDefault, 0))).run();
     regenerateRuleTags(db);
     return { ok: true };
   });
 
   app.get('/api/tag-rules', () => ({
-    rules: db.prepare(`SELECT * FROM tag_rules ORDER BY position`).all(),
+    rules: db.select(tagRuleColumns).from(tagRules).orderBy(tagRules.position).all(),
   }));
   app.post('/api/tag-rules', (req, reply) => {
     const { tagId, condition, pattern } = req.body as {
       tagId: number; condition: TagRule['condition']; pattern: string;
     };
-    const max = (db.prepare(`SELECT COALESCE(MAX(position),-1) m FROM tag_rules`).get() as any).m;
-    const r = db.prepare(
-      `INSERT INTO tag_rules (tag_id, position, enabled, condition, pattern) VALUES (?, ?, 1, ?, ?)`,
-    ).run(tagId, max + 1, condition, pattern);
+    const maxRow = db
+      .select({ m: sql<number>`COALESCE(MAX(${tagRules.position}), -1)` })
+      .from(tagRules)
+      .get() as { m: number };
+    const r = db
+      .insert(tagRules)
+      .values({ tagId, position: maxRow.m + 1, enabled: 1, condition, pattern })
+      .run();
     regenerateRuleTags(db);
     return reply.code(201).send({ id: Number(r.lastInsertRowid) });
   });
   app.patch('/api/tag-rules/:id', (req) => {
     const { id } = req.params as { id: string };
     const body = req.body as Partial<Pick<TagRule, 'position' | 'enabled' | 'condition' | 'pattern' | 'tag_id'>>;
-    for (const key of ['position', 'enabled', 'condition', 'pattern', 'tag_id'] as const) {
-      if (body[key] != null) db.prepare(`UPDATE tag_rules SET ${key}=? WHERE id=?`).run(body[key], id);
+    const set: Partial<{
+      position: number; enabled: number; condition: string; pattern: string; tagId: number;
+    }> = {};
+    if (body.position != null) set.position = body.position;
+    if (body.enabled != null) set.enabled = body.enabled;
+    if (body.condition != null) set.condition = body.condition;
+    if (body.pattern != null) set.pattern = body.pattern;
+    if (body.tag_id != null) set.tagId = body.tag_id;
+    if (Object.keys(set).length > 0) {
+      db.update(tagRules).set(set).where(eq(tagRules.id, Number(id))).run();
     }
     regenerateRuleTags(db);
     return { ok: true };
   });
   app.delete('/api/tag-rules/:id', (req) => {
-    db.prepare(`DELETE FROM tag_rules WHERE id=?`).run((req.params as any).id);
+    const { id } = (req.params as any) as { id: string };
+    db.delete(tagRules).where(eq(tagRules.id, Number(id))).run();
     regenerateRuleTags(db);
     return { ok: true };
   });
   app.post('/api/tag-rules/preview', (req) => {
     const body = req.body as { cwd: string; title: string; permissionMode: string | null };
-    const rules = db.prepare(`SELECT * FROM tag_rules ORDER BY position`).all() as TagRule[];
+    const rules = db.select(tagRuleColumns).from(tagRules).orderBy(tagRules.position).all() as unknown as TagRule[];
     const rule = matchRule(rules, body);
     return rule ? { tagId: rule.tag_id, ruleId: rule.id } : { tagId: null, ruleId: null };
   });
 
   app.get('/api/projects', () => {
     const rows = db
-      .prepare(`SELECT cwd FROM sessions WHERE cwd != '' GROUP BY cwd ORDER BY MAX(last_at) DESC LIMIT 50`)
-      .all() as Array<{ cwd: string }>;
+      .select({ cwd: sessions.cwd })
+      .from(sessions)
+      .where(ne(sessions.cwd, ''))
+      .groupBy(sessions.cwd)
+      .orderBy(desc(max(sessions.lastAt)))
+      .limit(50)
+      .all();
     return { projects: rows.map((r) => r.cwd) };
   });
 
   app.get('/api/settings', () => {
-    const rows = db.prepare(`SELECT key, value FROM settings`).all() as Array<{ key: string; value: string }>;
+    const rows = db.select().from(settingsTable).all();
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   });
   app.patch('/api/settings', (req) => {
