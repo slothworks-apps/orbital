@@ -27,6 +27,9 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/plugin-transform-react-jsx-self": "^7.29.7",
+    "@babel/plugin-transform-react-jsx-source": "^7.29.7",
     "@tailwindcss/vite": "^4.0.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.0",
