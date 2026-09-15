@@ -1,0 +1,263 @@
+import type { ApiSession, Tag } from '../lib/types'
+
+/**
+ * Pure map layout math. No React/three imports, no Date.now/Math.random —
+ * every function here must be deterministic: the same input always produces
+ * the exact same output (bit-for-bit), so the map scene never "jumps"
+ * between renders.
+ */
+
+export interface Cluster {
+  tagId: number
+  hue: number
+  label: string
+  sessions: ApiSession[]
+}
+
+export interface PlanetPosition {
+  x: number
+  y: number
+  scale: number
+}
+
+export interface LayoutOptions {
+  /** Visual radius of a planet at scale 1.0, in layout units. */
+  planetBaseRadius?: number
+  /** Minimum empty clearance kept between any two planet edges. */
+  minGap?: number
+  /** Extra cushion added to the golden-angle spiral's spacing constant. */
+  spiralSafetyMargin?: number
+  /** Minimum empty clearance kept between two clusters' bounding circles. */
+  clusterGap?: number
+  /** Golden angle used for the in-cluster spiral, in radians. */
+  goldenAngle?: number
+}
+
+// --- Documented constants -------------------------------------------------
+
+/** Planet scale for any non-ended session (working / idle / needs_input). */
+export const ACTIVE_SCALE = 1.0
+/** Planet scale for an ended session. */
+export const ENDED_SCALE = 0.45
+
+/**
+ * Layout units are arbitrary (the map scene, Task 9, maps them to world
+ * units). PLANET_BASE_RADIUS is the visual radius of a planet at
+ * scale 1.0.
+ */
+export const PLANET_BASE_RADIUS = 1
+
+/**
+ * Minimum empty clearance kept between any two planet edges anywhere on the
+ * map — used both for the in-cluster spiral spacing and for cluster
+ * bounding-circle separation.
+ */
+export const MIN_GAP = 0.3
+
+/**
+ * Extra cushion added on top of the tight golden-angle spiral spacing
+ * constant (see spiralSpacing below). Chosen empirically: for a Vogel/Fermat
+ * "sunflower" spiral (radius_i = K * sqrt(i), angle_i = i * GOLDEN_ANGLE),
+ * the tightest pair of points is always (i=0, i=1) — i=0 sits exactly at
+ * the spiral's center, so its distance to i=1 is exactly K, independent of
+ * angle. Every other pair (i,j >= 1) is separated further by the
+ * golden-angle's irrationality (no resonant close returns). Setting
+ * K = 2*PLANET_BASE_RADIUS*maxScale + MIN_GAP + SPIRAL_SAFETY_MARGIN keeps
+ * that worst pair (and, empirically checked, every pair) at or beyond the
+ * scale-derived min-distance floor. Verified by simulation for N up to 120
+ * and a range of active/ended scale mixes (see task-7 report) — this is an
+ * empirically-verified conservative bound, not a closed-form proof.
+ */
+export const SPIRAL_SAFETY_MARGIN = 0.2
+
+/** Golden angle, in radians (~137.5deg), per spec. */
+export const GOLDEN_ANGLE = 2.39996
+
+/** Minimum empty clearance kept between two clusters' bounding circles. */
+export const CLUSTER_GAP = 1.0
+
+/** Vertical offset of a cluster's label anchor above its topmost planet. */
+export const LABEL_MARGIN = 0.5
+
+// --- clusterSessions --------------------------------------------------------
+
+/**
+ * Groups sessions by their primary tag — the first entry of `tagIds` that
+ * resolves to a known tag. Sessions with no tags, or whose tagIds don't
+ * resolve to any known tag, fall back to the default tag (`is_default`).
+ * A session whose first tagId IS the default tag also lands in that same
+ * fallback cluster. Clusters are sorted by tagId ascending, with the
+ * default-tag cluster always last, regardless of its numeric id.
+ */
+export function clusterSessions(sessions: ApiSession[], tags: Tag[]): Cluster[] {
+  const tagById = new Map(tags.map((t) => [t.id, t]))
+  const defaultTag = tags.find((t) => t.is_default === 1)
+
+  const groups = new Map<number, ApiSession[]>()
+  for (const session of sessions) {
+    const primaryTagId = session.tagIds.find((id) => tagById.has(id))
+    const resolvedId = primaryTagId !== undefined ? primaryTagId : defaultTag?.id
+    if (resolvedId === undefined) continue // no valid tag, and no default tag configured
+
+    const existing = groups.get(resolvedId)
+    if (existing) existing.push(session)
+    else groups.set(resolvedId, [session])
+  }
+
+  const clusters: Cluster[] = []
+  for (const [tagId, groupSessions] of groups) {
+    const tag = tagById.get(tagId)
+    if (!tag) continue
+    clusters.push({ tagId, hue: tag.hue, label: tag.name, sessions: groupSessions })
+  }
+
+  clusters.sort((a, b) => {
+    const aIsDefault = a.tagId === defaultTag?.id
+    const bIsDefault = b.tagId === defaultTag?.id
+    if (aIsDefault !== bIsDefault) return aIsDefault ? 1 : -1
+    return a.tagId - b.tagId
+  })
+
+  return clusters
+}
+
+// --- layoutClusters ---------------------------------------------------------
+
+function scaleFor(session: ApiSession): number {
+  return session.status === 'ended' ? ENDED_SCALE : ACTIVE_SCALE
+}
+
+function resolveOptions(opts?: LayoutOptions) {
+  return {
+    planetBaseRadius: opts?.planetBaseRadius ?? PLANET_BASE_RADIUS,
+    minGap: opts?.minGap ?? MIN_GAP,
+    spiralSafetyMargin: opts?.spiralSafetyMargin ?? SPIRAL_SAFETY_MARGIN,
+    clusterGap: opts?.clusterGap ?? CLUSTER_GAP,
+    goldenAngle: opts?.goldenAngle ?? GOLDEN_ANGLE,
+  }
+}
+
+/** The golden-angle spiral's spacing constant K, for a given cluster. */
+function spiralSpacing(cluster: Cluster, resolved: ReturnType<typeof resolveOptions>): number {
+  const scales = cluster.sessions.map(scaleFor)
+  const maxScale = scales.length > 0 ? Math.max(...scales) : ACTIVE_SCALE
+  return 2 * resolved.planetBaseRadius * maxScale + resolved.minGap + resolved.spiralSafetyMargin
+}
+
+/** Lays a cluster's sessions out on a golden-angle spiral around `center`. */
+function spiralPositions(
+  cluster: Cluster,
+  center: { x: number; y: number },
+  resolved: ReturnType<typeof resolveOptions>
+): Map<string, PlanetPosition> {
+  const positions = new Map<string, PlanetPosition>()
+  const spacing = spiralSpacing(cluster, resolved)
+
+  cluster.sessions.forEach((session, i) => {
+    const r = spacing * Math.sqrt(i)
+    const theta = i * resolved.goldenAngle
+    positions.set(session.id, {
+      x: center.x + r * Math.cos(theta),
+      y: center.y + r * Math.sin(theta),
+      scale: scaleFor(session),
+    })
+  })
+
+  return positions
+}
+
+/** Radius of the smallest circle, centered on `center`, containing every planet in the cluster. */
+function boundingRadius(
+  cluster: Cluster,
+  positions: Map<string, PlanetPosition>,
+  center: { x: number; y: number },
+  planetBaseRadius: number
+): number {
+  let max = 0
+  for (const session of cluster.sessions) {
+    const p = positions.get(session.id)
+    if (!p) continue
+    const r = Math.hypot(p.x - center.x, p.y - center.y) + planetBaseRadius * p.scale
+    if (r > max) max = r
+  }
+  return max
+}
+
+/**
+ * Places clusters on a large circle around the origin, evenly spaced by
+ * index (deterministic: `clusters` order in == placement order, and
+ * `clusterSessions` already sorts that order by tagId ascending with the
+ * default-tag cluster last). Within each cluster, sessions are placed on a
+ * golden-angle spiral (`i * GOLDEN_ANGLE` radians, radius `∝ √i`),
+ * with spacing derived from the cluster's planet scales so no two planet
+ * centers land closer than their scale-derived min distance. The orbit
+ * radius for cluster centers is derived from clusters' bounding-circle radii
+ * so that no two clusters' bounding circles overlap.
+ *
+ * Pure: same `clusters` + `opts` in, same Map out, every time.
+ */
+export function layoutClusters(
+  clusters: Cluster[],
+  opts?: LayoutOptions
+): Map<string, PlanetPosition> {
+  const resolved = resolveOptions(opts)
+  const result = new Map<string, PlanetPosition>()
+  if (clusters.length === 0) return result
+
+  const n = clusters.length
+  const angleStep = n > 1 ? (2 * Math.PI) / n : 0
+
+  // First lay each cluster out around its own local origin so we can measure
+  // its bounding radius, then derive how far apart cluster centers need to
+  // be on the shared orbit circle.
+  const localPositions = clusters.map((cluster) => spiralPositions(cluster, { x: 0, y: 0 }, resolved))
+  const localRadii = clusters.map((cluster, idx) =>
+    boundingRadius(cluster, localPositions[idx], { x: 0, y: 0 }, resolved.planetBaseRadius)
+  )
+
+  let orbitRadius = 0
+  if (n > 1) {
+    const maxBoundingRadius = Math.max(...localRadii)
+    // Adjacent cluster centers, angleStep apart on a circle of orbitRadius,
+    // are `2 * orbitRadius * sin(angleStep / 2)` apart (chord length). That
+    // must be at least the sum of the two (worst-case, both
+    // maxBoundingRadius) bounding radii plus a clearance gap.
+    orbitRadius = (2 * maxBoundingRadius + resolved.clusterGap) / (2 * Math.sin(angleStep / 2))
+  }
+
+  clusters.forEach((cluster, idx) => {
+    const theta = idx * angleStep
+    const center = { x: orbitRadius * Math.cos(theta), y: orbitRadius * Math.sin(theta) }
+    const positions = spiralPositions(cluster, center, resolved)
+    for (const [id, pos] of positions) result.set(id, pos)
+  })
+
+  return result
+}
+
+// --- clusterLabelPos --------------------------------------------------------
+
+/**
+ * Anchor point for a cluster's label: directly above the cluster's topmost
+ * (largest y) planet, offset by that planet's radius plus LABEL_MARGIN.
+ */
+export function clusterLabelPos(
+  cluster: Cluster,
+  positions: Map<string, PlanetPosition>,
+  opts?: LayoutOptions
+): { x: number; y: number } {
+  const resolved = resolveOptions(opts)
+
+  let topmost: PlanetPosition | null = null
+  for (const session of cluster.sessions) {
+    const p = positions.get(session.id)
+    if (!p) continue
+    if (!topmost || p.y > topmost.y) topmost = p
+  }
+  if (!topmost) return { x: 0, y: 0 }
+
+  return {
+    x: topmost.x,
+    y: topmost.y + resolved.planetBaseRadius * topmost.scale + LABEL_MARGIN,
+  }
+}
