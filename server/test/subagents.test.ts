@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseTranscript } from '../src/transcript/parser.js';
-import { trackSubagents } from '../src/transcript/subagents.js';
+import { parseTranscript, type TranscriptEntry } from '../src/transcript/parser.js';
+import { trackSubagents, SubagentTracker } from '../src/transcript/subagents.js';
 
 describe('trackSubagents', () => {
   it('marks resolved Task calls ended, open ones working; ignores non-Task tools', () => {
@@ -46,5 +46,57 @@ describe('trackSubagents', () => {
       { id: 'task3', name: 'code-reviewer', state: 'ended' },
       { id: 'task4', name: 'subagent', state: 'working' },
     ]);
+  });
+});
+
+describe('SubagentTracker', () => {
+  it('carries state across separate feed() batches: tool_use and its tool_result arriving apart still yield a working then ended transition', () => {
+    const tracker = new SubagentTracker();
+
+    const toolUseBatch: TranscriptEntry[] = [
+      {
+        type: 'assistant',
+        uuid: 'a1',
+        timestamp: '2026-09-01T11:00:00.000Z',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'task1', name: 'Task', input: { description: 'test-runner' } },
+          ],
+        },
+      },
+    ];
+    expect(tracker.feed(toolUseBatch)).toEqual([
+      { id: 'task1', name: 'test-runner', state: 'working' },
+    ]);
+
+    // Delivered as its own batch minutes later, per TranscriptTail's per-append debounce.
+    const toolResultBatch: TranscriptEntry[] = [
+      {
+        type: 'user',
+        uuid: 'u1',
+        timestamp: '2026-09-01T11:05:00.000Z',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'task1', content: 'tests pass' }],
+        },
+      },
+    ];
+    expect(tracker.feed(toolResultBatch)).toEqual([
+      { id: 'task1', name: 'test-runner', state: 'ended' },
+    ]);
+
+    const unrelatedBatch: TranscriptEntry[] = [
+      {
+        type: 'assistant',
+        uuid: 'a2',
+        timestamp: '2026-09-01T11:06:00.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'ls' } }],
+        },
+      },
+    ];
+    expect(tracker.feed(unrelatedBatch)).toEqual([]);
   });
 });

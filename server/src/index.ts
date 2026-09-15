@@ -11,7 +11,7 @@ import { Hub } from './api/hub.js';
 import { Runner, type QueryFn } from './runner/runner.js';
 import { registerRoutes } from './api/routes.js';
 import { entriesToMessages } from './transcript/parser.js';
-import { trackSubagents } from './transcript/subagents.js';
+import { SubagentTracker } from './transcript/subagents.js';
 import chokidar from 'chokidar';
 
 export async function buildServer(overrides: {
@@ -65,16 +65,13 @@ export async function buildServer(overrides: {
       | { project_dir: string } | undefined;
     if (!row) return;
     const tail = new TranscriptTail(join(projectsDir, row.project_dir, `${id}.jsonl`));
-    const seenAgents = new Map<string, string>();
+    const subagents = new SubagentTracker();
     tail.on('entries', (entries) => {
       for (const msg of entriesToMessages(entries)) {
         hub.publish(topic, { event: 'message', message: msg });
       }
-      for (const agent of trackSubagents(entries)) {
-        if (seenAgents.get(agent.id) !== agent.state) {
-          seenAgents.set(agent.id, agent.state);
-          hub.publish(topic, { event: 'subagent', subagent: agent });
-        }
+      for (const agent of subagents.feed(entries)) {
+        hub.publish(topic, { event: 'subagent', subagent: agent });
       }
     });
     tail.start();

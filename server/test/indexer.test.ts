@@ -44,9 +44,17 @@ describe('indexProjects', () => {
     const { db } = setup();
     expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0 });
   });
-  it('preserves title, source, permission_mode, parent_id on re-index', () => {
+  it('preserves title, source, permission_mode, parent_id on re-index; backfills project_dir for web sessions', () => {
     const { db, projects, transcriptPath } = setup();
+    // Simulate a web session row created (by POST /api/sessions) before its
+    // transcript was ever indexed: project_dir starts out empty.
+    db.prepare(
+      `INSERT INTO sessions (id, project_dir, cwd, source) VALUES ('aaaa-bbbb', '', '/some/cwd', 'web')`,
+    ).run();
     indexProjects(db, projects);
+    let backfilled = db.prepare(`SELECT project_dir, source FROM sessions WHERE id='aaaa-bbbb'`).get() as any;
+    expect(backfilled.project_dir).toBe('-Users-tomin-Projects-slothworks-ergaily');
+    expect(backfilled.source).toBe('web');
     // Manually update session with custom values
     db.prepare(
       `UPDATE sessions SET title='My renamed title', source='web', permission_mode='plan', parent_id='xyz' WHERE id='aaaa-bbbb'`,
@@ -65,11 +73,12 @@ describe('indexProjects', () => {
     );
     expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
     // Verify title and other fields are preserved, but message_count updated
-    row = db.prepare(`SELECT title, source, permission_mode, parent_id, message_count FROM sessions WHERE id='aaaa-bbbb'`).get() as any;
+    row = db.prepare(`SELECT title, source, permission_mode, parent_id, message_count, project_dir FROM sessions WHERE id='aaaa-bbbb'`).get() as any;
     expect(row.title).toBe('My renamed title');
     expect(row.source).toBe('web');
     expect(row.permission_mode).toBe('plan');
     expect(row.parent_id).toBe('xyz');
     expect(row.message_count).toBe(4);
+    expect(row.project_dir).toBe('-Users-tomin-Projects-slothworks-ergaily');
   });
 });

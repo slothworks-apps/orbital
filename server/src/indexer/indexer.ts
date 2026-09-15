@@ -27,6 +27,7 @@ export function indexProjects(
     VALUES (@id, @project_dir, @cwd, @title, @first_at, @last_at,
       @message_count, @file_size, @indexed_mtime, @indexed_size)
     ON CONFLICT(id) DO UPDATE SET
+      project_dir=excluded.project_dir,
       cwd=excluded.cwd,
       title=CASE WHEN sessions.title='' THEN excluded.title ELSE sessions.title END,
       first_at=excluded.first_at, last_at=excluded.last_at,
