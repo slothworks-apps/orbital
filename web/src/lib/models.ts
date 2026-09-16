@@ -1,12 +1,5 @@
 import type { ApiSession, OrbitalModel } from './types'
 
-/**
- * Denominator for the context bar when nothing in the catalog matches. The
- * smallest window any current model has — so an unknown model's bar can read
- * as fuller than it is, never as emptier.
- */
-export const DEFAULT_CONTEXT_WINDOW = 200_000
-
 /** Drops a trailing variant suffix: `claude-opus-5[1m]` -> `claude-opus-5`. */
 function stripVariant(id: string): string {
   return id.replace(/\[[^\]]*\]$/, '')
@@ -96,14 +89,23 @@ export function isExactModelMatch(session: ApiSession, model: OrbitalModel): boo
 }
 
 /**
- * Tokens the context bar is drawn against. Matches by requested value or by
- * EXACT resolved model only: `claude-opus-5` must not inherit
- * `claude-opus-5[1m]`'s 1M, because that would draw a full 200k session at
- * 20%. When in doubt, the honest 200k fallback.
+ * Tokens the context bar is drawn against, or `null` when we do not
+ * genuinely know. Matches by requested value or by EXACT resolved model
+ * only: `claude-opus-5` must not inherit `claude-opus-5[1m]`'s 1M, because
+ * that would draw a full 200k session at 20%.
+ *
+ * Deliberately does NOT fall back to a stripped-id match the way the
+ * server's seed does (`server/src/models/catalog.ts`) — that stripping is
+ * the server's, made once, against a documented table it owns. Doing it
+ * again here on the client would let an inexact match silently disagree
+ * with the row's own `contextWindow`, so an unmatched session stays
+ * unknown rather than guessing. When null, the caller draws no bar at all
+ * (per `docs/decisions/models-come-from-the-sdk.md`) rather than inventing
+ * a number.
  */
-export function contextWindowFor(session: ApiSession, models: OrbitalModel[]): number {
+export function contextWindowFor(session: ApiSession, models: OrbitalModel[]): number | null {
   const exact =
     modelByValue(session.model, models) ??
     (session.resolvedModel ? models.find((m) => m.resolvedModel === session.resolvedModel) : undefined)
-  return exact?.contextWindow ?? DEFAULT_CONTEXT_WINDOW
+  return exact?.contextWindow ?? null
 }

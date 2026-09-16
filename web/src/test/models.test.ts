@@ -7,7 +7,6 @@ import {
   modelChipLabel,
   modelNameForId,
   isExactModelMatch,
-  DEFAULT_CONTEXT_WINDOW,
 } from '../lib/models'
 import { formatContextWindow } from '../lib/format'
 import type { ApiSession, OrbitalModel } from '../lib/types'
@@ -49,12 +48,13 @@ describe('contextWindowFor', () => {
 
   it('never widens a window through the stripped suffix', () => {
     // `claude-opus-5` is NOT `claude-opus-5[1m]`; guessing 1M here would draw
-    // the bar at a fifth of its real fill.
-    expect(contextWindowFor(session({ resolvedModel: 'claude-opus-5' }), MODELS)).toBe(DEFAULT_CONTEXT_WINDOW)
+    // the bar at a fifth of its real fill. An inexact match stays unknown —
+    // the client never re-derives a number the way the server's seed does.
+    expect(contextWindowFor(session({ resolvedModel: 'claude-opus-5' }), MODELS)).toBeNull()
   })
 
-  it('falls back for a session with no model at all', () => {
-    expect(contextWindowFor(session({}), MODELS)).toBe(DEFAULT_CONTEXT_WINDOW)
+  it('is null, not a guess, for a session with no model at all', () => {
+    expect(contextWindowFor(session({}), MODELS)).toBeNull()
   })
 })
 
