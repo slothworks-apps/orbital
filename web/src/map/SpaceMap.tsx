@@ -239,8 +239,13 @@ export function SpaceMap() {
         ))}
       </Canvas>
 
-      {/* Plain-DOM HUD overlay, outside the Canvas. */}
-      <div className="pointer-events-none absolute inset-0">
+      {/* Plain-DOM HUD overlay, outside the Canvas. `z-6` is load-bearing: the
+          map's own labels are positioned with `zIndexRange` up to 5, and a
+          positive z-index paints above a later sibling whose z-index is auto —
+          so without it, planet titles print straight through the New session
+          button and the zoom stack. Still under the z-10 panels and z-50
+          dialogs. */}
+      <div className="pointer-events-none absolute inset-0 z-[6]">
         <div className="pointer-events-none absolute right-6 top-6 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
           {aggregateLine}
         </div>

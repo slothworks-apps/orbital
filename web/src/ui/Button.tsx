@@ -30,7 +30,12 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // the reply well and must not outweigh Send.
   'warning-outline': 'bg-transparent text-warning font-semibold border border-[rgba(251,169,98,.5)] hover:bg-warning/10',
   danger: 'bg-transparent text-red-400 font-semibold border border-red-400/40 hover:bg-red-400/10',
-  cta: 'bg-gradient-to-b from-[rgba(20,28,46,.85)] to-[rgba(10,14,26,.9)] backdrop-blur-[16px] border border-accent/45 text-text-bright font-semibold shadow-[0_0_24px_rgba(89,228,243,.2),0_12px_30px_rgba(0,0,0,.5)] hover:border-accent/70',
+  // The map's floating "New session" (1a). Deliberate deviation from the
+  // export: it specifies the same two greys at .85/.9 alpha over a 16px
+  // backdrop blur, which reads as see-through wherever the button sits over a
+  // planet rather than over empty space. Same colours, opaque — and with the
+  // fill solid the blur has nothing left to blur, so it goes too.
+  cta: 'bg-gradient-to-b from-[#141c2e] to-[#0a0e1a] border border-accent/45 text-text-bright font-semibold shadow-[0_0_24px_rgba(89,228,243,.2),0_12px_30px_rgba(0,0,0,.5)] hover:border-accent/70',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
