@@ -167,6 +167,12 @@ describe('Badge', () => {
     expect(screen.getByText(/12/)).toBeInTheDocument()
     expect(screen.getByText(/sessions/)).toBeInTheDocument()
   })
+
+  it('renders a model badge', () => {
+    render(<Badge variant="model" value="Opus 5 (1M)" />)
+    const badge = screen.getByText('Opus 5 (1M)')
+    expect(badge).toHaveAttribute('data-variant', 'model')
+  })
 })
 
 describe('Button', () => {

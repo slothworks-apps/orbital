@@ -23,7 +23,9 @@ import { Input } from '../ui/Input'
 import { Transcript } from './Transcript'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
-import { shortenPath } from '../lib/format'
+import { ModelSwitcher } from './ModelSwitcher'
+import { shortenPath, formatContextWindow } from '../lib/format'
+import { contextWindowFor, DEFAULT_CONTEXT_WINDOW } from '../lib/models'
 import { tagColor } from '../lib/types'
 import type { ApiSession, Tag } from '../lib/types'
 
@@ -35,11 +37,6 @@ function sidebarHue(session: ApiSession, tags: Tag[]): number | undefined {
   }
   return tags.find((t) => t.is_default === 1)?.hue
 }
-
-/** Roughly Claude's context window, in tokens — the denominator for the
- * header's context-usage bar. Not read from settings/the API; it's a fixed
- * budget the bar is scaled against. */
-const CONTEXT_BUDGET = 200_000
 
 /** Hue the panel's accents fall back to when the session has no tag — the
  * export's own `oklch(85% .12 205)` accent (canvas 1b). */
@@ -120,6 +117,7 @@ export function DetailPanel() {
   const usage = useOrbital((s) => (id ? s.usage[id] : undefined))
   const subagents = useOrbital(useShallow((s) => (id ? (s.subagents[id] ?? []) : [])))
   const settings = useOrbital(useShallow((s) => s.settings))
+  const models = useOrbital(useShallow((s) => s.models))
   const dialog = useOrbital((s) => s.ui.dialog)
   const setDialog = useOrbital((s) => s.setDialog)
   const sendPrompt = useOrbital((s) => s.sendPrompt)
@@ -250,8 +248,11 @@ export function DetailPanel() {
 
   const lineage = lineageCache[id]
   const usageTokens = extractUsageTokens(usage)
+  const contextWindow = session ? contextWindowFor(session, models) : DEFAULT_CONTEXT_WINDOW
   const contextPercent =
-    usageTokens !== undefined ? Math.min(100, Math.round((usageTokens.total / CONTEXT_BUDGET) * 100)) : undefined
+    usageTokens !== undefined
+      ? Math.min(100, Math.round((usageTokens.total / contextWindow) * 100))
+      : undefined
   const isTerminalLive = session?.source === 'terminal' && session.status !== 'ended'
   const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
 
@@ -369,6 +370,16 @@ export function DetailPanel() {
                 </span>
               )}
               <span aria-hidden className="flex-1" />
+              {(session.model || session.resolvedModel || models.length > 0) && (
+                <ModelSwitcher
+                  session={session}
+                  models={models}
+                  defaultValue={settings.default_model ?? null}
+                  disabledReason={
+                    isTerminalLive ? 'Live in a terminal — Orbital does not own this session' : undefined
+                  }
+                />
+              )}
               {session.permissionMode && <Badge variant="mode" value={session.permissionMode} />}
               <Badge variant="status" value={session.status} hue={headerHue} />
             </div>
@@ -409,8 +420,8 @@ export function DetailPanel() {
                   />
                 )}
               </span>
-              <span data-context-readout>
-                {usageTokens ? formatTokens(usageTokens.total) : NO_VALUE} / {formatTokens(CONTEXT_BUDGET)}{' '}
+              <span data-context-readout data-testid="context-readout">
+                {usageTokens ? formatTokens(usageTokens.total) : NO_VALUE} / {formatContextWindow(contextWindow)}{' '}
                 ctx
               </span>
             </div>

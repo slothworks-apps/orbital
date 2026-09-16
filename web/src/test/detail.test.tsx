@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ApiSession, Tag } from '../lib/types'
+import type { ApiSession, OrbitalModel, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
 vi.mock('../lib/api', async () => {
@@ -64,6 +64,17 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
 const workTag: Tag = { id: 1, name: 'work', hue: 210, is_default: 0 }
 const personalTag: Tag = { id: 2, name: 'personal', hue: 330, is_default: 0 }
 
+// Same shape as `modelcards.test.tsx`'s fixture — the two must not disagree
+// about what a model looks like.
+const MODELS: OrbitalModel[] = [
+  { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', family: 'Opus', version: 'Opus 5 with 1M context', shortVersion: 'Opus 5', variant: '1M', blurb: 'Best for everyday, complex tasks', contextWindow: 1_000_000 },
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
+  { value: 'haiku', resolvedModel: 'claude-haiku-4-5-20251001', family: 'Haiku', version: 'Haiku 4.5', shortVersion: 'Haiku 4.5', variant: null, blurb: 'Fastest for quick answers', contextWindow: null },
+]
+
+const webSession = makeSession({ id: 'a', source: 'web' })
+const terminalSession = makeSession({ id: 'b', source: 'terminal', status: 'ended' })
+
 const defaultUi: OrbitalUiState = {
   selectedId: null,
   filterTagId: 'all',
@@ -84,6 +95,7 @@ function resetStore(
     tags: [workTag, personalTag],
     rules: [],
     settings: {},
+    models: [],
     transcripts: {},
     subagents: {},
     usage: {},
@@ -92,6 +104,27 @@ function resetStore(
     ...overrides,
     ui: { ...defaultUi, ...overrides.ui },
   })
+}
+
+/** Seeds a single session (+ its models/usage) and renders the panel — the
+ * shared entry point for the model-chip tests, which only ever care about
+ * one session at a time. */
+function renderDetail({
+  session,
+  models = [],
+  usage,
+}: {
+  session: ApiSession
+  models?: OrbitalModel[]
+  usage?: Record<string, unknown>
+}) {
+  resetStore({
+    sessions: { [session.id]: session },
+    models,
+    usage: usage ? { [session.id]: usage } : {},
+    ui: { selectedId: session.id },
+  })
+  return render(<DetailPanel />)
 }
 
 beforeEach(() => {
@@ -349,6 +382,59 @@ describe('DetailPanel header', () => {
 
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     expect(screen.queryByLabelText(/lineage/i)).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Model chip, switcher and the context bar it scales (canvas 4a)
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel model chip', () => {
+  it('shows the session model next to the permission badge', () => {
+    renderDetail({ session: { ...webSession, model: 'opus[1m]' }, models: MODELS })
+    // Short version plus the variant — the full "Opus 5 with 1M context" would
+    // wrap this row (see the naming table in the plan header).
+    expect(screen.getByRole('button', { name: /Change model/ })).toHaveTextContent('Opus 5 (1M)')
+  })
+
+  it('names a terminal session from its resolved model', () => {
+    renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5' }, models: MODELS })
+    expect(screen.getByText('Opus 5 (1M)')).toBeInTheDocument()
+  })
+
+  it('opens the switcher and marks the current model', () => {
+    renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
+    fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
+    expect(screen.getByRole('option', { name: 'Sonnet 5' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText(/APPLIES FROM NEXT TURN/)).toBeInTheDocument()
+  })
+
+  it('switches the model', async () => {
+    vi.mocked(api.setSessionModel).mockResolvedValue({ ok: true })
+    renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
+    fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
+    fireEvent.click(screen.getByRole('option', { name: 'Haiku 4.5' }))
+    await waitFor(() => expect(api.setSessionModel).toHaveBeenCalledWith(webSession.id, 'haiku'))
+  })
+
+  it('does not offer a switch on a session live in a terminal', () => {
+    renderDetail({ session: { ...terminalSession, status: 'working', model: null, resolvedModel: 'claude-sonnet-5' }, models: MODELS })
+    expect(screen.queryByRole('button', { name: /Change model/ })).not.toBeInTheDocument()
+  })
+
+  it('scales the context bar to the session model', () => {
+    renderDetail({
+      session: { ...webSession, model: 'opus[1m]' },
+      models: MODELS,
+      usage: { input_tokens: 100_000, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    })
+    expect(screen.getByTestId('context-readout')).toHaveTextContent('100k / 1M ctx')
+    expect(screen.getByRole('progressbar', { name: 'Context usage' })).toHaveAttribute('aria-valuenow', '10')
+  })
+
+  it('falls back to 200k for a model it cannot place', () => {
+    renderDetail({ session: { ...webSession, model: null, resolvedModel: 'claude-mystery-1' }, models: MODELS })
+    expect(screen.getByTestId('context-readout')).toHaveTextContent('/ 200k ctx')
   })
 })
 

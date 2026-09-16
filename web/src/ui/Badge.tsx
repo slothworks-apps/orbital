@@ -6,6 +6,7 @@ export type BadgeProps =
   | { variant: 'status'; value: SessionStatus; /** Tag hue tinting a working badge (canvas 1b). */ hue?: number }
   | { variant: 'mode'; value: PermissionMode }
   | { variant: 'count'; value: number; label?: string }
+  | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
 
 const statusLabel: Record<SessionStatus, string> = {
   working: 'WORKING',
@@ -66,6 +67,30 @@ export function Badge(props: BadgeProps) {
         className={`${baseClass} border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.5)] text-[rgba(220,235,255,.85)]`}
       >
         {props.value}
+      </span>
+    )
+  }
+
+  if (props.variant === 'model') {
+    // Canvas 4a: same squared mono chip as the permission mode, accent-outlined
+    // while it is a control you can open. The `▾` is drawn here (not by the
+    // caller) so it can carry its own muted, smaller-than-the-label style and
+    // only ever shows up on the interactive (switcher) chip.
+    return (
+      <span
+        data-variant="model"
+        className={`${baseClass} ${
+          props.interactive
+            ? 'border-accent/60 bg-accent/8 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
+            : 'border-panel-border bg-[rgba(4,8,16,.5)] text-[rgba(220,235,255,.85)]'
+        }`}
+      >
+        {props.value}
+        {props.interactive && (
+          <span aria-hidden className="ml-[7px] text-[9px] text-[rgba(160,190,225,.6)]">
+            ▾
+          </span>
+        )}
       </span>
     )
   }
