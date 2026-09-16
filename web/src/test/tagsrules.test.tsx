@@ -59,6 +59,16 @@ function editingRows(): NodeListOf<Element> {
   return document.querySelectorAll('[data-rule-mode="editing"]')
 }
 
+/**
+ * The condition and target-tag controls are custom listboxes, not
+ * `<select>`s: open the trigger, then click the option out of the portalled
+ * popup.
+ */
+function chooseOption(triggerName: string, option: string): void {
+  fireEvent.click(screen.getByRole('combobox', { name: triggerName }))
+  fireEvent.click(screen.getByRole('option', { name: option }))
+}
+
 /** The `⋮⋮` grip of the row currently at position `n` — the one and only reorder control. */
 function grip(n: number): HTMLElement {
   return screen.getByRole('button', { name: new RegExp(`^Reorder rule ${n} of `) })
@@ -621,12 +631,55 @@ describe('TagsRules', () => {
 
     // The target-tag control only exists once the row is open — at rest 1e
     // draws a plain hue-bordered pill.
-    expect(screen.queryByLabelText('Target tag for rule 1')).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Target tag for rule 1' })).not.toBeInTheDocument()
     openRow(1)
-    fireEvent.change(screen.getByLabelText('Target tag for rule 1'), { target: { value: '2' } })
+    chooseOption('Target tag for rule 1', 'default')
 
     await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { tag_id: 2 }))
     expect(useOrbital.getState().rules.find((r) => r.id === 10)?.tag_id).toBe(2)
+  })
+
+  it('patches the condition from the row’s listbox', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    openRow(1)
+    chooseOption('Condition for rule 1', 'title contains')
+
+    await waitFor(() =>
+      expect(api.patchTagRule).toHaveBeenCalledWith(10, { condition: 'title_contains' })
+    )
+    expect(useOrbital.getState().rules.find((r) => r.id === 10)?.condition).toBe('title_contains')
+  })
+
+  it('keeps the row open while a listbox is open — Escape peels the popup first', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    const onClose = vi.fn()
+    resetStore()
+    render(<TagsRules open onClose={onClose} />)
+
+    openRow(1)
+    const combo = screen.getByRole('combobox', { name: 'Condition for rule 1' })
+
+    // Picking an option must not pull focus out of the row: the row closes on
+    // focusout, and the popup lives in a portal on <body>.
+    fireEvent.click(combo)
+    fireEvent.click(screen.getByRole('option', { name: 'permission is' }))
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { condition: 'permission_is' }))
+    expect(row(10).dataset.ruleMode).toBe('editing')
+
+    // Escape belongs to the popup while it is open — the row and the panel
+    // each keep their own turn.
+    fireEvent.click(combo)
+    fireEvent.keyDown(combo, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(row(10).dataset.ruleMode).toBe('editing')
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(row(10).dataset.ruleMode).toBe('resting')
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('toggles a rule enabled/disabled', async () => {
@@ -994,7 +1047,7 @@ describe('TagsRules', () => {
     expect(within(resting).getByText('/work/**')).toBeInTheDocument()
     expect(within(resting).getByText('work')).toBeInTheDocument()
     // …and none of them is a form control.
-    expect(resting.querySelector('select')).toBeNull()
+    expect(within(resting).queryByRole('combobox')).toBeNull()
     expect(resting.querySelector('input:not([type="checkbox"])')).toBeNull()
     // The row is one openable button, so the whole table is keyboard-reachable.
     expect(within(resting).getByRole('button', { name: /^Edit rule 1: path matches \/work\/\*\* → work$/ })).toBeInTheDocument()

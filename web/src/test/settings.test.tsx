@@ -34,6 +34,22 @@ vi.mock('../lib/api', async () => {
 })
 
 import { api } from '../lib/api'
+
+/**
+ * The idle preset is a custom listbox, not a `<select>` — its options only
+ * exist in a portalled popup while it is open, so every assertion about them
+ * has to open it first.
+ */
+function openIdleSelect(): HTMLElement {
+  const trigger = screen.getByRole('combobox', { name: /mark session ended after/i })
+  fireEvent.click(trigger)
+  return trigger
+}
+
+function chooseIdle(label: string | RegExp): void {
+  openIdleSelect()
+  fireEvent.click(screen.getByRole('option', { name: label }))
+}
 import { Settings } from '../panels/Settings'
 
 const defaultUi: OrbitalUiState = {
@@ -163,7 +179,7 @@ describe('Settings', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    fireEvent.change(screen.getByLabelText(/mark session ended after/i), { target: { value: '60' } })
+    chooseIdle('60 min idle')
 
     await waitFor(() =>
       expect(api.patchSettings).toHaveBeenCalledWith({ ended_after_idle_minutes: '60' })
@@ -206,6 +222,20 @@ describe('Settings', () => {
     const onClose = vi.fn()
     resetStore()
     render(<Settings open onClose={onClose} />)
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('lets an open idle listbox own Escape before the panel does', () => {
+    const onClose = vi.fn()
+    resetStore()
+    render(<Settings open onClose={onClose} />)
+
+    const trigger = openIdleSelect()
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
 
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
@@ -255,10 +285,8 @@ describe('Settings — canvas 1h structure', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    const select = screen.getByLabelText(/mark session ended after/i)
-    expect(screen.getByRole('option', { name: '2 h idle' })).toHaveValue('120')
+    chooseIdle('2 h idle')
 
-    fireEvent.change(select, { target: { value: '120' } })
     await waitFor(() =>
       expect(api.patchSettings).toHaveBeenCalledWith({ ended_after_idle_minutes: '120' })
     )
@@ -268,15 +296,11 @@ describe('Settings — canvas 1h structure', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    const never = screen.getByRole('option', { name: /never — only on clear/i })
     // The sentinel must reach the server as the literal string: a numeric
     // stand-in would be read back as a minute count, and `Number('never')`
     // is NaN, which `setTimeout` treats as "fire now".
-    expect(never).toHaveValue('never')
+    chooseIdle(/never — only on clear/i)
 
-    fireEvent.change(screen.getByLabelText(/mark session ended after/i), {
-      target: { value: 'never' },
-    })
     await waitFor(() =>
       expect(api.patchSettings).toHaveBeenCalledWith({ ended_after_idle_minutes: 'never' })
     )
@@ -287,15 +311,14 @@ describe('Settings — canvas 1h structure', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    const options = Array.from(
-      (screen.getByLabelText(/mark session ended after/i) as HTMLSelectElement).options
-    ).map((o) => [o.value, o.textContent])
+    openIdleSelect()
+    const options = screen.getAllByRole('option').map((o) => o.getAttribute('data-label'))
     expect(options).toEqual([
-      ['15', '15 min idle'],
-      ['30', '30 min idle'],
-      ['60', '60 min idle'],
-      ['120', '2 h idle'],
-      ['never', 'Never — only on Clear'],
+      '15 min idle',
+      '30 min idle',
+      '60 min idle',
+      '2 h idle',
+      'Never — only on Clear',
     ])
   })
 
@@ -303,7 +326,13 @@ describe('Settings — canvas 1h structure', () => {
     resetStore({ settings: { ended_after_idle_minutes: 'never' } })
     render(<Settings open onClose={vi.fn()} />)
 
-    expect(screen.getByLabelText(/mark session ended after/i)).toHaveValue('never')
+    const trigger = openIdleSelect()
+    expect(trigger).toHaveAttribute('data-value', 'never')
+    expect(trigger).toHaveTextContent('Never — only on Clear')
+    expect(screen.getByRole('option', { name: /never — only on clear/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
   })
 
   it('renders the claude-code version line only once the server reports one', () => {

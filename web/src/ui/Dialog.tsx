@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { EscapeBoundary, useEscapeLayer } from './escapeLayer'
 import type { ReactNode } from 'react'
 
 export interface DialogProps {
@@ -108,14 +108,7 @@ export function Dialog({
   onClose,
   children,
 }: DialogProps) {
-  useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+  useEscapeLayer(open, onClose)
 
   if (!open) return null
 
@@ -130,6 +123,7 @@ export function Dialog({
   // descendants, which would trap the overlay (scrim included) inside the
   // 450px panel instead of covering the viewport.
   return createPortal(
+    <EscapeBoundary>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]"
     >
@@ -223,7 +217,8 @@ export function Dialog({
           </footer>
         )}
       </div>
-    </div>,
+    </div>
+    </EscapeBoundary>,
     document.body,
   )
 }

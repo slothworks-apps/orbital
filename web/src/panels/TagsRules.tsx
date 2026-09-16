@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
@@ -7,6 +7,7 @@ import { reportError } from '../lib/errors'
 import { tagColor } from '../lib/types'
 import type { Tag, TagRule } from '../lib/types'
 import { Panel } from '../ui/Panel'
+import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import { Select } from '../ui/Select'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
@@ -226,6 +227,12 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const rules = useOrbital(useShallow((s) => s.rules))
   const sessions = useOrbital(useShallow((s) => s.sessions))
 
+  /** Target-tag options for an open rule row — each carries its own tag's hue as the leading dot. */
+  const tagOptions = useMemo(
+    () => tags.map((tag) => ({ value: tag.id, label: tag.name, dotColor: tagColor(tag.hue) })),
+    [tags],
+  )
+
   const [newTagName, setNewTagName] = useState('')
   /**
    * Which tag card is selected, as a TRI-state: a tag id, `'none'` for an
@@ -340,21 +347,16 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     }
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      // Escape peels one layer at a time: an open rule row first, the panel
-      // only once every row is back at rest.
-      if (editingRuleId != null) {
-        closeRule(true)
-        return
-      }
-      onClose()
+  // Escape peels one layer at a time: an open rule row first, the panel only
+  // once every row is back at rest. Anything opened INSIDE the panel (a select
+  // popup) registers its own layer above this one and is peeled before either.
+  useEscapeLayer(open, () => {
+    if (editingRuleId != null) {
+      closeRule(true)
+      return
     }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose, editingRuleId])
+    onClose()
+  })
 
   // Sample-path preview, debounced.
   useEffect(() => {
@@ -713,7 +715,10 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     previewResult?.ruleId != null ? sortedRules.findIndex((r) => r.id === previewResult.ruleId) + 1 : null
 
   return (
-    // Scrim verbatim from artboard 1e: rgba(2,4,9,.5) + a 3px blur.
+    // The rule rows' select popups open inside this panel, so they must
+    // outrank it for Escape (see `ui/escapeLayer`).
+    <EscapeBoundary>
+    {/* Scrim verbatim from artboard 1e: rgba(2,4,9,.5) + a 3px blur. */}
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]">
       <Panel
         side="float"
@@ -1097,17 +1102,10 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                           font="sans"
                           className="w-full"
                           aria-label={`Condition for rule ${idx + 1}`}
+                          options={CONDITION_OPTIONS}
                           value={rule.condition}
-                          onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                            void handleCondition(rule, e.target.value as TagRule['condition'])
-                          }
-                        >
-                          {CONDITION_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </Select>
+                          onChange={(condition) => void handleCondition(rule, condition)}
+                        />
 
                         <Input
                           id={patternFieldId(rule.id)}
@@ -1126,39 +1124,17 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                         {/* 1e leaves the target tag as a static pill even in
                             edit mode, but its mock has no need to RE-target a
                             rule. Ours does, so in edit mode only, the pill IS
-                            the select: dot and chevron painted around a
-                            transparent native control (`color-scheme: dark`
-                            keeps the popup on-theme, since the select itself
-                            contributes no background). */}
-                        <span
-                          className="relative inline-flex min-w-0 items-center rounded-full border py-[3px] pl-[9px] pr-6"
-                          style={{ borderColor: `oklch(80% .13 ${hue} / .4)` }}
-                        >
-                          <span
-                            aria-hidden
-                            className="mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ background: tagColor(hue) }}
-                          />
-                          <select
-                            aria-label={`Target tag for rule ${idx + 1}`}
-                            value={rule.tag_id}
-                            onChange={(e) => void handleTargetTag(rule, Number(e.target.value))}
-                            style={{ colorScheme: 'dark' }}
-                            className="min-w-0 flex-1 cursor-pointer appearance-none bg-transparent text-[11px] font-semibold text-text-bright focus:outline-none"
-                          >
-                            {tags.map((tag) => (
-                              <option key={tag.id} value={tag.id}>
-                                {tag.name}
-                              </option>
-                            ))}
-                          </select>
-                          <span
-                            aria-hidden
-                            className="pointer-events-none absolute right-2 text-[9px] text-text-muted"
-                          >
-                            ▾
-                          </span>
-                        </span>
+                            the select — `Select`'s `pill` variant owns the
+                            dot, the hue-tinted border and the chevron. */}
+                        <Select
+                          variant="pill"
+                          font="sans"
+                          className="min-w-0"
+                          aria-label={`Target tag for rule ${idx + 1}`}
+                          options={tagOptions}
+                          value={rule.tag_id}
+                          onChange={(tagId) => void handleTargetTag(rule, tagId)}
+                        />
                       </>
                     ) : (
                       // At rest the three reading columns are ONE button
@@ -1265,5 +1241,6 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
         </div>
       </Panel>
     </div>
+    </EscapeBoundary>
   )
 }

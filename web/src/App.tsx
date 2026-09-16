@@ -9,6 +9,7 @@ import { NewSessionDialog } from './panels/NewSessionDialog'
 import { TagsRules } from './panels/TagsRules'
 import { Settings } from './panels/Settings'
 import { Toasts } from './ui/Toasts'
+import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 
 /**
  * The app's single WebSocket connection, module-level so it's created once
@@ -74,31 +75,18 @@ export default function App() {
     )
   }, [selectedId, applySessionEvent])
 
-  // Esc: close an open dialog first, else deselect the current session.
-  // Registered on the CAPTURE phase so it reads `ui.dialog` before any
-  // dialog's own bubble-phase Escape handler (Dialog/TagsRules/Settings
-  // each already close themselves on Escape) has a chance to clear it —
-  // without that, a single Escape press while a dialog is open could both
-  // close the dialog AND deselect the session in the same keystroke, since
-  // zustand's `set` is synchronous and a bubble-phase handler on `window`
-  // would otherwise see the dialog already gone by the time it runs.
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return
-      const state = useOrbital.getState()
-      if (state.ui.dialog) {
-        state.setDialog(null)
-        return
-      }
-      if (state.ui.selectedId) {
-        useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [])
+  // App is the OUTERMOST escape layer — always registered, so it only ever
+  // sees the key when nothing is open above it (see `ui/escapeLayer`). Any
+  // open dialog or panel registers later and therefore outranks it, which is
+  // why this no longer needs to check `ui.dialog` itself.
+  useEscapeLayer(true, () => {
+    useOrbital.setState((s) => (s.ui.selectedId ? { ui: { ...s.ui, selectedId: null } } : s))
+  })
 
   return (
+    // Everything the shell renders sits one layer in from App's own, so any
+    // panel or dialog outranks it for Escape.
+    <EscapeBoundary>
     <div className="relative h-screen w-screen overflow-hidden bg-space">
       <div className="absolute inset-0">
         <SpaceMap />
@@ -139,5 +127,6 @@ export default function App() {
 
       <Toasts />
     </div>
+    </EscapeBoundary>
   )
 }

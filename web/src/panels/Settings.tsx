@@ -5,6 +5,7 @@ import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
+import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import { Input } from '../ui/Input'
 import { ModeCards } from '../ui/ModeCards'
 import { Select } from '../ui/Select'
@@ -130,14 +131,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectDirDraft, open])
 
-  useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+  useEscapeLayer(open, onClose)
 
   const defaultPermissionMode = ((settings.default_permission_mode as PermissionMode) || 'acceptEdits')
   const lineageDepth = settings.lineage_depth ?? '3'
@@ -174,6 +168,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const chain = CHAIN_ORBS.slice(CHAIN_ORBS.length - orbCount)
 
   return (
+    <EscapeBoundary>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]">
       <Panel side="float" className="flex h-[740px] max-h-full w-full max-w-[1120px] flex-col overflow-hidden">
         {/* Header: 22/28/18 padding per canvas 1h. */}
@@ -368,20 +363,16 @@ export function Settings({ open, onClose }: SettingsProps) {
                 id="settings-ended-after"
                 aria-label="Mark session ended after"
                 font="sans"
+                options={IDLE_OPTIONS}
                 value={endedAfterIdle}
-                onChange={(e) => void patchAndSet({ ended_after_idle_minutes: e.target.value })}
+                onChange={(next) => void patchAndSet({ ended_after_idle_minutes: next })}
                 className="w-[200px]"
-              >
-                {IDLE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
+              />
             </Row>
           </div>
         </div>
       </Panel>
     </div>
+    </EscapeBoundary>
   )
 }
