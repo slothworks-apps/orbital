@@ -1,0 +1,12 @@
+{
+  "name": "Orbital",
+  "short_name": "Orbital",
+  "icons": [
+    { "src": "/favicon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/favicon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "theme_color": "#05070d",
+  "background_color": "#05070d",
+  "display": "standalone"
+}
