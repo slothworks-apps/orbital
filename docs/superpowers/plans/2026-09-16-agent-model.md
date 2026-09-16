@@ -1,7 +1,7 @@
 ---
 id: 2026-09-16-agent-model
 title: Agent model implementation plan
-status: draft
+status: done
 type: plan
 domain: sessions
 related:

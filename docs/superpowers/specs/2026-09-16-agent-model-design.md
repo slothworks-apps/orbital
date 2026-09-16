@@ -1,7 +1,7 @@
 ---
 id: 2026-09-16-agent-model-design
 title: Agent model — visible everywhere a session is
-status: draft
+status: done
 type: spec
 domain: sessions
 related:
@@ -139,11 +139,28 @@ interface OrbitalModel {
   value: string            // 'opus[1m]'  — what gets sent to the SDK
   resolvedModel: string    // 'claude-opus-5[1m]'
   family: string           // 'Opus'      — the map label
-  version: string          // 'Opus 5'    — detail badge, dialog card
+  version: string          // 'Opus 5 with 1M context' — full SDK wording, not shown directly
+  shortVersion: string     // 'Opus 5'    — detail chip, switcher rows, dialog cards, transcript divider
+  variant: string | null   // '1M'        — appended to shortVersion, but only on an EXACT match (see below)
   blurb: string            // 'Best for everyday, complex tasks'
   contextWindow: number | null
 }
 ```
+
+`shortVersion` and `variant` were added during the run — `version` alone (the
+full "Opus 5 with 1M context" the SDK's `description` gives) turned out to
+wrap every surface that has to show it in one line, and the variant needed
+somewhere to live that was not the map label. Naming, corrected:
+
+- Detail chip and switcher rows: `shortVersion`, with ` (variant)` appended —
+  but only when the session's model matched its catalog row **exactly**
+  (`session.model` equalling the row's `value`, or an exact `resolvedModel`).
+  The variant-stripped fallback match (below) exists so a terminal session
+  has a name at all; it does not know which variant actually ran, so it must
+  not print one the context bar cannot back up.
+- New session dialog cards and the "last used here" note: `shortVersion`.
+- The map label: `family` — never the version, never the variant.
+- The transcript divider: `shortVersion`, upper-cased (`OPUS 5 → SONNET 5`).
 
 `ApiSession` gains `model: string | null` and `resolvedModel: string | null`.
 No `contextWindow` on the session — the client derives it from the catalog, so
@@ -194,27 +211,31 @@ Clear". Deliberately unlike `inherit_permission_mode`: no
 ### `ui/ModelCards.tsx` (new)
 
 Built once and used twice, exactly as `ui/ModeCards.tsx` is: the full variant
-for `4b` (card with version, blurb and a context line), a `compact` variant
-for `4c`. The grid is `auto-fit` rather than a fixed four columns — the list
-is dynamic and a fifth model must wrap, not overflow.
+for `4b` (card with shortVersion, blurb and a context line), a `compact`
+variant for `4c`. The grid is `auto-fit` rather than a fixed four columns —
+the list is dynamic and a fifth model must wrap, not overflow.
 
 ### 4a — detail badge and switcher
 
-A mono chip in the `Badge` family showing `version`, accent-outlined with a
-`▾`, sitting left of the permission-mode badge. It opens a listbox popover
-headed `MODEL · APPLIES FROM NEXT TURN`, marking the current row `CURRENT` and
-the Settings default `DEFAULT`, footed with "Context is kept. A divider marks
-the switch in the transcript." Escape closes it through `useEscapeLayer`, like
-every other layer in this app. On a terminal-live session the chip is inert
-and titled with the reason.
+A mono chip in the `Badge` family showing `shortVersion`, with ` (variant)`
+appended when the session's model matches its catalog row exactly (see the
+naming table above) — accent-outlined with a `▾`, sitting left of the
+permission-mode badge. It opens a listbox popover headed `MODEL · APPLIES
+FROM NEXT TURN`, marking the current row `CURRENT` and the Settings default
+`DEFAULT`, footed with "Context is kept. A divider marks the switch in the
+transcript." Escape closes it through `useEscapeLayer`, like every other
+layer in this app. Dismisses on an outside pointerdown too, the same
+mechanism `ui/Select.tsx` uses, and resets closed whenever the selected
+session changes. On a terminal-live session, or when the catalog is empty,
+the chip is inert and titled with the reason.
 
 ### The transcript divider
 
 Derived, not emitted: `Transcript` draws
-`SONNET 5 → OPUS 5 · 14:02` wherever an assistant message's `model` differs
-from the previous assistant message's. It therefore survives a reload, needs
-no storage, and also shows switches made in a terminal that Orbital never
-performed.
+`SONNET 5 → OPUS 5 · 14:02` (each side `shortVersion`, upper-cased) wherever
+an assistant message's `model` differs from the previous assistant message's.
+It therefore survives a reload, needs no storage, and also shows switches
+made in a terminal that Orbital never performed.
 
 ### The context bar
 
@@ -226,10 +247,13 @@ nobody measured.
 ### 4b — New session dialog
 
 A `MODEL` group between `PROJECT DIRECTORY` and `PERMISSION MODE`, with
-`last used here: <family>` on the right of the group label when the typed cwd
-is among the known projects. Preselection: the project's last model when
-`remember_model_per_project` is on and known, otherwise `default_model`. The
-footer summary line gains the model.
+`last used here: <shortVersion>` on the right of the group label when the
+typed cwd is among the known projects — matched by SDK value OR resolved id
+(a terminal-launched project's newest session only ever has the latter), and
+shown only when something actually matches; a raw id never renders.
+Preselection: the project's last model when `remember_model_per_project` is
+on and known, otherwise `default_model`. The footer summary line gains the
+model.
 
 ### 4c — Settings
 
@@ -249,7 +273,10 @@ The `Subagent model` row from `4c` is **not** built — see Out of scope.
 
 `sceneModel` carries each planet's model family; `Planet` renders it as a
 second line under the title, mono and quiet, gated by `map_show_model`.
-Family only, never the version.
+Family only, never the version. Its colour is `rgba(160,190,225,.7)` (canvas
+4a) while the session is live, but dims to whatever the title itself dims to
+once the session has ended — a fixed value would otherwise leave the family
+line brighter than the name it sits under.
 
 ## Error states
 
