@@ -2,6 +2,39 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
 
+/**
+ * Sentinel for canvas 1h's "Never — only on Clear": no idle timer at all.
+ *
+ * A word, not a number. Every numeric sentinel collides with a value some
+ * preset might legitimately want (`0` reads as "end immediately", `-1` as a
+ * bug), whereas `'never'` can never be mistaken for a minute count. It also
+ * fails loudly rather than quietly: `Number('never')` is `NaN`, so a call
+ * site that forgets to special-case it trips the `NaN` guard in
+ * `parseIdleTimeoutMs` instead of reaching `setTimeout(fn, NaN)` — which
+ * fires on the next tick and would end every session the instant it started.
+ */
+export const IDLE_NEVER = 'never';
+
+/** Fallback when the stored value is missing or unusable (minutes). */
+const DEFAULT_IDLE_MINUTES = 30;
+
+/**
+ * Turns the stored `ended_after_idle_minutes` value into the milliseconds
+ * `Runner` waits before ending an idle session, or `null` for "never arm the
+ * timer at all".
+ *
+ * Deliberately total: anything that is neither `IDLE_NEVER` nor a finite
+ * positive minute count falls back to the default rather than reaching
+ * `setTimeout` as `NaN`/`0`. Only the explicit sentinel disables the timer,
+ * so a corrupt row cannot silently make sessions immortal either.
+ */
+export function parseIdleTimeoutMs(raw: string | number | null | undefined): number | null {
+  if (typeof raw === 'string' && raw.trim().toLowerCase() === IDLE_NEVER) return null;
+  const minutes = Number(raw);
+  if (!Number.isFinite(minutes) || minutes <= 0) return DEFAULT_IDLE_MINUTES * 60_000;
+  return minutes * 60_000;
+}
+
 export type QueryFn = (args: {
   prompt: AsyncIterable<unknown>;
   options: Record<string, unknown>;
@@ -56,19 +89,63 @@ export class Runner {
   private seq = 0;
   private hub: Hub;
   private queryFn: QueryFn;
-  private idleTimeoutMs: number;
+  private idleTimeoutMs: number | null;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
 
   constructor(deps: {
     hub: Hub;
     queryFn?: QueryFn;
-    idleTimeoutMs?: number;
+    /** `null` disables the idle timer entirely (the `IDLE_NEVER` preset). */
+    idleTimeoutMs?: number | null;
     onStatus?: (sessionId: string, status: SessionStatus) => void;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
-    this.idleTimeoutMs = deps.idleTimeoutMs ?? 30 * 60_000;
+    // `??` would turn an explicit `null` ("never") back into the default, so
+    // only `undefined` (the key absent) may fall through to it.
+    this.idleTimeoutMs =
+      deps.idleTimeoutMs === undefined ? DEFAULT_IDLE_MINUTES * 60_000 : deps.idleTimeoutMs;
     this.onStatus = deps.onStatus;
+  }
+
+  /**
+   * Applies a new idle timeout to this Runner *and to sessions that are
+   * already idling*, so changing the setting takes effect without restarting
+   * the API.
+   *
+   * Armed timers are re-armed immediately rather than only on the session's
+   * next activity: a session parked in `needs_input` may never reach another
+   * `armIdleTimer()` call — being untouched is exactly the state this setting
+   * governs — so deferring would strand already-idle sessions on the old
+   * timeout forever, and switching away from "never" would never arm one at
+   * all. The re-arm starts a *full* new interval from now instead of
+   * subtracting elapsed idle time, so a change can only postpone an end,
+   * never pull one forward past a deadline the user never saw.
+   *
+   * `working` sessions are left alone here; they pick the new value up at
+   * their next `armIdleTimer()` (turn result/interrupt). Idleness is keyed off
+   * `status`, not off whether a timer handle exists — under the "never"
+   * preset an idling session has no handle, and it is precisely that session
+   * that must get a timer when the user switches back to a timed value.
+   */
+  setIdleTimeoutMs(idleTimeoutMs: number | null): void {
+    this.idleTimeoutMs = idleTimeoutMs;
+    for (const [sessionId, s] of this.sessions) {
+      if (s.status !== 'needs_input') continue;
+      this.armIdleTimer(sessionId);
+    }
+  }
+
+  /**
+   * Clears every armed idle timer (server shutdown). The timers are already
+   * `unref()`d so they never hold the process open, but one firing after
+   * close would call `end()` on a Runner whose Hub and db are gone.
+   */
+  dispose(): void {
+    for (const s of this.sessions.values()) {
+      if (s.idleTimer) clearTimeout(s.idleTimer);
+      s.idleTimer = null;
+    }
   }
 
   private setStatus(sessionId: string, status: SessionStatus): void {
@@ -92,6 +169,10 @@ export class Runner {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     if (s.idleTimer) clearTimeout(s.idleTimer);
+    s.idleTimer = null;
+    // "Never": leave the session without a timer. This runs *after* the clear
+    // above, so flipping to "never" also disarms what was already armed.
+    if (this.idleTimeoutMs === null) return;
     const timer = setTimeout(() => void this.end(sessionId), this.idleTimeoutMs);
     // Don't let the idle timer keep the process alive (e.g. during tests).
     (timer as unknown as { unref?: () => void }).unref?.();
@@ -104,6 +185,7 @@ export class Runner {
     this.ended.add(sessionId);
     const s = this.sessions.get(sessionId);
     if (s?.idleTimer) clearTimeout(s.idleTimer);
+    if (s) s.idleTimer = null;
     this.sessions.delete(sessionId);
   }
 
@@ -219,7 +301,10 @@ export class Runner {
   send(sessionId: string, text: string): void {
     const s = this.sessions.get(sessionId);
     if (!s || s.status === 'ended') throw new Error(`session ${sessionId} is not active`);
+    // Null the handle, not just clear it — a cleared-but-retained handle is a
+    // dangling reference to a timer that can never fire again.
     if (s.idleTimer) clearTimeout(s.idleTimer);
+    s.idleTimer = null;
     this.setStatus(sessionId, 'working');
     this.enqueue(sessionId, this.userMessage(sessionId, text));
   }
@@ -234,6 +319,7 @@ export class Runner {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     if (s.idleTimer) clearTimeout(s.idleTimer);
+    s.idleTimer = null;
     this.enqueue(sessionId, null); // close the input stream
     this.finish(sessionId);
   }

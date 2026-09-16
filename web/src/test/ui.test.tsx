@@ -144,6 +144,16 @@ describe('Badge', () => {
     expect(el.className).toMatch(/white/)
   })
 
+  // 1b tints only the border with the session's tag hue; the label stays the
+  // fixed accent so a working badge reads the same whatever tag it belongs to.
+  it('tints a working badge\'s border with the tag hue but keeps the label on the accent', () => {
+    const { container } = render(<Badge variant="status" value="working" hue={60} />)
+    const el = container.firstElementChild as HTMLElement
+    // jsdom normalises the percentage lightness to a number.
+    expect(el.style.borderColor).toBe('oklch(0.8 0.13 60 / 0.4)')
+    expect(el.style.color).toBe('var(--color-accent)')
+  })
+
   it('renders a permission-mode badge', () => {
     render(<Badge variant="mode" value="acceptEdits" />)
     expect(screen.getByText('acceptEdits')).toBeInTheDocument()

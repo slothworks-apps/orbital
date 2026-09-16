@@ -17,16 +17,24 @@ const statusLabel: Record<SessionStatus, string> = {
 // Canvas 1b: squared-off mono chips (radius 5px), quiet dark fill for the
 // permission mode, hue-tinted border + blinking dot while working.
 const baseClass =
-  'inline-flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 font-mono text-[10.5px] tracking-[0.04em]'
+  'inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.04em]'
 
 export function Badge(props: BadgeProps) {
   if (props.variant === 'status') {
     const { value, hue } = props
     const busy = value === 'working' || value === 'needs_input'
     const tint = busy && hue !== undefined ? tagColor(hue) : undefined
-    const style: CSSProperties | undefined = tint
-      ? { borderColor: tint, color: tint, letterSpacing: '0.08em' }
-      : undefined
+    // 1b tints only the BORDER with the session's tag hue, at 40% — the label
+    // itself stays the fixed accent, so the badge reads as one family across
+    // tags rather than restating the hue twice.
+    const style: CSSProperties | undefined =
+      tint && hue !== undefined
+        ? {
+            borderColor: `oklch(80% 0.13 ${hue} / 0.4)`,
+            color: 'var(--color-accent)',
+            letterSpacing: '0.08em',
+          }
+        : undefined
     const stateClass =
       value === 'needs_input' && !tint
         ? 'border-white text-white bg-white/10'

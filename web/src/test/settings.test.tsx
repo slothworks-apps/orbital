@@ -264,10 +264,46 @@ describe('Settings — canvas 1h structure', () => {
     )
   })
 
-  it('omits 1h\'s "Never — only on Clear" preset (the server reads the value as a number)', () => {
+  it('offers 1h\'s "Never — only on Clear" preset and patches the sentinel verbatim', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
-    expect(screen.queryByRole('option', { name: /never/i })).not.toBeInTheDocument()
+
+    const never = screen.getByRole('option', { name: /never — only on clear/i })
+    // The sentinel must reach the server as the literal string: a numeric
+    // stand-in would be read back as a minute count, and `Number('never')`
+    // is NaN, which `setTimeout` treats as "fire now".
+    expect(never).toHaveValue('never')
+
+    fireEvent.change(screen.getByLabelText(/mark session ended after/i), {
+      target: { value: 'never' },
+    })
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ ended_after_idle_minutes: 'never' })
+    )
+    expect(useOrbital.getState().settings.ended_after_idle_minutes).toBe('never')
+  })
+
+  it('lists every 1h idle preset in order', () => {
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+
+    const options = Array.from(
+      (screen.getByLabelText(/mark session ended after/i) as HTMLSelectElement).options
+    ).map((o) => [o.value, o.textContent])
+    expect(options).toEqual([
+      ['15', '15 min idle'],
+      ['30', '30 min idle'],
+      ['60', '60 min idle'],
+      ['120', '2 h idle'],
+      ['never', 'Never — only on Clear'],
+    ])
+  })
+
+  it('keeps "Never" selected when the server already stores the sentinel', () => {
+    resetStore({ settings: { ended_after_idle_minutes: 'never' } })
+    render(<Settings open onClose={vi.fn()} />)
+
+    expect(screen.getByLabelText(/mark session ended after/i)).toHaveValue('never')
   })
 
   it('renders the claude-code version line only once the server reports one', () => {

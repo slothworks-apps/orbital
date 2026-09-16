@@ -19,15 +19,16 @@ export interface SettingsProps {
 
 const LINEAGE_STEPS = ['1', '2', '3', '4', '5'] as const
 
-/** Idle presets from canvas 1h. Values are the minute counts the server
- * reads back as `Number(...)` (`server/src/index.ts` → `idleTimeoutMs`), so
- * only numeric options are offered — 1h's "Never — only on Clear" needs a
- * sentinel the server can special-case and is left out until it does. */
+/** Idle presets from canvas 1h. Values are minute counts, except the final
+ * `'never'` sentinel — the server's `parseIdleTimeoutMs`
+ * (`server/src/runner/runner.ts`) maps it to a null timeout so `Runner` never
+ * arms an idle timer, and only Clear ends the session. */
 const IDLE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '15', label: '15 min idle' },
   { value: '30', label: '30 min idle' },
   { value: '60', label: '60 min idle' },
   { value: '120', label: '2 h idle' },
+  { value: 'never', label: 'Never — only on Clear' },
 ]
 
 const NAV_ITEMS: Array<{ key: string; label: string; disabled: boolean }> = [
@@ -144,9 +145,9 @@ export function Settings({ open, onClose }: SettingsProps) {
   const inheritTags = settings.inherit_tags !== 'false'
   const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
   const endedAfterIdle = settings.ended_after_idle_minutes ?? '30'
-  // Canvas 1h prints a second version line. The server has no Claude Code
-  // version endpoint yet; when it starts writing `claude_code_version` into
-  // the settings table this row lights up on its own.
+  // Canvas 1h prints a second version line. The server resolves the bundled
+  // Claude Code CLI version at boot into `claude_code_version`; when it can't
+  // (no SDK/manifest) the key stays absent and this row stays hidden.
   const claudeCodeVersion = settings.claude_code_version
 
   // "+N in history" (canvas 1h): sessions that the current depth pushes off

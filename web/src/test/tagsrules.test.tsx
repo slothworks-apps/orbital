@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ApiSession, Tag, TagRule } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
@@ -41,8 +42,22 @@ const defaultTag: Tag = { id: 2, name: 'default', hue: 60, is_default: 1 }
 
 const rule1: TagRule = { id: 10, tag_id: 1, position: 0, enabled: 1, condition: 'path_matches', pattern: '/work/**' }
 const rule2: TagRule = { id: 20, tag_id: 2, position: 1, enabled: 1, condition: 'title_contains', pattern: 'bug' }
-/** Second rule in the SAME (work) tag — reorder swaps happen within one tag's list. */
+/** Second rule in the SAME (work) tag — for cases that need two rows under one tag. */
 const workRule2: TagRule = { id: 20, tag_id: 1, position: 1, enabled: 1, condition: 'title_contains', pattern: 'bug' }
+
+/** The row element for a rule id, whichever mode it is currently in. */
+function row(id: number): HTMLElement {
+  return document.querySelector(`[data-rule-row="${id}"]`) as HTMLElement
+}
+
+/** Canvas 1e's resting row is a table cell, not a form — click it to get controls. */
+function openRow(n: number): void {
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Edit rule ${n}:`) }))
+}
+
+function editingRows(): NodeListOf<Element> {
+  return document.querySelectorAll('[data-rule-mode="editing"]')
+}
 
 function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSession {
   return {
@@ -133,18 +148,22 @@ describe('TagsRules', () => {
     expect(screen.getByRole('button', { name: 'Delete default' })).toBeDisabled()
   })
 
-  it('falls back to the first remaining tag after deleting the selected one', async () => {
+  it('falls back to the first remaining tag after deleting the selected one, and resyncs its now-orphaned rules', async () => {
     vi.mocked(api.deleteTag).mockResolvedValue({ ok: true })
     vi.mocked(api.listSessions).mockResolvedValue([])
+    // The server cascades the delete; the rules column lists EVERY rule, so
+    // the client has to ask what survived rather than leave orphan rows.
+    vi.mocked(api.listTagRules).mockResolvedValue([rule2])
     resetStore({ rules: [rule1, rule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete work' }))
 
     await waitFor(() => expect(api.deleteTag).toHaveBeenCalledWith(1))
-    // The default tag is now the head of the list — its rule is what shows.
-    await waitFor(() => expect(screen.getByLabelText('Pattern for rule 1')).toHaveValue('bug'))
+    await waitFor(() => expect(useOrbital.getState().rules).toEqual([rule2]))
+    // The default tag is now the head of the list and owns the swatches.
     expect(screen.getByRole('group', { name: 'Hue for default' })).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(1)
   })
 
   it('renames a tag on blur', async () => {
@@ -187,6 +206,25 @@ describe('TagsRules', () => {
     await waitFor(() => expect(api.createTag).toHaveBeenCalledWith({ name: 'urgent', hue: expect.any(Number) }))
     await waitFor(() => expect(api.listTags).toHaveBeenCalled())
     await waitFor(() => expect(useOrbital.getState().tags).toEqual(newTagsList))
+  })
+
+  it('reorders across tag boundaries — the evaluation order is one global list', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    // rule1 targets `work`, rule2 targets `default`: moving rule 1 down has to
+    // swap it past a rule belonging to a DIFFERENT tag, because the server
+    // evaluates one shared top-to-bottom order.
+    resetStore({ rules: [rule1, rule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
+
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { position: 1 }))
+    expect(api.patchTagRule).toHaveBeenCalledWith(20, { position: 0 })
+    await waitFor(() => {
+      const state = useOrbital.getState()
+      expect(state.rules.find((r) => r.id === 10)?.position).toBe(1)
+      expect(state.rules.find((r) => r.id === 20)?.position).toBe(0)
+    })
   })
 
   it('reorders a rule down by swapping positions with the next rule via two PATCHes', async () => {
@@ -255,8 +293,8 @@ describe('TagsRules', () => {
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
 
-    // Rules are managed per tag — select the default tag's card first; the
-    // new rule targets the selected tag.
+    // The selected card is a DEFAULT for the new rule's target tag (not a
+    // filter) — select the default tag's card first.
     fireEvent.click(screen.getByText('hue 60'))
     fireEvent.click(screen.getByRole('button', { name: '+ Add rule' }))
 
@@ -266,11 +304,33 @@ describe('TagsRules', () => {
     await waitFor(() => expect(useOrbital.getState().rules).toEqual(refreshedRules))
   })
 
-  it('patches the target tag with a snake_case tag_id payload', async () => {
+  it('opens a newly added rule straight into edit mode with the pattern field focused', async () => {
+    vi.mocked(api.createTagRule).mockResolvedValue(30)
+    const newRule: TagRule = { id: 30, tag_id: 1, position: 2, enabled: 1, condition: 'path_matches', pattern: '' }
+    vi.mocked(api.listTagRules).mockResolvedValue([rule1, rule2, newRule])
+    vi.mocked(api.listSessions).mockResolvedValue([])
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    // Nothing is in edit mode until a row is opened.
+    expect(editingRows()).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: '+ Add rule' }))
+
+    // A brand-new rule has nothing to read, so it skips the resting state.
+    await waitFor(() => expect(row(30)?.dataset.ruleMode).toBe('editing'))
+    expect(editingRows()).toHaveLength(1)
+    expect(screen.getByLabelText('Pattern for rule 3')).toHaveFocus()
+  })
+
+  it('patches the target tag with a snake_case tag_id payload (edit mode only)', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
 
+    // The target-tag control only exists once the row is open — at rest 1e
+    // draws a plain hue-bordered pill.
+    expect(screen.queryByLabelText('Target tag for rule 1')).not.toBeInTheDocument()
+    openRow(1)
     fireEvent.change(screen.getByLabelText('Target tag for rule 1'), { target: { value: '2' } })
 
     await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { tag_id: 2 }))
@@ -308,6 +368,7 @@ describe('TagsRules', () => {
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
 
+    openRow(1)
     const patternField = screen.getByLabelText('Pattern for rule 1')
     fireEvent.change(patternField, { target: { value: '/work/*' } })
     fireEvent.change(patternField, { target: { value: '/work/final' } })
@@ -398,7 +459,7 @@ describe('TagsRules', () => {
     expect(screen.getByText('SETTINGS')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Tags & rules' })).toBeInTheDocument()
     expect(screen.getByText('TAGS · 2')).toBeInTheDocument()
-    // Only the selected tag's rules are counted (rules are managed per tag).
+    // Every rule is counted — the column is the one global evaluation order.
     expect(screen.getByText('AUTO-TAG RULES · 2')).toBeInTheDocument()
     ;['CONDITION', 'PATTERN', '→ TAG', 'ON'].forEach((caption) => {
       expect(screen.getByText(caption)).toBeInTheDocument()
@@ -442,7 +503,7 @@ describe('TagsRules', () => {
     expect(addRow.className).toContain('w-full')
     // It lives inside the rules list, after the last rule row (canvas 1e).
     const list = addRow.parentElement!
-    expect(list.querySelectorAll('[data-rule-row]').length).toBe(1)
+    expect(list.querySelectorAll('[data-rule-row]').length).toBe(2)
     expect(list.lastElementChild).toBe(addRow)
   })
 
@@ -478,17 +539,154 @@ describe('TagsRules', () => {
     ])
   })
 
-  it('selects a tag card when one of its controls takes focus (keyboard reachability)', () => {
+  it('lists every rule regardless of which tag card is selected', () => {
     resetStore({ rules: [rule1, rule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
-    // work is selected by default, so rule1 (tag 1) is the only row shown.
-    expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(1)
-    expect(screen.getByLabelText('Pattern for rule 1')).toHaveValue('/work/**')
+    // The server evaluates one global order, so hiding the rules of other
+    // tags would misrepresent which rule actually wins.
+    expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(2)
+    expect(screen.getByText('/work/**')).toBeInTheDocument()
+    expect(screen.getByText('bug')).toBeInTheDocument()
 
-    // focusin (not the non-bubbling `focus`) is what React maps onFocus* to.
+    // focusin (not the non-bubbling `focus`) is what React maps onFocus* to —
+    // selecting the other tag card still shows both rules.
     fireEvent.focusIn(screen.getByLabelText('Tag name for default'))
 
-    expect(screen.getByLabelText('Pattern for rule 1')).toHaveValue('bug')
+    expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(2)
+    expect(screen.getByText('/work/**')).toBeInTheDocument()
+    expect(screen.getByText('bug')).toBeInTheDocument()
+  })
+
+  it('marks the selected tag’s rules without hiding or dimming the rest', () => {
+    resetStore({ rules: [rule1, rule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    // `work` is the head of the tag list and therefore selected by default.
+    expect(row(10).dataset.tagMatch).toBe('true')
+    expect(row(10)).toHaveAttribute('aria-current', 'true')
+    // The mark is not colour-only: the row carries a text marker for AT.
+    expect(within(row(10)).getByText('Targets the selected tag')).toBeInTheDocument()
+    // The other tag's rule stays listed, unmarked and undimmed.
+    expect(row(20).dataset.tagMatch).toBe('false')
+    expect(row(20)).not.toHaveAttribute('aria-current')
+    expect(row(20).className).not.toContain('opacity-60')
+    expect(within(row(20)).queryByText('Targets the selected tag')).not.toBeInTheDocument()
+
+    // Selecting the other card moves the mark; nothing disappears.
+    fireEvent.click(screen.getByText('hue 60'))
+    expect(row(10).dataset.tagMatch).toBe('false')
+    expect(row(20).dataset.tagMatch).toBe('true')
+    expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(2)
+  })
+
+  it('keeps a marked row distinguishable from a disabled one', () => {
+    const disabled: TagRule = { ...rule2, enabled: 0 }
+    resetStore({ rules: [rule1, disabled] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    // Marked (targets the selected tag) — hue tint, never the disabled dim.
+    expect(row(10).dataset.tagMatch).toBe('true')
+    expect(row(10).dataset.ruleEnabled).toBe('true')
+    expect(row(10).className).not.toContain('opacity-60')
+    expect(row(10).style.borderColor).toContain('210')
+
+    // Disabled — 1e's opacity treatment, and no mark.
+    expect(row(20).dataset.ruleEnabled).toBe('false')
+    expect(row(20).dataset.tagMatch).toBe('false')
+    expect(row(20).className).toContain('opacity-60')
+  })
+
+  it('renders resting rows as readable text with no form controls (canvas 1e)', () => {
+    resetStore({ rules: [rule1, rule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const resting = row(10)
+    expect(resting.dataset.ruleMode).toBe('resting')
+    // Condition, pattern and target tag are all readable as text.
+    expect(within(resting).getByText('path matches')).toBeInTheDocument()
+    expect(within(resting).getByText('/work/**')).toBeInTheDocument()
+    expect(within(resting).getByText('work')).toBeInTheDocument()
+    // …and none of them is a form control.
+    expect(resting.querySelector('select')).toBeNull()
+    expect(resting.querySelector('input:not([type="checkbox"])')).toBeNull()
+    // The row is one openable button, so the whole table is keyboard-reachable.
+    expect(within(resting).getByRole('button', { name: /^Edit rule 1: path matches \/work\/\*\* → work$/ })).toBeInTheDocument()
+  })
+
+  it('opens exactly one row on click, and opening another closes the first', () => {
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    // Clicking anywhere in the resting row's readable area opens it.
+    fireEvent.click(screen.getByText('/work/**'))
+    expect(editingRows()).toHaveLength(1)
+    expect(row(10).dataset.ruleMode).toBe('editing')
+    expect(screen.getByLabelText('Condition for rule 1')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pattern for rule 1')).toHaveFocus()
+
+    openRow(2)
+    expect(editingRows()).toHaveLength(1)
+    expect(row(20).dataset.ruleMode).toBe('editing')
+    expect(row(10).dataset.ruleMode).toBe('resting')
+    expect(screen.queryByLabelText('Condition for rule 1')).not.toBeInTheDocument()
+  })
+
+  it('commits a pending pattern edit when the row is closed by opening another', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    openRow(1)
+    fireEvent.change(screen.getByLabelText('Pattern for rule 1'), { target: { value: '/work/final' } })
+    expect(api.patchTagRule).not.toHaveBeenCalled()
+
+    // Leaving the row flushes the debounce rather than dropping the keystrokes.
+    openRow(2)
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { pattern: '/work/final' }))
+  })
+
+  it('keeps the toggle, reorder arrows and delete live while the row is at rest', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    vi.mocked(api.deleteTagRule).mockResolvedValue({ ok: true })
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Enable rule 1'))
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { enabled: 0 }))
+    // None of these may open the row — deleting must not be gated behind editing.
+    expect(editingRows()).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { position: 1 }))
+    expect(editingRows()).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete rule 2' }))
+    await waitFor(() => expect(api.deleteTagRule).toHaveBeenCalled())
+    expect(editingRows()).toHaveLength(0)
+  })
+
+  it('opens a row from the keyboard and Escape closes the row before the panel', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    resetStore({ rules: [rule1] })
+    render(<TagsRules open onClose={onClose} />)
+
+    const rowButton = screen.getByRole('button', { name: /^Edit rule 1:/ })
+    rowButton.focus()
+    await user.keyboard('{Enter}')
+
+    expect(row(10).dataset.ruleMode).toBe('editing')
+    expect(screen.getByLabelText('Pattern for rule 1')).toHaveFocus()
+
+    // Escape peels the row first…
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(row(10).dataset.ruleMode).toBe('resting')
+    expect(onClose).not.toHaveBeenCalled()
+    // …focus lands back on the row it came from…
+    expect(screen.getByRole('button', { name: /^Edit rule 1:/ })).toHaveFocus()
+    // …and only then the panel.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalled()
   })
 })

@@ -1,6 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hub } from '../src/api/hub.js';
-import { Runner, sdkToChatMessages } from '../src/runner/runner.js';
+import {
+  IDLE_NEVER,
+  Runner,
+  parseIdleTimeoutMs,
+  sdkToChatMessages,
+} from '../src/runner/runner.js';
 
 /** Fake SDK: echoes each user message, then emits a result. */
 function fakeQueryFn() {
@@ -359,5 +364,148 @@ describe('Runner', () => {
       nextSeq,
     );
     expect(toolUse[0].id).not.toBe(toolResult[0].id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Idle timeout: live setting changes + the "never" sentinel
+// ---------------------------------------------------------------------------
+
+describe('parseIdleTimeoutMs', () => {
+  it('maps minute counts to milliseconds', () => {
+    expect(parseIdleTimeoutMs('15')).toBe(15 * 60_000);
+    expect(parseIdleTimeoutMs('120')).toBe(120 * 60_000);
+    expect(parseIdleTimeoutMs(60)).toBe(60 * 60_000);
+  });
+
+  it('maps the sentinel to null (case/whitespace tolerant)', () => {
+    expect(parseIdleTimeoutMs(IDLE_NEVER)).toBeNull();
+    expect(parseIdleTimeoutMs('never')).toBeNull();
+    expect(parseIdleTimeoutMs('  Never  ')).toBeNull();
+  });
+
+  it('never yields NaN or a non-positive delay for junk, missing or zero values', () => {
+    // The destructive edge: `Number('banana')`/`Number('')` reaching
+    // setTimeout would fire on the next tick and end every session at once.
+    for (const raw of ['banana', '', '0', '-5', null, undefined, NaN]) {
+      const ms = parseIdleTimeoutMs(raw as any);
+      expect(ms).toBe(30 * 60_000);
+    }
+  });
+});
+
+describe('Runner idle timer', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  /** Starts a session and drives it to `needs_input` (idle timer armed). */
+  async function idlingRunner(idleTimeoutMs: number | null) {
+    const hub = new Hub();
+    const { fn } = fakeQueryFn();
+    const runner = new Runner({ hub, queryFn: fn as any, idleTimeoutMs });
+    const id = await runner.start({ cwd: '/p', prompt: 'hi', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
+    return { runner, id };
+  }
+
+  it('arms a timer that ends the session after the configured timeout', async () => {
+    const { runner, id } = await idlingRunner(15 * 60_000);
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(15 * 60_000);
+    expect(runner.status(id)).toBe('ended');
+  });
+
+  it('a null timeout ("never") arms NO timer at all', async () => {
+    const { runner, id } = await idlingRunner(null);
+    // Not "a very long timer" — no timer: nothing pending, and no amount of
+    // elapsed time ends the session.
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(365 * 24 * 60 * 60_000);
+    expect(runner.status(id)).toBe('needs_input');
+  });
+
+  it('a null timeout keeps arming nothing across further turns', async () => {
+    const { runner, id } = await idlingRunner(null);
+    runner.send(id, 'again');
+    await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
+    expect(vi.getTimerCount()).toBe(0);
+    await runner.interrupt(id);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('setIdleTimeoutMs re-arms an already-idling session immediately', async () => {
+    const { runner, id } = await idlingRunner(60 * 60_000);
+    // Switch to 15 min while the session is already idling: the old 60-min
+    // timer must be replaced, not left running alongside the new value.
+    runner.setIdleTimeoutMs(15 * 60_000);
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(15 * 60_000);
+    expect(runner.status(id)).toBe('ended');
+  });
+
+  it('setIdleTimeoutMs(null) disarms a timer that was already counting down', async () => {
+    const { runner, id } = await idlingRunner(15 * 60_000);
+    vi.advanceTimersByTime(14 * 60_000);
+    runner.setIdleTimeoutMs(null);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(runner.status(id)).toBe('needs_input');
+  });
+
+  it('switching back from "never" to a timed value re-arms an already-idling session', async () => {
+    const { runner, id } = await idlingRunner(null);
+    expect(vi.getTimerCount()).toBe(0);
+    runner.setIdleTimeoutMs(15 * 60_000);
+    // Re-arms even though the session will never be touched again — that is
+    // exactly the state the setting governs.
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(15 * 60_000);
+    expect(runner.status(id)).toBe('ended');
+  });
+
+  it('re-arming starts a full new interval rather than counting elapsed idle time', async () => {
+    const { runner, id } = await idlingRunner(60 * 60_000);
+    vi.advanceTimersByTime(30 * 60_000); // 30 min already idle
+    runner.setIdleTimeoutMs(15 * 60_000); // shorter than the time already elapsed
+    // A "remaining time" implementation would have ended it instantly here.
+    vi.advanceTimersByTime(14 * 60_000);
+    expect(runner.status(id)).toBe('needs_input');
+    vi.advanceTimersByTime(60_000);
+    expect(runner.status(id)).toBe('ended');
+  });
+
+  it('does not arm a timer on a session that is mid-turn', async () => {
+    const hub = new Hub();
+    const { fn, releaseGate, finishedPromise } = fakeQueryFnMidTurnStall();
+    const runner = new Runner({ hub, queryFn: fn as any, idleTimeoutMs: 15 * 60_000 });
+    const id = await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
+    expect(vi.getTimerCount()).toBe(1);
+
+    runner.send(id, 'two'); // back to working; the fake stalls without a result
+    expect(runner.status(id)).toBe('working');
+    expect(vi.getTimerCount()).toBe(0); // send() disarmed the idle timer
+
+    runner.setIdleTimeoutMs(15 * 60_000);
+    expect(vi.getTimerCount()).toBe(0); // working sessions are left alone
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(runner.status(id)).toBe('working');
+
+    await runner.end(id);
+    releaseGate();
+    await finishedPromise;
+  });
+
+  it('leaves no pending timer once a session ends, and dispose() clears the rest', async () => {
+    const { runner, id } = await idlingRunner(15 * 60_000);
+    await runner.end(id);
+    expect(vi.getTimerCount()).toBe(0);
+
+    const second = await idlingRunner(15 * 60_000);
+    expect(vi.getTimerCount()).toBe(1);
+    second.runner.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(second.runner.status(second.id)).toBe('needs_input');
   });
 });

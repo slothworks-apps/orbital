@@ -38,39 +38,48 @@ Mimo design: `extractMeta` přeskakuje holé slash-commandy (`/clear`, `/login`)
 při výběru titulku a indexer si stará taková jména přeindexuje; příkaz
 s argumenty (`/clickup-branch CU-123`) zůstává, protože nese téma.
 
+## Čtvrtá vlna (hotovo)
+
+- **1e řádky pravidel** mají dva režimy dle exportu: v klidu text +
+  hue pill, po kliknutí se jeden řádek rozbalí do controls s akcentovým
+  rámem. Jeden tab stop na klidový řádek (subgrid drží sloupce zarovnané),
+  focus po otevření míří do pattern pole, Escape loupe řádek před panelem.
+- **Pravidla se nefiltrují.** Vyhodnocují se na serveru shora dolů,
+  first match wins, takže zobrazovat jen podmnožinu bylo zavádějící.
+  Výběr tagu vlevo je teď jen *označení* (`aria-current` + sr-only marker,
+  ne pouze barva) a šipky přeřazují globálně napříč tagy.
+- **Idle timeout** se propisuje živě (`PATCH /api/settings` →
+  `Runner.setIdleTimeoutMs`), sessions v `needs_input` se přearmují hned
+  na plný nový interval. Přibyla volba „Never — only on Clear" přes
+  sentinel `'never'`; `parseIdleTimeoutMs` je totální, takže se do
+  `setTimeout` nikdy nedostane `NaN`/`0`. Opraveny úniky timerů +
+  `Runner.dispose()` na `onClose`.
+- **`claude-code <verze>`** se řeší při bootu z `manifest.json` uvnitř
+  SDK (= verze bundlovaného CLI, `2.1.272`), NE z `package.json` toho
+  balíčku (`0.3.272` je verze SDK). Když to nejde zjistit, řádek se
+  ze settings smaže, takže se v UI neukáže.
+
 ## Nedodělané / vědomé odchylky
 
-1. **1e — režim řádků pravidel.** Export ukazuje pravidla jako čitelnou
-   tabulku (text „path matches" / „~/work/**" + hue pill), controls jen
-   v právě editovaném řádku s akcentovým rámem. My renderujeme všechny
-   řádky vždy jako formulář. Změna na click-to-edit je UX rozhodnutí,
-   ne jen ladění — čeká na tvoje slovo.
-2. **Drag reorder pravidel** — grip ⋮⋮ je jen dekorace (`aria-hidden`),
+1. **Drag reorder pravidel** — grip ⋮⋮ je jen dekorace (`aria-hidden`),
    pořadí se mění šipkami.
+2. **Akcentový rám na editovaném pattern poli** (1e) chybí — `Input`
+   má `className` dokumentovaný jako layout-only, takže by to chtělo
+   `emphasis`/`accent` prop. Signál zatím nese rám celého řádku.
 3. **1c close-up** neporovnán: chybí třetí statický prstenec planety
    (`inset -22`, 24 ticků) a kometový ohon orbit (conic arc maskovaný do
    pásu orbity, alfa .3/.2/.14 podle indexu). 1f — stavová tabulka a
    primární reference — je kreslí obyčejně, proto zatím vynecháno.
-4. **Server pro 1h:**
-   - `claude-code x.y` řádek se vykreslí, jakmile `/api/settings` vrátí klíč
-     `claude_code_version`; server ho dnes nikam neukládá (stačí při bootu
-     `ctx.settings.set('claude_code_version', v)`, nový endpoint netřeba).
-   - „Never — only on Clear" idle volba chybí: `index.ts` čte
-     `Number(...) ?? 30` a `setTimeout(fn, NaN)` by session ukončil okamžitě.
-     Potřebuje sentinel → `idleTimeoutMs: null` a `Runner.touch()` timer
-     nearmovat.
-   - `ended_after_idle_minutes` se čte jen při bootu, takže i stávající
-     15/30/60 se projeví až po restartu API.
-5. **1h checkboxy** „Pinned files" a „One-paragraph summary…" nejsou —
+4. **1h checkboxy** „Pinned files" a „One-paragraph summary…" nejsou —
    nemá je čím podložit žádný settings klíč.
-6. **ToolRow pravá meta** (`0.4s`, `+41 −18`, `exit 1`) a StopDialog `· 4.2s`:
+5. **ToolRow pravá meta** (`0.4s`, `+41 −18`, `exit 1`) a StopDialog `· 4.2s`:
    `ChatMessage` nenese trvání, diffstat ani exit kód.
-7. **1b `+ tag` picker** — držíme toggle chipy všech tagů; popover picker je
+6. **1b `+ tag` picker** — držíme toggle chipy všech tagů; popover picker je
    nová interakce, ne fidelity práce.
-8. **Měsíce** — stavy materializing/idle/needs_input jsou vyrenderované dle
+7. **Měsíce** — stavy materializing/idle/needs_input jsou vyrenderované dle
    1f a pokryté testy, ale za běhu nedosažitelné: web sessions neposílají
    subagent WS eventy.
-9. **Vlastní přídavky mimo export:** řádek filtru zdroje (all/terminal/web)
+8. **Vlastní přídavky mimo export:** řádek filtru zdroje (all/terminal/web)
    v sidebaru a vstup do Settings (patička sidebaru + spodek railu) — design
    nemá ani jedno.
 
@@ -82,5 +91,8 @@ s argumenty (`/clickup-branch CU-123`) zůstává, protože nese téma.
   `store/store.ts`), nasetovat fake session a dialog, a pak to vrátit.
 - Barvy z exportu se převádějí přes canvas: `oklch(85% .12 60)` → `#ffbb7b`,
   `oklch(80% .13 60)` → `#fba962`, `oklch(85% .12 205)` → `#59e4f3`.
+- Tailwind v4 **nevygeneruje** desetinný arbitrary opacity modifier:
+  `bg-accent/[0.06]` mlčky nevyprodukuje žádné pravidlo, `bg-accent/6` ano.
+  Nové utility ověřovat skutečným `vite build`, ne jen testy.
 - Zákazy: nespouštět sessions/neposílat prompty (token burn), read-only
   browser smoke OK, nezabíjet Tominovy dev servery.

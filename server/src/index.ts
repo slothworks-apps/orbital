@@ -11,7 +11,8 @@ import { indexProjects } from './indexer/indexer.js';
 import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { Hub } from './api/hub.js';
-import { Runner, type QueryFn } from './runner/runner.js';
+import { Runner, parseIdleTimeoutMs, type QueryFn } from './runner/runner.js';
+import { resolveClaudeCodeVersion } from './runner/version.js';
 import { registerRoutes } from './api/routes.js';
 import { toApiSession } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
@@ -95,17 +96,35 @@ export async function buildServer(overrides: {
   const db = openDb(overrides.dbPath ?? CONFIG.dbPath);
   const hub = new Hub();
   const registry = new SessionRegistry(sessionsDir);
-  const idleMinutes = Number(
+  // Boot-time seed only — `PATCH /api/settings` pushes later changes straight
+  // into the Runner (`setIdleTimeoutMs`), so this value never goes stale.
+  const idleTimeoutMs = parseIdleTimeoutMs(
     db
       .select({ value: settingsTable.value })
       .from(settingsTable)
       .where(eq(settingsTable.key, 'ended_after_idle_minutes'))
-      .get()?.value ?? 30,
+      .get()?.value,
   );
+
+  // Resolve the Claude Code version once, at boot, into the settings table —
+  // `/api/settings` already passes arbitrary keys through, so the Settings
+  // panel's `claude-code <v>` line lights up with no new endpoint. When it
+  // can't be resolved the row is *removed* rather than left stale or filled
+  // with a placeholder, so the UI hides the line instead of lying about it.
+  const claudeCodeVersion = resolveClaudeCodeVersion();
+  if (claudeCodeVersion) {
+    db.insert(settingsTable)
+      .values({ key: 'claude_code_version', value: claudeCodeVersion })
+      .onConflictDoUpdate({ target: settingsTable.key, set: { value: claudeCodeVersion } })
+      .run();
+  } else {
+    db.delete(settingsTable).where(eq(settingsTable.key, 'claude_code_version')).run();
+  }
+
   const runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
-    idleTimeoutMs: idleMinutes * 60_000,
+    idleTimeoutMs,
     onStatus: (sessionId, status) => hub.publish('sessions', { event: 'status', sessionId, status }),
   });
 
@@ -202,6 +221,7 @@ export async function buildServer(overrides: {
     },
   });
   app.addHook('onClose', async () => {
+    runner.dispose();
     await registry.close();
     await projectsWatcher.close();
     for (const tail of tails.values()) tail.stop();

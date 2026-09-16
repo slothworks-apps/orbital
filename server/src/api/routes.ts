@@ -15,7 +15,7 @@ import {
   tagRules,
   tags,
 } from '../db/schema.js';
-import type { Runner } from '../runner/runner.js';
+import { parseIdleTimeoutMs, type Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
@@ -336,6 +336,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.patch('/api/settings', (req) => {
     for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
       ctx.settings.set(k, String(v));
+      // The idle timeout used to be read once at boot, so changing it here did
+      // nothing until the API restarted. Push it straight into the Runner that
+      // owns the timers instead — including already-idling sessions.
+      if (k === 'ended_after_idle_minutes') {
+        ctx.runner.setIdleTimeoutMs(parseIdleTimeoutMs(String(v)));
+      }
     }
     return { ok: true };
   });

@@ -9,6 +9,8 @@ import { sessions, sessionTags, settings as settingsTable, tags } from '../src/d
 import { registerRoutes } from '../src/api/routes.js';
 import { buildServer, publishLiveSession } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
+import { Runner } from '../src/runner/runner.js';
+import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 
 function makeApp() {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
@@ -365,6 +367,109 @@ describe('buildServer smoke', () => {
     const res = await app.inject({ method: 'GET', url: '/api/sessions' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ sessions: [] });
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/settings → Runner (the idle timeout used to be boot-only)
+// ---------------------------------------------------------------------------
+
+describe('PATCH /api/settings propagates the idle timeout to the Runner', () => {
+  function makeAppWithRealRunner() {
+    const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-idle-')), 'index.db'));
+    const hub = new Hub();
+    const runner = new Runner({ hub, queryFn: (() => {}) as any, idleTimeoutMs: 30 * 60_000 });
+    const applied: Array<number | null> = [];
+    const original = runner.setIdleTimeoutMs.bind(runner);
+    runner.setIdleTimeoutMs = (ms: number | null) => {
+      applied.push(ms);
+      original(ms);
+    };
+    const app = Fastify();
+    registerRoutes(app, {
+      db,
+      registry: { get: () => undefined, all: () => [] } as any,
+      runner,
+      projectsDir: '/nonexistent',
+      hub,
+      settings: {
+        get: (k: string) =>
+          db.select({ value: settingsTable.value }).from(settingsTable)
+            .where(eq(settingsTable.key, k)).get()?.value ?? '',
+        set: (k: string, v: string) =>
+          void db
+            .insert(settingsTable)
+            .values({ key: k, value: v })
+            .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
+            .run(),
+      },
+    });
+    return { app, db, applied };
+  }
+
+  it('hands the Runner the new minute count without a restart', async () => {
+    const { app, db, applied } = makeAppWithRealRunner();
+    await app.inject({
+      method: 'PATCH', url: '/api/settings', payload: { ended_after_idle_minutes: '15' },
+    });
+    expect(applied).toEqual([15 * 60_000]);
+    // ...and the value is still persisted, unchanged on the wire.
+    const after = await app.inject({ method: 'GET', url: '/api/settings' });
+    expect(after.json().ended_after_idle_minutes).toBe('15');
+    db.$client.close();
+  });
+
+  it('hands the Runner a null timeout for the "never" sentinel', async () => {
+    const { app, db, applied } = makeAppWithRealRunner();
+    await app.inject({
+      method: 'PATCH', url: '/api/settings', payload: { ended_after_idle_minutes: 'never' },
+    });
+    // Not NaN, not 0 — `setTimeout(fn, NaN)` would end every session at once.
+    expect(applied).toEqual([null]);
+    const after = await app.inject({ method: 'GET', url: '/api/settings' });
+    expect(after.json().ended_after_idle_minutes).toBe('never');
+    db.$client.close();
+  });
+
+  it('leaves the Runner alone for unrelated settings keys', async () => {
+    const { app, db, applied } = makeAppWithRealRunner();
+    await app.inject({
+      method: 'PATCH', url: '/api/settings', payload: { lineage_depth: '5' },
+    });
+    expect(applied).toEqual([]);
+    db.$client.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// claude_code_version (task 3)
+// ---------------------------------------------------------------------------
+
+describe('claude_code_version', () => {
+  it('resolves the bundled Claude Code CLI version, or nothing at all', () => {
+    const version = resolveClaudeCodeVersion();
+    // Never a placeholder: either a real dotted version or null.
+    if (version !== null) expect(version).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it('buildServer publishes it through GET /api/settings when resolvable', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-ver-'));
+    const app = await buildServer({
+      dbPath: join(dir, 'index.db'),
+      claudeDir: join(dir, 'claude'),
+      queryFn: (() => {}) as any,
+    });
+    const body = (await app.inject({ method: 'GET', url: '/api/settings' })).json();
+    const expected = resolveClaudeCodeVersion();
+    if (expected === null) {
+      // Unresolvable: the key stays absent so the UI row stays hidden.
+      expect('claude_code_version' in body).toBe(false);
+    } else {
+      expect(body.claude_code_version).toBe(expected);
+    }
+    // The rest of the settings payload is untouched.
+    expect(body.ended_after_idle_minutes).toBe('30');
     await app.close();
   });
 });

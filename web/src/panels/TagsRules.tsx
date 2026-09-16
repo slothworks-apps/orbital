@@ -41,6 +41,9 @@ const RULE_GRID = 'grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,130px)_4
 /** Id (not a ref — `Input` doesn't take one) so the header's "+ new tag" can focus the field when it's empty. */
 const NEW_TAG_FIELD_ID = 'tags-rules-new-tag'
 
+/** Same trick for the per-row pattern field: opening a row focuses it by id. */
+const patternFieldId = (ruleId: number) => `tags-rules-pattern-${ruleId}`
+
 /** Debounce for the pattern/preview text inputs — same window as the rest of the app's debounced PATCHes. */
 const DEBOUNCE_MS = 400
 
@@ -54,6 +57,32 @@ function replaceRule(rules: TagRule[], id: number, patch: Partial<TagRule>): Tag
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+function conditionLabel(condition: TagRule['condition']): string {
+  return CONDITION_OPTIONS.find((o) => o.value === condition)?.label ?? condition
+}
+
+/**
+ * The resting row's target-tag pill, verbatim from artboard 1e: `3px 9px`
+ * inside a 999px border tinted `oklch(80% .13 H / .4)`, an 11px/600 label and
+ * a 6px dot in the tag's own hue, `width: fit-content`.
+ */
+function TagPill({ hue, name }: { hue: number; name: string }) {
+  return (
+    <span
+      data-rule-tag-pill
+      className="inline-flex w-fit min-w-0 items-center gap-1.5 rounded-full border px-[9px] py-[3px] text-[11px] font-semibold text-text-bright"
+      style={{ borderColor: `oklch(80% .13 ${hue} / .4)` }}
+    >
+      <span
+        aria-hidden
+        className="h-1.5 w-1.5 shrink-0 rounded-full"
+        style={{ background: tagColor(hue) }}
+      />
+      <span className="truncate">{name}</span>
+    </span>
+  )
 }
 
 /**
@@ -173,6 +202,13 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const [previewPath, setPreviewPath] = useState('')
   const [previewResult, setPreviewResult] = useState<{ tagId: number | null; ruleId: number | null } | null>(null)
   const [patternDrafts, setPatternDrafts] = useState<Record<number, string>>({})
+  /**
+   * Canvas 1e draws rule rows in two modes: a readable table at rest
+   * (condition and pattern as plain text, a hue-bordered tag pill, the ON
+   * switch) and exactly ONE row swapped over to the condition dropdown + the
+   * pattern field, wearing the accent border. This is that one row's id.
+   */
+  const [editingRuleId, setEditingRuleId] = useState<number | null>(null)
   /** Drives the header's "saved · just now" (canvas 1e) — set by every mutation that actually landed. */
   const [saved, setSaved] = useState(false)
 
@@ -188,6 +224,16 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   // `open` flips. `handlePatternDraft` itself stays below; it just closes
   // over this ref.
   const patternTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+  /**
+   * The value each pending timer would PATCH, kept in a ref (not just in
+   * `patternDrafts` state) so `flushPattern` can commit it from an event
+   * handler without depending on which render's closure it was called from.
+   */
+  const patternPending = useRef<Record<number, string>>({})
+  /** Rule whose pattern field should take focus after the next render (a row just opened). */
+  const focusOnOpen = useRef<number | null>(null)
+  /** Rule whose resting row button should take focus after the next render (a row just closed). */
+  const focusOnClose = useRef<number | null>(null)
 
   useEffect(() => {
     // Unmount cleanup only — timers are otherwise managed per-call below.
@@ -196,20 +242,52 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     }
   }, [])
 
+  // Focus follows the mode switch: opening a row lands the caret in the
+  // pattern field (the thing you almost always came to change), closing one
+  // hands focus back to the row button you opened it from, so the keyboard
+  // never gets dumped at the top of the document. No dep array — both arms
+  // are guarded by refs that clear themselves.
+  useEffect(() => {
+    const opened = focusOnOpen.current
+    if (opened != null) {
+      focusOnOpen.current = null
+      const field = document.getElementById(patternFieldId(opened))
+      if (field instanceof HTMLInputElement) {
+        field.focus()
+        field.select()
+      }
+    }
+    const closed = focusOnClose.current
+    if (closed != null) {
+      focusOnClose.current = null
+      document.querySelector<HTMLElement>(`[data-rule-open="${closed}"]`)?.focus()
+    }
+  })
+
   // The panel stays mounted across `open`, so the save status has to be
   // cleared on entry — "just now" must never be left over from a past visit.
   useEffect(() => {
-    if (open) setSaved(false)
+    if (open) {
+      setSaved(false)
+      setEditingRuleId(null)
+    }
   }, [open])
 
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      // Escape peels one layer at a time: an open rule row first, the panel
+      // only once every row is back at rest.
+      if (editingRuleId != null) {
+        closeRule(true)
+        return
+      }
+      onClose()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+  }, [open, onClose, editingRuleId])
 
   // Sample-path preview, debounced.
   useEffect(() => {
@@ -230,9 +308,15 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
 
   if (!open) return null
 
+  // ONE global list, always. The server evaluates rules top → bottom and the
+  // first match wins across every tag, so filtering the table down to the
+  // selected tag would hide the rules that actually win and make this
+  // column's own "evaluated top → bottom, first match wins" caption a lie.
+  // Artboard 1e agrees: `work` is the selected card, yet all four rules are
+  // listed (work / oncall / experiments / experiments). Selecting a tag card
+  // only MARKS the rows that target it — see `targetsSelected` below.
   const sortedRules = [...rules].sort((a, b) => a.position - b.position)
   const effectiveTagId = selectedTagId ?? tags[0]?.id ?? null
-  const tagRules = sortedRules.filter((r) => r.tag_id === effectiveTagId)
   const defaultTag = tags.find((t) => t.is_default)
 
   function sessionCount(tagId: number): number {
@@ -307,6 +391,10 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       // rules column pointing at a tag that no longer exists.
       setSelectedTagId(null)
       setSaved(true)
+      // The rules column lists every rule, so the deleted tag's rules would
+      // sit there as orphan rows until something else refreshed them — the
+      // server cascades the delete, so ask it what's left.
+      void resyncRules()
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to delete tag')
@@ -314,17 +402,41 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   }
 
   async function handleAddRule() {
+    // The selected card is a helpful DEFAULT for the new rule's target tag,
+    // not a filter — the rule still appends to the one global list.
     const targetTagId = effectiveTagId ?? tags.find((t) => t.is_default)?.id ?? tags[0]?.id
     if (targetTagId == null) return
     try {
-      await api.createTagRule({ tagId: targetTagId, condition: 'path_matches', pattern: '' })
+      const id = await api.createTagRule({ tagId: targetTagId, condition: 'path_matches', pattern: '' })
       const refreshed = await api.listTagRules()
       useOrbital.setState({ rules: refreshed })
       setSaved(true)
+      // A brand-new rule has nothing to read yet, so it opens straight into
+      // edit mode with the caret in its (empty) pattern field.
+      openRule(id)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to add rule')
     }
+  }
+
+  /**
+   * Puts one row into edit mode, committing and closing whichever row was
+   * open before it — canvas 1e only ever draws a single row in edit mode.
+   */
+  function openRule(id: number) {
+    if (editingRuleId === id) return
+    if (editingRuleId != null) flushPattern(editingRuleId)
+    setEditingRuleId(id)
+    focusOnOpen.current = id
+  }
+
+  /** Returns the open row to rest, flushing its pending pattern PATCH first. */
+  function closeRule(restoreFocus: boolean) {
+    if (editingRuleId == null) return
+    flushPattern(editingRuleId)
+    if (restoreFocus) focusOnClose.current = editingRuleId
+    setEditingRuleId(null)
   }
 
   // Drag-to-reorder (the `⋮⋮` grip artboard 1e draws on every row) is
@@ -334,12 +446,13 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   // via two PATCHes. That expresses the same first-match-wins ordering
   // without a drag-and-drop implementation in v1.
   async function handleReorder(rule: TagRule, direction: 'up' | 'down') {
-    // Swap within the selected tag's own list — the design manages rules per
-    // tag, so "up/down" means the neighbor of the same tag.
-    const idx = tagRules.findIndex((r) => r.id === rule.id)
+    // Swap with the adjacent rule in the ONE global evaluation order — the
+    // order that decides which rule wins is shared by every tag, so "up" has
+    // to be able to cross a tag boundary.
+    const idx = sortedRules.findIndex((r) => r.id === rule.id)
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (idx < 0 || swapIdx < 0 || swapIdx >= tagRules.length) return
-    const other = tagRules[swapIdx]
+    if (idx < 0 || swapIdx < 0 || swapIdx >= sortedRules.length) return
+    const other = sortedRules[swapIdx]
     try {
       await Promise.all([
         api.patchTagRule(rule.id, { position: other.position }),
@@ -376,26 +489,47 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     }
   }
 
+  function commitPattern(ruleId: number, value: string) {
+    delete patternTimers.current[ruleId]
+    delete patternPending.current[ruleId]
+    api
+      .patchTagRule(ruleId, { pattern: value })
+      .then(() => {
+        useOrbital.setState((state) => ({ rules: replaceRule(state.rules, ruleId, { pattern: value }) }))
+        setSaved(true)
+        void resyncSessions()
+      })
+      .catch((err) => {
+        reportError(err, 'Failed to update rule pattern')
+        void resyncRules()
+      })
+  }
+
   function handlePatternDraft(rule: TagRule, value: string) {
     setPatternDrafts((drafts) => ({ ...drafts, [rule.id]: value }))
+    patternPending.current[rule.id] = value
 
     const existing = patternTimers.current[rule.id]
     if (existing) clearTimeout(existing)
 
-    patternTimers.current[rule.id] = setTimeout(() => {
-      delete patternTimers.current[rule.id]
-      api
-        .patchTagRule(rule.id, { pattern: value })
-        .then(() => {
-          useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { pattern: value }) }))
-          setSaved(true)
-          void resyncSessions()
-        })
-        .catch((err) => {
-          reportError(err, 'Failed to update rule pattern')
-          void resyncRules()
-        })
-    }, DEBOUNCE_MS)
+    patternTimers.current[rule.id] = setTimeout(() => commitPattern(rule.id, value), DEBOUNCE_MS)
+  }
+
+  /**
+   * Sends a row's in-flight pattern edit now instead of waiting out the
+   * debounce — leaving edit mode (another row opened, Escape, Enter, focus
+   * left the row) has to COMMIT, not discard.
+   */
+  function flushPattern(ruleId: number) {
+    const timer = patternTimers.current[ruleId]
+    if (!timer) return
+    clearTimeout(timer)
+    const pending = patternPending.current[ruleId]
+    if (pending === undefined) {
+      delete patternTimers.current[ruleId]
+      return
+    }
+    commitPattern(ruleId, pending)
   }
 
   async function handleTargetTag(rule: TagRule, tagId: number) {
@@ -425,6 +559,13 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
 
   async function handleDeleteRule(rule: TagRule) {
     try {
+      // Drop any pending pattern PATCH for a row that's about to cease to
+      // exist, and take it out of edit mode if that's where it was.
+      const timer = patternTimers.current[rule.id]
+      if (timer) clearTimeout(timer)
+      delete patternTimers.current[rule.id]
+      delete patternPending.current[rule.id]
+      if (editingRuleId === rule.id) setEditingRuleId(null)
       await api.deleteTagRule(rule.id)
       useOrbital.setState((state) => ({ rules: state.rules.filter((r) => r.id !== rule.id) }))
       setSaved(true)
@@ -601,7 +742,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
           {/* Right: the selected tag's rules */}
           <div className="flex min-h-0 flex-col">
             <div className="flex items-center gap-3 px-7 pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
-              AUTO-TAG RULES · {tagRules.length}
+              AUTO-TAG RULES · {sortedRules.length}
               <span className="flex-1" />
               <span className="tracking-[0.04em] text-[rgba(160,190,225,.5)]">
                 evaluated top → bottom, first match wins
@@ -623,94 +764,185 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-5">
-              {tagRules.map((rule, idx) => {
+              {sortedRules.map((rule, idx) => {
                 const ruleTag = tags.find((t) => t.id === rule.tag_id)
+                const hue = ruleTag?.hue ?? 210
+                const tagName = ruleTag?.name ?? 'unknown tag'
+                const editing = editingRuleId === rule.id
+                const enabled = rule.enabled === 1
+                const pattern = patternDrafts[rule.id] ?? rule.pattern
+                /** Selecting a tag card MARKS its rules here — it never hides the others. */
+                const targetsSelected = ruleTag != null && ruleTag.id === effectiveTagId
+
                 return (
                   <div
                     key={rule.id}
                     data-rule-row={rule.id}
+                    data-rule-mode={editing ? 'editing' : 'resting'}
+                    data-rule-enabled={enabled}
+                    data-tag-match={targetsSelected}
+                    aria-current={targetsSelected ? 'true' : undefined}
+                    // Clicking anywhere in a resting row opens it; the toggle
+                    // and the action buttons stop the click before it gets
+                    // here, so they stay usable in BOTH modes.
+                    onClick={editing ? undefined : () => openRule(rule.id)}
+                    onBlur={
+                      editing
+                        ? (e) => {
+                            // Focus left the row entirely (tabbed past the last
+                            // control, clicked another control) — commit and
+                            // close. `relatedTarget === null` (focus went
+                            // nowhere) deliberately leaves the row open.
+                            const next = e.relatedTarget
+                            if (next instanceof Node && !e.currentTarget.contains(next)) closeRule(false)
+                          }
+                        : undefined
+                    }
+                    style={
+                      // The mark is the tag-card treatment from the left column
+                      // (canvas 1e: hue border at .4 over a .06 hue fill), so
+                      // the two read as the same object. Deliberately NOT a
+                      // dim — 1e already spends opacity on disabled rules.
+                      !editing && targetsSelected
+                        ? {
+                            borderColor: `oklch(80% .13 ${hue} / .4)`,
+                            background: `oklch(80% .13 ${hue} / .06)`,
+                          }
+                        : undefined
+                    }
                     className={[
-                      'grid items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.35)] px-2 py-[11px]',
+                      'grid items-center gap-3 rounded-[9px] border px-2 py-[11px] transition-colors',
                       RULE_GRID,
+                      editing
+                        ? // 1e's edit row: accent border at .5 over a .06 accent fill.
+                          'border-accent/50 bg-accent/6'
+                        : targetsSelected
+                          ? ''
+                          : 'border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.35)]',
                       // 1e dims a disabled rule rather than restyling it.
-                      rule.enabled === 1 ? '' : 'opacity-60',
+                      enabled ? '' : 'opacity-60',
                     ]
                       .filter(Boolean)
                       .join(' ')}
                   >
                     {/* Drag grip: decorative only — drag-to-reorder is deferred,
                         so it is never focusable and carries no label; the arrows
-                        in the actions cell are the working control. */}
-                    <span aria-hidden data-rule-grip className="text-center text-sm text-[rgba(160,190,225,.4)]">
-                      ⋮⋮
-                    </span>
-
-                    <Select
-                      font="sans"
-                      className="w-full"
-                      aria-label={`Condition for rule ${idx + 1}`}
-                      value={rule.condition}
-                      onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                        void handleCondition(rule, e.target.value as TagRule['condition'])
-                      }
-                    >
-                      {CONDITION_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </Select>
-
-                    <Input
-                      font="mono"
-                      aria-label={`Pattern for rule ${idx + 1}`}
-                      value={patternDrafts[rule.id] ?? rule.pattern}
-                      onChange={(e) => handlePatternDraft(rule, e.target.value)}
-                      className="min-w-0"
-                    />
-
-                    {/* 1e draws the target tag as a hue-bordered pill. Ours has
-                        to stay editable, so the pill IS the select: dot and
-                        chevron are painted around a transparent native control
-                        (`color-scheme: dark` keeps the popup on-theme, since
-                        the select itself contributes no background). */}
-                    <span
-                      className="relative inline-flex min-w-0 items-center rounded-full border py-[3px] pl-[9px] pr-6"
-                      style={{ borderColor: `oklch(80% .13 ${ruleTag?.hue ?? 210} / .4)` }}
-                    >
-                      <span
-                        aria-hidden
-                        className="mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ background: tagColor(ruleTag?.hue ?? 210) }}
-                      />
-                      <select
-                        aria-label={`Target tag for rule ${idx + 1}`}
-                        value={rule.tag_id}
-                        onChange={(e) => void handleTargetTag(rule, Number(e.target.value))}
-                        style={{ colorScheme: 'dark' }}
-                        className="min-w-0 flex-1 cursor-pointer appearance-none bg-transparent text-[11px] font-semibold text-text-bright focus:outline-none"
-                      >
-                        {tags.map((tag) => (
-                          <option key={tag.id} value={tag.id}>
-                            {tag.name}
-                          </option>
-                        ))}
-                      </select>
-                      <span
-                        aria-hidden
-                        className="pointer-events-none absolute right-2 text-[9px] text-text-muted"
-                      >
-                        ▾
+                        in the actions cell are the working control. It also
+                        carries the row's non-visual "this targets the selected
+                        tag" marker, so the mark never rests on colour alone
+                        (sr-only is out of flow, so it claims no grid column). */}
+                    <span className="relative text-center">
+                      <span aria-hidden data-rule-grip className="text-sm text-[rgba(160,190,225,.4)]">
+                        ⋮⋮
                       </span>
+                      {targetsSelected && <span className="sr-only">Targets the selected tag</span>}
                     </span>
 
-                    <Toggle
-                      aria-label={`Enable rule ${idx + 1}`}
-                      checked={rule.enabled === 1}
-                      onChange={(checked) => void handleEnabled(rule, checked)}
-                    />
+                    {editing ? (
+                      <>
+                        <Select
+                          font="sans"
+                          className="w-full"
+                          aria-label={`Condition for rule ${idx + 1}`}
+                          value={rule.condition}
+                          onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                            void handleCondition(rule, e.target.value as TagRule['condition'])
+                          }
+                        >
+                          {CONDITION_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </Select>
 
-                    <div className="flex items-center justify-end gap-1">
+                        <Input
+                          id={patternFieldId(rule.id)}
+                          font="mono"
+                          size="sm"
+                          aria-label={`Pattern for rule ${idx + 1}`}
+                          value={pattern}
+                          onChange={(e) => handlePatternDraft(rule, e.target.value)}
+                          onKeyDown={(e) => {
+                            // Enter commits and returns the row to the table.
+                            if (e.key === 'Enter') closeRule(true)
+                          }}
+                          className="min-w-0"
+                        />
+
+                        {/* 1e leaves the target tag as a static pill even in
+                            edit mode, but its mock has no need to RE-target a
+                            rule. Ours does, so in edit mode only, the pill IS
+                            the select: dot and chevron painted around a
+                            transparent native control (`color-scheme: dark`
+                            keeps the popup on-theme, since the select itself
+                            contributes no background). */}
+                        <span
+                          className="relative inline-flex min-w-0 items-center rounded-full border py-[3px] pl-[9px] pr-6"
+                          style={{ borderColor: `oklch(80% .13 ${hue} / .4)` }}
+                        >
+                          <span
+                            aria-hidden
+                            className="mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                            style={{ background: tagColor(hue) }}
+                          />
+                          <select
+                            aria-label={`Target tag for rule ${idx + 1}`}
+                            value={rule.tag_id}
+                            onChange={(e) => void handleTargetTag(rule, Number(e.target.value))}
+                            style={{ colorScheme: 'dark' }}
+                            className="min-w-0 flex-1 cursor-pointer appearance-none bg-transparent text-[11px] font-semibold text-text-bright focus:outline-none"
+                          >
+                            {tags.map((tag) => (
+                              <option key={tag.id} value={tag.id}>
+                                {tag.name}
+                              </option>
+                            ))}
+                          </select>
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute right-2 text-[9px] text-text-muted"
+                          >
+                            ▾
+                          </span>
+                        </span>
+                      </>
+                    ) : (
+                      // At rest the three reading columns are ONE button
+                      // spanning them (subgrid keeps it on the table's own
+                      // tracks). A button whose children are all plain spans
+                      // stays valid markup — no interactive nesting — and is
+                      // what makes the row openable from the keyboard.
+                      <button
+                        type="button"
+                        data-rule-open={rule.id}
+                        aria-label={`Edit rule ${idx + 1}: ${conditionLabel(rule.condition)} ${
+                          pattern || '(no pattern)'
+                        } → ${tagName}`}
+                        onClick={() => openRule(rule.id)}
+                        className="col-span-3 grid grid-cols-subgrid items-center rounded-[5px] text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+                      >
+                        {/* 1e resting row: 13px sans condition, 12px mono pattern. */}
+                        <span className="truncate text-[13px]">{conditionLabel(rule.condition)}</span>
+                        <span className="truncate font-mono text-[12px] text-text-bright">
+                          {pattern || <span className="text-text-muted">—</span>}
+                        </span>
+                        <TagPill hue={hue} name={tagName} />
+                      </button>
+                    )}
+
+                    {/* The ON switch is identical in both of 1e's modes. */}
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <Toggle
+                        aria-label={`Enable rule ${idx + 1}`}
+                        checked={enabled}
+                        onChange={(checked) => void handleEnabled(rule, checked)}
+                      />
+                    </span>
+
+                    {/* Reorder + delete stay live in both modes — deleting a
+                        rule must never be gated behind opening it first. */}
+                    <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         aria-label={`Move rule ${idx + 1} up`}
@@ -723,7 +955,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                       <button
                         type="button"
                         aria-label={`Move rule ${idx + 1} down`}
-                        disabled={idx === tagRules.length - 1}
+                        disabled={idx === sortedRules.length - 1}
                         onClick={() => void handleReorder(rule, 'down')}
                         className="h-5 w-5 rounded text-text-muted transition-colors hover:bg-white/5 hover:text-text-bright disabled:opacity-25 disabled:hover:bg-transparent"
                       >
