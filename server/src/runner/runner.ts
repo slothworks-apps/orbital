@@ -36,10 +36,20 @@ export function parseIdleTimeoutMs(raw: string | number | null | undefined): num
   return minutes * 60_000;
 }
 
+/**
+ * The subset of the SDK's `Query` object Orbital uses. `supportedModels` and
+ * `setModel` are optional because a fake in a test may implement only what
+ * that test exercises — and because a CLI too old to answer a control
+ * request must degrade to "unknown", never to a crash.
+ */
 export type QueryFn = (args: {
   prompt: AsyncIterable<unknown>;
   options: Record<string, unknown>;
-}) => AsyncGenerator<any> & { interrupt?: () => Promise<void> };
+}) => AsyncGenerator<any> & {
+  interrupt?: () => Promise<void>;
+  setModel?: (model?: string) => Promise<void>;
+  supportedModels?: () => Promise<unknown[]>;
+};
 
 interface ManagedSession {
   status: SessionStatus;
