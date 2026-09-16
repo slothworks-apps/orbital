@@ -27,7 +27,19 @@ tags:
 
 - **Never hard-code a model list.** The only model names allowed in source are `'default'` (the row that is filtered out) and the `default_model` seed value `'sonnet'`.
 - **`[…]` suffix rule.** Strip a trailing `[…]` from a model id when matching it to a **display name**; never when looking up a **context window**. Exact match or the 200 000 fallback.
+- **How a model is named on each surface.** The SDK's `version` ("Opus 5 with 1M context") is too long for the detail header, so the catalog also derives `shortVersion` (`version` up to `" with "` → `Opus 5`) and `variant` (the `[…]` suffix of `resolvedModel`, upper-cased → `1M`, or null). Then:
+
+  | surface | shows | example |
+  |---|---|---|
+  | 4a detail chip, switcher rows | `shortVersion` + ` (variant)` | `Opus 5 (1M)` |
+  | 4b dialog card | `shortVersion`, blurb, context line | `Opus 5` · `1M CTX` |
+  | 4c compact card | `shortVersion`, context line | `Opus 5` · `1M ctx` |
+  | map label | `family` | `OPUS` |
+
+  The chip is the one place with no room for a second element, which is why it and only it carries the variant in parentheses. `variant` comes from the id's structure, not from prose — unlike the version text, an id suffix is not marketing copy.
 - **The default context window is `200_000`,** used only when no catalog row matches.
+- **Every task that touches `web/src` must read `web/CLAUDE.md` first and obey it.** Load-bearing here: never a native `<select>` (use `ui/Select`); `className` on a UI primitive is layout-only, so a look that does not exist yet becomes a **variant of the primitive**, not inline classes at the call site; Tailwind v4 silently drops decimal opacity modifiers (`bg-accent/[0.06]` emits nothing, `bg-accent/6` works); a bare `<span>` has no size, so give any sized or positioned wrapper its own `block`/`inline-flex`/`grid`.
+- **Every task that touches `web/src` must check itself against the canvas before finishing.** Read the artboard through the `DesignSync` MCP (project `df77470e-1384-436c-8b25-5e01acfc497f`, file `Feature - Agent model.dc.html`, artboards `4a`/`4b`/`4c`) and take paddings, radii, sizes and colours from its inline CSS rather than from the eye. Name the artboard in a comment where a value comes from it. **If the canvas and the dynamic data disagree in a way this plan does not already settle, stop and report it — do not invent a resolution.** The three disagreements already settled are: the `default` row is dropped, `SLOWEST · $$$$` becomes the context window, and model names follow the table above.
 - **New settings keys and defaults:** `default_model` = `sonnet`, `remember_model_per_project` = `true`, `map_show_model` = `true`.
 - **Settings keys used as caches:** `models_catalog` (JSON array of raw `ModelInfo`), `model_context_windows` (JSON object, model id → tokens).
 - **TDD.** Every task writes a failing test first, watches it fail, then implements. Commit at the end of each task.
@@ -228,7 +240,7 @@ git commit -m "feat(models): record the model each session ran on"
 **Interfaces:**
 - Consumes: `QueryFn` from `server/src/runner/runner.ts`.
 - Produces:
-  - `interface OrbitalModel { value: string; resolvedModel: string; family: string; version: string; blurb: string; contextWindow: number | null }`
+  - `interface OrbitalModel { value: string; resolvedModel: string; family: string; version: string; shortVersion: string; variant: string | null; blurb: string; contextWindow: number | null }`
   - `shapeModels(raw: ModelInfoLike[], contextWindows: Record<string, number>): OrbitalModel[]`
   - `extractContextWindows(modelUsage: unknown): Record<string, number>`
   - `class ModelCatalog { constructor(deps: { settings: SettingsStore; queryFn: QueryFn; cwd?: string }); list(): Promise<OrbitalModel[]>; recordContextWindows(modelUsage: unknown): void }`
@@ -297,12 +309,29 @@ describe('shapeModels', () => {
     expect(opus.blurb).toBe('Best for everyday, complex tasks');
   });
 
+  it('derives a short version for the places a long one will not fit', () => {
+    const shaped = shapeModels(RAW, {});
+    expect(shaped.find((m) => m.value === 'opus[1m]')!.shortVersion).toBe('Opus 5');
+    expect(shaped.find((m) => m.value === 'sonnet')!.shortVersion).toBe('Sonnet 5');
+    expect(shaped.find((m) => m.value === 'haiku')!.shortVersion).toBe('Haiku 4.5');
+  });
+
+  it('reads the variant off the resolved model id, not the prose', () => {
+    const shaped = shapeModels(RAW, {});
+    expect(shaped.find((m) => m.value === 'opus[1m]')!.variant).toBe('1M');
+    // Fable's *value* carries [1m] but its resolvedModel does not — the
+    // canonical id is what actually serves the turn.
+    expect(shaped.find((m) => m.value === 'claude-fable-5-1[1m]')!.variant).toBeNull();
+    expect(shaped.find((m) => m.value === 'sonnet')!.variant).toBeNull();
+  });
+
   it('falls back to the family when the description has no separator', () => {
     const shaped = shapeModels(
       [{ value: 'x', resolvedModel: 'claude-x', displayName: 'Ex', description: 'Just a blurb' }],
       {},
     );
     expect(shaped[0].version).toBe('Ex');
+    expect(shaped[0].shortVersion).toBe('Ex');
     expect(shaped[0].blurb).toBe('Just a blurb');
   });
 
@@ -451,8 +480,12 @@ export interface OrbitalModel {
   resolvedModel: string;
   /** Family alone, for the planet label — `Opus`. */
   family: string;
-  /** Family plus version, for the detail badge and the picker — `Opus 5 with 1M context`. */
+  /** Family plus version as the SDK words it — `Opus 5 with 1M context`. */
   version: string;
+  /** `version` trimmed to what fits a chip — `Opus 5`. */
+  shortVersion: string;
+  /** Variant marker read off the resolved id's `[…]` suffix — `1M`, or null. */
+  variant: string | null;
   /** One-line capability blurb. */
   blurb: string;
   /** Tokens, learned from turn usage. Null until a turn on this model has been seen. */
@@ -497,12 +530,25 @@ export function shapeModels(
     // "Opus 5 with 1M context · Best for everyday, complex tasks"
     const [head, ...rest] = description.split('·');
     const blurb = rest.join('·').trim();
+    const version = blurb ? head.trim() : family;
+    // The detail chip sits next to the permission and status badges in a
+    // 450px panel, where "Opus 5 with 1M context" wraps the row. Cutting at
+    // " with " yields exactly the shape canvas 4a draws ("Opus 4.1"), and if
+    // the wording ever changes the worst case is a longer label — not a
+    // wrong one, which is why this is allowed where parsing "1M context" out
+    // of the same sentence is not.
+    const shortVersion = version.split(' with ')[0].trim() || version;
+    // `[1m]` on the CANONICAL id. Fable's `value` carries the suffix while
+    // its `resolvedModel` does not, and the resolved id is what serves.
+    const variantMatch = /\[([^\]]+)\]$/.exec(resolvedModel);
 
     out.push({
       value: info.value,
       resolvedModel,
       family,
-      version: blurb ? head.trim() : family,
+      version,
+      shortVersion,
+      variant: variantMatch ? variantMatch[1].toUpperCase() : null,
       blurb: blurb || description.trim(),
       contextWindow: contextWindows[resolvedModel] ?? null,
     });
@@ -668,7 +714,7 @@ In `server/test/routes.test.ts`, extend `makeApp()` to pass a catalog stub and r
 ```ts
   const modelCatalog = {
     list: async () => [
-      { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', blurb: 'Efficient', contextWindow: 200_000 },
+      { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient', contextWindow: 200_000 },
     ],
     recordContextWindows: () => {},
   };
@@ -1269,7 +1315,7 @@ git commit -m "feat(models): GET /api/projects reports each project's last model
   - `OrbitalModel` (same fields as the server's), `ApiSession.model`/`.resolvedModel`, `ChatMessage.model?`
   - `api.listModels(): Promise<OrbitalModel[]>`, `api.setSessionModel(id: string, model: string): Promise<{ ok: boolean }>`, `api.listProjects(): Promise<Array<{ cwd: string; lastModel: string | null }>>`
   - `useOrbital.getState().models: OrbitalModel[]`
-  - `matchModel(session, models): OrbitalModel | undefined`, `contextWindowFor(session, models): number`, `modelByValue(value, models): OrbitalModel | undefined`, `DEFAULT_CONTEXT_WINDOW`
+  - `matchModel(session, models): OrbitalModel | undefined`, `contextWindowFor(session, models): number`, `modelByValue(value, models): OrbitalModel | undefined`, `modelChipLabel(model): string`, `DEFAULT_CONTEXT_WINDOW`
   - `formatContextWindow(n: number): string`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1278,13 +1324,13 @@ Create `web/src/test/models.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest'
-import { matchModel, contextWindowFor, modelByValue, DEFAULT_CONTEXT_WINDOW } from '../lib/models'
+import { matchModel, contextWindowFor, modelByValue, modelChipLabel, DEFAULT_CONTEXT_WINDOW } from '../lib/models'
 import { formatContextWindow } from '../lib/format'
 import type { ApiSession, OrbitalModel } from '../lib/types'
 
 const MODELS: OrbitalModel[] = [
-  { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', family: 'Opus', version: 'Opus 5 with 1M context', blurb: 'Best for everyday, complex tasks', contextWindow: 1_000_000 },
-  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
+  { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', family: 'Opus', version: 'Opus 5 with 1M context', shortVersion: 'Opus 5', variant: '1M', blurb: 'Best for everyday, complex tasks', contextWindow: 1_000_000 },
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
 ]
 
 const session = (over: Partial<ApiSession>): ApiSession => ({
@@ -1332,6 +1378,13 @@ describe('modelByValue', () => {
   it('finds a row by its SDK value', () => {
     expect(modelByValue('sonnet', MODELS)?.family).toBe('Sonnet')
     expect(modelByValue(null, MODELS)).toBeUndefined()
+  })
+})
+
+describe('modelChipLabel', () => {
+  it('appends the variant only when there is one', () => {
+    expect(modelChipLabel(MODELS[0])).toBe('Opus 5 (1M)')
+    expect(modelChipLabel(MODELS[1])).toBe('Sonnet 5')
   })
 })
 
@@ -1385,6 +1438,8 @@ export interface OrbitalModel {
   resolvedModel: string;
   family: string;
   version: string;
+  shortVersion: string;
+  variant: string | null;
   blurb: string;
   contextWindow: number | null;
 }
@@ -1449,6 +1504,17 @@ function stripVariant(id: string): string {
 export function modelByValue(value: string | null | undefined, models: OrbitalModel[]): OrbitalModel | undefined {
   if (!value) return undefined
   return models.find((m) => m.value === value)
+}
+
+/**
+ * The name for the detail chip and the switcher rows — `Opus 5 (1M)`.
+ *
+ * The chip is the only place with no room for a separate context line, so it
+ * is the only place that spells the variant out. Cards say `Opus 5` and put
+ * the size on their own `1M CTX` line instead.
+ */
+export function modelChipLabel(model: OrbitalModel): string {
+  return model.variant ? `${model.shortVersion} (${model.variant})` : model.shortVersion
 }
 
 /**
@@ -1547,21 +1613,22 @@ import { ModelCards } from '../ui/ModelCards'
 import type { OrbitalModel } from '../lib/types'
 
 const MODELS: OrbitalModel[] = [
-  { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', family: 'Opus', version: 'Opus 5 with 1M context', blurb: 'Best for everyday, complex tasks', contextWindow: 1_000_000 },
-  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
-  { value: 'haiku', resolvedModel: 'claude-haiku-4-5-20251001', family: 'Haiku', version: 'Haiku 4.5', blurb: 'Fastest for quick answers', contextWindow: null },
+  { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', family: 'Opus', version: 'Opus 5 with 1M context', shortVersion: 'Opus 5', variant: '1M', blurb: 'Best for everyday, complex tasks', contextWindow: 1_000_000 },
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
+  { value: 'haiku', resolvedModel: 'claude-haiku-4-5-20251001', family: 'Haiku', version: 'Haiku 4.5', shortVersion: 'Haiku 4.5', variant: null, blurb: 'Fastest for quick answers', contextWindow: null },
 ]
 
 describe('ModelCards', () => {
-  it('renders one radio per model, marked by version', () => {
+  it('renders one radio per model, titled by the short version', () => {
     render(<ModelCards models={MODELS} value="sonnet" onChange={() => {}} />)
     expect(screen.getAllByRole('radio')).toHaveLength(3)
-    expect(screen.getByRole('radio', { name: /Opus 5 with 1M context/ })).toBeInTheDocument()
+    // "Opus 5", not "Opus 5 with 1M context" — the size is on its own line.
+    expect(screen.getByRole('radio', { name: 'Opus 5' })).toBeInTheDocument()
   })
 
   it('marks the selected model', () => {
     render(<ModelCards models={MODELS} value="sonnet" onChange={() => {}} />)
-    expect(screen.getByRole('radio', { name: /Sonnet 5/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('shows the context window when known and nothing when not', () => {
@@ -1569,6 +1636,13 @@ describe('ModelCards', () => {
     expect(screen.getByText('1M CTX')).toBeInTheDocument()
     expect(screen.getByText('200K CTX')).toBeInTheDocument()
     expect(screen.queryByText(/null/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the context window on compact cards too', () => {
+    render(<ModelCards compact models={MODELS} value="sonnet" onChange={() => {}} />)
+    expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveTextContent('1M ctx')
+    // Unknown size: the second line is absent, not "null ctx".
+    expect(screen.getByRole('radio', { name: 'Haiku 4.5' })).not.toHaveTextContent('ctx')
   })
 
   it('marks the settings default', () => {
@@ -1579,7 +1653,7 @@ describe('ModelCards', () => {
   it('reports the chosen value', () => {
     const onChange = vi.fn()
     render(<ModelCards models={MODELS} value="sonnet" onChange={onChange} />)
-    fireEvent.click(screen.getByRole('radio', { name: /Haiku 4.5/ }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Haiku 4.5' }))
     expect(onChange).toHaveBeenCalledWith('haiku')
   })
 
@@ -1612,7 +1686,7 @@ export interface ModelCardsProps {
   /** SDK `value` of the Settings default — marked `DEFAULT` when it is not the selection. */
   defaultValue?: string | null
   disabled?: boolean
-  /** Settings variant (canvas 4c): family + one word, no blurb, no context line. */
+  /** Settings variant (canvas 4c): short version + context line, no blurb. */
   compact?: boolean
 }
 
@@ -1661,7 +1735,7 @@ export function ModelCards({
             type="button"
             role="radio"
             aria-checked={active}
-            aria-label={model.version}
+            aria-label={model.shortVersion}
             data-active={active}
             data-model={model.value}
             disabled={disabled}
@@ -1689,17 +1763,24 @@ export function ModelCards({
                 compact ? 'text-[11.5px]' : 'text-xs',
               ].join(' ')}
             >
-              {compact ? model.family : model.version}
+              {model.shortVersion}
             </span>
-            <span
-              className={[
-                'block leading-[1.4] [text-wrap:pretty]',
-                compact ? 'mt-1 text-[11px]' : 'mt-[5px] text-[11.5px]',
-                active && !compact ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.7)]',
-              ].join(' ')}
-            >
-              {compact ? model.family === model.version ? model.blurb : model.version : model.blurb}
-            </span>
+            {compact
+              ? model.contextWindow !== null && (
+                  <span className="mt-1 block text-[11px] leading-[1.4] text-[rgba(160,190,225,.7)]">
+                    {formatContextWindow(model.contextWindow)} ctx
+                  </span>
+                )
+              : (
+                  <span
+                    className={[
+                      'mt-[5px] block text-[11.5px] leading-[1.4] [text-wrap:pretty]',
+                      active ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.7)]',
+                    ].join(' ')}
+                  >
+                    {model.blurb}
+                  </span>
+                )}
             {!compact && (model.contextWindow !== null || isDefault) && (
               <span
                 className={[
@@ -1731,7 +1812,9 @@ export function ModelCards({
 Run: `npx vitest run src/test/modelcards.test.tsx -w web && npm run typecheck -w web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Check it against the canvas and commit**
+
+Read artboard 4b (full cards) and 4c (compact cards) through `DesignSync` and compare paddings, radii, sizes and colours against what you built. Report any disagreement this plan does not already settle instead of resolving it yourself.
 
 ```bash
 git add web/src/ui/ModelCards.tsx web/src/test/modelcards.test.tsx
@@ -1758,7 +1841,7 @@ it('preselects the settings default model', async () => {
   vi.mocked(api.listProjects).mockResolvedValue([])
   render(<NewSessionDialog open onClose={() => {}} />)
   await waitFor(() =>
-    expect(screen.getByRole('radio', { name: /Sonnet 5/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
   )
 })
 
@@ -1767,7 +1850,7 @@ it('falls back to the first catalog row when the default is not offered', async 
   vi.mocked(api.listProjects).mockResolvedValue([])
   render(<NewSessionDialog open onClose={() => {}} />)
   await waitFor(() =>
-    expect(screen.getByRole('radio', { name: /Opus 5 with 1M context/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'true')
   )
 })
 
@@ -1777,7 +1860,7 @@ it('adopts the project last-used model when the toggle is on', async () => {
   render(<NewSessionDialog open onClose={() => {}} />)
   fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
   await waitFor(() =>
-    expect(screen.getByRole('radio', { name: /Haiku 4.5/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: 'Haiku 4.5' })).toHaveAttribute('aria-checked', 'true')
   )
   expect(screen.getByText(/last used here: Haiku/)).toBeInTheDocument()
 })
@@ -1788,7 +1871,7 @@ it('ignores the project last-used model when the toggle is off', async () => {
   render(<NewSessionDialog open onClose={() => {}} />)
   fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
   await waitFor(() =>
-    expect(screen.getByRole('radio', { name: /Sonnet 5/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
   )
 })
 
@@ -1796,10 +1879,10 @@ it('a manual pick survives a later cwd change', async () => {
   resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
   vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku' }])
   render(<NewSessionDialog open onClose={() => {}} />)
-  fireEvent.click(screen.getByRole('radio', { name: /Opus 5 with 1M context/ }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Opus 5' }))
   fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
   await waitFor(() => expect(screen.getByLabelText('PROJECT DIRECTORY')).toHaveValue('/w/x'))
-  expect(screen.getByRole('radio', { name: /Opus 5 with 1M context/ })).toHaveAttribute('aria-checked', 'true')
+  expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'true')
 })
 
 it('launches with the chosen model', async () => {
@@ -1808,7 +1891,7 @@ it('launches with the chosen model', async () => {
   vi.mocked(api.createSession).mockResolvedValue('new-1')
   render(<NewSessionDialog open onClose={() => {}} />)
   fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
-  fireEvent.click(screen.getByRole('radio', { name: /Haiku 4.5/ }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Haiku 4.5' }))
   fireEvent.click(screen.getByRole('button', { name: /Launch session/ }))
   await waitFor(() =>
     expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'haiku' }))
@@ -1900,7 +1983,7 @@ Extend the footer caption to name the model, matching 4b's `Sonnet 4.5 · accept
 ```tsx
         footerCaption={
           <>
-            {modelByValue(model, models)?.version ?? 'default model'} · {permissionMode}
+            {modelByValue(model, models)?.shortVersion ?? 'default model'} · {permissionMode}
             {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
           </>
         }
@@ -1911,7 +1994,9 @@ Extend the footer caption to name the model, matching 4b's `Sonnet 4.5 · accept
 Run: `npx vitest run src/test/newsession.test.tsx -w web && npm run typecheck -w web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Check it against the canvas and commit**
+
+Read artboard 4b — the MODEL group sits between the directory and permission mode, 20px between groups and 8px inside one through `DesignSync` and compare paddings, radii, sizes and colours against what you built. Report any disagreement this plan does not already settle instead of resolving it yourself.
 
 ```bash
 git add web/src/panels/NewSessionDialog.tsx web/src/test/newsession.test.tsx
@@ -1924,30 +2009,47 @@ git commit -m "feat(models): choose the model when launching a session"
 
 **Files:**
 - Create: `web/src/panels/ModelSwitcher.tsx`
+- Modify: `web/src/ui/Badge.tsx` (new `model` variant)
 - Modify: `web/src/panels/DetailPanel.tsx:38-42` (delete `CONTEXT_BUDGET`), the badge row, the context read-out
-- Test: `web/src/test/detail.test.tsx`
+- Test: `web/src/test/ui.test.tsx`, `web/src/test/detail.test.tsx`
 
 **Interfaces:**
-- Consumes: `matchModel`, `contextWindowFor`, `formatContextWindow`, `api.setSessionModel`.
-- Produces: `<ModelSwitcher session models defaultValue disabledReason? />`.
+- Consumes: `matchModel`, `contextWindowFor`, `modelChipLabel`, `formatContextWindow`, `api.setSessionModel`.
+- Produces: `BadgeProps` gains `| { variant: 'model'; value: string; interactive?: boolean }`; `<ModelSwitcher session models defaultValue disabledReason? />`.
+
+**`web/CLAUDE.md` rules this task must respect:** the chip is a **`Badge` variant**, not inline classes on a span at the call site — that file forbids restyling a primitive from outside. The popover anchor needs its own `inline-flex`; a bare `<span>` positions unreliably. Opacity modifiers stay integer (`bg-accent/8`, never `bg-accent/[0.08]`).
 
 - [ ] **Step 1: Write the failing tests**
+
+In `web/src/test/ui.test.tsx`, beside the existing `Badge` cases:
+
+```tsx
+it('renders a model badge', () => {
+  render(<Badge variant="model" value="Opus 5 (1M)" />)
+  const badge = screen.getByText('Opus 5 (1M)')
+  expect(badge).toHaveAttribute('data-variant', 'model')
+})
+```
+
+In `web/src/test/detail.test.tsx`:
 
 ```tsx
 it('shows the session model next to the permission badge', () => {
   renderDetail({ session: { ...webSession, model: 'opus[1m]' }, models: MODELS })
-  expect(screen.getByRole('button', { name: /Change model/ })).toHaveTextContent('Opus 5 with 1M context')
+  // Short version plus the variant — the full "Opus 5 with 1M context" would
+  // wrap this row (see the naming table in the plan header).
+  expect(screen.getByRole('button', { name: /Change model/ })).toHaveTextContent('Opus 5 (1M)')
 })
 
 it('names a terminal session from its resolved model', () => {
   renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5' }, models: MODELS })
-  expect(screen.getByText(/Opus 5 with 1M context/)).toBeInTheDocument()
+  expect(screen.getByText('Opus 5 (1M)')).toBeInTheDocument()
 })
 
 it('opens the switcher and marks the current model', () => {
   renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
   fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
-  expect(screen.getByRole('option', { name: /Sonnet 5/ })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('option', { name: 'Sonnet 5' })).toHaveAttribute('aria-selected', 'true')
   expect(screen.getByText(/APPLIES FROM NEXT TURN/)).toBeInTheDocument()
 })
 
@@ -1955,7 +2057,7 @@ it('switches the model', async () => {
   vi.mocked(api.setSessionModel).mockResolvedValue({ ok: true })
   renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
   fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
-  fireEvent.click(screen.getByRole('option', { name: /Haiku 4.5/ }))
+  fireEvent.click(screen.getByRole('option', { name: 'Haiku 4.5' }))
   await waitFor(() => expect(api.setSessionModel).toHaveBeenCalledWith(webSession.id, 'haiku'))
 })
 
@@ -1987,7 +2089,36 @@ Give the read-out `data-testid="context-readout"` alongside its existing `data-c
 Run: `npx vitest run src/test/detail.test.tsx -w web`
 Expected: FAIL — no "Change model" button, read-out still says `200k`.
 
-- [ ] **Step 3: Write the switcher**
+- [ ] **Step 3: Add the `model` Badge variant**
+
+`web/CLAUDE.md`: a look a primitive does not have yet becomes a variant of that primitive, never inline classes at the call site. In `web/src/ui/Badge.tsx`, extend the props union:
+
+```ts
+  | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
+```
+
+and add the branch before the final `count` return, reusing `baseClass`:
+
+```tsx
+  if (props.variant === 'model') {
+    // Canvas 4a: same squared mono chip as the permission mode, accent-outlined
+    // while it is a control you can open.
+    return (
+      <span
+        data-variant="model"
+        className={`${baseClass} ${
+          props.interactive
+            ? 'border-accent/60 bg-accent/8 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
+            : 'border-panel-border bg-[rgba(4,8,16,.5)] text-[rgba(220,235,255,.85)]'
+        }`}
+      >
+        {props.value}
+      </span>
+    )
+  }
+```
+
+- [ ] **Step 4: Write the switcher**
 
 Create `web/src/panels/ModelSwitcher.tsx`:
 
@@ -1996,7 +2127,8 @@ import { useState } from 'react'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
-import { matchModel } from '../lib/models'
+import { matchModel, modelChipLabel } from '../lib/models'
+import { Badge } from '../ui/Badge'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import type { ApiSession, OrbitalModel } from '../lib/types'
 
@@ -2021,18 +2153,16 @@ export interface ModelSwitcherProps {
 export function ModelSwitcher({ session, models, defaultValue, disabledReason }: ModelSwitcherProps) {
   const [open, setOpen] = useState(false)
   const current = matchModel(session, models)
-  const label = current?.version ?? session.resolvedModel ?? session.model ?? 'unknown model'
+  const label = current
+    ? modelChipLabel(current)
+    : (session.resolvedModel ?? session.model ?? 'unknown model')
 
   useEscapeLayer(open, () => setOpen(false))
 
   if (disabledReason) {
     return (
-      <span
-        title={disabledReason}
-        data-model-badge
-        className="inline-flex items-center rounded-[5px] border border-panel-border bg-[rgba(4,8,16,.5)] px-[9px] py-1 font-mono text-[10.5px] tracking-[0.04em] text-[rgba(220,235,255,.85)]"
-      >
-        {label}
+      <span title={disabledReason} data-model-badge>
+        <Badge variant="model" value={label} />
       </span>
     )
   }
@@ -2057,7 +2187,10 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
   }
 
   return (
-    <span className="relative">
+    // `inline-flex`, not a bare `<span>`: this is the popover's containing
+    // block, and `web/CLAUDE.md` warns that an inline box's geometry is not
+    // its own.
+    <span className="relative inline-flex">
       <button
         type="button"
         aria-haspopup="listbox"
@@ -2065,10 +2198,9 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
         aria-label={`Change model (currently ${label})`}
         title="Change model (from next turn)"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-[7px] whitespace-nowrap rounded-[5px] border border-accent/60 bg-accent/8 px-[9px] py-1 font-mono text-[10.5px] tracking-[0.04em] text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]"
+        className="rounded-[5px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
       >
-        {label}
-        <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">▾</span>
+        <Badge variant="model" interactive value={`${label} ▾`} />
       </button>
       {open && (
         <EscapeBoundary>
@@ -2085,7 +2217,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
                     type="button"
                     role="option"
                     aria-selected={selected}
-                    aria-label={model.version}
+                    aria-label={model.shortVersion}
                     onClick={() => choose(model.value)}
                     className={[
                       'grid grid-cols-[1fr_auto] items-center gap-2 rounded-[7px] border px-2 py-[9px] text-left',
@@ -2093,7 +2225,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
                     ].join(' ')}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate font-mono text-xs text-text-bright">{model.version}</span>
+                      <span className="block truncate font-mono text-xs text-text-bright">{modelChipLabel(model)}</span>
                       <span className="mt-0.5 block text-[11px] text-[rgba(160,190,225,.7)]">{model.blurb}</span>
                     </span>
                     {selected ? (
@@ -2116,7 +2248,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
 }
 ```
 
-- [ ] **Step 4: Wire it into the panel**
+- [ ] **Step 5: Wire it into the panel**
 
 In `web/src/panels/DetailPanel.tsx`:
 
@@ -2149,15 +2281,17 @@ In the badge row, immediately before `{session.permissionMode && <Badge … />}`
               )}
 ```
 
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 6: Run the tests**
 
-Run: `npx vitest run src/test/detail.test.tsx -w web && npm run typecheck -w web`
+Run: `npx vitest run src/test/ui.test.tsx src/test/detail.test.tsx -w web && npm run typecheck -w web`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Check it against artboard 4a and commit**
+
+Read `4a` through `DesignSync` and compare the chip's geometry (5px radius, 9px/4px padding, 10.5px mono, `.04em` tracking) and the popover's (300px wide, 10px radius, the `MODEL · APPLIES FROM NEXT TURN` kicker, the footer rule) against what you built. Report any disagreement the plan does not already settle instead of resolving it yourself.
 
 ```bash
-git add web/src/panels/ModelSwitcher.tsx web/src/panels/DetailPanel.tsx web/src/test/detail.test.tsx
+git add web/src/panels/ModelSwitcher.tsx web/src/ui/Badge.tsx web/src/panels/DetailPanel.tsx web/src/test
 git commit -m "feat(models): detail badge, model switcher and a per-model context bar"
 ```
 
@@ -2312,7 +2446,9 @@ The `streaming` prop on `MessageView` keys off `index === groups.length - 1`; di
 Run: `npx vitest run src/test/transcript.test.tsx -w web && npm run typecheck -w web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Check it against the canvas and commit**
+
+Read artboard 4a — the divider is a 9.5px mono line tracked .14em between two hairlines, inside the transcript's 14px row rhythm through `DesignSync` and compare paddings, radii, sizes and colours against what you built. Report any disagreement this plan does not already settle instead of resolving it yourself.
 
 ```bash
 git add web/src/panels/Transcript.tsx web/src/test/transcript.test.tsx
@@ -2421,7 +2557,9 @@ Use whatever `Row`/`Toggle` arrangement the file's existing map rows already use
 Run: `npx vitest run src/test/settings.test.tsx -w web && npm run typecheck -w web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Check it against the canvas and commit**
+
+Read artboard 4c — the rows follow the 1fr/320px grid and 13px vertical padding the neighbouring settings rows already use through `DesignSync` and compare paddings, radii, sizes and colours against what you built. Report any disagreement this plan does not already settle instead of resolving it yourself.
 
 ```bash
 git add web/src/panels/Settings.tsx web/src/test/settings.test.tsx
@@ -2549,7 +2687,9 @@ In `web/src/map/SpaceMap.tsx`, pass `modelFamily={planet.modelFamily}` to `<Plan
 Run: `npm run test:run -w web && npm run typecheck -w web`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Check it against the canvas and commit**
+
+Read artboard 4a — the map label is 9.5px mono, .1em tracking, 5px under the title through `DesignSync` and compare paddings, radii, sizes and colours against what you built. Report any disagreement this plan does not already settle instead of resolving it yourself.
 
 ```bash
 git add web/src/map web/src/test/spacemap.test.tsx
