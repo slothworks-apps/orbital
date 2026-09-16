@@ -192,6 +192,14 @@ Two safeguards:
   autodetect, a value overrides. This follows the existing pattern beside
   `default_permission_mode`, and the Settings panel already exists.
 
+The server's environment is already load-bearing, and this work writes to it.
+`server/src/index.ts:91` deletes `ANTHROPIC_API_KEY` from `process.env` at
+startup unless `ORBITAL_USE_API_KEY=1`, which is what forces spawned sessions
+onto CLI OAuth and the user's subscription rather than pay-per-token API
+billing. Rewriting `PATH` happens beside that deletion and must not disturb
+it — the packaged app inherits its environment from Finder or `launchd`, where
+a stray `ANTHROPIC_API_KEY` is just as possible as in a shell.
+
 ### A missing CLI is a designed state
 
 The app opens, reports that it could not find the Claude Code CLI, and offers
