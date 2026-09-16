@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, inArray, max, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
@@ -352,15 +352,30 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   app.get('/api/projects', () => {
+    // Reduced in JS rather than grouped in SQL: the answer needs a *column
+    // from* the newest row per cwd, not an aggregate of it, and first-seen
+    // over a lastAt-ordered scan is the same thing without a correlated
+    // subquery.
     const rows = db
-      .select({ cwd: sessions.cwd })
+      .select({
+        cwd: sessions.cwd,
+        model: sessions.model,
+        resolvedModel: sessions.resolvedModel,
+      })
       .from(sessions)
       .where(ne(sessions.cwd, ''))
-      .groupBy(sessions.cwd)
-      .orderBy(desc(max(sessions.lastAt)))
-      .limit(50)
+      .orderBy(desc(sessions.lastAt))
+      .limit(500)
       .all();
-    return { projects: rows.map((r) => r.cwd) };
+    const projects: Array<{ cwd: string; lastModel: string | null }> = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (seen.has(row.cwd)) continue;
+      seen.add(row.cwd);
+      projects.push({ cwd: row.cwd, lastModel: row.model ?? row.resolvedModel ?? null });
+      if (projects.length === 50) break;
+    }
+    return { projects };
   });
 
   app.get('/api/models', async () => ({ models: await ctx.models.list() }));

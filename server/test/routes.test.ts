@@ -450,6 +450,17 @@ describe('REST routes', () => {
     await app.inject({ method: 'POST', url: '/api/sessions/s2/model', payload: { model: 'haiku' } });
     expect(received.at(-1).session).toMatchObject({ id: 's2', model: 'haiku' });
   });
+
+  it('reports each project with the model its newest session used', async () => {
+    const { app, db } = makeApp();
+    db.update(sessions).set({ model: 'opus[1m]' }).where(eq(sessions.id, 's1')).run();
+    db.update(sessions).set({ model: null, resolvedModel: 'claude-haiku-4-5-20251001' }).where(eq(sessions.id, 's2')).run();
+    const res = await app.inject({ method: 'GET', url: '/api/projects' });
+    expect(res.json().projects).toEqual([
+      { cwd: '/w/x', lastModel: 'opus[1m]' },
+      { cwd: '/w/y', lastModel: 'claude-haiku-4-5-20251001' },
+    ]);
+  });
 });
 
 describe('buildServer smoke', () => {
