@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import type { ChatMessage } from '../lib/types'
+import { modelNameForId } from '../lib/models'
 import { Button } from '../ui/Button'
 import { MessageView } from './MessageView'
 import { ToolRow } from './ToolRow'
@@ -188,6 +189,9 @@ export function Transcript({ sessionId }: TranscriptProps) {
   // when this session went `working` -> `ended` without a `turn_result` in
   // between. See `store.ts`'s `turnResultSeen` bookkeeping.
   const hasError = useOrbital((s) => Boolean(s.transcriptErrors[sessionId]))
+  // Names the divider's raw ids through the catalog (see modelNameForId) —
+  // insertModelDividers itself stays catalog-free, carrying only raw ids.
+  const models = useOrbital(useShallow((s) => s.models))
 
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [exhausted, setExhausted] = useState(false)
@@ -313,7 +317,11 @@ export function Transcript({ sessionId }: TranscriptProps) {
           >
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
             <span>
-              {group.from.toUpperCase()} → {group.to.toUpperCase()}
+              {/* shortVersion, not modelChipLabel's chip form — a divider has
+                  no room for the variant, and the canvas writes the plain
+                  short form ("SONNET 4.5", not "SONNET 4.5 (1M)"). */}
+              {modelNameForId(group.from, models).toUpperCase()} →{' '}
+              {modelNameForId(group.to, models).toUpperCase()}
               {group.timestamp
                 ? ` · ${new Date(group.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
                 : ''}

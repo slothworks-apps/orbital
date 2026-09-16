@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ChatMessage } from '../lib/types'
+import type { ChatMessage, OrbitalModel } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
 // ---------------------------------------------------------------------------
@@ -404,6 +404,48 @@ it('renders the divider in the transcript', () => {
     assistant('a1', 'claude-sonnet-5'),
     assistant('a2', 'claude-opus-5', '2026-09-16T14:02:00Z'),
   ])
+  expect(screen.getByText(/claude-sonnet-5 → claude-opus-5/i)).toBeInTheDocument()
+})
+
+it('names the divider through the catalog when it knows both models', () => {
+  const models: OrbitalModel[] = [
+    {
+      value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'sonnet', version: '5',
+      shortVersion: 'Sonnet 5', variant: null, blurb: '', contextWindow: 200_000,
+    },
+    {
+      value: 'opus', resolvedModel: 'claude-opus-5', family: 'opus', version: '5',
+      shortVersion: 'Opus 5', variant: null, blurb: '', contextWindow: 1_000_000,
+    },
+  ]
+  resetStore({
+    transcripts: {
+      s1: [
+        assistant('a1', 'claude-sonnet-5'),
+        assistant('a2', 'claude-opus-5', '2026-09-16T14:02:00Z'),
+      ],
+    },
+    models,
+  })
+
+  render(<Transcript sessionId="s1" />)
+
+  expect(screen.getByText(/sonnet 5 → opus 5/i)).toBeInTheDocument()
+})
+
+it('falls back to the raw resolved id when the catalog has no matching model', () => {
+  resetStore({
+    transcripts: {
+      s1: [
+        assistant('a1', 'claude-sonnet-5'),
+        assistant('a2', 'claude-opus-5', '2026-09-16T14:02:00Z'),
+      ],
+    },
+    models: [],
+  })
+
+  render(<Transcript sessionId="s1" />)
+
   expect(screen.getByText(/claude-sonnet-5 → claude-opus-5/i)).toBeInTheDocument()
 })
 

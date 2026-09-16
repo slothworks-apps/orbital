@@ -29,6 +29,21 @@ export function modelChipLabel(model: OrbitalModel): string {
 }
 
 /**
+ * Names a raw resolved model id for display — `claude-opus-5` -> `Opus 5`.
+ *
+ * Uses the same match `matchModel` uses for NAMING (exact, then with a
+ * trailing `[…]` stripped from both sides), because a transcript records
+ * `claude-opus-5` even for a session launched as `opus[1m]`. Falls back to the
+ * id itself: an unknown model should read as something rather than vanish.
+ */
+export function modelNameForId(resolvedId: string, models: OrbitalModel[]): string {
+  const match =
+    models.find((m) => m.resolvedModel === resolvedId) ??
+    models.find((m) => stripVariant(m.resolvedModel) === stripVariant(resolvedId))
+  return match?.shortVersion ?? resolvedId
+}
+
+/**
  * The catalog row a session should be LABELLED with.
  *
  * The suffix-stripping third pass exists because the transcript records
