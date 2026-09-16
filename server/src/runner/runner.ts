@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
@@ -76,31 +77,30 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number): ChatMessa
 
 export class Runner {
   private sessions = new Map<string, ManagedSession>();
-  /**
-   * Resume ids currently mid-`start()` but not yet registered in `sessions`
-   * (init message not yet received). Guards the race where two concurrent
-   * `start({resume: id})` calls both pass the synchronous `sessions.has`
-   * check before either has registered — the second reservation attempt
-   * throws instead. Always released before `start()` settles (resolve,
-   * reject, or an unexpected synchronous throw), so it never leaks.
-   */
-  private starting = new Set<string>();
   private ended = new Set<string>();
   private seq = 0;
   private hub: Hub;
   private queryFn: QueryFn;
+  private newSessionId: () => string;
   private idleTimeoutMs: number | null;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
 
   constructor(deps: {
     hub: Hub;
     queryFn?: QueryFn;
+    /**
+     * Mints the id a fresh session runs under, handed to the CLI as
+     * `options.sessionId`. Injectable so tests can pin a readable id; the
+     * default is a v4 UUID, which is the only shape the CLI accepts.
+     */
+    newSessionId?: () => string;
     /** `null` disables the idle timer entirely (the `IDLE_NEVER` preset). */
     idleTimeoutMs?: number | null;
     onStatus?: (sessionId: string, status: SessionStatus) => void;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
+    this.newSessionId = deps.newSessionId ?? randomUUID;
     // `??` would turn an explicit `null` ("never") back into the default, so
     // only `undefined` (the key absent) may fall through to it.
     this.idleTimeoutMs =
@@ -189,6 +189,20 @@ export class Runner {
     this.sessions.delete(sessionId);
   }
 
+  /**
+   * Starts (or resumes) a session and returns its id.
+   *
+   * Resolves without waiting to hear anything from the CLI, because there is
+   * nothing to wait for: in stream-json input mode the CLI sits silent on
+   * stdin and emits `system/init` only *after* it has been sent a user
+   * message. The previous order — withhold the first prompt until `init`
+   * arrives — was a deadlock in which the launch request hung forever, the
+   * session row was never written, and the only trace was the spawned CLI
+   * registering itself in `~/.claude/sessions` (the "record appears, nothing
+   * happens" report). Instead Orbital *pins* the id via `options.sessionId`
+   * and hands it to the CLI, so the id is known before the process says a
+   * word. See `docs/decisions/runner-pins-the-session-id.md`.
+   */
   async start(opts: {
     cwd: string;
     prompt: string;
@@ -196,98 +210,84 @@ export class Runner {
     resume?: string;
     model?: string;
   }): Promise<string> {
-    if (opts.resume) {
-      if (this.sessions.has(opts.resume) || this.starting.has(opts.resume)) {
-        throw new Error(`resume collision: session ${opts.resume} already active`);
-      }
-      // Reserve synchronously (before any await below) so a second
-      // concurrent start() for the same resume id — even one whose SDK
-      // init hasn't arrived yet — sees the reservation and collides too.
-      this.starting.add(opts.resume);
+    // A resume keeps the transcript's own id; a fresh session gets a new one.
+    const sessionId = opts.resume ?? this.newSessionId();
+    if (this.sessions.has(sessionId)) {
+      throw new Error(`resume collision: session ${sessionId} already active`);
     }
-    const releaseReservation = () => {
-      if (opts.resume) this.starting.delete(opts.resume);
+    const state: ManagedSession = {
+      status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
     };
+    // Registered before anything is awaited, so two concurrent start() calls
+    // for the same id can't both get past the check above.
+    this.sessions.set(sessionId, state);
+    this.ended.delete(sessionId);
+
+    // Input stream: yields queued user messages; null closes it.
+    const dequeue = () =>
+      new Promise<unknown | null>((resolve) => {
+        if (state.pending.length) resolve(state.pending.shift()!);
+        else state.queue.push(resolve);
+      });
+    async function* input() {
+      while (true) {
+        const msg = await dequeue();
+        if (msg === null) return;
+        yield msg;
+      }
+    }
+    const options: Record<string, unknown> = {
+      cwd: opts.cwd,
+      permissionMode: opts.permissionMode,
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      settingSources: ['user', 'project', 'local'],
+    };
+    // `sessionId` and `resume` are mutually exclusive in the SDK; resuming
+    // already fixes the id, so it is only pinned for a fresh session.
+    if (opts.resume) options.resume = opts.resume;
+    else options.sessionId = sessionId;
+    if (opts.model) options.model = opts.model;
+
+    const generator = this.queryFn({ prompt: input(), options });
+    state.generator = generator;
+    void this.pump(sessionId, generator);
+
+    // An empty prompt (e.g. clear+startNew) means "start the session but wait
+    // for the caller's first send()" — enqueueing an empty user turn would
+    // otherwise burn a turn on nothing (I6). Nothing reaches the CLI until
+    // then, so it stays parked on stdin, which is exactly `needs_input`.
+    if (opts.prompt) this.enqueue(sessionId, this.userMessage(sessionId, opts.prompt));
+    else this.setStatus(sessionId, 'needs_input');
+
+    return sessionId;
+  }
+
+  /** Drains one session's SDK message stream onto the hub until it ends. */
+  private async pump(sessionId: string, generator: AsyncGenerator<any>): Promise<void> {
+    const topic = `session:${sessionId}`;
     try {
-      const state: ManagedSession = {
-        status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
-      };
-      // Input stream: yields queued user messages; null closes it.
-      const dequeue = () =>
-        new Promise<unknown | null>((resolve) => {
-          if (state.pending.length) resolve(state.pending.shift()!);
-          else state.queue.push(resolve);
-        });
-      async function* input() {
-        while (true) {
-          const msg = await dequeue();
-          if (msg === null) return;
-          yield msg;
+      for await (const msg of generator) {
+        // Every CLI message names the session it belongs to. Anything wearing
+        // a different id (a stray from another session) is not ours to
+        // publish; messages with no id at all are stream-level noise.
+        if (msg?.session_id !== sessionId) continue;
+        if (msg.type === 'assistant' || msg.type === 'user') {
+          for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
+            this.hub.publish(topic, { event: 'message', message: chat });
+          }
+        } else if (msg.type === 'result') {
+          this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });
+          this.setStatus(sessionId, 'needs_input');
+          this.armIdleTimer(sessionId);
         }
       }
-      const options: Record<string, unknown> = {
-        cwd: opts.cwd,
-        permissionMode: opts.permissionMode,
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
-        settingSources: ['user', 'project', 'local'],
-      };
-      if (opts.resume) options.resume = opts.resume;
-      if (opts.model) options.model = opts.model;
-
-      const generator = this.queryFn({ prompt: input(), options });
-      state.generator = generator;
-
-      const sessionId = await new Promise<string>((resolve, reject) => {
-        let resolved = false;
-        const pump = async () => {
-          try {
-            for await (const msg of generator) {
-              const id: string | undefined = msg?.session_id;
-              if (!resolved && id && msg.type === 'system' && msg.subtype === 'init') {
-                resolved = true;
-                this.sessions.set(id, state);
-                releaseReservation();
-                resolve(id);
-                // First user message goes in only after the session is registered.
-                // An empty prompt (e.g. clear+startNew) means "start the session
-                // but wait for the caller's first send()" — enqueueing an empty
-                // user turn would otherwise burn a turn on nothing (I6).
-                if (opts.prompt) {
-                  this.enqueue(id, this.userMessage(id, opts.prompt));
-                } else {
-                  this.setStatus(id, 'needs_input');
-                }
-              }
-              if (!id) continue;
-              if (msg.type === 'assistant' || msg.type === 'user') {
-                for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
-                  this.hub.publish(`session:${id}`, { event: 'message', message: chat });
-                }
-              } else if (msg.type === 'result') {
-                this.hub.publish(`session:${id}`, { event: 'turn_result', usage: msg.usage ?? {} });
-                this.setStatus(id, 'needs_input');
-                this.armIdleTimer(id);
-              }
-            }
-          } catch (err) {
-            console.warn('orbital: runner pump error:', err);
-          }
-          // Generator finished (SDK process exited, or the input stream was closed).
-          if (resolved) {
-            const id = [...this.sessions.entries()].find(([, s]) => s === state)?.[0];
-            if (id) this.finish(id);
-          } else {
-            releaseReservation();
-            reject(new Error('SDK query ended before init'));
-          }
-        };
-        void pump();
-      });
-      return sessionId;
     } catch (err) {
-      releaseReservation();
-      throw err;
+      console.warn('orbital: runner pump error:', err);
     }
+    // Generator finished: the SDK process exited, or end() closed the input
+    // stream. Harmless after an explicit end() — the session is already gone
+    // from the map, so finish() publishes nothing a second time.
+    this.finish(sessionId);
   }
 
   private enqueue(sessionId: string, msg: unknown | null): void {

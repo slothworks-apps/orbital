@@ -7,19 +7,44 @@ import {
   sdkToChatMessages,
 } from '../src/runner/runner.js';
 
-/** Fake SDK: echoes each user message, then emits a result. */
+/**
+ * The id the real CLI runs the session under: the one the caller pinned via
+ * `options.sessionId`, or the resumed session's id. Every fake below derives
+ * `session_id` this way instead of hardcoding one, because that is what the
+ * CLI actually does — a fake that invents its own id would let a Runner that
+ * never pins one keep passing.
+ */
+function sessionIdOf(options: any): string {
+  return options?.sessionId ?? options?.resume ?? 'unpinned';
+}
+
+/**
+ * Fake SDK: echoes each user message, then emits a result.
+ *
+ * `system/init` is emitted only *after* the first user message arrives —
+ * what the real CLI does in stream-json input mode. It sits idle on stdin
+ * until a message shows up and only then starts the session and announces
+ * it. Fakes that emitted `init` up front hid a deadlock: Runner waited for
+ * `init` before sending the first prompt, so neither side ever moved.
+ * See `docs/decisions/runner-pins-the-session-id.md`.
+ */
 function fakeQueryFn() {
   const interrupt = vi.fn(async () => {});
-  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+  const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+    const sid = sessionIdOf(options);
     async function* gen() {
-      yield { type: 'system', subtype: 'init', session_id: 'web-1' };
+      let announced = false;
       for await (const userMsg of prompt) {
+        if (!announced) {
+          announced = true;
+          yield { type: 'system', subtype: 'init', session_id: sid };
+        }
         const text = userMsg.message.content[0].text;
         yield {
-          type: 'assistant', session_id: 'web-1',
+          type: 'assistant', session_id: sid,
           message: { role: 'assistant', content: [{ type: 'text', text: `echo:${text}` }] },
         };
-        yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: { output_tokens: 5 } };
+        yield { type: 'result', subtype: 'success', session_id: sid, usage: { output_tokens: 5 } };
       }
     }
     const g = gen() as any;
@@ -43,18 +68,19 @@ function subscribed(hub: Hub, topic: string) {
 
 /** Fake SDK whose generator ends on its own after one turn — no end() call, simulating the SDK process exiting. */
 function fakeQueryFnSelfEnding() {
-  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+  const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+    const sid = sessionIdOf(options);
     async function* gen() {
-      yield { type: 'system', subtype: 'init', session_id: 'web-1' };
       // Pull exactly one input message off the queue, then finish without
       // looping back to ask for another — the generator just ends.
       const iterator = prompt[Symbol.asyncIterator]();
       await iterator.next();
+      yield { type: 'system', subtype: 'init', session_id: sid };
       yield {
-        type: 'assistant', session_id: 'web-1',
+        type: 'assistant', session_id: sid,
         message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
       };
-      yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: {} };
+      yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
     }
     return gen() as any;
   };
@@ -72,23 +98,24 @@ function fakeQueryFnMidTurnStall() {
   const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
   let finished!: () => void;
   const finishedPromise = new Promise<void>((resolve) => { finished = resolve; });
-  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+  const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+    const sid = sessionIdOf(options);
     async function* gen() {
       try {
-        yield { type: 'system', subtype: 'init', session_id: 'web-1' };
         let turn = 0;
         for await (const userMsg of prompt) {
           turn++;
           const text = userMsg.message.content[0].text;
           if (turn === 1) {
+            yield { type: 'system', subtype: 'init', session_id: sid };
             yield {
-              type: 'assistant', session_id: 'web-1',
+              type: 'assistant', session_id: sid,
               message: { role: 'assistant', content: [{ type: 'text', text: `echo:${text}` }] },
             };
-            yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: {} };
+            yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
           } else {
             yield {
-              type: 'assistant', session_id: 'web-1',
+              type: 'assistant', session_id: sid,
               message: { role: 'assistant', content: [{ type: 'text', text: 'working...' }] },
             };
             // Stall here — no `result`, and no loop-back to `for await` yet,
@@ -105,22 +132,23 @@ function fakeQueryFnMidTurnStall() {
   return { fn, releaseGate: () => releaseGate(), finishedPromise };
 }
 
-/** Fake SDK that yields a stray assistant message for an unrelated session before the real system/init. */
-function fakeQueryFnStrayBeforeInit() {
-  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+/** Fake SDK that yields a message belonging to an unrelated session id alongside this session's own traffic. */
+function fakeQueryFnStrayForeignMessage() {
+  const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+    const sid = sessionIdOf(options);
     async function* gen() {
       yield {
-        type: 'assistant', session_id: 'x',
+        type: 'assistant', session_id: 'someone-else',
         message: { role: 'assistant', content: [{ type: 'text', text: 'stray' }] },
       };
-      yield { type: 'system', subtype: 'init', session_id: 'web-1' };
       for await (const userMsg of prompt) {
         const text = userMsg.message.content[0].text;
+        yield { type: 'system', subtype: 'init', session_id: sid };
         yield {
-          type: 'assistant', session_id: 'web-1',
+          type: 'assistant', session_id: sid,
           message: { role: 'assistant', content: [{ type: 'text', text: `echo:${text}` }] },
         };
-        yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: {} };
+        yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
       }
     }
     return gen() as any;
@@ -130,19 +158,20 @@ function fakeQueryFnStrayBeforeInit() {
 
 /** Fake SDK that emits a tool_use then a tool_result in the same turn, each as content index 0. */
 function fakeQueryFnToolMessages() {
-  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
+  const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+    const sid = sessionIdOf(options);
     async function* gen() {
-      yield { type: 'system', subtype: 'init', session_id: 'web-1' };
       for await (const _userMsg of prompt) {
+        yield { type: 'system', subtype: 'init', session_id: sid };
         yield {
-          type: 'assistant', session_id: 'web-1',
+          type: 'assistant', session_id: sid,
           message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: {} }] },
         };
         yield {
-          type: 'user', session_id: 'web-1',
+          type: 'user', session_id: sid,
           message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok' }] },
         };
-        yield { type: 'result', subtype: 'success', session_id: 'web-1', usage: {} };
+        yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
       }
     }
     return gen() as any;
@@ -151,37 +180,28 @@ function fakeQueryFnToolMessages() {
 }
 
 /**
- * Fake SDK whose `system/init` message is held back until the test releases
- * a manually-controlled gate — lets a test fire two `start()` calls for the
- * same resume id before either has registered in `Runner.sessions`, to
- * exercise the in-flight reservation race guard.
+ * Fake SDK that never says anything at all — the real CLI's behaviour when
+ * nothing is ever written to its stdin (verified against
+ * `@anthropic-ai/claude-agent-sdk` 0.3.0 / CLI 2.1.272: with no user message
+ * and no hooks configured, not one message comes back, `system/init`
+ * included). Any Runner that waits on the stream before it can report a
+ * session id hangs forever here.
  */
-function fakeQueryFnDelayedInit(sessionId: string) {
-  let releaseInit!: () => void;
-  const initGate = new Promise<void>((resolve) => { releaseInit = resolve; });
-  const fn = ({ prompt }: { prompt: AsyncIterable<any>; options: any }) => {
-    async function* gen() {
-      await initGate;
-      yield { type: 'system', subtype: 'init', session_id: sessionId };
-      for await (const userMsg of prompt) {
-        const text = userMsg.message.content[0].text;
-        yield {
-          type: 'assistant', session_id: sessionId,
-          message: { role: 'assistant', content: [{ type: 'text', text: `echo:${text}` }] },
-        };
-        yield { type: 'result', subtype: 'success', session_id: sessionId, usage: {} };
-      }
+function fakeQueryFnSilent() {
+  const fn = (_args: { prompt: AsyncIterable<any>; options: any }) => {
+    async function* gen(): AsyncGenerator<any> {
+      await new Promise(() => {}); // never resolves
     }
     return gen() as any;
   };
-  return { fn, releaseInit: () => releaseInit() };
+  return { fn };
 }
 
 describe('Runner', () => {
   it('starts a session, streams messages, and lands in needs_input after the turn', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     const received = subscribed(hub, 'session:web-1');
     const id = await runner.start({ cwd: '/p', prompt: 'hello', permissionMode: 'acceptEdits' });
     expect(id).toBe('web-1');
@@ -196,7 +216,7 @@ describe('Runner', () => {
   it('start() with an empty prompt does not enqueue a first turn; waits in needs_input for send() (I6)', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     const received = subscribed(hub, 'session:web-1');
     const id = await runner.start({ cwd: '/p', prompt: '', permissionMode: 'acceptEdits' });
     expect(id).toBe('web-1');
@@ -221,7 +241,7 @@ describe('Runner', () => {
   it('send() runs another turn; end() closes the session', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     const received = subscribed(hub, 'session:web-1');
     await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
@@ -238,7 +258,7 @@ describe('Runner', () => {
   it('interrupt() calls the SDK interrupt', async () => {
     const hub = new Hub();
     const { fn, interrupt } = fakeQueryFn();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     await runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'plan' });
     await runner.interrupt('web-1');
     expect(interrupt).toHaveBeenCalled();
@@ -251,7 +271,7 @@ describe('Runner', () => {
       captured = args.options;
       return fakeQueryFn().fn(args);
     };
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     await runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'acceptEdits', resume: 'old-1', model: 'claude-opus' });
     expect(captured).toMatchObject({
       cwd: '/p',
@@ -266,7 +286,7 @@ describe('Runner', () => {
   it('ends the session cleanly when the SDK generator finishes on its own (no end() call)', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFnSelfEnding();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     const received = subscribed(hub, 'session:web-1');
     await runner.start({ cwd: '/p', prompt: 'hi', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.active()).toEqual([]));
@@ -278,7 +298,7 @@ describe('Runner', () => {
   it('end() while working with no waiter parked still terminates the input stream (not a hang)', async () => {
     const hub = new Hub();
     const { fn, releaseGate, finishedPromise } = fakeQueryFnMidTurnStall();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     const received = subscribed(hub, 'session:web-1');
     await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
@@ -302,18 +322,61 @@ describe('Runner', () => {
     ]);
   });
 
-  it('resolves start() only on the system/init message, ignoring stray early messages', async () => {
+  it('pins the session id itself and returns it without waiting for the SDK to speak', async () => {
+    // The launch bug: the CLI emits `system/init` only once it has been sent
+    // a user message, and Runner used to withhold that message until it had
+    // seen `init`. Against a stream that says nothing, start() must still
+    // resolve — the id is the Runner's to choose, not the CLI's to reveal.
     const hub = new Hub();
-    const { fn } = fakeQueryFnStrayBeforeInit();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const { fn } = fakeQueryFnSilent();
+    let captured: any;
+    const capturing = (args: any) => {
+      captured = args.options;
+      return fn(args);
+    };
+    const runner = new Runner({ hub, queryFn: capturing as any, newSessionId: () => 'web-1' });
+    const id = await Promise.race([
+      runner.start({ cwd: '/p', prompt: 'hello', permissionMode: 'plan' }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('start() hung waiting on the SDK stream')), 1000),
+      ),
+    ]);
+    expect(id).toBe('web-1');
+    // ...and the id is handed to the CLI, so the transcript it writes and the
+    // row Orbital stores are the same session.
+    expect(captured.sessionId).toBe('web-1');
+    expect(runner.status('web-1')).toBe('working');
+  });
+
+  it('sends the first prompt without waiting for init (the CLI only inits once it has input)', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFn();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const received = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'hello', permissionMode: 'plan' });
+    // The fake only ever emits anything after it pulls a user message off the
+    // input stream, exactly like the CLI. A turn completing proves the prompt
+    // went in on its own rather than waiting for an init that would never come.
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    expect(received.find((r) => r.event === 'message').message.text).toBe('echo:hello');
+  });
+
+  it('does not publish messages belonging to another session id', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFnStrayForeignMessage();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const received = subscribed(hub, 'session:web-1');
     const id = await runner.start({ cwd: '/p', prompt: 'hello', permissionMode: 'plan' });
     expect(id).toBe('web-1');
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    const texts = received.filter((r) => r.event === 'message').map((r) => r.message.text);
+    expect(texts).toEqual(['echo:hello']);
   });
 
   it('assigns distinct message ids even when messages land in the same millisecond', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFnToolMessages();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     const received = subscribed(hub, 'session:web-1');
     await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'plan' });
     await vi.waitFor(() => expect(received.filter((r) => r.event === 'turn_result')).toHaveLength(1));
@@ -325,24 +388,22 @@ describe('Runner', () => {
   it('start() with resume of an active session throws (collision guard)', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     await runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'plan' });
     await expect(
       runner.start({ cwd: '/p', prompt: 'y', permissionMode: 'plan', resume: 'web-1' }),
     ).rejects.toThrow(/collision/);
   });
 
-  it('start() with two concurrent resumes of the same not-yet-registered session: only one wins (in-flight reservation)', async () => {
+  it('start() with two concurrent resumes of the same session: only one wins', async () => {
     const hub = new Hub();
-    const { fn, releaseInit } = fakeQueryFnDelayedInit('old-1');
-    const runner = new Runner({ hub, queryFn: fn as any });
+    const { fn } = fakeQueryFnSilent();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
 
-    // Fire both start() calls before the SDK's init message arrives for
-    // either — neither is registered in `sessions` yet, so without the
-    // in-flight reservation both would pass the `sessions.has` check.
+    // Both calls are made before either has heard a word from its SDK
+    // stream. Registration is synchronous, so the second one still collides.
     const p1 = runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'plan', resume: 'old-1' });
     const p2 = runner.start({ cwd: '/p', prompt: 'y', permissionMode: 'plan', resume: 'old-1' });
-    releaseInit();
 
     const results = await Promise.allSettled([p1, p2]);
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -402,7 +463,7 @@ describe('Runner idle timer', () => {
   async function idlingRunner(idleTimeoutMs: number | null) {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
-    const runner = new Runner({ hub, queryFn: fn as any, idleTimeoutMs });
+    const runner = new Runner({ hub, queryFn: fn as any, idleTimeoutMs, newSessionId: () => 'web-1' });
     const id = await runner.start({ cwd: '/p', prompt: 'hi', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
     return { runner, id };
@@ -477,7 +538,7 @@ describe('Runner idle timer', () => {
   it('does not arm a timer on a session that is mid-turn', async () => {
     const hub = new Hub();
     const { fn, releaseGate, finishedPromise } = fakeQueryFnMidTurnStall();
-    const runner = new Runner({ hub, queryFn: fn as any, idleTimeoutMs: 15 * 60_000 });
+    const runner = new Runner({ hub, queryFn: fn as any, idleTimeoutMs: 15 * 60_000, newSessionId: () => 'web-1' });
     const id = await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
     expect(vi.getTimerCount()).toBe(1);
