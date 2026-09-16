@@ -24,6 +24,13 @@ export interface ModelCardsProps {
  * 4b's `SLOWEST · $$$$` line is replaced by the context window. `ModelInfo`
  * carries no price or speed, and a hand-maintained table of either would be
  * wrong within weeks — see `docs/decisions/models-come-from-the-sdk.md`.
+ *
+ * 4c lays its compact row out as `display:flex;gap:8px` with each card
+ * `flex:1`, which assumes exactly four cards. Ours stays the same
+ * `auto-fit`/`minmax` grid as the full variant instead of switching to flex:
+ * with a dynamic model list, `flex:1` would squeeze every card narrower to
+ * fit the 320px settings column rather than wrapping — the same overflow
+ * the 4b grid departure above already exists to avoid.
  */
 export function ModelCards({
   models,
@@ -66,15 +73,19 @@ export function ModelCards({
             className={[
               'relative min-w-0 text-left transition-colors',
               'disabled:cursor-not-allowed disabled:opacity-40',
+              // canvas 4c: padding 10px 12px on a 9px radius. canvas 4b: padding 12px 14px on a 10px radius.
               compact ? 'rounded-[9px] border px-3 py-2.5' : 'rounded-[10px] border px-3.5 py-3',
               active
                 ? compact
-                  ? 'border-accent/70 bg-accent/8'
-                  : 'border-accent/70 bg-accent/8 shadow-[0_0_20px_rgba(89,228,243,.15)]'
+                  ? // canvas 4c selected: border .7 / bg .08, no glow, no dot.
+                    'border-accent/70 bg-accent/8'
+                  : // canvas 4b selected: border .7 / bg .08, plus a 20px .15-alpha glow.
+                    'border-accent/70 bg-accent/8 shadow-[0_0_20px_rgba(89,228,243,.15)]'
                 : 'border-panel-border bg-[rgba(4,8,16,.4)] hover:bg-white/5',
             ].join(' ')}
           >
             {active && !compact && (
+              // canvas 4b: 7px accent dot with a glow, 10px inset from the corner.
               <span
                 aria-hidden
                 className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_rgba(89,228,243,1)]"
@@ -95,6 +106,7 @@ export function ModelCards({
                   </span>
                 )
               : (
+                  // canvas 4b body: 5px top margin.
                   <span
                     className={[
                       'mt-[5px] block text-[11.5px] leading-[1.4] [text-wrap:pretty]',
@@ -105,6 +117,7 @@ export function ModelCards({
                   </span>
                 )}
             {!compact && (model.contextWindow !== null || isDefault) && (
+              // canvas 4b meta line: 8px top margin, 9.5px mono, .1em tracking.
               <span
                 className={[
                   'mt-2 flex items-center gap-2 font-mono text-[9.5px] tracking-[0.1em]',

@@ -41,6 +41,11 @@ describe('ModelCards', () => {
     expect(screen.getByText('DEFAULT')).toBeInTheDocument()
   })
 
+  it('does not mark the default when it is also the selection', () => {
+    render(<ModelCards models={MODELS} value="sonnet" defaultValue="sonnet" onChange={() => {}} />)
+    expect(screen.queryByText('DEFAULT')).not.toBeInTheDocument()
+  })
+
   it('reports the chosen value', () => {
     const onChange = vi.fn()
     render(<ModelCards models={MODELS} value="sonnet" onChange={onChange} />)
