@@ -267,6 +267,7 @@ import {
   Transcript,
   pairMessages,
   groupToolRuns,
+  insertModelDividers,
   isNearBottom,
   compensatePrepend,
 } from '../panels/Transcript'
@@ -354,6 +355,58 @@ describe('pairMessages', () => {
   })
 })
 
+const assistant = (id: string, model?: string, timestamp?: string): ChatMessage => ({
+  id, role: 'assistant', text: `m-${id}`, model, timestamp,
+})
+
+describe('insertModelDividers', () => {
+  const groupsOf = (messages: ChatMessage[]) => groupToolRuns(pairMessages(messages))
+
+  it('marks a change between two assistant messages', () => {
+    const groups = insertModelDividers(
+      groupsOf([
+        assistant('a1', 'claude-sonnet-5'),
+        assistant('a2', 'claude-opus-5', '2026-09-16T14:02:00Z'),
+      ]),
+    )
+    const divider = groups.find((g) => g.kind === 'model-divider')
+    expect(divider).toMatchObject({ from: 'claude-sonnet-5', to: 'claude-opus-5' })
+    expect(groups.indexOf(divider!)).toBe(1)
+  })
+
+  it('adds nothing when the model never changes', () => {
+    const groups = insertModelDividers(
+      groupsOf([assistant('a1', 'claude-opus-5'), assistant('a2', 'claude-opus-5')]),
+    )
+    expect(groups.some((g) => g.kind === 'model-divider')).toBe(false)
+  })
+
+  it('ignores messages with no model and user turns', () => {
+    const groups = insertModelDividers(
+      groupsOf([
+        assistant('a1', 'claude-sonnet-5'),
+        { id: 'u1', role: 'user', text: 'and now?' },
+        assistant('a2'),
+        assistant('a3', 'claude-sonnet-5'),
+      ]),
+    )
+    expect(groups.some((g) => g.kind === 'model-divider')).toBe(false)
+  })
+
+  it('does not mark the first model it sees', () => {
+    const groups = insertModelDividers(groupsOf([assistant('a1', 'claude-opus-5')]))
+    expect(groups.some((g) => g.kind === 'model-divider')).toBe(false)
+  })
+})
+
+it('renders the divider in the transcript', () => {
+  renderTranscript([
+    assistant('a1', 'claude-sonnet-5'),
+    assistant('a2', 'claude-opus-5', '2026-09-16T14:02:00Z'),
+  ])
+  expect(screen.getByText(/claude-sonnet-5 → claude-opus-5/i)).toBeInTheDocument()
+})
+
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
   return {
@@ -415,6 +468,13 @@ function resetStore(
     ...overrides,
     ui: { ...defaultUi, ...overrides.ui },
   })
+}
+
+/** Puts `messages` in session `s1`'s transcript and renders it — shared by
+ * the divider render test above and the `Transcript` suite below. */
+function renderTranscript(messages: ChatMessage[]) {
+  resetStore({ transcripts: { s1: messages } })
+  return render(<Transcript sessionId="s1" />)
 }
 
 beforeEach(() => {

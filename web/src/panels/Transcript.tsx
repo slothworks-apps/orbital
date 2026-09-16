@@ -57,10 +57,12 @@ export function pairMessages(messages: ChatMessage[]): TranscriptItem[] {
   return items
 }
 
-/** A run of consecutive tool rows, or a single message row. */
+/** A run of consecutive tool rows, a single message row, or a model-switch
+ * marker inserted between two assistant messages (see `insertModelDividers`). */
 export type TranscriptGroup =
   | { kind: 'tools'; key: string; items: Extract<TranscriptItem, { kind: 'tool' }>[] }
   | { kind: 'message'; key: string; item: Extract<TranscriptItem, { kind: 'message' }> }
+  | { kind: 'model-divider'; key: string; from: string; to: string; timestamp?: string }
 
 /**
  * Folds consecutive tool rows into one group. Canvas 1b sets the
@@ -83,6 +85,38 @@ export function groupToolRuns(items: TranscriptItem[]): TranscriptGroup[] {
     groups.push({ kind: 'tools', key: item.key, items: [item] })
   }
   return groups
+}
+
+/**
+ * Inserts a divider wherever the model behind consecutive assistant messages
+ * changes (canvas 4a).
+ *
+ * Derived from the messages rather than recorded at switch time, so it
+ * survives a reload, needs no storage, and also shows a switch made in a
+ * terminal that Orbital never performed. Messages with no model at all (user
+ * turns, tool rows, transcripts from a CLI too old to record one) are
+ * skipped, never treated as a change — an absent model is unknown, not
+ * different.
+ */
+export function insertModelDividers(groups: TranscriptGroup[]): TranscriptGroup[] {
+  const out: TranscriptGroup[] = []
+  let previousModel: string | undefined
+  for (const group of groups) {
+    const message = group.kind === 'message' ? group.item.message : undefined
+    const model = message?.role === 'assistant' ? message.model : undefined
+    if (model && previousModel && model !== previousModel) {
+      out.push({
+        kind: 'model-divider',
+        key: `model:${group.key}`,
+        from: previousModel,
+        to: model,
+        timestamp: message?.timestamp,
+      })
+    }
+    if (model) previousModel = model
+    out.push(group)
+  }
+  return out
 }
 
 /**
@@ -267,8 +301,26 @@ export function Transcript({ sessionId }: TranscriptProps) {
           </Button>
         </div>
       )}
-      {groupToolRuns(items).map((group, index, groups) =>
-        group.kind === 'tools' ? (
+      {insertModelDividers(groupToolRuns(items)).map((group, index, groups) =>
+        group.kind === 'model-divider' ? (
+          // Canvas 4a "Transcript model divider": 9.5px mono, .14em tracking,
+          // a hairline on each side, sitting in the transcript's own 14px
+          // row rhythm like any other group.
+          <div
+            key={group.key}
+            data-model-divider
+            className="flex items-center gap-2.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+          >
+            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span>
+              {group.from.toUpperCase()} → {group.to.toUpperCase()}
+              {group.timestamp
+                ? ` · ${new Date(group.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+                : ''}
+            </span>
+            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+          </div>
+        ) : group.kind === 'tools' ? (
           // A run of tool calls packs tight (4px) inside the 14px row rhythm.
           <div key={group.key} data-tool-run className="flex flex-col gap-1">
             {group.items.map((item) => (
