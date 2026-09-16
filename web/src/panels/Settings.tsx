@@ -24,6 +24,7 @@ import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
 import { Select } from '../ui/Select'
 import { Checkbox, Toggle } from '../ui/Checkbox'
+import { modelByValue } from '../lib/models'
 import type { PermissionMode } from '../lib/types'
 import { TagsRulesSection } from './TagsRules'
 import pkg from '../../package.json'
@@ -196,6 +197,11 @@ export function Settings({ open, onClose }: SettingsProps) {
   const defaultModel = settings.default_model ?? ''
   const rememberModelPerProject = settings.remember_model_per_project !== 'false'
   const mapShowModel = settings.map_show_model !== 'false'
+  // canvas 4c: the sample chip beside the toggle above shows what it will
+  // actually draw — the selected default's family, upper-cased — rather than
+  // a placeholder, so it renders nothing when there is no catalog or no
+  // matching row instead of showing something that could look real.
+  const mapModelSample = modelByValue(defaultModel || null, models)?.family.toUpperCase()
   // Canvas 1h prints a second version line. The server resolves the bundled
   // Claude Code CLI version at boot into `claude_code_version`; when it can't
   // (no SDK/manifest) the key stays absent and this row stays hidden.
@@ -496,11 +502,23 @@ export function Settings({ open, onClose }: SettingsProps) {
               title="Model name under planet label"
               desc="Family only (no version). Moons show it only when their model differs."
             >
-              <Toggle
-                aria-label="Model name under planet label"
-                checked={mapShowModel}
-                onChange={(checked) => void patchAndSet({ map_show_model: checked ? 'true' : 'false' })}
-              />
+              <div className="flex items-center gap-3">
+                <Toggle
+                  aria-label="Model name under planet label"
+                  checked={mapShowModel}
+                  onChange={(checked) => void patchAndSet({ map_show_model: checked ? 'true' : 'false' })}
+                />
+                {/* canvas 4c: sample chip beside the toggle, JetBrains Mono
+                    9.5px/.1em tracking, rgba(160,190,225,.7). */}
+                {mapModelSample && (
+                  <span
+                    data-testid="map-model-sample"
+                    className="font-mono text-[9.5px] tracking-[0.1em] text-[rgba(160,190,225,.7)]"
+                  >
+                    {mapModelSample}
+                  </span>
+                )}
+              </div>
             </Row>
           </div>
           )}

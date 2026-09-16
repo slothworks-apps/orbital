@@ -61,7 +61,9 @@ export function Toggle({ checked, onChange, label, disabled = false, ...aria }: 
         aria-label={aria['aria-label']}
         onChange={(e) => onChange(e.target.checked)}
       />
-      {/* 32×18 pill with a 14px knob and an accent glow when on (canvas 1h). */}
+      {/* 32×18 pill with a 14px knob and an accent glow when on (canvas 1h);
+          knob fill on is canvas 4c's literal #03111a — --color-space-deep,
+          not --color-space (#05070d), which looks identical until compared. */}
       <span
         aria-hidden
         className={[
@@ -75,7 +77,7 @@ export function Toggle({ checked, onChange, label, disabled = false, ...aria }: 
         <span
           className={[
             'absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full transition-all',
-            checked ? 'left-[calc(100%-1rem)] bg-space' : 'left-0.5 bg-text-muted',
+            checked ? 'left-[calc(100%-1rem)] bg-space-deep' : 'left-0.5 bg-text-muted',
           ].join(' ')}
         />
       </span>

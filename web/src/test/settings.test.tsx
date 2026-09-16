@@ -475,4 +475,19 @@ describe('Settings — model preferences (canvas 4c)', () => {
     renderSettings({ settings: {}, models: [] })
     expect(screen.getByText(/could not be read/i)).toBeInTheDocument()
   })
+
+  it('names the selected default model, upper-cased, in the sample chip beside the map toggle', () => {
+    renderSettings({ settings: { default_model: 'sonnet' }, models: MODELS })
+    expect(screen.getByTestId('map-model-sample')).toHaveTextContent('SONNET')
+  })
+
+  it('hides the sample chip when the catalog is empty', () => {
+    renderSettings({ settings: { default_model: 'sonnet' }, models: [] })
+    expect(screen.queryByTestId('map-model-sample')).not.toBeInTheDocument()
+  })
+
+  it('hides the sample chip when the default matches no catalog row', () => {
+    renderSettings({ settings: { default_model: 'gpt-5' }, models: MODELS })
+    expect(screen.queryByTestId('map-model-sample')).not.toBeInTheDocument()
+  })
 })
