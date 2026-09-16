@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
-import { matchModel, modelChipLabel } from '../lib/models'
+import { matchModel, modelChipLabel, isExactModelMatch } from '../lib/models'
 import { Badge } from '../ui/Badge'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import type { ApiSession, OrbitalModel } from '../lib/types'
@@ -27,12 +27,40 @@ export interface ModelSwitcherProps {
  */
 export function ModelSwitcher({ session, models, defaultValue, disabledReason }: ModelSwitcherProps) {
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const popupRef = useRef<HTMLDivElement | null>(null)
   const current = matchModel(session, models)
+  // The variant only belongs on the label when the match is exact (F2): the
+  // stripped-suffix fallback exists so a terminal session has a name at all,
+  // and letting it also claim a variant would have the chip promise a
+  // context size the read-out below cannot back up.
   const label = current
-    ? modelChipLabel(current)
+    ? (isExactModelMatch(session, current) ? modelChipLabel(current) : current.shortVersion)
     : (session.resolvedModel ?? session.model ?? 'unknown model')
 
   useEscapeLayer(open, () => setOpen(false))
+
+  // The popover cannot survive a selection change: `label` and `current`
+  // above are computed from `session`, so leaving it open across a switch
+  // would describe the session that used to be selected.
+  useEffect(() => {
+    setOpen(false)
+  }, [session.id])
+
+  // `pointerdown`, not `click` — matches `ui/Select.tsx`'s own dismissal:
+  // closing on click would land after the next control had already been
+  // pressed, so the dismissal would fight it.
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent | MouseEvent) => {
+      const target = e.target
+      if (!(target instanceof Node)) return
+      if (triggerRef.current?.contains(target) || popupRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [open])
 
   if (disabledReason) {
     return (
@@ -67,6 +95,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
     // its own.
     <span className="relative inline-flex">
       <button
+        ref={triggerRef}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -81,7 +110,10 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
         <EscapeBoundary>
           {/* Canvas 4a: 300px/10px-radius popover, the same glass gradient +
               inset top highlight `ui/Select.tsx`'s listbox uses. */}
-          <div className="absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-[rgba(150,205,255,.22)] bg-gradient-to-b from-[rgba(18,26,44,.98)] to-[rgba(10,14,26,.98)] shadow-[0_20px_50px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]">
+          <div
+            ref={popupRef}
+            className="absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-[rgba(150,205,255,.22)] bg-gradient-to-b from-[rgba(18,26,44,.98)] to-[rgba(10,14,26,.98)] shadow-[0_20px_50px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]"
+          >
             <div className="px-3 pb-1.5 pt-2.5 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
               MODEL · APPLIES FROM NEXT TURN
             </div>

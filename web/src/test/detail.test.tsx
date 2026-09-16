@@ -38,6 +38,7 @@ vi.mock('../lib/api', async () => {
 
 import { api } from '../lib/api'
 import { DetailPanel } from '../panels/DetailPanel'
+import { ModelSwitcher } from '../panels/ModelSwitcher'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -397,8 +398,17 @@ describe('DetailPanel model chip', () => {
     expect(screen.getByRole('button', { name: /Change model/ })).toHaveTextContent('Opus 5 (1M)')
   })
 
-  it('names a terminal session from its resolved model', () => {
+  it('names a terminal session from its resolved model, without a variant the context bar cannot back up', () => {
+    // Only the variant-STRIPPED match here (`claude-opus-5` vs the row's
+    // `claude-opus-5[1m]`), so the context bar falls back to 200k — the chip
+    // must not claim 1M when the read-out right below it does not (F2).
     renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5' }, models: MODELS })
+    expect(screen.getByText('Opus 5')).toBeInTheDocument()
+    expect(screen.queryByText('Opus 5 (1M)')).not.toBeInTheDocument()
+  })
+
+  it('keeps the variant when the resolved model matches a row exactly', () => {
+    renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5[1m]' }, models: MODELS })
     expect(screen.getByText('Opus 5 (1M)')).toBeInTheDocument()
   })
 
@@ -415,6 +425,29 @@ describe('DetailPanel model chip', () => {
     fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
     fireEvent.click(screen.getByRole('option', { name: 'Haiku 4.5' }))
     await waitFor(() => expect(api.setSessionModel).toHaveBeenCalledWith(webSession.id, 'haiku'))
+  })
+
+  it('closes on an outside pointerdown, matching every other popover in the app (F4)', () => {
+    renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
+    fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    fireEvent.pointerDown(document.body)
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('closes the popover when the selected session changes underneath it', () => {
+    const sessionA = { ...webSession, model: 'sonnet' }
+    const sessionB = { ...webSession, id: 'other', model: 'haiku' }
+    const { rerender } = render(<ModelSwitcher session={sessionA} models={MODELS} defaultValue={null} />)
+    fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    rerender(<ModelSwitcher session={sessionB} models={MODELS} defaultValue={null} />)
+
+    // Must not survive to describe the wrong session (F4).
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
   it('does not offer a switch on a session live in a terminal', () => {
