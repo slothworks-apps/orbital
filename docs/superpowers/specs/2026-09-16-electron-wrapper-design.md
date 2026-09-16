@@ -1,7 +1,7 @@
 ---
 id: 2026-09-16-electron-wrapper-design
 title: Orbital as a macOS desktop app — design
-status: draft
+status: active
 type: spec
 domain: desktop
 related:
