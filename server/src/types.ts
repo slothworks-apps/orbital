@@ -14,6 +14,8 @@ export interface SessionRow {
   file_size: number;
   source: SessionSource;
   permission_mode: PermissionMode | null;
+  model: string | null;
+  resolved_model: string | null;
   parent_id: string | null;
   indexed_mtime: number;
   indexed_size: number;
@@ -27,6 +29,8 @@ export interface ChatMessage {
   toolInput?: unknown;
   toolUseId?: string;
   timestamp?: string;
+  /** Resolved model that produced this assistant message. Absent on user turns. */
+  model?: string;
 }
 
 export interface TagRule {

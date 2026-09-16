@@ -23,6 +23,10 @@ export const sessions = sqliteTable(
     fileSize: integer('file_size').notNull().default(0),
     source: text('source').$type<SessionSource>().notNull().default('terminal'),
     permissionMode: text('permission_mode').$type<PermissionMode>(),
+    /** The model Orbital ASKED for — an SDK `value` such as `opus[1m]`. Null for terminal sessions. */
+    model: text('model'),
+    /** The model that actually ran, as the transcript/SDK reports it (`claude-opus-5`). */
+    resolvedModel: text('resolved_model'),
     parentId: text('parent_id'),
     indexedMtime: integer('indexed_mtime').notNull().default(0),
     indexedSize: integer('indexed_size').notNull().default(0),

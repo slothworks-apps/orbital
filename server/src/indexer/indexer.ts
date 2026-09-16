@@ -64,6 +64,7 @@ export function indexProjects(
             lastAt: meta.lastAt,
             messageCount: meta.messageCount,
             fileSize: stat.size,
+            resolvedModel: meta.model,
             indexedMtime: Math.floor(stat.mtimeMs),
             indexedSize: stat.size,
           })
@@ -77,6 +78,10 @@ export function indexProjects(
               lastAt: meta.lastAt,
               messageCount: meta.messageCount,
               fileSize: stat.size,
+              // A transcript whose assistant turns haven't been written yet
+              // reports null; that must not erase what the runner already
+              // recorded for a live web session.
+              resolvedModel: sql`COALESCE(${meta.model ?? null}, ${sessions.resolvedModel})`,
               indexedMtime: Math.floor(stat.mtimeMs),
               indexedSize: stat.size,
             },

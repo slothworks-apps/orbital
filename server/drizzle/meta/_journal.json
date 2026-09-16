@@ -8,6 +8,13 @@
       "when": 1789480995521,
       "tag": "0000_abandoned_mandarin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789577504341,
+      "tag": "0001_typical_rage",
+      "breakpoints": true
     }
   ]
 }

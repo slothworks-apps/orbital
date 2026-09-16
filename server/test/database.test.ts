@@ -196,13 +196,13 @@ describe('openDb', () => {
 
     // Re-opening the same (now-migrated) database a second time must be a
     // pure no-op: no error, and Drizzle's own migration bookkeeping table
-    // must still show exactly one applied migration (not re-applied, not
-    // applied twice).
+    // must still show exactly as many applied migrations as exist on disk
+    // (not re-applied, not applied twice).
     const reopened = openDb(dbPath);
     const migrationCount = reopened.all<{ c: number }>(
       sql`SELECT COUNT(*) c FROM __drizzle_migrations`,
     )[0];
-    expect(migrationCount.c).toBe(1);
+    expect(migrationCount.c).toBe(2);
     expect(reopened.$client.pragma('user_version', { simple: true })).toBe(1);
     reopened.$client.close();
   });

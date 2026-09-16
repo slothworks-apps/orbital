@@ -4,8 +4,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
-import { sessions } from '../src/db/schema.js';
+import { sessions, sessionColumns } from '../src/db/schema.js';
 import { indexProjects } from '../src/indexer/indexer.js';
+import type { SessionRow } from '../src/types.js';
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'orbital-idx-'));
@@ -18,6 +19,27 @@ function setup() {
   writeFileSync(join(pdir, 'aaaa-bbbb.jsonl'), fixture);
   const db = openDb(join(dir, 'index.db'));
   return { db, projects, transcriptPath: join(pdir, 'aaaa-bbbb.jsonl') };
+}
+
+/** A fresh temp projects dir/db pair, without the fixed transcript-basic.jsonl fixture. */
+function setupEmpty() {
+  const dir = mkdtempSync(join(tmpdir(), 'orbital-idx-'));
+  const projects = join(dir, 'projects');
+  mkdirSync(projects, { recursive: true });
+  const db = openDb(join(dir, 'index.db'));
+  return { db, projects };
+}
+
+/** Writes a JSONL transcript for one session into a project dir under `projects`. */
+function writeTranscriptFile(
+  projects: string,
+  projectDir: string,
+  sessionId: string,
+  entries: unknown[],
+) {
+  const pdir = join(projects, projectDir);
+  mkdirSync(pdir, { recursive: true });
+  writeFileSync(join(pdir, `${sessionId}.jsonl`), entries.map((e) => JSON.stringify(e)).join('\n'));
 }
 
 describe('indexProjects', () => {
@@ -114,5 +136,32 @@ describe('indexProjects', () => {
     expect(row.parentId).toBe('xyz');
     expect(row.messageCount).toBe(4);
     expect(row.projectDir).toBe('-Users-tomin-Projects-slothworks-ergaily');
+  });
+});
+
+describe('resolved_model', () => {
+  it('writes the transcript model into resolved_model', () => {
+    const { db, projects } = setupEmpty();
+    writeTranscriptFile(projects, 'proj', 'sess-model', [
+      { type: 'user', timestamp: '2026-09-16T10:00:00Z', cwd: '/w/x', message: { role: 'user', content: 'hi' } },
+      { type: 'assistant', timestamp: '2026-09-16T10:00:01Z', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'ok' }] } },
+    ]);
+    indexProjects(db, projects);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'sess-model')).get() as SessionRow;
+    expect(row.resolved_model).toBe('claude-opus-5');
+  });
+
+  it('does not erase a known resolved_model when the transcript has no assistant entry', () => {
+    const { db, projects } = setupEmpty();
+    writeTranscriptFile(projects, 'proj', 'sess-empty', [
+      { type: 'user', timestamp: '2026-09-16T10:00:00Z', cwd: '/w/x', message: { role: 'user', content: 'hi' } },
+    ]);
+    db.insert(sessions)
+      .values({ id: 'sess-empty', projectDir: 'proj', cwd: '/w/x', resolvedModel: 'claude-sonnet-5' })
+      .onConflictDoUpdate({ target: sessions.id, set: { resolvedModel: 'claude-sonnet-5' } })
+      .run();
+    indexProjects(db, projects);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'sess-empty')).get() as SessionRow;
+    expect(row.resolved_model).toBe('claude-sonnet-5');
   });
 });

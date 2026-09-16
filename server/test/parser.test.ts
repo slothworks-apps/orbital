@@ -128,3 +128,39 @@ describe('extractMeta noise titles', () => {
     expect(extractMeta(entries as any).title).toBe('Real prompt here');
   });
 });
+
+describe('model extraction', () => {
+  const line = (obj: unknown) => JSON.stringify(obj);
+
+  it('extractMeta reports the last assistant model', () => {
+    const text = [
+      line({ type: 'user', timestamp: '2026-09-16T10:00:00Z', cwd: '/w', message: { role: 'user', content: 'hi' } }),
+      line({ type: 'assistant', timestamp: '2026-09-16T10:00:01Z', message: { role: 'assistant', model: 'claude-sonnet-5', content: [{ type: 'text', text: 'a' }] } }),
+      line({ type: 'assistant', timestamp: '2026-09-16T10:00:02Z', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'b' }] } }),
+    ].join('\n');
+    expect(extractMeta(parseTranscript(text)).model).toBe('claude-opus-5');
+  });
+
+  it('extractMeta ignores sidechain models', () => {
+    const text = [
+      line({ type: 'assistant', timestamp: '2026-09-16T10:00:01Z', message: { role: 'assistant', model: 'claude-sonnet-5', content: [{ type: 'text', text: 'a' }] } }),
+      line({ type: 'assistant', isSidechain: true, timestamp: '2026-09-16T10:00:02Z', message: { role: 'assistant', model: 'claude-haiku-4-5', content: [{ type: 'text', text: 'sub' }] } }),
+    ].join('\n');
+    expect(extractMeta(parseTranscript(text)).model).toBe('claude-sonnet-5');
+  });
+
+  it('extractMeta reports null when no assistant entry names a model', () => {
+    const text = line({ type: 'user', timestamp: '2026-09-16T10:00:00Z', message: { role: 'user', content: 'hi' } });
+    expect(extractMeta(parseTranscript(text)).model).toBeNull();
+  });
+
+  it('entriesToMessages carries the model on assistant messages only', () => {
+    const entries = parseTranscript([
+      line({ type: 'user', uuid: 'u1', message: { role: 'user', content: 'hi' } }),
+      line({ type: 'assistant', uuid: 'a1', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'yo' }] } }),
+    ].join('\n'));
+    const messages = entriesToMessages(entries);
+    expect(messages[0].model).toBeUndefined();
+    expect(messages[1].model).toBe('claude-opus-5');
+  });
+});

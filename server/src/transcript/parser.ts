@@ -6,7 +6,7 @@ export interface TranscriptEntry {
   timestamp?: string;
   cwd?: string;
   isSidechain?: boolean;
-  message?: { role: string; content: string | Array<Record<string, unknown>> };
+  message?: { role: string; model?: string; content: string | Array<Record<string, unknown>> };
 }
 
 export function parseTranscriptLine(line: string): TranscriptEntry | null {
@@ -65,6 +65,7 @@ export function isBareSlashCommand(text: string): boolean {
 
 export function extractMeta(entries: TranscriptEntry[]) {
   let cwd = '';
+  let model: string | null = null;
   let title = '';
   /** First usable title seen, kept as a fallback if every turn is a bare command. */
   let fallbackTitle = '';
@@ -75,6 +76,9 @@ export function extractMeta(entries: TranscriptEntry[]) {
     if (!cwd && typeof e.cwd === 'string') cwd = e.cwd;
     if (e.type !== 'user' && e.type !== 'assistant') continue;
     if (e.isSidechain) continue;
+    if (e.type === 'assistant' && typeof e.message?.model === 'string' && e.message.model) {
+      model = e.message.model;
+    }
     messageCount++;
     const t = e.timestamp ? Date.parse(e.timestamp) : NaN;
     if (!Number.isNaN(t)) {
@@ -93,14 +97,17 @@ export function extractMeta(entries: TranscriptEntry[]) {
       title = text;
     }
   }
-  return { cwd, title: title || fallbackTitle, firstAt, lastAt, messageCount };
+  return { cwd, title: title || fallbackTitle, firstAt, lastAt, messageCount, model };
 }
 
 export function entriesToMessages(entries: TranscriptEntry[]): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const e of entries) {
     if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || e.isSidechain) continue;
-    const base = { timestamp: e.timestamp };
+    const base =
+      e.type === 'assistant' && typeof e.message.model === 'string' && e.message.model
+        ? { timestamp: e.timestamp, model: e.message.model }
+        : { timestamp: e.timestamp };
     const content = e.message.content;
     if (typeof content === 'string') {
       out.push({ id: `${e.uuid}:0`, role: e.type, text: content, ...base });
