@@ -21,6 +21,7 @@ import {
 } from '../ui/motion'
 import { Input } from '../ui/Input'
 import { ModeCards } from '../ui/ModeCards'
+import { ModelCards } from '../ui/ModelCards'
 import { Select } from '../ui/Select'
 import { Checkbox, Toggle } from '../ui/Checkbox'
 import type { PermissionMode } from '../lib/types'
@@ -133,6 +134,7 @@ const CHAIN_ORBS = [
  */
 export function Settings({ open, onClose }: SettingsProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
+  const models = useOrbital(useShallow((s) => s.models))
   const sessionCwds = useOrbital(useShallow((s) => Object.values(s.sessions).map((x) => x.cwd)))
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [saved, setSaved] = useState(false)
@@ -189,6 +191,11 @@ export function Settings({ open, onClose }: SettingsProps) {
   const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
   const endedAfterIdle = settings.ended_after_idle_minutes ?? '30'
   const mapEndedMaxAge = settings.map_ended_max_age_days ?? '1'
+  // `default_model` is a value, not a flag — a missing key means "no
+  // preference yet", not "off", so it reads as `null` rather than a default.
+  const defaultModel = settings.default_model ?? ''
+  const rememberModelPerProject = settings.remember_model_per_project !== 'false'
+  const mapShowModel = settings.map_show_model !== 'false'
   // Canvas 1h prints a second version line. The server resolves the bundled
   // Claude Code CLI version at boot into `claude_code_version`; when it can't
   // (no SDK/manifest) the key stays absent and this row stays hidden.
@@ -321,6 +328,24 @@ export function Settings({ open, onClose }: SettingsProps) {
              here, so swapping the column away costs no state. */
           <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
             <SectionLabel first>NEW SESSIONS</SectionLabel>
+            <Row
+              title="Default model"
+              desc="Pre-selected in the New session dialog and used by Clear. Never changes a running session."
+            >
+              <ModelCards
+                compact
+                models={models}
+                value={defaultModel || null}
+                onChange={(value) => void patchAndSet({ default_model: value })}
+              />
+              <Checkbox
+                label="Remember last model per project"
+                checked={rememberModelPerProject}
+                onChange={(checked) =>
+                  void patchAndSet({ remember_model_per_project: String(checked) })
+                }
+              />
+            </Row>
             <Row
               title="Default permission mode"
               desc="Applied to every new session and to sessions created by Clear. Can be changed per session."
@@ -464,6 +489,17 @@ export function Settings({ open, onClose }: SettingsProps) {
                 value={mapEndedMaxAge}
                 onChange={(next) => void patchAndSet({ map_ended_max_age_days: next })}
                 className="w-[200px]"
+              />
+            </Row>
+            {/* canvas 4c: MAP section, beside the map row above. */}
+            <Row
+              title="Model name under planet label"
+              desc="Family only (no version). Moons show it only when their model differs."
+            >
+              <Toggle
+                aria-label="Model name under planet label"
+                checked={mapShowModel}
+                onChange={(checked) => void patchAndSet({ map_show_model: checked ? 'true' : 'false' })}
               />
             </Row>
           </div>

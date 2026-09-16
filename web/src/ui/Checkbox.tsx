@@ -26,16 +26,18 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
         aria-label={aria['aria-label']}
         onChange={(e) => onChange(e.target.checked)}
       />
+      {/* The check mark is generated content, not a text child: a literal
+          "✓" child would join the label's textContent, so `getByLabelText`
+          against the visible label (see settings.test.tsx's "Remember last
+          model per project") would never get an exact match once checked. */}
       <span
         aria-hidden
         className={[
           'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] leading-none transition-colors',
           'peer-focus-visible:ring-1 peer-focus-visible:ring-accent',
-          checked ? 'border-accent bg-accent text-space' : 'border-panel-border bg-panel-solid',
+          checked ? "border-accent bg-accent text-space after:content-['✓']" : 'border-panel-border bg-panel-solid',
         ].join(' ')}
-      >
-        {checked ? '✓' : ''}
-      </span>
+      />
       {label}
     </label>
   )
@@ -50,6 +52,9 @@ export function Toggle({ checked, onChange, label, disabled = false, ...aria }: 
     <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-text-soft">
       <input
         type="checkbox"
+        // Explicit switch semantics: a screen reader should hear "on/off",
+        // not "checked/unchecked", for the pill-with-a-knob this renders as.
+        role="switch"
         className="peer sr-only"
         checked={checked}
         disabled={disabled}

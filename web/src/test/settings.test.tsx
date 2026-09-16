@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
+import type { OrbitalModel } from '../lib/types'
 import pkg from '../../package.json'
+
+// Same shape as `web/src/test/modelcards.test.tsx`'s fixture, so the two
+// suites' assumptions about `OrbitalModel` never drift apart.
+const MODELS: OrbitalModel[] = [
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet', variant: null, blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
+  { value: 'haiku', resolvedModel: 'claude-haiku-4-5-20251001', family: 'Haiku', version: 'Haiku 4.5', shortVersion: 'Haiku', variant: null, blurb: 'Fastest for quick answers', contextWindow: null },
+]
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
@@ -79,6 +87,7 @@ function resetStore(
     order: [],
     tags: [],
     rules: [],
+    models: [],
     settings: {
       default_permission_mode: 'acceptEdits',
       default_project_dir: '',
@@ -102,6 +111,15 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
 })
+
+/** `resetStore` + render, for the model-preference tests below where every
+ * case supplies its own `settings`/`models` overrides. */
+function renderSettings(
+  overrides: Partial<Omit<OrbitalState, 'ui'>> & { ui?: Partial<OrbitalUiState> } = {}
+) {
+  resetStore(overrides)
+  return render(<Settings open onClose={vi.fn()} />)
+}
 
 describe('Settings', () => {
   it('renders nothing when closed', () => {
@@ -163,7 +181,7 @@ describe('Settings', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /confirm before clear/i }))
+    fireEvent.click(screen.getByRole('switch', { name: /confirm before clear/i }))
 
     await waitFor(() =>
       expect(api.patchSettings).toHaveBeenCalledWith({ confirm_before_clear: 'false' })
@@ -424,5 +442,37 @@ describe('Settings — canvas 1h structure', () => {
     resetStore({ settings: { lineage_depth: '5' }, sessions: { a: makeSession('a', '/p1') } })
     render(<Settings open onClose={vi.fn()} />)
     expect(screen.queryByText(/in history/)).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Model preferences (canvas 4c)
+// ---------------------------------------------------------------------------
+
+describe('Settings — model preferences (canvas 4c)', () => {
+  it('shows the default model and saves a change', async () => {
+    renderSettings({ settings: { default_model: 'sonnet' }, models: MODELS })
+    expect(screen.getByRole('radio', { name: 'Sonnet' })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('radio', { name: 'Haiku' }))
+    await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ default_model: 'haiku' }))
+  })
+
+  it('toggles remembering the model per project', async () => {
+    renderSettings({ settings: { remember_model_per_project: 'true' }, models: MODELS })
+    fireEvent.click(screen.getByLabelText('Remember last model per project'))
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ remember_model_per_project: 'false' })
+    )
+  })
+
+  it('toggles the model name under the planet label', async () => {
+    renderSettings({ settings: { map_show_model: 'true' }, models: MODELS })
+    fireEvent.click(screen.getByRole('switch', { name: /Model name under planet label/ }))
+    await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ map_show_model: 'false' }))
+  })
+
+  it('says so when the catalog is empty', () => {
+    renderSettings({ settings: {}, models: [] })
+    expect(screen.getByText(/could not be read/i)).toBeInTheDocument()
   })
 })
