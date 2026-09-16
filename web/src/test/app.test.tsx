@@ -195,6 +195,7 @@ function resetStore() {
       filterTagId: 'all',
       search: '',
       sourceFilter: 'all',
+      hideEnded: false,
       wsStatus: 'connecting',
       dialog: null,
       sidebarCollapsed: false,
@@ -222,6 +223,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetStore()
   socket().reset()
+  // App mirrors the selection into the address bar (`lib/sessionUrl`), and
+  // jsdom keeps one URL for the whole file — without this, the session a test
+  // selects is restored into the NEXT test on mount.
+  window.history.replaceState(null, '', '/')
 
   vi.mocked(api.listSessions).mockResolvedValue([])
   vi.mocked(api.listTags).mockResolvedValue([])
@@ -461,5 +466,38 @@ describe('App: dialog ownership', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tags & rules' }))
     expect(screen.getByRole('heading', { name: 'Tags & rules' })).toBeInTheDocument()
     expect(screen.getByText(/AUTO-TAG RULES/)).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Deep links: the selection lives in the address bar (`lib/sessionUrl` covers
+// the sync itself; this is the wiring through the real App).
+// ---------------------------------------------------------------------------
+
+describe('App: session in the URL', () => {
+  it('reopens the session the URL names, after the initial load has landed', async () => {
+    const session = makeSession({ id: 'deep', title: 'Deep linked' })
+    vi.mocked(api.listSessions).mockResolvedValue([session])
+    window.history.replaceState(null, '', '/?session=deep')
+
+    await renderApp()
+
+    await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('deep'))
+    // The panel opens on it, and the URL is left exactly as it was found —
+    // the entry the user landed on, not a step they took.
+    expect(await screen.findByDisplayValue('Deep linked')).toBeInTheDocument()
+    expect(window.location.search).toBe('?session=deep')
+  })
+
+  it('puts a session picked on the map into the URL', async () => {
+    const session = makeSession({ id: 'picked', title: 'Picked' })
+    vi.mocked(api.listSessions).mockResolvedValue([session])
+    await renderApp()
+
+    await act(async () => {
+      await useOrbital.getState().select('picked')
+    })
+
+    expect(window.location.search).toBe('?session=picked')
   })
 })

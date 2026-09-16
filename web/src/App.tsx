@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useOrbital } from './store/store'
 import type { SessionEvent, SessionsEvent } from './store/store'
 import { OrbitalSocket, resolveWsUrl } from './lib/ws'
@@ -9,6 +9,7 @@ import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { Toasts } from './ui/Toasts'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
+import { useSessionUrl } from './lib/sessionUrl'
 
 /**
  * The app's single WebSocket connection, module-level so it's created once
@@ -44,9 +45,17 @@ export default function App() {
   const wsStatus = useOrbital((s) => s.ui.wsStatus)
 
   // Initial REST snapshot (sessions/tags/rules/settings) — once per mount.
+  // The flag gates `useSessionUrl`'s restore: `loadInitial` replaces the whole
+  // sessions map, so a session fetched by id before it lands would be dropped.
+  // Set on failure too — a restore against an empty store still works (it
+  // fetches the one session it needs), and a URL that silently stopped
+  // restoring after one bad request would be worse.
+  const [initialLoadSettled, setInitialLoadSettled] = useState(false)
   useEffect(() => {
-    void loadInitial()
+    void loadInitial().finally(() => setInitialLoadSettled(true))
   }, [loadInitial])
+
+  useSessionUrl(initialLoadSettled)
 
   // `sessions` topic feeds the sidebar/map for the app's whole lifetime.
   useEffect(() => {
