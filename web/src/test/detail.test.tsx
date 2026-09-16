@@ -195,12 +195,15 @@ describe('DetailPanel header', () => {
     expect(bar).toHaveAttribute('aria-valuenow', '5')
   })
 
-  it('keeps the usage grid in place with em-dash placeholders (and no progressbar) when a web session has no usage yet', async () => {
+  it('keeps the usage grid in place with em-dash placeholders, and shows the readout against the real denominator, when a web session has no usage yet', async () => {
     resetStore({
       // A fresh web session hasn't had a turn_result yet, but it CAN report
-      // usage eventually, and its model's window is known — so the block
-      // holds its place with dashes rather than vanishing.
-      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      // usage eventually. Giving it a model that matches a MODELS row (so
+      // contextWindowFor resolves a real number, not null) is the point of
+      // this test: this is the one place Orbital draws a denominator without
+      // having measured anything, so it is the last place a wrong number
+      // could still surface.
+      sessions: { a: makeSession({ id: 'a', source: 'web', model: 'sonnet' }) },
       models: MODELS,
       ui: { selectedId: 'a' },
     })
@@ -214,6 +217,9 @@ describe('DetailPanel header', () => {
     for (const label of ['INPUT', 'OUTPUT', 'CACHE READ']) {
       expect(within(grid as HTMLElement).getByText(label).nextElementSibling).toHaveTextContent('—')
     }
+    // The window IS known (sonnet -> 200k), so the readout renders — honestly
+    // unmeasured, not unknown.
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent('— / 200k ctx')
     // No value to report -> an empty track, not a progressbar claiming 0%.
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
@@ -439,8 +445,10 @@ describe('DetailPanel model chip', () => {
 
   it('names a terminal session from its resolved model, without a variant the context bar cannot back up', () => {
     // Only the variant-STRIPPED match here (`claude-opus-5` vs the row's
-    // `claude-opus-5[1m]`), so the context bar falls back to 200k — the chip
-    // must not claim 1M when the read-out right below it does not (F2).
+    // `claude-opus-5[1m]`), so contextWindowFor resolves null and no bar is
+    // drawn at all (moot in this case anyway, since a terminal session hides
+    // the whole usage block) — the chip must not claim 1M when there is no
+    // read-out to back it up (F2).
     renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5' }, models: MODELS })
     expect(screen.getByText('Opus 5')).toBeInTheDocument()
     expect(screen.queryByText('Opus 5 (1M)')).not.toBeInTheDocument()
