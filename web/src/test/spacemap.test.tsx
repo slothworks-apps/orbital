@@ -7,6 +7,7 @@ import { useSceneModel } from '../map/useSceneModel'
 import {
   applyPan,
   applyZoom,
+  centerOn,
   clampZoom,
   fitView,
   zoomAt,
@@ -34,6 +35,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     parentId: null,
     tagIds: [],
     status: 'idle',
+    subagents: [],
     ...overrides,
   }
 }
@@ -81,7 +83,6 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     models: [],
     settings: { map_ended_max_age_days: 'never' },
     transcripts: {},
-    subagents: {},
     usage: {},
     historyLoaded: {},
     transcriptErrors: {},
@@ -201,11 +202,9 @@ describe('buildSceneModel', () => {
   })
 
   it('produces a moon for every live subagent of a session, with the parent planet hue', () => {
-    const sessions = [makeSession({ id: 'a', tagIds: [1] })]
     const subagent = makeSubagent({ id: 'sub-1', state: 'working' })
-    const model = sceneModelAt(
-      withSessions(sessions, { subagents: { a: [subagent] } })
-    )
+    const sessions = [makeSession({ id: 'a', tagIds: [1], subagents: [subagent] })]
+    const model = sceneModelAt(withSessions(sessions))
 
     expect(model.moons).toHaveLength(1)
     expect(model.moons[0]).toMatchObject({
@@ -217,12 +216,11 @@ describe('buildSceneModel', () => {
   })
 
   it('gives multiple moons on the same planet distinct orbit radii and phases', () => {
-    const sessions = [makeSession({ id: 'a', tagIds: [1] })]
     const subagents = [
       makeSubagent({ id: 'sub-1' }),
       makeSubagent({ id: 'sub-2' }),
     ]
-    const model = sceneModelAt(withSessions(sessions, { subagents: { a: subagents } }))
+    const model = sceneModelAt(withSessions([makeSession({ id: 'a', tagIds: [1], subagents })]))
 
     expect(model.moons).toHaveLength(2)
     const [m1, m2] = model.moons
@@ -231,11 +229,10 @@ describe('buildSceneModel', () => {
   })
 
   it('drops ended subagents — moons exist only for LIVE subagents', () => {
-    const sessions = [makeSession({ id: 'a', tagIds: [1] })]
     const liveSubagent = makeSubagent({ id: 'sub-live', state: 'working' })
     const endedSubagent = makeSubagent({ id: 'sub-ended', state: 'ended' })
     const model = sceneModelAt(
-      withSessions(sessions, { subagents: { a: [liveSubagent, endedSubagent] } })
+      withSessions([makeSession({ id: 'a', tagIds: [1], subagents: [liveSubagent, endedSubagent] })])
     )
 
     expect(model.moons).toHaveLength(1)
@@ -244,9 +241,8 @@ describe('buildSceneModel', () => {
   })
 
   it('drops every moon when a session has only ended subagents', () => {
-    const sessions = [makeSession({ id: 'a', tagIds: [1] })]
     const model = sceneModelAt(
-      withSessions(sessions, { subagents: { a: [makeSubagent({ id: 'sub-1', state: 'ended' })] } })
+      withSessions([makeSession({ id: 'a', tagIds: [1], subagents: [makeSubagent({ id: 'sub-1', state: 'ended' })] })])
     )
 
     expect(model.moons).toHaveLength(0)
@@ -274,13 +270,15 @@ describe('buildSceneModel', () => {
     }
   })
 
-  it('produces no moons when the session referenced by state.subagents is not visible', () => {
-    const sessions = [makeSession({ id: 'a', tagIds: [2] })]
+  it('produces no moons for a session the filter hides, however many it is running', () => {
+    const sessions = [
+      makeSession({ id: 'a', tagIds: [1] }),
+      makeSession({ id: 'hidden', tagIds: [2], subagents: [makeSubagent({ id: 'sub-1' })] }),
+    ]
     const model = sceneModelAt(
-      withSessions(sessions, {
-        subagents: { ghost: [makeSubagent({ id: 'sub-1' })] },
-      })
+      withSessions(sessions, { ui: { ...defaultUi, filterTagId: 1 } })
     )
+    expect(model.planets.map((p) => p.session.id)).toEqual(['a'])
     expect(model.moons).toHaveLength(0)
   })
 
@@ -380,6 +378,51 @@ describe('buildSceneModel and hideEnded', () => {
   it('drops hidden planets from the cluster label count', () => {
     expect(sceneModelAt(withSessions(sessions)).labels[0].text).toBe('WORK · 3')
     expect(buildSceneModel(hidden, NOW).labels[0].text).toBe('WORK · 2')
+  })
+
+  // A label over nothing is exactly the clutter the toggle is pressed to
+  // remove — and unlike a planet, it is DOM text that would go on reading
+  // over empty space.
+  it('drops a cluster label whose every planet is suppressed', () => {
+    const allEnded = [
+      makeSession({ id: 'a', tagIds: [1], status: 'working' }),
+      makeSession({ id: 'b', tagIds: [2], status: 'ended' }),
+      makeSession({ id: 'c', tagIds: [2], status: 'ended' }),
+    ]
+    const shown = sceneModelAt(withSessions(allEnded))
+    expect(shown.labels.map((l) => l.text)).toEqual(['WORK · 1', 'PERSONAL · 2'])
+
+    const model = buildSceneModel(
+      withSessions(allEnded, { ui: { ...defaultUi, hideEnded: true } }),
+      NOW
+    )
+    expect(model.labels.map((l) => l.text)).toEqual(['WORK · 1'])
+    // The planets themselves stay, so they can fade rather than vanish.
+    expect(model.planets).toHaveLength(3)
+  })
+
+  it('anchors the label above the topmost planet still drawn, not above a hidden one', () => {
+    // Spiral index 1 is the one that lands highest, and the cluster is laid
+    // out in id order — so `b` is the cluster's topmost planet.
+    const topmostIsEnded = [
+      makeSession({ id: 'a', tagIds: [1], status: 'working' }),
+      makeSession({ id: 'b', tagIds: [1], status: 'ended' }),
+      makeSession({ id: 'c', tagIds: [1], status: 'working' }),
+    ]
+    const state = withSessions(topmostIsEnded)
+    const shown = buildSceneModel(state, NOW)
+    const hiddenModel = buildSceneModel(
+      withSessions(topmostIsEnded, { ui: { ...defaultUi, hideEnded: true } }),
+      NOW
+    )
+
+    const drawnTop = Math.max(
+      ...hiddenModel.planets.filter((p) => !p.hidden).map((p) => p.y)
+    )
+    const suppressedTop = Math.max(...shown.planets.map((p) => p.y))
+    // Only meaningful if the ended planet really is the cluster's topmost.
+    expect(suppressedTop).toBeGreaterThan(drawnTop)
+    expect(hiddenModel.labels[0].y).toBeLessThan(shown.labels[0].y)
   })
 
   // Canvas 2b: the ENDED number keeps counting; it is what you click to
@@ -530,6 +573,46 @@ describe('zoomFromWheel', () => {
   })
 })
 
+describe('centerOn', () => {
+  const VIEWPORT = { width: 1440, height: 900 }
+  /** The sidebar and detail panel, as `SpaceMap` measures them (1a/1b). */
+  const INSETS = { left: 340, right: 466 }
+
+  function worldToScreen(cam: CameraState, world: { x: number; y: number }) {
+    return {
+      x: VIEWPORT.width / 2 + (world.x - cam.x) * cam.zoom,
+      y: VIEWPORT.height / 2 - (world.y - cam.y) * cam.zoom,
+    }
+  }
+
+  it('lands the target in the middle of the strip between the panels, not of the viewport', () => {
+    const cam: CameraState = { x: 0, y: 0, zoom: 60 }
+    const target = { x: 12, y: -5 }
+
+    const screen = worldToScreen(centerOn(cam, target, INSETS), target)
+
+    expect(screen.x).toBeCloseTo(INSETS.left + (VIEWPORT.width - INSETS.left - INSETS.right) / 2, 10)
+    expect(screen.y).toBeCloseTo(VIEWPORT.height / 2, 10)
+  })
+
+  it('never touches the zoom — following a session moves the view, it does not reframe it', () => {
+    const cam: CameraState = { x: 3, y: 9, zoom: 137 }
+    expect(centerOn(cam, { x: -20, y: 4 }, INSETS).zoom).toBe(137)
+  })
+
+  it('offsets by fewer world units the further in you are zoomed', () => {
+    const target = { x: 0, y: 0 }
+    const near = centerOn({ x: 0, y: 0, zoom: 150 }, target, INSETS)
+    const far = centerOn({ x: 0, y: 0, zoom: 30 }, target, INSETS)
+    expect(Math.abs(near.x)).toBeLessThan(Math.abs(far.x))
+  })
+
+  it('centres on the viewport when nothing is covering it', () => {
+    const cam: CameraState = { x: 0, y: 0, zoom: 60 }
+    expect(centerOn(cam, { x: 7, y: 2 }, { left: 0, right: 0 })).toEqual({ x: 7, y: 2, zoom: 60 })
+  })
+})
+
 describe('zoomAt', () => {
   const VIEWPORT = { width: 1000, height: 600 }
 
@@ -605,7 +688,6 @@ describe('useSceneModel', () => {
       rules: [],
       settings: {},
       transcripts: {},
-      subagents: {},
       usage: {},
       historyLoaded: {},
       toast: null,

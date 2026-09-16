@@ -28,7 +28,9 @@ import {
   advanceTween,
   blendMoon,
   createMoonBlend,
+  advancePointTween,
   useHueTween,
+  usePointTween,
   useStateMix,
 } from './transition'
 import { glowTexture } from './textures'
@@ -186,6 +188,12 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: Mo
 
   const trailPoints = useMemo(() => circlePoints(orbitRadius, 64), [orbitRadius])
 
+  // A moon is positioned from its parent planet, so it has to walk the same
+  // path at the same pace — otherwise a retagged session leaves its moons
+  // behind and they snap across afterwards.
+  const parentMove = usePointTween(parentX, parentY)
+
+  const parentGroupRef = useRef<THREE.Group>(null)
   const bodyGroupRef = useRef<THREE.Group>(null!)
   const tickGroupRef = useRef<THREE.Group>(null!)
   const discGroupRef = useRef<THREE.Group>(null!)
@@ -259,6 +267,10 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: Mo
   }
 
   useFrame((_, delta) => {
+    if (advancePointTween(parentMove, delta) && parentGroupRef.current) {
+      parentGroupRef.current.position.set(parentMove.x.value, parentMove.y.value, 0)
+    }
+
     angle.current += (ORBIT_ANGULAR_SPEED / Math.max(orbitRadius, 0.01)) * delta
     const localX = orbitRadius * Math.cos(angle.current)
     const localY = orbitRadius * Math.sin(angle.current)
@@ -325,7 +337,8 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: Mo
   })
 
   return (
-    <group position={[parentX, parentY, 0]}>
+    // The tween's current value, NOT the props — see `usePointTween`.
+    <group ref={parentGroupRef} position={[parentMove.x.value, parentMove.y.value, 0]}>
       {/* Dashed orbit ring traced once around the parent planet's position (`1px dashed hue/.22` in 1f). */}
       <Line
         ref={trailRef}

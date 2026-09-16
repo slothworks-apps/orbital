@@ -71,7 +71,6 @@ function resetStore(
     models: [],
     settings: {},
     transcripts: {},
-    subagents: {},
     usage: {},
     historyLoaded: {},
     toast: null,

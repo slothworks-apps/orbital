@@ -132,7 +132,9 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
       const pos = positions.get(session.id)
       if (!pos) continue
 
-      const subagents = (state.subagents[session.id] ?? []).filter((a) => a.state !== 'ended')
+      // Straight off the session: the server keeps this current for every
+      // live session, so a moon no longer depends on the session being open.
+      const subagents = session.subagents.filter((a) => a.state !== 'ended')
 
       planets.push({
         session,
@@ -160,19 +162,26 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
     }
   }
 
-  const labels: SceneLabel[] = clusters.map((cluster) => {
-    const pos = clusterLabelPos(cluster, positions)
-    return {
+  const labels: SceneLabel[] = []
+  for (const cluster of clusters) {
+    // Counts what is drawn, not what the cluster holds — canvas 2a drops the
+    // label counts (`cWork: hid ? 2 : 3`) while the ENDED readout keeps its
+    // own count. A cluster of nothing but suppressed planets drops its label
+    // with them: `NAME · 0` hanging over empty space is the clutter the
+    // toggle was pressed to get rid of.
+    const shown = cluster.sessions.filter((s) => !isHidden(s))
+    if (shown.length === 0) continue
+    // Anchored above the topmost planet still on screen, not above a
+    // suppressed one — otherwise the label drifts off on its own.
+    const pos = clusterLabelPos({ ...cluster, sessions: shown }, positions)
+    labels.push({
       tagId: cluster.tagId,
-      // Counts what is drawn, not what the cluster holds — canvas 2a drops
-      // the label counts (`cWork: hid ? 2 : 3`) while the ENDED readout
-      // keeps its own count.
-      text: `${cluster.label.toUpperCase()} · ${cluster.sessions.filter((s) => !isHidden(s)).length}`,
+      text: `${cluster.label.toUpperCase()} · ${shown.length}`,
       x: pos.x,
       y: pos.y,
       hue: cluster.hue,
-    }
-  })
+    })
+  }
 
   return { planets, moons, labels, counts }
 }

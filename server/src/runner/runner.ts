@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
+import type { TranscriptEntry } from '../transcript/parser.js';
 
 /**
  * Sentinel for canvas 1h's "Never — only on Clear": no idle timer at all.
@@ -104,6 +105,7 @@ export class Runner {
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
   private onTurnUsage?: (modelUsage: unknown) => void;
   private onInit?: (sessionId: string, model: string | null) => void;
+  private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
 
   constructor(deps: {
     hub: Hub;
@@ -121,6 +123,12 @@ export class Runner {
     onTurnUsage?: (modelUsage: unknown) => void;
     /** Receives the resolved model a session actually started on (`system/init`). */
     onInit?: (sessionId: string, model: string | null) => void;
+    /**
+     * Every assistant/user message the SDK streams, in transcript-entry shape.
+     * The stream carries the session's `Task` blocks, so a web session's
+     * subagents are known continuously without anyone tailing its transcript.
+     */
+    onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -132,6 +140,7 @@ export class Runner {
     this.onStatus = deps.onStatus;
     this.onTurnUsage = deps.onTurnUsage;
     this.onInit = deps.onInit;
+    this.onEntries = deps.onEntries;
   }
 
   /**
@@ -302,6 +311,7 @@ export class Runner {
           continue;
         }
         if (msg.type === 'assistant' || msg.type === 'user') {
+          this.onEntries?.(sessionId, [msg as TranscriptEntry]);
           for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
             this.hub.publish(topic, { event: 'message', message: chat });
           }

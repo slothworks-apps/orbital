@@ -384,7 +384,9 @@ describe('Select', () => {
     // Portalled out of the render tree: a `backdrop-filter` panel would
     // otherwise trap it, and a scroll container would clip it.
     expect(container.contains(listbox)).toBe(false)
-    expect(listbox.parentElement).toBe(document.body)
+    // The listbox sits inside the popup's chrome (which also carries the
+    // optional footer), and that chrome is the direct child of <body>.
+    expect(listbox.parentElement?.parentElement).toBe(document.body)
 
     const options = screen.getAllByRole('option')
     expect(options.map((o) => o.getAttribute('data-label'))).toEqual(['Apple', 'Banana', 'Cherry'])
@@ -586,6 +588,57 @@ describe('Select', () => {
     // transparent is premultiplied, so 40% of the hue IS that hue at alpha .4.
     expect(el.style.borderColor).toMatch(/color-mix\(in oklab, oklch\(0?\.?8.* 40%, transparent\)/)
     expect(el.querySelector('span[aria-hidden]')).toHaveStyle({ background: 'oklch(80% 0.13 60)' })
+  })
+
+  // Canvas 1b's session-tag pill: filled with the hue, brightening while the
+  // menu is open, with a hint pinned under the options.
+  it('fills the tag trigger with the selected hue and brightens it while open', () => {
+    render(
+      <Select
+        variant="tag"
+        aria-label="Change tag"
+        options={[
+          { value: 1, label: 'work', dotColor: 'oklch(80% 0.13 210)' },
+          { value: 2, label: 'personal', dotColor: 'oklch(80% 0.13 330)' },
+        ]}
+        value={1}
+        onChange={vi.fn()}
+        footer="ONE TAG PER SESSION"
+      />
+    )
+
+    const el = screen.getByRole('combobox', { name: 'Change tag' })
+    expect(el).toHaveAttribute('data-variant', 'tag')
+    expect(el.style.borderColor).toMatch(/40%, transparent/)
+    expect(el.style.background).toMatch(/10%, transparent/)
+
+    fireEvent.click(el)
+    expect(el.style.borderColor).toMatch(/70%, transparent/)
+    expect(el.style.background).toMatch(/16%, transparent/)
+    // The chevron flips rather than staying put.
+    expect(el.querySelector('[data-caret]')?.className).toContain('rotate-180')
+  })
+
+  it('describes the tag trigger with the popup footer instead of faking an option', () => {
+    render(
+      <Select
+        variant="tag"
+        aria-label="Change tag"
+        options={[{ value: 1, label: 'work' }]}
+        value={1}
+        onChange={vi.fn()}
+        footer="ONE TAG PER SESSION"
+      />
+    )
+
+    const el = screen.getByRole('combobox', { name: 'Change tag' })
+    expect(el).not.toHaveAttribute('aria-describedby')
+
+    fireEvent.click(el)
+    const hint = screen.getByText('ONE TAG PER SESSION')
+    expect(el.getAttribute('aria-describedby')).toBe(hint.id)
+    // It is a description of the control, not something the user can pick.
+    expect(screen.getAllByRole('option')).toHaveLength(1)
   })
 
   it('is generic over the value type — numeric values round-trip without casts', () => {

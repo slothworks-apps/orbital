@@ -3,6 +3,7 @@ import type { OrbitalDb } from '../db/database.js';
 import type { Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '../types.js';
+import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
 
 /**
  * Minimal context `toApiSession` needs to compute the REST session shape.
@@ -14,6 +15,7 @@ export interface ShapeContext {
   db: OrbitalDb;
   registry: SessionRegistry;
   runner: Runner;
+  subagents: SubagentStore;
 }
 
 export interface ApiSession {
@@ -32,6 +34,8 @@ export interface ApiSession {
   parentId: string | null;
   tagIds: number[];
   status: SessionStatus;
+  /** Subagents running in this session right now; empty for everything else. */
+  subagents: SubagentInfo[];
 }
 
 export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
@@ -58,5 +62,6 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     parentId: row.parent_id,
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
+    subagents: ctx.subagents.get(row.id),
   };
 }

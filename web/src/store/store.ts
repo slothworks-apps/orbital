@@ -4,7 +4,6 @@ import type {
   ApiSession,
   ChatMessage,
   OrbitalModel,
-  Subagent,
   SessionSource,
   SessionStatus,
   Tag,
@@ -25,7 +24,6 @@ export type SessionsEvent =
 export type SessionEvent =
   | { event: 'message'; message: ChatMessage }
   | { event: 'status'; status: SessionStatus }
-  | { event: 'subagent'; subagent: Subagent }
   | { event: 'turn_result'; usage: unknown }
 
 export interface Toast {
@@ -45,6 +43,9 @@ export interface OrbitalUiState {
    * layout. The sidebar's HISTORY list ignores this entirely — hence the
    * "MAP ONLY · HISTORY LIST UNCHANGED" caption the artboard shows while it
    * is on.
+   *
+   * Persisted as the `map_hide_ended` setting — it survives a reload, and
+   * `loadInitial` seeds this from the server.
    */
   hideEnded: boolean
   wsStatus: string
@@ -61,7 +62,6 @@ export interface OrbitalState {
   models: OrbitalModel[]
   settings: Record<string, string>
   transcripts: Record<string, ChatMessage[]>
-  subagents: Record<string, Subagent[]>
   usage: Record<string, unknown>
   /** Tracks which sessions have had their initial message history fetched, so
    * `select()` only ever fetches once per session regardless of how many
@@ -147,7 +147,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   models: [],
   settings: {},
   transcripts: {},
-  subagents: {},
   usage: {},
   historyLoaded: {},
   transcriptErrors: {},
@@ -170,14 +169,18 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       sessionsMap[session.id] = session
     }
 
-    set({
+    set((state) => ({
       sessions: sessionsMap,
       order: sortIdsByLastAtDesc(sessionsMap),
       tags,
       rules,
       settings,
       models,
-    })
+      // Seeded, not defaulted: the ENDED toggle is the one `ui` field the
+      // server owns a value for, and reading it here is what makes the
+      // toggle survive a reload.
+      ui: { ...state.ui, hideEnded: settings.map_hide_ended === 'true' },
+    }))
   },
 
   applySessionsEvent(msg) {
@@ -284,17 +287,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } }
           : {}),
       })
-      return
-    }
-
-    if (msg.event === 'subagent') {
-      const existing = state.subagents[sessionId] ?? []
-      const idx = existing.findIndex((a) => a.id === msg.subagent.id)
-      const updated =
-        idx >= 0
-          ? existing.map((a, i) => (i === idx ? msg.subagent : a))
-          : [...existing, msg.subagent]
-      set({ subagents: { ...state.subagents, [sessionId]: updated } })
       return
     }
 
@@ -411,8 +403,28 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     set((state) => ({ ui: { ...state.ui, sourceFilter } }))
   },
 
+  /**
+   * Flips the map's ENDED suppression and saves it. Optimistic on purpose:
+   * the flip drives a half-second fade on every ended planet, and waiting
+   * for a round trip before starting it would make the button feel stuck.
+   * A failed save puts the toggle back rather than leaving the map showing
+   * a preference the server never took.
+   */
   setHideEnded(hideEnded) {
-    set((state) => ({ ui: { ...state.ui, hideEnded } }))
+    const previous = get().ui.hideEnded
+    if (previous === hideEnded) return
+    set((state) => ({
+      ui: { ...state.ui, hideEnded },
+      settings: { ...state.settings, map_hide_ended: String(hideEnded) },
+    }))
+    api.patchSettings({ map_hide_ended: String(hideEnded) }).catch((err) => {
+      const message = err instanceof Error ? err.message : 'Failed to save the ENDED toggle'
+      set((state) => ({
+        ui: { ...state.ui, hideEnded: previous },
+        settings: { ...state.settings, map_hide_ended: String(previous) },
+        toast: { kind: 'error', message },
+      }))
+    })
   },
 
   setDialog(dialog) {

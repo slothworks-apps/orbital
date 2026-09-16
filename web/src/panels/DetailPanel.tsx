@@ -18,6 +18,7 @@ import {
 } from '../ui/motion'
 import { Badge } from '../ui/Badge'
 import { Chip } from '../ui/Chip'
+import { Select } from '../ui/Select'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Transcript } from './Transcript'
@@ -29,13 +30,18 @@ import { contextWindowFor, DEFAULT_CONTEXT_WINDOW } from '../lib/models'
 import { tagColor } from '../lib/types'
 import type { ApiSession, Tag } from '../lib/types'
 
-/** First tag's hue, falling back to the default tag — mirrors the sidebar/map. */
-function sidebarHue(session: ApiSession, tags: Tag[]): number | undefined {
+/**
+ * The one tag the session wears — first resolvable id, falling back to the
+ * default tag. `tagIds` stays an array because that is the wire shape, but a
+ * session carries a single tag (canvas 1b); see the sidebar and the map,
+ * which pick their hue the same way.
+ */
+function primaryTag(session: ApiSession, tags: Tag[]): Tag | undefined {
   for (const tagId of session.tagIds) {
     const tag = tags.find((t) => t.id === tagId)
-    if (tag) return tag.hue
+    if (tag) return tag
   }
-  return tags.find((t) => t.is_default === 1)?.hue
+  return tags.find((t) => t.is_default === 1)
 }
 
 /** Hue the panel's accents fall back to when the session has no tag — the
@@ -115,7 +121,9 @@ export function DetailPanel() {
   const session = useOrbital((s) => (id ? s.sessions[id] : undefined))
   const tags = useOrbital(useShallow((s) => s.tags))
   const usage = useOrbital((s) => (id ? s.usage[id] : undefined))
-  const subagents = useOrbital(useShallow((s) => (id ? (s.subagents[id] ?? []) : [])))
+  // Off the session itself, like the map's moons — the server keeps it current
+  // for every session, not just the open one.
+  const subagents = useOrbital(useShallow((s) => (id ? (s.sessions[id]?.subagents ?? []) : [])))
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
   const dialog = useOrbital((s) => s.ui.dialog)
@@ -199,12 +207,16 @@ export function DetailPanel() {
     })
   }
 
-  function toggleTag(tagId: number) {
+  /**
+   * A session wears exactly one tag (canvas 1b), so picking replaces rather
+   * than adds: the PUT carries a single id, which the server turns into one
+   * manual row and a `manual_removed` row for every rule tag it displaces.
+   */
+  function selectTag(tagId: number) {
     if (!id || !session) return
     const previousTagIds = session.tagIds
-    const nextIds = previousTagIds.includes(tagId)
-      ? previousTagIds.filter((t) => t !== tagId)
-      : [...previousTagIds, tagId]
+    if (previousTagIds.length === 1 && previousTagIds[0] === tagId) return
+    const nextIds = [tagId]
     useOrbital.setState((state) => {
       const current = state.sessions[id]
       if (!current) return state
@@ -216,7 +228,7 @@ export function DetailPanel() {
         if (!current) return state
         return { sessions: { ...state.sessions, [id]: { ...current, tagIds: previousTagIds } } }
       })
-      reportError(err, 'Failed to update tags')
+      reportError(err, 'Failed to change the session tag')
     })
   }
 
@@ -256,7 +268,8 @@ export function DetailPanel() {
   const isTerminalLive = session?.source === 'terminal' && session.status !== 'ended'
   const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
 
-  const headerHue = session ? sidebarHue(session, tags) : undefined
+  const sessionTag = session ? primaryTag(session, tags) : undefined
+  const headerHue = sessionTag?.hue
   const accent = tagColor(headerHue ?? ACCENT_HUE)
   const accentSoft = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.6)`
 
@@ -353,21 +366,23 @@ export function DetailPanel() {
 
         {session && (
           <>
-            {/* Tags left, permission/status chips pushed right (1b: one wrapping
-                row, 6px gap, 14px below the title block). */}
+            {/* Tag dropdown left, permission/status chips pushed right (1b:
+                one wrapping row, 6px gap, 14px below the title block). */}
             <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
-              {tags.length > 0 && (
-                <span className="contents" role="group" aria-label="Tags">
-                  {tags.map((tag) => (
-                    <Chip
-                      key={tag.id}
-                      label={tag.name}
-                      hue={tag.hue}
-                      active={session.tagIds.includes(tag.id)}
-                      onClick={() => toggleTag(tag.id)}
-                    />
-                  ))}
-                </span>
+              {sessionTag && (
+                <Select
+                  variant="tag"
+                  font="sans"
+                  aria-label="Change tag"
+                  value={sessionTag.id}
+                  options={tags.map((tag) => ({
+                    value: tag.id,
+                    label: tag.name,
+                    dotColor: tagColor(tag.hue),
+                  }))}
+                  onChange={selectTag}
+                  footer="ONE TAG PER SESSION · SETS PLANET HUE"
+                />
               )}
               <span aria-hidden className="flex-1" />
               {(session.model || session.resolvedModel || models.length > 0) && (

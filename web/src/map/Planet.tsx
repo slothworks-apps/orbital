@@ -19,6 +19,7 @@ import {
   RETICLE_ENTER_MS,
   RETICLE_EXIT_MS,
   STATE_TRANSITION_MS,
+  advancePointTween,
   advanceStateMix,
   advanceTween,
   blendPlanet,
@@ -30,6 +31,7 @@ import {
   useFadeTween,
   useHueTween,
   useLingering,
+  usePointTween,
   useStateMix,
 } from './transition'
 import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
@@ -563,6 +565,9 @@ export function Planet({
 }: PlanetProps) {
   const mix = useStateMix(PLANET_STATES, session.status)
   const hueTween = useHueTween(hue)
+  // Retagging moves the session into another cluster and renumbers both
+  // spirals, so the planet walks there rather than cutting.
+  const move = usePointTween(x, y)
   const reticleFade = useFadeTween(selected, RETICLE_ENTER_MS, RETICLE_EXIT_MS)
   // 1 shown, 0 suppressed. Symmetric durations: the artboard transitions
   // opacity and transform over .5s in both directions.
@@ -579,6 +584,14 @@ export function Planet({
   // needs-input dissolve instead of being yanked out of the tree by React.
   const reticleMounted = useLingering(selected, RETICLE_EXIT_MS)
   const badgeMounted = useLingering(session.status === 'needs_input', STATE_TRANSITION_MS)
+  /**
+   * A suppressed planet's title has to LEAVE the document, not just turn
+   * invisible: `<Html>` portals its content into a plain DOM overlay that the
+   * group's `visible = false` never reaches, so hiding the ended planets used
+   * to leave their titles floating over empty space. Held through the fade so
+   * the text goes with the planet rather than vanishing a beat early.
+   */
+  const labelMounted = useLingering(!hidden, ENDED_HIDE_MS)
   const reduced = prefersReducedMotion()
 
   /**
@@ -597,6 +610,7 @@ export function Planet({
   const reticleRingRef = useRef<LineHandle | null>(null)
   const bracketRefs = useRef<(LineHandle | null)[]>([])
   const badgeRef = useRef<HTMLSpanElement | null>(null)
+  const labelRef = useRef<HTMLSpanElement | null>(null)
   const labelGroupRef = useRef<THREE.Group>(null)
   const rippleElapsed = useRef(0)
   /**
@@ -686,6 +700,11 @@ export function Planet({
     if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
 
     if (badgeRef.current) badgeRef.current.style.opacity = String(w.needs_input * fade)
+    // The label is plain DOM: `group.visible = false` hides the meshes under
+    // it but says nothing about a portalled `<Html>`, so the fade has to be
+    // written onto the span itself (and the span unmounted once it is out —
+    // see `labelMounted`).
+    if (labelRef.current) labelRef.current.style.opacity = String(fade)
   }
 
   useFrame((state, delta) => {
@@ -699,6 +718,11 @@ export function Planet({
     // a state change would keep their pre-fade alpha.
     if (mixMoved || hueMoved || hideMoved || !settled.current) applyState()
     settled.current = !(mixMoved || hueMoved || hideMoved)
+
+    if (advancePointTween(move, delta) && groupRef.current) {
+      groupRef.current.position.x = move.x.value
+      groupRef.current.position.y = move.y.value
+    }
 
     const hide = endedHideTransform(hideFade.value)
     if (groupRef.current) {
@@ -767,7 +791,8 @@ export function Planet({
   return (
     <group
       ref={groupRef}
-      position={[x, y, 0]}
+      // The tween's current value, NOT `x`/`y` — see `usePointTween`.
+      position={[move.x.value, move.y.value, 0]}
       scale={scale}
       onClick={onClick ? handleClick : undefined}
     >
@@ -851,71 +876,81 @@ export function Planet({
 
       {badgeMounted && <NeedsInputBadge innerRef={badgeRef} />}
 
-      <group ref={labelGroupRef} position={[0, LABEL_TOP_REST_Y, 0]}>
-        <Html zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
-          {/* All three of display/width/transform below are load-bearing.
-              `transform` does not apply to an inline box, and the shift is
-              what centres the label under the planet (the anchor is its
-              top-LEFT corner). `block` rather than `inline-block` because an
-              inline-block sits on a line box and gets baseline-aligned
-              against the wrapper's strut — measured at ~6px of leading
-              pushing the label off its anchor. A block box has no line box
-              above it and starts exactly at the anchor; `max-content` keeps
-              it shrink-to-fit so the -50% is half the text, not half the
-              wrapper. This trio must stay on this OUTER span only — moving
-              it to (or duplicating it onto) either child un-centres the
-              label. */}
-          <span
-            style={{
-              display: 'block',
-              width: 'max-content',
-              transform: 'translateX(-50%)',
-            }}
-          >
+      {labelMounted && (
+        <group ref={labelGroupRef} position={[0, LABEL_TOP_REST_Y, 0]}>
+          <Html zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+            {/* All three of display/width/transform below are load-bearing.
+                `transform` does not apply to an inline box, and the shift is
+                what centres the label under the planet (the anchor is its
+                top-LEFT corner). `block` rather than `inline-block` because an
+                inline-block sits on a line box and gets baseline-aligned
+                against the wrapper's strut — measured at ~6px of leading
+                pushing the label off its anchor. A block box has no line box
+                above it and starts exactly at the anchor; `max-content` keeps
+                it shrink-to-fit so the -50% is half the text, not half the
+                wrapper. This trio must stay on this OUTER span only — moving
+                it to (or duplicating it onto) either child un-centres the
+                label. */}
             <span
+              // The per-frame fade is written straight onto this node, so it
+              // has to be the outer one: the title and the family line fade as
+              // a single label, not as two that can drift apart.
+              ref={labelRef}
               style={{
                 display: 'block',
-                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                fontSize: 11,
-                letterSpacing: '0.06em',
-                color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
-                // The label is plain DOM, so its half of the state change is a
-                // CSS transition on the same curve — dropped entirely under
-                // reduced motion, which an inline style cannot express as a
-                // media query.
-                transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
-                whiteSpace: 'nowrap',
+                width: 'max-content',
+                transform: 'translateX(-50%)',
+                // Where the fade stands right now, so a label that mounts mid
+                // transition starts from it instead of flashing at full
+                // opacity for the frame before `applyState` runs.
+                opacity: hideFade.value,
               }}
             >
-              {truncateLabel(session.title)}
-            </span>
-            {modelFamily && (
-              // canvas 4a, "Map label, second line under the planet title":
-              // mono 9.5px / .1em tracking, 5px below the title.
               <span
                 style={{
                   display: 'block',
-                  marginTop: 5,
-                  textAlign: 'center',
                   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                  fontSize: 9.5,
-                  letterSpacing: '0.1em',
-                  // The canvas value while live; falls to the same dimmed
-                  // value as the title once ended, so the family line stops
-                  // competing rather than out-shining the name above it.
-                  color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_MODEL_COLOR,
-                  // Same curve as the title's color transition, so the two
-                  // lines dim together rather than the family snapping.
+                  fontSize: 11,
+                  letterSpacing: '0.06em',
+                  color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
+                  // The label is plain DOM, so its half of the state change is a
+                  // CSS transition on the same curve — dropped entirely under
+                  // reduced motion, which an inline style cannot express as a
+                  // media query.
                   transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
                   whiteSpace: 'nowrap',
                 }}
               >
-                {modelFamily.toUpperCase()}
+                {truncateLabel(session.title)}
               </span>
-            )}
-          </span>
-        </Html>
-      </group>
+              {modelFamily && (
+                // canvas 4a, "Map label, second line under the planet title":
+                // mono 9.5px / .1em tracking, 5px below the title.
+                <span
+                  style={{
+                    display: 'block',
+                    marginTop: 5,
+                    textAlign: 'center',
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: 9.5,
+                    letterSpacing: '0.1em',
+                    // The canvas value while live; falls to the same dimmed
+                    // value as the title once ended, so the family line stops
+                    // competing rather than out-shining the name above it.
+                    color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_MODEL_COLOR,
+                    // Same curve as the title's color transition, so the two
+                    // lines dim together rather than the family snapping.
+                    transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {modelFamily.toUpperCase()}
+                </span>
+              )}
+            </span>
+          </Html>
+        </group>
+      )}
     </group>
   )
 }

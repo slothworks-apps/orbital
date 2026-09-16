@@ -58,6 +58,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     parentId: null,
     tagIds: [],
     status: 'idle',
+    subagents: [],
     ...overrides,
   }
 }
@@ -98,7 +99,6 @@ function resetStore(
     settings: {},
     models: [],
     transcripts: {},
-    subagents: {},
     usage: {},
     historyLoaded: {},
     toast: null,
@@ -303,7 +303,28 @@ describe('DetailPanel header', () => {
     expect(promptBox).toHaveValue('a prompt in progress')
   })
 
-  it('toggles tag membership on click, updating the store optimistically and calling setSessionTags', async () => {
+  // 1b: the tag row is a dropdown, not a row of toggles — a session wears
+  // one tag, so picking REPLACES rather than adds.
+  it('shows the session tag as a dropdown listing every tag, the current one checked', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', tagIds: [1] }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+
+    const trigger = screen.getByRole('combobox', { name: 'Change tag' })
+    expect(trigger).toHaveTextContent('work')
+    await user.click(trigger)
+
+    const options = screen.getAllByRole('option')
+    expect(options.map((o) => o.getAttribute('data-label'))).toEqual(['work', 'personal'])
+    expect(options[0]).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('ONE TAG PER SESSION · SETS PLANET HUE')).toBeInTheDocument()
+  })
+
+  it('replaces the tag when another is picked, updating the store optimistically and calling setSessionTags', async () => {
     const user = userEvent.setup()
     vi.mocked(api.setSessionTags).mockResolvedValue({ ok: true })
     resetStore({
@@ -313,18 +334,14 @@ describe('DetailPanel header', () => {
 
     render(<DetailPanel />)
 
-    // 'work' (id 1) is already active -> click removes it.
-    await user.click(screen.getByRole('button', { name: 'work' }))
-    expect(api.setSessionTags).toHaveBeenCalledWith('a', [])
-    expect(useOrbital.getState().sessions.a.tagIds).toEqual([])
+    await user.click(screen.getByRole('combobox', { name: 'Change tag' }))
+    await user.click(screen.getByRole('option', { name: /personal/ }))
 
-    // 'personal' (id 2) is inactive -> click adds it.
-    await user.click(screen.getByRole('button', { name: 'personal' }))
     expect(api.setSessionTags).toHaveBeenCalledWith('a', [2])
     expect(useOrbital.getState().sessions.a.tagIds).toEqual([2])
   })
 
-  it('rolls back the optimistic tag toggle and shows a toast when setSessionTags rejects', async () => {
+  it('rolls back the optimistic tag change and shows a toast when setSessionTags rejects', async () => {
     const user = userEvent.setup()
     vi.mocked(api.setSessionTags).mockRejectedValue(new Error('tags server down'))
     resetStore({
@@ -333,7 +350,8 @@ describe('DetailPanel header', () => {
     })
 
     render(<DetailPanel />)
-    await user.click(screen.getByRole('button', { name: 'work' }))
+    await user.click(screen.getByRole('combobox', { name: 'Change tag' }))
+    await user.click(screen.getByRole('option', { name: /personal/ }))
 
     await waitFor(() => expect(useOrbital.getState().sessions.a.tagIds).toEqual([1]))
     expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'tags server down' })
@@ -341,8 +359,12 @@ describe('DetailPanel header', () => {
 
   it('shows a subagents strip with name and state when any are present', async () => {
     resetStore({
-      sessions: { a: makeSession({ id: 'a' }) },
-      subagents: { a: [{ id: 's1', name: 'researcher', state: 'working' }] },
+      sessions: {
+        a: makeSession({
+          id: 'a',
+          subagents: [{ id: 's1', name: 'researcher', state: 'working' }],
+        }),
+      },
       ui: { selectedId: 'a' },
     })
 

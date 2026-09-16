@@ -24,12 +24,15 @@ import {
   RETICLE_ENTER_MS,
   RETICLE_EXIT_MS,
   STATE_TRANSITION_MS,
+  BODY_MOVE_MS,
+  advancePointTween,
   advanceStateMix,
   advanceTween,
   blendMoon,
   blendPlanet,
   createMoonBlend,
   createPlanetBlend,
+  createPointTween,
   createStateMix,
   createTween,
   endedHideTransform,
@@ -37,6 +40,7 @@ import {
   ENDED_HIDE_MS,
   easeMotion,
   retargetHueTween,
+  retargetPointTween,
   retargetStateMix,
   retargetTween,
   shortestHueDelta,
@@ -648,6 +652,63 @@ describe('hue transitions', () => {
     advanceTween(tw, 0.016)
     expect(tw.value).toBeCloseTo(330, 12)
     expect(tw.active).toBe(false)
+  })
+})
+
+describe('body migration', () => {
+  // Retagging moves a session into another cluster; it should walk there.
+  it('is slower than a state change, because it crosses the map', () => {
+    expect(BODY_MOVE_MS).toBeGreaterThan(STATE_TRANSITION_MS)
+  })
+
+  it('eases both axes together and lands exactly on the new position', () => {
+    const pt = createPointTween(0, 0, BODY_MOVE_MS)
+    retargetPointTween(pt, 10, -4)
+
+    expect(advancePointTween(pt, BODY_MOVE_MS / 2 / 1000)).toBe(true)
+    expect(pt.x.value).toBeGreaterThan(0)
+    expect(pt.x.value).toBeLessThan(10)
+    expect(pt.y.value).toBeLessThan(0)
+    expect(pt.y.value).toBeGreaterThan(-4)
+    // Same duration and curve on both axes: the body travels in a straight
+    // line, so progress along each axis stays in the same proportion.
+    expect(pt.x.value / 10).toBeCloseTo(pt.y.value / -4, 12)
+
+    advancePointTween(pt, BODY_MOVE_MS / 1000)
+    expect(pt.x.value).toBe(10)
+    expect(pt.y.value).toBe(-4)
+    expect(advancePointTween(pt, 0.016)).toBe(false)
+  })
+
+  it('retagging again mid-walk continues from where the body is, not from where it set off', () => {
+    const pt = createPointTween(0, 0, BODY_MOVE_MS)
+    retargetPointTween(pt, 10, 10)
+    advancePointTween(pt, BODY_MOVE_MS / 4 / 1000)
+    const partway = { x: pt.x.value, y: pt.y.value }
+    expect(partway.x).toBeGreaterThan(0)
+
+    retargetPointTween(pt, -6, 2)
+    expect(pt.x.from).toBe(partway.x)
+    expect(pt.y.from).toBe(partway.y)
+  })
+
+  it('reduced motion puts the body straight down in its new place', () => {
+    const pt = createPointTween(0, 0, BODY_MOVE_MS)
+    retargetPointTween(pt, 10, -4, true)
+    advancePointTween(pt, 0.016)
+    expect(pt.x.value).toBe(10)
+    expect(pt.y.value).toBe(-4)
+    expect(pt.x.active).toBe(false)
+    expect(pt.y.active).toBe(false)
+  })
+
+  it('advances the axis that is still moving even after the other has settled', () => {
+    const pt = createPointTween(0, 0, BODY_MOVE_MS)
+    // x is already where it needs to be, so only y has anywhere to go.
+    retargetPointTween(pt, 0, 10)
+    expect(pt.x.active).toBe(false)
+    expect(advancePointTween(pt, BODY_MOVE_MS / 2 / 1000)).toBe(true)
+    expect(pt.y.value).toBeGreaterThan(0)
   })
 })
 

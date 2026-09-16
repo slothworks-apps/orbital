@@ -20,7 +20,7 @@ const MODELS: OrbitalModel[] = [
 const session = (over: Partial<ApiSession>): ApiSession => ({
   id: 's', cwd: '/w', title: 't', firstAt: null, lastAt: null, messageCount: 0,
   source: 'web', permissionMode: null, model: null, resolvedModel: null,
-  parentId: null, tagIds: [], status: 'ended', ...over,
+  parentId: null, tagIds: [], status: 'ended', subagents: [], ...over,
 })
 
 describe('matchModel', () => {
@@ -107,7 +107,7 @@ describe('isExactModelMatch', () => {
   const session = (over: Partial<ApiSession>): ApiSession => ({
     id: 's', cwd: '/w', title: 't', firstAt: null, lastAt: null, messageCount: 0,
     source: 'web', permissionMode: null, model: null, resolvedModel: null,
-    parentId: null, tagIds: [], status: 'ended', ...over,
+    parentId: null, tagIds: [], status: 'ended', subagents: [], ...over,
   })
 
   it('is exact when the session names the row by its requested value', () => {

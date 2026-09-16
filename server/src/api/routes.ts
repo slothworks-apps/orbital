@@ -19,6 +19,7 @@ import { parseIdleTimeoutMs, type Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
+import type { SubagentStore } from '../transcript/subagents.js';
 import type { PermissionMode, SessionRow, TagRule } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 
@@ -29,6 +30,7 @@ export interface RouteContext {
   projectsDir: string;
   hub: Hub;
   models: ModelCatalog;
+  subagents: SubagentStore;
   settings: { get(key: string): string; set(key: string, value: string): void };
 }
 

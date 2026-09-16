@@ -126,6 +126,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     parentId: null,
     tagIds: [],
     status: 'idle',
+    subagents: [],
     ...overrides,
   }
 }
@@ -151,7 +152,6 @@ function resetStore(
     rules: [rule1, rule2],
     settings: {},
     transcripts: {},
-    subagents: {},
     usage: {},
     historyLoaded: {},
     toast: null,
