@@ -47,6 +47,20 @@ const IDLE_OPTIONS: Array<{ value: string; label: string }> = [
 ]
 
 /**
+ * How long an ended session keeps being drawn on the map. Distinct from the
+ * idle preset above: that one ENDS a running web session, this one only
+ * stops drawing an already-ended one. `never` means no age cutoff — the
+ * sentinel `endedMaxAgeMs` (`store/store.ts`) reads.
+ */
+const ENDED_AGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '1', label: '1 day' },
+  { value: '7', label: '7 days' },
+  { value: '14', label: '14 days' },
+  { value: '30', label: '30 days' },
+  { value: 'never', label: 'Never — keep drawing them' },
+]
+
+/**
  * The nav, in canvas order. Two sections are live: "Sessions" (1h) and
  * "Tags & rules" (1e) — 1e is the same dialog with the 4th row selected, not
  * a screen of its own, which is why it is a section here rather than a link.
@@ -174,6 +188,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const inheritTags = settings.inherit_tags !== 'false'
   const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
   const endedAfterIdle = settings.ended_after_idle_minutes ?? '30'
+  const mapEndedMaxAge = settings.map_ended_max_age_days ?? '1'
   // Canvas 1h prints a second version line. The server resolves the bundled
   // Claude Code CLI version at boot into `claude_code_version`; when it can't
   // (no SDK/manifest) the key stays absent and this row stays hidden.
@@ -434,6 +449,20 @@ export function Settings({ open, onClose }: SettingsProps) {
                 options={IDLE_OPTIONS}
                 value={endedAfterIdle}
                 onChange={(next) => void patchAndSet({ ended_after_idle_minutes: next })}
+                className="w-[200px]"
+              />
+            </Row>
+            <Row
+              title="Stop drawing ended sessions after"
+              desc="Older history stays in the sidebar and in search — it just leaves the map."
+            >
+              <Select
+                id="settings-map-ended-age"
+                aria-label="Stop drawing ended sessions after"
+                font="sans"
+                options={ENDED_AGE_OPTIONS}
+                value={mapEndedMaxAge}
+                onChange={(next) => void patchAndSet({ map_ended_max_age_days: next })}
                 className="w-[200px]"
               />
             </Row>

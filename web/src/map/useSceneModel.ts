@@ -1,6 +1,14 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useOrbital } from '../store/store'
 import { buildSceneModel, type SceneModel } from './sceneModel'
+
+/**
+ * How often the clock behind the `ended` age cutoff is re-read. The cutoff
+ * is configured in days, so a minute of lag before a session crosses it is
+ * imperceptible — and this interval is the only thing standing between a
+ * pure scene model and a `Date.now()` call inside it.
+ */
+const CLOCK_TICK_MS = 60_000
 
 /**
  * `<SpaceMap>`'s scene-model subscription. Deliberately NOT
@@ -36,37 +44,64 @@ export function useSceneModel(): SceneModel {
   const filterTagId = useOrbital((s) => s.ui.filterTagId)
   const search = useOrbital((s) => s.ui.search)
   const sourceFilter = useOrbital((s) => s.ui.sourceFilter)
+  const hideEnded = useOrbital((s) => s.ui.hideEnded)
+  const settings = useOrbital((s) => s.settings)
+
+  // The one impure input, kept in one place. Seeded once on mount and
+  // advanced on a slow tick so a session ageing past the cutoff eventually
+  // drops off the map without the model itself reading a clock.
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), CLOCK_TICK_MS)
+    return () => clearInterval(timer)
+  }, [])
 
   return useMemo(
     () =>
       // `buildSceneModel` takes a full `OrbitalState` (so it can reuse
-      // `visibleSessions`/`statusCounts` unmodified), but only ever reads
-      // the 8 fields selected above. The rest are inert filler to satisfy
-      // the type — if `buildSceneModel` (or the store selectors it calls)
+      // `mapSessions`/`statusCounts` unmodified), but only ever reads the
+      // 10 fields selected above. The rest are inert filler to satisfy the
+      // type — if `buildSceneModel` (or the store selectors it calls)
       // starts reading one of them, it must be added to both this object
       // and the `useMemo` dependency array above.
-      buildSceneModel({
-        sessions,
-        order,
-        tags,
-        rules: [],
-        settings: {},
-        transcripts: {},
-        subagents,
-        usage: {},
-        historyLoaded: {},
-        transcriptErrors: {},
-        toast: null,
-        ui: {
-          selectedId,
-          filterTagId,
-          search,
-          sourceFilter,
-          wsStatus: '',
-          dialog: null,
-          sidebarCollapsed: false,
+      buildSceneModel(
+        {
+          sessions,
+          order,
+          tags,
+          rules: [],
+          settings,
+          transcripts: {},
+          subagents,
+          usage: {},
+          historyLoaded: {},
+          transcriptErrors: {},
+          toast: null,
+          ui: {
+            selectedId,
+            filterTagId,
+            search,
+            sourceFilter,
+            hideEnded,
+            wsStatus: '',
+            dialog: null,
+            sidebarCollapsed: false,
+          },
         },
-      }),
-    [sessions, order, tags, subagents, selectedId, filterTagId, search, sourceFilter]
+        nowMs
+      ),
+    [
+      sessions,
+      order,
+      tags,
+      subagents,
+      settings,
+      selectedId,
+      filterTagId,
+      search,
+      sourceFilter,
+      hideEnded,
+      nowMs,
+    ]
   )
 }

@@ -50,6 +50,12 @@ function chooseIdle(label: string | RegExp): void {
   openIdleSelect()
   fireEvent.click(screen.getByRole('option', { name: label }))
 }
+
+/** Same portalled-listbox dance for the map's ended-age cutoff. */
+function chooseEndedAge(label: string | RegExp): void {
+  fireEvent.click(screen.getByRole('combobox', { name: /stop drawing ended sessions after/i }))
+  fireEvent.click(screen.getByRole('option', { name: label }))
+}
 import { Settings } from '../panels/Settings'
 
 const defaultUi: OrbitalUiState = {
@@ -57,6 +63,7 @@ const defaultUi: OrbitalUiState = {
   filterTagId: 'all',
   search: '',
   sourceFilter: 'all',
+  hideEnded: false,
   wsStatus: 'connected',
   dialog: 'settings',
   sidebarCollapsed: false,
@@ -185,6 +192,29 @@ describe('Settings', () => {
       expect(api.patchSettings).toHaveBeenCalledWith({ ended_after_idle_minutes: '60' })
     )
     expect(useOrbital.getState().settings.ended_after_idle_minutes).toBe('60')
+  })
+
+  it('patches the map ended-age cutoff', async () => {
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+
+    chooseEndedAge('7 days')
+
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ map_ended_max_age_days: '7' })
+    )
+    expect(useOrbital.getState().settings.map_ended_max_age_days).toBe('7')
+  })
+
+  it('offers "Never" for the ended-age cutoff, which turns the age filter off', async () => {
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+
+    chooseEndedAge(/never/i)
+
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ map_ended_max_age_days: 'never' })
+    )
   })
 
   it('does not update the store when patchSettings rejects', async () => {

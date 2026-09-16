@@ -45,9 +45,24 @@ const defaultUi: OrbitalUiState = {
   filterTagId: 'all',
   search: '',
   sourceFilter: 'all',
+  hideEnded: false,
   wsStatus: 'connected',
   dialog: null,
   sidebarCollapsed: false,
+}
+
+/** Fixed clock for the ended-age cutoff — never Date.now(), the model is pure. */
+const NOW = 1_800_000_000_000
+const DAY = 86_400_000
+
+/**
+ * `buildSceneModel` at a fixed clock. Most tests here predate the ended-age
+ * cutoff and carry a 1970 `lastAt`; `makeState` opts them out of it with the
+ * "never" preset, so they keep asserting what they were written to assert.
+ * Tests about the cutoff itself call `buildSceneModel` directly.
+ */
+function sceneModelAt(state: OrbitalState, nowMs: number = NOW): SceneModel {
+  return buildSceneModel(state, nowMs)
 }
 
 function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
@@ -56,7 +71,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     order: [],
     tags: [workTag, personalTag, defaultTag],
     rules: [],
-    settings: {},
+    settings: { map_ended_max_age_days: 'never' },
     transcripts: {},
     subagents: {},
     usage: {},
@@ -88,7 +103,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'a', tagIds: [1] }),
       makeSession({ id: 'b', tagIds: [1] }),
     ]
-    const model = buildSceneModel(withSessions(sessions))
+    const model = sceneModelAt(withSessions(sessions))
 
     expect(model.planets).toHaveLength(2)
     const ids = model.planets.map((p) => p.session.id).sort()
@@ -106,7 +121,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'a', tagIds: [1], status: 'working' }),
       makeSession({ id: 'b', tagIds: [1], status: 'ended' }),
     ]
-    const model = buildSceneModel(withSessions(sessions))
+    const model = sceneModelAt(withSessions(sessions))
 
     const a = model.planets.find((p) => p.session.id === 'a')
     const b = model.planets.find((p) => p.session.id === 'b')
@@ -119,7 +134,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'a', tagIds: [1] }),
       makeSession({ id: 'b', tagIds: [1] }),
     ]
-    const model = buildSceneModel(
+    const model = sceneModelAt(
       withSessions(sessions, { ui: { ...defaultUi, selectedId: 'b' } })
     )
 
@@ -134,7 +149,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'a', tagIds: [1] }),
       makeSession({ id: 'b', tagIds: [2] }),
     ]
-    const model = buildSceneModel(
+    const model = sceneModelAt(
       withSessions(sessions, { ui: { ...defaultUi, filterTagId: 1 } })
     )
 
@@ -147,7 +162,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'b', tagIds: [1] }),
       makeSession({ id: 'c', tagIds: [2] }),
     ]
-    const model = buildSceneModel(withSessions(sessions))
+    const model = sceneModelAt(withSessions(sessions))
 
     const workLabel = model.labels.find((l) => l.text.startsWith('WORK'))
     const personalLabel = model.labels.find((l) => l.text.startsWith('PERSONAL'))
@@ -164,14 +179,14 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'c', tagIds: [1], status: 'idle' }),
       makeSession({ id: 'd', tagIds: [1], status: 'ended' }),
     ]
-    const model = buildSceneModel(withSessions(sessions))
+    const model = sceneModelAt(withSessions(sessions))
 
     expect(model.counts).toEqual({ working: 2, idle: 1, needs_input: 0, ended: 1 })
   })
 
   it('has no moons for a session with no live subagents', () => {
     const sessions = [makeSession({ id: 'a', tagIds: [1] })]
-    const model = buildSceneModel(withSessions(sessions))
+    const model = sceneModelAt(withSessions(sessions))
 
     expect(model.moons).toHaveLength(0)
     expect(model.planets[0].subagents).toEqual([])
@@ -180,7 +195,7 @@ describe('buildSceneModel', () => {
   it('produces a moon for every live subagent of a session, with the parent planet hue', () => {
     const sessions = [makeSession({ id: 'a', tagIds: [1] })]
     const subagent = makeSubagent({ id: 'sub-1', state: 'working' })
-    const model = buildSceneModel(
+    const model = sceneModelAt(
       withSessions(sessions, { subagents: { a: [subagent] } })
     )
 
@@ -199,7 +214,7 @@ describe('buildSceneModel', () => {
       makeSubagent({ id: 'sub-1' }),
       makeSubagent({ id: 'sub-2' }),
     ]
-    const model = buildSceneModel(withSessions(sessions, { subagents: { a: subagents } }))
+    const model = sceneModelAt(withSessions(sessions, { subagents: { a: subagents } }))
 
     expect(model.moons).toHaveLength(2)
     const [m1, m2] = model.moons
@@ -211,7 +226,7 @@ describe('buildSceneModel', () => {
     const sessions = [makeSession({ id: 'a', tagIds: [1] })]
     const liveSubagent = makeSubagent({ id: 'sub-live', state: 'working' })
     const endedSubagent = makeSubagent({ id: 'sub-ended', state: 'ended' })
-    const model = buildSceneModel(
+    const model = sceneModelAt(
       withSessions(sessions, { subagents: { a: [liveSubagent, endedSubagent] } })
     )
 
@@ -222,7 +237,7 @@ describe('buildSceneModel', () => {
 
   it('drops every moon when a session has only ended subagents', () => {
     const sessions = [makeSession({ id: 'a', tagIds: [1] })]
-    const model = buildSceneModel(
+    const model = sceneModelAt(
       withSessions(sessions, { subagents: { a: [makeSubagent({ id: 'sub-1', state: 'ended' })] } })
     )
 
@@ -236,14 +251,14 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'b', tagIds: [1], lastAt: 90 }),
       makeSession({ id: 'c', tagIds: [1], lastAt: 80 }),
     ]
-    const before = buildSceneModel(withSessions(sessions))
+    const before = sceneModelAt(withSessions(sessions))
     const positionsBefore = new Map(before.planets.map((p) => [p.session.id, { x: p.x, y: p.y }]))
 
     // Bump session 'c' to the front of recency order — this must NOT
     // reshuffle any planet's position (it would if layout used the
     // recency-sorted array's index directly).
     const reordered = sessions.map((s) => (s.id === 'c' ? { ...s, lastAt: 999 } : s))
-    const after = buildSceneModel(withSessions(reordered))
+    const after = sceneModelAt(withSessions(reordered))
     const positionsAfter = new Map(after.planets.map((p) => [p.session.id, { x: p.x, y: p.y }]))
 
     for (const id of ['a', 'b', 'c']) {
@@ -253,7 +268,7 @@ describe('buildSceneModel', () => {
 
   it('produces no moons when the session referenced by state.subagents is not visible', () => {
     const sessions = [makeSession({ id: 'a', tagIds: [2] })]
-    const model = buildSceneModel(
+    const model = sceneModelAt(
       withSessions(sessions, {
         subagents: { ghost: [makeSubagent({ id: 'sub-1' })] },
       })
@@ -262,11 +277,80 @@ describe('buildSceneModel', () => {
   })
 
   it('returns empty planets/moons/labels/zeroed counts for no sessions', () => {
-    const model = buildSceneModel(makeState())
+    const model = sceneModelAt(makeState())
     expect(model.planets).toEqual([])
     expect(model.moons).toEqual([])
     expect(model.labels).toEqual([])
     expect(model.counts).toEqual({ working: 0, idle: 0, needs_input: 0, ended: 0 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ended decluttering — canvas 2a/2b
+// ---------------------------------------------------------------------------
+
+describe('buildSceneModel and the ended age cutoff', () => {
+  it('draws no planet at all for an ended session past the cutoff', () => {
+    const sessions = [
+      makeSession({ id: 'live', tagIds: [1], status: 'idle', lastAt: NOW - 90 * DAY }),
+      makeSession({ id: 'fresh', tagIds: [1], status: 'ended', lastAt: NOW - 1_000 }),
+      makeSession({ id: 'stale', tagIds: [1], status: 'ended', lastAt: NOW - 30 * DAY }),
+    ]
+    const state = withSessions(sessions, { settings: { map_ended_max_age_days: '1' } })
+    const model = buildSceneModel(state, NOW)
+
+    expect(model.planets.map((p) => p.session.id).sort()).toEqual(['fresh', 'live'])
+    expect(model.counts.ended).toBe(1)
+  })
+})
+
+describe('buildSceneModel and hideEnded', () => {
+  const sessions = [
+    makeSession({ id: 'a', tagIds: [1], status: 'working' }),
+    makeSession({ id: 'b', tagIds: [1], status: 'idle' }),
+    makeSession({ id: 'z-ended', tagIds: [1], status: 'ended' }),
+  ]
+  const hidden = withSessions(sessions, { ui: { ...defaultUi, hideEnded: true } })
+
+  it('keeps the ended planet in the model and flags it hidden, so it can fade out', () => {
+    const model = buildSceneModel(hidden, NOW)
+    const byId = new Map(model.planets.map((p) => [p.session.id, p]))
+
+    expect(byId.get('z-ended')?.hidden).toBe(true)
+    expect(byId.get('a')?.hidden).toBe(false)
+    expect(byId.get('b')?.hidden).toBe(false)
+  })
+
+  // Toggling must not renumber the golden-angle spiral — otherwise every
+  // other planet in the cluster teleports, the hazard withStableSessionOrder
+  // exists to prevent.
+  it('leaves every other planet at exactly the position it had while ended were shown', () => {
+    const shown = buildSceneModel(withSessions(sessions), NOW)
+    const after = buildSceneModel(hidden, NOW)
+    const pos = (m: SceneModel, id: string) => {
+      const p = m.planets.find((q) => q.session.id === id)
+      return p && { x: p.x, y: p.y, scale: p.scale }
+    }
+
+    expect(pos(after, 'a')).toEqual(pos(shown, 'a'))
+    expect(pos(after, 'b')).toEqual(pos(shown, 'b'))
+  })
+
+  // Canvas 2a: `cWork: hid ? 2 : 3` — the cluster label counts what is drawn.
+  it('drops hidden planets from the cluster label count', () => {
+    expect(sceneModelAt(withSessions(sessions)).labels[0].text).toBe('WORK · 3')
+    expect(buildSceneModel(hidden, NOW).labels[0].text).toBe('WORK · 2')
+  })
+
+  // Canvas 2b: the ENDED number keeps counting; it is what you click to
+  // bring them back.
+  it('keeps the ended count intact so the readout reads suppressed, not zero', () => {
+    expect(buildSceneModel(hidden, NOW).counts).toEqual({
+      working: 1,
+      idle: 1,
+      needs_input: 0,
+      ended: 1,
+    })
   })
 })
 

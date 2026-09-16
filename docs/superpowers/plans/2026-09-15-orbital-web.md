@@ -1,7 +1,7 @@
 ---
 id: 2026-09-15-orbital-web
 title: 2026-09-15-orbital-web
-status: active
+status: done
 type: plan
 ---
 # Orbital Web UI Implementation Plan

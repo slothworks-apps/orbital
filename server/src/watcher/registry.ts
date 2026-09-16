@@ -2,13 +2,34 @@ import { EventEmitter } from 'node:events';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
+import type { SessionStatus } from '../types.js';
+
+/**
+ * The CLI writes its *own* status vocabulary into
+ * `~/.claude/sessions/<pid>.json` -- `busy` | `shell` | `idle` | `waiting` --
+ * which is not orbital's. It never writes `working`, so anything unmapped
+ * has to fall back to `idle` rather than be treated as the live-but-unknown
+ * state it isn't. A newer CLI adding a word lands on `idle` until we map it.
+ *
+ * `waiting` is the CLI parked on a prompt the human has to answer (a
+ * permission request, a question), which is exactly what orbital's
+ * `needs_input` means -- the status is purely a visual state on the map, with
+ * no web-session-only behaviour hanging off it.
+ */
+const CLI_STATUS: Record<string, Extract<SessionStatus, 'working' | 'needs_input' | 'idle'>> = {
+  busy: 'working',
+  shell: 'working',
+  waiting: 'needs_input',
+  idle: 'idle',
+};
 
 export interface LiveSession {
   sessionId: string;
   pid: number;
   cwd: string;
   name: string;
-  status: 'working' | 'idle';
+  /** Never `ended`: a registry entry only exists while the process lives. */
+  status: Extract<SessionStatus, 'working' | 'needs_input' | 'idle'>;
   kind: string;
   startedAt: number;
   updatedAt: number;
@@ -55,7 +76,7 @@ export class SessionRegistry extends EventEmitter {
           pid: raw.pid,
           cwd: String(raw.cwd ?? ''),
           name: String(raw.name ?? ''),
-          status: raw.status === 'working' ? 'working' : 'idle',
+          status: CLI_STATUS[String(raw.status)] ?? 'idle',
           kind: String(raw.kind ?? ''),
           startedAt: Number(raw.startedAt ?? 0),
           updatedAt: Number(raw.updatedAt ?? 0),

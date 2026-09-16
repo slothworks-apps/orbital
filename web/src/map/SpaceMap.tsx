@@ -77,6 +77,8 @@ export function SpaceMap() {
   const setDialog = useOrbital((s) => s.setDialog)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
+  const hideEnded = useOrbital((s) => s.ui.hideEnded)
+  const setHideEnded = useOrbital((s) => s.setHideEnded)
 
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -169,13 +171,17 @@ export function SpaceMap() {
   const camX = Math.round(camera.x)
   const camY = Math.round(camera.y)
 
+  /**
+   * Everything left of the ENDED segment, which stays plain text. Canvas 2b:
+   * "only ENDED is pressable, so there is nothing to mistake for a four-way
+   * status filter."
+   */
   const aggregateLine = useMemo(() => {
-    const { working, needs_input: needsInput, idle, ended } = model.counts
+    const { working, needs_input: needsInput, idle } = model.counts
     const segments = [
       `${working} WORKING`,
       ...(needsInput > 0 ? [`${needsInput} NEEDS INPUT`] : []),
       `${idle} IDLE`,
-      `${ended} ENDED`,
     ]
     return segments.join(' · ')
   }, [model.counts])
@@ -204,6 +210,7 @@ export function SpaceMap() {
             y={planet.y}
             scale={planet.scale}
             selected={planet.selected}
+            hidden={planet.hidden}
             onClick={handleSelect}
           />
         ))}
@@ -246,8 +253,66 @@ export function SpaceMap() {
           button and the zoom stack. Still under the z-10 panels and z-50
           dialogs. */}
       <div className="pointer-events-none absolute inset-0 z-[6]">
-        <div className="pointer-events-none absolute right-6 top-6 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
-          {aggregateLine}
+        {/* Aggregate readout (1a, right:24px/top:24px), whose last segment is
+            the ENDED declutter toggle per 2a/2b. It tracks the detail panel on
+            the same 420ms curve as the zoom stack below — otherwise the panel
+            slides in over the top of it. The row stays `pointer-events-none`
+            so only the button itself is hittable. */}
+        <div
+          className={[
+            'pointer-events-none absolute top-6 flex flex-col items-end gap-2',
+            'transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
+            selectedId ? 'right-[490px]' : 'right-6',
+          ].join(' ')}
+        >
+          <div className="flex items-center gap-2 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
+            <span>{aggregateLine}</span>
+            <span className="text-[rgba(160,190,225,.28)]">·</span>
+            <button
+              type="button"
+              title={
+                hideEnded
+                  ? 'Show ended sessions on the map'
+                  : 'Hide ended sessions on the map'
+              }
+              aria-pressed={hideEnded}
+              onClick={() => setHideEnded(!hideEnded)}
+              className={[
+                'pointer-events-auto flex items-center gap-1.5 rounded-full border py-[3px] pl-2 pr-[9px]',
+                'font-mono text-[10.5px] tracking-[0.1em]',
+                'transition-[background-color,border-color,color] duration-200 ease-out',
+                hideEnded
+                  ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+                  : 'border-[rgba(150,205,255,.13)] bg-transparent text-[rgba(178,203,230,.85)] hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]',
+              ].join(' ')}
+            >
+              {/* Hollow dot that gains a slash when suppressed — a crossed-out
+                  planet rather than a second icon. */}
+              <span className="relative block h-[7px] w-[7px] rounded-full border border-current opacity-[.85]">
+                <span
+                  className={[
+                    'absolute left-[-2px] top-[2.5px] block h-px w-[11px] -rotate-45 bg-current',
+                    'transition-opacity duration-200 ease-out',
+                    hideEnded ? 'opacity-100' : 'opacity-0',
+                  ].join(' ')}
+                />
+              </span>
+              <span className={hideEnded ? 'line-through' : undefined}>
+                {model.counts.ended} ENDED
+              </span>
+            </button>
+          </div>
+          {/* Only appears once the readout could be misread as hiding history too. */}
+          <div
+            className={[
+              'font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.5)]',
+              'transition-opacity duration-[250ms] ease-out',
+              hideEnded ? 'opacity-100' : 'opacity-0',
+            ].join(' ')}
+            aria-hidden={!hideEnded}
+          >
+            MAP ONLY · HISTORY LIST UNCHANGED
+          </div>
         </div>
 
         {/* The camera readout tracks the sidebar rather than the viewport edge:

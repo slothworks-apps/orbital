@@ -85,6 +85,14 @@ describe('openDb', () => {
       .where(sql`${settings.key} = 'default_permission_mode'`)
       .get();
     expect(mode?.value).toBe('acceptEdits');
+    // The map stops drawing ended sessions after a day by default; the web
+    // client reads this key and applies the cutoff itself.
+    const endedAge = db
+      .select()
+      .from(settings)
+      .where(sql`${settings.key} = 'map_ended_max_age_days'`)
+      .get();
+    expect(endedAge?.value).toBe('1');
     expect(db.$client.pragma('user_version', { simple: true })).toBe(1);
     db.$client.close();
     const again = openDb(join(dir, 'index.db')); // must not throw on re-run
@@ -166,11 +174,14 @@ describe('openDb', () => {
     // Settings seeds are not duplicated: exactly the known keys, with the
     // legacy DB's pre-existing values preserved (openDb's seed is
     // onConflictDoNothing, so it must not overwrite them).
+    // Settings keys added since this legacy baseline DO get seeded here —
+    // that is how an existing database picks up a new default instead of
+    // reading the key as missing forever.
     const settingsRows = db.select().from(settings).all();
-    expect(settingsRows).toHaveLength(Object.keys(LEGACY_SETTINGS).length);
-    expect(Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))).toEqual(
-      LEGACY_SETTINGS,
-    );
+    expect(Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))).toEqual({
+      ...LEGACY_SETTINGS,
+      map_ended_max_age_days: '1',
+    });
 
     // Rule regeneration works against the migrated legacy data, and honors
     // the pre-existing manual_removed row.

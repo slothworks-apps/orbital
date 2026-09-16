@@ -42,12 +42,20 @@ Note for anyone adding wheel handling: React attaches `wheel` (and
 an `onWheel` prop silently does nothing. Attach manually with
 `{ passive: false }`.
 
-## Design values come from the export, never from the eye
+## Design values come from the canvas, never from the eye
 
-`design/Orbital_ celestial agent dashboard/Orbital.dc.html` carries literal
-inline CSS for every artboard. Read the value out of it — paddings, radii,
-sizes, durations, easings, colours. "Looks about right" drifts, and the
-drift compounds across screens.
+`Orbital.dc.html` carries literal inline CSS for every artboard. Read the
+value out of it — paddings, radii, sizes, durations, easings, colours.
+"Looks about right" drifts, and the drift compounds across screens.
+
+Fetch it through the `DesignSync` MCP; the root `CLAUDE.md` has the project id
+and the details. **Never read an export committed under `design/`** — new
+artboards get added to the canvas and the export is not regenerated, so it is
+both stale and missing whole sections.
+
+When a value comes from an artboard, name the artboard in the comment (`canvas
+2b`, `artboard 1f`) so the next person can find the source rather than
+re-deriving it.
 
 Colours in the export are `oklch(...)`. Where a literal is needed (Tailwind
 alpha modifiers, three.js materials), precompute the sRGB value and note the

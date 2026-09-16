@@ -8,8 +8,11 @@ type: spec
 
 **Date:** 2026-09-15 (updated after visual design review)
 **Status:** Approved pending final review
-**Visual design:** `design/Orbital_ celestial agent dashboard/` (exported Claude Design canvas:
-`Orbital.dc.html` = 8 artboards, `Planet Variants.dc.html`, sloth mascot assets)
+**Visual design:** the live Claude Design canvas, read through the `DesignSync`
+MCP (project `df77470e-1384-436c-8b25-5e01acfc497f`): `Orbital.dc.html` (main
+canvas, artboards `1a`…`2b`), `Planet Variants.dc.html`, several
+`Feature - *.dc.html`, sloth mascot assets. Any export committed under
+`design/` is stale — see the root `CLAUDE.md`.
 Canvas source: https://claude.ai/design/p/df77470e-1384-436c-8b25-5e01acfc497f?file=Orbital.dc.html
 
 ## Overview
@@ -142,6 +145,22 @@ The CLI never writes `working`, so an unmapped word must fall back to `idle`
 rather than be read as live-but-unknown. See `domains/cli-session-registry` for
 the rest of the file's shape and how the vocabulary was established.
 
+### What the map draws
+
+The map is a view over the session list, not the list itself. Two things
+narrow it, both map-scoped — the sidebar's ACTIVE/HISTORY lists, its paging
+and the API are unaffected:
+
+- **Age cutoff** (`map_ended_max_age_days`, default 1 day): `ended` sessions
+  older than the window are not drawn. Live sessions are never dropped by age.
+- **ENDED toggle** (canvas 2a/2b): the readout's ENDED segment suppresses
+  ended planets, which fade and shrink out over .5s rather than vanishing.
+  The count keeps counting while suppressed, and a
+  `MAP ONLY · HISTORY LIST UNCHANGED` caption appears alongside it.
+
+Rationale and the rejected alternatives are in
+`decisions/map-ended-declutter`.
+
 ## Data model (SQLite via Drizzle ORM, better-sqlite3 driver)
 
 DB file: `~/Library/Application Support/orbital/index.db`. Simple versioned
@@ -169,7 +188,14 @@ manual tags are additive on top).
 
 **settings** — key/value: `default_permission_mode`, `default_project_dir`,
 `lineage_depth` (1–5 or ∞), `confirm_before_clear` (bool), `inherit_tags`,
-`inherit_permission_mode` (bools), `ended_after_idle_minutes`.
+`inherit_permission_mode` (bools), `ended_after_idle_minutes`,
+`map_ended_max_age_days`.
+
+`ended_after_idle_minutes` governs **web sessions only** — it is `Runner`'s
+timer for killing an idle SDK process, and terminal sessions never enter
+`Runner`. `map_ended_max_age_days` (days, or `never`) is unrelated despite the
+similar name: it stops the map *drawing* an already-ended session, changes no
+lifecycle, and is applied client-side. See `decisions/map-ended-declutter`.
 
 ## API
 

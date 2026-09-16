@@ -41,9 +41,14 @@ import { api, ApiError } from '../lib/api'
 import {
   useOrbital,
   visibleSessions,
+  mapSessions,
   statusCounts,
   type OrbitalState,
 } from '../store/store'
+
+/** Fixed clock for the ended-age cutoff. Never Date.now() — these must be deterministic. */
+const NOW = 1_800_000_000_000
+const DAY = 86_400_000
 
 function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSession {
   return {
@@ -78,6 +83,7 @@ const initialSnapshot: OrbitalState = {
     filterTagId: 'all',
     search: '',
     sourceFilter: 'all',
+    hideEnded: false,
     wsStatus: 'connecting',
     dialog: null,
     sidebarCollapsed: false,
@@ -396,6 +402,7 @@ describe('filter/search/dialog setters', () => {
     useOrbital.getState().setFilterTag(3)
     useOrbital.getState().setSearch('foo')
     useOrbital.getState().setSourceFilter('web')
+    useOrbital.getState().setHideEnded(true)
     useOrbital.getState().setDialog('new')
     useOrbital.getState().setWsStatus('open')
     useOrbital.getState().setSidebarCollapsed(true)
@@ -405,6 +412,7 @@ describe('filter/search/dialog setters', () => {
       filterTagId: 3,
       search: 'foo',
       sourceFilter: 'web',
+      hideEnded: true,
       wsStatus: 'open',
       dialog: 'new',
       sidebarCollapsed: true,
@@ -474,12 +482,18 @@ describe('statusCounts (pure)', () => {
       d: makeSession({ id: 'd', status: 'needs_input' }),
       e: makeSession({ id: 'e', status: 'ended' }),
     }
-    const state: OrbitalState = { ...initialSnapshot, sessions }
-    expect(statusCounts(state)).toEqual({ working: 2, idle: 1, needs_input: 1, ended: 1 })
+    // "never" keeps the age cutoff out of a test about counting by status —
+    // these fixtures carry a 1970 `lastAt`.
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      settings: { map_ended_max_age_days: 'never' },
+    }
+    expect(statusCounts(state, NOW)).toEqual({ working: 2, idle: 1, needs_input: 1, ended: 1 })
   })
 
   it('returns all-zero counts for an empty session set', () => {
-    expect(statusCounts(initialSnapshot)).toEqual({
+    expect(statusCounts(initialSnapshot, NOW)).toEqual({
       working: 0,
       idle: 0,
       needs_input: 0,
@@ -498,9 +512,145 @@ describe('statusCounts (pure)', () => {
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
+      settings: { map_ended_max_age_days: 'never' },
       ui: { ...initialSnapshot.ui, filterTagId: 1 },
     }
     // Only sessions a, c, e (tagIds includes 1) should be counted.
-    expect(statusCounts(state)).toEqual({ working: 1, idle: 1, needs_input: 0, ended: 1 })
+    expect(statusCounts(state, NOW)).toEqual({ working: 1, idle: 1, needs_input: 0, ended: 1 })
+  })
+})
+
+describe('mapSessions (pure)', () => {
+  it('drops ended sessions past the age cutoff and keeps the ones inside it', () => {
+    const sessions: Record<string, ApiSession> = {
+      fresh: makeSession({ id: 'fresh', status: 'ended', lastAt: NOW - 2 * 3_600_000 }),
+      stale: makeSession({ id: 'stale', status: 'ended', lastAt: NOW - 3 * DAY }),
+    }
+    const state: OrbitalState = { ...initialSnapshot, sessions }
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['fresh'])
+  })
+
+  it('never drops a live session, however old its last message is', () => {
+    const sessions: Record<string, ApiSession> = {
+      w: makeSession({ id: 'w', status: 'working', lastAt: NOW - 90 * DAY }),
+      i: makeSession({ id: 'i', status: 'idle', lastAt: NOW - 90 * DAY }),
+      n: makeSession({ id: 'n', status: 'needs_input', lastAt: NOW - 90 * DAY }),
+    }
+    const state: OrbitalState = { ...initialSnapshot, sessions }
+    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['i', 'n', 'w'])
+  })
+
+  it('treats an ended session with no lastAt as older than any cutoff', () => {
+    const sessions: Record<string, ApiSession> = {
+      nulled: makeSession({ id: 'nulled', status: 'ended', lastAt: null }),
+    }
+    const state: OrbitalState = { ...initialSnapshot, sessions }
+    expect(mapSessions(state, NOW)).toEqual([])
+  })
+
+  it('applies no age cutoff at all under the "never" preset', () => {
+    const sessions: Record<string, ApiSession> = {
+      ancient: makeSession({ id: 'ancient', status: 'ended', lastAt: NOW - 400 * DAY }),
+      nulled: makeSession({ id: 'nulled', status: 'ended', lastAt: null }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      settings: { map_ended_max_age_days: 'never' },
+    }
+    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['ancient', 'nulled'])
+  })
+
+  it('honours a configured cutoff other than the default', () => {
+    const sessions: Record<string, ApiSession> = {
+      d3: makeSession({ id: 'd3', status: 'ended', lastAt: NOW - 3 * DAY }),
+      d10: makeSession({ id: 'd10', status: 'ended', lastAt: NOW - 10 * DAY }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      settings: { map_ended_max_age_days: '7' },
+    }
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['d3'])
+  })
+
+  it('falls back to a one-day cutoff when the setting is absent', () => {
+    const sessions: Record<string, ApiSession> = {
+      inside: makeSession({ id: 'inside', status: 'ended', lastAt: NOW - 23 * 3_600_000 }),
+      outside: makeSession({ id: 'outside', status: 'ended', lastAt: NOW - 25 * 3_600_000 }),
+    }
+    const state: OrbitalState = { ...initialSnapshot, sessions }
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['inside'])
+  })
+
+  // `hideEnded` is a render flag, not a filter: the planets must stay in the
+  // model so `Planet` can fade them out (canvas 2a animates opacity/scale
+  // rather than removing them), and so toggling never reflows the layout.
+  it('ignores hideEnded — that is a render flag, not a filter', () => {
+    const sessions: Record<string, ApiSession> = {
+      e: makeSession({ id: 'e', status: 'ended', lastAt: NOW - 1_000 }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      ui: { ...initialSnapshot.ui, hideEnded: true },
+    }
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['e'])
+  })
+
+  it('composes with the tag filter rather than replacing it', () => {
+    const sessions: Record<string, ApiSession> = {
+      keep: makeSession({ id: 'keep', status: 'idle', tagIds: [1] }),
+      otherTag: makeSession({ id: 'otherTag', status: 'idle', tagIds: [2] }),
+      staleSameTag: makeSession({
+        id: 'staleSameTag',
+        status: 'ended',
+        tagIds: [1],
+        lastAt: NOW - 30 * DAY,
+      }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      ui: { ...initialSnapshot.ui, filterTagId: 1 },
+    }
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['keep'])
+  })
+})
+
+describe('statusCounts and the ended cutoff', () => {
+  it('counts ended sessions inside the cutoff only', () => {
+    const sessions: Record<string, ApiSession> = {
+      fresh: makeSession({ id: 'fresh', status: 'ended', lastAt: NOW - 1_000 }),
+      stale: makeSession({ id: 'stale', status: 'ended', lastAt: NOW - 30 * DAY }),
+      live: makeSession({ id: 'live', status: 'working' }),
+    }
+    const state: OrbitalState = { ...initialSnapshot, sessions }
+    expect(statusCounts(state, NOW)).toEqual({ working: 1, idle: 0, needs_input: 0, ended: 1 })
+  })
+
+  // Canvas 2b: "the count reads as suppressed rather than zero. The ENDED
+  // number keeps counting; it is what you click to bring them back."
+  it('keeps counting ended sessions while hideEnded suppresses them', () => {
+    const sessions: Record<string, ApiSession> = {
+      a: makeSession({ id: 'a', status: 'ended', lastAt: NOW - 1_000 }),
+      b: makeSession({ id: 'b', status: 'ended', lastAt: NOW - 2_000 }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      ui: { ...initialSnapshot.ui, hideEnded: true },
+    }
+    expect(statusCounts(state, NOW).ended).toBe(2)
+  })
+})
+
+describe('setHideEnded', () => {
+  it('toggles the map-only ended suppression', () => {
+    expect(useOrbital.getState().ui.hideEnded).toBe(false)
+    useOrbital.getState().setHideEnded(true)
+    expect(useOrbital.getState().ui.hideEnded).toBe(true)
+    useOrbital.getState().setHideEnded(false)
+    expect(useOrbital.getState().ui.hideEnded).toBe(false)
   })
 })

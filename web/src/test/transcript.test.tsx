@@ -389,6 +389,7 @@ const defaultUi: OrbitalUiState = {
   filterTagId: 'all',
   search: '',
   sourceFilter: 'all',
+  hideEnded: false,
   wsStatus: 'connected',
   dialog: null,
   sidebarCollapsed: false,

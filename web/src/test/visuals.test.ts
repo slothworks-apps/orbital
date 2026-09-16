@@ -32,6 +32,9 @@ import {
   createPlanetBlend,
   createStateMix,
   createTween,
+  endedHideTransform,
+  ENDED_HIDDEN_SCALE,
+  ENDED_HIDE_MS,
   easeMotion,
   retargetHueTween,
   retargetStateMix,
@@ -673,5 +676,31 @@ describe('selection reticle fade', () => {
     expect(partway).toBeLessThan(1)
     retargetTween(tw, 0, RETICLE_EXIT_MS)
     expect(tw.from).toBe(partway)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ended suppression — canvas 2a
+// ---------------------------------------------------------------------------
+
+describe('endedHideTransform', () => {
+  // Canvas 2a drives a hidden ended planet with
+  // `opacity:0; transform:scale(.82); transition:opacity .5s ease, transform .5s ease`.
+  it('is a no-op at full fade, so a shown planet keeps its existing appearance', () => {
+    expect(endedHideTransform(1)).toEqual({ opacity: 1, scale: 1 })
+  })
+
+  it('reaches transparent and .82 scale at zero fade', () => {
+    expect(endedHideTransform(0)).toEqual({ opacity: 0, scale: ENDED_HIDDEN_SCALE })
+  })
+
+  it('interpolates scale from 1 toward .82 as the fade runs out, never past it', () => {
+    const mid = endedHideTransform(0.5)
+    expect(mid.opacity).toBe(0.5)
+    expect(mid.scale).toBeCloseTo(0.91, 10)
+  })
+
+  it('runs for the half second the artboard specifies', () => {
+    expect(ENDED_HIDE_MS).toBe(500)
   })
 })

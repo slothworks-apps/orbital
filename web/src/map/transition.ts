@@ -219,6 +219,30 @@ export function createTween(value: number, durationMs: number): Tween {
   return { from: value, to: value, value, elapsedMs: durationMs, durationMs, active: false }
 }
 
+/**
+ * How long an `ended` planet takes to leave (and return to) the map when the
+ * ENDED readout is toggled. Canvas 2a:
+ * `transition:opacity .5s ease, transform .5s ease`.
+ */
+export const ENDED_HIDE_MS = 500
+/** Scale a suppressed ended planet settles at — canvas 2a's `scale(.82)`. */
+export const ENDED_HIDDEN_SCALE = 0.82
+
+/**
+ * The whole-planet opacity and scale multipliers for the ENDED suppression,
+ * given a fade value where 1 is fully shown and 0 fully hidden.
+ *
+ * Multipliers, not absolutes: an ended planet is already dimmed at rest
+ * (`DIMMED_OPACITY`, the artboard's `opacity:.6`), and this must not dim it
+ * a second time — at `fade === 1` it has to be an exact no-op.
+ */
+export function endedHideTransform(fade: number): { opacity: number; scale: number } {
+  return {
+    opacity: fade,
+    scale: ENDED_HIDDEN_SCALE + (1 - ENDED_HIDDEN_SCALE) * fade,
+  }
+}
+
 export function retargetTween(tw: Tween, to: number, durationMs = tw.durationMs, reduced = false): void {
   if (tw.to === to) return
   tw.from = tw.value

@@ -1,7 +1,7 @@
 ---
 id: 2026-09-15-orbital-server
 title: 2026-09-15-orbital-server
-status: active
+status: done
 type: plan
 ---
 # Orbital Server Implementation Plan

@@ -19,6 +19,14 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   inherit_tags: 'true',
   inherit_permission_mode: 'true',
   ended_after_idle_minutes: '30',
+  /**
+   * How long an `ended` session keeps being drawn on the space map, in days,
+   * or `never` for no cutoff. Stored here but applied client-side (see
+   * `mapSessions` in `web/src/store/store.ts`): the map is a view, and
+   * keeping the cutoff out of `GET /api/sessions` is what leaves the
+   * sidebar's HISTORY list complete and its offset paging intact.
+   */
+  map_ended_max_age_days: '1',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };

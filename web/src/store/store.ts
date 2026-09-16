@@ -37,6 +37,15 @@ export interface OrbitalUiState {
   filterTagId: number | 'all'
   search: string
   sourceFilter: 'all' | SessionSource
+  /**
+   * Map-only suppression of `ended` planets (canvas 2a/2b). Deliberately NOT
+   * part of `mapSessions`: the planets stay in the scene model so `Planet`
+   * can fade them out, and so toggling never reflows the golden-angle
+   * layout. The sidebar's HISTORY list ignores this entirely — hence the
+   * "MAP ONLY · HISTORY LIST UNCHANGED" caption the artboard shows while it
+   * is on.
+   */
+  hideEnded: boolean
   wsStatus: string
   dialog: null | 'new' | 'clear' | 'stop' | 'settings'
   /** Sidebar collapsed to its narrow rail (Panel's `collapsed` prop). See Sidebar.tsx (task 10). */
@@ -76,6 +85,7 @@ export interface OrbitalActions {
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
+  setHideEnded(hideEnded: boolean): void
   setDialog(dialog: OrbitalUiState['dialog']): void
   setSidebarCollapsed(sidebarCollapsed: boolean): void
   setWsStatus(wsStatus: string): void
@@ -121,6 +131,7 @@ const initialUiState: OrbitalUiState = {
   filterTagId: 'all',
   search: '',
   sourceFilter: 'all',
+  hideEnded: false,
   wsStatus: 'connecting',
   dialog: null,
   sidebarCollapsed: false,
@@ -393,6 +404,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     set((state) => ({ ui: { ...state.ui, sourceFilter } }))
   },
 
+  setHideEnded(hideEnded) {
+    set((state) => ({ ui: { ...state.ui, hideEnded } }))
+  },
+
   setDialog(dialog) {
     set((state) => ({ ui: { ...state.ui, dialog } }))
   },
@@ -449,8 +464,56 @@ export function visibleSessions(state: OrbitalState): ApiSession[] {
   return list.sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
 }
 
+/** Sentinel for the map cutoff's "Never" preset: no age cutoff at all. */
+export const ENDED_AGE_NEVER = 'never'
+/** Used when `map_ended_max_age_days` is missing or unparseable. */
+const DEFAULT_ENDED_MAX_AGE_DAYS = 1
+const MS_PER_DAY = 86_400_000
+
+/**
+ * The map's `ended` age cutoff in milliseconds, or `null` for "never".
+ *
+ * Stored server-side as `map_ended_max_age_days` but applied here: the
+ * cutoff decides what this client draws, not what the API returns. Keeping
+ * it off the query is what leaves the sidebar's HISTORY list complete and
+ * its `offset: visible.length` paging arithmetic intact.
+ */
+export function endedMaxAgeMs(settings: Record<string, string>): number | null {
+  const raw = settings.map_ended_max_age_days
+  if (raw === ENDED_AGE_NEVER) return null
+  const days = Number(raw)
+  if (!Number.isFinite(days) || days <= 0) return DEFAULT_ENDED_MAX_AGE_DAYS * MS_PER_DAY
+  return days * MS_PER_DAY
+}
+
+/**
+ * What the space map draws: `visibleSessions` minus `ended` sessions older
+ * than the cutoff. Live sessions are never dropped by age — an idle terminal
+ * session that has sat untouched for a month is still a real process.
+ *
+ * `nowMs` is a parameter rather than a `Date.now()` call so this stays pure
+ * and `buildSceneModel` keeps its "same state in, same model out" contract.
+ *
+ * Note what is NOT here: `ui.hideEnded`. That is a per-planet render flag,
+ * so hidden planets can fade out (canvas 2a animates opacity and scale over
+ * .5s) and so toggling it never renumbers the golden-angle spiral and
+ * teleports every other planet — the same hazard `withStableSessionOrder`
+ * guards against in `sceneModel.ts`.
+ */
+export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
+  const maxAgeMs = endedMaxAgeMs(state.settings)
+  if (maxAgeMs === null) return visibleSessions(state)
+  const oldest = nowMs - maxAgeMs
+  // A missing `lastAt` reads as older than any cutoff: there is no evidence
+  // of activity to place it inside one.
+  return visibleSessions(state).filter(
+    (session) => session.status !== 'ended' || (session.lastAt ?? 0) >= oldest
+  )
+}
+
 export function statusCounts(
-  state: OrbitalState
+  state: OrbitalState,
+  nowMs: number
 ): Record<SessionStatus, number> {
   const counts: Record<SessionStatus, number> = {
     working: 0,
@@ -458,9 +521,12 @@ export function statusCounts(
     needs_input: 0,
     ended: 0,
   }
-  // Aggregates over visibleSessions (post tag/search/source filters), since
-  // the aggregate is meant to describe what's currently rendered on the map.
-  for (const session of visibleSessions(state)) {
+  // Aggregates over mapSessions (post tag/search/source filters and post age
+  // cutoff), since the aggregate describes what's currently on the map. It is
+  // deliberately blind to `hideEnded`: canvas 2b wants the ENDED count to
+  // keep counting while suppressed — "it is what you click to bring them
+  // back" — so a zero there would leave nothing to press.
+  for (const session of mapSessions(state, nowMs)) {
     counts[session.status] += 1
   }
   return counts

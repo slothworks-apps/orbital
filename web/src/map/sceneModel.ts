@@ -1,6 +1,6 @@
 import type { ApiSession, SessionStatus, Subagent } from '../lib/types'
 import type { OrbitalState } from '../store/store'
-import { statusCounts, visibleSessions } from '../store/store'
+import { mapSessions, statusCounts } from '../store/store'
 import {
   clusterLabelPos,
   clusterSessions,
@@ -37,6 +37,14 @@ export interface ScenePlanet {
   hue: number
   /** This session's live subagents (also flattened into top-level `moons`). */
   subagents: Subagent[]
+  /**
+   * Suppressed by the map's ENDED toggle (`ui.hideEnded`). Still in the
+   * model on purpose: canvas 2a fades a hidden planet out over .5s
+   * (`opacity` 0, `scale` .82) rather than removing it, and keeping it in
+   * the layout means toggling never renumbers the spiral for anyone else.
+   * A planet dropped by the *age cutoff* never reaches this array at all.
+   */
+  hidden: boolean
 }
 
 export interface SceneMoon {
@@ -94,15 +102,19 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
  * component-level nicety this v1 scene model doesn't attempt), cluster
  * labels (`NAME · count`, uppercase), and status counts.
  *
- * Pure: same `state` in, same model out, every time — no Date.now, no
- * Math.random, no mutation of `state`.
+ * Pure: same `state` and `nowMs` in, same model out, every time — no
+ * Date.now, no Math.random, no mutation of `state`. The clock arrives as
+ * `nowMs` precisely to keep that true; `useSceneModel` is what reads a real
+ * clock and re-reads it on a slow tick.
  */
-export function buildSceneModel(state: OrbitalState): SceneModel {
-  const sessions = visibleSessions(state)
+export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel {
+  const sessions = mapSessions(state, nowMs)
   const clusters = clusterSessions(sessions, state.tags)
   const positions = layoutClusters(withStableSessionOrder(clusters))
-  const counts = statusCounts(state)
+  const counts = statusCounts(state, nowMs)
   const selectedId = state.ui.selectedId
+  const isHidden = (session: ApiSession) =>
+    state.ui.hideEnded && session.status === 'ended'
 
   const planets: ScenePlanet[] = []
   const moons: SceneMoon[] = []
@@ -122,6 +134,7 @@ export function buildSceneModel(state: OrbitalState): SceneModel {
         selected: session.id === selectedId,
         hue: cluster.hue,
         subagents,
+        hidden: isHidden(session),
       })
 
       subagents.forEach((subagent, i) => {
@@ -142,7 +155,10 @@ export function buildSceneModel(state: OrbitalState): SceneModel {
     const pos = clusterLabelPos(cluster, positions)
     return {
       tagId: cluster.tagId,
-      text: `${cluster.label.toUpperCase()} · ${cluster.sessions.length}`,
+      // Counts what is drawn, not what the cluster holds — canvas 2a drops
+      // the label counts (`cWork: hid ? 2 : 3`) while the ENDED readout
+      // keeps its own count.
+      text: `${cluster.label.toUpperCase()} · ${cluster.sessions.filter((s) => !isHidden(s)).length}`,
       x: pos.x,
       y: pos.y,
       hue: cluster.hue,

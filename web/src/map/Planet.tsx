@@ -13,6 +13,7 @@ import {
   truncateLabel,
 } from './visuals'
 import {
+  ENDED_HIDE_MS,
   PLANET_STATES,
   PLANET_TICK_LAYERS,
   RETICLE_ENTER_MS,
@@ -22,6 +23,7 @@ import {
   advanceTween,
   blendPlanet,
   createPlanetBlend,
+  endedHideTransform,
   prefersReducedMotion,
   stackAlphas,
   tickLayerWeight,
@@ -42,8 +44,9 @@ import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
  * ripple) plus a white core/ripple for needs-input — never by picking a
  * different hue.
  *
- * Layout per the "2d Instrument" canvas variant (`design/.../Planet
- * Variants.dc.html`) and the state sheet (artboard 1f in `Orbital.dc.html`):
+ * Layout per the "2d Instrument" canvas variant (`Planet Variants.dc.html`
+ * on the Claude Design canvas) and the state sheet (artboard 1f in
+ * `Orbital.dc.html`):
  * a dark matte body disc inside a rotating tick ring, with a thin
  * counter-rotating 4-arc inner ring and a small bright core — reads as a
  * gauge, not a ball.
@@ -206,6 +209,12 @@ export interface PlanetProps {
   y: number
   scale: number
   selected: boolean
+  /**
+   * Suppressed by the map's ENDED toggle. Fades and shrinks out rather than
+   * unmounting (canvas 2a), so the planet stays in the tree and comes back
+   * the same way.
+   */
+  hidden?: boolean
   onClick?: (sessionId: string) => void
 }
 
@@ -534,10 +543,22 @@ function usePlanetMaterials(): PlanetMaterials {
   return materials
 }
 
-export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetProps) {
+export function Planet({
+  session,
+  hue,
+  x,
+  y,
+  scale,
+  selected,
+  hidden = false,
+  onClick,
+}: PlanetProps) {
   const mix = useStateMix(PLANET_STATES, session.status)
   const hueTween = useHueTween(hue)
   const reticleFade = useFadeTween(selected, RETICLE_ENTER_MS, RETICLE_EXIT_MS)
+  // 1 shown, 0 suppressed. Symmetric durations: the artboard transitions
+  // opacity and transform over .5s in both directions.
+  const hideFade = useFadeTween(!hidden, ENDED_HIDE_MS, ENDED_HIDE_MS)
   const materials = usePlanetMaterials()
 
   // Textures are process-wide singletons; null only where no 2D canvas exists
@@ -552,6 +573,14 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
   const badgeMounted = useLingering(session.status === 'needs_input', STATE_TRANSITION_MS)
   const reduced = prefersReducedMotion()
 
+  /**
+   * The root group. The JSX `scale` prop stays as the base value — it is
+   * what a planet is drawn at before the first frame, and in jsdom where
+   * `useFrame` never runs — while the frame loop multiplies the hide fade
+   * into it. R3F re-applying the prop on an unrelated re-render can stamp
+   * over a fade in flight, which the next frame corrects.
+   */
+  const groupRef = useRef<THREE.Group>(null)
   const tickGroupRef = useRef<THREE.Group>(null!)
   const arcGroupRef = useRef<THREE.Group>(null!)
   const coreRef = useRef<THREE.Mesh>(null!)
@@ -586,37 +615,38 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
    */
   const applyState = () => {
     const w = mix.weights
+    const { opacity: fade } = endedHideTransform(hideFade.value)
     const b = blendRef.current
     const hueC = setOklchTagColor(hueColor.current, hueTween.value)
     const idleShare = w.idle + w.needs_input
 
     materials.glow.color.copy(hueC)
-    materials.glow.opacity = w.working * GLOW_OPACITY
+    materials.glow.opacity = w.working * GLOW_OPACITY * fade
     materials.glow.visible = hasGlowTexture && materials.glow.opacity > 0.001
 
     materials.halo.color.copy(hueC)
 
     materials.arc.color.copy(hueC)
-    materials.arc.opacity = b.arcOpacity
+    materials.arc.opacity = b.arcOpacity * fade
     materials.arc.visible = b.arcOpacity > 0.001
 
     if (hasBodyTextures) {
       // Bottom-to-top: flat ended fill, idle gradient, working gradient.
       const alphas = stackAlphas([w.ended, idleShare, w.working], bodyAlphas.current)
-      materials.bodyEnded.opacity = alphas[0] * DIMMED_OPACITY
+      materials.bodyEnded.opacity = alphas[0] * DIMMED_OPACITY * fade
       materials.bodyEnded.visible = alphas[0] > 0.001
-      materials.bodyIdle.opacity = alphas[1]
+      materials.bodyIdle.opacity = alphas[1] * fade
       materials.bodyIdle.visible = alphas[1] > 0.001
-      materials.bodyWorking.opacity = alphas[2]
+      materials.bodyWorking.opacity = alphas[2] * fade
       materials.bodyWorking.visible = alphas[2] > 0.001
     } else {
-      materials.bodyEnded.opacity = b.dim
+      materials.bodyEnded.opacity = b.dim * fade
       materials.bodyEnded.visible = true
       materials.bodyIdle.visible = false
       materials.bodyWorking.visible = false
     }
 
-    materials.innerShade.opacity = w.working * INNER_SHADE_OPACITY
+    materials.innerShade.opacity = w.working * INNER_SHADE_OPACITY * fade
     materials.innerShade.visible = materials.innerShade.opacity > 0.001
 
     materials.border.color.copy(hueC).lerp(GREY_COLOR, w.ended)
@@ -624,7 +654,8 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
       (w.working * BORDER_OPACITY_ACTIVE +
         idleShare * BORDER_OPACITY_IDLE +
         w.ended * BORDER_OPACITY_ENDED) *
-      b.dim
+      b.dim *
+      fade
 
     // Crossfade: each distinct tick ring is drawn at the summed weight of the
     // states that wear it. Counts (60/45/30) cannot be interpolated, so the
@@ -632,30 +663,43 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
     PLANET_TICK_LAYERS.forEach((layer, i) => {
       const material = materials.ticks[i]
       const weight = tickLayerWeight(layer, w)
-      material.opacity = weight * layer.opacity * b.dim
+      material.opacity = weight * layer.opacity * b.dim * fade
       material.visible = material.opacity > 0.001
       if (!layer.grey) material.color.copy(hueC)
     })
 
     materials.coreGlowHue.color.copy(hueC)
-    materials.coreGlowHue.opacity = w.needs_input * CORE_GLOW_HUE_OPACITY
+    materials.coreGlowHue.opacity = w.needs_input * CORE_GLOW_HUE_OPACITY * fade
     materials.coreGlowHue.visible = hasGlowTexture && materials.coreGlowHue.opacity > 0.001
-    materials.coreGlowWhite.opacity = w.needs_input * CORE_GLOW_WHITE_OPACITY
+    materials.coreGlowWhite.opacity = w.needs_input * CORE_GLOW_WHITE_OPACITY * fade
     materials.coreGlowWhite.visible = hasGlowTexture && materials.coreGlowWhite.opacity > 0.001
 
     materials.core.color.copy(hueC).lerp(WHITE_COLOR, w.needs_input)
     if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
 
-    if (badgeRef.current) badgeRef.current.style.opacity = String(w.needs_input)
+    if (badgeRef.current) badgeRef.current.style.opacity = String(w.needs_input * fade)
   }
 
   useFrame((state, delta) => {
     const mixMoved = advanceStateMix(mix, delta)
     const hueMoved = advanceTween(hueTween, delta)
+    const hideMoved = advanceTween(hideFade, delta)
     const b = blendRef.current
     if (mixMoved) blendPlanet(mix.weights, b)
-    if (mixMoved || hueMoved || !settled.current) applyState()
-    settled.current = !(mixMoved || hueMoved)
+    // The hide fade multiplies into every opacity `applyState` writes, so a
+    // moving fade has to re-run it — otherwise the layers it only touches on
+    // a state change would keep their pre-fade alpha.
+    if (mixMoved || hueMoved || hideMoved || !settled.current) applyState()
+    settled.current = !(mixMoved || hueMoved || hideMoved)
+
+    const hide = endedHideTransform(hideFade.value)
+    if (groupRef.current) {
+      groupRef.current.scale.setScalar(scale * hide.scale)
+      // Fully faded out: stop drawing the subtree altogether rather than
+      // paying for a dozen invisible meshes every frame.
+      groupRef.current.visible = hide.opacity > 0.001
+    }
+    if (!(hide.opacity > 0.001)) return
 
     if (b.tickSpin !== 0 && tickGroupRef.current) {
       tickGroupRef.current.rotation.z += b.tickSpin * delta
@@ -668,20 +712,20 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
     // `orb-blink`: opacity 1 → .3 → 1 over corePulseSec (a blink, not a scale pulse).
     corePhase.current += b.corePulseSec > 0 ? delta / b.corePulseSec : 0
     const blink = b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
-    materials.core.opacity = b.coreOpacity * blink * b.dim
+    materials.core.opacity = b.coreOpacity * blink * b.dim * hide.opacity
     materials.core.visible = materials.core.opacity > 0.001
 
     // `orb-ring`: opacity ×.55 → ×1 → ×.55 over 2.4s, faded in by haloBreath.
     const breath =
       1 - b.haloBreath * (1 - HALO_BREATH_MIN) * (1 - oscillate(state.clock.elapsedTime, HALO_BREATH_SEC))
-    materials.halo.opacity = b.haloOpacity * breath
+    materials.halo.opacity = b.haloOpacity * breath * hide.opacity
     materials.halo.visible = materials.halo.opacity > 0.001
 
     if (b.ripple > 0.001) {
       rippleElapsed.current = (rippleElapsed.current + delta) % RIPPLE_DURATION_SEC
       const progress = easeOut(rippleElapsed.current / RIPPLE_DURATION_SEC)
       if (rippleRef.current) rippleRef.current.scale.setScalar(1 + progress * (RIPPLE_MAX_SCALE - 1))
-      materials.ripple.opacity = RIPPLE_START_OPACITY * (1 - progress) * b.ripple
+      materials.ripple.opacity = RIPPLE_START_OPACITY * (1 - progress) * b.ripple * hide.opacity
       materials.ripple.visible = true
     } else {
       rippleElapsed.current = 0
@@ -694,9 +738,9 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
       reticleGroupRef.current.rotation.z += RETICLE_SPIN_SPEED * delta
     }
     if (advanceTween(reticleFade, delta) || reticleFade.value > 0) {
-      if (reticleRingRef.current) reticleRingRef.current.material.opacity = RETICLE_OPACITY * reticleFade.value
+      if (reticleRingRef.current) reticleRingRef.current.material.opacity = RETICLE_OPACITY * reticleFade.value * hide.opacity
       for (const bracket of bracketRefs.current) {
-        if (bracket) bracket.material.opacity = reticleFade.value
+        if (bracket) bracket.material.opacity = reticleFade.value * hide.opacity
       }
       // `<Html>` re-reads its parent's world matrix every frame, so moving the
       // group is all it takes to carry the label with the reticle.
@@ -713,7 +757,12 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
   }
 
   return (
-    <group position={[x, y, 0]} scale={scale} onClick={onClick ? handleClick : undefined}>
+    <group
+      ref={groupRef}
+      position={[x, y, 0]}
+      scale={scale}
+      onClick={onClick ? handleClick : undefined}
+    >
       {hasGlowTexture && (
         <mesh position={[0, 0, HALO_Z]} material={materials.glow}>
           <planeGeometry args={[GLOW_SIZE, GLOW_SIZE]} />
