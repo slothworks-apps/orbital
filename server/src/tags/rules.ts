@@ -76,16 +76,31 @@ export function regenerateRuleTags(db: OrbitalDb): void {
   });
 }
 
+/**
+ * The tag a session wears. A session carries exactly ONE (canvas 1b: "one tag
+ * per session · sets planet hue"), so this resolves the pile of `session_tags`
+ * rows down to a single id: a manual pick beats a rule-derived tag, and a
+ * session with neither falls back to the default tag.
+ *
+ * `session_tags` stays a many-row table because the origins have to be told
+ * apart — `manual_removed` is how a rule tag is suppressed without deleting
+ * the rule — and the result stays an array because that is the wire shape
+ * (`ApiSession.tagIds`) the map, sidebar and tag filter already read.
+ */
 export function effectiveTagIds(db: OrbitalDb, sessionId: string): number[] {
   const rows = db
-    .selectDistinct({ tag_id: sessionTags.tagId })
+    .selectDistinct({ tag_id: sessionTags.tagId, origin: sessionTags.origin })
     .from(sessionTags)
     .where(
       and(eq(sessionTags.sessionId, sessionId), inArray(sessionTags.origin, ['rule', 'manual'])),
     )
     .orderBy(sessionTags.tagId)
     .all();
-  if (rows.length > 0) return rows.map((r) => r.tag_id);
+  // Lowest id within the winning origin, so the answer never depends on row
+  // order — a session that somehow holds two manual rows still reads stably.
+  const manual = rows.find((r) => r.origin === 'manual');
+  const chosen = manual ?? rows[0];
+  if (chosen) return [chosen.tag_id];
   const def = db.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).get() as {
     id: number;
   };

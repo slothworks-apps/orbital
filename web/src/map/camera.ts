@@ -117,6 +117,37 @@ export function zoomAt(
   }
 }
 
+/** Screen-space chrome covering the map's edges, in CSS pixels. */
+export interface Insets {
+  /** Sidebar side. */
+  left: number
+  /** Detail-panel side. */
+  right: number
+}
+
+/**
+ * Camera that puts `target` in the middle of the map a user can actually
+ * SEE — the strip between the sidebar and the detail panel — rather than in
+ * the middle of the viewport, half of which the 450px detail panel is sitting
+ * on when anything is selected.
+ *
+ * Zoom is deliberately untouched: following a retagged session should move
+ * the view, not reframe it. Whatever the user had zoomed to stays.
+ *
+ * The camera's `x` is the world point at the viewport centre, and screen
+ * pixels relate to world units by `zoom`, so putting `target` at screen x
+ * `W/2 + (left - right)/2` means offsetting the camera by exactly that half
+ * difference converted back into world units. The viewport width cancels out,
+ * which is why it is not a parameter.
+ */
+export function centerOn(cam: CameraState, target: Position, insets: Insets): CameraState {
+  return {
+    ...cam,
+    x: target.x - (insets.left - insets.right) / 2 / cam.zoom,
+    y: target.y,
+  }
+}
+
 /**
  * Computes a camera state that frames every given position with some
  * padding, for the "fit" zoom control. Falls back to the default camera

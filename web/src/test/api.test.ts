@@ -72,6 +72,7 @@ describe('request helper', () => {
       parentId: null,
       tagIds: [],
       status: 'idle',
+      subagents: [],
     }
 
     fetchMock.mockResolvedValueOnce(
@@ -135,6 +136,7 @@ describe('Sessions API', () => {
         parentId: null,
         tagIds: [],
         status: 'idle',
+        subagents: [],
       },
     ]
 
@@ -172,6 +174,7 @@ describe('Sessions API', () => {
       parentId: 's0',
       tagIds: [1, 2],
       status: 'working',
+      subagents: [],
     }
 
     fetchMock.mockResolvedValueOnce(

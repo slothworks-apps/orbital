@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
+import type { TranscriptEntry } from '../transcript/parser.js';
 
 /**
  * Sentinel for canvas 1h's "Never — only on Clear": no idle timer at all.
@@ -84,6 +85,7 @@ export class Runner {
   private newSessionId: () => string;
   private idleTimeoutMs: number | null;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
+  private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
 
   constructor(deps: {
     hub: Hub;
@@ -97,6 +99,12 @@ export class Runner {
     /** `null` disables the idle timer entirely (the `IDLE_NEVER` preset). */
     idleTimeoutMs?: number | null;
     onStatus?: (sessionId: string, status: SessionStatus) => void;
+    /**
+     * Every assistant/user message the SDK streams, in transcript-entry shape.
+     * The stream carries the session's `Task` blocks, so a web session's
+     * subagents are known continuously without anyone tailing its transcript.
+     */
+    onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -106,6 +114,7 @@ export class Runner {
     this.idleTimeoutMs =
       deps.idleTimeoutMs === undefined ? DEFAULT_IDLE_MINUTES * 60_000 : deps.idleTimeoutMs;
     this.onStatus = deps.onStatus;
+    this.onEntries = deps.onEntries;
   }
 
   /**
@@ -272,6 +281,7 @@ export class Runner {
         // publish; messages with no id at all are stream-level noise.
         if (msg?.session_id !== sessionId) continue;
         if (msg.type === 'assistant' || msg.type === 'user') {
+          this.onEntries?.(sessionId, [msg as TranscriptEntry]);
           for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
             this.hub.publish(topic, { event: 'message', message: chat });
           }

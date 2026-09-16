@@ -14,9 +14,9 @@ import { Hub } from './api/hub.js';
 import { Runner, parseIdleTimeoutMs, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
 import { registerRoutes } from './api/routes.js';
-import { toApiSession } from './api/shape.js';
+import { toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
-import { SubagentTracker } from './transcript/subagents.js';
+import { SubagentStore } from './transcript/subagents.js';
 import type { SessionRow } from './types.js';
 import chokidar from 'chokidar';
 
@@ -31,10 +31,7 @@ import chokidar from 'chokidar';
  * state (it swaps in the new map only after emitting), so `ctx.registry.get`
  * would not yet reflect `live` here.
  */
-export function publishLiveSession(
-  ctx: { hub: Hub; db: OrbitalDb; registry: SessionRegistry; runner: Runner },
-  live: LiveSession,
-): void {
+export function publishLiveSession(ctx: PublishContext, live: LiveSession): void {
   const row = ctx.db
     .select(sessionColumns)
     .from(sessions)
@@ -46,8 +43,31 @@ export function publishLiveSession(
         id: live.sessionId, cwd: live.cwd, title: live.name, firstAt: null,
         lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
         permissionMode: null, parentId: null, tagIds: [], status: live.status,
+        subagents: ctx.subagents.get(live.sessionId),
       };
   ctx.hub.publish('sessions', { event: 'upsert', session });
+}
+
+/** What it takes to put a session on the `sessions` topic. */
+export type PublishContext = ShapeContext & { hub: Hub };
+
+/**
+ * Republishes one session because something about it changed that lives
+ * outside its DB row — today, its set of running subagents. Subagents ride
+ * along in the session shape rather than on a topic of their own, so the map
+ * sees them for every session (not only the selected one) and a page reload
+ * gets them from `GET /api/sessions` like everything else.
+ */
+export function publishSession(ctx: PublishContext, sessionId: string): void {
+  const live = ctx.registry.get(sessionId);
+  if (live) return publishLiveSession(ctx, live);
+  const row = ctx.db
+    .select(sessionColumns)
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .get() as SessionRow | undefined;
+  if (!row) return;
+  ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
 }
 
 /**
@@ -121,12 +141,48 @@ export async function buildServer(overrides: {
     db.delete(settingsTable).where(eq(settingsTable.key, 'claude_code_version')).run();
   }
 
+  // Running subagents, keyed by session. Read back out through
+  // `toApiSession`, so a change means "republish the session".
+  //
+  // Only the runner ever feeds this, i.e. only orbital's own sessions have
+  // subagents. A terminal session's transcript cannot answer the question:
+  // the CLI writes an `Agent` tool_use and its result together, when the
+  // subagent has already finished, so "running" is observable there for about
+  // 70ms. See `docs/domains/subagents-in-transcripts.md`.
+  const subagents = new SubagentStore();
+  // Built on call, not up front: the runner it names is constructed below and
+  // is itself one of the things that asks for a republish.
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents });
+  const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
+
   const runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
     idleTimeoutMs,
-    onStatus: (sessionId, status) => hub.publish('sessions', { event: 'status', sessionId, status }),
+    onStatus: (sessionId, status) => {
+      // An ended session has nothing running in it — and nothing left to
+      // observe the `tool_result` that would otherwise retire its agents.
+      if (status === 'ended') subagents.drop(sessionId);
+      hub.publish('sessions', { event: 'status', sessionId, status });
+    },
+    // The one feeder. The SDK stream is read as it is produced, so an `Agent`
+    // tool_use arrives when the model emits it — before the subagent runs,
+    // which is exactly what a transcript cannot tell us.
+    onEntries: (sessionId, entries) => {
+      if (subagents.feed(sessionId, entries)) republish(sessionId);
+    },
   });
+
+  // Transcript path for a session, once the indexer knows which project
+  // directory it belongs to. Null until then.
+  const transcriptPathOf = (id: string): string | null => {
+    const row = db
+      .select({ project_dir: sessions.projectDir })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get() as { project_dir: string } | undefined;
+    return row ? join(projectsDir, row.project_dir, `${id}.jsonl`) : null;
+  };
 
   // Initial index + re-index on transcript changes (debounced).
   indexProjects(db, projectsDir);
@@ -138,7 +194,7 @@ export async function buildServer(overrides: {
   });
 
   // Live registry → 'sessions' topic, REST-shaped (final-review ruling).
-  registry.on('upsert', (s) => publishLiveSession({ hub, db, registry, runner }, s));
+  registry.on('upsert', (s) => publishLiveSession(publishCtx(), s));
   registry.on('remove', (id) => hub.publish('sessions', { event: 'remove', sessionId: id }));
   registry.scan();
   registry.watch();
@@ -149,21 +205,12 @@ export async function buildServer(overrides: {
     if (!topic.startsWith('session:')) return;
     const id = topic.slice('session:'.length);
     if (runner.active().includes(id)) return; // web sessions publish directly
-    const row = db
-      .select({ project_dir: sessions.projectDir })
-      .from(sessions)
-      .where(eq(sessions.id, id))
-      .get() as { project_dir: string } | undefined;
-    if (!row) return;
-    const transcriptPath = join(projectsDir, row.project_dir, `${id}.jsonl`);
+    const transcriptPath = transcriptPathOf(id);
+    if (!transcriptPath) return;
     const tail = new TranscriptTail(transcriptPath);
-    const subagents = new SubagentTracker();
     tail.on('entries', (entries) => {
       for (const msg of entriesToMessages(entries)) {
         hub.publish(topic, { event: 'message', message: msg });
-      }
-      for (const agent of subagents.feed(entries)) {
-        hub.publish(topic, { event: 'subagent', subagent: agent });
       }
     });
     // Start at EOF, not byte 0: history is served over REST, and the first WS
@@ -171,6 +218,10 @@ export async function buildServer(overrides: {
     // both wasteful and duplicative of what GET /api/sessions/:id/messages
     // already returned. TranscriptTail holds back a trailing partial line, so
     // starting exactly at the current size is safe even mid-write.
+    //
+    // No subagent reading happens here. Scanning the transcript would cost a
+    // multi-megabyte parse per session opened to answer "none running", which
+    // is the only answer a transcript can give.
     let from = 0;
     try {
       from = statSync(transcriptPath).size;
@@ -207,7 +258,7 @@ export async function buildServer(overrides: {
     (socket) => hub.handleSocket(socket),
   );
   registerRoutes(app, {
-    db, registry, runner, projectsDir, hub,
+    db, registry, runner, projectsDir, hub, subagents,
     settings: {
       get: (k) =>
         db.select({ value: settingsTable.value }).from(settingsTable)

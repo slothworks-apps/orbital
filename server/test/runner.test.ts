@@ -570,3 +570,55 @@ describe('Runner idle timer', () => {
     expect(second.runner.status(second.id)).toBe('needs_input');
   });
 });
+
+describe('Runner subagent reporting', () => {
+  /** Fake SDK that runs one Task subagent and then reports its result. */
+  function fakeQueryFnWithSubagent() {
+    return ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+      const sid = sessionIdOf(options);
+      async function* gen() {
+        for await (const _userMsg of prompt) {
+          yield { type: 'system', subtype: 'init', session_id: sid };
+          yield {
+            type: 'assistant', session_id: sid,
+            message: {
+              role: 'assistant',
+              content: [
+                { type: 'tool_use', id: 't1', name: 'Task', input: { description: 'reviewer' } },
+              ],
+            },
+          };
+          yield {
+            type: 'user', session_id: sid,
+            message: {
+              role: 'user',
+              content: [{ type: 'tool_result', tool_use_id: 't1', content: 'reviewed' }],
+            },
+          };
+          yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
+        }
+      }
+      return gen() as any;
+    };
+  }
+
+  it('reports Task blocks from its own SDK stream, with no transcript watching involved', async () => {
+    const hub = new Hub();
+    const seen: Array<{ sessionId: string; entries: any[] }> = [];
+    const runner = new Runner({
+      hub,
+      queryFn: fakeQueryFnWithSubagent() as any,
+      onEntries: (sessionId, entries) => seen.push({ sessionId, entries }),
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+
+    expect(seen.every((s) => s.sessionId === id)).toBe(true);
+    const blocks = seen.flatMap((s) => s.entries.flatMap((e: any) => e.message.content));
+    expect(blocks).toContainEqual(
+      expect.objectContaining({ type: 'tool_use', id: 't1', name: 'Task' }),
+    );
+    expect(blocks).toContainEqual(expect.objectContaining({ type: 'tool_result', tool_use_id: 't1' }));
+    await runner.end(id);
+  });
+});

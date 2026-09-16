@@ -405,7 +405,6 @@ function resetStore(
     rules: [],
     settings: {},
     transcripts: {},
-    subagents: {},
     usage: {},
     historyLoaded: {},
     transcriptErrors: {},
@@ -650,6 +649,7 @@ describe('Transcript', () => {
           parentId: null,
           tagIds: [],
           status: 'working',
+          subagents: [],
         },
       },
     })

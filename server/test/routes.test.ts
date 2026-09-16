@@ -11,6 +11,7 @@ import { buildServer, publishLiveSession } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
 import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
+import { SubagentStore } from '../src/transcript/subagents.js';
 
 function makeApp() {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
@@ -41,8 +42,10 @@ function makeApp() {
   };
   const hub = new Hub();
   const app = Fastify();
+  const subagents = new SubagentStore();
   registerRoutes(app, {
     db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent', hub,
+    subagents,
     settings: {
       get: (k: string) =>
         db.select({ value: settingsTable.value }).from(settingsTable)
@@ -55,7 +58,7 @@ function makeApp() {
           .run(),
     },
   });
-  return { app, db, runner, hub, registry, startCalls };
+  return { app, db, runner, hub, registry, startCalls, subagents };
 }
 
 /** Subscribes a fake socket to a Hub topic and collects published payloads. */
@@ -78,6 +81,7 @@ describe('REST routes', () => {
   let hub: Hub;
   let registry: any;
   let startCalls: any[];
+  let subagents: SubagentStore;
   beforeEach(() => {
     const result = makeApp();
     app = result.app;
@@ -86,6 +90,27 @@ describe('REST routes', () => {
     hub = result.hub;
     registry = result.registry;
     startCalls = result.startCalls;
+    subagents = result.subagents;
+  });
+
+  it('GET /api/sessions carries each session\'s running subagents', async () => {
+    subagents.feed('s1', [
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 't1', name: 'Task', input: { description: 'reviewer' } },
+          ],
+        },
+      },
+    ]);
+    const body = (await app.inject({ method: 'GET', url: '/api/sessions' })).json();
+    expect(body.sessions[0].subagents).toEqual([
+      { id: 't1', name: 'reviewer', state: 'working' },
+    ]);
+    // A session with none says so explicitly rather than omitting the field.
+    expect(body.sessions[1].subagents).toEqual([]);
   });
 
   it('GET /api/sessions lists by recency with merged status and tags', async () => {
@@ -118,6 +143,11 @@ describe('REST routes', () => {
   });
 
   it('PUT /api/sessions/:id/tags removing a rule-derived tag actually removes it (C1)', async () => {
+    // s1 is seeded with a manual tag, and a manual pick outranks a rule tag
+    // (one tag per session) — so drop it first, or the rule tag below would
+    // never be the effective one.
+    await app.inject({ method: 'PUT', url: '/api/sessions/s1/tags', payload: { tagIds: [] } });
+
     // Create a tag whose rule matches s1's cwd, so session_tags gets a
     // 'rule'-origin row for it.
     const tagRes = await app.inject({
@@ -242,7 +272,7 @@ describe('REST routes', () => {
       sessionId: 's1', pid: 1, cwd: '/w/x', name: 'auth fix',
       status: 'working' as const, kind: 'claude', startedAt: 0, updatedAt: 500,
     };
-    publishLiveSession({ hub, db, registry: registry as any, runner: runner as any }, live);
+    publishLiveSession({ hub, db, registry: registry as any, runner: runner as any, subagents }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: 's1', status: 'working', tagIds: [10] });
@@ -254,7 +284,7 @@ describe('REST routes', () => {
       sessionId: 'term-9', pid: 1, cwd: '/w/z', name: 'untracked',
       status: 'idle' as const, kind: 'claude', startedAt: 0, updatedAt: 700,
     };
-    publishLiveSession({ hub, db, registry: registry as any, runner: runner as any }, live);
+    publishLiveSession({ hub, db, registry: registry as any, runner: runner as any, subagents }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({
@@ -393,6 +423,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       runner,
       projectsDir: '/nonexistent',
       hub,
+      subagents: new SubagentStore(),
       settings: {
         get: (k: string) =>
           db.select({ value: settingsTable.value }).from(settingsTable)

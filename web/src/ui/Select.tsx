@@ -23,11 +23,20 @@ export interface SelectProps<T> {
   font?: 'mono' | 'sans'
   /**
    * `field` is the boxed control of artboards 1h/1e; `pill` is 1e's
-   * rounded-full target-tag pill, tinted with the selected option's hue.
+   * rounded-full target-tag pill, tinted with the selected option's hue;
+   * `tag` is 1b's session-tag pill — the same hue, but FILLED and with the
+   * chevron inline, so the trigger reads as the tag it carries.
    */
-  variant?: 'field' | 'pill'
+  variant?: 'field' | 'pill' | 'tag'
   /** Shown when `value` matches no option. */
   placeholder?: string
+  /**
+   * Hint pinned under the options (canvas 1b: `ONE TAG PER SESSION · SETS
+   * PLANET HUE`). It sits outside the listbox and is wired to the trigger
+   * with `aria-describedby`, so it is a description of the control rather
+   * than an option nobody can pick.
+   */
+  footer?: string
   /** Layout-only passthrough (width, margin). Never use to override control styling. */
   className?: string
 }
@@ -37,6 +46,8 @@ const POPUP_GAP = 4
 const VIEWPORT_MARGIN = 8
 /** Never squeeze the popup below this; below it, flip instead. */
 const MIN_POPUP_HEIGHT = 96
+/** Width floor for the `tag` popup (canvas 1b) — its trigger is narrower. */
+const TAG_POPUP_MIN_WIDTH = 168
 /** Type-ahead buffer lifetime, the same window the platform controls use. */
 const TYPEAHEAD_MS = 500
 
@@ -60,8 +71,9 @@ const triggerFont: Record<NonNullable<SelectProps<unknown>['font']>, string> = {
  *
  * The closed field is verbatim from canvas 1h (8px/10px padding, a 26px right
  * gutter for the chevron, 8px radius over the `rgba(4,8,16,.6)` field fill);
- * the popup has no artboard, so it borrows the panel vocabulary (glass fill,
- * `rgba(150,205,255,.x)` hairline, accent for the selected row).
+ * the popup follows canvas 1b, which is the one artboard that draws an open
+ * listbox (5px padding, 10px radius, flat `rgba(10,16,28,.96)` fill, rows
+ * inset at a 7px radius).
  *
  * Focus never leaves the trigger: the active option is tracked with
  * `aria-activedescendant`, and the popup swallows its own pointer-downs so a
@@ -77,10 +89,13 @@ export function Select<T extends string | number>({
   font = 'mono',
   variant = 'field',
   placeholder,
+  footer,
   className,
   ...aria
 }: SelectProps<T>) {
-  const listboxId = `${useId()}-listbox`
+  const baseId = useId()
+  const listboxId = `${baseId}-listbox`
+  const footerId = `${baseId}-footer`
   const optionId = (index: number) => `${listboxId}-opt-${index}`
 
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -151,11 +166,14 @@ export function Select<T extends string | number>({
     popup.style.top = flip ? `${rect.top - POPUP_GAP - height}px` : `${rect.bottom + POPUP_GAP}px`
     popup.dataset.placement = flip ? 'above' : 'below'
 
-    popup.style.minWidth = `${rect.width}px`
+    // The tag pill is narrower than its own menu, so 1b gives that popup a
+    // 168px floor rather than letting it shrink to the trigger.
+    const floor = variant === 'tag' ? TAG_POPUP_MIN_WIDTH : 0
+    popup.style.minWidth = `${Math.max(rect.width, floor)}px`
     const width = popup.offsetWidth
     const maxLeft = window.innerWidth - width - VIEWPORT_MARGIN
     popup.style.left = `${Math.max(VIEWPORT_MARGIN, Math.min(rect.left, maxLeft))}px`
-  }, [])
+  }, [variant])
 
   // Re-measure rather than close: a scroll inside the rules table or the
   // settings body must not yank the popup away mid-interaction.
@@ -283,8 +301,17 @@ export function Select<T extends string | number>({
   }
 
   const isPill = variant === 'pill'
-  const triggerStyle: CSSProperties | undefined =
-    isPill && selected?.dotColor ? { borderColor: tint(selected.dotColor, 40) } : undefined
+  const isTag = variant === 'tag'
+  // 1e's pill borrows the hue for its border only; 1b's tag pill is filled
+  // with it, and brightens on open (border .4 -> .7, fill .1 -> .16).
+  const hue = selected?.dotColor
+  const triggerStyle: CSSProperties | undefined = !hue
+    ? undefined
+    : isTag
+      ? { borderColor: tint(hue, open ? 70 : 40), background: tint(hue, open ? 16 : 10) }
+      : isPill
+        ? { borderColor: tint(hue, 40) }
+        : undefined
 
   return (
     <>
@@ -299,6 +326,7 @@ export function Select<T extends string | number>({
         aria-activedescendant={open && options.length > 0 ? optionId(activeIndex) : undefined}
         aria-label={aria['aria-label']}
         aria-labelledby={aria['aria-labelledby']}
+        aria-describedby={open && footer ? footerId : undefined}
         disabled={disabled}
         data-value={String(value)}
         data-variant={variant}
@@ -309,21 +337,30 @@ export function Select<T extends string | number>({
           // No width here on purpose: `className` is the only source of one,
           // so a caller's `w-[200px]` never has to out-order a built-in
           // `w-full` in the stylesheet (see the v4 footguns in web/CLAUDE.md).
-          'relative inline-flex min-w-0 cursor-pointer items-center text-left text-text-bright disabled:cursor-not-allowed disabled:opacity-50',
-          isPill
-            ? // 1e's target-tag pill: 3px/9px inside a 999px hue-tinted border,
-              // 11px/600 label, with the chevron living in the right gutter.
+          'relative inline-flex min-w-0 cursor-pointer items-center gap-1.5 text-left text-text-bright disabled:cursor-not-allowed disabled:opacity-50',
+          isTag
+            ? // 1b's session-tag pill: 4px/9px/4px/10px inside a 999px
+              // hue-tinted border over a hue fill, 11px/600 label, chevron
+              // inline rather than in a gutter.
               [
-                'rounded-full border border-panel-border py-[3px] pl-[9px] pr-6 text-[11px] font-semibold',
+                'rounded-full border py-1 pl-2.5 pr-[9px] text-[11px] font-semibold',
+                'transition-[background-color,border-color] duration-[180ms] ease-out',
                 font === 'mono' ? 'font-mono' : 'font-sans',
               ].join(' ')
-            : // 1h's field: 8px/10px padding, a 26px right gutter for the
-              // chevron, 8px radius over the rgba(4,8,16,.6) fill.
-              [
-                'rounded-lg border border-panel-border bg-[rgba(4,8,16,.6)] py-2 pl-2.5 pr-[26px] transition-colors',
-                'hover:border-accent/40 focus:border-accent/60 focus:outline-none',
-                triggerFont[font],
-              ].join(' '),
+            : isPill
+              ? // 1e's target-tag pill: 3px/9px inside a 999px hue-tinted border,
+                // 11px/600 label, with the chevron living in the right gutter.
+                [
+                  'rounded-full border border-panel-border py-[3px] pl-[9px] pr-6 text-[11px] font-semibold',
+                  font === 'mono' ? 'font-mono' : 'font-sans',
+                ].join(' ')
+              : // 1h's field: 8px/10px padding, a 26px right gutter for the
+                // chevron, 8px radius over the rgba(4,8,16,.6) fill.
+                [
+                  'rounded-lg border border-panel-border bg-[rgba(4,8,16,.6)] py-2 pl-2.5 pr-[26px] transition-colors',
+                  'hover:border-accent/40 focus:border-accent/60 focus:outline-none',
+                  triggerFont[font],
+                ].join(' '),
           className ?? '',
         ]
           .filter(Boolean)
@@ -332,17 +369,25 @@ export function Select<T extends string | number>({
         {selected?.dotColor && (
           <span
             aria-hidden
-            className="mr-1.5 block h-1.5 w-1.5 shrink-0 rounded-full"
+            className="block h-1.5 w-1.5 shrink-0 rounded-full"
             style={{ background: selected.dotColor }}
           />
         )}
         <span className="min-w-0 flex-1 truncate">{label}</span>
         <span
           aria-hidden
-          className={[
-            'pointer-events-none absolute top-1/2 -translate-y-1/2',
-            isPill ? 'right-2 text-[9px] text-text-muted' : 'right-2.5 text-[11px] text-[rgba(160,190,225,.6)]',
-          ].join(' ')}
+          data-caret
+          className={
+            isTag
+              ? // Inline, and it flips while the popup is open (1b).
+                `block shrink-0 text-[8px] opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
+              : [
+                  'pointer-events-none absolute top-1/2 -translate-y-1/2',
+                  isPill
+                    ? 'right-2 text-[9px] text-text-muted'
+                    : 'right-2.5 text-[11px] text-[rgba(160,190,225,.6)]',
+                ].join(' ')
+          }
         >
           ▾
         </span>
@@ -352,60 +397,82 @@ export function Select<T extends string | number>({
         createPortal(
           <div
             ref={popupRef}
-            role="listbox"
-            id={listboxId}
-            aria-label={aria['aria-label']}
-            aria-labelledby={aria['aria-labelledby']}
-            aria-activedescendant={options.length > 0 ? optionId(activeIndex) : undefined}
             // Keeps DOM focus on the trigger through a click, so the control
             // never fires a focusout that an ancestor reads as "left the row".
             onMouseDown={(e) => e.preventDefault()}
             className={[
-              'fixed z-[60] max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain py-1',
-              // Panel vocabulary: the dense glass of the floating panels, the
-              // standard hairline, and the field's own 8px radius.
-              'rounded-lg border border-[rgba(150,205,255,.18)] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)] backdrop-blur-[24px]',
-              'shadow-[0_24px_60px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]',
+              'fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-[5px]',
+              // Canvas 1b draws this popup literally: 10px radius, a flat
+              // rgba(10,16,28,.96) fill (not the panels' gradient glass), a
+              // .16 hairline and a single soft drop shadow.
+              'rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] backdrop-blur-[12px]',
+              'shadow-[0_14px_34px_rgba(0,0,0,.55)]',
               triggerFont[font],
             ].join(' ')}
           >
-            {options.map((option, index) => {
-              const isSelected = option.value === value
-              const isActive = index === activeIndex
-              return (
-                <div
-                  key={String(option.value)}
-                  id={optionId(index)}
-                  role="option"
-                  aria-selected={isSelected}
-                  data-label={option.label}
-                  data-active={isActive || undefined}
-                  onMouseMove={() => setActiveIndex(index)}
-                  onClick={() => commit(index)}
-                  className={[
-                    'flex cursor-pointer items-center gap-2 px-2.5 py-2',
-                    isActive ? 'bg-accent/10' : '',
-                    isSelected ? 'text-accent' : 'text-text-bright',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                >
-                  {option.dotColor && (
-                    <span
-                      aria-hidden
-                      className="block h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ background: option.dotColor }}
-                    />
-                  )}
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  {isSelected && (
-                    <span aria-hidden className="shrink-0 text-[10px] text-accent">
-                      ✓
-                    </span>
-                  )}
-                </div>
-              )
-            })}
+            <div
+              role="listbox"
+              id={listboxId}
+              aria-label={aria['aria-label']}
+              aria-labelledby={aria['aria-labelledby']}
+              aria-activedescendant={options.length > 0 ? optionId(activeIndex) : undefined}
+              className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain"
+            >
+              {options.map((option, index) => {
+                const isSelected = option.value === value
+                const isActive = index === activeIndex
+                return (
+                  <div
+                    key={String(option.value)}
+                    id={optionId(index)}
+                    role="option"
+                    aria-selected={isSelected}
+                    data-label={option.label}
+                    data-active={isActive || undefined}
+                    onMouseMove={() => setActiveIndex(index)}
+                    onClick={() => commit(index)}
+                    // 1b rows: 7px/9px inside a 7px radius, 8px gap. The
+                    // canvas paints hover and selection the SAME tint, which
+                    // would leave an arrowing keyboard user unable to tell
+                    // the two apart — so the active row keeps the accent
+                    // tint and only selection uses the canvas's.
+                    className={[
+                      'flex shrink-0 cursor-pointer items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
+                      isActive
+                        ? 'bg-accent/10'
+                        : isSelected
+                          ? 'bg-[rgba(150,205,255,.09)]'
+                          : '',
+                      isSelected ? 'text-accent' : 'text-text-bright',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    {option.dotColor && (
+                      <span
+                        aria-hidden
+                        className="block h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: option.dotColor }}
+                      />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                    {isSelected && (
+                      <span aria-hidden className="shrink-0 text-[10px] text-accent">
+                        ✓
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {footer && (
+              <div
+                id={footerId}
+                className="mx-[5px] mt-[3px] mb-0.5 shrink-0 border-t border-[rgba(150,205,255,.1)] pt-1.5 font-mono text-[9.5px] leading-[1.4] tracking-[.1em] text-[rgba(160,190,225,.5)]"
+              >
+                {footer}
+              </div>
+            )}
           </div>,
           document.body,
         )}

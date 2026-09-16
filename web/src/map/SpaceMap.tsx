@@ -2,13 +2,31 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
-import type { OrthographicCamera } from 'three'
+import type { Group, OrthographicCamera } from 'three'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { Planet } from './Planet'
 import { Moon } from './Moon'
 import { useSceneModel } from './useSceneModel'
-import { applyPan, applyZoom, fitView, zoomAt, zoomFromWheel, type CameraState } from './camera'
+import type { SceneLabel } from './sceneModel'
+import {
+  BODY_MOVE_MS,
+  advancePointTween,
+  createPointTween,
+  prefersReducedMotion,
+  retargetPointTween,
+  usePointTween,
+} from './transition'
+import {
+  applyPan,
+  applyZoom,
+  centerOn,
+  fitView,
+  zoomAt,
+  zoomFromWheel,
+  type CameraState,
+  type Position,
+} from './camera'
 
 /**
  * Top-down space map scene: a `Canvas` (WebGL, untestable in jsdom) driven
@@ -33,6 +51,24 @@ const DRAG_THRESHOLD_PX = 3
 const SLOTH_LEFT_PERCENT = (120 / 1440) * 100
 const SLOTH_TOP_PERCENT = (640 / 900) * 100
 
+/**
+ * Map width the panels sit on, in CSS pixels — what `centerOn` keeps the
+ * followed planet clear of. The detail panel is 450px inset by 16px (1b); the
+ * sidebar is 340px open and 96px collapsed (1a).
+ */
+const DETAIL_PANEL_PX = 450 + 16
+const SIDEBAR_OPEN_PX = 340
+const SIDEBAR_COLLAPSED_PX = 96
+
+/**
+ * How far the selected planet has to move before the camera goes after it, in
+ * world units (a planet's radius is 1). Adding or ending a session renumbers
+ * its cluster's spiral and nudges everything in it by a fraction of a planet;
+ * chasing those would leave the map twitching. A retag is a whole cluster
+ * away, so it clears this by an order of magnitude.
+ */
+const FOLLOW_MIN_DISTANCE = 1.5
+
 /** Imperatively syncs a plain `CameraState` onto the live three.js orthographic camera every frame. */
 function CameraRig({ camera: camState }: { camera: CameraState }) {
   const { camera } = useThree()
@@ -48,6 +84,104 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
   })
 
   return null
+}
+
+/**
+ * A cluster's label, following its planets rather than cutting to the new
+ * anchor. The label is pinned above the cluster's topmost planet, so
+ * retagging moves it twice over — the cluster gains or loses a member AND its
+ * spiral renumbers — and a label that jumps while every planet under it
+ * glides is worse than no animation at all.
+ *
+ * `Html` reprojects from its parent's world matrix every frame, so tweening
+ * the wrapping group is all it takes.
+ */
+function ClusterLabel({ label }: { label: SceneLabel }) {
+  const move = usePointTween(label.x, label.y)
+  const groupRef = useRef<Group>(null)
+
+  useFrame((_, delta) => {
+    if (advancePointTween(move, delta) && groupRef.current) {
+      groupRef.current.position.set(move.x.value, move.y.value, 0)
+    }
+  })
+
+  return (
+    <group ref={groupRef} position={[move.x.value, move.y.value, 0]}>
+      {/* zIndexRange keeps map text under the z-10 side panels and z-50 dialogs (drei's default range is in the millions). */}
+      <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+        <span
+          style={{
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+            fontSize: 10,
+            letterSpacing: '0.2em',
+            textTransform: 'uppercase',
+            color: `oklch(80% .13 ${label.hue} / .45)`,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {label.text}
+        </span>
+      </Html>
+    </group>
+  )
+}
+
+/**
+ * Eases the camera to a world position over `BODY_MOVE_MS` — the same
+ * duration and curve the planets walk on, so the map and the view arrive
+ * together.
+ *
+ * Driven by `requestAnimationFrame` into `setCamera` rather than by a tween
+ * inside `CameraRig`: the camera state is what the HUD readout and every
+ * subsequent gesture are computed from, so it has to actually BE at the new
+ * place when the pan ends, not merely look like it. A per-frame `setCamera`
+ * is exactly what dragging the map already does.
+ *
+ * `cancel` is the other half of the contract: any pointer or wheel gesture
+ * abandons the pan where it stands. A camera that keeps sliding under a hand
+ * already on the map is a fight, not a feature.
+ */
+function usePanTo(setCamera: (next: (cam: CameraState) => CameraState) => void) {
+  const tween = useRef(createPointTween(0, 0, BODY_MOVE_MS))
+  const frame = useRef(0)
+  const lastMs = useRef(0)
+
+  const cancel = useCallback(() => {
+    if (frame.current !== 0) cancelAnimationFrame(frame.current)
+    frame.current = 0
+    tween.current.x.active = false
+    tween.current.y.active = false
+  }, [])
+
+  useEffect(() => cancel, [cancel])
+
+  const panTo = useCallback(
+    (from: Position, to: Position) => {
+      cancel()
+      const pt = tween.current
+      // Seed both ends: `retargetPointTween` interpolates from wherever the
+      // tween currently is, which for a fresh pan must be the live camera.
+      pt.x.value = from.x
+      pt.y.value = from.y
+      retargetPointTween(pt, to.x, to.y, prefersReducedMotion())
+
+      const step = (nowMs: number) => {
+        const delta = (nowMs - lastMs.current) / 1000
+        lastMs.current = nowMs
+        advancePointTween(pt, delta)
+        // Functional update, so a zoom that lands mid-pan keeps its zoom.
+        setCamera((cam) => ({ ...cam, x: pt.x.value, y: pt.y.value }))
+        frame.current = pt.x.active || pt.y.active ? requestAnimationFrame(step) : 0
+      }
+
+      lastMs.current = performance.now()
+      frame.current = requestAnimationFrame(step)
+    },
+    [cancel, setCamera]
+  )
+
+  return { panTo, cancel }
 }
 
 /**
@@ -81,6 +215,10 @@ export function SpaceMap() {
   const setHideEnded = useOrbital((s) => s.setHideEnded)
 
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
+  /** Read by the follow effect, which needs where the camera IS without re-running whenever it moves. */
+  const cameraRef = useRef(camera)
+  cameraRef.current = camera
+  const { panTo, cancel: cancelPan } = usePanTo(setCamera)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number; captured: boolean } | null>(null)
   /** Set true once a drag crosses `DRAG_THRESHOLD_PX`; the click handler below checks this to ignore the trailing click a drag-release produces. Reset on the next pointerdown, not on pointerup — the native `click` event fires AFTER pointerup, so it must still see this drag's `true`. */
@@ -94,11 +232,16 @@ export function SpaceMap() {
     [select]
   )
 
-  const handlePointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
-    dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY, captured: false }
-    draggedRef.current = false
-  }, [])
+  const handlePointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return
+      // A hand on the map outranks a pan in flight.
+      cancelPan()
+      dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY, captured: false }
+      draggedRef.current = false
+    },
+    [cancelPan]
+  )
 
   const handlePointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
@@ -130,20 +273,31 @@ export function SpaceMap() {
     dragRef.current = null
   }, [])
 
-  const handleWheel = useCallback((e: ReactWheelEvent<HTMLDivElement>) => {
-    // Read the geometry out here, not inside the updater: React may run the
-    // updater after the event has been handed back, when `currentTarget` is
-    // already null.
-    const rect = e.currentTarget.getBoundingClientRect()
-    const pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    const viewport = { width: rect.width, height: rect.height }
-    setCamera((cam) => zoomAt(cam, zoomFromWheel(cam.zoom, e.deltaY, e.deltaMode), pointer, viewport))
-  }, [])
+  const handleWheel = useCallback(
+    (e: ReactWheelEvent<HTMLDivElement>) => {
+      cancelPan()
+      // Read the geometry out here, not inside the updater: React may run the
+      // updater after the event has been handed back, when `currentTarget` is
+      // already null.
+      const rect = e.currentTarget.getBoundingClientRect()
+      const pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      const viewport = { width: rect.width, height: rect.height }
+      setCamera((cam) => zoomAt(cam, zoomFromWheel(cam.zoom, e.deltaY, e.deltaMode), pointer, viewport))
+    },
+    [cancelPan]
+  )
 
-  const zoomIn = useCallback(() => setCamera((cam) => applyZoom(cam, ZOOM_STEP)), [])
-  const zoomOut = useCallback(() => setCamera((cam) => applyZoom(cam, -ZOOM_STEP)), [])
+  const zoomIn = useCallback(() => {
+    cancelPan()
+    setCamera((cam) => applyZoom(cam, ZOOM_STEP))
+  }, [cancelPan])
+  const zoomOut = useCallback(() => {
+    cancelPan()
+    setCamera((cam) => applyZoom(cam, -ZOOM_STEP))
+  }, [cancelPan])
 
   const handleFit = useCallback(() => {
+    cancelPan()
     const positions = model.planets.map((p) => ({ x: p.x, y: p.y }))
     const rect = containerRef.current?.getBoundingClientRect()
     const viewport = {
@@ -151,7 +305,44 @@ export function SpaceMap() {
       height: rect?.height ?? window.innerHeight,
     }
     setCamera(fitView(positions, viewport))
-  }, [model.planets])
+  }, [cancelPan, model.planets])
+
+  /**
+   * Follows the selected planet when the LAYOUT moves it — which in practice
+   * means retagging, the one action that sends a session to the far side of
+   * the map. Without this the planet you are reading about walks off-screen
+   * and you have to go find it.
+   *
+   * Only a planet that was ALREADY selected is followed: selecting a
+   * different session is the user pointing at something they can evidently
+   * see, and hauling the camera there would take the rest of the map away
+   * from them for no reason.
+   */
+  const followed = model.planets.find((p) => p.selected && !p.hidden)
+  const followedId = followed?.session.id
+  const followedX = followed?.x
+  const followedY = followed?.y
+  const lastFollowed = useRef<{ id: string; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (followedId === undefined || followedX === undefined || followedY === undefined) {
+      lastFollowed.current = null
+      return
+    }
+    const previous = lastFollowed.current
+    lastFollowed.current = { id: followedId, x: followedX, y: followedY }
+    if (!previous || previous.id !== followedId) return
+    if (Math.hypot(followedX - previous.x, followedY - previous.y) < FOLLOW_MIN_DISTANCE) return
+
+    const cam = cameraRef.current
+    const target = centerOn(cam, { x: followedX, y: followedY }, {
+      left: sidebarCollapsed ? SIDEBAR_COLLAPSED_PX : SIDEBAR_OPEN_PX,
+      // The panel is open whenever something is selected, and something is
+      // selected whenever there is a planet to follow.
+      right: DETAIL_PANEL_PX,
+    })
+    panTo({ x: cam.x, y: cam.y }, { x: target.x, y: target.y })
+  }, [followedId, followedX, followedY, panTo, sidebarCollapsed])
 
   // ⌘N / Ctrl+N opens the new-session dialog, matching the floating
   // button's shortcut hint — but not while the user is typing somewhere
@@ -227,22 +418,8 @@ export function SpaceMap() {
           />
         ))}
 
-        {/* zIndexRange keeps map text under the z-10 side panels and z-50 dialogs (drei's default range is in the millions). */}
         {model.labels.map((label) => (
-          <Html key={label.tagId} position={[label.x, label.y, 0]} center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
-            <span
-              style={{
-                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                fontSize: 10,
-                letterSpacing: '0.2em',
-                textTransform: 'uppercase',
-                color: `oklch(80% .13 ${label.hue} / .45)`,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {label.text}
-            </span>
-          </Html>
+          <ClusterLabel key={label.tagId} label={label} />
         ))}
       </Canvas>
 

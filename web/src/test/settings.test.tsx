@@ -87,7 +87,6 @@ function resetStore(
       ended_after_idle_minutes: '30',
     },
     transcripts: {},
-    subagents: {},
     usage: {},
     historyLoaded: {},
     toast: null,
@@ -289,6 +288,7 @@ function makeSession(id: string, cwd: string) {
     parentId: null,
     tagIds: [],
     status: 'idle' as const,
+    subagents: [],
   }
 }
 

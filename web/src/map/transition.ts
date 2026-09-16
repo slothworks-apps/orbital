@@ -264,6 +264,48 @@ export function advanceTween(tw: Tween, deltaSec: number): boolean {
   return true
 }
 
+// --- point tween ----------------------------------------------------------
+
+/**
+ * How long a body takes to walk to a new place on the map.
+ *
+ * Deliberately slower than `STATE_TRANSITION_MS`: a state change is a body
+ * changing appearance in place, whereas retagging is a MIGRATION — the layout
+ * moves the session into another cluster and renumbers both spirals, so the
+ * planet crosses a large part of the map. At 420ms that trip still reads as a
+ * teleport with motion blur; at 700ms the eye can follow which planet went
+ * where, which is the whole point of animating it.
+ */
+export const BODY_MOVE_MS = 700
+
+/**
+ * Two tweens driven as one, for a body's `x`/`y`. Same duration and curve on
+ * both axes, so the path is a straight line eased along its length rather
+ * than a curve that arrives on one axis before the other.
+ */
+export interface PointTween {
+  x: Tween
+  y: Tween
+}
+
+export function createPointTween(x: number, y: number, durationMs: number): PointTween {
+  return { x: createTween(x, durationMs), y: createTween(y, durationMs) }
+}
+
+export function retargetPointTween(pt: PointTween, x: number, y: number, reduced = false): void {
+  retargetTween(pt.x, x, pt.x.durationMs, reduced)
+  retargetTween(pt.y, y, pt.y.durationMs, reduced)
+}
+
+/** Advances both axes. Returns true if either moved this frame. */
+export function advancePointTween(pt: PointTween, deltaSec: number): boolean {
+  // Both sides always evaluated — `||` would skip advancing y on any frame
+  // where x was still moving.
+  const movedX = advanceTween(pt.x, deltaSec)
+  const movedY = advanceTween(pt.y, deltaSec)
+  return movedX || movedY
+}
+
 /**
  * Signed angular distance from `from` to `to` on the hue circle, in
  * (-180, 180]. Retagging 350° → 10° must cross 0°, not run 340° the long way
@@ -602,6 +644,26 @@ export function useHueTween(hue: number, durationMs: number = STATE_TRANSITION_M
     retargetHueTween(tw, hue, prefersReducedMotion())
   }, [tw, hue])
   return tw
+}
+
+/**
+ * Position tween for a body the layout has moved — retagging a session walks
+ * it over to its new cluster instead of cutting it there.
+ *
+ * The caller renders the tween's CURRENT value as the JSX `position` (not the
+ * incoming `x`/`y`): R3F re-applies that prop on every re-render, and the
+ * re-render that delivers a new target happens one frame BEFORE the tween
+ * starts — so rendering the target would plant the body at the destination
+ * for a frame and then yank it back to the start.
+ */
+export function usePointTween(x: number, y: number, durationMs: number = BODY_MOVE_MS): PointTween {
+  const ref = useRef<PointTween | null>(null)
+  if (ref.current === null) ref.current = createPointTween(x, y, durationMs)
+  const pt = ref.current
+  useLayoutEffect(() => {
+    retargetPointTween(pt, x, y, prefersReducedMotion())
+  }, [pt, x, y])
+  return pt
 }
 
 /** 0 ⇄ 1 fade with a shorter exit than entrance, per `ui/motion.ts`'s rule. */

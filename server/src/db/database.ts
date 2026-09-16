@@ -27,6 +27,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * sidebar's HISTORY list complete and its offset paging intact.
    */
   map_ended_max_age_days: '1',
+  /**
+   * The map's ENDED toggle (canvas 2a/2b). A view flag, but a sticky one —
+   * a user who decluttered the map meant it, and having it come back on
+   * every reload makes the toggle feel broken. Kept here rather than in
+   * `localStorage` so it travels with the rest of the map's preferences
+   * (`map_ended_max_age_days` next door) instead of living in a second,
+   * per-browser store.
+   */
+  map_hide_ended: 'false',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };

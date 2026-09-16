@@ -62,6 +62,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     parentId: null,
     tagIds: [],
     status: 'idle',
+    subagents: [],
     ...overrides,
   }
 }
@@ -73,7 +74,6 @@ const initialSnapshot: OrbitalState = {
   rules: [],
   settings: {},
   transcripts: {},
-  subagents: {},
   usage: {},
   historyLoaded: {},
   transcriptErrors: {},
@@ -93,6 +93,9 @@ const initialSnapshot: OrbitalState = {
 beforeEach(() => {
   useOrbital.setState(structuredClone(initialSnapshot))
   vi.clearAllMocks()
+  // Every ENDED toggle saves; tests that care about the save assert on it,
+  // the rest just need it not to reject.
+  vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
 })
 
 describe('loadInitial', () => {
@@ -212,18 +215,24 @@ describe('applySessionEvent', () => {
     expect(useOrbital.getState().sessions.unknown).toBeUndefined()
   })
 
-  it('subagent upserts by id', () => {
+  it('carries running subagents on the session itself, for any session and without selecting it', () => {
     const sub1: Subagent = { id: 'a1', name: 'sub-a', state: 'working' }
-    useOrbital.getState().applySessionEvent('s1', { event: 'subagent', subagent: sub1 })
-    expect(useOrbital.getState().subagents.s1).toEqual([sub1])
+    const s1 = makeSession({ id: 's1', subagents: [sub1] })
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: s1 })
+    expect(useOrbital.getState().sessions.s1.subagents).toEqual([sub1])
 
-    const sub1Updated: Subagent = { id: 'a1', name: 'sub-a', state: 'idle' }
-    useOrbital.getState().applySessionEvent('s1', { event: 'subagent', subagent: sub1Updated })
-    expect(useOrbital.getState().subagents.s1).toEqual([sub1Updated])
-
+    // The server republishes the whole session when its set changes, so the
+    // store never merges subagent-by-subagent — the newest upsert is the truth.
     const sub2: Subagent = { id: 'a2', name: 'sub-b', state: 'working' }
-    useOrbital.getState().applySessionEvent('s1', { event: 'subagent', subagent: sub2 })
-    expect(useOrbital.getState().subagents.s1).toEqual([sub1Updated, sub2])
+    useOrbital.getState().applySessionsEvent({
+      event: 'upsert', session: { ...s1, subagents: [sub2] },
+    })
+    expect(useOrbital.getState().sessions.s1.subagents).toEqual([sub2])
+
+    useOrbital.getState().applySessionsEvent({
+      event: 'upsert', session: { ...s1, subagents: [] },
+    })
+    expect(useOrbital.getState().sessions.s1.subagents).toEqual([])
   })
 
   it('turn_result stores usage keyed by session id', () => {
@@ -652,5 +661,51 @@ describe('setHideEnded', () => {
     expect(useOrbital.getState().ui.hideEnded).toBe(true)
     useOrbital.getState().setHideEnded(false)
     expect(useOrbital.getState().ui.hideEnded).toBe(false)
+  })
+
+  // The toggle has to survive a reload — see `map_hide_ended`.
+  it('saves the toggle, and flips the map before the save comes back', () => {
+    let resolveSave = (_: { ok: boolean }) => {}
+    vi.mocked(api.patchSettings).mockReturnValue(
+      new Promise((resolve) => {
+        resolveSave = resolve
+      })
+    )
+
+    useOrbital.getState().setHideEnded(true)
+
+    expect(useOrbital.getState().ui.hideEnded).toBe(true)
+    expect(useOrbital.getState().settings.map_hide_ended).toBe('true')
+    expect(api.patchSettings).toHaveBeenCalledWith({ map_hide_ended: 'true' })
+    resolveSave({ ok: true })
+  })
+
+  it('does not save a toggle that changes nothing', () => {
+    useOrbital.getState().setHideEnded(false)
+    expect(api.patchSettings).not.toHaveBeenCalled()
+  })
+
+  it('puts the toggle back and reports when the save fails', async () => {
+    vi.mocked(api.patchSettings).mockRejectedValue(new Error('settings server down'))
+
+    useOrbital.getState().setHideEnded(true)
+    await vi.waitFor(() => expect(useOrbital.getState().ui.hideEnded).toBe(false))
+
+    expect(useOrbital.getState().settings.map_hide_ended).toBe('false')
+    expect(useOrbital.getState().toast).toEqual({
+      kind: 'error',
+      message: 'settings server down',
+    })
+  })
+
+  it('loadInitial seeds the toggle from the saved setting', async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([])
+    vi.mocked(api.listTags).mockResolvedValue([])
+    vi.mocked(api.listTagRules).mockResolvedValue([])
+    vi.mocked(api.getSettings).mockResolvedValue({ map_hide_ended: 'true' })
+
+    await useOrbital.getState().loadInitial()
+
+    expect(useOrbital.getState().ui.hideEnded).toBe(true)
   })
 })

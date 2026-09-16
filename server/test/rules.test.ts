@@ -77,4 +77,25 @@ describe('regenerateRuleTags + effectiveTagIds', () => {
     ).id;
     expect(effectiveTagIds(db, 's2')).toEqual([defaultId]);
   });
+
+  // A session wears one tag (canvas 1b). The rows behind it can still be
+  // several — a rule tag the user then overrode by picking another.
+  it('resolves to a single tag, with a manual pick beating a rule tag', () => {
+    db.insert(tags).values({ id: 11, name: 'experiments', hue: 150 }).run();
+    regenerateRuleTags(db);
+    expect(effectiveTagIds(db, 's1')).toEqual([10]);
+    db.insert(sessionTags).values({ sessionId: 's1', tagId: 11, origin: 'manual' }).run();
+    expect(effectiveTagIds(db, 's1')).toEqual([11]);
+  });
+
+  it('picks the lower id when a rule tag is all a session has twice over', () => {
+    db.insert(tags).values({ id: 9, name: 'oncall', hue: 60 }).run();
+    db.insert(sessionTags)
+      .values([
+        { sessionId: 's1', tagId: 9, origin: 'rule' },
+        { sessionId: 's1', tagId: 10, origin: 'rule' },
+      ])
+      .run();
+    expect(effectiveTagIds(db, 's1')).toEqual([9]);
+  });
 });

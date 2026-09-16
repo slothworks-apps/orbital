@@ -9,6 +9,12 @@ with Claude from the browser, including resuming and continuing historical
 sessions. It runs only on your own machine, binds to `127.0.0.1`, and has no
 authentication.
 
+Moons appear only around sessions Orbital started itself. A terminal session's
+transcript records a subagent only once it has finished, so there is no moment
+at which its running subagents can be read —
+[`docs/domains/subagents-in-transcripts.md`](docs/domains/subagents-in-transcripts.md)
+has the measurements.
+
 ## Screenshot
 
 ![Orbital map view](docs/screenshot.png)

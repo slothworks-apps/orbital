@@ -60,7 +60,6 @@ function resetStore(
     rules: [],
     settings: {},
     transcripts: {},
-    subagents: {},
     usage: {},
     historyLoaded: {},
     toast: null,

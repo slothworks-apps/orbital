@@ -14,6 +14,8 @@ export interface ApiSession {
   parentId: string | null;
   tagIds: number[];
   status: SessionStatus;
+  /** Subagents running in this session right now — the map's moons. */
+  subagents: Subagent[];
 }
 
 export interface ChatMessage {

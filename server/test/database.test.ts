@@ -181,6 +181,7 @@ describe('openDb', () => {
     expect(Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))).toEqual({
       ...LEGACY_SETTINGS,
       map_ended_max_age_days: '1',
+      map_hide_ended: 'false',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

@@ -21,8 +21,9 @@ const CLOCK_TICK_MS = 60_000
  * pre-fix).
  *
  * Instead, this hook subscribes to only the primitive/reference slices
- * `buildSceneModel` actually reads (`sessions`, `order`, `tags`,
- * `subagents`, and the four `ui` filter/selection fields it consults via
+ * `buildSceneModel` actually reads (`sessions` — which now carries each
+ * session's running subagents — `order`, `tags`,
+ * and the four `ui` filter/selection fields it consults via
  * `visibleSessions`/`statusCounts`), each through its own selector — so a
  * re-render only happens when one of THOSE references/values actually
  * changes — and then recomputes the derived model itself in `useMemo`,
@@ -39,7 +40,6 @@ export function useSceneModel(): SceneModel {
   const sessions = useOrbital((s) => s.sessions)
   const order = useOrbital((s) => s.order)
   const tags = useOrbital((s) => s.tags)
-  const subagents = useOrbital((s) => s.subagents)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const filterTagId = useOrbital((s) => s.ui.filterTagId)
   const search = useOrbital((s) => s.ui.search)
@@ -60,7 +60,7 @@ export function useSceneModel(): SceneModel {
     () =>
       // `buildSceneModel` takes a full `OrbitalState` (so it can reuse
       // `mapSessions`/`statusCounts` unmodified), but only ever reads the
-      // 10 fields selected above. The rest are inert filler to satisfy the
+      // fields selected above. The rest are inert filler to satisfy the
       // type — if `buildSceneModel` (or the store selectors it calls)
       // starts reading one of them, it must be added to both this object
       // and the `useMemo` dependency array above.
@@ -72,7 +72,6 @@ export function useSceneModel(): SceneModel {
           rules: [],
           settings,
           transcripts: {},
-          subagents,
           usage: {},
           historyLoaded: {},
           transcriptErrors: {},
@@ -94,7 +93,6 @@ export function useSceneModel(): SceneModel {
       sessions,
       order,
       tags,
-      subagents,
       settings,
       selectedId,
       filterTagId,
