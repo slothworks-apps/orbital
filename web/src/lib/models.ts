@@ -18,6 +18,27 @@ export function modelByValue(value: string | null | undefined, models: OrbitalMo
 }
 
 /**
+ * The catalog row for an id that might be EITHER an SDK `value` (`opus[1m]`,
+ * what Orbital itself launched with) OR a resolved model id (`claude-opus-5`,
+ * all a terminal-launched session ever has). Tries a `value` match first,
+ * then the naming-only resolved-model match: exact, then with a trailing
+ * `[…]` stripped from both sides, because the transcript records
+ * `claude-opus-5` even for a session launched as `opus[1m]`.
+ *
+ * Shared by `modelNameForId` (name a raw resolved id) and the New session
+ * dialog's "last used here" (a project's newest session may have no `value`
+ * at all) — one lookup rather than two that could drift apart.
+ */
+export function modelByAnyId(id: string | null | undefined, models: OrbitalModel[]): OrbitalModel | undefined {
+  if (!id) return undefined
+  return (
+    modelByValue(id, models) ??
+    models.find((m) => m.resolvedModel === id) ??
+    models.find((m) => stripVariant(m.resolvedModel) === stripVariant(id))
+  )
+}
+
+/**
  * The name for the detail chip and the switcher rows — `Opus 5 (1M)`.
  *
  * The chip is the only place with no room for a separate context line, so it
@@ -31,16 +52,13 @@ export function modelChipLabel(model: OrbitalModel): string {
 /**
  * Names a raw resolved model id for display — `claude-opus-5` -> `Opus 5`.
  *
- * Uses the same match `matchModel` uses for NAMING (exact, then with a
- * trailing `[…]` stripped from both sides), because a transcript records
+ * Uses `modelByAnyId`'s resolved-model matching (exact, then with a trailing
+ * `[…]` stripped from both sides), because a transcript records
  * `claude-opus-5` even for a session launched as `opus[1m]`. Falls back to the
  * id itself: an unknown model should read as something rather than vanish.
  */
 export function modelNameForId(resolvedId: string, models: OrbitalModel[]): string {
-  const match =
-    models.find((m) => m.resolvedModel === resolvedId) ??
-    models.find((m) => stripVariant(m.resolvedModel) === stripVariant(resolvedId))
-  return match?.shortVersion ?? resolvedId
+  return modelByAnyId(resolvedId, models)?.shortVersion ?? resolvedId
 }
 
 /**
@@ -60,6 +78,21 @@ export function matchModel(session: ApiSession, models: OrbitalModel[]): Orbital
     models.find((m) => m.resolvedModel === resolved) ??
     models.find((m) => stripVariant(m.resolvedModel) === stripVariant(resolved))
   )
+}
+
+/**
+ * Whether `matchModel`'s row for this session is an EXACT one — matched by
+ * the session's own requested value, or by an exact resolved-model id — as
+ * opposed to the naming-only variant-stripped fallback.
+ *
+ * The stripped fallback exists so a terminal session has a name at all; it
+ * does not tell us the variant actually running. Appending one anyway would
+ * have the chip claim a context size (`(1M)`) the read-out beside it cannot
+ * back up, which is the one thing `docs/decisions/models-come-from-the-sdk.md`
+ * says this feature must never do.
+ */
+export function isExactModelMatch(session: ApiSession, model: OrbitalModel): boolean {
+  return model.value === session.model || model.resolvedModel === session.resolvedModel
 }
 
 /**

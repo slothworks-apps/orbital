@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { matchModel, contextWindowFor, modelByValue, modelChipLabel, DEFAULT_CONTEXT_WINDOW } from '../lib/models'
+import {
+  matchModel,
+  contextWindowFor,
+  modelByValue,
+  modelByAnyId,
+  modelChipLabel,
+  modelNameForId,
+  isExactModelMatch,
+  DEFAULT_CONTEXT_WINDOW,
+} from '../lib/models'
 import { formatContextWindow } from '../lib/format'
 import type { ApiSession, OrbitalModel } from '../lib/types'
 
@@ -60,6 +69,57 @@ describe('modelChipLabel', () => {
   it('appends the variant only when there is one', () => {
     expect(modelChipLabel(MODELS[0])).toBe('Opus 5 (1M)')
     expect(modelChipLabel(MODELS[1])).toBe('Sonnet 5')
+  })
+})
+
+describe('modelByAnyId', () => {
+  it('matches an SDK value', () => {
+    expect(modelByAnyId('sonnet', MODELS)?.shortVersion).toBe('Sonnet 5')
+  })
+
+  it('matches a resolved id a terminal session recorded, exactly or with the variant stripped', () => {
+    expect(modelByAnyId('claude-opus-5[1m]', MODELS)?.shortVersion).toBe('Opus 5')
+    expect(modelByAnyId('claude-opus-5', MODELS)?.shortVersion).toBe('Opus 5')
+  })
+
+  it('matches nothing for an id no row carries', () => {
+    expect(modelByAnyId('claude-mystery-1', MODELS)).toBeUndefined()
+    expect(modelByAnyId(null, MODELS)).toBeUndefined()
+  })
+})
+
+describe('modelNameForId', () => {
+  it('names an exact resolved id', () => {
+    expect(modelNameForId('claude-sonnet-5', MODELS)).toBe('Sonnet 5')
+  })
+
+  it('names a resolved id with its variant suffix stripped', () => {
+    // The transcript writes `claude-opus-5` even for a `[1m]` session.
+    expect(modelNameForId('claude-opus-5', MODELS)).toBe('Opus 5')
+  })
+
+  it('falls back to the id itself when nothing matches', () => {
+    expect(modelNameForId('claude-mystery-1', MODELS)).toBe('claude-mystery-1')
+  })
+})
+
+describe('isExactModelMatch', () => {
+  const session = (over: Partial<ApiSession>): ApiSession => ({
+    id: 's', cwd: '/w', title: 't', firstAt: null, lastAt: null, messageCount: 0,
+    source: 'web', permissionMode: null, model: null, resolvedModel: null,
+    parentId: null, tagIds: [], status: 'ended', ...over,
+  })
+
+  it('is exact when the session names the row by its requested value', () => {
+    expect(isExactModelMatch(session({ model: 'opus[1m]' }), MODELS[0])).toBe(true)
+  })
+
+  it('is exact when the resolved model matches the row exactly', () => {
+    expect(isExactModelMatch(session({ resolvedModel: 'claude-opus-5[1m]' }), MODELS[0])).toBe(true)
+  })
+
+  it('is not exact when only the variant-stripped resolved model matches', () => {
+    expect(isExactModelMatch(session({ resolvedModel: 'claude-opus-5' }), MODELS[0])).toBe(false)
   })
 })
 

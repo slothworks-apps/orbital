@@ -11,7 +11,7 @@ import { Input, TextArea } from '../ui/Input'
 import { Chip } from '../ui/Chip'
 import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
-import { modelByValue } from '../lib/models'
+import { modelByValue, modelByAnyId } from '../lib/models'
 import type { PermissionMode } from '../lib/types'
 
 export interface NewSessionDialogProps {
@@ -97,12 +97,16 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // not have). A manual pick wins over all of it.
   const rememberPerProject = settings.remember_model_per_project !== 'false'
   const lastModelHere = projects.find((p) => p.cwd === cwd.trim())?.lastModel ?? null
+  // A terminal-launched session only ever has a `resolved_model` (`GET
+  // /api/projects` returns it honestly, never the SDK `value`), so this has
+  // to accept either kind of id — see `modelByAnyId`.
+  const lastModelRow = modelByAnyId(lastModelHere, models)
   useEffect(() => {
     if (!open || modelOverridden || models.length === 0) return
-    const remembered = rememberPerProject ? modelByValue(lastModelHere, models) : undefined
+    const remembered = rememberPerProject ? lastModelRow : undefined
     const fromSettings = modelByValue(settings.default_model, models)
     setModel((remembered ?? fromSettings ?? models[0]).value)
-  }, [open, modelOverridden, models, rememberPerProject, lastModelHere, settings.default_model])
+  }, [open, modelOverridden, models, rememberPerProject, lastModelRow, settings.default_model])
 
   // Debounced auto-match: re-preview whenever cwd or permission mode
   // changes, and (unless the user has manually overridden) adopt the match.
@@ -240,10 +244,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           <FieldLabel>
             MODEL
             <span aria-hidden className="flex-1" />
-            {rememberPerProject && lastModelHere && (
-              // canvas 4b: right-hand note, .06em tracking.
+            {rememberPerProject && lastModelRow && (
+              // canvas 4b: right-hand note, .06em tracking. Renders the
+              // matched row's shortVersion (never a raw id) and only when
+              // something actually matched — F1.
               <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">
-                last used here: {modelByValue(lastModelHere, models)?.family ?? lastModelHere}
+                last used here: {lastModelRow.shortVersion}
               </span>
             )}
           </FieldLabel>

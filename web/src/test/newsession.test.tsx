@@ -269,6 +269,31 @@ describe('NewSessionDialog — model group (4b)', () => {
     expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'true')
   })
 
+  it('adopts and names the project last-used model when only a resolved id is known (terminal launch)', async () => {
+    // A terminal-launched session only ever gets a `resolved_model` — F1.
+    resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'claude-opus-5' }])
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'true')
+    )
+    // The note names the matched row's shortVersion, never the raw id.
+    expect(screen.getByText('last used here: Opus 5')).toBeInTheDocument()
+    expect(screen.queryByText(/claude-opus-5/)).not.toBeInTheDocument()
+  })
+
+  it('shows no note and falls through to the settings default when the last model matches nothing', async () => {
+    resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'claude-mystery-1' }])
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+    )
+    expect(screen.queryByText(/last used here/)).not.toBeInTheDocument()
+  })
+
   it('launches with the chosen model', async () => {
     resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
     vi.mocked(api.listProjects).mockResolvedValue([])
