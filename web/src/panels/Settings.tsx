@@ -500,7 +500,7 @@ export function Settings({ open, onClose }: SettingsProps) {
             {/* canvas 4c: MAP section, beside the map row above. */}
             <Row
               title="Model name under planet label"
-              desc="Family only (no version). Moons show it only when their model differs."
+              desc="Family only (no version)."
             >
               <div className="flex items-center gap-3">
                 <Toggle

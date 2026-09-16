@@ -443,6 +443,20 @@ describe('REST routes', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('400s on a missing or non-string model rather than clearing the row', async () => {
+    const { app, db } = makeApp();
+    db.update(sessions).set({ model: 'haiku' }).where(eq(sessions.id, 's2')).run();
+
+    const missing = await app.inject({ method: 'POST', url: '/api/sessions/s2/model', payload: {} });
+    expect(missing.statusCode).toBe(400);
+
+    const wrongType = await app.inject({ method: 'POST', url: '/api/sessions/s2/model', payload: { model: 42 } });
+    expect(wrongType.statusCode).toBe(400);
+
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.model).toBe('haiku');
+  });
+
   it('publishes an upsert after a switch', async () => {
     const { app, hub, runner } = makeApp();
     (runner as any).setModel = async () => {};

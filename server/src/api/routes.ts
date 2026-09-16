@@ -156,7 +156,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   app.post('/api/sessions/:id/model', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { model } = req.body as { model: string };
+    const { model } = (req.body ?? {}) as { model?: unknown };
+    if (typeof model !== 'string' || !model) {
+      return reply.code(400).send({ error: 'model is required' });
+    }
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
       | SessionRow
       | undefined;

@@ -7,6 +7,9 @@ import { Badge } from '../ui/Badge'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import type { ApiSession, OrbitalModel } from '../lib/types'
 
+/** Same wording `ui/ModelCards.tsx` uses for its empty state — one sentence, one source of truth. */
+const EMPTY_CATALOG_REASON = 'The model list could not be read from Claude Code.'
+
 export interface ModelSwitcherProps {
   session: ApiSession
   models: OrbitalModel[]
@@ -62,9 +65,15 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
   }, [open])
 
-  if (disabledReason) {
+  // An empty catalog (a probe that has never succeeded) has nothing to offer
+  // a switch to — same treatment as a terminal-live session: an inert chip
+  // with the reason as its tooltip, rather than a popover that opens onto
+  // just a kicker and a footer.
+  const inertReason = disabledReason ?? (models.length === 0 ? EMPTY_CATALOG_REASON : undefined)
+
+  if (inertReason) {
     return (
-      <span title={disabledReason} data-model-badge>
+      <span title={inertReason} data-model-badge>
         <Badge variant="model" value={label} />
       </span>
     )

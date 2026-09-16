@@ -450,6 +450,12 @@ describe('DetailPanel model chip', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
+  it('is inert with an explanatory title when the catalog is empty', () => {
+    renderDetail({ session: { ...webSession, model: 'sonnet' }, models: [] })
+    expect(screen.queryByRole('button', { name: /Change model/ })).not.toBeInTheDocument()
+    expect(screen.getByTitle(/model list could not be read/i)).toBeInTheDocument()
+  })
+
   it('does not offer a switch on a session live in a terminal', () => {
     renderDetail({ session: { ...terminalSession, status: 'working', model: null, resolvedModel: 'claude-sonnet-5' }, models: MODELS })
     expect(screen.queryByRole('button', { name: /Change model/ })).not.toBeInTheDocument()

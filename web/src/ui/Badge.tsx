@@ -82,7 +82,11 @@ export function Badge(props: BadgeProps) {
         className={`${baseClass} ${
           props.interactive
             ? 'border-accent/60 bg-accent/8 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
-            : 'border-panel-border bg-[rgba(4,8,16,.5)] text-[rgba(220,235,255,.85)]'
+            : // Same literal the `mode` badge beside it uses for the identical
+              // quiet-chip role — `border-panel-border` is `.14`, not `.2`,
+              // so the token can't stand in for it without the two chips
+              // visibly disagreeing.
+              'border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.5)] text-[rgba(220,235,255,.85)]'
         }`}
       >
         {props.value}
