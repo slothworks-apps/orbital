@@ -44,6 +44,28 @@ and stored per model. Rejected: parsing `"Opus 5 with 1M context · …"` out of
 the SDK's `description`. That text is prose whose format can change without
 notice, and the failure mode is a wrong number rather than a missing one.
 
+**A fresh install has run no turns, so it has learned nothing** — and a
+header reading `Opus 5 (1M)` above a bar drawn against an invented 200k is a
+worse lie than a missing bar. `shapeModels` resolves `contextWindow` in
+order: the learned value for the exact `resolvedModel`, else a small seed of
+documented figures keyed by the id with its `[…]` suffix stripped (Anthropic's
+docs describe `claude-opus-5`, not `claude-opus-5[1m]`), else `null`. The seed
+is checked once, by hand, against
+https://platform.claude.com/docs/en/about-claude/models/overview on
+2026-09-16, and lives in `server/src/models/catalog.ts`. It is not a second
+source of truth in the sense this ADR rejects: `recordContextWindows` always
+wins the moment a real turn reports a figure, so the seed can only ever delay
+the truth by one turn, never contradict it, and a model the seed does not
+recognize resolves to `null` rather than a guess. The web layer never
+re-derives this stripped-id fallback itself — `contextWindowFor` in
+`web/src/lib/models.ts` returns `null` on anything short of an exact match,
+and the panel simply draws no bar when that happens.
+
+We also tried the SDK's own `getContextUsage()` control request as a source.
+It reports `maxTokens: 1_000_000` for every model, including Haiku, because
+it describes the session's ceiling rather than the specific model's window —
+so it cannot tell a 200k model from a 1M one and is not usable here.
+
 **Two rules keep a dynamic list from lying:**
 
 - The `default` row is dropped. It resolves to the same model as a named row,

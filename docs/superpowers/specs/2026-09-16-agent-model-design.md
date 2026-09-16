@@ -240,9 +240,21 @@ made in a terminal that Orbital never performed.
 ### The context bar
 
 `CONTEXT_BUDGET` is deleted. The denominator is the session's model's
-`contextWindow` from the catalog; with no match the bar keeps the 200k
-fallback and the read-out still says `— / 200k ctx` rather than a number
-nobody measured.
+`contextWindow` from the catalog, which is `number | null` — the server
+seeds it from a documented table when nothing has been learned yet (see
+`docs/decisions/models-come-from-the-sdk.md`), but `contextWindowFor` on the
+client only ever matches exactly and returns `null` on anything short of
+that. When it is `null`, the panel draws neither the track nor the read-out
+at all — a bar scaled to a guessed number is worse than no bar. A session
+whose window IS known but has no usage yet still shows `— / 200k ctx`: that
+numerator is honestly unmeasured, not unknown.
+
+The usage grid (INPUT/OUTPUT/CACHE READ) and the context bar are hidden
+entirely — not dashed — for `session.source === 'terminal'`: only the Runner
+ever publishes `turn_result`, so a terminal session's numbers can never
+arrive, and the owner ruled that a permanently-missing figure should not sit
+there as an em dash. A web session with no usage yet keeps the dashed grid,
+because its numbers are merely not in *yet*.
 
 ### 4b — New session dialog
 
@@ -285,7 +297,8 @@ line brighter than the name it sits under.
 | Probe fails, a list is stored | Serve the stored list; log once. |
 | Probe fails, nothing stored | `GET /api/models` returns an empty array; the pickers render an explanatory empty state and launch still works (no `model` is sent, so the CLI's own default applies). |
 | Switch on a terminal-live session | `409`, surfaced as a toast; the badge was already inert. |
-| Session's model matches no catalog row | Show `resolved_model` verbatim; context bar falls back to 200k. |
+| Session's model matches no catalog row | Show `resolved_model` verbatim; context bar and read-out are not drawn (`contextWindow` is `null`). |
+| Session's `source` is `terminal` | The whole usage block — grid and context bar — is hidden, not dashed: a terminal session never publishes `turn_result`, so the numbers are permanently unmeasurable, not merely unmeasured yet. |
 | `modelUsage` reports a model the catalog does not list | Stored anyway — the map is keyed by model string, not by catalog membership. |
 
 ## Testing
