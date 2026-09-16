@@ -10,6 +10,8 @@ import { Button } from '../ui/Button'
 import { Input, TextArea } from '../ui/Input'
 import { Chip } from '../ui/Chip'
 import { ModeCards } from '../ui/ModeCards'
+import { ModelCards } from '../ui/ModelCards'
+import { modelByValue } from '../lib/models'
 import type { PermissionMode } from '../lib/types'
 
 export interface NewSessionDialogProps {
@@ -41,12 +43,14 @@ function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: stri
  * intentionally absent. The tag row auto-matches the cwd/mode against the
  * tag-rule engine via `previewRule`, debounced, and stays in sync with
  * cwd/mode changes until the user manually picks a different tag — after
- * that, the manual choice wins over any further auto-match.
+ * that, the manual choice wins over any further auto-match. The MODEL group
+ * (canvas 4b) mirrors that same manual-override pattern for the model pick.
  */
 export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const tags = useOrbital(useShallow((s) => s.tags))
   const rules = useOrbital(useShallow((s) => s.rules))
+  const models = useOrbital(useShallow((s) => s.models))
   const select = useOrbital((s) => s.select)
 
   const [cwd, setCwd] = useState('')
@@ -56,7 +60,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [manualOverride, setManualOverride] = useState(false)
   const [matchedTagId, setMatchedTagId] = useState<number | null>(null)
   const [matchedRuleId, setMatchedRuleId] = useState<number | null>(null)
-  const [recentDirs, setRecentDirs] = useState<string[]>([])
+  const [model, setModel] = useState<string | null>(null)
+  /** Once the user picks a model, a later cwd change must not move it. */
+  const [modelOverridden, setModelOverridden] = useState(false)
+  const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null }>>([])
   const [pending, setPending] = useState(false)
 
   // Reset + prefill from settings on the false -> true transition only (not
@@ -71,16 +78,31 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setManualOverride(false)
       setMatchedTagId(null)
       setMatchedRuleId(null)
+      setModel(null)
+      setModelOverridden(false)
       setPending(false)
       api
         .listProjects()
-        .then((projects) => setRecentDirs(projects.map((p) => p.cwd)))
+        .then(setProjects)
         .catch(() => {
           // Recent-dirs chips are a convenience; the cwd input still works without them.
         })
     }
     wasOpenRef.current = open
   }, [open, settings.default_project_dir, settings.default_permission_mode])
+
+  // Preselection, in the order 4b describes: this project's last model when
+  // the toggle allows it, otherwise the Settings default, otherwise the first
+  // row the catalog offers (the default may name a model this install does
+  // not have). A manual pick wins over all of it.
+  const rememberPerProject = settings.remember_model_per_project !== 'false'
+  const lastModelHere = projects.find((p) => p.cwd === cwd.trim())?.lastModel ?? null
+  useEffect(() => {
+    if (!open || modelOverridden || models.length === 0) return
+    const remembered = rememberPerProject ? modelByValue(lastModelHere, models) : undefined
+    const fromSettings = modelByValue(settings.default_model, models)
+    setModel((remembered ?? fromSettings ?? models[0]).value)
+  }, [open, modelOverridden, models, rememberPerProject, lastModelHere, settings.default_model])
 
   // Debounced auto-match: re-preview whenever cwd or permission mode
   // changes, and (unless the user has manually overridden) adopt the match.
@@ -119,6 +141,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         prompt,
         permissionMode,
         tagId: tagId ?? undefined,
+        model: model ?? undefined,
       })
       onClose()
       await select(sessionId)
@@ -127,7 +150,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, pending, onClose, select])
+  }, [cwd, prompt, permissionMode, tagId, model, pending, onClose, select])
 
   // ⌘↵ / Ctrl+↵ launches from anywhere in the dialog.
   useEffect(() => {
@@ -156,11 +179,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       size="lg"
       onClose={onClose}
       footerCaption={
-        footerTagName ? (
-          <>
-            spawns a new planet in <span className="text-text-soft">{footerTagName.toUpperCase()}</span>
-          </>
-        ) : undefined
+        // canvas 4b: unconditional summary line — `Sonnet 4.5 · acceptEdits · search-indexer`.
+        <>
+          {modelByValue(model, models)?.shortVersion ?? 'default model'} · {permissionMode}
+          {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
+        </>
       }
       footer={
         <>
@@ -190,14 +213,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             onChange={(e) => setCwd(e.target.value)}
             placeholder="/path/to/project"
           />
-          {recentDirs.length > 0 && (
+          {projects.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
               <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
                 RECENT
               </span>
               {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
                   sans tag chips the TAG row uses — kept as plain buttons. */}
-              {recentDirs.slice(0, 4).map((dir) => (
+              {projects.slice(0, 4).map(({ cwd: dir }) => (
                 <button
                   key={dir}
                   type="button"
@@ -211,6 +234,28 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               ))}
             </div>
           )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <FieldLabel>
+            MODEL
+            <span aria-hidden className="flex-1" />
+            {rememberPerProject && lastModelHere && (
+              // canvas 4b: right-hand note, .06em tracking.
+              <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+                last used here: {modelByValue(lastModelHere, models)?.family ?? lastModelHere}
+              </span>
+            )}
+          </FieldLabel>
+          <ModelCards
+            models={models}
+            value={model}
+            defaultValue={settings.default_model ?? null}
+            onChange={(next) => {
+              setModelOverridden(true)
+              setModel(next)
+            }}
+          />
         </div>
 
         <div className="flex flex-col gap-2">

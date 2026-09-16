@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import type { Tag } from '../lib/types'
+import type { OrbitalModel, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
+
+// Same shape as modelcards.test.tsx's fixture, so the two never disagree
+// about what a model looks like.
+const MODELS: OrbitalModel[] = [
+  { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', family: 'Opus', version: 'Opus 5 with 1M context', shortVersion: 'Opus 5', variant: '1M', blurb: 'Best for everyday, complex tasks', contextWindow: 1_000_000 },
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
+  { value: 'haiku', resolvedModel: 'claude-haiku-4-5-20251001', family: 'Haiku', version: 'Haiku 4.5', shortVersion: 'Haiku 4.5', variant: null, blurb: 'Fastest for quick answers', contextWindow: null },
+]
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
@@ -60,6 +68,7 @@ function resetStore(
     order: [],
     tags: [workTag, defaultTag],
     rules: [],
+    models: [],
     settings: {},
     transcripts: {},
     subagents: {},
@@ -193,16 +202,84 @@ describe('NewSessionDialog', () => {
     expect(screen.getByRole('button', { name: /launch session/i })).toBeDisabled()
   })
 
-  it('shows a footer caption naming the destination tag', async () => {
+  it('shows a footer caption naming the model, permission mode and destination tag', async () => {
     vi.mocked(api.previewRule).mockResolvedValue({ tagId: 1, ruleId: 10 })
-    resetStore()
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
     fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/work' } })
 
     await waitFor(() => expect(chip('work')).toHaveAttribute('data-active', 'true'))
-    expect(screen.getByText(/spawns a new planet in/i)).toBeInTheDocument()
+    expect(screen.getByText(/Sonnet 5 · acceptEdits/)).toBeInTheDocument()
     expect(screen.getByText('WORK')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Model preselection and launch (canvas 4b)
+// ---------------------------------------------------------------------------
+
+describe('NewSessionDialog — model group (4b)', () => {
+  it('preselects the settings default model', async () => {
+    resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    render(<NewSessionDialog open onClose={() => {}} />)
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+    )
+  })
+
+  it('falls back to the first catalog row when the default is not offered', async () => {
+    resetStore({ settings: { default_model: 'nonexistent' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    render(<NewSessionDialog open onClose={() => {}} />)
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'true')
+    )
+  })
+
+  it('adopts the project last-used model when the toggle is on', async () => {
+    resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku' }])
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Haiku 4.5' })).toHaveAttribute('aria-checked', 'true')
+    )
+    expect(screen.getByText(/last used here: Haiku/)).toBeInTheDocument()
+  })
+
+  it('ignores the project last-used model when the toggle is off', async () => {
+    resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'false' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku' }])
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+    )
+  })
+
+  it('a manual pick survives a later cwd change', async () => {
+    resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku' }])
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('radio', { name: 'Opus 5' }))
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    await waitFor(() => expect(screen.getByLabelText('PROJECT DIRECTORY')).toHaveValue('/w/x'))
+    expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('launches with the chosen model', async () => {
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    vi.mocked(api.createSession).mockResolvedValue('new-1')
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'Haiku 4.5' }))
+    fireEvent.click(screen.getByRole('button', { name: /Launch session/ }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'haiku' }))
+    )
   })
 })
 
