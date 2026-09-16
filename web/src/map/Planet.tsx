@@ -172,6 +172,8 @@ const LABEL_TOP_REST_Y = -(BODY_RADIUS + px(34))
 const LABEL_TOP_SELECTED_Y = -(BRACKET_INSET + px(8))
 const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
 const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
+/** Family line under the title (canvas 4a). Subordinate to the name in both states. */
+const LABEL_MODEL_COLOR = 'rgba(160,190,225,.7)'
 
 /**
  * Per-layer z offsets so the (visually transparent) halo never composites
@@ -898,7 +900,13 @@ export function Planet({
                   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                   fontSize: 9.5,
                   letterSpacing: '0.1em',
-                  color: LABEL_COLOR_DIMMED,
+                  // The canvas value while live; falls to the same dimmed
+                  // value as the title once ended, so the family line stops
+                  // competing rather than out-shining the name above it.
+                  color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_MODEL_COLOR,
+                  // Same curve as the title's color transition, so the two
+                  // lines dim together rather than the family snapping.
+                  transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
                   whiteSpace: 'nowrap',
                 }}
               >
