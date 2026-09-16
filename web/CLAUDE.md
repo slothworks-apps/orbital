@@ -26,6 +26,22 @@ to the trigger on close, and closing on outside click and on Escape. A
 prettier control that a keyboard user cannot operate is a regression, not
 a fix.
 
+## Page zoom is disabled, deliberately
+
+Pinch is the space map's gesture; the browser zooming the document underneath
+it makes the map unusable. So `index.html` ships `user-scalable=no`, and
+`main.tsx` swallows `ctrl`+wheel (how a trackpad pinch arrives on desktop).
+
+This is a real accessibility trade-off — browser zoom is how low-vision users
+read text (WCAG 1.4.4). Tomin accepted it for a tool he runs locally and does
+not distribute. **Revisit it before this ships to anyone else**, and prefer
+scoping the gesture to the map surface over disabling zoom document-wide.
+
+Note for anyone adding wheel handling: React attaches `wheel` (and
+`touchstart`/`touchmove`) as PASSIVE listeners, so `preventDefault()` inside
+an `onWheel` prop silently does nothing. Attach manually with
+`{ passive: false }`.
+
 ## Design values come from the export, never from the eye
 
 `design/Orbital_ celestial agent dashboard/Orbital.dc.html` carries literal

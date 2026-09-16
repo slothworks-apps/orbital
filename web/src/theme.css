@@ -24,6 +24,17 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Pinch belongs to the map, not to the document — see the note in index.html.
+   `manipulation` drops double-tap-to-zoom (and its 300ms click delay) while
+   leaving panels scrollable; `none` here would break the transcript and the
+   rules table. `overscroll-behavior` stops a pan that reaches the end of a
+   scroller from turning into rubber-banding or pull-to-refresh. */
+html,
+body {
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+
 /* Native scrollbars read as foreign chrome on the space theme — swap every
    scrollable for a thin, translucent-blue thumb on an invisible track. */
 * {

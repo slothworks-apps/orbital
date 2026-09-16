@@ -3,7 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Page zoom is disabled on purpose: pinching is the map's gesture, and the
+      browser zooming the whole document underneath it makes the map unusable.
+      This is a deliberate accessibility trade-off Tomin signed off on for a
+      tool he runs locally and does not distribute — it would NOT be acceptable
+      on anything public, where zoom is how low-vision users read text (WCAG
+      1.4.4). Revisit before this ships to anyone else.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no"
+    />
     <title>Orbital</title>
   </head>
   <body>
