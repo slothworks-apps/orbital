@@ -17,6 +17,29 @@ import {
   planetVisuals,
   truncateLabel,
 } from '../map/visuals'
+import {
+  MOON_STATES as MIX_MOON_STATES,
+  PLANET_STATES as MIX_PLANET_STATES,
+  PLANET_TICK_LAYERS,
+  RETICLE_ENTER_MS,
+  RETICLE_EXIT_MS,
+  STATE_TRANSITION_MS,
+  advanceStateMix,
+  advanceTween,
+  blendMoon,
+  blendPlanet,
+  createMoonBlend,
+  createPlanetBlend,
+  createStateMix,
+  createTween,
+  easeMotion,
+  retargetHueTween,
+  retargetStateMix,
+  retargetTween,
+  shortestHueDelta,
+  stackAlphas,
+  tickLayerWeight,
+} from '../map/transition'
 
 const PLANET_STATES: SessionStatus[] = ['working', 'idle', 'needs_input', 'ended']
 const MOON_STATES: Subagent['state'][] = [
@@ -306,5 +329,349 @@ describe('truncateLabel', () => {
     const out = truncateLabel(long)
     expect(out.length).toBeLessThanOrEqual(26)
     expect(out.endsWith('…')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The interpolation layer above the state table (`map/transition.ts`).
+//
+// jsdom has no WebGL, so none of this tests pixels. It tests the layer as what
+// it actually is: pure functions from (previous weights, target state,
+// progress) to a set of numbers, plus the rule that fields with no midpoint
+// crossfade instead of blending.
+// ---------------------------------------------------------------------------
+
+describe('easeMotion', () => {
+  it('is the app curve cubic-bezier(.2,.8,.2,1): pinned ends, front-loaded middle', () => {
+    expect(easeMotion(0)).toBe(0)
+    expect(easeMotion(1)).toBe(1)
+    expect(easeMotion(-1)).toBe(0)
+    expect(easeMotion(2)).toBe(1)
+    // .2/.8 control points mean most of the distance is covered early.
+    expect(easeMotion(0.5)).toBeGreaterThan(0.85)
+  })
+
+  it('is monotonic, so a transition never runs backwards mid-flight', () => {
+    let previous = -1
+    for (let i = 0; i <= 50; i++) {
+      const value = easeMotion(i / 50)
+      expect(value).toBeGreaterThanOrEqual(previous)
+      previous = value
+    }
+  })
+})
+
+describe('stateMix', () => {
+  /** Runs a mix forward in `steps` equal frames covering `seconds`. */
+  function run(mix: ReturnType<typeof createStateMix<SessionStatus>>, seconds: number, steps = 10) {
+    for (let i = 0; i < steps; i++) advanceStateMix(mix, seconds / steps)
+  }
+
+  it('starts one-hot and idle: a body at rest does no blend work at all', () => {
+    const mix = createStateMix(MIX_PLANET_STATES, 'working')
+    expect(mix.weights.working).toBe(1)
+    expect(mix.weights.idle).toBe(0)
+    expect(mix.active).toBe(false)
+    // An inactive mix reports "nothing to apply" without touching a weight.
+    expect(advanceStateMix(mix, 0.016)).toBe(false)
+  })
+
+  it('eases the weights across, always summing to 1, and settles exactly on target', () => {
+    const mix = createStateMix(MIX_PLANET_STATES, 'working')
+    retargetStateMix(mix, 'idle')
+    run(mix, STATE_TRANSITION_MS / 2 / 1000)
+    const total = PLANET_STATES.reduce((sum, s) => sum + mix.weights[s], 0)
+    expect(total).toBeCloseTo(1, 10)
+    expect(mix.weights.working).toBeGreaterThan(0)
+    expect(mix.weights.working).toBeLessThan(1)
+    expect(mix.weights.idle).toBeGreaterThan(0)
+
+    run(mix, STATE_TRANSITION_MS / 1000)
+    expect(mix.weights.idle).toBe(1)
+    expect(mix.weights.working).toBe(0)
+    expect(mix.active).toBe(false)
+  })
+
+  it('is framerate independent: one long frame lands where many short ones do', () => {
+    const coarse = createStateMix(MIX_PLANET_STATES, 'working')
+    const fine = createStateMix(MIX_PLANET_STATES, 'working')
+    retargetStateMix(coarse, 'ended')
+    retargetStateMix(fine, 'ended')
+    advanceStateMix(coarse, 0.2)
+    run(fine, 0.2, 12)
+    expect(coarse.weights.ended).toBeCloseTo(fine.weights.ended, 10)
+  })
+
+  it('an interrupted transition retargets from where it actually is, not from the old target', () => {
+    const mix = createStateMix(MIX_PLANET_STATES, 'working')
+    retargetStateMix(mix, 'idle')
+    run(mix, STATE_TRANSITION_MS / 2 / 1000)
+    const workingMidway = mix.weights.working
+    const idleMidway = mix.weights.idle
+    expect(workingMidway).toBeGreaterThan(0)
+
+    retargetStateMix(mix, 'ended')
+    // The new starting point is the live blend — not a restart from pure idle.
+    expect(mix.from.working).toBe(workingMidway)
+    expect(mix.from.idle).toBe(idleMidway)
+    expect(mix.weights.ended).toBe(0)
+    // ...and the very next frame moves off that blend continuously.
+    advanceStateMix(mix, 0.016)
+    expect(mix.weights.working).toBeLessThan(workingMidway)
+    expect(mix.weights.ended).toBeGreaterThan(0)
+    run(mix, STATE_TRANSITION_MS / 1000)
+    expect(mix.weights.ended).toBe(1)
+  })
+
+  it('retargeting to the state already in flight keeps that transition running', () => {
+    const mix = createStateMix(MIX_PLANET_STATES, 'working')
+    retargetStateMix(mix, 'idle')
+    run(mix, STATE_TRANSITION_MS / 2 / 1000)
+    const elapsed = mix.elapsedMs
+    retargetStateMix(mix, 'idle')
+    expect(mix.elapsedMs).toBe(elapsed)
+  })
+
+  it('reduced motion snaps to the target: correct immediately, with no interpolation', () => {
+    const mix = createStateMix(MIX_PLANET_STATES, 'working')
+    retargetStateMix(mix, 'ended', true)
+    expect(mix.weights.ended).toBe(1)
+    expect(mix.weights.working).toBe(0)
+    // One frame to write the snapped values out, then nothing.
+    expect(advanceStateMix(mix, 0.016)).toBe(true)
+    expect(mix.weights.ended).toBe(1)
+    expect(advanceStateMix(mix, 0.016)).toBe(false)
+  })
+})
+
+describe('blendPlanet', () => {
+  /** A one-hot weight vector, i.e. a body at rest in `state`. */
+  function only(state: SessionStatus): Record<SessionStatus, number> {
+    return {
+      working: state === 'working' ? 1 : 0,
+      idle: state === 'idle' ? 1 : 0,
+      needs_input: state === 'needs_input' ? 1 : 0,
+      ended: state === 'ended' ? 1 : 0,
+    }
+  }
+
+  it('at rest reproduces the state table exactly — the design values are untouched', () => {
+    for (const state of PLANET_STATES) {
+      const v = planetVisuals(state, false)
+      const b = blendPlanet(only(state), createPlanetBlend())
+      expect(b.tickSpin).toBeCloseTo(v.tickSpin, 12)
+      expect(b.arcOpacity).toBeCloseTo(v.arcOpacity, 12)
+      expect(b.arcSpin).toBeCloseTo(v.arcSpin, 12)
+      expect(b.coreOpacity).toBeCloseTo(v.coreOpacity, 12)
+      expect(b.coreRadius).toBeCloseTo(v.coreRadius, 12)
+      expect(b.haloOpacity).toBeCloseTo(v.haloOpacity, 12)
+      expect(b.corePulse).toBeCloseTo(v.corePulse, 12)
+      expect(b.corePulseSec).toBeCloseTo(v.corePulseSec, 12)
+      expect(b.dim).toBe(v.dimmed ? DIMMED_OPACITY : 1)
+      expect(b.ripple).toBe(v.rippleActive ? 1 : 0)
+    }
+  })
+
+  it('continuous fields land between the two states halfway through', () => {
+    const half = { working: 0.5, idle: 0.5, needs_input: 0, ended: 0 }
+    const b = blendPlanet(half, createPlanetBlend())
+    const working = planetVisuals('working', false)
+    const idle = planetVisuals('idle', false)
+    expect(b.coreRadius).toBeCloseTo((working.coreRadius + idle.coreRadius) / 2, 12)
+    expect(b.haloOpacity).toBeCloseTo(working.haloOpacity / 2, 12)
+    expect(b.tickSpin).toBeCloseTo(working.tickSpin / 2, 12)
+    expect(b.arcOpacity).toBeCloseTo(working.arcOpacity / 2, 12)
+  })
+
+  it('the ended `opacity:.6` wrapper eases in rather than switching on', () => {
+    const b = blendPlanet({ working: 0, idle: 0.5, needs_input: 0, ended: 0.5 }, createPlanetBlend())
+    expect(b.dim).toBeCloseTo(1 - 0.5 * (1 - DIMMED_OPACITY), 12)
+    expect(b.dim).toBeGreaterThan(DIMMED_OPACITY)
+    expect(b.dim).toBeLessThan(1)
+  })
+
+  it('a blink period is weighted by pulse depth, so fading to a still state never strobes', () => {
+    // working (blinks at 2.4s) → idle (does not blink): the depth fades out,
+    // and the period must stay at 2.4s rather than being dragged toward 0.
+    const b = blendPlanet({ working: 0.25, idle: 0.75, needs_input: 0, ended: 0 }, createPlanetBlend())
+    expect(b.corePulse).toBeCloseTo(0.25, 12)
+    expect(b.corePulseSec).toBeCloseTo(2.4, 12)
+
+    // Between two blinking states the period itself interpolates.
+    const both = blendPlanet({ working: 0.5, idle: 0, needs_input: 0.5, ended: 0 }, createPlanetBlend())
+    expect(both.corePulseSec).toBeCloseTo((2.4 + 1.2) / 2, 12)
+
+    // Nothing pulsing at all reports no period, not an infinitely fast one.
+    expect(blendPlanet({ working: 0, idle: 1, needs_input: 0, ended: 0 }, createPlanetBlend()).corePulseSec).toBe(0)
+  })
+
+  it('writes into the caller-owned object: the frame loop allocates nothing', () => {
+    const out = createPlanetBlend()
+    expect(blendPlanet(only('idle'), out)).toBe(out)
+  })
+})
+
+describe('planet tick rings crossfade rather than blending', () => {
+  it('splits the four states into the three distinct rings the export draws', () => {
+    expect(PLANET_TICK_LAYERS.map((l) => l.count)).toEqual([60, 45, 30])
+    // idle and needs-input share a ring byte for byte, so moving between them
+    // needs no crossfade at all.
+    const shared = PLANET_TICK_LAYERS.find((l) => l.count === 45)!
+    expect([...shared.states].sort()).toEqual(['idle', 'needs_input'])
+    // Only the ended ring is drawn grey instead of in the tag hue.
+    expect(PLANET_TICK_LAYERS.filter((l) => l.grey).map((l) => l.count)).toEqual([30])
+  })
+
+  it('never invents an in-between tick count — the layer weights are what move', () => {
+    const half = { working: 0.5, idle: 0.5, needs_input: 0, ended: 0 }
+    const counts = PLANET_TICK_LAYERS.map((l) => l.count)
+    // No layer's geometry depends on the weights at all.
+    expect(counts).toEqual([60, 45, 30])
+    const weights = PLANET_TICK_LAYERS.map((l) => tickLayerWeight(l, half))
+    expect(weights).toEqual([0.5, 0.5, 0])
+    expect(weights.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12)
+  })
+
+  it('at rest exactly one ring carries the full weight', () => {
+    for (const state of PLANET_STATES) {
+      const weights = {
+        working: state === 'working' ? 1 : 0,
+        idle: state === 'idle' ? 1 : 0,
+        needs_input: state === 'needs_input' ? 1 : 0,
+        ended: state === 'ended' ? 1 : 0,
+      }
+      const live = PLANET_TICK_LAYERS.map((l) => tickLayerWeight(l, weights)).filter((w) => w > 0)
+      expect(live).toEqual([1])
+    }
+  })
+})
+
+describe('stackAlphas', () => {
+  it('turns weights into per-layer alphas that composite to the weighted sum', () => {
+    const weights = [0.4, 0.4, 0.2] // bottom → top
+    const alphas = stackAlphas(weights, [0, 0, 0])
+    // What the renderer actually paints: layer i contributes
+    // aᵢ · Π_{j>i}(1 - aⱼ) once everything above it has been drawn over it.
+    const contributions = alphas.map((a, i) =>
+      alphas.slice(i + 1).reduce((acc, aj) => acc * (1 - aj), a)
+    )
+    contributions.forEach((c, i) => expect(c).toBeCloseTo(weights[i], 12))
+    // Weights summing to 1 means nothing of the background is left showing.
+    expect(contributions.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12)
+  })
+
+  it('a single fully-weighted layer is opaque and hides everything under it', () => {
+    expect(stackAlphas([0, 0, 1], [0, 0, 0])).toEqual([0, 0, 1])
+    expect(stackAlphas([1, 0, 0], [0, 0, 0])).toEqual([1, 0, 0])
+  })
+})
+
+describe('blendMoon', () => {
+  function only(state: Subagent['state']): Record<Subagent['state'], number> {
+    return {
+      materializing: state === 'materializing' ? 1 : 0,
+      working: state === 'working' ? 1 : 0,
+      idle: state === 'idle' ? 1 : 0,
+      needs_input: state === 'needs_input' ? 1 : 0,
+      ended: state === 'ended' ? 1 : 0,
+    }
+  }
+
+  it('at rest reproduces the moon table exactly', () => {
+    for (const state of MIX_MOON_STATES) {
+      const v = moonVisuals(state)
+      const b = blendMoon(only(state), createMoonBlend())
+      expect(b.discRadius).toBeCloseTo(v.discRadius, 12)
+      expect(b.rimOpacity).toBeCloseTo(v.rimOpacity, 12)
+      expect(b.coreRadius).toBeCloseTo(v.coreRadius, 12)
+      expect(b.glowSize).toBeCloseTo(v.glowSize, 12)
+      expect(b.glowOpacity).toBeCloseTo(v.glowOpacity, 12)
+      expect(b.trailOpacity).toBeCloseTo(v.trailOpacity, 12)
+      expect(b.tickSpin).toBeCloseTo(v.tickSpin, 12)
+      expect(b.dim).toBe(v.dimmed ? DIMMED_OPACITY : 1)
+      expect(b.materializing).toBe(v.dashedShell || v.matRing ? 1 : 0)
+    }
+  })
+
+  it('sizes and glows interpolate; the materializing shell only crossfades', () => {
+    const half = { materializing: 0.5, working: 0.5, idle: 0, needs_input: 0, ended: 0 }
+    const b = blendMoon(half, createMoonBlend())
+    const mat = moonVisuals('materializing')
+    const working = moonVisuals('working')
+    expect(b.discRadius).toBeCloseTo((mat.discRadius + working.discRadius) / 2, 12)
+    expect(b.glowSize).toBeCloseTo((mat.glowSize + working.glowSize) / 2, 12)
+    // The dashed shell has no half-way form: it is simply half faded in.
+    expect(b.materializing).toBeCloseTo(0.5, 12)
+  })
+
+  it('an ended moon fades its orbit trail rather than dropping it', () => {
+    const b = blendMoon({ materializing: 0, working: 0.5, idle: 0, needs_input: 0, ended: 0.5 }, createMoonBlend())
+    expect(b.trailOpacity).toBeCloseTo((0.22 + 0.08) / 2, 12)
+  })
+})
+
+describe('hue transitions', () => {
+  it('takes the short way round the hue circle when a session is retagged', () => {
+    expect(shortestHueDelta(350, 10)).toBeCloseTo(20, 12)
+    expect(shortestHueDelta(10, 350)).toBeCloseTo(-20, 12)
+    expect(shortestHueDelta(210, 330)).toBeCloseTo(120, 12)
+    expect(Math.abs(shortestHueDelta(0, 200))).toBeLessThanOrEqual(180)
+  })
+
+  it('eases the hue across instead of cutting, and settles on the new tag colour', () => {
+    const tw = createTween(210, STATE_TRANSITION_MS)
+    retargetHueTween(tw, 330)
+    expect(advanceTween(tw, STATE_TRANSITION_MS / 2 / 1000)).toBe(true)
+    expect(tw.value).toBeGreaterThan(210)
+    expect(tw.value).toBeLessThan(330)
+    advanceTween(tw, STATE_TRANSITION_MS / 1000)
+    expect(tw.value).toBeCloseTo(330, 12)
+    expect(tw.active).toBe(false)
+  })
+
+  it('crossing 0° runs through 0, not backwards through every other hue', () => {
+    const tw = createTween(350, STATE_TRANSITION_MS)
+    retargetHueTween(tw, 10)
+    advanceTween(tw, STATE_TRANSITION_MS / 2 / 1000)
+    // The unwrapped angle walks up past 360 rather than down through 180.
+    expect(tw.value).toBeGreaterThan(350)
+    advanceTween(tw, STATE_TRANSITION_MS / 1000)
+    expect(((tw.value % 360) + 360) % 360).toBeCloseTo(10, 10)
+  })
+
+  it('reduced motion snaps the hue too', () => {
+    const tw = createTween(210, STATE_TRANSITION_MS)
+    retargetHueTween(tw, 330, true)
+    advanceTween(tw, 0.016)
+    expect(tw.value).toBeCloseTo(330, 12)
+    expect(tw.active).toBe(false)
+  })
+})
+
+describe('selection reticle fade', () => {
+  it('fades in on select and out on deselect, exiting faster than it enters', () => {
+    expect(RETICLE_EXIT_MS).toBeLessThan(RETICLE_ENTER_MS)
+    const tw = createTween(0, RETICLE_ENTER_MS)
+    retargetTween(tw, 1, RETICLE_ENTER_MS)
+    advanceTween(tw, RETICLE_ENTER_MS / 2 / 1000)
+    expect(tw.value).toBeGreaterThan(0)
+    expect(tw.value).toBeLessThan(1)
+    advanceTween(tw, RETICLE_ENTER_MS / 1000)
+    expect(tw.value).toBe(1)
+
+    retargetTween(tw, 0, RETICLE_EXIT_MS)
+    advanceTween(tw, RETICLE_EXIT_MS / 1000)
+    expect(tw.value).toBe(0)
+    expect(tw.active).toBe(false)
+  })
+
+  it('deselecting mid-fade-in starts from the visible opacity, not from full', () => {
+    const tw = createTween(0, RETICLE_ENTER_MS)
+    retargetTween(tw, 1, RETICLE_ENTER_MS)
+    advanceTween(tw, RETICLE_ENTER_MS / 4 / 1000)
+    const partway = tw.value
+    expect(partway).toBeLessThan(1)
+    retargetTween(tw, 0, RETICLE_EXIT_MS)
+    expect(tw.from).toBe(partway)
   })
 })

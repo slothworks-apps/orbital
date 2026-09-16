@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type ComponentRef, type RefObject } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
@@ -10,9 +10,26 @@ import {
   HALO_BREATH_SEC,
   easeOut,
   oscillate,
-  planetVisuals,
   truncateLabel,
 } from './visuals'
+import {
+  PLANET_STATES,
+  PLANET_TICK_LAYERS,
+  RETICLE_ENTER_MS,
+  RETICLE_EXIT_MS,
+  STATE_TRANSITION_MS,
+  advanceStateMix,
+  advanceTween,
+  blendPlanet,
+  createPlanetBlend,
+  prefersReducedMotion,
+  stackAlphas,
+  tickLayerWeight,
+  useFadeTween,
+  useHueTween,
+  useLingering,
+  useStateMix,
+} from './transition'
 import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
 
 /**
@@ -30,6 +47,23 @@ import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
  * a dark matte body disc inside a rotating tick ring, with a thin
  * counter-rotating 4-arc inner ring and a small bright core — reads as a
  * gauge, not a ball.
+ *
+ * STATE CHANGES CROSSFADE (see `transition.ts`). The consequence for this
+ * file: every state-dependent layer is mounted ALL the time and its
+ * appearance is written onto a component-owned material inside `useFrame`,
+ * rather than being mounted/unmounted by React and configured through JSX
+ * props. Two rules fall out of that and must hold:
+ *
+ *   1. Materials are created once per planet (`usePlanetMaterials`) and
+ *      handed to meshes via the `material` prop. Nothing passes `color` or
+ *      `opacity` as a JSX prop on a state-dependent layer — R3F would
+ *      re-apply it on the next render and stamp over the frame loop's value.
+ *   2. The frame loop allocates nothing. Colours are mutated in place, the
+ *      blend writes into a hoisted object, and a planet at rest does no
+ *      blend work at all (`advanceStateMix` returns false immediately).
+ *
+ * Layers that would otherwise be invisible are switched off with
+ * `material.visible`, so an idle planet costs no more draw calls than before.
  */
 
 // --- geometry constants (local units, before the `scale` prop is applied) --
@@ -92,7 +126,15 @@ const RIPPLE_START_OPACITY = 0.9
 const RIPPLE_INNER = px(71 - 1)
 const RIPPLE_OUTER = px(71)
 
-/** Selection reticle: dashed ring at inset -42, brackets 10px long at ±50px outside the body (1f). */
+/**
+ * Selection reticle (1f, "Selected": `Any state + slow dashed reticle and
+ * corner brackets`). The export's markup is a dashed ring at `inset:-42px`
+ * carrying `animation: orb-spin 40s linear infinite`, followed by four
+ * `10px` `1.5px solid #fff` corner spans at `±50px` which are SIBLINGS of
+ * that ring and carry no animation of their own — so the ring turns and the
+ * brackets stand still. They are therefore built as two groups here, and
+ * only the ring group is rotated.
+ */
 const RETICLE_RADIUS = px(92)
 const RETICLE_SPIN_SPEED = (Math.PI * 2) / 40
 const RETICLE_DASH_SIZE = 0.08
@@ -106,6 +148,10 @@ const BRACKET_LENGTH = px(10)
 const GREY = '#c8d7eb'
 const WHITE = '#ffffff'
 const BLACK = '#000000'
+
+/** Scratch colours for the per-frame hue → grey / hue → white mixes. Module-level and used synchronously, so one pair serves every planet without allocating. */
+const GREY_COLOR = new THREE.Color(GREY)
+const WHITE_COLOR = new THREE.Color(WHITE)
 
 /** Label sits `calc(100% + 34px)` under the body (2d/1f). */
 const LABEL_OFFSET_Y = -(BODY_RADIUS + px(34))
@@ -126,6 +172,16 @@ const CORE_Z = 0.01
 const RIPPLE_Z = 0.02
 const RETICLE_Z = 0.02
 
+/**
+ * The three body fills (flat ended / idle gradient / working gradient) are
+ * coplanar and all transparent, which leaves three.js no stable way to order
+ * them. Tiny z steps behind `BODY_Z` fix the painting order back-to-front
+ * without moving the body off the border and tick rings that sit at BODY_Z.
+ */
+const BODY_ENDED_Z = -0.003
+const BODY_IDLE_Z = -0.002
+const BODY_WORKING_Z = -0.001
+
 /** Needs-input pill badge: `left: calc(100% + 10px); top: -12px` off the body box (artboard 1f). */
 const BADGE_OFFSET_X = px(60)
 const BADGE_OFFSET_Y = px(62)
@@ -142,10 +198,15 @@ export interface PlanetProps {
 }
 
 /**
- * Converts the app's `tagColor(hue)` (`oklch(80% 0.13 <hue>)`) into a
- * THREE.Color. three@0.162's `Color.setStyle` does not parse `oklch()`
- * strings, so the OKLCH -> linear-sRGB math (Björn Ottosson's OKLab) is
- * inlined here rather than passing the CSS string straight into a material.
+ * Writes the app's `tagColor(hue)` (`oklch(<lightness> <chroma> <hue>)`) into
+ * an existing THREE.Color. three@0.162's `Color.setStyle` does not parse
+ * `oklch()` strings, so the OKLCH -> linear-sRGB math (Björn Ottosson's
+ * OKLab) is inlined here rather than passing the CSS string straight into a
+ * material.
+ *
+ * Mutating form: the hue tween recomputes this every frame while a session is
+ * being retagged, and a planet that allocated a Color per frame would hand
+ * the GC 50+ objects a frame across the map.
  *
  * The matrices below produce LINEAR sRGB primaries — three's default
  * working color space — so the result is loaded via
@@ -155,7 +216,12 @@ export interface PlanetProps {
  * its hue (pinned by `colors.test.ts` against independently computed CSS
  * Color 4 reference hex values).
  */
-export function oklchTagColor(hue: number, lightness = 0.8, chroma = 0.13): THREE.Color {
+export function setOklchTagColor(
+  target: THREE.Color,
+  hue: number,
+  lightness = 0.8,
+  chroma = 0.13
+): THREE.Color {
   const hRad = (hue * Math.PI) / 180
   const a = chroma * Math.cos(hRad)
   const b = chroma * Math.sin(hRad)
@@ -172,14 +238,18 @@ export function oklchTagColor(hue: number, lightness = 0.8, chroma = 0.13): THRE
   const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
   const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
 
-  const color = new THREE.Color()
-  color.setRGB(
+  target.setRGB(
     THREE.MathUtils.clamp(r, 0, 1),
     THREE.MathUtils.clamp(g, 0, 1),
     THREE.MathUtils.clamp(bl, 0, 1),
     THREE.LinearSRGBColorSpace
   )
-  return color
+  return target
+}
+
+/** Allocating form of `setOklchTagColor`, for one-off/static colours. */
+export function oklchTagColor(hue: number, lightness = 0.8, chroma = 0.13): THREE.Color {
+  return setOklchTagColor(new THREE.Color(), hue, lightness, chroma)
 }
 
 /** Flat ended-body color (`oklch(16% .01 230)` in the canvas) — active bodies use `bodyTexture()`. */
@@ -192,21 +262,23 @@ const BODY_ENDED_COLOR = oklchTagColor(BODY_ENDED_HUE, BODY_ENDED_LIGHTNESS, BOD
  * `widthDeg` is the export's angular tick width (the "on" slice of its
  * `repeating-conic-gradient`); the chord it subtends at `radius` is the
  * plane's width, so a tick keeps the design's duty cycle at any radius.
+ *
+ * The material is supplied by the caller rather than declared here: a tick
+ * ring is one of the crossfaded layers, so its owner drives its opacity and
+ * colour from the frame loop.
  */
 export function TickRing({
   count,
   radius,
   widthDeg,
   length,
-  color,
-  opacity = 1,
+  material,
 }: {
   count: number
   radius: number
   widthDeg: number
   length: number
-  color: THREE.Color | string
-  opacity?: number
+  material: THREE.Material
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!)
   const width = radius * widthDeg * (Math.PI / 180)
@@ -228,9 +300,8 @@ export function TickRing({
   }, [count, radius])
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
+    <instancedMesh ref={meshRef} material={material} args={[undefined, undefined, count]}>
       <planeGeometry args={[width, length]} />
-      <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
     </instancedMesh>
   )
 }
@@ -241,12 +312,15 @@ export function TickRing({
  * to a 2px band at inset -14, spinning `orb-spin 60s linear infinite reverse`
  * (artboard 1f / 1a / 2d). Four 60° arcs with 30° gaps, counter-rotating
  * against the tick ring.
+ *
+ * All four arcs share ONE material, so the frame loop fades the ring in and
+ * out with a single write.
  */
-export function ArcRing({ color, opacity }: { color: THREE.Color | string; opacity: number }) {
+export function ArcRing({ material }: { material: THREE.Material }) {
   return (
     <>
       {Array.from({ length: ARC_COUNT }, (_, i) => (
-        <mesh key={i}>
+        <mesh key={i} material={material}>
           <ringGeometry
             args={[
               ARC_RING_INNER,
@@ -257,72 +331,106 @@ export function ArcRing({ color, opacity }: { color: THREE.Color | string; opaci
               (ARC_SWEEP_DEG * Math.PI) / 180,
             ]}
           />
-          <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
         </mesh>
       ))}
     </>
   )
 }
 
-/** One L-shaped corner bracket of the selection reticle. */
-function CornerBracket({ signX, signY, color }: { signX: 1 | -1; signY: 1 | -1; color: THREE.Color | string }) {
-  // Memoized: a fresh array reference every render makes drei's <Line> tear
-  // down and rebuild its live geometry/material each time the parent
-  // re-renders, even though these 4 points never actually change.
-  const points = useMemo<[number, number, number][]>(() => {
-    const cx = signX * BRACKET_INSET
-    const cy = signY * BRACKET_INSET
-    return [
-      [cx - signX * BRACKET_LENGTH, cy, 0],
-      [cx, cy, 0],
-      [cx, cy - signY * BRACKET_LENGTH, 0],
-    ]
-  }, [signX, signY])
+/**
+ * The four corner brackets' polylines. Module-level so the arrays keep a
+ * stable reference: a fresh array every render makes drei's `<Line>` tear
+ * down and rebuild its live geometry/material, and these points never change.
+ */
+const BRACKET_SIGNS: readonly (readonly [number, number])[] = [
+  [1, 1],
+  [-1, 1],
+  [1, -1],
+  [-1, -1],
+]
 
-  // 1f draws the brackets `1.5px solid #fff`, opaque — only the dashed ring
-  // is tinted/faded.
-  return <Line points={points} color={color} lineWidth={1.5} />
-}
+const BRACKET_POINTS: [number, number, number][][] = BRACKET_SIGNS.map(([signX, signY]) => {
+  const cx = signX * BRACKET_INSET
+  const cy = signY * BRACKET_INSET
+  return [
+    [cx - signX * BRACKET_LENGTH, cy, 0],
+    [cx, cy, 0],
+    [cx, cy - signY * BRACKET_LENGTH, 0],
+  ] as [number, number, number][]
+})
 
-/** Selection reticle: a slow dashed ring + 4 corner brackets. */
-function SelectionReticle({ groupRef }: { groupRef: RefObject<THREE.Group | null> }) {
-  const ringPoints = useMemo(() => {
-    const pts: [number, number, number][] = []
-    const segments = 96
-    for (let i = 0; i <= segments; i++) {
-      const angle = (i / segments) * Math.PI * 2
-      pts.push([RETICLE_RADIUS * Math.cos(angle), RETICLE_RADIUS * Math.sin(angle), 0])
-    }
-    return pts
-  }, [])
+const RETICLE_RING_POINTS: [number, number, number][] = (() => {
+  const pts: [number, number, number][] = []
+  const segments = 96
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2
+    pts.push([RETICLE_RADIUS * Math.cos(angle), RETICLE_RADIUS * Math.sin(angle), 0])
+  }
+  return pts
+})()
 
+type LineHandle = ComponentRef<typeof Line>
+
+/**
+ * Selection reticle: the export's slow dashed ring plus four static corner
+ * brackets. Only `ringGroupRef` is spun — in the export the brackets are
+ * unanimated siblings of the spinning ring, so they hold their corners while
+ * the ring turns inside them.
+ *
+ * Both parts fade with the selection rather than popping, which is why their
+ * line materials are handed back to the parent through refs.
+ */
+function SelectionReticle({
+  ringGroupRef,
+  ringRef,
+  bracketRefs,
+}: {
+  ringGroupRef: RefObject<THREE.Group | null>
+  ringRef: RefObject<LineHandle | null>
+  bracketRefs: RefObject<(LineHandle | null)[]>
+}) {
   return (
-    <group ref={groupRef} position={[0, 0, RETICLE_Z]}>
-      <Line
-        points={ringPoints}
-        color={RETICLE_COLOR}
-        lineWidth={1}
-        dashed
-        dashSize={RETICLE_DASH_SIZE}
-        gapSize={RETICLE_DASH_GAP}
-        transparent
-        opacity={RETICLE_OPACITY}
-      />
-      <CornerBracket signX={1} signY={1} color={WHITE} />
-      <CornerBracket signX={-1} signY={1} color={WHITE} />
-      <CornerBracket signX={1} signY={-1} color={WHITE} />
-      <CornerBracket signX={-1} signY={-1} color={WHITE} />
+    <group position={[0, 0, RETICLE_Z]}>
+      <group ref={ringGroupRef}>
+        <Line
+          ref={ringRef}
+          points={RETICLE_RING_POINTS}
+          color={RETICLE_COLOR}
+          lineWidth={1}
+          dashed
+          dashSize={RETICLE_DASH_SIZE}
+          gapSize={RETICLE_DASH_GAP}
+          transparent
+          opacity={0}
+        />
+      </group>
+      {BRACKET_POINTS.map((points, i) => (
+        // 1f draws the brackets `1.5px solid #fff`, opaque at rest — only the
+        // dashed ring is tinted. They still fade with the selection.
+        <Line
+          key={i}
+          ref={(handle) => {
+            bracketRefs.current[i] = handle
+          }}
+          points={points}
+          color={WHITE}
+          lineWidth={1.5}
+          transparent
+          opacity={0}
+        />
+      ))}
     </group>
   )
 }
 
 /** "NEEDS INPUT" pill badge — mono, blinking dot, right of the planet (state sheet artboard 1f). */
-function NeedsInputBadge() {
+function NeedsInputBadge({ innerRef }: { innerRef: RefObject<HTMLSpanElement | null> }) {
   // zIndexRange keeps map text under the z-10 side panels and z-50 dialogs
   // (drei's default range is in the millions).
   return (
     <Html position={[BADGE_OFFSET_X, BADGE_OFFSET_Y, CORE_Z]} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
       <span
+        ref={innerRef}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -336,6 +444,7 @@ function NeedsInputBadge() {
           letterSpacing: '0.1em',
           color: '#fff',
           whiteSpace: 'nowrap',
+          opacity: 0,
         }}
       >
         <span
@@ -349,74 +458,233 @@ function NeedsInputBadge() {
   )
 }
 
+interface PlanetMaterials {
+  glow: THREE.MeshBasicMaterial
+  halo: THREE.MeshBasicMaterial
+  arc: THREE.MeshBasicMaterial
+  bodyEnded: THREE.MeshBasicMaterial
+  bodyIdle: THREE.MeshBasicMaterial
+  bodyWorking: THREE.MeshBasicMaterial
+  innerShade: THREE.MeshBasicMaterial
+  border: THREE.MeshBasicMaterial
+  ticks: THREE.MeshBasicMaterial[]
+  coreGlowHue: THREE.MeshBasicMaterial
+  coreGlowWhite: THREE.MeshBasicMaterial
+  core: THREE.MeshBasicMaterial
+  ripple: THREE.MeshBasicMaterial
+}
+
+/**
+ * One material set per planet, created once and mutated by the frame loop.
+ * Per-planet rather than shared because every one of these carries that
+ * planet's own hue, opacity and visibility.
+ */
+function usePlanetMaterials(): PlanetMaterials {
+  const materials = useMemo<PlanetMaterials>(() => {
+    // `MeshBasicMaterial`'s constructor warns on an explicitly-undefined
+    // parameter, so optional ones are only set when they exist (textures are
+    // null wherever no 2D canvas is available).
+    const soft = (color?: THREE.Color | string, map?: THREE.Texture | null) => {
+      const material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })
+      if (color !== undefined) material.color.set(color)
+      if (map) material.map = map
+      return material
+    }
+    const glowMap = glowTexture()
+    const core = new THREE.MeshBasicMaterial({ transparent: true })
+    return {
+      glow: soft(undefined, glowMap),
+      halo: soft(),
+      arc: soft(),
+      bodyEnded: soft(BODY_ENDED_COLOR),
+      bodyIdle: soft(undefined, bodyIdleTexture()),
+      bodyWorking: soft(undefined, bodyTexture()),
+      innerShade: soft(BLACK),
+      border: soft(),
+      ticks: PLANET_TICK_LAYERS.map((layer) => soft(layer.grey ? GREY : undefined)),
+      coreGlowHue: soft(undefined, glowMap),
+      coreGlowWhite: soft(WHITE, glowMap),
+      core,
+      ripple: soft(WHITE),
+    }
+  }, [])
+
+  useEffect(
+    () => () => {
+      for (const value of Object.values(materials)) {
+        if (Array.isArray(value)) value.forEach((m) => m.dispose())
+        else value.dispose()
+      }
+    },
+    [materials]
+  )
+
+  return materials
+}
+
 export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetProps) {
-  const visuals = useMemo(() => planetVisuals(session.status, selected), [session.status, selected])
-  const color = useMemo(() => oklchTagColor(hue), [hue])
-  const tickColor = visuals.dimmed ? GREY : color
-  const coreColor = session.status === 'needs_input' ? WHITE : color
-  const glowMap = glowTexture()
-  // 1f: only the working body carries `box-shadow: 0 0 22px hue/.25`; the
-  // needs-input planet's glow lives on its white core instead.
-  const bodyMap = session.status === 'working' ? bodyTexture() : bodyIdleTexture()
-  const glowOn = session.status === 'working'
-  const coreGlowOn = session.status === 'needs_input'
-  const borderOpacity = visuals.dimmed
-    ? BORDER_OPACITY_ENDED
-    : session.status === 'working'
-      ? BORDER_OPACITY_ACTIVE
-      : BORDER_OPACITY_IDLE
-  // The export wraps an ended planet in `opacity:.6`, which multiplies every
-  // layer's own alpha — reproduced here per material.
-  const dim = visuals.dimmed ? DIMMED_OPACITY : 1
+  const mix = useStateMix(PLANET_STATES, session.status)
+  const hueTween = useHueTween(hue)
+  const reticleFade = useFadeTween(selected, RETICLE_ENTER_MS, RETICLE_EXIT_MS)
+  const materials = usePlanetMaterials()
+
+  // Textures are process-wide singletons; null only where no 2D canvas exists
+  // (jsdom), in which case the gradient bodies are skipped and the flat fill
+  // stands in — same fallback as before.
+  const hasBodyTextures = bodyTexture() !== null && bodyIdleTexture() !== null
+  const hasGlowTexture = glowTexture() !== null
+
+  // Kept mounted through their fade-out, so deselecting and leaving
+  // needs-input dissolve instead of being yanked out of the tree by React.
+  const reticleMounted = useLingering(selected, RETICLE_EXIT_MS)
+  const badgeMounted = useLingering(session.status === 'needs_input', STATE_TRANSITION_MS)
+  const reduced = prefersReducedMotion()
 
   const tickGroupRef = useRef<THREE.Group>(null!)
   const arcGroupRef = useRef<THREE.Group>(null!)
-  const coreMaterialRef = useRef<THREE.MeshBasicMaterial>(null!)
-  const haloMaterialRef = useRef<THREE.MeshBasicMaterial>(null!)
+  const coreRef = useRef<THREE.Mesh>(null!)
   const rippleRef = useRef<THREE.Mesh>(null!)
-  const reticleGroupRef = useRef<THREE.Group>(null!)
+  const reticleGroupRef = useRef<THREE.Group>(null)
+  const reticleRingRef = useRef<LineHandle | null>(null)
+  const bracketRefs = useRef<(LineHandle | null)[]>([])
+  const badgeRef = useRef<HTMLSpanElement | null>(null)
   const rippleElapsed = useRef(0)
+  /**
+   * The blink's own phase, advanced by `delta / period` rather than read off
+   * the global clock: the period itself is interpolating (2.4s working ⇄ 1.2s
+   * needs-input), and `cos(t / p)` with a changing `p` jumps whenever `p`
+   * moves. Integrating the phase keeps the blink continuous through the
+   * transition.
+   */
+  const corePhase = useRef(0)
+  const bodyAlphas = useRef<number[]>([0, 0, 0])
+  const hueColor = useRef(new THREE.Color())
+  /** Seeded from the table so a planet is correct on its very first frame. */
+  const blendRef = useRef(blendPlanet(mix.weights, createPlanetBlend()))
+  /** False until the settled values have been written once after a transition ends. */
+  const settled = useRef(false)
+
+  const dimmedLabel = session.status === 'ended'
+
+  /**
+   * Writes everything that depends only on the state weights and the hue.
+   * Called on any frame where either moved, plus the one frame after they
+   * stop — never on a resting planet.
+   */
+  const applyState = () => {
+    const w = mix.weights
+    const b = blendRef.current
+    const hueC = setOklchTagColor(hueColor.current, hueTween.value)
+    const idleShare = w.idle + w.needs_input
+
+    materials.glow.color.copy(hueC)
+    materials.glow.opacity = w.working * GLOW_OPACITY
+    materials.glow.visible = hasGlowTexture && materials.glow.opacity > 0.001
+
+    materials.halo.color.copy(hueC)
+
+    materials.arc.color.copy(hueC)
+    materials.arc.opacity = b.arcOpacity
+    materials.arc.visible = b.arcOpacity > 0.001
+
+    if (hasBodyTextures) {
+      // Bottom-to-top: flat ended fill, idle gradient, working gradient.
+      const alphas = stackAlphas([w.ended, idleShare, w.working], bodyAlphas.current)
+      materials.bodyEnded.opacity = alphas[0] * DIMMED_OPACITY
+      materials.bodyEnded.visible = alphas[0] > 0.001
+      materials.bodyIdle.opacity = alphas[1]
+      materials.bodyIdle.visible = alphas[1] > 0.001
+      materials.bodyWorking.opacity = alphas[2]
+      materials.bodyWorking.visible = alphas[2] > 0.001
+    } else {
+      materials.bodyEnded.opacity = b.dim
+      materials.bodyEnded.visible = true
+      materials.bodyIdle.visible = false
+      materials.bodyWorking.visible = false
+    }
+
+    materials.innerShade.opacity = w.working * INNER_SHADE_OPACITY
+    materials.innerShade.visible = materials.innerShade.opacity > 0.001
+
+    materials.border.color.copy(hueC).lerp(GREY_COLOR, w.ended)
+    materials.border.opacity =
+      (w.working * BORDER_OPACITY_ACTIVE +
+        idleShare * BORDER_OPACITY_IDLE +
+        w.ended * BORDER_OPACITY_ENDED) *
+      b.dim
+
+    // Crossfade: each distinct tick ring is drawn at the summed weight of the
+    // states that wear it. Counts (60/45/30) cannot be interpolated, so the
+    // rings dissolve into one another instead.
+    PLANET_TICK_LAYERS.forEach((layer, i) => {
+      const material = materials.ticks[i]
+      const weight = tickLayerWeight(layer, w)
+      material.opacity = weight * layer.opacity * b.dim
+      material.visible = material.opacity > 0.001
+      if (!layer.grey) material.color.copy(hueC)
+    })
+
+    materials.coreGlowHue.color.copy(hueC)
+    materials.coreGlowHue.opacity = w.needs_input * CORE_GLOW_HUE_OPACITY
+    materials.coreGlowHue.visible = hasGlowTexture && materials.coreGlowHue.opacity > 0.001
+    materials.coreGlowWhite.opacity = w.needs_input * CORE_GLOW_WHITE_OPACITY
+    materials.coreGlowWhite.visible = hasGlowTexture && materials.coreGlowWhite.opacity > 0.001
+
+    materials.core.color.copy(hueC).lerp(WHITE_COLOR, w.needs_input)
+    if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
+
+    if (badgeRef.current) badgeRef.current.style.opacity = String(w.needs_input)
+  }
 
   useFrame((state, delta) => {
-    if (visuals.tickSpin !== 0 && tickGroupRef.current) {
-      tickGroupRef.current.rotation.z += visuals.tickSpin * delta
+    const mixMoved = advanceStateMix(mix, delta)
+    const hueMoved = advanceTween(hueTween, delta)
+    const b = blendRef.current
+    if (mixMoved) blendPlanet(mix.weights, b)
+    if (mixMoved || hueMoved || !settled.current) applyState()
+    settled.current = !(mixMoved || hueMoved)
+
+    if (b.tickSpin !== 0 && tickGroupRef.current) {
+      tickGroupRef.current.rotation.z += b.tickSpin * delta
     }
 
-    if (visuals.arcSpin !== 0 && arcGroupRef.current) {
-      arcGroupRef.current.rotation.z += visuals.arcSpin * delta
+    if (b.arcSpin !== 0 && arcGroupRef.current) {
+      arcGroupRef.current.rotation.z += b.arcSpin * delta
     }
 
-    if (coreMaterialRef.current) {
-      // `orb-blink`: opacity 1 → .3 → 1 over corePulseSec (a blink, not a scale pulse).
-      const blink =
-        visuals.corePulse > 0
-          ? 1 - BLINK_DEPTH * visuals.corePulse * oscillate(state.clock.elapsedTime, visuals.corePulseSec)
-          : 1
-      coreMaterialRef.current.opacity = visuals.coreOpacity * blink * dim
-    }
+    // `orb-blink`: opacity 1 → .3 → 1 over corePulseSec (a blink, not a scale pulse).
+    corePhase.current += b.corePulseSec > 0 ? delta / b.corePulseSec : 0
+    const blink = b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
+    materials.core.opacity = b.coreOpacity * blink * b.dim
+    materials.core.visible = materials.core.opacity > 0.001
 
-    if (haloMaterialRef.current) {
-      // `orb-ring`: opacity ×.55 → ×1 → ×.55 over 2.4s.
-      const breath = visuals.haloBreathes
-        ? HALO_BREATH_MIN + (1 - HALO_BREATH_MIN) * oscillate(state.clock.elapsedTime, HALO_BREATH_SEC)
-        : 1
-      haloMaterialRef.current.opacity = visuals.haloOpacity * breath
-    }
+    // `orb-ring`: opacity ×.55 → ×1 → ×.55 over 2.4s, faded in by haloBreath.
+    const breath =
+      1 - b.haloBreath * (1 - HALO_BREATH_MIN) * (1 - oscillate(state.clock.elapsedTime, HALO_BREATH_SEC))
+    materials.halo.opacity = b.haloOpacity * breath
+    materials.halo.visible = materials.halo.opacity > 0.001
 
-    if (visuals.rippleActive) {
+    if (b.ripple > 0.001) {
       rippleElapsed.current = (rippleElapsed.current + delta) % RIPPLE_DURATION_SEC
       const progress = easeOut(rippleElapsed.current / RIPPLE_DURATION_SEC)
-      if (rippleRef.current) {
-        rippleRef.current.scale.setScalar(1 + progress * (RIPPLE_MAX_SCALE - 1))
-        const mat = rippleRef.current.material as THREE.MeshBasicMaterial
-        mat.opacity = RIPPLE_START_OPACITY * (1 - progress)
-      }
+      if (rippleRef.current) rippleRef.current.scale.setScalar(1 + progress * (RIPPLE_MAX_SCALE - 1))
+      materials.ripple.opacity = RIPPLE_START_OPACITY * (1 - progress) * b.ripple
+      materials.ripple.visible = true
     } else {
       rippleElapsed.current = 0
+      materials.ripple.visible = false
     }
 
-    if (visuals.reticle && reticleGroupRef.current) {
+    if (reticleGroupRef.current) {
+      // The export spins the dashed ring (`orb-spin 40s`); the bracket spans
+      // are its unanimated siblings and stay put.
       reticleGroupRef.current.rotation.z += RETICLE_SPIN_SPEED * delta
+    }
+    if (advanceTween(reticleFade, delta) || reticleFade.value > 0) {
+      if (reticleRingRef.current) reticleRingRef.current.material.opacity = RETICLE_OPACITY * reticleFade.value
+      for (const bracket of bracketRefs.current) {
+        if (bracket) bracket.material.opacity = reticleFade.value
+      }
     }
   })
 
@@ -427,112 +695,85 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
   return (
     <group position={[x, y, 0]} scale={scale} onClick={onClick ? handleClick : undefined}>
-      {glowOn && glowMap && (
-        <mesh position={[0, 0, HALO_Z]}>
+      {hasGlowTexture && (
+        <mesh position={[0, 0, HALO_Z]} material={materials.glow}>
           <planeGeometry args={[GLOW_SIZE, GLOW_SIZE]} />
-          <meshBasicMaterial color={color} transparent opacity={GLOW_OPACITY} depthWrite={false} map={glowMap} />
         </mesh>
       )}
 
-      {visuals.haloOpacity > 0 && (
-        <mesh position={[0, 0, HALO_Z]}>
-          <ringGeometry args={[HALO_RING_INNER, HALO_RING_OUTER, 64]} />
-          <meshBasicMaterial
-            ref={haloMaterialRef}
-            color={color}
-            transparent
-            opacity={visuals.haloOpacity}
-            depthWrite={false}
-          />
-        </mesh>
-      )}
-
-      {visuals.arcOpacity > 0 && (
-        <group ref={arcGroupRef} position={[0, 0, HALO_Z]}>
-          <ArcRing color={color} opacity={visuals.arcOpacity} />
-        </group>
-      )}
-
-      <mesh position={[0, 0, BODY_Z]}>
-        <circleGeometry args={[BODY_RADIUS, 48]} />
-        {visuals.dimmed || !bodyMap ? (
-          <meshBasicMaterial color={BODY_ENDED_COLOR} transparent opacity={dim} />
-        ) : (
-          <meshBasicMaterial map={bodyMap} />
-        )}
+      <mesh position={[0, 0, HALO_Z]} material={materials.halo}>
+        <ringGeometry args={[HALO_RING_INNER, HALO_RING_OUTER, 64]} />
       </mesh>
 
-      {session.status === 'working' && (
-        <mesh position={[0, 0, BODY_Z]}>
-          <ringGeometry args={[INNER_SHADE_INNER, INNER_SHADE_OUTER, 48]} />
-          <meshBasicMaterial color={BLACK} transparent opacity={INNER_SHADE_OPACITY} depthWrite={false} />
-        </mesh>
-      )}
-
-      <mesh position={[0, 0, BODY_Z]}>
-        <ringGeometry args={[BORDER_INNER, BORDER_OUTER, 64]} />
-        <meshBasicMaterial
-          color={visuals.dimmed ? GREY : color}
-          transparent
-          opacity={borderOpacity * dim}
-          depthWrite={false}
-        />
-      </mesh>
-
-      <group ref={tickGroupRef} position={[0, 0, BODY_Z]}>
-        <TickRing
-          key={visuals.tickCount}
-          count={visuals.tickCount}
-          radius={visuals.tickRadius}
-          widthDeg={visuals.tickWidthDeg}
-          length={visuals.tickLength}
-          color={tickColor}
-          opacity={visuals.tickOpacity * dim}
-        />
+      <group ref={arcGroupRef} position={[0, 0, HALO_Z]}>
+        <ArcRing material={materials.arc} />
       </group>
 
-      {coreGlowOn && glowMap && (
+      <mesh position={[0, 0, BODY_ENDED_Z]} material={materials.bodyEnded}>
+        <circleGeometry args={[BODY_RADIUS, 48]} />
+      </mesh>
+      {hasBodyTextures && (
         <>
-          <mesh position={[0, 0, CORE_GLOW_Z]}>
-            <planeGeometry args={[CORE_GLOW_HUE_SIZE, CORE_GLOW_HUE_SIZE]} />
-            <meshBasicMaterial
-              color={color}
-              transparent
-              opacity={CORE_GLOW_HUE_OPACITY}
-              depthWrite={false}
-              map={glowMap}
-            />
+          <mesh position={[0, 0, BODY_IDLE_Z]} material={materials.bodyIdle}>
+            <circleGeometry args={[BODY_RADIUS, 48]} />
           </mesh>
-          <mesh position={[0, 0, CORE_GLOW_Z]}>
-            <planeGeometry args={[CORE_GLOW_WHITE_SIZE, CORE_GLOW_WHITE_SIZE]} />
-            <meshBasicMaterial
-              color={WHITE}
-              transparent
-              opacity={CORE_GLOW_WHITE_OPACITY}
-              depthWrite={false}
-              map={glowMap}
-            />
+          <mesh position={[0, 0, BODY_WORKING_Z]} material={materials.bodyWorking}>
+            <circleGeometry args={[BODY_RADIUS, 48]} />
           </mesh>
         </>
       )}
 
-      {visuals.coreOpacity > 0 && (
-        <mesh position={[0, 0, CORE_Z]}>
-          <circleGeometry args={[visuals.coreRadius, 32]} />
-          <meshBasicMaterial ref={coreMaterialRef} color={coreColor} transparent opacity={visuals.coreOpacity * dim} />
-        </mesh>
+      <mesh position={[0, 0, BODY_Z]} material={materials.innerShade}>
+        <ringGeometry args={[INNER_SHADE_INNER, INNER_SHADE_OUTER, 48]} />
+      </mesh>
+
+      <mesh position={[0, 0, BODY_Z]} material={materials.border}>
+        <ringGeometry args={[BORDER_INNER, BORDER_OUTER, 64]} />
+      </mesh>
+
+      <group ref={tickGroupRef} position={[0, 0, BODY_Z]}>
+        {PLANET_TICK_LAYERS.map((layer, i) => (
+          <TickRing
+            key={layer.count}
+            count={layer.count}
+            radius={layer.radius}
+            widthDeg={layer.widthDeg}
+            length={layer.length}
+            material={materials.ticks[i]}
+          />
+        ))}
+      </group>
+
+      {hasGlowTexture && (
+        <>
+          <mesh position={[0, 0, CORE_GLOW_Z]} material={materials.coreGlowHue}>
+            <planeGeometry args={[CORE_GLOW_HUE_SIZE, CORE_GLOW_HUE_SIZE]} />
+          </mesh>
+          <mesh position={[0, 0, CORE_GLOW_Z]} material={materials.coreGlowWhite}>
+            <planeGeometry args={[CORE_GLOW_WHITE_SIZE, CORE_GLOW_WHITE_SIZE]} />
+          </mesh>
+        </>
       )}
 
-      {visuals.rippleActive && (
-        <mesh ref={rippleRef} position={[0, 0, RIPPLE_Z]}>
-          <ringGeometry args={[RIPPLE_INNER, RIPPLE_OUTER, 48]} />
-          <meshBasicMaterial color={WHITE} transparent opacity={RIPPLE_START_OPACITY} depthWrite={false} />
-        </mesh>
+      {/* Unit circle scaled to the blended core radius: interpolating the
+          geometry's own radius would rebuild it every frame. */}
+      <mesh ref={coreRef} position={[0, 0, CORE_Z]} material={materials.core}>
+        <circleGeometry args={[1, 32]} />
+      </mesh>
+
+      <mesh ref={rippleRef} position={[0, 0, RIPPLE_Z]} material={materials.ripple}>
+        <ringGeometry args={[RIPPLE_INNER, RIPPLE_OUTER, 48]} />
+      </mesh>
+
+      {reticleMounted && (
+        <SelectionReticle
+          ringGroupRef={reticleGroupRef}
+          ringRef={reticleRingRef}
+          bracketRefs={bracketRefs}
+        />
       )}
 
-      {visuals.reticle && <SelectionReticle groupRef={reticleGroupRef} />}
-
-      {visuals.rippleActive && <NeedsInputBadge />}
+      {badgeMounted && <NeedsInputBadge innerRef={badgeRef} />}
 
       <Html center position={[0, LABEL_OFFSET_Y, 0]} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
         <span
@@ -540,7 +781,11 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 11,
             letterSpacing: '0.06em',
-            color: visuals.dimmed ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
+            color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
+            // The label is plain DOM, so its half of the state change is a CSS
+            // transition on the same curve — dropped entirely under reduced
+            // motion, which an inline style cannot express as a media query.
+            transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
             whiteSpace: 'nowrap',
           }}
         >
