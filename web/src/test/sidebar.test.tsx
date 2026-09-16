@@ -262,22 +262,15 @@ describe('Sidebar', () => {
     render(<Sidebar observerFactory={noopObserverFactory} />)
 
     expect(screen.getByText(/2 sessions/)).toBeInTheDocument()
-    expect(screen.getByText(/tags & rules/i)).toBeInTheDocument()
+    // Canvas 1a's footer is the session count and SETTINGS — the old
+    // "tags & rules ›" link is gone, that screen is a Settings section now.
+    expect(screen.getByText('SETTINGS')).toBeInTheDocument()
+    expect(screen.queryByText(/tags & rules/i)).not.toBeInTheDocument()
   })
 
-  it('opens the tags & rules dialog from the footer', async () => {
-    const user = userEvent.setup()
-    resetStore({ sessions: {} })
-
-    render(<Sidebar observerFactory={noopObserverFactory} />)
-    await user.click(screen.getByRole('button', { name: /tags & rules/i }))
-
-    expect(useOrbital.getState().ui.dialog).toBe('tags')
-  })
-
-  // 1a gives the sidebar no settings affordance at all, so Orbital adds one
-  // in both layers — the footer and the rail — or it would be unreachable
-  // whenever the sidebar happens to be collapsed.
+  // 1a puts a settings button in both layers — the footer pill and the
+  // collapsed rail's icon — so it stays reachable whichever state the
+  // sidebar is in.
   it('opens settings from the footer and from the collapsed rail', async () => {
     const user = userEvent.setup()
     resetStore({ sessions: {} })

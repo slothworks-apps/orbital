@@ -103,6 +103,26 @@ function RowDot({
  * the export gives these their own chrome (7px radius, .14 hairline, 14px
  * glyph) rather than any of `Button`'s variants.
  */
+/**
+ * The settings affordance's glyph in canvas 1a: a dashed accent ring — an
+ * orbit, not a gear. It appears twice at two sizes, 9px in the expanded
+ * footer's pill and 12px in the collapsed rail's icon button.
+ *
+ * `block` is load-bearing: a bare `<span>` is an inline box and ignores
+ * width/height (see `web/CLAUDE.md`).
+ */
+function SettingsRing({ size }: { size: 9 | 12 }) {
+  return (
+    <span
+      aria-hidden
+      className={[
+        'block shrink-0 rounded-full border-[1.5px] border-dashed border-accent',
+        size === 9 ? 'h-[9px] w-[9px]' : 'h-3 w-3',
+      ].join(' ')}
+    />
+  )
+}
+
 function IconButton({
   label,
   glyph,
@@ -303,11 +323,17 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         {active.slice(0, 8).map((s) => (
           <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} />
         ))}
-        {/* No artboard gives the rail a settings affordance — but the entry
-            point lives in the expanded footer, so without this one it would
-            be unreachable while collapsed. */}
+        {/* Rail settings button (1a): 30px, and the only icon button here that
+            is not one of `IconButton`'s 28px text glyphs. */}
         <span className="flex-1" />
-        <IconButton label="Settings" glyph="⚙" onClick={() => setDialog('settings')} />
+        <button
+          type="button"
+          aria-label="Open settings"
+          onClick={() => setDialog('settings')}
+          className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg border border-panel-border bg-[rgba(150,205,255,.05)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.13)]"
+        >
+          <SettingsRing size={12} />
+        </button>
       </div>
 
       <div
@@ -424,25 +450,18 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
 
       <div className="flex items-center justify-between gap-2 border-t border-[rgba(150,205,255,.1)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
         <span>{visible.length} sessions</span>
-        <span className="flex items-center gap-2.5">
-          {/* 1a has no settings entry anywhere; the footer is the least
-              intrusive home for it, beside the "tags & rules" link it does specify. */}
-          <button
-            type="button"
-            aria-label="Settings"
-            className="transition-colors hover:text-text-bright"
-            onClick={() => setDialog('settings')}
-          >
-            <span aria-hidden>⚙</span>
-          </button>
-          <button
-            type="button"
-            className="transition-colors hover:text-text-bright"
-            onClick={() => setDialog('tags')}
-          >
-            tags &amp; rules ›
-          </button>
-        </span>
+        {/* Settings is the footer's only entry point now — the canvas moved
+            tags & rules inside the dialog as a section, so the link that used
+            to sit here would land on the same screen. */}
+        <button
+          type="button"
+          aria-label="Open settings"
+          onClick={() => setDialog('settings')}
+          className="flex items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] py-[5px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
+        >
+          <SettingsRing size={9} />
+          SETTINGS
+        </button>
       </div>
       </div>
     </Panel>

@@ -447,23 +447,19 @@ describe('App: Toasts', () => {
 // ---------------------------------------------------------------------------
 
 describe('App: dialog ownership', () => {
-  it('opens Settings and Tags & rules from the sidebar footer', async () => {
+  it('opens Settings from the sidebar footer, and reaches Tags & rules from its nav', async () => {
     await renderApp()
 
     // Both sidebar layers stay mounted (they cross-fade), so the Settings
     // entry point exists twice: once in the expanded footer, once in the rail.
-    const settingsEntries = screen.getAllByRole('button', { name: /settings/i })
+    const settingsEntries = screen.getAllByRole('button', { name: /open settings/i })
     expect(settingsEntries).toHaveLength(2)
     fireEvent.click(settingsEntries[settingsEntries.length - 1])
     expect(screen.getByRole('heading', { name: 'Sessions' })).toBeInTheDocument()
-    act(() => {
-      useOrbital.getState().setDialog(null)
-    })
 
-    // Settings is still mounted for the length of its close transition, and
-    // its nav carries a "Tags & rules" row of its own — so this has to name
-    // the sidebar footer's lowercase entry point specifically.
-    fireEvent.click(screen.getByRole('button', { name: 'tags & rules ›' }))
+    // Tags & rules is now a section of that same dialog, not a second one.
+    fireEvent.click(screen.getByRole('button', { name: 'Tags & rules' }))
     expect(screen.getByRole('heading', { name: 'Tags & rules' })).toBeInTheDocument()
+    expect(screen.getByText(/AUTO-TAG RULES/)).toBeInTheDocument()
   })
 })

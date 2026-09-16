@@ -6,7 +6,6 @@ import { SpaceMap } from './map/SpaceMap'
 import { Sidebar } from './panels/Sidebar'
 import { DetailPanel } from './panels/DetailPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
-import { TagsRules } from './panels/TagsRules'
 import { Settings } from './panels/Settings'
 import { Toasts } from './ui/Toasts'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
@@ -26,7 +25,7 @@ const socket = new OrbitalSocket(resolveWsUrl('/ws', window.location))
 /**
  * App shell (final integration task): mounts the full-bleed `SpaceMap`,
  * the docked `Sidebar`/`DetailPanel`, the three dialogs that don't own
- * their own trigger+render site (`NewSessionDialog`/`TagsRules`/`Settings`
+ * their own trigger+render site (`NewSessionDialog`/`Settings`
  * — `StopDialog`/`ClearDialog` are rendered by `DetailPanel` itself, so
  * they're deliberately NOT repeated here), a single `Toasts` surface, and
  * the WS status banner. Owns the data lifecycle (`loadInitial` + the
@@ -114,15 +113,15 @@ export default function App() {
         </div>
       )}
 
-      {/* Dialog layer: NewSessionDialog/TagsRules/Settings each already
-          render as fixed, full-viewport overlays (z-50) regardless of
-          where they sit in the tree, so grouping them here is enough to
-          act as a "portal layer" without a literal ReactDOM.createPortal —
-          consistent with how Dialog/TagsRules/Settings implement their own
-          overlay today. StopDialog/ClearDialog are intentionally absent:
+      {/* Dialog layer: NewSessionDialog/Settings each already render as
+          fixed, full-viewport overlays (z-50) regardless of where they sit
+          in the tree, so grouping them here is enough to act as a "portal
+          layer" without a literal ReactDOM.createPortal — consistent with
+          how Dialog/Settings implement their own overlay today. Tags & rules
+          is not here because it is no longer a dialog: it is a section of
+          Settings. StopDialog/ClearDialog are intentionally absent too —
           DetailPanel owns and renders them itself. */}
       <NewSessionDialog open={dialog === 'new'} onClose={() => setDialog(null)} />
-      <TagsRules open={dialog === 'tags'} onClose={() => setDialog(null)} />
       <Settings open={dialog === 'settings'} onClose={() => setDialog(null)} />
 
       <Toasts />

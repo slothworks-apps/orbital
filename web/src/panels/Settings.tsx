@@ -24,6 +24,7 @@ import { ModeCards } from '../ui/ModeCards'
 import { Select } from '../ui/Select'
 import { Checkbox, Toggle } from '../ui/Checkbox'
 import type { PermissionMode } from '../lib/types'
+import { TagsRulesSection } from './TagsRules'
 import pkg from '../../package.json'
 
 export interface SettingsProps {
@@ -45,15 +46,22 @@ const IDLE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'never', label: 'Never — only on Clear' },
 ]
 
-const NAV_ITEMS: Array<{ key: string; label: string; disabled: boolean }> = [
+/**
+ * The nav, in canvas order. Two sections are live: "Sessions" (1h) and
+ * "Tags & rules" (1e) — 1e is the same dialog with the 4th row selected, not
+ * a screen of its own, which is why it is a section here rather than a link.
+ * The rest are drawn but inert until they have something to hold.
+ */
+const NAV_ITEMS = [
   { key: 'general', label: 'General', disabled: true },
   { key: 'sessions', label: 'Sessions', disabled: false },
   { key: 'permissions', label: 'Permissions', disabled: true },
-  // "Tags & rules" sits here in canvas 1h (4th, above Appearance) and is the
-  // one nav row that navigates away — rendered separately below.
+  { key: 'tags', label: 'Tags & rules', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: true },
   { key: 'shortcuts', label: 'Shortcuts', disabled: true },
-]
+] as const
+
+type SectionKey = (typeof NAV_ITEMS)[number]['key']
 
 /** Debounce for the free-text project-dir field — the rest of this panel's
  * controls (cards, segmented steps, toggles, selects) are discrete clicks
@@ -112,9 +120,17 @@ const CHAIN_ORBS = [
 export function Settings({ open, onClose }: SettingsProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const sessionCwds = useOrbital(useShallow((s) => Object.values(s.sessions).map((x) => x.cwd)))
-  const setDialog = useOrbital((s) => s.setDialog)
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [saved, setSaved] = useState(false)
+  const [section, setSection] = useState<SectionKey>('sessions')
+
+  useEffect(() => {
+    if (!open) return
+    // Every visit starts on Sessions, and with no stale "saved · just now"
+    // left over from the last one — the dialog is held mounted across `open`.
+    setSection('sessions')
+    setSaved(false)
+  }, [open])
 
   useEffect(() => {
     if (open) setProjectDirDraft(settings.default_project_dir ?? '')
@@ -144,9 +160,13 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectDirDraft, open])
 
+  // Closes the dialog. A rule row open inside Tags & rules registers a deeper
+  // layer and is peeled first (see `TagsRulesSection`).
   useEscapeLayer(open, onClose)
   // Held mounted through the close transition (see `ui/usePresence`).
   const { mounted, state: presence } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
+
+  const sectionTitle = NAV_ITEMS.find((item) => item.key === section)?.label ?? 'Sessions'
 
   const defaultPermissionMode = ((settings.default_permission_mode as PermissionMode) || 'acceptEdits')
   const lineageDepth = settings.lineage_depth ?? '3'
@@ -220,52 +240,55 @@ export function Settings({ open, onClose }: SettingsProps) {
           >
             ‹
           </button>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <div className="font-mono text-[10px] tracking-[0.2em] text-accent/80">SETTINGS</div>
-            <h2 className="mt-1 text-xl font-bold tracking-[-0.01em] text-text-bright">Sessions</h2>
+            {/* The title is the section's, not the dialog's: 1e and 1h are the
+                same screen under two nav rows. */}
+            <h2 className="mt-1 text-xl font-bold tracking-[-0.01em] text-text-bright">{sectionTitle}</h2>
           </div>
           {saved && (
-            <span className="font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+            <span
+              data-testid="save-status"
+              className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]"
+            >
               saved · just now
             </span>
           )}
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[240px_1fr]">
+        {/* Tags & rules brings a second fixed column with it (1e: nav 240 ·
+            tags 330 · rules), so the body's tracks are the section's too. */}
+        <div
+          className={[
+            'grid min-h-0 flex-1',
+            section === 'tags'
+              ? 'grid-cols-[240px_minmax(0,330px)_minmax(0,1fr)]'
+              : 'grid-cols-[240px_minmax(0,1fr)]',
+          ].join(' ')}
+        >
           {/* Nav column: 240px, 16px/12px padding, 2px row gap (canvas 1h). */}
           <nav
             className="flex flex-col gap-0.5 border-r border-[rgba(150,205,255,.1)] px-3 py-4"
             aria-label="Settings sections"
           >
             {NAV_ITEMS.map((item) => (
-              <div key={item.key} className="contents">
-                <button
-                  type="button"
-                  disabled={item.disabled}
-                  aria-current={item.key === 'sessions' ? 'true' : undefined}
-                  title={item.disabled ? 'coming soon' : undefined}
-                  className={[
-                    NAV_ROW,
-                    item.key === 'sessions'
-                      ? 'border-panel-border bg-[rgba(150,205,255,.08)] font-semibold text-text-bright'
-                      : 'border-transparent font-medium text-[rgba(220,235,255,.8)]',
-                    item.disabled ? 'cursor-default' : 'hover:bg-white/5',
-                  ].join(' ')}
-                >
-                  {item.label}
-                </button>
-                {item.key === 'permissions' && (
-                  <button
-                    type="button"
-                    onClick={() => setDialog('tags')}
-                    className={`${NAV_ROW} border-transparent font-medium text-[rgba(220,235,255,.8)] hover:bg-white/5`}
-                  >
-                    Tags &amp; rules
-                    <span className="flex-1" />
-                    <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">›</span>
-                  </button>
-                )}
-              </div>
+              <button
+                key={item.key}
+                type="button"
+                disabled={item.disabled}
+                aria-current={item.key === section ? 'true' : undefined}
+                title={item.disabled ? 'coming soon' : undefined}
+                onClick={item.disabled ? undefined : () => setSection(item.key)}
+                className={[
+                  NAV_ROW,
+                  item.key === section
+                    ? 'border-panel-border bg-[rgba(150,205,255,.08)] font-semibold text-text-bright'
+                    : 'border-transparent font-medium text-[rgba(220,235,255,.8)]',
+                  item.disabled ? 'cursor-default' : 'hover:bg-white/5',
+                ].join(' ')}
+              >
+                {item.label}
+              </button>
             ))}
             <span className="flex-1" />
             <div className="px-3 py-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.45)]">
@@ -274,7 +297,13 @@ export function Settings({ open, onClose }: SettingsProps) {
             </div>
           </nav>
 
-          {/* Content column: 8/32/20 padding per canvas 1h. */}
+          {section === 'tags' ? (
+            <TagsRulesSection active onSaved={() => setSaved(true)} />
+          ) : (
+          /* Content column: 8/32/20 padding per canvas 1h. Only Sessions can
+             be selected besides Tags & rules, so this column is the other
+             branch outright. The project-dir draft lives in `Settings`, not
+             here, so swapping the column away costs no state. */
           <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
             <SectionLabel first>NEW SESSIONS</SectionLabel>
             <Row
@@ -409,6 +438,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               />
             </Row>
           </div>
+          )}
         </div>
       </Panel>
       </div>

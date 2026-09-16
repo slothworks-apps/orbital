@@ -35,7 +35,7 @@ vi.mock('../lib/api', async () => {
 })
 
 import { api } from '../lib/api'
-import { TagsRules } from '../panels/TagsRules'
+import { Settings } from '../panels/Settings'
 
 const workTag: Tag = { id: 1, name: 'work', hue: 210, is_default: 0 }
 const defaultTag: Tag = { id: 2, name: 'default', hue: 60, is_default: 1 }
@@ -132,7 +132,7 @@ const defaultUi: OrbitalUiState = {
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',
-  dialog: 'tags',
+  dialog: 'settings',
   sidebarCollapsed: false,
 }
 
@@ -160,11 +160,35 @@ beforeEach(() => {
   vi.mocked(api.previewRule).mockResolvedValue({ tagId: null, ruleId: null })
 })
 
-describe('TagsRules', () => {
-  it('renders nothing when closed', () => {
+/**
+ * Tags & rules is a section of the Settings dialog (canvas 1e), not a dialog
+ * of its own, so every case here mounts it the way a user reaches it: open
+ * Settings, pick the nav row. That keeps the cases that span both components
+ * — Escape peeling a row before the dialog, the header's save stamp — honest
+ * about what they exercise.
+ */
+function renderTags() {
+  const onClose = vi.fn()
+  const view = render(<Settings open onClose={onClose} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Tags & rules' }))
+  return { ...view, onClose }
+}
+
+describe('Settings › Tags & rules', () => {
+  it('shows the tag and rule columns only once the nav row is picked', () => {
     resetStore()
-    const { container } = render(<TagsRules open={false} onClose={vi.fn()} />)
-    expect(container).toBeEmptyDOMElement()
+    render(<Settings open onClose={vi.fn()} />)
+
+    // Sessions is the landing section.
+    expect(screen.queryByText('TAGS · 2')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sessions' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tags & rules' }))
+
+    expect(screen.getByText('TAGS · 2')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tags & rules' })).toBeInTheDocument()
+    // And the Sessions rows are gone rather than stacked underneath.
+    expect(screen.queryByText('NEW SESSIONS')).not.toBeInTheDocument()
   })
 
   it('shows session and rule counts per tag', () => {
@@ -174,7 +198,7 @@ describe('TagsRules', () => {
         b: makeSession({ id: 'b', tagIds: [1] }),
       },
     })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // Canvas 1e pluralises and drops the rule count when a tag has none.
     expect(screen.getByText('2 sessions · 1 rule')).toBeInTheDocument()
@@ -183,14 +207,14 @@ describe('TagsRules', () => {
 
   it('omits the rule count for a tag with no rules, keeping the default marker', () => {
     resetStore({ rules: [rule1] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     expect(screen.getByText('0 sessions · default')).toBeInTheDocument()
   })
 
   it('disables delete for the default tag but not others (delete lives on the selected card)', () => {
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // First tag (work) is selected by default and owns the visible delete.
     expect(screen.getByRole('button', { name: 'Delete work' })).not.toBeDisabled()
@@ -206,7 +230,7 @@ describe('TagsRules', () => {
     // the client has to ask what survived rather than leave orphan rows.
     vi.mocked(api.listTagRules).mockResolvedValue([rule2])
     resetStore({ rules: [rule1, rule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete work' }))
 
@@ -220,7 +244,7 @@ describe('TagsRules', () => {
   it('renames a tag on blur', async () => {
     vi.mocked(api.patchTag).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const nameField = screen.getByLabelText('Tag name for work')
     fireEvent.change(nameField, { target: { value: 'projects' } })
@@ -233,7 +257,7 @@ describe('TagsRules', () => {
   it('patches hue when a swatch is clicked', async () => {
     vi.mocked(api.patchTag).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const swatches = screen.getAllByRole('button', { name: /^Hue /, hidden: false })
     const hue330 = screen.getByRole('group', { name: 'Hue for work' }).querySelector('[aria-label="Hue 330"]')!
@@ -249,7 +273,7 @@ describe('TagsRules', () => {
     const newTagsList: Tag[] = [workTag, defaultTag, { id: 3, name: 'urgent', hue: 10, is_default: 0 }]
     vi.mocked(api.listTags).mockResolvedValue(newTagsList)
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.change(screen.getByLabelText('New tag name'), { target: { value: 'urgent' } })
     fireEvent.click(screen.getByRole('button', { name: '+ new tag' }))
@@ -265,7 +289,7 @@ describe('TagsRules', () => {
     // swap it past a rule belonging to a DIFFERENT tag, because the server
     // evaluates one shared top-to-bottom order.
     resetStore({ rules: [rule1, rule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.keyDown(grip(1), { key: 'ArrowDown' })
 
@@ -281,7 +305,7 @@ describe('TagsRules', () => {
   it('reorders from the keyboard: ArrowDown on the grip moves the rule and keeps focus on it', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const handle = grip(1)
     handle.focus()
@@ -304,7 +328,7 @@ describe('TagsRules', () => {
   it('announces every keyboard move, and says so when a rule is already at the end', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const status = screen.getByTestId('reorder-status')
     expect(status).toHaveAttribute('aria-live', 'polite')
@@ -323,7 +347,7 @@ describe('TagsRules', () => {
   it('reorders by dragging a row onto another by its grip', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const dt = makeDataTransfer()
     fireEvent.dragStart(grip(1), { dataTransfer: dt })
@@ -345,7 +369,7 @@ describe('TagsRules', () => {
   it('treats a drop on the dragged row itself as a no-op', () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const dt = makeDataTransfer()
     fireEvent.dragStart(grip(1), { dataTransfer: dt })
@@ -361,7 +385,7 @@ describe('TagsRules', () => {
 
   it('leaves the order alone when the drag is released outside the list', () => {
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const dt = makeDataTransfer()
     fireEvent.dragStart(grip(1), { dataTransfer: dt })
@@ -375,7 +399,7 @@ describe('TagsRules', () => {
 
   it('opens a gap while dragging DOWN: the rows passed shift up, the placeholder rides into the slot', () => {
     resetStore({ rules: fourRules })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
     // 48px rows + the 4px list gap = a 52px slot each.
     stubRowHeights(48)
 
@@ -405,7 +429,7 @@ describe('TagsRules', () => {
 
   it('opens a gap while dragging UP: the rows passed shift down', () => {
     resetStore({ rules: fourRules })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
     stubRowHeights(48)
 
     const dt = makeDataTransfer()
@@ -425,7 +449,7 @@ describe('TagsRules', () => {
 
   it('measures rows rather than assuming a constant height', () => {
     resetStore({ rules: fourRules })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
     // A taller dragged row (e.g. one open for editing, or a wrapped pattern)
     // must open a correspondingly taller gap.
     stubRowHeights(48)
@@ -444,7 +468,7 @@ describe('TagsRules', () => {
   it('clears every transform when the drop lands', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: fourRules })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
     stubRowHeights(48)
 
     const dt = makeDataTransfer()
@@ -464,7 +488,7 @@ describe('TagsRules', () => {
 
   it('clears every transform on dragend when the row is released outside the list', () => {
     resetStore({ rules: fourRules })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
     stubRowHeights(48)
 
     const dt = makeDataTransfer()
@@ -482,7 +506,7 @@ describe('TagsRules', () => {
 
   it('opens no gap when hovering the dragged row itself', () => {
     resetStore({ rules: fourRules })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
     stubRowHeights(48)
 
     const dt = makeDataTransfer()
@@ -495,7 +519,7 @@ describe('TagsRules', () => {
 
   it('animates the gap only while the drag is live, and only when motion is allowed', () => {
     resetStore({ rules: fourRules })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
     stubRowHeights(48)
 
     // At rest the row transitions colour, not transform.
@@ -522,7 +546,7 @@ describe('TagsRules', () => {
   it('flushes a pending pattern PATCH before a drag reorder lands', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     openRow(1)
     fireEvent.change(screen.getByLabelText('Pattern for rule 1'), { target: { value: '/work/final' } })
@@ -548,7 +572,7 @@ describe('TagsRules', () => {
     ]
     vi.mocked(api.listTagRules).mockResolvedValue(serverRules)
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.keyDown(grip(1), { key: 'ArrowDown' })
 
@@ -562,7 +586,7 @@ describe('TagsRules', () => {
     const serverRules = [rule1, rule2]
     vi.mocked(api.listTagRules).mockResolvedValue(serverRules)
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.click(screen.getByLabelText('Enable rule 1'))
 
@@ -572,7 +596,7 @@ describe('TagsRules', () => {
 
   it('has no reorder arrows — the grip is the only reorder control (artboard 1e)', () => {
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     expect(screen.queryByRole('button', { name: /^Move rule/ })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /^Reorder rule/ })).toHaveLength(2)
@@ -580,7 +604,7 @@ describe('TagsRules', () => {
 
   it('refuses to move the last rule down, and says so', () => {
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.keyDown(grip(2), { key: 'ArrowDown' })
 
@@ -593,7 +617,7 @@ describe('TagsRules', () => {
     const refreshedRules = [rule1, rule2, { id: 30, tag_id: 2, position: 2, enabled: 1 as const, condition: 'path_matches' as const, pattern: '' }]
     vi.mocked(api.listTagRules).mockResolvedValue(refreshedRules)
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // The selected card is a DEFAULT for the new rule's target tag (not a
     // filter) — select the default tag's card first.
@@ -612,7 +636,7 @@ describe('TagsRules', () => {
     vi.mocked(api.listTagRules).mockResolvedValue([rule1, rule2, newRule])
     vi.mocked(api.listSessions).mockResolvedValue([])
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // Nothing is in edit mode until a row is opened.
     expect(editingRows()).toHaveLength(0)
@@ -627,7 +651,7 @@ describe('TagsRules', () => {
   it('patches the target tag with a snake_case tag_id payload (edit mode only)', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // The target-tag control only exists once the row is open — at rest 1e
     // draws a plain hue-bordered pill.
@@ -642,7 +666,7 @@ describe('TagsRules', () => {
   it('patches the condition from the row’s listbox', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     openRow(1)
     chooseOption('Condition for rule 1', 'title contains')
@@ -655,9 +679,8 @@ describe('TagsRules', () => {
 
   it('keeps the row open while a listbox is open — Escape peels the popup first', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
-    const onClose = vi.fn()
     resetStore()
-    render(<TagsRules open onClose={onClose} />)
+    const { onClose } = renderTags()
 
     openRow(1)
     const combo = screen.getByRole('combobox', { name: 'Condition for rule 1' })
@@ -685,7 +708,7 @@ describe('TagsRules', () => {
   it('toggles a rule enabled/disabled', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.click(screen.getByLabelText('Enable rule 1'))
 
@@ -699,7 +722,7 @@ describe('TagsRules', () => {
     const refreshedSession = makeSession({ id: 'sess1', tagIds: [2] })
     vi.mocked(api.listSessions).mockResolvedValue([refreshedSession])
     resetStore({ sessions: { sess1: staleSession } })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.click(screen.getByLabelText('Enable rule 1'))
 
@@ -711,7 +734,7 @@ describe('TagsRules', () => {
   it('debounces the pattern field before patching', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     openRow(1)
     const patternField = screen.getByLabelText('Pattern for rule 1')
@@ -728,7 +751,7 @@ describe('TagsRules', () => {
   it('deletes a rule', async () => {
     vi.mocked(api.deleteTagRule).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete rule 1' }))
 
@@ -739,7 +762,7 @@ describe('TagsRules', () => {
   it('previews a sample path against the rules, showing the matched tag and its rule number', async () => {
     vi.mocked(api.previewRule).mockResolvedValue({ tagId: 2, ruleId: 20 })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.change(screen.getByLabelText('Sample path'), { target: { value: '/anything/bug-123' } })
 
@@ -760,7 +783,7 @@ describe('TagsRules', () => {
   it('shows "no match" when the preview finds no matching rule', async () => {
     vi.mocked(api.previewRule).mockResolvedValue({ tagId: null, ruleId: null })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.change(screen.getByLabelText('Sample path'), { target: { value: '/unmatched' } })
 
@@ -769,9 +792,8 @@ describe('TagsRules', () => {
   })
 
   it('closes on Escape', () => {
-    const onClose = vi.fn()
     resetStore()
-    render(<TagsRules open onClose={onClose} />)
+    const { onClose } = renderTags()
 
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
@@ -779,7 +801,7 @@ describe('TagsRules', () => {
 
   it('shows the evaluation-order caption and the hue/default-fallback footer note naming the default tag', () => {
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     expect(screen.getByText(/evaluated top → bottom, first match wins/i)).toBeInTheDocument()
     const note = screen.getByText(/planet's atmosphere/i)
@@ -789,9 +811,8 @@ describe('TagsRules', () => {
   })
 
   it('closes from the header back chevron', () => {
-    const onClose = vi.fn()
     resetStore()
-    render(<TagsRules open onClose={onClose} />)
+    const { onClose } = renderTags()
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalled()
@@ -799,7 +820,7 @@ describe('TagsRules', () => {
 
   it('renders the 1e panel header: SETTINGS kicker, title and the counted column headings', () => {
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     expect(screen.getByText('SETTINGS')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Tags & rules' })).toBeInTheDocument()
@@ -814,7 +835,7 @@ describe('TagsRules', () => {
   it('shows "saved · just now" in the header only after a mutation lands', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     expect(screen.queryByTestId('save-status')).not.toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Enable rule 1'))
@@ -824,7 +845,7 @@ describe('TagsRules', () => {
 
   it('gives every rule row a real drag grip: draggable, focusable and named', () => {
     resetStore({ rules: [rule1, workRule2] })
-    const { container } = render(<TagsRules open onClose={vi.fn()} />)
+    const { container } = renderTags()
 
     const grips = container.querySelectorAll('[data-rule-grip]')
     expect(grips).toHaveLength(2)
@@ -842,7 +863,7 @@ describe('TagsRules', () => {
 
   it('renders "+ Add rule" as a dashed full-width row at the end of the rules list', () => {
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const addRow = screen.getByTestId('add-rule-row')
     expect(addRow).toBe(screen.getByRole('button', { name: '+ Add rule' }))
@@ -856,7 +877,7 @@ describe('TagsRules', () => {
 
   it('tints the selected tag card in its own hue and keeps swatches + delete off the others', () => {
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const workCard = document.querySelector('[data-tag-card="1"]') as HTMLElement
     const defaultCard = document.querySelector('[data-tag-card="2"]') as HTMLElement
@@ -871,7 +892,7 @@ describe('TagsRules', () => {
 
   it('deselects a tag by clicking the already-selected card again', () => {
     resetStore({ rules: [rule1, rule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // `work` is selected by default (canvas 1e opens that way).
     expect(document.querySelector('[data-tag-card="1"]')?.getAttribute('data-selected')).toBe('true')
@@ -893,7 +914,7 @@ describe('TagsRules', () => {
   it('selects and deselects a tag from the keyboard via the planet toggle', async () => {
     const user = userEvent.setup()
     resetStore({ rules: [rule1, rule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const toggle = screen.getByRole('button', { name: 'Mark rules for work' })
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
@@ -921,7 +942,7 @@ describe('TagsRules', () => {
   // layout-blind assertion would have caught.
   it('keeps the tag planet a sized box rather than an inline sliver', () => {
     resetStore({ rules: [rule1, rule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     for (const planet of document.querySelectorAll('[data-tag-planet]')) {
       expect(planet.className).toMatch(/(^|\s)(block|inline-block|flex|grid)(\s|$)/)
@@ -933,7 +954,7 @@ describe('TagsRules', () => {
   it('does not deselect the card when renaming or recolouring it', async () => {
     vi.mocked(api.patchTag).mockResolvedValue({ ok: true })
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.click(screen.getByLabelText('Tag name for work'))
     expect(document.querySelector('[data-tag-card="1"]')?.getAttribute('data-selected')).toBe('true')
@@ -948,7 +969,7 @@ describe('TagsRules', () => {
     vi.mocked(api.listTagRules).mockResolvedValue([rule1, rule2])
     vi.mocked(api.listSessions).mockResolvedValue([])
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.click(screen.getByRole('button', { name: 'Mark rules for work' }))
     expect(screen.getByRole('button', { name: 'Mark rules for work' })).toHaveAttribute('aria-pressed', 'false')
@@ -964,7 +985,7 @@ describe('TagsRules', () => {
 
   it('offers the 8 hue swatches of canvas 1e', () => {
     resetStore()
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const swatches = within(screen.getByRole('group', { name: 'Hue for work' })).getAllByRole('button')
     expect(swatches.map((s) => s.getAttribute('aria-label'))).toEqual([
@@ -981,7 +1002,7 @@ describe('TagsRules', () => {
 
   it('lists every rule regardless of which tag card is selected', () => {
     resetStore({ rules: [rule1, rule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // The server evaluates one global order, so hiding the rules of other
     // tags would misrepresent which rule actually wins.
@@ -999,7 +1020,7 @@ describe('TagsRules', () => {
 
   it('marks the selected tag’s rules without hiding or dimming the rest', () => {
     resetStore({ rules: [rule1, rule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // `work` is the head of the tag list and therefore selected by default.
     expect(row(10).dataset.tagMatch).toBe('true')
@@ -1022,7 +1043,7 @@ describe('TagsRules', () => {
   it('keeps a marked row distinguishable from a disabled one', () => {
     const disabled: TagRule = { ...rule2, enabled: 0 }
     resetStore({ rules: [rule1, disabled] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // Marked (targets the selected tag) — hue tint, never the disabled dim.
     expect(row(10).dataset.tagMatch).toBe('true')
@@ -1038,7 +1059,7 @@ describe('TagsRules', () => {
 
   it('renders resting rows as readable text with no form controls (canvas 1e)', () => {
     resetStore({ rules: [rule1, rule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     const resting = row(10)
     expect(resting.dataset.ruleMode).toBe('resting')
@@ -1055,7 +1076,7 @@ describe('TagsRules', () => {
 
   it('opens exactly one row on click, and opening another closes the first', () => {
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     // Clicking anywhere in the resting row's readable area opens it.
     fireEvent.click(screen.getByText('/work/**'))
@@ -1074,7 +1095,7 @@ describe('TagsRules', () => {
   it('commits a pending pattern edit when the row is closed by opening another', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     openRow(1)
     fireEvent.change(screen.getByLabelText('Pattern for rule 1'), { target: { value: '/work/final' } })
@@ -1089,7 +1110,7 @@ describe('TagsRules', () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     vi.mocked(api.deleteTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
-    render(<TagsRules open onClose={vi.fn()} />)
+    renderTags()
 
     fireEvent.click(screen.getByLabelText('Enable rule 1'))
     await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { enabled: 0 }))
@@ -1108,9 +1129,8 @@ describe('TagsRules', () => {
 
   it('opens a row from the keyboard and Escape closes the row before the panel', async () => {
     const user = userEvent.setup()
-    const onClose = vi.fn()
     resetStore({ rules: [rule1] })
-    render(<TagsRules open onClose={onClose} />)
+    const { onClose } = renderTags()
 
     const rowButton = screen.getByRole('button', { name: /^Edit rule 1:/ })
     rowButton.focus()

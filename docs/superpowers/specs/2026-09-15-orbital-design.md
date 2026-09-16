@@ -1,7 +1,7 @@
 ---
 id: 2026-09-15-orbital-design
 title: 2026-09-15-orbital-design
-status: active
+status: done
 type: spec
 ---
 # Orbital — Design Spec
@@ -259,7 +259,9 @@ expands), ended (grey disc, orbit trail fades).
 
 Orbital logo, search (`⌘K`), tag filter chips (All + tags), ACTIVE section with
 status labels (WORKING/IDLE), HISTORY with relative times, footer
-`N sessions · tags & rules ›`.
+`N sessions` + a SETTINGS pill (dashed accent ring + mono label). The
+collapsed rail repeats the settings button as a 30px icon under the status
+dots, so it stays reachable in either state.
 
 ### Detail panel (right, artboards 1b/1c/1g)
 
@@ -284,17 +286,20 @@ pre-selected by the matching auto-rule (`auto-matched by rule ~/work/**`),
 overridable; first prompt textarea; footer "spawns a new planet in WORK";
 Cancel / Launch session (⌘↵).
 
-### Settings (artboard 1h)
+### Settings (artboards 1h · 1e)
 
-Single settings area with sections; v1 implements **Sessions** and
-**Tags & rules** only (General, Permissions, Appearance, Shortcuts are nav
-placeholders deferred to later):
+One dialog, reached only from the sidebar, with a 240px section nav. 1h and 1e
+are the same screen under two nav rows — **Sessions** and **Tags & rules** are
+sections of it, not separate dialogs, and the header's title is the section's.
+Tags & rules widens the body with its own 330px tag column (nav 240 · tags 330
+· rules). v1 implements those two only (General, Permissions, Appearance,
+Shortcuts are nav placeholders deferred to later):
 - Sessions: default permission mode, default project directory, lineage depth
   (1–5/∞ with chain preview), confirm-before-clear toggle, "new session
   inherits" checkboxes (tags, permission mode), "mark session ended after"
   idle threshold. Footer shows orbital + claude-code versions.
 
-### Tags & rules (artboard 1e)
+### Tags & rules (artboard 1e — a Settings section, see above)
 
 Left: tag list (name, session count, rule count, hue swatch picker, delete),
 + new tag. Right: AUTO-TAG RULES table — drag-reorder rows, condition dropdown

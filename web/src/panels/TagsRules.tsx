@@ -6,29 +6,20 @@ import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { tagColor } from '../lib/types'
 import type { Tag, TagRule } from '../lib/types'
-import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
-import { usePresence } from '../ui/usePresence'
-import {
-  MODAL_CLOSED,
-  MODAL_ENTER_DURATION,
-  MODAL_ENTER_MS,
-  MODAL_EXIT_DURATION,
-  MODAL_EXIT_MS,
-  MODAL_OPEN,
-  MODAL_TRANSITION,
-  SCRIM_CLOSED,
-  SCRIM_OPEN,
-  EXITING,
-} from '../ui/motion'
 import { Select } from '../ui/Select'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
 import { Chip } from '../ui/Chip'
 
-export interface TagsRulesProps {
-  open: boolean
-  onClose: () => void
+export interface TagsRulesSectionProps {
+  /** True while this is the section Settings is showing. Gates the reset, the
+   *  debounced preview and the Escape layer, none of which should run for a
+   *  section the user cannot see. */
+  active: boolean
+  /** Stamps the dialog header's "saved · just now" — the header belongs to
+   *  `Settings` now, so every mutation that lands reports upward. */
+  onSaved: () => void
 }
 
 /** The design canvas's 8-swatch hue picker, verbatim from artboard 1e. */
@@ -228,14 +219,14 @@ function TagNameField({ tag, onCommit }: { tag: Tag; onCommit: (name: string) =>
 }
 
 /**
- * Tag list + auto-tag rule table (artboard 1e), rendered as the same
- * 1120×740 floating glass panel `Settings` (artboard 1h) uses — back
- * chevron, SETTINGS kicker, title, save status — with a two-column body:
- * tags on the left (400px, per the export), the selected tag's rules on the
- * right. Entered from the sidebar footer's "tags & rules" row or from
- * Settings' nav.
+ * Tag list + auto-tag rule table — the two middle columns of artboard 1e.
+ *
+ * This used to be a dialog of its own. In the current canvas 1e is the same
+ * Settings dialog as 1h with "Tags & rules" selected in its nav, so what
+ * lives here is only the body: a 330px tag column and the rule table beside
+ * it. The panel, the header and Escape-to-close belong to `Settings`.
  */
-export function TagsRules({ open, onClose }: TagsRulesProps) {
+export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
   const tags = useOrbital(useShallow((s) => s.tags))
   const rules = useOrbital(useShallow((s) => s.rules))
   const sessions = useOrbital(useShallow((s) => s.sessions))
@@ -283,8 +274,8 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
    * landed.
    */
   const [reorderStatus, setReorderStatus] = useState('')
-  /** Drives the header's "saved · just now" (canvas 1e) — set by every mutation that actually landed. */
-  const [saved, setSaved] = useState(false)
+  /** Drives the dialog header's "saved · just now" (canvas 1e) — called by every mutation that actually landed. */
+  const markSaved = onSaved
 
   // Per-row debounce for the pattern field, keyed by rule id — a keystroke
   // in one row only resets that row's own timer, never every other row's
@@ -350,32 +341,25 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     }
   })
 
-  // The panel stays mounted across `open`, so the save status has to be
-  // cleared on entry — "just now" must never be left over from a past visit.
+  // Leaving for another section and coming back must not resume a half-open
+  // row or replay an old announcement.
   useEffect(() => {
-    if (open) {
-      setSaved(false)
+    if (active) {
       setEditingRuleId(null)
       setReorderStatus('')
     }
-  }, [open])
+  }, [active])
 
-  // Escape peels one layer at a time: an open rule row first, the panel only
-  // once every row is back at rest. Anything opened INSIDE the panel (a select
-  // popup) registers its own layer above this one and is peeled before either.
-  useEscapeLayer(open, () => {
-    if (editingRuleId != null) {
-      closeRule(true)
-      return
-    }
-    onClose()
-  })
-  // Held mounted through the close transition (see `ui/usePresence`).
-  const { mounted, state: presence } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
+  // Escape peels one layer at a time. This layer exists only while a rule row
+  // is open: it takes the row back to rest and stops there, leaving the next
+  // Escape to reach `Settings` and close the dialog. Registered from inside
+  // Settings' `EscapeBoundary`, so it outranks the dialog; a select popup
+  // opened inside a row registers deeper still and is peeled before either.
+  useEscapeLayer(active && editingRuleId != null, () => closeRule(true))
 
   // Sample-path preview, debounced.
   useEffect(() => {
-    if (!open || !previewPath.trim()) {
+    if (!active || !previewPath.trim()) {
       setPreviewResult(null)
       return
     }
@@ -388,12 +372,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
         })
     }, DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [open, previewPath])
-
-  if (!mounted) return null
-
-  const entered = presence === 'entered'
-  const duration = presence === 'exiting' ? MODAL_EXIT_DURATION : MODAL_ENTER_DURATION
+  }, [active, previewPath])
 
   // ONE global list, always. The server evaluates rules top → bottom and the
   // first match wins across every tag, so filtering the table down to the
@@ -470,7 +449,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       const refreshed = await api.listTags()
       useOrbital.setState({ tags: refreshed })
       setNewTagName('')
-      setSaved(true)
+      markSaved()
     } catch (err) {
       reportError(err, 'Failed to create tag')
     }
@@ -491,7 +470,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTag(id, { name })
       useOrbital.setState((state) => ({ tags: replaceTag(state.tags, id, { name }) }))
-      setSaved(true)
+      markSaved()
     } catch (err) {
       reportError(err, 'Failed to rename tag')
     }
@@ -501,7 +480,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTag(id, { hue })
       useOrbital.setState((state) => ({ tags: replaceTag(state.tags, id, { hue }) }))
-      setSaved(true)
+      markSaved()
     } catch (err) {
       reportError(err, 'Failed to update tag color')
     }
@@ -516,7 +495,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       // now dangling — fall back to the first tag rather than leaving the
       // rules column pointing at a tag that no longer exists.
       setSelectedTagId(null)
-      setSaved(true)
+      markSaved()
       // The rules column lists every rule, so the deleted tag's rules would
       // sit there as orphan rows until something else refreshed them — the
       // server cascades the delete, so ask it what's left.
@@ -536,7 +515,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       const id = await api.createTagRule({ tagId: targetTagId, condition: 'path_matches', pattern: '' })
       const refreshed = await api.listTagRules()
       useOrbital.setState({ rules: refreshed })
-      setSaved(true)
+      markSaved()
       // A brand-new rule has nothing to read yet, so it opens straight into
       // edit mode with the caret in its (empty) pattern field.
       openRule(id)
@@ -617,7 +596,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
 
     try {
       await Promise.all(changed.map((c) => api.patchTagRule(c.id, { position: c.position })))
-      setSaved(true)
+      markSaved()
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to reorder rules')
@@ -633,7 +612,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { condition })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { condition }) }))
-      setSaved(true)
+      markSaved()
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to update rule')
@@ -648,7 +627,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       .patchTagRule(ruleId, { pattern: value })
       .then(() => {
         useOrbital.setState((state) => ({ rules: replaceRule(state.rules, ruleId, { pattern: value }) }))
-        setSaved(true)
+        markSaved()
         void resyncSessions()
       })
       .catch((err) => {
@@ -688,7 +667,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { tag_id: tagId })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { tag_id: tagId }) }))
-      setSaved(true)
+      markSaved()
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to update rule target tag')
@@ -701,7 +680,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { enabled: next })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { enabled: next }) }))
-      setSaved(true)
+      markSaved()
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to toggle rule')
@@ -720,7 +699,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       if (editingRuleId === rule.id) setEditingRuleId(null)
       await api.deleteTagRule(rule.id)
       useOrbital.setState((state) => ({ rules: state.rules.filter((r) => r.id !== rule.id) }))
-      setSaved(true)
+      markSaved()
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to delete rule')
@@ -733,64 +712,16 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     previewResult?.ruleId != null ? sortedRules.findIndex((r) => r.id === previewResult.ruleId) + 1 : null
 
   return (
-    // The rule rows' select popups open inside this panel, so they must
-    // outrank it for Escape (see `ui/escapeLayer`).
+    // The rows' select popups open inside this section, so they must outrank
+    // both it and the dialog for Escape (see `ui/escapeLayer`). A provider
+    // renders no DOM, so the two columns below stay direct grid items of
+    // Settings' body.
     <EscapeBoundary>
-    {/* Scrim verbatim from artboard 1e: rgba(2,4,9,.5) + a 3px blur. */}
-    <div
-      data-state={presence}
-      // Still painted on the way out, but no longer a live surface.
-      inert={presence === 'exiting' || undefined}
-      className={[
-        'fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]',
-        MODAL_TRANSITION,
-        duration,
-        entered ? SCRIM_OPEN : SCRIM_CLOSED,
-        presence === 'exiting' ? EXITING : '',
-      ].join(' ')}
-    >
-      {/* Motion sits on a wrapper, not on `Panel` — Panel already declares
-          `transition-[width]`, and a second transition-property utility would
-          resolve by stylesheet order rather than by intent. */}
-      <div
-        className={[
-          'flex h-[740px] max-h-full w-full max-w-[1120px]',
-          MODAL_TRANSITION,
-          duration,
-          entered ? MODAL_OPEN : MODAL_CLOSED,
-        ].join(' ')}
-      >
-      <Panel side="float" className="flex h-full w-full flex-col overflow-hidden">
-        {/* Header (1e: 22px 28px 18px, back chevron · kicker + title · save status). */}
-        <div className="flex items-center gap-3.5 border-b border-panel-border/60 px-7 pb-[18px] pt-[22px]">
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-text-muted transition-colors hover:bg-white/5 hover:text-text-bright"
-          >
-            ‹
-          </button>
-          <div className="min-w-0 flex-1">
-            <div className="font-mono text-[10px] tracking-[0.2em] text-accent/80">SETTINGS</div>
-            <h2 className="mt-1 text-xl font-bold tracking-[-0.01em] text-text-bright">Tags &amp; rules</h2>
-          </div>
-          {saved && (
-            <span
-              data-testid="save-status"
-              className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-text-muted"
-            >
-              saved · just now
-            </span>
-          )}
-        </div>
-
-        {/* 1e's body grid is a fixed 400px tags column + the rules column; below
-            `lg` the two stack so neither gets squeezed into unreadability. */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[400px_minmax(0,1fr)]">
-          {/* Left: tags */}
-          <div className="flex min-h-0 flex-col border-b border-panel-border/60 lg:border-b-0 lg:border-r lg:border-r-panel-border/60">
-            <div className="flex items-center px-6 pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
+          {/* Left: tags. The column's 330px width is Settings' grid to set —
+              what lives here is the column's own chrome (1e: 18/20/10 header,
+              12px list gutter). */}
+          <div className="flex min-h-0 flex-col border-r border-panel-border/60">
+            <div className="flex items-center px-5 pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
               TAGS · {tags.length}
               <span className="flex-1" />
               <button
@@ -802,7 +733,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
               </button>
             </div>
 
-            <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-4">
+            <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3">
               {tags.map((tag) => {
                 const isSelected = tag.id === effectiveTagId
                 return (
@@ -882,7 +813,15 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                     {isSelected && (
                       // Recolouring or deleting must not toggle the card off.
                       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-2" role="group" aria-label={`Hue for ${tag.name}`}>
+                        {/* 1e gaps the swatches by 8px, but that row does not
+                            fit the 330px column it now lives in: eight 22px
+                            swatches plus the 8px gaps plus "delete" come to
+                            ~280px against ~277px of card, so the canvas's own
+                            mock overflows by a hair and ours (two more pixels
+                            of panel border) clips the word. 6px buys back the
+                            difference; wrapping the row instead would drop
+                            "delete" onto a line of its own. */}
+                        <div className="flex items-center gap-1.5" role="group" aria-label={`Hue for ${tag.name}`}>
                           {HUE_SWATCHES.map((hue) => (
                             <button
                               key={hue}
@@ -931,7 +870,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
               </li>
             </ul>
 
-            <p className="px-6 pb-5 pt-3.5 text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.6)]">
+            <p className="px-5 pb-5 pt-3.5 text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.6)]">
               Tag hue drives the planet&apos;s atmosphere and ring. Untagged sessions fall back to{' '}
               <span className="font-mono text-[rgba(200,220,245,.8)]">{defaultTag?.name ?? 'the default tag'}</span>.
             </p>
@@ -939,7 +878,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
 
           {/* Right: the selected tag's rules */}
           <div className="flex min-h-0 flex-col">
-            <div className="flex items-center gap-3 px-7 pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
+            <div className="flex items-center gap-3 px-[22px] pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
               AUTO-TAG RULES · {sortedRules.length}
               <span className="flex-1" />
               <span className="tracking-[0.04em] text-[rgba(160,190,225,.5)]">
@@ -951,7 +890,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                 below insets by 20px and each row by another 8px, so the two
                 grids line up on the same 28px gutter. */}
             <div
-              className={`grid ${RULE_GRID} items-center gap-3 px-7 py-1.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.45)]`}
+              className={`grid ${RULE_GRID} items-center gap-3 px-[22px] py-1.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.45)]`}
             >
               <span />
               <span>CONDITION</span>
@@ -961,7 +900,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
               <span />
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-5">
+            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3.5">
               {sortedRules.map((rule, idx) => {
                 const ruleTag = tags.find((t) => t.id === rule.tag_id)
                 const hue = ruleTag?.hue ?? 210
@@ -1244,7 +1183,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
             {/* Preview footer (1e: PREVIEW · path · → · chip · matched rule N). */}
             <div
               data-testid="preview-result"
-              className="mx-7 mb-5 mt-3 flex items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.35)] px-3.5 py-3"
+              className="mx-[22px] mb-5 mt-3 flex flex-wrap items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.35)] px-3.5 py-3"
             >
               <span className="shrink-0 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">
                 PREVIEW
@@ -1275,10 +1214,6 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
               ) : null}
             </div>
           </div>
-        </div>
-      </Panel>
-      </div>
-    </div>
     </EscapeBoundary>
   )
 }
