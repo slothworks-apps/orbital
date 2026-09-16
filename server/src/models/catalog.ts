@@ -52,15 +52,58 @@ export const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 export const PROBE_TIMEOUT_MS = 10_000;
 
 /**
+ * Drops a trailing variant suffix: `claude-opus-5[1m]` -> `claude-opus-5`.
+ * The seed table below is keyed by this stripped form, because
+ * https://platform.claude.com/docs/en/about-claude/models/overview (checked
+ * 2026-09-16) documents plain API ids, not Orbital's `[1m]`-suffixed ones.
+ */
+function stripVariant(id: string): string {
+  return id.replace(/\[[^\]]*\]$/, '');
+}
+
+/**
+ * Context windows Anthropic documents, keyed by the stripped model id.
+ * Verified by hand against
+ * https://platform.claude.com/docs/en/about-claude/models/overview on
+ * 2026-09-16 — do not add a row here without checking that page again, and
+ * do not trust memory over it.
+ *
+ * This is a SEED, not an authority: it exists only so a fresh install (which
+ * has run no turns, and therefore learned nothing) does not draw a chip
+ * reading "Opus 5 (1M)" over a context bar that assumes 200k. `shapeModels`
+ * only ever consults it when `recordContextWindows` has not yet stored a
+ * real figure for that exact model, and a single turn's measurement
+ * overwrites the seed permanently. So a stale row here can delay the truth
+ * by one turn; it can never contradict it, which is what keeps this
+ * compatible with `docs/decisions/models-come-from-the-sdk.md`'s rejection
+ * of a hand-maintained table as the source of truth.
+ *
+ * The SDK's own `getContextUsage()` control request was tried as a source
+ * too: it reports `maxTokens: 1_000_000` for every model, including Haiku,
+ * because it describes the session's ceiling rather than the specific
+ * model's window — not usable here.
+ */
+const SEED_CONTEXT_WINDOWS: Record<string, number> = {
+  'claude-fable-5-1': 1_000_000,
+  'claude-opus-5': 1_000_000,
+  'claude-sonnet-5': 1_000_000,
+  'claude-haiku-4-5-20251001': 200_000,
+  'claude-haiku-4-5': 200_000,
+};
+
+/**
  * Turns the SDK's rows into Orbital's. Two rules, both from
  * `docs/decisions/models-come-from-the-sdk.md`:
  *
  * - `default` is dropped. It resolves to the same model as a named row, and
  *   two cards for one model read as a bug. Orbital always sends an explicit
  *   model, so the alias is never needed.
- * - `contextWindow` is looked up by EXACT `resolvedModel`. `claude-opus-5`
- *   must not satisfy `claude-opus-5[1m]`: mislabelling a family is harmless,
- *   drawing a 200k session's usage against a 1M denominator is not.
+ * - `contextWindow` is resolved in order: the LEARNED value for the exact
+ *   `resolvedModel` (from a real turn's `modelUsage`), else the documented
+ *   seed for the stripped id, else `null`. `claude-opus-5` must not satisfy
+ *   a LEARNED `claude-opus-5[1m]` entry: mislabelling a family is harmless,
+ *   drawing a 200k session's usage against a 1M denominator is not. The seed
+ *   lookup strips deliberately — see `SEED_CONTEXT_WINDOWS` above.
  */
 export function shapeModels(
   raw: ModelInfoLike[],
@@ -101,7 +144,7 @@ export function shapeModels(
       shortVersion,
       variant: variantMatch ? variantMatch[1].toUpperCase() : null,
       blurb: blurb || description.trim(),
-      contextWindow: contextWindows[resolvedModel] ?? null,
+      contextWindow: contextWindows[resolvedModel] ?? SEED_CONTEXT_WINDOWS[stripVariant(resolvedModel)] ?? null,
     });
   }
   return out;

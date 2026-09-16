@@ -97,11 +97,39 @@ describe('shapeModels', () => {
     expect(shaped[0].blurb).toBe('Just a blurb');
   });
 
-  it('attaches a context window only on an exact resolved-model match', () => {
-    const shaped = shapeModels(RAW, { 'claude-sonnet-5': 200_000, 'claude-opus-5': 200_000 });
-    expect(shaped.find((m) => m.value === 'sonnet')!.contextWindow).toBe(200_000);
-    // 'claude-opus-5' must NOT satisfy 'claude-opus-5[1m]'.
-    expect(shaped.find((m) => m.value === 'opus[1m]')!.contextWindow).toBeNull();
+  it('attaches a learned context window only on an exact resolved-model match', () => {
+    // A model with no seed entry, so a stripped-id match can only be coming
+    // from the (deliberately exact-only) learned lookup.
+    const raw = [
+      { value: 'x', resolvedModel: 'claude-mystery-1[1m]', displayName: 'X', description: 'X · blurb' },
+    ];
+    // Keyed by the STRIPPED id, which must not satisfy the exact lookup.
+    const shaped = shapeModels(raw, { 'claude-mystery-1': 200_000 });
+    expect(shaped[0].contextWindow).toBeNull();
+  });
+
+  describe('the documented context-window seed', () => {
+    it('fills in a documented window when nothing has been learned yet', () => {
+      const shaped = shapeModels(RAW, {});
+      // Every RAW row resolves (after stripping) to a seeded id.
+      expect(shaped.find((m) => m.value === 'opus[1m]')!.contextWindow).toBe(1_000_000);
+      expect(shaped.find((m) => m.value === 'claude-fable-5-1[1m]')!.contextWindow).toBe(1_000_000);
+      expect(shaped.find((m) => m.value === 'sonnet')!.contextWindow).toBe(1_000_000);
+      expect(shaped.find((m) => m.value === 'haiku')!.contextWindow).toBe(200_000);
+    });
+
+    it('lets a learned value override the seed for the same resolved model', () => {
+      // Sonnet is seeded at 1M; a real turn reporting something else must win.
+      const shaped = shapeModels(RAW, { 'claude-sonnet-5': 5 });
+      expect(shaped.find((m) => m.value === 'sonnet')!.contextWindow).toBe(5);
+    });
+
+    it('stays null for a model the seed does not recognize and nothing has taught it', () => {
+      const raw = [
+        { value: 'x', resolvedModel: 'claude-mystery-1', displayName: 'X', description: 'X · blurb' },
+      ];
+      expect(shapeModels(raw, {})[0].contextWindow).toBeNull();
+    });
   });
 });
 
