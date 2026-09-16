@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, appendFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TranscriptTail } from '../src/watcher/tail.js';
@@ -30,9 +30,31 @@ describe('TranscriptTail', () => {
     tail.start();
     expect(seen).toEqual(['u1']);
     appendFileSync(file, LINE2);
-    await vi.waitFor(() => expect(seen).toEqual(['u1', 'a1']), { timeout: 3000 });
+    // This used to be a bare `waitFor` on a 3s budget, and it became a
+    // coin-flip once the suite grew past ~150 tests. Raising the budget does
+    // not help, which is the whole diagnosis: the event is not late, it is
+    // LOST. `fs.watch` offers no readiness signal, so a write landing in the
+    // window between `start()` and the watch actually going live is never
+    // reported — the same race `tail.ts` documents for the file watch, which
+    // the directory watch makes rarer but does not remove.
+    //
+    // So re-fire the watcher instead of waiting longer. `readNew` is
+    // size-driven and returns early when the file has not grown, so nudging
+    // mtime emits nothing by itself — it only gives a watcher that missed the
+    // append another chance to notice it. The assertion is unchanged, and it
+    // still proves the entry arrived through the watcher rather than by being
+    // read directly.
+    await vi.waitFor(
+      () => {
+        utimesSync(file, new Date(), new Date());
+        expect(seen).toEqual(['u1', 'a1']);
+      },
+      // Interval comfortably above tail.ts's own 150ms debounce, so each nudge
+      // gets to resolve instead of cancelling the one before it.
+      { timeout: 15_000, interval: 250 },
+    );
     tail.stop();
-  });
+  }, 20_000);
   it('holds back a partial trailing line until completed', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orbital-tail2-'));
     const file = join(dir, 't.jsonl');
