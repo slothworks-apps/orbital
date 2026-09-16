@@ -66,10 +66,12 @@ s argumenty (`/clickup-branch CU-123`) zůstává, protože nese téma.
 2. **Akcentový rám na editovaném pattern poli** (1e) chybí — `Input`
    má `className` dokumentovaný jako layout-only, takže by to chtělo
    `emphasis`/`accent` prop. Signál zatím nese rám celého řádku.
-3. **1c close-up** neporovnán: chybí třetí statický prstenec planety
-   (`inset -22`, 24 ticků) a kometový ohon orbit (conic arc maskovaný do
-   pásu orbity, alfa .3/.2/.14 podle indexu). 1f — stavová tabulka a
-   primární reference — je kreslí obyčejně, proto zatím vynecháno.
+3. **1c close-up — ZAVŘENO, nedělat.** Tomin 2026-09-16: detail 1c už je
+   zbytečný. Nebude se dělat třetí statický prstenec planety
+   (`inset -22`, 24 ticků) ani kometový ohon orbit (conic arc maskovaný
+   do pásu orbity, alfa .3/.2/.14 podle indexu). 1f zůstává primární
+   referencí pro stavy planet a měsíců a ta je kreslí obyčejně.
+   Neotvírat znovu bez Tominova pokynu.
 4. **1h checkboxy** „Pinned files" a „One-paragraph summary…" nejsou —
    nemá je čím podložit žádný settings klíč.
 5. **ToolRow pravá meta** (`0.4s`, `+41 −18`, `exit 1`) a StopDialog `· 4.2s`:
