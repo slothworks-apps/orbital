@@ -5,12 +5,13 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
-import { sessions, sessionTags, settings as settingsTable, tags } from '../src/db/schema.js';
+import { sessionColumns, sessions, sessionTags, settings as settingsTable, tags } from '../src/db/schema.js';
 import { registerRoutes } from '../src/api/routes.js';
 import { buildServer, publishLiveSession } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
 import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
+import type { SessionRow } from '../src/types.js';
 
 function makeApp() {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
@@ -205,6 +206,25 @@ describe('REST routes', () => {
     expect(upserts[0].session).toMatchObject({ id: 'web-9', status: 'ended' });
   });
 
+  it('stores the requested model when launching a session', async () => {
+    const { app, db, startCalls } = makeApp();
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/w/z', prompt: 'go', permissionMode: 'acceptEdits', model: 'opus[1m]' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(startCalls[0].model).toBe('opus[1m]');
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
+    expect(row.model).toBe('opus[1m]');
+  });
+
+  it('exposes model and resolvedModel on the API shape', async () => {
+    const { app, db } = makeApp();
+    db.update(sessions).set({ model: 'sonnet', resolvedModel: 'claude-sonnet-5' }).where(eq(sessions.id, 's1')).run();
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1' });
+    expect(res.json().session).toMatchObject({ model: 'sonnet', resolvedModel: 'claude-sonnet-5' });
+  });
+
   it('POST /sessions/:id/messages revives an ended session via resume', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'wake up' },
@@ -212,6 +232,13 @@ describe('REST routes', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, revived: true });
     expect(startCalls.at(-1)).toMatchObject({ resume: 's2', prompt: 'wake up', cwd: '/w/y' });
+  });
+
+  it('revives a session on the model it was launched with', async () => {
+    const { app, db, startCalls } = makeApp();
+    db.update(sessions).set({ model: 'haiku' }).where(eq(sessions.id, 's2')).run();
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'again' } });
+    expect(startCalls[0]).toMatchObject({ resume: 's2', model: 'haiku' });
   });
 
   it('POST /sessions/:id/messages revive publishes an upsert with status "working" on the sessions topic (F1)', async () => {
@@ -367,6 +394,16 @@ describe('REST routes', () => {
     const upserts = received.filter((r) => r.event === 'upsert' && r.session.id === newId);
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: newId, parentId: 's1', source: 'web' });
+  });
+
+  it('clear + startNew uses the settings default model, not the parent one', async () => {
+    const { app, db, startCalls } = makeApp();
+    db.update(sessions).set({ model: 'haiku', source: 'web' }).where(eq(sessions.id, 's2')).run();
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'sonnet' } });
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: { startNew: true } });
+    expect(startCalls[0].model).toBe('sonnet');
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
+    expect(row.model).toBe('sonnet');
   });
 });
 

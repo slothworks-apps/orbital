@@ -241,6 +241,25 @@ describe('Runner', () => {
     expect(seen[0]).toEqual({ 'claude-sonnet-5': { contextWindow: 200_000 } });
   });
 
+  it('reports the resolved model from system/init', async () => {
+    const hub = new Hub();
+    const seen: Array<[string, string | null]> = [];
+    const fn = ({ prompt, options }: any) => {
+      const sid = options.sessionId ?? options.resume;
+      async function* gen() {
+        for await (const _m of prompt) {
+          yield { type: 'system', subtype: 'init', session_id: sid, model: 'claude-opus-5' };
+          yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
+        }
+      }
+      return gen() as any;
+    };
+    const runner = new Runner({ hub, queryFn: fn, onInit: (id, model) => seen.push([id, model]) });
+    const id = await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'acceptEdits' });
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual([id, 'claude-opus-5']);
+  });
+
   it('start() with an empty prompt does not enqueue a first turn; waits in needs_input for send() (I6)', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
@@ -453,6 +472,14 @@ describe('Runner', () => {
       nextSeq,
     );
     expect(toolUse[0].id).not.toBe(toolResult[0].id);
+  });
+
+  it('carries the model on assistant chat messages', () => {
+    const msgs = sdkToChatMessages(
+      { type: 'assistant', session_id: 's', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'hi' }] } },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    expect(msgs[0].model).toBe('claude-opus-5');
   });
 });
 

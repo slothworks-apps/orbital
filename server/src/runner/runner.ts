@@ -68,11 +68,17 @@ interface ManagedSession {
 export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number): ChatMessage[] {
   const content = sdkMsg.message?.content;
   if (!Array.isArray(content)) return [];
+  const model = typeof sdkMsg.message?.model === 'string' ? sdkMsg.message.model : undefined;
   const out: ChatMessage[] = [];
   content.forEach((block: any, i: number) => {
     const id = `${sdkMsg.session_id}:${nextSeq()}:${i}`;
     if (block.type === 'text' && block.text?.trim()) {
-      out.push({ id, role: sdkMsg.type === 'user' ? 'user' : 'assistant', text: block.text });
+      out.push({
+        id,
+        role: sdkMsg.type === 'user' ? 'user' : 'assistant',
+        text: block.text,
+        ...(sdkMsg.type === 'user' ? {} : { model }),
+      });
     } else if (block.type === 'tool_use') {
       out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id });
     } else if (block.type === 'tool_result') {
@@ -95,6 +101,7 @@ export class Runner {
   private idleTimeoutMs: number | null;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
   private onTurnUsage?: (modelUsage: unknown) => void;
+  private onInit?: (sessionId: string, model: string | null) => void;
 
   constructor(deps: {
     hub: Hub;
@@ -110,6 +117,8 @@ export class Runner {
     onStatus?: (sessionId: string, status: SessionStatus) => void;
     /** Receives each turn result's `modelUsage`, which is where context-window sizes come from. */
     onTurnUsage?: (modelUsage: unknown) => void;
+    /** Receives the resolved model a session actually started on (`system/init`). */
+    onInit?: (sessionId: string, model: string | null) => void;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -120,6 +129,7 @@ export class Runner {
       deps.idleTimeoutMs === undefined ? DEFAULT_IDLE_MINUTES * 60_000 : deps.idleTimeoutMs;
     this.onStatus = deps.onStatus;
     this.onTurnUsage = deps.onTurnUsage;
+    this.onInit = deps.onInit;
   }
 
   /**
@@ -285,6 +295,10 @@ export class Runner {
         // a different id (a stray from another session) is not ours to
         // publish; messages with no id at all are stream-level noise.
         if (msg?.session_id !== sessionId) continue;
+        if (msg.type === 'system' && msg.subtype === 'init') {
+          this.onInit?.(sessionId, typeof msg.model === 'string' ? msg.model : null);
+          continue;
+        }
         if (msg.type === 'assistant' || msg.type === 'user') {
           for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
             this.hub.publish(topic, { event: 'message', message: chat });

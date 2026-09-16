@@ -181,6 +181,9 @@ describe('openDb', () => {
     expect(Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))).toEqual({
       ...LEGACY_SETTINGS,
       map_ended_max_age_days: '1',
+      default_model: 'sonnet',
+      remember_model_per_project: 'true',
+      map_show_model: 'true',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

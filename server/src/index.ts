@@ -142,12 +142,23 @@ export async function buildServer(overrides: {
     cwd: process.cwd(),
   });
 
-  const runner = new Runner({
+  // Declared before assignment because the `onInit` callback below closes
+  // over `runner` to build the REST shape it publishes — the callback only
+  // ever fires long after construction (on a later `system/init` message),
+  // so there is no temporal-dead-zone hazard.
+  let runner: Runner;
+  runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
     idleTimeoutMs,
     onStatus: (sessionId, status) => hub.publish('sessions', { event: 'status', sessionId, status }),
     onTurnUsage: (modelUsage) => models.recordContextWindows(modelUsage),
+    onInit: (sessionId, model) => {
+      if (!model) return;
+      db.update(sessions).set({ resolvedModel: model }).where(eq(sessions.id, sessionId)).run();
+      const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow | undefined;
+      if (row) hub.publish('sessions', { event: 'upsert', session: toApiSession({ db, registry, runner }, row) });
+    },
   });
 
   // Initial index + re-index on transcript changes (debounced).

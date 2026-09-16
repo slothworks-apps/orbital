@@ -25,6 +25,10 @@ export interface ApiSession {
   messageCount: number;
   source: SessionSource;
   permissionMode: PermissionMode | null;
+  /** The model Orbital asked for (an SDK `value`), or null. */
+  model: string | null;
+  /** The model that actually ran, as reported by the CLI, or null. */
+  resolvedModel: string | null;
   parentId: string | null;
   tagIds: number[];
   status: SessionStatus;
@@ -49,7 +53,9 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     id: row.id, cwd: row.cwd, title: row.title,
     firstAt: row.first_at, lastAt: row.last_at,
     messageCount: row.message_count, source: row.source,
-    permissionMode: row.permission_mode, parentId: row.parent_id,
+    permissionMode: row.permission_mode,
+    model: row.model, resolvedModel: row.resolved_model,
+    parentId: row.parent_id,
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
   };

@@ -103,7 +103,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     db.insert(sessions)
       .values({
         id: sessionId, projectDir: '', cwd: body.cwd, source: 'web',
-        permissionMode: body.permissionMode, parentId: body.parentId ?? null, lastAt: Date.now(),
+        permissionMode: body.permissionMode, model: body.model ?? null,
+        parentId: body.parentId ?? null, lastAt: Date.now(),
       })
       .onConflictDoNothing()
       .run();
@@ -136,7 +137,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       }
       const permissionMode = (row.permission_mode ??
         ctx.settings.get('default_permission_mode')) as PermissionMode;
-      await ctx.runner.start({ cwd: row.cwd, prompt: text, permissionMode, resume: id });
+      await ctx.runner.start({
+        cwd: row.cwd, prompt: text, permissionMode, resume: id,
+        // Without this, reviving silently moved the session onto the CLI's
+        // default model.
+        model: row.model ?? undefined,
+      });
       const revivedRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
       ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, revivedRow) });
       return { ok: true, revived: true };
@@ -161,14 +167,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const permissionMode = (inheritMode && row.permission_mode
       ? row.permission_mode
       : ctx.settings.get('default_permission_mode')) as any;
+    // 4c: the default model is "used by Clear". Deliberately unlike
+    // permission mode, there is no inherit toggle — the canvas does not ask
+    // for one.
+    const model = ctx.settings.get('default_model') || undefined;
     const newId = await ctx.runner.start({
       cwd: row.cwd, prompt: '',
-      permissionMode,
+      permissionMode, model,
     });
     db.insert(sessions)
       .values({
         id: newId, projectDir: '', cwd: row.cwd, source: 'web',
-        permissionMode, parentId: id, lastAt: Date.now(),
+        permissionMode, model: model ?? null, parentId: id, lastAt: Date.now(),
       })
       .onConflictDoNothing()
       .run();

@@ -27,6 +27,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * sidebar's HISTORY list complete and its offset paging intact.
    */
   map_ended_max_age_days: '1',
+  /** Pre-selected in the New session dialog and used by Clear (canvas 4c). A
+   * value the catalog does not offer falls back to its first row, client-side. */
+  default_model: 'sonnet',
+  remember_model_per_project: 'true',
+  map_show_model: 'true',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
