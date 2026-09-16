@@ -29,14 +29,14 @@ const CONDITION_OPTIONS: Array<{ value: TagRule['condition']; label: string }> =
 /**
  * Rules table columns. The first five are verbatim from artboard 1e
  * (`24px 1fr 1fr 130px 44px`: grip · condition · pattern · → tag · on); the
- * trailing 68px is a row-actions column 1e's static mock has no need for —
- * it draws a drag grip, but drag-to-reorder is deferred, so the working
- * reorder arrows and the delete control live here instead. Every column is
- * `minmax(0, …)` so a narrow window squeezes the table instead of clipping
- * the actions off the right edge. The header row, every rule row and the
- * column captions all share this one definition so they stay aligned.
+ * trailing 28px holds the delete control, which 1e's static mock has no need
+ * for. Reordering is NOT a column of its own — it lives on 1e's own `⋮⋮`
+ * grip. Every column is `minmax(0, …)` so a narrow window squeezes the table
+ * instead of clipping the delete off the right edge. The header row, every
+ * rule row and the column captions all share this one definition so they
+ * stay aligned.
  */
-const RULE_GRID = 'grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,130px)_44px_68px]'
+const RULE_GRID = 'grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,130px)_44px_28px]'
 
 /** Id (not a ref — `Input` doesn't take one) so the header's "+ new tag" can focus the field when it's empty. */
 const NEW_TAG_FIELD_ID = 'tags-rules-new-tag'
@@ -61,6 +61,11 @@ function plural(n: number, word: string): string {
 
 function conditionLabel(condition: TagRule['condition']): string {
   return CONDITION_OPTIONS.find((o) => o.value === condition)?.label ?? condition
+}
+
+/** One-line reading of a rule — shared by the row button's label, the grip's label and the reorder announcement. */
+function describeRule(rule: TagRule, tagName: string, pattern: string): string {
+  return `${conditionLabel(rule.condition)} ${pattern || '(no pattern)'} → ${tagName}`
 }
 
 /**
@@ -139,7 +144,11 @@ function TagPlanet({ hue, selected }: { hue: number; selected: boolean }) {
     <span
       aria-hidden
       data-tag-planet
-      className="h-[22px] w-[22px] shrink-0 rounded-full"
+      // `block` is load-bearing, not decoration: a <span> defaults to inline,
+      // which ignores width/height. It only looked right while the planet
+      // happened to be a flex item — wrapping it in a button collapsed it to
+      // a 2px sliver. Sizing itself keeps it correct in any container.
+      className="block h-[22px] w-[22px] shrink-0 rounded-full"
       style={{
         background: 'radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%)',
         border: `1px solid oklch(80% .13 ${hue} / .55)`,
@@ -197,8 +206,14 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const sessions = useOrbital(useShallow((s) => s.sessions))
 
   const [newTagName, setNewTagName] = useState('')
-  /** Rules are managed per tag (canvas 1e): the selected tag card on the left drives the rules list. */
-  const [selectedTagId, setSelectedTagId] = useState<number | null>(null)
+  /**
+   * Which tag card is selected, as a TRI-state: a tag id, `'none'` for an
+   * explicit deselect, and `null` for "the user hasn't chosen yet", which
+   * falls back to the head of the list (canvas 1e opens with `work` selected).
+   * A plain `number | null` couldn't tell "deselected" apart from "not yet
+   * chosen", so there was no way back out of a selection.
+   */
+  const [selectedTagId, setSelectedTagId] = useState<number | 'none' | null>(null)
   const [previewPath, setPreviewPath] = useState('')
   const [previewResult, setPreviewResult] = useState<{ tagId: number | null; ruleId: number | null } | null>(null)
   const [patternDrafts, setPatternDrafts] = useState<Record<number, string>>({})
@@ -209,6 +224,16 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
    * pattern field, wearing the accent border. This is that one row's id.
    */
   const [editingRuleId, setEditingRuleId] = useState<number | null>(null)
+  /** Rule currently being dragged by its grip, and the row index it is hovering over. */
+  const [dragRuleId, setDragRuleId] = useState<number | null>(null)
+  const [dropIndex, setDropIndex] = useState<number | null>(null)
+  /**
+   * Text for the polite live region under the rules list. Native drag-and-drop
+   * announces nothing, and a keyboard move that only changed DOM order would
+   * be silent too, so every reorder (mouse or keyboard) reports where the rule
+   * landed.
+   */
+  const [reorderStatus, setReorderStatus] = useState('')
   /** Drives the header's "saved · just now" (canvas 1e) — set by every mutation that actually landed. */
   const [saved, setSaved] = useState(false)
 
@@ -234,6 +259,13 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const focusOnOpen = useRef<number | null>(null)
   /** Rule whose resting row button should take focus after the next render (a row just closed). */
   const focusOnClose = useRef<number | null>(null)
+  /**
+   * Rule whose grip should take focus after the next render. A keyboard
+   * reorder moves the row's DOM node, and focus must ride along with it or
+   * the next ArrowDown would go nowhere — so it is re-asserted explicitly
+   * rather than relying on the browser preserving focus across a move.
+   */
+  const focusGrip = useRef<number | null>(null)
 
   useEffect(() => {
     // Unmount cleanup only — timers are otherwise managed per-call below.
@@ -262,6 +294,11 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       focusOnClose.current = null
       document.querySelector<HTMLElement>(`[data-rule-open="${closed}"]`)?.focus()
     }
+    const moved = focusGrip.current
+    if (moved != null) {
+      focusGrip.current = null
+      document.querySelector<HTMLElement>(`[data-rule-grip="${moved}"]`)?.focus()
+    }
   })
 
   // The panel stays mounted across `open`, so the save status has to be
@@ -270,6 +307,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     if (open) {
       setSaved(false)
       setEditingRuleId(null)
+      setReorderStatus('')
     }
   }, [open])
 
@@ -316,8 +354,13 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   // listed (work / oncall / experiments / experiments). Selecting a tag card
   // only MARKS the rows that target it — see `targetsSelected` below.
   const sortedRules = [...rules].sort((a, b) => a.position - b.position)
-  const effectiveTagId = selectedTagId ?? tags[0]?.id ?? null
+  const effectiveTagId = selectedTagId === 'none' ? null : (selectedTagId ?? tags[0]?.id ?? null)
   const defaultTag = tags.find((t) => t.is_default)
+
+  /** Clicking (or pressing) the already-selected card turns the marking off again. */
+  function toggleTagSelection(tagId: number) {
+    setSelectedTagId(effectiveTagId === tagId ? 'none' : tagId)
+  }
 
   function sessionCount(tagId: number): number {
     return Object.values(sessions).filter((s) => s.tagIds.includes(tagId)).length
@@ -439,40 +482,66 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     setEditingRuleId(null)
   }
 
-  // Drag-to-reorder (the `⋮⋮` grip artboard 1e draws on every row) is
-  // deferred to a later version — the grip is rendered decoratively
-  // (`aria-hidden`, not focusable) and the up/down buttons in the row's
-  // actions cell do the real work, swapping `position` with the adjacent row
-  // via two PATCHes. That expresses the same first-match-wins ordering
-  // without a drag-and-drop implementation in v1.
-  async function handleReorder(rule: TagRule, direction: 'up' | 'down') {
-    // Swap with the adjacent rule in the ONE global evaluation order — the
-    // order that decides which rule wins is shared by every tag, so "up" has
-    // to be able to cross a tag boundary.
-    const idx = sortedRules.findIndex((r) => r.id === rule.id)
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (idx < 0 || swapIdx < 0 || swapIdx >= sortedRules.length) return
-    const other = sortedRules[swapIdx]
+  /**
+   * Moves a rule to `toIndex` in the ONE global evaluation order — the order
+   * that decides which rule wins is shared by every tag, so a move has to be
+   * able to cross a tag boundary.
+   *
+   * This is the single reorder path: 1e's `⋮⋮` grip drives it by drag AND by
+   * ArrowUp/ArrowDown, so mouse and keyboard can never drift apart. It
+   * persists through the same `patchTagRule({ position })` endpoint the old
+   * up/down arrows used — one PATCH per rule whose position actually changed
+   * (a one-step nudge is still exactly two, a long drag is however many it
+   * takes), then normalises positions to 0…n-1.
+   */
+  async function moveRule(rule: TagRule, toIndex: number) {
+    const total = sortedRules.length
+    const from = sortedRules.findIndex((r) => r.id === rule.id)
+    if (from < 0) return
+    const to = Math.max(0, Math.min(total - 1, toIndex))
+    const tagName = tags.find((t) => t.id === rule.tag_id)?.name ?? 'unknown tag'
+    const label = describeRule(rule, tagName, patternDrafts[rule.id] ?? rule.pattern)
+    if (to === from) {
+      // Dropping a row on itself, or pressing Arrow at either end. Say so
+      // rather than leaving a keyboard user wondering whether the key worked.
+      setReorderStatus(`${label} is already at position ${from + 1} of ${total}`)
+      return
+    }
+
+    // A pattern PATCH still sitting in its debounce must not land after the
+    // reorder — same commit-on-exit contract the row modes use.
+    if (editingRuleId != null) flushPattern(editingRuleId)
+
+    const next = [...sortedRules]
+    next.splice(from, 1)
+    next.splice(to, 0, rule)
+    const changed = next
+      .map((r, i) => ({ id: r.id, position: i, was: r.position }))
+      .filter((c) => c.was !== c.position)
+    if (!changed.length) return
+
+    // Optimistic: the list has to re-render under the pointer (and under the
+    // caret, for a held-down Arrow key) before the round trip comes back. A
+    // failure resyncs from the server below, which is the authority anyway.
+    const positions = new Map(changed.map((c) => [c.id, c.position]))
+    useOrbital.setState((state) => ({
+      rules: state.rules.map((r) => {
+        const position = positions.get(r.id)
+        return position === undefined ? r : { ...r, position }
+      }),
+    }))
+    setReorderStatus(`${label} moved to position ${to + 1} of ${total}`)
+
     try {
-      await Promise.all([
-        api.patchTagRule(rule.id, { position: other.position }),
-        api.patchTagRule(other.id, { position: rule.position }),
-      ])
-      useOrbital.setState((state) => ({
-        rules: state.rules.map((r) => {
-          if (r.id === rule.id) return { ...r, position: other.position }
-          if (r.id === other.id) return { ...r, position: rule.position }
-          return r
-        }),
-      }))
+      await Promise.all(changed.map((c) => api.patchTagRule(c.id, { position: c.position })))
       setSaved(true)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to reorder rules')
-      // The two PATCHes above aren't transactional — one can have already
-      // landed server-side while the other rejected, so a plain toast would
-      // leave the store's optimistic-free (but now stale) view silently
-      // wrong. Refetch to find out what the server actually ended up with.
+      // The PATCHes aren't transactional — some can have landed server-side
+      // while another rejected, so a plain toast would leave the store's
+      // (now optimistically reordered) view silently wrong. Refetch to find
+      // out what the server actually ended up with.
       void resyncRules()
     }
   }
@@ -632,19 +701,21 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
               {tags.map((tag) => {
                 const isSelected = tag.id === effectiveTagId
                 return (
-                  // Canvas 1e: the selected card drives the rules list on the
-                  // right, is tinted in the tag's OWN hue (border …/.4 over a
-                  // …/.06 fill) and is the only one showing swatches +
-                  // delete. Selection follows focus as well as clicks so the
-                  // card is reachable by keyboard without wrapping its inner
-                  // controls in another interactive element.
+                  // Canvas 1e: the selected card marks its rules on the right,
+                  // is tinted in the tag's OWN hue (border …/.4 over a …/.06
+                  // fill) and is the only one showing swatches + delete.
+                  // Clicking the card body toggles the selection; the inner
+                  // controls stop the click so renaming or recolouring never
+                  // deselects out from under you. Keyboard users get the same
+                  // toggle on the planet button below — selection used to
+                  // follow focus instead, which made deselecting impossible
+                  // (focus landing back in the card re-selected it at once).
                   <li
                     key={tag.id}
                     data-tag-card={tag.id}
                     data-selected={isSelected}
                     aria-current={isSelected ? 'true' : undefined}
-                    onClick={() => setSelectedTagId(tag.id)}
-                    onFocusCapture={() => setSelectedTagId(tag.id)}
+                    onClick={() => toggleTagSelection(tag.id)}
                     style={
                       isSelected
                         ? {
@@ -661,12 +732,33 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                     ].join(' ')}
                   >
                     <div className="flex items-center gap-3">
-                      <TagPlanet hue={tag.hue} selected={isSelected} />
+                      {/* The planet is 1e's anchor for the card, so it doubles
+                          as the keyboard-reachable select/DEselect toggle —
+                          `aria-pressed` carries the state, no extra chrome. */}
+                      <button
+                        type="button"
+                        data-tag-select={tag.id}
+                        aria-pressed={isSelected}
+                        aria-label={`Mark rules for ${tag.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleTagSelection(tag.id)
+                        }}
+                        // `grid` (not the default `block`) so the planet stays
+                        // a sized box: `TagPlanet` is a <span>, and an inline
+                        // child ignores its own width/height, which collapsed
+                        // the 22px marble to a 2px sliver.
+                        className="grid shrink-0 place-items-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        <TagPlanet hue={tag.hue} selected={isSelected} />
+                      </button>
                       <div className="min-w-0 flex-1">
                         {/* 1e marks the editable name with a dashed underline on
                             the selected card (there: inline-block under the
-                            text; here it spans the field's width). */}
+                            text; here it spans the field's width). Renaming
+                            must not toggle the card's selection. */}
                         <div
+                          onClick={(e) => e.stopPropagation()}
                           className={
                             isSelected ? 'border-b border-dashed border-[rgba(150,205,255,.3)]' : undefined
                           }
@@ -683,7 +775,8 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                     </div>
 
                     {isSelected && (
-                      <div className="flex items-center gap-2">
+                      // Recolouring or deleting must not toggle the card off.
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-2" role="group" aria-label={`Hue for ${tag.name}`}>
                           {HUE_SWATCHES.map((hue) => (
                             <button
@@ -782,10 +875,35 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                     data-rule-enabled={enabled}
                     data-tag-match={targetsSelected}
                     aria-current={targetsSelected ? 'true' : undefined}
-                    // Clicking anywhere in a resting row opens it; the toggle
-                    // and the action buttons stop the click before it gets
-                    // here, so they stay usable in BOTH modes.
+                    data-drop-target={dropIndex === idx && dragRuleId !== rule.id ? 'true' : undefined}
+                    // Clicking anywhere in a resting row opens it; the toggle,
+                    // the grip and the delete button stop the click before it
+                    // gets here, so they stay usable in BOTH modes.
                     onClick={editing ? undefined : () => openRule(rule.id)}
+                    // Every row is a drop target for a grip drag. `dragOver`
+                    // must preventDefault or the browser refuses the drop.
+                    onDragOver={
+                      dragRuleId == null
+                        ? undefined
+                        : (e) => {
+                            e.preventDefault()
+                            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+                            setDropIndex(idx)
+                          }
+                    }
+                    onDrop={
+                      dragRuleId == null
+                        ? undefined
+                        : (e) => {
+                            e.preventDefault()
+                            const dragged = rules.find((r) => r.id === dragRuleId)
+                            setDragRuleId(null)
+                            setDropIndex(null)
+                            // Dropping a row on itself lands on `to === from`
+                            // in moveRule, which no-ops (and says so).
+                            if (dragged) void moveRule(dragged, idx)
+                          }
+                    }
                     onBlur={
                       editing
                         ? (e) => {
@@ -821,20 +939,69 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                           : 'border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.35)]',
                       // 1e dims a disabled rule rather than restyling it.
                       enabled ? '' : 'opacity-60',
+                      // Drag feedback (no 1e equivalent — its mock is static):
+                      // the travelling row fades, the row under the pointer
+                      // takes an accent ring so the landing slot is obvious.
+                      dragRuleId === rule.id ? 'opacity-40' : '',
+                      dropIndex === idx && dragRuleId !== rule.id ? 'ring-1 ring-accent/60' : '',
                     ]
                       .filter(Boolean)
                       .join(' ')}
                   >
-                    {/* Drag grip: decorative only — drag-to-reorder is deferred,
-                        so it is never focusable and carries no label; the arrows
-                        in the actions cell are the working control. It also
-                        carries the row's non-visual "this targets the selected
-                        tag" marker, so the mark never rests on colour alone
-                        (sr-only is out of flow, so it claims no grid column). */}
+                    {/* 1e's `⋮⋮` grip, now the real reorder control: draggable
+                        with the pointer AND operable from the keyboard with
+                        ArrowUp/ArrowDown, because native HTML5 drag-and-drop
+                        is not keyboard-accessible on its own and this is the
+                        only way to reorder. Visually unchanged from the
+                        export. It also carries the row's non-visual "this
+                        targets the selected tag" marker, so the mark never
+                        rests on colour alone (sr-only is out of flow, so it
+                        claims no grid column). */}
                     <span className="relative text-center">
-                      <span aria-hidden data-rule-grip className="text-sm text-[rgba(160,190,225,.4)]">
+                      <button
+                        type="button"
+                        data-rule-grip={rule.id}
+                        draggable
+                        aria-label={`Reorder rule ${idx + 1} of ${sortedRules.length}: ${describeRule(
+                          rule,
+                          tagName,
+                          pattern,
+                        )}`}
+                        title="Drag to reorder, or press arrow up / arrow down"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+                          // Stop the scroll container from scrolling instead.
+                          e.preventDefault()
+                          focusGrip.current = rule.id
+                          void moveRule(rule, e.key === 'ArrowUp' ? idx - 1 : idx + 1)
+                        }}
+                        onDragStart={(e) => {
+                          setDragRuleId(rule.id)
+                          // Same commit-on-exit contract as leaving a row:
+                          // a debounced pattern PATCH must not land after the
+                          // reorder it was interleaved with.
+                          if (editingRuleId != null) flushPattern(editingRuleId)
+                          const dt = e.dataTransfer
+                          if (!dt) return
+                          dt.effectAllowed = 'move'
+                          // Firefox refuses to start a drag without payload.
+                          dt.setData('text/plain', String(rule.id))
+                          const row = e.currentTarget.closest('[data-rule-row]')
+                          if (row instanceof HTMLElement && typeof dt.setDragImage === 'function') {
+                            dt.setDragImage(row, 16, row.offsetHeight / 2)
+                          }
+                        }}
+                        // Fires whether the drop was accepted or the row was
+                        // released outside the list — either way, clean up.
+                        onDragEnd={() => {
+                          setDragRuleId(null)
+                          setDropIndex(null)
+                        }}
+                        className="block w-full cursor-grab rounded text-sm text-[rgba(160,190,225,.4)] transition-colors hover:text-text-soft focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent active:cursor-grabbing"
+                      >
                         ⋮⋮
-                      </span>
+                      </button>
                       {targetsSelected && <span className="sr-only">Targets the selected tag</span>}
                     </span>
 
@@ -940,27 +1107,10 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                       />
                     </span>
 
-                    {/* Reorder + delete stay live in both modes — deleting a
-                        rule must never be gated behind opening it first. */}
-                    <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        aria-label={`Move rule ${idx + 1} up`}
-                        disabled={idx === 0}
-                        onClick={() => void handleReorder(rule, 'up')}
-                        className="h-5 w-5 rounded text-text-muted transition-colors hover:bg-white/5 hover:text-text-bright disabled:opacity-25 disabled:hover:bg-transparent"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Move rule ${idx + 1} down`}
-                        disabled={idx === sortedRules.length - 1}
-                        onClick={() => void handleReorder(rule, 'down')}
-                        className="h-5 w-5 rounded text-text-muted transition-colors hover:bg-white/5 hover:text-text-bright disabled:opacity-25 disabled:hover:bg-transparent"
-                      >
-                        ↓
-                      </button>
+                    {/* Delete stays live in both modes — removing a rule must
+                        never be gated behind opening it first. Reordering is
+                        not here: it belongs to the grip. */}
+                    <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         aria-label={`Delete rule ${idx + 1}`}
@@ -984,6 +1134,13 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                 + Add rule
               </button>
             </div>
+
+            {/* Reorder announcements. Neither native drag-and-drop nor a
+                keyboard move announces itself, so every move reports where
+                the rule landed, politely (never interrupting). */}
+            <p role="status" aria-live="polite" data-testid="reorder-status" className="sr-only">
+              {reorderStatus}
+            </p>
 
             {/* Preview footer (1e: PREVIEW · path · → · chip · matched rule N). */}
             <div

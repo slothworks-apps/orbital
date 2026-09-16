@@ -59,6 +59,28 @@ function editingRows(): NodeListOf<Element> {
   return document.querySelectorAll('[data-rule-mode="editing"]')
 }
 
+/** The `⋮⋮` grip of the row currently at position `n` — the one and only reorder control. */
+function grip(n: number): HTMLElement {
+  return screen.getByRole('button', { name: new RegExp(`^Reorder rule ${n} of `) })
+}
+
+/**
+ * jsdom implements neither `DataTransfer` nor real drag-and-drop, so the
+ * drag tests below drive React's handlers with a stub. `setDragImage` is
+ * deliberately absent — the component feature-detects it.
+ */
+function makeDataTransfer() {
+  const store: Record<string, string> = {}
+  return {
+    effectAllowed: '',
+    dropEffect: '',
+    setData: (key: string, value: string) => {
+      store[key] = value
+    },
+    getData: (key: string) => store[key] ?? '',
+  }
+}
+
 function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSession {
   return {
     cwd: '/x',
@@ -216,7 +238,7 @@ describe('TagsRules', () => {
     resetStore({ rules: [rule1, rule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
+    fireEvent.keyDown(grip(1), { key: 'ArrowDown' })
 
     await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { position: 1 }))
     expect(api.patchTagRule).toHaveBeenCalledWith(20, { position: 0 })
@@ -227,21 +249,116 @@ describe('TagsRules', () => {
     })
   })
 
-  it('reorders a rule down by swapping positions with the next rule via two PATCHes', async () => {
+  it('reorders from the keyboard: ArrowDown on the grip moves the rule and keeps focus on it', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
+    const handle = grip(1)
+    handle.focus()
+    fireEvent.keyDown(handle, { key: 'ArrowDown' })
 
     await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { position: 1 }))
     expect(api.patchTagRule).toHaveBeenCalledWith(20, { position: 0 })
-
     await waitFor(() => {
       const state = useOrbital.getState()
       expect(state.rules.find((r) => r.id === 10)?.position).toBe(1)
       expect(state.rules.find((r) => r.id === 20)?.position).toBe(0)
     })
+
+    // The moved rule is now second — and focus travelled with it, so a second
+    // Arrow press acts on the same rule rather than on whatever took its slot.
+    expect(grip(2)).toBe(document.querySelector('[data-rule-grip="10"]'))
+    expect(grip(2)).toHaveFocus()
+  })
+
+  it('announces every keyboard move, and says so when a rule is already at the end', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const status = screen.getByTestId('reorder-status')
+    expect(status).toHaveAttribute('aria-live', 'polite')
+    expect(status).toBeEmptyDOMElement()
+
+    // Refused move at the top of the list: no PATCH, but never silent.
+    fireEvent.keyDown(grip(1), { key: 'ArrowUp' })
+    expect(api.patchTagRule).not.toHaveBeenCalled()
+    expect(status).toHaveTextContent('is already at position 1 of 2')
+
+    fireEvent.keyDown(grip(1), { key: 'ArrowDown' })
+    expect(status).toHaveTextContent('moved to position 2 of 2')
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalled())
+  })
+
+  it('reorders by dragging a row onto another by its grip', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+    // The travelling row fades and the hovered row takes the landing ring.
+    expect(row(10).className).toContain('opacity-40')
+    fireEvent.dragOver(row(20), { dataTransfer: dt })
+    expect(row(20)).toHaveAttribute('data-drop-target', 'true')
+
+    fireEvent.drop(row(20), { dataTransfer: dt })
+
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { position: 1 }))
+    expect(api.patchTagRule).toHaveBeenCalledWith(20, { position: 0 })
+    expect(screen.getByTestId('reorder-status')).toHaveTextContent('moved to position 2 of 2')
+    // Drag chrome is cleared once the drop lands.
+    expect(row(10).className).not.toContain('opacity-40')
+    expect(row(20)).not.toHaveAttribute('data-drop-target')
+  })
+
+  it('treats a drop on the dragged row itself as a no-op', () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+    fireEvent.dragOver(row(10), { dataTransfer: dt })
+    // A row never rings itself as a landing slot.
+    expect(row(10)).not.toHaveAttribute('data-drop-target')
+    fireEvent.drop(row(10), { dataTransfer: dt })
+
+    expect(api.patchTagRule).not.toHaveBeenCalled()
+    expect(screen.getByTestId('reorder-status')).toHaveTextContent('is already at position 1 of 2')
+    expect(useOrbital.getState().rules.find((r) => r.id === 10)?.position).toBe(0)
+  })
+
+  it('leaves the order alone when the drag is released outside the list', () => {
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+    // Released over nothing that accepts a drop: only `dragend` fires.
+    fireEvent.dragEnd(grip(1), { dataTransfer: dt })
+
+    expect(api.patchTagRule).not.toHaveBeenCalled()
+    expect(row(10).className).not.toContain('opacity-40')
+    expect(useOrbital.getState().rules.find((r) => r.id === 10)?.position).toBe(0)
+  })
+
+  it('flushes a pending pattern PATCH before a drag reorder lands', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    openRow(1)
+    fireEvent.change(screen.getByLabelText('Pattern for rule 1'), { target: { value: '/work/final' } })
+    expect(api.patchTagRule).not.toHaveBeenCalled()
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+
+    // The debounced keystrokes are committed by the drag, not dropped by it
+    // and not left to land after the reorder.
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { pattern: '/work/final' }))
   })
 
   it('resyncs rules from the server when a reorder swap partially fails (one PATCH rejects)', async () => {
@@ -258,7 +375,7 @@ describe('TagsRules', () => {
     resetStore({ rules: [rule1, workRule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
+    fireEvent.keyDown(grip(1), { key: 'ArrowDown' })
 
     await waitFor(() => expect(api.listTagRules).toHaveBeenCalled())
     await waitFor(() => expect(useOrbital.getState().rules).toEqual(serverRules))
@@ -278,12 +395,22 @@ describe('TagsRules', () => {
     await waitFor(() => expect(useOrbital.getState().rules).toEqual(serverRules))
   })
 
-  it('disables the up arrow on the first rule and the down arrow on the last', () => {
+  it('has no reorder arrows — the grip is the only reorder control (artboard 1e)', () => {
     resetStore({ rules: [rule1, workRule2] })
     render(<TagsRules open onClose={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: 'Move rule 1 up' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Move rule 2 down' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /^Move rule/ })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^Reorder rule/ })).toHaveLength(2)
+  })
+
+  it('refuses to move the last rule down, and says so', () => {
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.keyDown(grip(2), { key: 'ArrowDown' })
+
+    expect(api.patchTagRule).not.toHaveBeenCalled()
+    expect(screen.getByTestId('reorder-status')).toHaveTextContent('is already at position 2 of 2')
   })
 
   it('creates a rule targeting the default tag with a camelCase tagId payload, then refreshes rules', async () => {
@@ -477,20 +604,22 @@ describe('TagsRules', () => {
     await waitFor(() => expect(screen.getByTestId('save-status')).toHaveTextContent('saved · just now'))
   })
 
-  it('gives every rule row a decorative drag grip that is not itself interactive', () => {
+  it('gives every rule row a real drag grip: draggable, focusable and named', () => {
     resetStore({ rules: [rule1, workRule2] })
     const { container } = render(<TagsRules open onClose={vi.fn()} />)
 
     const grips = container.querySelectorAll('[data-rule-grip]')
     expect(grips).toHaveLength(2)
-    grips.forEach((grip) => {
-      // Drag-and-drop is deferred: the grip must read as decoration, with the
-      // arrow buttons doing the real reordering.
-      expect(grip.getAttribute('aria-hidden')).toBe('true')
-      expect(grip.tagName).toBe('SPAN')
-      expect(grip).not.toHaveAttribute('tabindex')
-      expect(grip.textContent).toBe('⋮⋮')
+    grips.forEach((handle) => {
+      // Still 1e's `⋮⋮` glyph, but no longer decoration: it is the reorder
+      // control, so it must be a real button a keyboard can reach.
+      expect(handle.tagName).toBe('BUTTON')
+      expect(handle).not.toHaveAttribute('aria-hidden')
+      expect(handle).toHaveAttribute('draggable', 'true')
+      expect(handle.textContent).toBe('⋮⋮')
     })
+    // The name carries the rule AND its position, so arrowing is not blind.
+    expect(grip(1)).toHaveAccessibleName('Reorder rule 1 of 2: path matches /work/** → work')
   })
 
   it('renders "+ Add rule" as a dashed full-width row at the end of the rules list', () => {
@@ -522,6 +651,99 @@ describe('TagsRules', () => {
     expect(within(defaultCard).queryByRole('button', { name: 'Delete default' })).not.toBeInTheDocument()
   })
 
+  it('deselects a tag by clicking the already-selected card again', () => {
+    resetStore({ rules: [rule1, rule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    // `work` is selected by default (canvas 1e opens that way).
+    expect(document.querySelector('[data-tag-card="1"]')?.getAttribute('data-selected')).toBe('true')
+    expect(row(10).dataset.tagMatch).toBe('true')
+
+    fireEvent.click(screen.getByText('hue 210'))
+
+    // Nothing is selected now: no card tinted, no row marked, and the
+    // swatches/delete that hang off the selected card are simply gone.
+    expect(document.querySelector('[data-tag-card="1"]')?.getAttribute('data-selected')).toBe('false')
+    expect(row(10).dataset.tagMatch).toBe('false')
+    expect(row(20).dataset.tagMatch).toBe('false')
+    expect(screen.queryByRole('group', { name: /^Hue for / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Delete (work|default)$/ })).not.toBeInTheDocument()
+    // …and every rule is still listed.
+    expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(2)
+  })
+
+  it('selects and deselects a tag from the keyboard via the planet toggle', async () => {
+    const user = userEvent.setup()
+    resetStore({ rules: [rule1, rule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const toggle = screen.getByRole('button', { name: 'Mark rules for work' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    toggle.focus()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('button', { name: 'Mark rules for work' })).toHaveAttribute('aria-pressed', 'false')
+    expect(row(10).dataset.tagMatch).toBe('false')
+
+    // Selection must NOT follow focus, or the card would re-select itself the
+    // instant focus settled back into it after a deselect.
+    fireEvent.focusIn(screen.getByLabelText('Tag name for work'))
+    expect(screen.getByRole('button', { name: 'Mark rules for work' })).toHaveAttribute('aria-pressed', 'false')
+    expect(row(10).dataset.tagMatch).toBe('false')
+
+    screen.getByRole('button', { name: 'Mark rules for work' }).focus()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('button', { name: 'Mark rules for work' })).toHaveAttribute('aria-pressed', 'true')
+    expect(row(10).dataset.tagMatch).toBe('true')
+  })
+
+  // Regression: the planet is a <span>, so it needs its own `block` to honour
+  // its 22px box. It only looked right while it happened to be a flex item —
+  // wrapping it in the toggle button collapsed it to a 2px sliver, which no
+  // layout-blind assertion would have caught.
+  it('keeps the tag planet a sized box rather than an inline sliver', () => {
+    resetStore({ rules: [rule1, rule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    for (const planet of document.querySelectorAll('[data-tag-planet]')) {
+      expect(planet.className).toMatch(/(^|\s)(block|inline-block|flex|grid)(\s|$)/)
+      expect(planet.className).toMatch(/h-\[22px\]/)
+      expect(planet.className).toMatch(/w-\[22px\]/)
+    }
+  })
+
+  it('does not deselect the card when renaming or recolouring it', async () => {
+    vi.mocked(api.patchTag).mockResolvedValue({ ok: true })
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Tag name for work'))
+    expect(document.querySelector('[data-tag-card="1"]')?.getAttribute('data-selected')).toBe('true')
+
+    fireEvent.click(screen.getByRole('group', { name: 'Hue for work' }).querySelector('[aria-label="Hue 330"]')!)
+    await waitFor(() => expect(api.patchTag).toHaveBeenCalledWith(1, { hue: 330 }))
+    expect(document.querySelector('[data-tag-card="1"]')?.getAttribute('data-selected')).toBe('true')
+  })
+
+  it('falls back to the default tag for "+ Add rule" when no tag is selected', async () => {
+    vi.mocked(api.createTagRule).mockResolvedValue(30)
+    vi.mocked(api.listTagRules).mockResolvedValue([rule1, rule2])
+    vi.mocked(api.listSessions).mockResolvedValue([])
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark rules for work' }))
+    expect(screen.getByRole('button', { name: 'Mark rules for work' })).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Add rule' }))
+
+    // No selection to inherit, so the rule targets the DEFAULT tag (id 2)
+    // rather than being created with no target at all.
+    await waitFor(() =>
+      expect(api.createTagRule).toHaveBeenCalledWith({ tagId: 2, condition: 'path_matches', pattern: '' })
+    )
+  })
+
   it('offers the 8 hue swatches of canvas 1e', () => {
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
@@ -549,9 +771,8 @@ describe('TagsRules', () => {
     expect(screen.getByText('/work/**')).toBeInTheDocument()
     expect(screen.getByText('bug')).toBeInTheDocument()
 
-    // focusin (not the non-bubbling `focus`) is what React maps onFocus* to —
-    // selecting the other tag card still shows both rules.
-    fireEvent.focusIn(screen.getByLabelText('Tag name for default'))
+    // Selecting the other tag card still shows both rules.
+    fireEvent.click(screen.getByRole('button', { name: 'Mark rules for default' }))
 
     expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(2)
     expect(screen.getByText('/work/**')).toBeInTheDocument()
@@ -646,7 +867,7 @@ describe('TagsRules', () => {
     await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { pattern: '/work/final' }))
   })
 
-  it('keeps the toggle, reorder arrows and delete live while the row is at rest', async () => {
+  it('keeps the toggle, the grip and delete live while the row is at rest', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     vi.mocked(api.deleteTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
@@ -657,12 +878,13 @@ describe('TagsRules', () => {
     // None of these may open the row — deleting must not be gated behind editing.
     expect(editingRows()).toHaveLength(0)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move rule 1 down' }))
+    fireEvent.keyDown(grip(1), { key: 'ArrowDown' })
     await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { position: 1 }))
     expect(editingRows()).toHaveLength(0)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete rule 2' }))
-    await waitFor(() => expect(api.deleteTagRule).toHaveBeenCalled())
+    // rule 10 is now second, so "rule 1" is the rule that took its place.
+    fireEvent.click(screen.getByRole('button', { name: 'Delete rule 1' }))
+    await waitFor(() => expect(api.deleteTagRule).toHaveBeenCalledWith(20))
     expect(editingRows()).toHaveLength(0)
   })
 
