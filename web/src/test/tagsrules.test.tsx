@@ -69,6 +69,25 @@ function grip(n: number): HTMLElement {
  * drag tests below drive React's handlers with a stub. `setDragImage` is
  * deliberately absent — the component feature-detects it.
  */
+/**
+ * jsdom lays nothing out, so `offsetHeight` is always 0 and the gap-preview
+ * maths would be trivially satisfied. Give every row a real height first, so
+ * the assertions below are about actual measured distances.
+ */
+function stubRowHeights(height: number): void {
+  document.querySelectorAll<HTMLElement>('[data-rule-row]').forEach((el) => {
+    Object.defineProperty(el, 'offsetHeight', { value: height, configurable: true })
+  })
+}
+
+/** Four rules under one tag — enough that a drag leaves rows on both sides of the moved range. */
+const fourRules: TagRule[] = [
+  rule1,
+  workRule2,
+  { id: 30, tag_id: 1, position: 2, enabled: 1, condition: 'path_matches', pattern: '/third' },
+  { id: 40, tag_id: 1, position: 3, enabled: 1, condition: 'path_matches', pattern: '/fourth' },
+]
+
 function makeDataTransfer() {
   const store: Record<string, string> = {}
   return {
@@ -342,6 +361,152 @@ describe('TagsRules', () => {
     expect(api.patchTagRule).not.toHaveBeenCalled()
     expect(row(10).className).not.toContain('opacity-40')
     expect(useOrbital.getState().rules.find((r) => r.id === 10)?.position).toBe(0)
+  })
+
+  it('opens a gap while dragging DOWN: the rows passed shift up, the placeholder rides into the slot', () => {
+    resetStore({ rules: fourRules })
+    render(<TagsRules open onClose={vi.fn()} />)
+    // 48px rows + the 4px list gap = a 52px slot each.
+    stubRowHeights(48)
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+    fireEvent.dragOver(row(30), { dataTransfer: dt })
+
+    // The two rows it passes close over the slot it vacated — one slot each,
+    // which is the DRAGGED row's height, not their own.
+    expect(row(20).dataset.ruleShift).toBe('up')
+    expect(row(20).style.transform).toBe('translateY(-52px)')
+    expect(row(30).dataset.ruleShift).toBe('up')
+    expect(row(30).style.transform).toBe('translateY(-52px)')
+    // The dragged row travels the summed slots of everything it passed, so it
+    // lands exactly in the gap that opened.
+    expect(row(10).dataset.ruleShift).toBe('down')
+    expect(row(10).style.transform).toBe('translateY(104px)')
+    // A row beyond the drop index is untouched.
+    expect(row(40)).not.toHaveAttribute('data-rule-shift')
+    expect(row(40).style.transform).toBe('')
+
+    // DOM order is NOT touched until the drop commits.
+    expect([...document.querySelectorAll('[data-rule-row]')].map((el) => el.getAttribute('data-rule-row'))).toEqual(
+      ['10', '20', '30', '40']
+    )
+  })
+
+  it('opens a gap while dragging UP: the rows passed shift down', () => {
+    resetStore({ rules: fourRules })
+    render(<TagsRules open onClose={vi.fn()} />)
+    stubRowHeights(48)
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(4), { dataTransfer: dt })
+    fireEvent.dragOver(row(20), { dataTransfer: dt })
+
+    expect(row(20).dataset.ruleShift).toBe('down')
+    expect(row(20).style.transform).toBe('translateY(52px)')
+    expect(row(30).dataset.ruleShift).toBe('down')
+    expect(row(30).style.transform).toBe('translateY(52px)')
+    expect(row(40).dataset.ruleShift).toBe('up')
+    expect(row(40).style.transform).toBe('translateY(-104px)')
+    // A row above the drop index is untouched.
+    expect(row(10)).not.toHaveAttribute('data-rule-shift')
+    expect(row(10).style.transform).toBe('')
+  })
+
+  it('measures rows rather than assuming a constant height', () => {
+    resetStore({ rules: fourRules })
+    render(<TagsRules open onClose={vi.fn()} />)
+    // A taller dragged row (e.g. one open for editing, or a wrapped pattern)
+    // must open a correspondingly taller gap.
+    stubRowHeights(48)
+    Object.defineProperty(row(10), 'offsetHeight', { value: 90, configurable: true })
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+    fireEvent.dragOver(row(20), { dataTransfer: dt })
+
+    // Neighbours close over the DRAGGED row's slot: 90 + 4.
+    expect(row(20).style.transform).toBe('translateY(-94px)')
+    // …while the placeholder travels over the neighbour's own 48 + 4.
+    expect(row(10).style.transform).toBe('translateY(52px)')
+  })
+
+  it('clears every transform when the drop lands', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    resetStore({ rules: fourRules })
+    render(<TagsRules open onClose={vi.fn()} />)
+    stubRowHeights(48)
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+    fireEvent.dragOver(row(30), { dataTransfer: dt })
+    expect(document.querySelectorAll('[data-rule-shift]').length).toBeGreaterThan(0)
+
+    fireEvent.drop(row(30), { dataTransfer: dt })
+
+    // A leftover transform would leave the list visually scrambled while the
+    // data is fine — the worst possible failure here.
+    expect(document.querySelectorAll('[data-rule-shift]')).toHaveLength(0)
+    ;[10, 20, 30, 40].forEach((id) => expect(row(id).style.transform).toBe(''))
+    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalled())
+    ;[10, 20, 30, 40].forEach((id) => expect(row(id).style.transform).toBe(''))
+  })
+
+  it('clears every transform on dragend when the row is released outside the list', () => {
+    resetStore({ rules: fourRules })
+    render(<TagsRules open onClose={vi.fn()} />)
+    stubRowHeights(48)
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+    fireEvent.dragOver(row(30), { dataTransfer: dt })
+    expect(row(20).dataset.ruleShift).toBe('up')
+
+    // No drop — the pointer was released over something that accepts nothing.
+    fireEvent.dragEnd(grip(1), { dataTransfer: dt })
+
+    expect(document.querySelectorAll('[data-rule-shift]')).toHaveLength(0)
+    ;[10, 20, 30, 40].forEach((id) => expect(row(id).style.transform).toBe(''))
+    expect(api.patchTagRule).not.toHaveBeenCalled()
+  })
+
+  it('opens no gap when hovering the dragged row itself', () => {
+    resetStore({ rules: fourRules })
+    render(<TagsRules open onClose={vi.fn()} />)
+    stubRowHeights(48)
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+    fireEvent.dragOver(row(10), { dataTransfer: dt })
+
+    expect(document.querySelectorAll('[data-rule-shift]')).toHaveLength(0)
+    ;[10, 20, 30, 40].forEach((id) => expect(row(id).style.transform).toBe(''))
+  })
+
+  it('animates the gap only while the drag is live, and only when motion is allowed', () => {
+    resetStore({ rules: fourRules })
+    render(<TagsRules open onClose={vi.fn()} />)
+    stubRowHeights(48)
+
+    // At rest the row transitions colour, not transform.
+    expect(row(20).className).toContain('transition-colors')
+    expect(row(20).className).not.toContain('transition-transform')
+
+    const dt = makeDataTransfer()
+    fireEvent.dragStart(grip(1), { dataTransfer: dt })
+
+    // Mid-drag exactly one transition-property utility applies, and it is
+    // gated on prefers-reduced-motion: the gap still opens for everyone, the
+    // animation is what gets dropped.
+    expect(row(20).className).toContain('motion-safe:transition-transform')
+    expect(row(20).className).not.toContain('transition-colors')
+    expect(row(20).className).toContain('motion-safe:duration-[180ms]')
+
+    // Back to colour once the drag ends — on drop the DOM genuinely reorders,
+    // and a transform transition there would slide rows the wrong way.
+    fireEvent.dragEnd(grip(1), { dataTransfer: dt })
+    expect(row(20).className).toContain('transition-colors')
+    expect(row(20).className).not.toContain('transition-transform')
   })
 
   it('flushes a pending pattern PATCH before a drag reorder lands', async () => {

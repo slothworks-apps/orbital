@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, CSSProperties } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
@@ -46,6 +46,27 @@ const patternFieldId = (ruleId: number) => `tags-rules-pattern-${ruleId}`
 
 /** Debounce for the pattern/preview text inputs — same window as the rest of the app's debounced PATCHes. */
 const DEBOUNCE_MS = 400
+
+/**
+ * Vertical gap between rule rows, verbatim from artboard 1e
+ * (`gap:4px` on the rules list) and mirrored by the list's `gap-1`. A row's
+ * "slot" is its own height plus this, which is what neighbours have to travel
+ * to close over it during a drag.
+ */
+const RULE_ROW_GAP = 4
+
+/**
+ * The drag gap-preview transition. `cubic-bezier(.2,.8,.2,1)` is the export's
+ * panel easing; 180ms sits in the responsive half of the 150–200ms band — long
+ * enough to read as motion, short enough that the rows have settled before the
+ * pointer reaches the next row. Only applied WHILE a drag is live: on drop the
+ * DOM genuinely reorders, and a row transitioning its transform back to 0 from
+ * its new layout position would slide the wrong way for 180ms. `motion-safe:`
+ * keeps the gap itself (useful layout feedback) while dropping the animation
+ * for `prefers-reduced-motion: reduce`.
+ */
+const DRAG_SHIFT_TRANSITION =
+  'motion-safe:transition-transform motion-safe:duration-[180ms] motion-safe:ease-[cubic-bezier(.2,.8,.2,1)]'
 
 function replaceTag(tags: Tag[], id: number, patch: Partial<Tag>): Tag[] {
   return tags.map((t) => (t.id === id ? { ...t, ...patch } : t))
@@ -228,6 +249,14 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const [dragRuleId, setDragRuleId] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   /**
+   * Each row's slot height (own height + `RULE_ROW_GAP`), measured ONCE at
+   * dragstart. Rows are not uniform — an open row is taller than a resting
+   * one and a long pattern can wrap — so the distances are measured rather
+   * than assumed. A ref, not state: it is written before the drag renders and
+   * read during render, and must never itself trigger one.
+   */
+  const rowSlots = useRef<Map<number, number>>(new Map())
+  /**
    * Text for the polite live region under the rules list. Native drag-and-drop
    * announces nothing, and a keyboard move that only changed DOM order would
    * be silent too, so every reorder (mouse or keyboard) reports where the rule
@@ -360,6 +389,40 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   /** Clicking (or pressing) the already-selected card turns the marking off again. */
   function toggleTagSelection(tagId: number) {
     setSelectedTagId(effectiveTagId === tagId ? 'none' : tagId)
+  }
+
+  /**
+   * How far (px) the row at `idx` must translate to PREVIEW the pending drop,
+   * so the list visibly opens up around the landing slot instead of sitting
+   * still under the cursor. Purely derived from `dragRuleId` + `dropIndex`:
+   * the DOM order is never touched until the drop actually commits, and
+   * clearing those two — which `drop`, `dragend` and a release outside the
+   * list all already do — is what wipes every transform. There is no separate
+   * cleanup path that could be missed and leave the list scrambled.
+   *
+   * Dragging DOWN: every row the dragged rule passes moves up by exactly the
+   * slot it vacated; dragging UP, they move down. That distance is the DRAGGED
+   * row's own slot regardless of how tall the rows it passes are, so mixed
+   * heights are exact here, not approximated. The dragged row itself travels
+   * the summed slots of everything it passes, so the faded placeholder lands
+   * precisely in the gap that opened for it.
+   */
+  function dragShiftFor(idx: number): number {
+    if (dragRuleId == null || dropIndex == null) return 0
+    const from = sortedRules.findIndex((r) => r.id === dragRuleId)
+    if (from < 0 || dropIndex === from) return 0
+    const slot = (i: number) => rowSlots.current.get(sortedRules[i].id) ?? 0
+    const down = dropIndex > from
+
+    if (idx === from) {
+      let travelled = 0
+      if (down) for (let i = from + 1; i <= dropIndex; i++) travelled += slot(i)
+      else for (let i = dropIndex; i < from; i++) travelled += slot(i)
+      return down ? travelled : -travelled
+    }
+    if (down && idx > from && idx <= dropIndex) return -slot(from)
+    if (!down && idx >= dropIndex && idx < from) return slot(from)
+    return 0
   }
 
   function sessionCount(tagId: number): number {
@@ -866,6 +929,20 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                 const pattern = patternDrafts[rule.id] ?? rule.pattern
                 /** Selecting a tag card MARKS its rules here — it never hides the others. */
                 const targetsSelected = ruleTag != null && ruleTag.id === effectiveTagId
+                const shift = dragShiftFor(idx)
+
+                const rowStyle: CSSProperties = {}
+                // The mark is the tag-card treatment from the left column
+                // (canvas 1e: hue border at .4 over a .06 hue fill), so the
+                // two read as the same object. Deliberately NOT a dim — 1e
+                // already spends opacity on disabled rules.
+                if (!editing && targetsSelected) {
+                  rowStyle.borderColor = `oklch(80% .13 ${hue} / .4)`
+                  rowStyle.background = `oklch(80% .13 ${hue} / .06)`
+                }
+                // Transform only — never top/margin/height, which would
+                // relayout the list on every dragover and fight the drag.
+                if (shift !== 0) rowStyle.transform = `translateY(${shift}px)`
 
                 return (
                   <div
@@ -876,6 +953,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                     data-tag-match={targetsSelected}
                     aria-current={targetsSelected ? 'true' : undefined}
                     data-drop-target={dropIndex === idx && dragRuleId !== rule.id ? 'true' : undefined}
+                    data-rule-shift={shift === 0 ? undefined : shift < 0 ? 'up' : 'down'}
                     // Clicking anywhere in a resting row opens it; the toggle,
                     // the grip and the delete button stop the click before it
                     // gets here, so they stay usable in BOTH modes.
@@ -916,21 +994,15 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                           }
                         : undefined
                     }
-                    style={
-                      // The mark is the tag-card treatment from the left column
-                      // (canvas 1e: hue border at .4 over a .06 hue fill), so
-                      // the two read as the same object. Deliberately NOT a
-                      // dim — 1e already spends opacity on disabled rules.
-                      !editing && targetsSelected
-                        ? {
-                            borderColor: `oklch(80% .13 ${hue} / .4)`,
-                            background: `oklch(80% .13 ${hue} / .06)`,
-                          }
-                        : undefined
-                    }
+                    style={rowStyle}
                     className={[
-                      'grid items-center gap-3 rounded-[9px] border px-2 py-[11px] transition-colors',
+                      'grid items-center gap-3 rounded-[9px] border px-2 py-[11px]',
                       RULE_GRID,
+                      // Exactly ONE transition-property utility is ever in the
+                      // list, so there is no ordering race between them: while
+                      // a drag is live the rows animate their gap-preview
+                      // transform, otherwise they fade colour as before.
+                      dragRuleId == null ? 'transition-colors' : DRAG_SHIFT_TRANSITION,
                       editing
                         ? // 1e's edit row: accent border at .5 over a .06 accent fill.
                           'border-accent/50 bg-accent/6'
@@ -940,8 +1012,9 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                       // 1e dims a disabled rule rather than restyling it.
                       enabled ? '' : 'opacity-60',
                       // Drag feedback (no 1e equivalent — its mock is static):
-                      // the travelling row fades, the row under the pointer
-                      // takes an accent ring so the landing slot is obvious.
+                      // the travelling row fades to a placeholder that rides
+                      // into the gap it will land in, and the row under the
+                      // pointer takes an accent ring.
                       dragRuleId === rule.id ? 'opacity-40' : '',
                       dropIndex === idx && dragRuleId !== rule.id ? 'ring-1 ring-accent/60' : '',
                     ]
@@ -977,6 +1050,19 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                           void moveRule(rule, e.key === 'ArrowUp' ? idx - 1 : idx + 1)
                         }}
                         onDragStart={(e) => {
+                          const rowEl = e.currentTarget.closest('[data-rule-row]')
+                          // Measure every row's slot in ONE read pass, before
+                          // anything writes to the DOM, so the gap preview
+                          // never interleaves reads and writes mid-drag.
+                          if (rowEl instanceof HTMLElement) {
+                            const slots = new Map<number, number>()
+                            rowEl.parentElement
+                              ?.querySelectorAll<HTMLElement>('[data-rule-row]')
+                              .forEach((el) => {
+                                slots.set(Number(el.dataset.ruleRow), el.offsetHeight + RULE_ROW_GAP)
+                              })
+                            rowSlots.current = slots
+                          }
                           setDragRuleId(rule.id)
                           // Same commit-on-exit contract as leaving a row:
                           // a debounced pattern PATCH must not land after the
@@ -987,9 +1073,8 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                           dt.effectAllowed = 'move'
                           // Firefox refuses to start a drag without payload.
                           dt.setData('text/plain', String(rule.id))
-                          const row = e.currentTarget.closest('[data-rule-row]')
-                          if (row instanceof HTMLElement && typeof dt.setDragImage === 'function') {
-                            dt.setDragImage(row, 16, row.offsetHeight / 2)
+                          if (rowEl instanceof HTMLElement && typeof dt.setDragImage === 'function') {
+                            dt.setDragImage(rowEl, 16, rowEl.offsetHeight / 2)
                           }
                         }}
                         // Fires whether the drop was accepted or the row was
@@ -997,6 +1082,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
                         onDragEnd={() => {
                           setDragRuleId(null)
                           setDropIndex(null)
+                          rowSlots.current = new Map()
                         }}
                         className="block w-full cursor-grab rounded text-sm text-[rgba(160,190,225,.4)] transition-colors hover:text-text-soft focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent active:cursor-grabbing"
                       >
