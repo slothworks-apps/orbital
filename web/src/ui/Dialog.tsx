@@ -1,5 +1,18 @@
 import { createPortal } from 'react-dom'
 import { EscapeBoundary, useEscapeLayer } from './escapeLayer'
+import { usePresence } from './usePresence'
+import {
+  MODAL_CLOSED,
+  MODAL_ENTER_DURATION,
+  MODAL_ENTER_MS,
+  MODAL_EXIT_DURATION,
+  MODAL_EXIT_MS,
+  MODAL_OPEN,
+  MODAL_TRANSITION,
+  SCRIM_CLOSED,
+  SCRIM_OPEN,
+  EXITING,
+} from './motion'
 import type { ReactNode } from 'react'
 
 export interface DialogProps {
@@ -109,9 +122,14 @@ export function Dialog({
   children,
 }: DialogProps) {
   useEscapeLayer(open, onClose)
+  // Held mounted through the close transition — a dialog that unmounts the
+  // instant `open` goes false can only ever animate in.
+  const { mounted, state } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
 
-  if (!open) return null
+  if (!mounted) return null
 
+  const entered = state === 'entered'
+  const duration = state === 'exiting' ? MODAL_EXIT_DURATION : MODAL_ENTER_DURATION
   const frame = toneFrame[tone]
   // Only the form dialog (1d) rules off its header; the confirms run the
   // eyebrow, title and body together as one padded block.
@@ -125,7 +143,17 @@ export function Dialog({
   return createPortal(
     <EscapeBoundary>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]"
+      data-state={state}
+      // On the way out it is still painted but must stop taking clicks and
+      // leave the focus order — see EXITING in `ui/motion`.
+      inert={state === 'exiting' || undefined}
+      className={[
+        'fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]',
+        MODAL_TRANSITION,
+        duration,
+        entered ? SCRIM_OPEN : SCRIM_CLOSED,
+        state === 'exiting' ? EXITING : '',
+      ].join(' ')}
     >
       <div
         role="dialog"
@@ -138,6 +166,9 @@ export function Dialog({
           'relative flex max-h-full max-w-full flex-col border font-sans text-text-bright backdrop-blur-[28px]',
           sizeClasses[size],
           frame.border,
+          MODAL_TRANSITION,
+          duration,
+          entered ? MODAL_OPEN : MODAL_CLOSED,
         ].join(' ')}
       >
         {corners.map((corner) => (

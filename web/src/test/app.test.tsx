@@ -460,7 +460,10 @@ describe('App: dialog ownership', () => {
       useOrbital.getState().setDialog(null)
     })
 
-    fireEvent.click(screen.getByText(/tags & rules/i))
-    expect(screen.getByText('Tags & rules')).toBeInTheDocument()
+    // Settings is still mounted for the length of its close transition, and
+    // its nav carries a "Tags & rules" row of its own — so this has to name
+    // the sidebar footer's lowercase entry point specifically.
+    fireEvent.click(screen.getByRole('button', { name: 'tags & rules ›' }))
+    expect(screen.getByRole('heading', { name: 'Tags & rules' })).toBeInTheDocument()
   })
 })

@@ -1,10 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
+import { usePresence } from '../ui/usePresence'
+import {
+  PANEL_CLOSED,
+  PANEL_ENTER_DURATION,
+  PANEL_ENTER_MS,
+  PANEL_EXIT_DURATION,
+  PANEL_EXIT_MS,
+  PANEL_OPEN,
+  PANEL_TRANSITION,
+  EXITING,
+} from '../ui/motion'
 import { Badge } from '../ui/Badge'
 import { Chip } from '../ui/Chip'
 import { Button } from '../ui/Button'
@@ -92,7 +103,18 @@ function UsageStat({ label, value }: { label: string; value: string }) {
  * over; the server's 409 on `POST .../messages` is the real backstop).
  */
 export function DetailPanel() {
-  const id = useOrbital((s) => s.ui.selectedId)
+  const selectedId = useOrbital((s) => s.ui.selectedId)
+  const { mounted, state: presence } = usePresence(
+    selectedId != null,
+    PANEL_ENTER_MS,
+    PANEL_EXIT_MS
+  )
+  // The panel keeps rendering the OUTGOING session while it slides away —
+  // deselecting clears `selectedId` immediately, and without holding the last
+  // one the panel would empty itself and then animate an empty shell out.
+  const lastId = useRef<string | null>(selectedId)
+  if (selectedId) lastId.current = selectedId
+  const id = selectedId ?? lastId.current
   const session = useOrbital((s) => (id ? s.sessions[id] : undefined))
   const tags = useOrbital(useShallow((s) => s.tags))
   const usage = useOrbital((s) => (id ? s.usage[id] : undefined))
@@ -143,7 +165,7 @@ export function DetailPanel() {
     }
   }, [id, lineageCache])
 
-  if (!id) return null
+  if (!mounted || !id) return null
 
   function invalidateLineage(clearedId: string) {
     setLineageCache((cache) => {
@@ -239,6 +261,21 @@ export function DetailPanel() {
 
   return (
     // 1b paints a faint outer bloom in the session's hue around the panel.
+    // Slide wrapper, not `Panel` itself: Panel already declares
+    // `transition-[width]`, and a second transition-property utility would
+    // resolve by stylesheet order rather than by intent.
+    <div
+      data-state={presence}
+      // Still painted while it slides away, but no longer a live surface.
+      inert={presence === 'exiting' || undefined}
+      className={[
+        'h-full',
+        PANEL_TRANSITION,
+        presence === 'exiting' ? PANEL_EXIT_DURATION : PANEL_ENTER_DURATION,
+        presence === 'entered' ? PANEL_OPEN : PANEL_CLOSED,
+        presence === 'exiting' ? EXITING : '',
+      ].join(' ')}
+    >
     <Panel side="right" glowHue={headerHue ?? ACCENT_HUE} className="relative flex h-full flex-col overflow-hidden">
       {/* Top hairline glint in the session's tag hue (canvas 1b). */}
       <div
@@ -445,5 +482,6 @@ export function DetailPanel() {
         onCleared={invalidateLineage}
       />
     </Panel>
+    </div>
   )
 }

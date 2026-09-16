@@ -8,6 +8,19 @@ import { tagColor } from '../lib/types'
 import type { Tag, TagRule } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
+import { usePresence } from '../ui/usePresence'
+import {
+  MODAL_CLOSED,
+  MODAL_ENTER_DURATION,
+  MODAL_ENTER_MS,
+  MODAL_EXIT_DURATION,
+  MODAL_EXIT_MS,
+  MODAL_OPEN,
+  MODAL_TRANSITION,
+  SCRIM_CLOSED,
+  SCRIM_OPEN,
+  EXITING,
+} from '../ui/motion'
 import { Select } from '../ui/Select'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
@@ -357,6 +370,8 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     }
     onClose()
   })
+  // Held mounted through the close transition (see `ui/usePresence`).
+  const { mounted, state: presence } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
 
   // Sample-path preview, debounced.
   useEffect(() => {
@@ -375,7 +390,10 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     return () => clearTimeout(timer)
   }, [open, previewPath])
 
-  if (!open) return null
+  if (!mounted) return null
+
+  const entered = presence === 'entered'
+  const duration = presence === 'exiting' ? MODAL_EXIT_DURATION : MODAL_ENTER_DURATION
 
   // ONE global list, always. The server evaluates rules top → bottom and the
   // first match wins across every tag, so filtering the table down to the
@@ -719,11 +737,30 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     // outrank it for Escape (see `ui/escapeLayer`).
     <EscapeBoundary>
     {/* Scrim verbatim from artboard 1e: rgba(2,4,9,.5) + a 3px blur. */}
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]">
-      <Panel
-        side="float"
-        className="flex h-[740px] max-h-full w-full max-w-[1120px] flex-col overflow-hidden"
+    <div
+      data-state={presence}
+      // Still painted on the way out, but no longer a live surface.
+      inert={presence === 'exiting' || undefined}
+      className={[
+        'fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]',
+        MODAL_TRANSITION,
+        duration,
+        entered ? SCRIM_OPEN : SCRIM_CLOSED,
+        presence === 'exiting' ? EXITING : '',
+      ].join(' ')}
+    >
+      {/* Motion sits on a wrapper, not on `Panel` — Panel already declares
+          `transition-[width]`, and a second transition-property utility would
+          resolve by stylesheet order rather than by intent. */}
+      <div
+        className={[
+          'flex h-[740px] max-h-full w-full max-w-[1120px]',
+          MODAL_TRANSITION,
+          duration,
+          entered ? MODAL_OPEN : MODAL_CLOSED,
+        ].join(' ')}
       >
+      <Panel side="float" className="flex h-full w-full flex-col overflow-hidden">
         {/* Header (1e: 22px 28px 18px, back chevron · kicker + title · save status). */}
         <div className="flex items-center gap-3.5 border-b border-panel-border/60 px-7 pb-[18px] pt-[22px]">
           <button
@@ -1240,6 +1277,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
           </div>
         </div>
       </Panel>
+      </div>
     </div>
     </EscapeBoundary>
   )

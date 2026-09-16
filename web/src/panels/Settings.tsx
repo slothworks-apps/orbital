@@ -6,6 +6,19 @@ import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
+import { usePresence } from '../ui/usePresence'
+import {
+  MODAL_CLOSED,
+  MODAL_ENTER_DURATION,
+  MODAL_ENTER_MS,
+  MODAL_EXIT_DURATION,
+  MODAL_EXIT_MS,
+  MODAL_OPEN,
+  MODAL_TRANSITION,
+  SCRIM_CLOSED,
+  SCRIM_OPEN,
+  EXITING,
+} from '../ui/motion'
 import { Input } from '../ui/Input'
 import { ModeCards } from '../ui/ModeCards'
 import { Select } from '../ui/Select'
@@ -132,6 +145,8 @@ export function Settings({ open, onClose }: SettingsProps) {
   }, [projectDirDraft, open])
 
   useEscapeLayer(open, onClose)
+  // Held mounted through the close transition (see `ui/usePresence`).
+  const { mounted, state: presence } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
 
   const defaultPermissionMode = ((settings.default_permission_mode as PermissionMode) || 'acceptEdits')
   const lineageDepth = settings.lineage_depth ?? '3'
@@ -156,8 +171,10 @@ export function Settings({ open, onClose }: SettingsProps) {
     return dropped
   }, [sessionCwds, lineageDepth])
 
-  if (!open) return null
+  if (!mounted) return null
 
+  const entered = presence === 'entered'
+  const duration = presence === 'exiting' ? MODAL_EXIT_DURATION : MODAL_ENTER_DURATION
   const lineageOptions = [...LINEAGE_STEPS, 'Infinity'] as const
   // Chain length tracks the depth setting plus the live session at its head —
   // 1h draws four orbs at depth 3, which is also the cap it illustrates.
@@ -169,8 +186,30 @@ export function Settings({ open, onClose }: SettingsProps) {
 
   return (
     <EscapeBoundary>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]">
-      <Panel side="float" className="flex h-[740px] max-h-full w-full max-w-[1120px] flex-col overflow-hidden">
+    <div
+      data-state={presence}
+      // Still painted on the way out, but no longer a live surface.
+      inert={presence === 'exiting' || undefined}
+      className={[
+        'fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]',
+        MODAL_TRANSITION,
+        duration,
+        entered ? SCRIM_OPEN : SCRIM_CLOSED,
+        presence === 'exiting' ? EXITING : '',
+      ].join(' ')}
+    >
+      {/* The motion lives on a wrapper, not on `Panel`: Panel's base classes
+          already declare `transition-[width]`, and a second transition-property
+          utility would resolve by stylesheet order rather than by intent. */}
+      <div
+        className={[
+          'flex h-[740px] max-h-full w-full max-w-[1120px]',
+          MODAL_TRANSITION,
+          duration,
+          entered ? MODAL_OPEN : MODAL_CLOSED,
+        ].join(' ')}
+      >
+      <Panel side="float" className="flex h-full w-full flex-col overflow-hidden">
         {/* Header: 22/28/18 padding per canvas 1h. */}
         <div className="flex items-center gap-3.5 border-b border-[rgba(150,205,255,.1)] px-7 pb-[18px] pt-[22px]">
           <button
@@ -372,6 +411,7 @@ export function Settings({ open, onClose }: SettingsProps) {
           </div>
         </div>
       </Panel>
+      </div>
     </div>
     </EscapeBoundary>
   )
