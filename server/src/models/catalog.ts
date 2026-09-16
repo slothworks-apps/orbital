@@ -37,6 +37,21 @@ export const CATALOG_KEY = 'models_catalog';
 export const CONTEXT_WINDOWS_KEY = 'model_context_windows';
 
 /**
+ * Minimum time between two probes. `list()` calls `refresh()` on every
+ * request — every page load, every new tab — so without this a probe (a full
+ * CLI spawn) would fire far more often than the boot-probe the ADR rejected
+ * for being wasteful.
+ */
+export const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * A probe that neither answers nor exits must not hang `list()` forever: a
+ * cold install has nothing stored, so `list()` awaits the probe directly,
+ * and everything `loadInitial` fetches on the web waits behind it too.
+ */
+export const PROBE_TIMEOUT_MS = 10_000;
+
+/**
  * Turns the SDK's rows into Orbital's. Two rules, both from
  * `docs/decisions/models-come-from-the-sdk.md`:
  *
@@ -122,6 +137,9 @@ export class ModelCatalog {
   private queryFn: QueryFn;
   private cwd: string;
   private refreshing: Promise<void> | null = null;
+  private lastProbedAt = 0;
+  /** Whether the most recent probe to actually run succeeded — gates the warning to one line per outage. */
+  private lastProbeOk = true;
 
   constructor(deps: { settings: SettingsStore; queryFn: QueryFn; cwd?: string }) {
     this.settings = deps.settings;
@@ -154,21 +172,36 @@ export class ModelCatalog {
     if (changed) this.settings.set(CONTEXT_WINDOWS_KEY, JSON.stringify(current));
   }
 
-  /** Re-probes. Concurrent callers share one probe; never rejects. */
-  refresh(): Promise<void> {
-    if (!this.refreshing) {
-      this.refreshing = this.probe()
-        .then((models) => {
-          if (models.length) this.settings.set(CATALOG_KEY, JSON.stringify(models));
-        })
-        .catch((err) => {
-          // Offline, logged out, CLI missing — all mean "keep what we have".
-          console.warn('orbital: model probe failed:', err);
-        })
-        .finally(() => {
-          this.refreshing = null;
-        });
+  /**
+   * Re-probes. Concurrent callers share one probe; never rejects.
+   *
+   * Skips the probe entirely when one completed within `REFRESH_INTERVAL_MS`
+   * — `list()` calls this on every request, and without the guard a probe
+   * (a CLI spawn) would fire on every page load and every new tab. Pass
+   * `force` to bypass the guard regardless of when the last one ran.
+   */
+  refresh(force = false): Promise<void> {
+    if (this.refreshing) return this.refreshing;
+    if (!force && Date.now() - this.lastProbedAt < REFRESH_INTERVAL_MS) {
+      return Promise.resolve();
     }
+    this.refreshing = this.probe()
+      .then((models) => {
+        if (models.length) this.settings.set(CATALOG_KEY, JSON.stringify(models));
+        this.lastProbeOk = true;
+      })
+      .catch((err) => {
+        // Offline, logged out, CLI missing, timed out — all mean "keep what
+        // we have". Logged only on the first failure since the last
+        // success, so an extended outage does not spam the log once per
+        // request.
+        if (this.lastProbeOk) console.warn('orbital: model probe failed:', err);
+        this.lastProbeOk = false;
+      })
+      .finally(() => {
+        this.lastProbedAt = Date.now();
+        this.refreshing = null;
+      });
     return this.refreshing;
   }
 
@@ -201,7 +234,10 @@ export class ModelCatalog {
       options: { cwd: this.cwd, permissionMode: 'plan' },
     });
     try {
-      const models = await q.supportedModels?.();
+      const models = await withTimeout(
+        Promise.resolve(q.supportedModels?.() ?? []),
+        PROBE_TIMEOUT_MS,
+      );
       return Array.isArray(models) ? (models as ModelInfoLike[]) : [];
     } finally {
       // `Query extends AsyncGenerator`, so return() is how it is closed.
@@ -214,4 +250,26 @@ export class ModelCatalog {
       }
     }
   }
+}
+
+/**
+ * Races `promise` against a timer so a probe that neither answers nor exits
+ * cannot hold `list()` open forever. Rejects on timeout — the caller's
+ * `finally` still closes the query, and `refresh()`'s `.catch` still treats
+ * it as an ordinary failed probe (stored list untouched, logged once).
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`model probe timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }

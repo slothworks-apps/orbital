@@ -1,10 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   ModelCatalog,
   shapeModels,
   extractContextWindows,
   CATALOG_KEY,
   CONTEXT_WINDOWS_KEY,
+  REFRESH_INTERVAL_MS,
+  PROBE_TIMEOUT_MS,
 } from '../src/models/catalog.js';
 
 /** The five rows the SDK actually served on 2026-09-16. */
@@ -31,6 +33,19 @@ function fakeQueryFn(models: unknown[] = RAW) {
   const fn = vi.fn(() => {
     const gen: any = (async function* () {})();
     gen.supportedModels = async () => models;
+    const originalReturn = gen.return.bind(gen);
+    gen.return = async (v: unknown) => { closed.count += 1; return originalReturn(v); };
+    return gen;
+  });
+  return { fn, closed };
+}
+
+/** A query object whose `supportedModels()` never settles, to drive the probe timeout. */
+function hangingQueryFn() {
+  const closed = { count: 0 };
+  const fn = vi.fn(() => {
+    const gen: any = (async function* () {})();
+    gen.supportedModels = () => new Promise(() => {});
     const originalReturn = gen.return.bind(gen);
     gen.return = async (v: unknown) => { closed.count += 1; return originalReturn(v); };
     return gen;
@@ -174,5 +189,116 @@ describe('ModelCatalog', () => {
     });
     const models = await catalog.list();
     expect(models.find((m) => m.value === 'opus[1m]')!.contextWindow).toBe(1_000_000);
+  });
+
+  // F3: the probe was spawning a CLI on every `list()` call — every page
+  // load, every new tab — because nothing remembered when it last ran.
+  describe('the last-probed-at guard', () => {
+    it('skips a second probe inside the refresh window', async () => {
+      const settings = fakeSettings({ [CATALOG_KEY]: JSON.stringify(RAW) });
+      const { fn } = fakeQueryFn();
+      const catalog = new ModelCatalog({ settings, queryFn: fn as never });
+
+      await catalog.refresh();
+      expect(fn).toHaveBeenCalledTimes(1);
+
+      await catalog.refresh();
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('a forced refresh probes anyway', async () => {
+      const settings = fakeSettings({ [CATALOG_KEY]: JSON.stringify(RAW) });
+      const { fn } = fakeQueryFn();
+      const catalog = new ModelCatalog({ settings, queryFn: fn as never });
+
+      await catalog.refresh();
+      await catalog.refresh(true);
+
+      expect(fn).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('the probe timeout', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('settles without rejecting, and leaves the stored list standing, when the probe hangs', async () => {
+      vi.useFakeTimers();
+      const settings = fakeSettings({ [CATALOG_KEY]: JSON.stringify(RAW) });
+      const { fn, closed } = hangingQueryFn();
+      const catalog = new ModelCatalog({ settings, queryFn: fn as never });
+
+      const refreshing = catalog.refresh();
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS + 1_000);
+      await expect(refreshing).resolves.toBeUndefined();
+
+      expect(JSON.parse(settings.store[CATALOG_KEY])).toEqual(RAW);
+      // The query is closed even though supportedModels() never answered.
+      expect(closed.count).toBe(1);
+    });
+  });
+
+  it('does not wipe a good stored list when the probe resolves to an empty array', async () => {
+    const settings = fakeSettings({ [CATALOG_KEY]: JSON.stringify(RAW) });
+    const { fn } = fakeQueryFn([]);
+    const catalog = new ModelCatalog({ settings, queryFn: fn as never });
+
+    await catalog.refresh(true);
+
+    expect(JSON.parse(settings.store[CATALOG_KEY])).toEqual(RAW);
+  });
+
+  it('never lets the probe prompt stream produce a value', async () => {
+    const settings = fakeSettings();
+    let capturedPrompt: AsyncIterable<unknown> | undefined;
+    const fn = vi.fn((opts: any) => {
+      capturedPrompt = opts.prompt;
+      const gen: any = (async function* () {})();
+      gen.supportedModels = async () => RAW;
+      return gen;
+    });
+    const catalog = new ModelCatalog({ settings, queryFn: fn as never });
+
+    await catalog.list();
+
+    expect(capturedPrompt).toBeDefined();
+    const sentinel = Symbol('sentinel');
+    // The sentinel promise is already resolved; the prompt's `next()` is
+    // driven off a promise that never settles. If the prompt ever yielded a
+    // value (even synchronously enqueued), it could win this race.
+    const result = await Promise.race([capturedPrompt![Symbol.asyncIterator]().next(), Promise.resolve(sentinel)]);
+    expect(result).toBe(sentinel);
+  });
+
+  it('logs a probe failure once, then again only after a fresh success', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const settings = fakeSettings({ [CATALOG_KEY]: JSON.stringify(RAW) });
+    let mode: 'fail' | 'ok' = 'fail';
+    const fn = vi.fn(() => {
+      const gen: any = (async function* () {})();
+      gen.supportedModels = async () => {
+        if (mode === 'fail') throw new Error('offline');
+        return RAW;
+      };
+      return gen;
+    });
+    const catalog = new ModelCatalog({ settings, queryFn: fn as never });
+
+    await catalog.refresh(true);
+    await catalog.refresh(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    mode = 'ok';
+    await catalog.refresh(true);
+    mode = 'fail';
+    await catalog.refresh(true);
+    expect(warn).toHaveBeenCalledTimes(2);
+
+    warn.mockRestore();
+  });
+
+  it('exposes the refresh interval as a named constant', () => {
+    expect(REFRESH_INTERVAL_MS).toBeGreaterThan(0);
   });
 });
