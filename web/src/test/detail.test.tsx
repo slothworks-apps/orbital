@@ -164,7 +164,8 @@ describe('DetailPanel header', () => {
 
   it('renders the INPUT/OUTPUT/CACHE READ grid and a context-usage bar from turn_result usage, including cache creation tokens', async () => {
     resetStore({
-      sessions: { a: makeSession({ id: 'a' }) },
+      sessions: { a: makeSession({ id: 'a', model: 'sonnet' }) },
+      models: MODELS,
       // 1000 + 500 + 6000 + 2242 = 9742 tokens -> round(9742 / 200_000 * 100) = 5%
       usage: {
         a: {
@@ -194,11 +195,13 @@ describe('DetailPanel header', () => {
     expect(bar).toHaveAttribute('aria-valuenow', '5')
   })
 
-  it('keeps the usage grid in place with em-dash placeholders (and no progressbar) when there is no usage yet', async () => {
+  it('keeps the usage grid in place with em-dash placeholders (and no progressbar) when a web session has no usage yet', async () => {
     resetStore({
-      // A terminal session never reports turn_result usage at all — the
-      // block must still hold its place rather than vanish.
-      sessions: { a: makeSession({ id: 'a', source: 'terminal' }) },
+      // A fresh web session hasn't had a turn_result yet, but it CAN report
+      // usage eventually, and its model's window is known — so the block
+      // holds its place with dashes rather than vanishing.
+      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      models: MODELS,
       ui: { selectedId: 'a' },
     })
 
@@ -211,8 +214,22 @@ describe('DetailPanel header', () => {
     for (const label of ['INPUT', 'OUTPUT', 'CACHE READ']) {
       expect(within(grid as HTMLElement).getByText(label).nextElementSibling).toHaveTextContent('—')
     }
-    expect(container.querySelector('[data-context-readout]')).toHaveTextContent('— / 200k ctx')
     // No value to report -> an empty track, not a progressbar claiming 0%.
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('hides the usage grid and context bar entirely for a terminal session, which can never report either (owner\'s ruling: hide, don\'t dash)', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'terminal' }) },
+      models: MODELS,
+      ui: { selectedId: 'a' },
+    })
+
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(container.querySelector('[data-usage-grid]')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-context-readout]')).not.toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 
@@ -493,9 +510,13 @@ describe('DetailPanel model chip', () => {
     expect(screen.getByRole('progressbar', { name: 'Context usage' })).toHaveAttribute('aria-valuenow', '10')
   })
 
-  it('falls back to 200k for a model it cannot place', () => {
+  it('draws no context bar or read-out for a model it cannot place, rather than guessing a size', () => {
     renderDetail({ session: { ...webSession, model: null, resolvedModel: 'claude-mystery-1' }, models: MODELS })
-    expect(screen.getByTestId('context-readout')).toHaveTextContent('/ 200k ctx')
+    expect(screen.queryByTestId('context-readout')).not.toBeInTheDocument()
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    // The rest of the usage block (a web session, so it CAN report usage)
+    // still holds its place.
+    expect(screen.getByText('INPUT')).toBeInTheDocument()
   })
 })
 

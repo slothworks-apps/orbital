@@ -26,7 +26,7 @@ import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { ModelSwitcher } from './ModelSwitcher'
 import { shortenPath, formatContextWindow } from '../lib/format'
-import { contextWindowFor, DEFAULT_CONTEXT_WINDOW } from '../lib/models'
+import { contextWindowFor } from '../lib/models'
 import { tagColor } from '../lib/types'
 import type { ApiSession, Tag } from '../lib/types'
 
@@ -260,11 +260,19 @@ export function DetailPanel() {
 
   const lineage = lineageCache[id]
   const usageTokens = extractUsageTokens(usage)
-  const contextWindow = session ? contextWindowFor(session, models) : DEFAULT_CONTEXT_WINDOW
+  const contextWindow = session ? contextWindowFor(session, models) : null
   const contextPercent =
-    usageTokens !== undefined
+    usageTokens !== undefined && contextWindow !== null
       ? Math.min(100, Math.round((usageTokens.total / contextWindow) * 100))
       : undefined
+  // Only the Runner publishes `turn_result`, so a terminal session's
+  // INPUT/OUTPUT/CACHE READ and context bar are permanently unmeasurable —
+  // not merely unmeasured yet, the way a fresh web session's are. The owner
+  // ruled that a number that can never arrive should not sit there as an em
+  // dash either ("pokud terminálové sessions tyhle věci vůbec nevidí, tak
+  // bych to skryl"), which deliberately overrides canvas 1b's "always
+  // rendered" grid — a choice, not a regression.
+  const canShowUsage = session?.source !== 'terminal'
   const isTerminalLive = session?.source === 'terminal' && session.status !== 'ended'
   const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
 
@@ -399,47 +407,55 @@ export function DetailPanel() {
               <Badge variant="status" value={session.status} hue={headerHue} />
             </div>
 
-            {/* Usage grid (1b). Always rendered: a session with no reported
-                usage — every terminal session, and any web session before its
-                first turn_result — shows em dashes rather than an absent block. */}
-            <div
-              data-usage-grid
-              data-empty={usageTokens === undefined}
-              aria-label="Token usage"
-              className="mt-4 grid grid-cols-3 gap-2.5"
-            >
-              <UsageStat label="INPUT" value={usageTokens ? formatTokens(usageTokens.input) : NO_VALUE} />
-              <UsageStat label="OUTPUT" value={usageTokens ? formatTokens(usageTokens.output) : NO_VALUE} />
-              <UsageStat
-                label="CACHE READ"
-                value={usageTokens ? formatTokens(usageTokens.cacheRead) : NO_VALUE}
-              />
-            </div>
+            {/* Usage grid (1b), rendered for anything that CAN eventually report
+                usage. A web session with no turn_result yet shows em dashes
+                rather than an absent block; a terminal session never gets
+                here at all — see `canShowUsage` above. */}
+            {canShowUsage && (
+              <div
+                data-usage-grid
+                data-empty={usageTokens === undefined}
+                aria-label="Token usage"
+                className="mt-4 grid grid-cols-3 gap-2.5"
+              >
+                <UsageStat label="INPUT" value={usageTokens ? formatTokens(usageTokens.input) : NO_VALUE} />
+                <UsageStat label="OUTPUT" value={usageTokens ? formatTokens(usageTokens.output) : NO_VALUE} />
+                <UsageStat
+                  label="CACHE READ"
+                  value={usageTokens ? formatTokens(usageTokens.cacheRead) : NO_VALUE}
+                />
+              </div>
+            )}
 
-            {/* Context bar + read-out on one line (1b: 3px track, 10px mono). */}
-            <div className="mt-3 flex items-center gap-2.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
-              <span className="h-[3px] flex-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)]">
-                {contextPercent !== undefined && (
-                  <span
-                    role="progressbar"
-                    aria-label="Context usage"
-                    aria-valuenow={contextPercent}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    className="block h-full"
-                    style={{
-                      width: `${contextPercent}%`,
-                      background: `linear-gradient(90deg, ${accentSoft}, ${accent})`,
-                      boxShadow: `0 0 8px ${accentSoft}`,
-                    }}
-                  />
-                )}
-              </span>
-              <span data-context-readout data-testid="context-readout">
-                {usageTokens ? formatTokens(usageTokens.total) : NO_VALUE} / {formatContextWindow(contextWindow)}{' '}
-                ctx
-              </span>
-            </div>
+            {/* Context bar + read-out on one line (1b: 3px track, 10px mono).
+                Drawn only when the window is actually known — a bar scaled to
+                a made-up denominator is worse than no bar (per
+                docs/decisions/models-come-from-the-sdk.md). */}
+            {canShowUsage && contextWindow !== null && (
+              <div className="mt-3 flex items-center gap-2.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+                <span className="h-[3px] flex-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)]">
+                  {contextPercent !== undefined && (
+                    <span
+                      role="progressbar"
+                      aria-label="Context usage"
+                      aria-valuenow={contextPercent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      className="block h-full"
+                      style={{
+                        width: `${contextPercent}%`,
+                        background: `linear-gradient(90deg, ${accentSoft}, ${accent})`,
+                        boxShadow: `0 0 8px ${accentSoft}`,
+                      }}
+                    />
+                  )}
+                </span>
+                <span data-context-readout data-testid="context-readout">
+                  {usageTokens ? formatTokens(usageTokens.total) : NO_VALUE} / {formatContextWindow(contextWindow)}{' '}
+                  ctx
+                </span>
+              </div>
+            )}
 
             {subagents.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Subagents">
