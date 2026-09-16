@@ -61,7 +61,7 @@ export function useSceneModel(): SceneModel {
     () =>
       // `buildSceneModel` takes a full `OrbitalState` (so it can reuse
       // `mapSessions`/`statusCounts` unmodified), but only ever reads the
-      // 10 fields selected above. The rest are inert filler to satisfy the
+      // 11 fields selected above. The rest are inert filler to satisfy the
       // type — if `buildSceneModel` (or the store selectors it calls)
       // starts reading one of them, it must be added to both this object
       // and the `useMemo` dependency array above.

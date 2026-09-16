@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { act, render } from '@testing-library/react'
-import type { ApiSession, Subagent, Tag } from '../lib/types'
+import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import { buildSceneModel, type SceneModel } from '../map/sceneModel'
 import { useSceneModel } from '../map/useSceneModel'
@@ -37,6 +37,11 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     ...overrides,
   }
 }
+
+const MODELS: OrbitalModel[] = [
+  { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', family: 'Opus', version: 'Opus 5 with 1M context', shortVersion: 'Opus 5', variant: '1M', blurb: 'Best for everyday, complex tasks', contextWindow: 1_000_000 },
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
+]
 
 const workTag: Tag = { id: 1, name: 'work', hue: 210, is_default: 0 }
 const personalTag: Tag = { id: 2, name: 'personal', hue: 330, is_default: 0 }
@@ -285,6 +290,38 @@ describe('buildSceneModel', () => {
     expect(model.moons).toEqual([])
     expect(model.labels).toEqual([])
     expect(model.counts).toEqual({ working: 0, idle: 0, needs_input: 0, ended: 0 })
+  })
+})
+
+describe('buildSceneModel model family', () => {
+  it('carries the model family on each planet', () => {
+    const model = sceneModelAt(
+      withSessions([makeSession({ id: 's1', model: 'opus[1m]' })], {
+        models: MODELS,
+        settings: { map_show_model: 'true' },
+      })
+    )
+    expect(model.planets[0].modelFamily).toBe('Opus')
+  })
+
+  it('omits the family when the map toggle is off', () => {
+    const model = sceneModelAt(
+      withSessions([makeSession({ id: 's1', model: 'opus[1m]' })], {
+        models: MODELS,
+        settings: { map_show_model: 'false' },
+      })
+    )
+    expect(model.planets[0].modelFamily).toBeNull()
+  })
+
+  it('omits the family for a session whose model is unknown', () => {
+    const model = sceneModelAt(
+      withSessions([makeSession({ id: 's1', model: null, resolvedModel: 'claude-mystery-1' })], {
+        models: MODELS,
+        settings: { map_show_model: 'true' },
+      })
+    )
+    expect(model.planets[0].modelFamily).toBeNull()
   })
 })
 

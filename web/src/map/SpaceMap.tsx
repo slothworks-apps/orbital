@@ -211,6 +211,7 @@ export function SpaceMap() {
             scale={planet.scale}
             selected={planet.selected}
             hidden={planet.hidden}
+            modelFamily={planet.modelFamily}
             onClick={handleSelect}
           />
         ))}

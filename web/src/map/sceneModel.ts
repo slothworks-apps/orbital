@@ -1,4 +1,5 @@
 import type { ApiSession, SessionStatus, Subagent } from '../lib/types'
+import { matchModel } from '../lib/models'
 import type { OrbitalState } from '../store/store'
 import { mapSessions, statusCounts } from '../store/store'
 import {
@@ -45,6 +46,12 @@ export interface ScenePlanet {
    * A planet dropped by the *age cutoff* never reaches this array at all.
    */
   hidden: boolean
+  /**
+   * Family alone (`Opus`), drawn as a second label line — or null when the
+   * map toggle is off or the model is not one the catalog knows. Never the
+   * version: the map shows what kind of thing is running, not which build.
+   */
+  modelFamily: string | null
 }
 
 export interface SceneMoon {
@@ -115,6 +122,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
   const selectedId = state.ui.selectedId
   const isHidden = (session: ApiSession) =>
     state.ui.hideEnded && session.status === 'ended'
+  const showModel = state.settings.map_show_model !== 'false'
 
   const planets: ScenePlanet[] = []
   const moons: SceneMoon[] = []
@@ -135,6 +143,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         hue: cluster.hue,
         subagents,
         hidden: isHidden(session),
+        modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
       })
 
       subagents.forEach((subagent, i) => {

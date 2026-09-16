@@ -215,6 +215,11 @@ export interface PlanetProps {
    * the same way.
    */
   hidden?: boolean
+  /**
+   * Second label line, family only (`Opus`) — null when the map's model
+   * toggle is off or the session's model matches no catalog row.
+   */
+  modelFamily?: string | null
   onClick?: (sessionId: string) => void
 }
 
@@ -551,6 +556,7 @@ export function Planet({
   scale,
   selected,
   hidden = false,
+  modelFamily = null,
   onClick,
 }: PlanetProps) {
   const mix = useStateMix(PLANET_STATES, session.status)
@@ -845,32 +851,60 @@ export function Planet({
 
       <group ref={labelGroupRef} position={[0, LABEL_TOP_REST_Y, 0]}>
         <Html zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+          {/* All three of display/width/transform below are load-bearing.
+              `transform` does not apply to an inline box, and the shift is
+              what centres the label under the planet (the anchor is its
+              top-LEFT corner). `block` rather than `inline-block` because an
+              inline-block sits on a line box and gets baseline-aligned
+              against the wrapper's strut — measured at ~6px of leading
+              pushing the label off its anchor. A block box has no line box
+              above it and starts exactly at the anchor; `max-content` keeps
+              it shrink-to-fit so the -50% is half the text, not half the
+              wrapper. This trio must stay on this OUTER span only — moving
+              it to (or duplicating it onto) either child un-centres the
+              label. */}
           <span
             style={{
-              // All three are load-bearing. `transform` does not apply to an
-              // inline box, and the shift is what centres the label under the
-              // planet (the anchor is its top-LEFT corner). `block` rather than
-              // `inline-block` because an inline-block sits on a line box and
-              // gets baseline-aligned against the wrapper's strut — measured at
-              // ~6px of leading pushing the label off its anchor. A block box
-              // has no line box above it and starts exactly at the anchor;
-              // `max-content` keeps it shrink-to-fit so the -50% is half the
-              // text, not half the wrapper.
               display: 'block',
               width: 'max-content',
               transform: 'translateX(-50%)',
-              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-              fontSize: 11,
-              letterSpacing: '0.06em',
-              color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
-              // The label is plain DOM, so its half of the state change is a CSS
-              // transition on the same curve — dropped entirely under reduced
-              // motion, which an inline style cannot express as a media query.
-              transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
-              whiteSpace: 'nowrap',
             }}
           >
-            {truncateLabel(session.title)}
+            <span
+              style={{
+                display: 'block',
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                fontSize: 11,
+                letterSpacing: '0.06em',
+                color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
+                // The label is plain DOM, so its half of the state change is a
+                // CSS transition on the same curve — dropped entirely under
+                // reduced motion, which an inline style cannot express as a
+                // media query.
+                transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {truncateLabel(session.title)}
+            </span>
+            {modelFamily && (
+              // canvas 4a, "Map label, second line under the planet title":
+              // mono 9.5px / .1em tracking, 5px below the title.
+              <span
+                style={{
+                  display: 'block',
+                  marginTop: 5,
+                  textAlign: 'center',
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 9.5,
+                  letterSpacing: '0.1em',
+                  color: LABEL_COLOR_DIMMED,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {modelFamily.toUpperCase()}
+              </span>
+            )}
           </span>
         </Html>
       </group>
