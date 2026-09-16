@@ -20,6 +20,7 @@ import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
 import type { PermissionMode, SessionRow, TagRule } from '../types.js';
+import type { ModelCatalog } from '../models/catalog.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -27,6 +28,7 @@ export interface RouteContext {
   runner: Runner;
   projectsDir: string;
   hub: Hub;
+  models: ModelCatalog;
   settings: { get(key: string): string; set(key: string, value: string): void };
 }
 
@@ -328,6 +330,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .all();
     return { projects: rows.map((r) => r.cwd) };
   });
+
+  app.get('/api/models', async () => ({ models: await ctx.models.list() }));
 
   app.get('/api/settings', () => {
     const rows = db.select().from(settingsTable).all();

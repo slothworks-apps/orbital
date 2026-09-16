@@ -40,9 +40,16 @@ function makeApp() {
     interrupt: async () => {}, end: async () => {},
   };
   const hub = new Hub();
+  const modelCatalog = {
+    list: async () => [
+      { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient', contextWindow: 200_000 },
+    ],
+    recordContextWindows: () => {},
+  };
   const app = Fastify();
   registerRoutes(app, {
     db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent', hub,
+    models: modelCatalog as any,
     settings: {
       get: (k: string) =>
         db.select({ value: settingsTable.value }).from(settingsTable)
@@ -55,7 +62,7 @@ function makeApp() {
           .run(),
     },
   });
-  return { app, db, runner, hub, registry, startCalls };
+  return { app, db, runner, hub, registry, startCalls, modelCatalog };
 }
 
 /** Subscribes a fake socket to a Hub topic and collects published payloads. */
@@ -263,6 +270,12 @@ describe('REST routes', () => {
     });
   });
 
+  it('GET /api/models serves the catalog', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/models' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().models[0]).toMatchObject({ value: 'sonnet', family: 'Sonnet', contextWindow: 200_000 });
+  });
+
   it('GET and PATCH /api/settings', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(res.json().default_permission_mode).toBe('acceptEdits');
@@ -393,6 +406,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       runner,
       projectsDir: '/nonexistent',
       hub,
+      models: { list: async () => [], recordContextWindows: () => {} } as any,
       settings: {
         get: (k: string) =>
           db.select({ value: settingsTable.value }).from(settingsTable)

@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
@@ -17,6 +18,7 @@ import { registerRoutes } from './api/routes.js';
 import { toApiSession } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentTracker } from './transcript/subagents.js';
+import { ModelCatalog } from './models/catalog.js';
 import type { SessionRow } from './types.js';
 import chokidar from 'chokidar';
 
@@ -121,11 +123,31 @@ export async function buildServer(overrides: {
     db.delete(settingsTable).where(eq(settingsTable.key, 'claude_code_version')).run();
   }
 
+  // Single accessor shared by the model catalog (which persists its probed
+  // list and learned context windows into settings) and the routes' own
+  // GET/PATCH /api/settings — two objects hitting the same table would be a
+  // silent duplicate of one job.
+  const settingsStore = {
+    get: (key: string) =>
+      db.select({ value: settingsTable.value }).from(settingsTable)
+        .where(eq(settingsTable.key, key)).get()?.value ?? '',
+    set: (key: string, value: string) =>
+      void db.insert(settingsTable).values({ key, value })
+        .onConflictDoUpdate({ target: settingsTable.key, set: { value } }).run(),
+  };
+
+  const models = new ModelCatalog({
+    settings: settingsStore,
+    queryFn: overrides.queryFn ?? (query as unknown as QueryFn),
+    cwd: process.cwd(),
+  });
+
   const runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
     idleTimeoutMs,
     onStatus: (sessionId, status) => hub.publish('sessions', { event: 'status', sessionId, status }),
+    onTurnUsage: (modelUsage) => models.recordContextWindows(modelUsage),
   });
 
   // Initial index + re-index on transcript changes (debounced).
@@ -206,20 +228,7 @@ export async function buildServer(overrides: {
     },
     (socket) => hub.handleSocket(socket),
   );
-  registerRoutes(app, {
-    db, registry, runner, projectsDir, hub,
-    settings: {
-      get: (k) =>
-        db.select({ value: settingsTable.value }).from(settingsTable)
-          .where(eq(settingsTable.key, k)).get()?.value ?? '',
-      set: (k, v) =>
-        void db
-          .insert(settingsTable)
-          .values({ key: k, value: v })
-          .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
-          .run(),
-    },
-  });
+  registerRoutes(app, { db, registry, runner, projectsDir, hub, models, settings: settingsStore });
   app.addHook('onClose', async () => {
     runner.dispose();
     await registry.close();

@@ -94,6 +94,7 @@ export class Runner {
   private newSessionId: () => string;
   private idleTimeoutMs: number | null;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
+  private onTurnUsage?: (modelUsage: unknown) => void;
 
   constructor(deps: {
     hub: Hub;
@@ -107,6 +108,8 @@ export class Runner {
     /** `null` disables the idle timer entirely (the `IDLE_NEVER` preset). */
     idleTimeoutMs?: number | null;
     onStatus?: (sessionId: string, status: SessionStatus) => void;
+    /** Receives each turn result's `modelUsage`, which is where context-window sizes come from. */
+    onTurnUsage?: (modelUsage: unknown) => void;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -116,6 +119,7 @@ export class Runner {
     this.idleTimeoutMs =
       deps.idleTimeoutMs === undefined ? DEFAULT_IDLE_MINUTES * 60_000 : deps.idleTimeoutMs;
     this.onStatus = deps.onStatus;
+    this.onTurnUsage = deps.onTurnUsage;
   }
 
   /**
@@ -287,6 +291,7 @@ export class Runner {
           }
         } else if (msg.type === 'result') {
           this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });
+          this.onTurnUsage?.(msg.modelUsage);
           this.setStatus(sessionId, 'needs_input');
           this.armIdleTimer(sessionId);
         }

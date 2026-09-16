@@ -197,6 +197,24 @@ function fakeQueryFnSilent() {
   return { fn };
 }
 
+/** Like fakeQueryFn, but its result message also carries modelUsage. */
+function fakeQueryFnWithModelUsage() {
+  const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+    const sid = sessionIdOf(options);
+    async function* gen() {
+      for await (const _msg of prompt) {
+        yield {
+          type: 'result', subtype: 'success', session_id: sid,
+          usage: { output_tokens: 5 },
+          modelUsage: { 'claude-sonnet-5': { contextWindow: 200_000 } },
+        };
+      }
+    }
+    return gen() as any;
+  };
+  return { fn };
+}
+
 describe('Runner', () => {
   it('starts a session, streams messages, and lands in needs_input after the turn', async () => {
     const hub = new Hub();
@@ -211,6 +229,16 @@ describe('Runner', () => {
     expect(events).toContain('turn_result');
     const msg = received.find((r) => r.event === 'message');
     expect(msg.message.text).toBe('echo:hello');
+  });
+
+  it('hands each turn result modelUsage to its consumer', async () => {
+    const hub = new Hub();
+    const seen: unknown[] = [];
+    const { fn } = fakeQueryFnWithModelUsage();
+    const runner = new Runner({ hub, queryFn: fn, onTurnUsage: (u) => seen.push(u) });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'acceptEdits' });
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual({ 'claude-sonnet-5': { contextWindow: 200_000 } });
   });
 
   it('start() with an empty prompt does not enqueue a first turn; waits in needs_input for send() (I6)', async () => {
