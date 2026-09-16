@@ -13,11 +13,14 @@ export function indexProjects(
   let scanned = 0;
   let indexed = 0;
   // Titles indexed before cleanTitle existed may still be CLI wrapper noise
-  // (<local-command-caveat>…, <command-message>…). Blank them and drop the
-  // mtime short-circuit so those transcripts re-derive a clean title below.
+  // (<local-command-caveat>…, <command-message>…), and titles indexed before
+  // extractMeta learned to skip bare slash commands are stuck on "/clear".
+  // Blank both and drop the mtime short-circuit so those transcripts re-derive
+  // a clean title below. A command with arguments ("/foo bar", hence the space
+  // test) is a legitimate title and is left alone.
   db.update(sessions)
     .set({ title: '', indexedMtime: 0 })
-    .where(sql`${sessions.title} LIKE '<local-command-%' OR ${sessions.title} LIKE '<command-%' OR ${sessions.title} LIKE '<system-reminder%'`)
+    .where(sql`${sessions.title} LIKE '<local-command-%' OR ${sessions.title} LIKE '<command-%' OR ${sessions.title} LIKE '<system-reminder%' OR (${sessions.title} LIKE '/%' AND ${sessions.title} NOT LIKE '% %')`)
     .run();
   let dirs: string[] = [];
   try {

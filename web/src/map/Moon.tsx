@@ -1,9 +1,29 @@
-import { useMemo, useRef, type ComponentRef, type RefObject } from 'react'
+import { useMemo, useRef, type ComponentRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Subagent } from '../lib/types'
-import { moonVisuals } from './visuals'
+import {
+  DIMMED_OPACITY,
+  MAT_RING_MAX_SCALE,
+  MAT_RING_MIN_SCALE,
+  MAT_RING_SEC,
+  MAT_RING_START_OPACITY,
+  MAT_SHELL_MAX_OPACITY,
+  MAT_SHELL_MAX_SCALE,
+  MAT_SHELL_MIN_OPACITY,
+  MAT_SHELL_MIN_SCALE,
+  MAT_SHELL_SEC,
+  MOON_TICK_COUNT,
+  MOON_TICK_LENGTH,
+  MOON_TICK_OPACITY,
+  MOON_TICK_RADIUS,
+  MOON_TICK_WIDTH_DEG,
+  easeOut,
+  moonVisuals,
+  oscillate,
+} from './visuals'
+import { glowTexture } from './textures'
 import { oklchTagColor, TickRing } from './Planet'
 
 /**
@@ -11,30 +31,45 @@ import { oklchTagColor, TickRing } from './Planet'
  * internal `useFrame` clock (`orbitRadius`, `phase`). No store/api imports —
  * Task 9 wires this to live `subagent` WS events.
  *
- * BINDING rule: hue paints the core; subagent STATE is carried only by
- * `moonVisuals` (tick spin, core opacity, ripple, dashed materializing
- * shell) plus a white ripple for needs-input, never by re-hue-ing.
+ * BINDING rule: hue paints the rim/core; subagent STATE is carried only by
+ * `moonVisuals` (disc size, tick spin, core blink, ripple, dashed
+ * materializing shell) plus a white ripple/core for needs-input, never by
+ * re-hue-ing.
+ *
+ * Geometry is transcribed from the state sheet (artboard 1f in
+ * `Orbital.dc.html`, "MOONS · SUBAGENTS" row) and the close-up 1c, where a
+ * moon is quoted in absolute px next to a 100px planet body → 0.01 units/px.
  */
 
-const MOON_CORE_RADIUS = 0.14
-const MOON_TICK_COUNT = 10
-const MOON_TICK_RADIUS = 0.24
-const MOON_TICK_WIDTH = 0.014
-const MOON_TICK_LENGTH = 0.045
+/** 1px rim straddling the disc edge (`border:1px solid hue/<x>`). */
+const RIM_WIDTH = 0.01
 
-const MOON_RIPPLE_MIN_SCALE = 0.6
-const MOON_RIPPLE_MAX_SCALE = 1.8
-const MOON_RIPPLE_DURATION_SEC = 1.3
-const MOON_RIPPLE_INNER = 0.17
-const MOON_RIPPLE_OUTER = 0.2
+/** Dark disc fills: `oklch(30% .05 220)` working/materializing, `oklch(28% .05 220)` idle/needs-input. */
+const DISC_COLOR = oklchTagColor(220, 0.3, 0.05)
+const DISC_COLOR_IDLE = oklchTagColor(220, 0.28, 0.05)
+/** Ended moon: flat `oklch(16% .01 230)` like the ended planet body. */
+const DISC_COLOR_ENDED = oklchTagColor(230, 0.16, 0.01)
 
-const MOON_SHELL_RADIUS = 0.2
-const MOON_MATERIALIZE_FADE_IN_SEC = 1.2
+/** `orb-blink`: opacity 1 → .3 → 1. */
+const BLINK_DEPTH = 0.7
+
+/** Needs-input `orb-pulse-out` ripple: inset -4 on the 22px disc → 15px radius, scale 1 → 1.9 over 2.4s. */
+const MOON_RIPPLE_MAX_SCALE = 1.9
+const MOON_RIPPLE_DURATION_SEC = 2.4
+const MOON_RIPPLE_START_OPACITY = 0.9
+const MOON_RIPPLE_INNER = 0.14
+const MOON_RIPPLE_OUTER = 0.15
+
+/** Materializing shell fill is drawn at `oklch(30% .05 220 / .6)`. */
+const MAT_FILL_ALPHA = 0.6
+/** Materializing dashed shell + `orb-matring` both sit on the 24px disc edge. */
+const MAT_RADIUS = 0.12
 
 /** Angular orbit speed, radians/sec, at orbitRadius = 1 (scaled by 1/radius so closer moons don't look slower). */
 const ORBIT_ANGULAR_SPEED = 0.5
 
-const GREY = '#a0b4cc'
+/** Ended grey — `rgba(200,215,235)` in the canvas export. */
+const GREY = '#c8d7eb'
 const WHITE = '#ffffff'
 
 export interface MoonProps {
@@ -48,7 +83,7 @@ export interface MoonProps {
   phase: number
 }
 
-/** Dashed orbit ring traced once around the parent planet's position. */
+/** Dashed orbit ring traced once around the parent planet's position (`1px dashed hue/.22` in 1f). */
 function OrbitRing({ radius, color, opacity }: { radius: number; color: THREE.Color | string; opacity: number }) {
   const points = useMemo(() => {
     const pts: [number, number, number][] = []
@@ -65,38 +100,49 @@ function OrbitRing({ radius, color, opacity }: { radius: number; color: THREE.Co
   )
 }
 
-/**
- * Dashed shell that fades in while a subagent is materializing. Opacity is
- * driven imperatively from the parent's `useFrame` clock (via `shellRef`),
- * not from a React prop, so the fade-in animates every frame without
- * re-rendering.
- */
-function MaterializingShell({ color, shellRef }: { color: THREE.Color | string; shellRef: RefObject<ComponentRef<typeof Line> | null> }) {
-  const points = useMemo(() => {
-    const pts: [number, number, number][] = []
-    const segments = 32
-    for (let i = 0; i <= segments; i++) {
-      const angle = (i / segments) * Math.PI * 2
-      pts.push([MOON_SHELL_RADIUS * Math.cos(angle), MOON_SHELL_RADIUS * Math.sin(angle), 0])
-    }
-    return pts
-  }, [])
-
-  return (
-    <Line ref={shellRef} points={points} color={color} lineWidth={1} dashed dashSize={0.03} gapSize={0.03} transparent opacity={0} />
-  )
+/** Circle outline used for the materializing shell and its expanding ring. */
+function circlePoints(radius: number, segments: number): [number, number, number][] {
+  const pts: [number, number, number][] = []
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2
+    pts.push([radius * Math.cos(angle), radius * Math.sin(angle), 0])
+  }
+  return pts
 }
+
+/**
+ * Module-level so the point arrays keep a stable reference: a fresh array
+ * every render makes drei's <Line> tear down and rebuild its live
+ * geometry/material, and these circles never change.
+ */
+const MAT_SHELL_POINTS = circlePoints(MAT_RADIUS, 32)
+const MAT_RING_POINTS = circlePoints(MAT_RADIUS, 48)
 
 export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: MoonProps) {
   const visuals = useMemo(() => moonVisuals(subagent.state), [subagent.state])
   const color = useMemo(() => oklchTagColor(hue), [hue])
-  const coreColor = subagent.state === 'needs_input' ? WHITE : visuals.dimmed ? GREY : color
+  const coreColor = subagent.state === 'needs_input' ? WHITE : color
+  // 1f: the needs-input moon's glow is the white `0 0 10px #fff` on its core;
+  // every other state glows in the tag hue off the disc.
+  const glowColor = subagent.state === 'needs_input' ? WHITE : color
+  const glowMap = glowTexture()
+  const discColor =
+    subagent.state === 'ended'
+      ? DISC_COLOR_ENDED
+      : subagent.state === 'idle' || subagent.state === 'needs_input'
+        ? DISC_COLOR_IDLE
+        : DISC_COLOR
+  const dim = visuals.dimmed ? DIMMED_OPACITY : 1
 
   const bodyGroupRef = useRef<THREE.Group>(null!)
   const tickGroupRef = useRef<THREE.Group>(null!)
+  const coreMaterialRef = useRef<THREE.MeshBasicMaterial>(null!)
   const rippleRef = useRef<THREE.Mesh>(null!)
-  const shellRef = useRef<ComponentRef<typeof Line>>(null)
-  const shellProgress = useRef(0)
+  const shellGroupRef = useRef<THREE.Group>(null)
+  const shellLineRef = useRef<ComponentRef<typeof Line>>(null)
+  const shellFillRef = useRef<THREE.Mesh>(null)
+  const matRingRef = useRef<ComponentRef<typeof Line>>(null)
+  const matElapsed = useRef(0)
   const rippleElapsed = useRef(0)
   // Seeded from the `phase` prop once on mount, then advanced every frame in
   // useFrame — this is the moon's own running angle, not `phase` re-read
@@ -105,7 +151,7 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: Mo
   // point); it intentionally has no effect after the first render.
   const angle = useRef(phase)
 
-  useFrame((_state, delta) => {
+  useFrame((state, delta) => {
     angle.current += (ORBIT_ANGULAR_SPEED / Math.max(orbitRadius, 0.01)) * delta
     const localX = orbitRadius * Math.cos(angle.current)
     const localY = orbitRadius * Math.sin(angle.current)
@@ -115,54 +161,146 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: Mo
       tickGroupRef.current.rotation.z += visuals.tickSpin * delta
     }
 
+    if (coreMaterialRef.current) {
+      const blink =
+        visuals.corePulse > 0
+          ? 1 - BLINK_DEPTH * visuals.corePulse * oscillate(state.clock.elapsedTime, visuals.corePulseSec)
+          : 1
+      coreMaterialRef.current.opacity = visuals.coreOpacity * blink * dim
+    }
+
     if (visuals.rippleActive) {
       rippleElapsed.current = (rippleElapsed.current + delta) % MOON_RIPPLE_DURATION_SEC
-      const progress = rippleElapsed.current / MOON_RIPPLE_DURATION_SEC
+      const progress = easeOut(rippleElapsed.current / MOON_RIPPLE_DURATION_SEC)
       if (rippleRef.current) {
-        rippleRef.current.scale.setScalar(MOON_RIPPLE_MIN_SCALE + progress * (MOON_RIPPLE_MAX_SCALE - MOON_RIPPLE_MIN_SCALE))
+        rippleRef.current.scale.setScalar(1 + progress * (MOON_RIPPLE_MAX_SCALE - 1))
         const mat = rippleRef.current.material as THREE.MeshBasicMaterial
-        mat.opacity = 1 - progress
+        mat.opacity = MOON_RIPPLE_START_OPACITY * (1 - progress)
       }
     } else {
       rippleElapsed.current = 0
     }
 
-    if (visuals.dashedShell) {
-      shellProgress.current = Math.min(1, shellProgress.current + delta / MOON_MATERIALIZE_FADE_IN_SEC)
+    if (visuals.dashedShell || visuals.matRing) {
+      matElapsed.current += delta
+      // `orb-mat 1.8s ease-in-out`: opacity .3 ↔ .95, scale .85 ↔ 1.
+      const breath = oscillate(matElapsed.current, MAT_SHELL_SEC)
+      const shellOpacity = MAT_SHELL_MIN_OPACITY + (MAT_SHELL_MAX_OPACITY - MAT_SHELL_MIN_OPACITY) * breath
+      const shellScale = MAT_SHELL_MIN_SCALE + (MAT_SHELL_MAX_SCALE - MAT_SHELL_MIN_SCALE) * breath
+      if (shellGroupRef.current) shellGroupRef.current.scale.setScalar(shellScale)
+      if (shellLineRef.current) shellLineRef.current.material.opacity = shellOpacity * 0.9
+      if (shellFillRef.current) {
+        ;(shellFillRef.current.material as THREE.MeshBasicMaterial).opacity = shellOpacity * MAT_FILL_ALPHA
+      }
+      // `orb-matring 1.8s ease-out`: scale .6 → 2, opacity .8 → 0.
+      const ringProgress = easeOut((matElapsed.current % MAT_RING_SEC) / MAT_RING_SEC)
+      if (matRingRef.current) {
+        matRingRef.current.scale.setScalar(
+          MAT_RING_MIN_SCALE + ringProgress * (MAT_RING_MAX_SCALE - MAT_RING_MIN_SCALE)
+        )
+        matRingRef.current.material.opacity = MAT_RING_START_OPACITY * (1 - ringProgress)
+      }
     } else {
-      shellProgress.current = 0
-    }
-    if (shellRef.current) {
-      shellRef.current.material.opacity = shellProgress.current
+      matElapsed.current = 0
     }
   })
 
   return (
     <group position={[parentX, parentY, 0]}>
-      <OrbitRing radius={orbitRadius} color={color} opacity={visuals.trailOpacity} />
+      <OrbitRing radius={orbitRadius} color={visuals.dimmed ? GREY : color} opacity={visuals.trailOpacity} />
 
       <group ref={bodyGroupRef}>
-        {visuals.dashedShell && <MaterializingShell color={color} shellRef={shellRef} />}
+        {visuals.glowOpacity > 0 && glowMap && (
+          <mesh position={[0, 0, -0.01]}>
+            <planeGeometry args={[visuals.glowSize, visuals.glowSize]} />
+            <meshBasicMaterial
+              color={glowColor}
+              transparent
+              opacity={visuals.glowOpacity}
+              depthWrite={false}
+              map={glowMap}
+            />
+          </mesh>
+        )}
 
-        <group ref={tickGroupRef}>
-          <TickRing
-            count={MOON_TICK_COUNT}
-            radius={MOON_TICK_RADIUS}
-            width={MOON_TICK_WIDTH}
-            length={MOON_TICK_LENGTH}
-            color={visuals.dimmed ? GREY : color}
+        {visuals.dashedShell ? (
+          <group ref={shellGroupRef}>
+            <mesh ref={shellFillRef}>
+              <circleGeometry args={[MAT_RADIUS, 24]} />
+              <meshBasicMaterial color={DISC_COLOR} transparent opacity={MAT_FILL_ALPHA} depthWrite={false} />
+            </mesh>
+            <Line
+              ref={shellLineRef}
+              points={MAT_SHELL_POINTS}
+              color={color}
+              lineWidth={1}
+              dashed
+              dashSize={0.03}
+              gapSize={0.03}
+              transparent
+              opacity={0}
+            />
+          </group>
+        ) : (
+          <>
+            <mesh>
+              <circleGeometry args={[visuals.discRadius, 24]} />
+              <meshBasicMaterial color={discColor} transparent opacity={dim} />
+            </mesh>
+            {visuals.rimOpacity > 0 && (
+              <mesh>
+                <ringGeometry args={[visuals.discRadius - RIM_WIDTH / 2, visuals.discRadius + RIM_WIDTH / 2, 32]} />
+                <meshBasicMaterial
+                  color={visuals.dimmed ? GREY : color}
+                  transparent
+                  opacity={visuals.rimOpacity * dim}
+                  depthWrite={false}
+                />
+              </mesh>
+            )}
+          </>
+        )}
+
+        {visuals.matRing && (
+          <Line
+            ref={matRingRef}
+            points={MAT_RING_POINTS}
+            color={color}
+            lineWidth={1}
+            transparent
+            opacity={MAT_RING_START_OPACITY}
           />
-        </group>
+        )}
 
-        <mesh>
-          <circleGeometry args={[MOON_CORE_RADIUS, 20]} />
-          <meshBasicMaterial color={coreColor} transparent opacity={visuals.coreOpacity} />
-        </mesh>
+        {visuals.tickSpin > 0 && (
+          <group ref={tickGroupRef}>
+            <TickRing
+              count={MOON_TICK_COUNT}
+              radius={MOON_TICK_RADIUS}
+              widthDeg={MOON_TICK_WIDTH_DEG}
+              length={MOON_TICK_LENGTH}
+              color={color}
+              opacity={MOON_TICK_OPACITY}
+            />
+          </group>
+        )}
+
+        {visuals.coreRadius > 0 && (
+          <mesh position={[0, 0, 0.01]}>
+            <circleGeometry args={[visuals.coreRadius, 20]} />
+            <meshBasicMaterial
+              ref={coreMaterialRef}
+              color={coreColor}
+              transparent
+              opacity={visuals.coreOpacity * dim}
+            />
+          </mesh>
+        )}
 
         {visuals.rippleActive && (
-          <mesh ref={rippleRef}>
+          <mesh ref={rippleRef} position={[0, 0, 0.02]}>
             <ringGeometry args={[MOON_RIPPLE_INNER, MOON_RIPPLE_OUTER, 32]} />
-            <meshBasicMaterial color={WHITE} transparent opacity={1} depthWrite={false} />
+            <meshBasicMaterial color={WHITE} transparent opacity={MOON_RIPPLE_START_OPACITY} depthWrite={false} />
           </mesh>
         )}
       </group>

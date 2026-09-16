@@ -86,7 +86,7 @@ describe('NewSessionDialog', () => {
     render(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
 
-    expect(screen.getByLabelText(/working directory/i)).toHaveValue('/home/tomin/work')
+    expect(screen.getByLabelText(/project directory/i)).toHaveValue('/home/tomin/work')
     expect(screen.getByRole('radio', { name: /^plan$/i })).toHaveAttribute('aria-checked', 'true')
   })
 
@@ -98,7 +98,7 @@ describe('NewSessionDialog', () => {
 
     await waitFor(() => expect(chip('~/a/proj')).toBeInTheDocument())
     fireEvent.click(chip('~/b/proj'))
-    expect(screen.getByLabelText(/working directory/i)).toHaveValue('/b/proj')
+    expect(screen.getByLabelText(/project directory/i)).toHaveValue('/b/proj')
   })
 
   it('auto-matches a tag via debounced previewRule as cwd changes', async () => {
@@ -106,7 +106,7 @@ describe('NewSessionDialog', () => {
     resetStore()
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/home/tomin/work/x' } })
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/work/x' } })
 
     await waitFor(() =>
       expect(api.previewRule).toHaveBeenCalledWith({
@@ -124,14 +124,14 @@ describe('NewSessionDialog', () => {
     resetStore()
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/home/tomin/work/a' } })
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/work/a' } })
     await waitFor(() => expect(chip('work')).toHaveAttribute('data-active', 'true'))
 
     fireEvent.click(chip('default'))
     expect(chip('default')).toHaveAttribute('data-active', 'true')
     expect(chip('work')).toHaveAttribute('data-active', 'false')
 
-    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/home/tomin/work/b' } })
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/work/b' } })
     await waitFor(() => expect(api.previewRule).toHaveBeenCalledTimes(2))
 
     // Manual choice still wins over the fresh auto-match.
@@ -147,7 +147,7 @@ describe('NewSessionDialog', () => {
     const onClose = vi.fn()
 
     render(<NewSessionDialog open onClose={onClose} />)
-    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/home/tomin/work' } })
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/work' } })
     await waitFor(() => expect(chip('work')).toHaveAttribute('data-active', 'true'))
     fireEvent.change(screen.getByLabelText(/first prompt/i), { target: { value: 'do the thing' } })
 
@@ -170,7 +170,7 @@ describe('NewSessionDialog', () => {
     resetStore()
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/home/tomin/work' } })
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/work' } })
 
     fireEvent.keyDown(document, { key: 'Enter', metaKey: true })
 
@@ -192,10 +192,70 @@ describe('NewSessionDialog', () => {
     resetStore()
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
-    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/home/tomin/work' } })
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/work' } })
 
     await waitFor(() => expect(chip('work')).toHaveAttribute('data-active', 'true'))
     expect(screen.getByText(/spawns a new planet in/i)).toBeInTheDocument()
     expect(screen.getByText('WORK')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Canvas 1d structure
+// ---------------------------------------------------------------------------
+
+describe('NewSessionDialog — canvas 1d structure', () => {
+  it('labels the four field groups with 1d\'s mono kickers', async () => {
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+
+    for (const kicker of ['PROJECT DIRECTORY', 'PERMISSION MODE', 'FIRST PROMPT']) {
+      expect(screen.getByText(kicker)).toBeInTheDocument()
+    }
+    expect(screen.getByText(/^TAG$/)).toBeInTheDocument()
+  })
+
+  it('leaves out 1d\'s "Browse…" button (deferred past v1)', async () => {
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+
+    expect(screen.queryByRole('button', { name: /browse/i })).not.toBeInTheDocument()
+  })
+
+  it('renders recent dirs as mono path pills under the RECENT kicker, not tag chips', async () => {
+    vi.mocked(api.listProjects).mockResolvedValue(['/a/proj'])
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+
+    await waitFor(() => expect(chip('~/a/proj')).toBeInTheDocument())
+    expect(screen.getByText('RECENT')).toBeInTheDocument()
+    expect(chip('~/a/proj').className).toMatch(/font-mono/)
+    expect(chip('~/a/proj')).toHaveAttribute('title', '/a/proj')
+  })
+
+  it('puts the auto-match caption inline in the TAG kicker (1d)', async () => {
+    vi.mocked(api.previewRule).mockResolvedValue({ tagId: 1, ruleId: 10 })
+    resetStore({
+      rules: [{ id: 10, tag_id: 1, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/**' }],
+    })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/project directory/i), {
+      target: { value: '/home/tomin/work' },
+    })
+
+    await waitFor(() => expect(chip('work')).toHaveAttribute('data-active', 'true'))
+    const caption = screen.getByText(/auto-matched by rule ~\/work\/\*\*/)
+    expect(caption.parentElement?.textContent).toMatch(/^TAG/)
+  })
+
+  it('gives the first-prompt textarea 1d\'s four rows', async () => {
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+
+    expect(screen.getByLabelText(/first prompt/i)).toHaveAttribute('rows', '4')
   })
 })

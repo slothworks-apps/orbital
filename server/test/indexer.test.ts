@@ -46,6 +46,29 @@ describe('indexProjects', () => {
       .get()!;
     expect(row.messageCount).toBe(4);
   });
+  it('re-derives titles stranded on a bare slash command, but leaves ones with arguments', () => {
+    const { db, projects } = setup();
+    indexProjects(db, projects);
+
+    // A row indexed before extractMeta learned to skip "/clear".
+    db.update(sessions).set({ title: '/clear' }).where(eq(sessions.id, 'aaaa-bbbb')).run();
+    indexProjects(db, projects);
+    expect(
+      db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!
+        .title,
+    ).toBe('Fix the login bug in the auth service please');
+
+    // A command with arguments is a real title and survives untouched.
+    db.update(sessions)
+      .set({ title: '/clickup-branch CU-8180' })
+      .where(eq(sessions.id, 'aaaa-bbbb'))
+      .run();
+    indexProjects(db, projects);
+    expect(
+      db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!
+        .title,
+    ).toBe('/clickup-branch CU-8180');
+  });
   it('returns zeros for a missing dir', () => {
     const { db } = setup();
     expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0 });

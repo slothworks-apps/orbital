@@ -3,8 +3,17 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { planetVisuals, truncateLabel } from './visuals'
-import { glowTexture, bodyTexture } from './textures'
+import {
+  BODY_RADIUS,
+  DIMMED_OPACITY,
+  HALO_BREATH_MIN,
+  HALO_BREATH_SEC,
+  easeOut,
+  oscillate,
+  planetVisuals,
+  truncateLabel,
+} from './visuals'
+import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
@@ -12,74 +21,94 @@ import { glowTexture, bodyTexture } from './textures'
  *
  * BINDING rule: hue (via `oklchTagColor`) always paints the atmosphere ring
  * and (for non-ended states) the bright core; session STATE is expressed
- * only through `planetVisuals` (tick spin, core pulse, halo breathing,
+ * only through `planetVisuals` (tick spin, core blink, halo breathing,
  * ripple) plus a white core/ripple for needs-input — never by picking a
  * different hue.
  *
  * Layout per the "2d Instrument" canvas variant (`design/.../Planet
- * Variants.dc.html`): a dark matte body disc inside a rotating tick ring,
- * with a small bright core — reads as a gauge, not a ball.
+ * Variants.dc.html`) and the state sheet (artboard 1f in `Orbital.dc.html`):
+ * a dark matte body disc inside a rotating tick ring, with a thin
+ * counter-rotating 4-arc inner ring and a small bright core — reads as a
+ * gauge, not a ball.
  */
 
 // --- geometry constants (local units, before the `scale` prop is applied) --
-// Transcribed from the design export's working planet (96px body = 0.96
-// units, so 1 design px = 0.01 units): ticks band at inset -25 (band outer
-// 73px), breathing halo ring peaking ~54px, 1px hue-tinted body border,
-// 15px core, `0 0 22px hue/.25` glow.
+// Transcribed from artboard 1f, whose five planets share a 100px body (50px
+// radius) drawn here at BODY_RADIUS; `px()` below converts the export's own
+// `inset:`/size values into scene units.
 
-const BODY_RADIUS = 0.48
+/** designPx → scene units, against 1f's 50px body radius. */
+const px = (designPx: number) => (designPx / 50) * BODY_RADIUS
 
 /** Ended body: flat `oklch(16% .01 230)` per the canvas, no gradient. */
 const BODY_ENDED_LIGHTNESS = 0.16
 const BODY_ENDED_CHROMA = 0.01
 const BODY_ENDED_HUE = 230
 
-/** 1px hue border on the body edge; alpha varies by state (canvas .6/.45; grey .35 ended). */
-const BORDER_INNER = 0.47
-const BORDER_OUTER = 0.485
+/** 1px hue border straddling the body edge; alpha varies by state (1f: .6 working, .45 idle/needs-input, grey .35 ended). */
+const BORDER_INNER = px(49.5)
+const BORDER_OUTER = px(50.5)
 const BORDER_OPACITY_ACTIVE = 0.6
 const BORDER_OPACITY_IDLE = 0.45
 const BORDER_OPACITY_ENDED = 0.35
 
-/** Breathing halo ring hugging the body, canvas gradient peak at ~54px. */
-const HALO_RING_INNER = 0.45
-const HALO_RING_OUTER = 0.62
+/** Working body's `inset 0 0 0 6px rgba(0,0,0,.25)` — a dark rim inside the edge. */
+const INNER_SHADE_INNER = px(50 - 6)
+const INNER_SHADE_OUTER = px(50)
+const INNER_SHADE_OPACITY = 0.25
 
-/** Soft glow behind working/needs-input planets (`box-shadow: 0 0 22px hue/.25`). */
-const GLOW_SIZE = 2.1
+/**
+ * Breathing halo: `radial-gradient(circle, transparent 58%, hue/.18 72%,
+ * transparent 80%)` on the inset -28 box (78px radius) → a band from 45px
+ * to 62px, peaking at 56px.
+ */
+const HALO_RING_INNER = px(0.58 * 78)
+const HALO_RING_OUTER = px(0.8 * 78)
+
+/** Working body glow, `box-shadow: 0 0 22px hue/.25` → reaches 22px past the 50px edge. */
+const GLOW_SIZE = px(2 * (50 + 22))
 const GLOW_OPACITY = 0.25
 
-const CORE_RADIUS = 0.078
+/** Needs-input core glow, `0 0 14px rgba(255,255,255,.9), 0 0 30px hue/.6` around the 16px core. */
+const CORE_GLOW_WHITE_SIZE = px(2 * (8 + 14))
+const CORE_GLOW_WHITE_OPACITY = 0.9
+const CORE_GLOW_HUE_SIZE = px(2 * (8 + 30))
+const CORE_GLOW_HUE_OPACITY = 0.6
 
-const TICK_RADIUS = 0.69
-const TICK_WIDTH = 0.025
-const TICK_LENGTH = 0.08
+/** Thin inner arc ring: 4 × 60° arcs on a 90° pitch, inset -14 with a 2px mask band. */
+const ARC_RING_INNER = px(64 - 2)
+const ARC_RING_OUTER = px(64)
+const ARC_COUNT = 4
+const ARC_SWEEP_DEG = 60
+const ARC_PITCH_DEG = 90
 
-const RIPPLE_MIN_SCALE = 0.55
+/** `orb-blink` keyframes: opacity 1 → .3 → 1. */
+const BLINK_DEPTH = 0.7
+
+/** `orb-pulse-out 2.4s ease-out`: scale 1 → 1.9, opacity .9 → 0, at the idle tick ring's radius (inset -21). */
 const RIPPLE_MAX_SCALE = 1.9
-const RIPPLE_DURATION_SEC = 1.6
-const RIPPLE_INNER = 0.5
-const RIPPLE_OUTER = 0.56
+const RIPPLE_DURATION_SEC = 2.4
+const RIPPLE_START_OPACITY = 0.9
+const RIPPLE_INNER = px(71 - 1)
+const RIPPLE_OUTER = px(71)
 
-const CORE_PULSE_SPEED = 2.2
-const CORE_PULSE_AMPLITUDE = 0.14
-const HALO_BREATH_SPEED = 1.1
-const HALO_BREATH_AMPLITUDE = 0.3
-
-const RETICLE_RADIUS = 0.85
-const RETICLE_SPIN_SPEED = 0.12
+/** Selection reticle: dashed ring at inset -42, brackets 10px long at ±50px outside the body (1f). */
+const RETICLE_RADIUS = px(92)
+const RETICLE_SPIN_SPEED = (Math.PI * 2) / 40
 const RETICLE_DASH_SIZE = 0.08
 const RETICLE_DASH_GAP = 0.06
-const BRACKET_INSET = 0.62
-const BRACKET_LENGTH = 0.18
+const RETICLE_COLOR = '#e6f5ff'
+const RETICLE_OPACITY = 0.7
+const BRACKET_INSET = px(100)
+const BRACKET_LENGTH = px(10)
 
-/** Ended body-disc opacity (design dims the whole ended planet to .6). */
-const ENDED_LINE_OPACITY = 0.6
 /** Ended grey — `rgba(200,215,235)` in the canvas export. */
 const GREY = '#c8d7eb'
 const WHITE = '#ffffff'
+const BLACK = '#000000'
 
-const LABEL_OFFSET_Y = -(BODY_RADIUS + 0.34)
+/** Label sits `calc(100% + 34px)` under the body (2d/1f). */
+const LABEL_OFFSET_Y = -(BODY_RADIUS + px(34))
 const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
 const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
 
@@ -92,13 +121,14 @@ const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
  */
 const HALO_Z = -0.02
 const BODY_Z = 0
+const CORE_GLOW_Z = 0.005
 const CORE_Z = 0.01
 const RIPPLE_Z = 0.02
 const RETICLE_Z = 0.02
 
-/** Needs-input pill badge, positioned right of the planet (state sheet artboard 1f). */
-const BADGE_OFFSET_X = TICK_RADIUS + 0.3
-const BADGE_OFFSET_Y = BODY_RADIUS * 0.6
+/** Needs-input pill badge: `left: calc(100% + 10px); top: -12px` off the body box (artboard 1f). */
+const BADGE_OFFSET_X = px(60)
+const BADGE_OFFSET_Y = px(62)
 
 export interface PlanetProps {
   session: ApiSession
@@ -158,23 +188,28 @@ const BODY_ENDED_COLOR = oklchTagColor(BODY_ENDED_HUE, BODY_ENDED_LIGHTNESS, BOD
 /**
  * Radial ring of thin instanced tick marks; rotated as a group in useFrame.
  * Exported so `Moon.tsx` reuses the same primitive for its micro tick ring.
+ *
+ * `widthDeg` is the export's angular tick width (the "on" slice of its
+ * `repeating-conic-gradient`); the chord it subtends at `radius` is the
+ * plane's width, so a tick keeps the design's duty cycle at any radius.
  */
 export function TickRing({
   count,
   radius,
-  width,
+  widthDeg,
   length,
   color,
   opacity = 1,
 }: {
   count: number
   radius: number
-  width: number
+  widthDeg: number
   length: number
   color: THREE.Color | string
   opacity?: number
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!)
+  const width = radius * widthDeg * (Math.PI / 180)
 
   useLayoutEffect(() => {
     const dummy = new THREE.Object3D()
@@ -200,6 +235,35 @@ export function TickRing({
   )
 }
 
+/**
+ * The thin inner instrument ring:
+ * `repeating-conic-gradient(hue/.5 0 60deg, transparent 60deg 90deg)` masked
+ * to a 2px band at inset -14, spinning `orb-spin 60s linear infinite reverse`
+ * (artboard 1f / 1a / 2d). Four 60° arcs with 30° gaps, counter-rotating
+ * against the tick ring.
+ */
+export function ArcRing({ color, opacity }: { color: THREE.Color | string; opacity: number }) {
+  return (
+    <>
+      {Array.from({ length: ARC_COUNT }, (_, i) => (
+        <mesh key={i}>
+          <ringGeometry
+            args={[
+              ARC_RING_INNER,
+              ARC_RING_OUTER,
+              48,
+              1,
+              (i * ARC_PITCH_DEG * Math.PI) / 180,
+              (ARC_SWEEP_DEG * Math.PI) / 180,
+            ]}
+          />
+          <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
+        </mesh>
+      ))}
+    </>
+  )
+}
+
 /** One L-shaped corner bracket of the selection reticle. */
 function CornerBracket({ signX, signY, color }: { signX: 1 | -1; signY: 1 | -1; color: THREE.Color | string }) {
   // Memoized: a fresh array reference every render makes drei's <Line> tear
@@ -215,11 +279,13 @@ function CornerBracket({ signX, signY, color }: { signX: 1 | -1; signY: 1 | -1; 
     ]
   }, [signX, signY])
 
-  return <Line points={points} color={color} lineWidth={1} transparent opacity={0.85} />
+  // 1f draws the brackets `1.5px solid #fff`, opaque — only the dashed ring
+  // is tinted/faded.
+  return <Line points={points} color={color} lineWidth={1.5} />
 }
 
 /** Selection reticle: a slow dashed ring + 4 corner brackets. */
-function SelectionReticle({ color, groupRef }: { color: THREE.Color | string; groupRef: RefObject<THREE.Group | null> }) {
+function SelectionReticle({ groupRef }: { groupRef: RefObject<THREE.Group | null> }) {
   const ringPoints = useMemo(() => {
     const pts: [number, number, number][] = []
     const segments = 96
@@ -234,18 +300,18 @@ function SelectionReticle({ color, groupRef }: { color: THREE.Color | string; gr
     <group ref={groupRef} position={[0, 0, RETICLE_Z]}>
       <Line
         points={ringPoints}
-        color={color}
+        color={RETICLE_COLOR}
         lineWidth={1}
         dashed
         dashSize={RETICLE_DASH_SIZE}
         gapSize={RETICLE_DASH_GAP}
         transparent
-        opacity={0.7}
+        opacity={RETICLE_OPACITY}
       />
-      <CornerBracket signX={1} signY={1} color={color} />
-      <CornerBracket signX={-1} signY={1} color={color} />
-      <CornerBracket signX={1} signY={-1} color={color} />
-      <CornerBracket signX={-1} signY={-1} color={color} />
+      <CornerBracket signX={1} signY={1} color={WHITE} />
+      <CornerBracket signX={-1} signY={1} color={WHITE} />
+      <CornerBracket signX={1} signY={-1} color={WHITE} />
+      <CornerBracket signX={-1} signY={-1} color={WHITE} />
     </group>
   )
 }
@@ -289,51 +355,61 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
   const tickColor = visuals.dimmed ? GREY : color
   const coreColor = session.status === 'needs_input' ? WHITE : color
   const glowMap = glowTexture()
-  const bodyMap = bodyTexture()
-  // Canvas: only working/needs-input bodies carry the `0 0 22px hue/.25` glow.
-  const glowOn = session.status === 'working' || session.status === 'needs_input'
+  // 1f: only the working body carries `box-shadow: 0 0 22px hue/.25`; the
+  // needs-input planet's glow lives on its white core instead.
+  const bodyMap = session.status === 'working' ? bodyTexture() : bodyIdleTexture()
+  const glowOn = session.status === 'working'
+  const coreGlowOn = session.status === 'needs_input'
   const borderOpacity = visuals.dimmed
     ? BORDER_OPACITY_ENDED
-    : session.status === 'idle'
-      ? BORDER_OPACITY_IDLE
-      : BORDER_OPACITY_ACTIVE
+    : session.status === 'working'
+      ? BORDER_OPACITY_ACTIVE
+      : BORDER_OPACITY_IDLE
+  // The export wraps an ended planet in `opacity:.6`, which multiplies every
+  // layer's own alpha — reproduced here per material.
+  const dim = visuals.dimmed ? DIMMED_OPACITY : 1
 
   const tickGroupRef = useRef<THREE.Group>(null!)
-  const coreRef = useRef<THREE.Mesh>(null!)
+  const arcGroupRef = useRef<THREE.Group>(null!)
+  const coreMaterialRef = useRef<THREE.MeshBasicMaterial>(null!)
   const haloMaterialRef = useRef<THREE.MeshBasicMaterial>(null!)
   const rippleRef = useRef<THREE.Mesh>(null!)
   const reticleGroupRef = useRef<THREE.Group>(null!)
   const rippleElapsed = useRef(0)
 
   useFrame((state, delta) => {
-    if (visuals.tickSpin > 0 && tickGroupRef.current) {
+    if (visuals.tickSpin !== 0 && tickGroupRef.current) {
       tickGroupRef.current.rotation.z += visuals.tickSpin * delta
     }
 
-    if (coreRef.current) {
-      const pulse =
+    if (visuals.arcSpin !== 0 && arcGroupRef.current) {
+      arcGroupRef.current.rotation.z += visuals.arcSpin * delta
+    }
+
+    if (coreMaterialRef.current) {
+      // `orb-blink`: opacity 1 → .3 → 1 over corePulseSec (a blink, not a scale pulse).
+      const blink =
         visuals.corePulse > 0
-          ? 1 + Math.sin(state.clock.elapsedTime * CORE_PULSE_SPEED) * CORE_PULSE_AMPLITUDE * visuals.corePulse
+          ? 1 - BLINK_DEPTH * visuals.corePulse * oscillate(state.clock.elapsedTime, visuals.corePulseSec)
           : 1
-      coreRef.current.scale.setScalar(pulse)
+      coreMaterialRef.current.opacity = visuals.coreOpacity * blink * dim
     }
 
     if (haloMaterialRef.current) {
-      const breathing =
-        visuals.haloOpacity > 0 && visuals.haloBreathes
-          ? visuals.haloOpacity *
-            (1 - HALO_BREATH_AMPLITUDE / 2 + (HALO_BREATH_AMPLITUDE / 2) * Math.sin(state.clock.elapsedTime * HALO_BREATH_SPEED))
-          : visuals.haloOpacity
-      haloMaterialRef.current.opacity = breathing
+      // `orb-ring`: opacity ×.55 → ×1 → ×.55 over 2.4s.
+      const breath = visuals.haloBreathes
+        ? HALO_BREATH_MIN + (1 - HALO_BREATH_MIN) * oscillate(state.clock.elapsedTime, HALO_BREATH_SEC)
+        : 1
+      haloMaterialRef.current.opacity = visuals.haloOpacity * breath
     }
 
     if (visuals.rippleActive) {
       rippleElapsed.current = (rippleElapsed.current + delta) % RIPPLE_DURATION_SEC
-      const progress = rippleElapsed.current / RIPPLE_DURATION_SEC
+      const progress = easeOut(rippleElapsed.current / RIPPLE_DURATION_SEC)
       if (rippleRef.current) {
-        rippleRef.current.scale.setScalar(RIPPLE_MIN_SCALE + progress * (RIPPLE_MAX_SCALE - RIPPLE_MIN_SCALE))
+        rippleRef.current.scale.setScalar(1 + progress * (RIPPLE_MAX_SCALE - 1))
         const mat = rippleRef.current.material as THREE.MeshBasicMaterial
-        mat.opacity = 1 - progress
+        mat.opacity = RIPPLE_START_OPACITY * (1 - progress)
       }
     } else {
       rippleElapsed.current = 0
@@ -371,25 +447,34 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
         </mesh>
       )}
 
+      {visuals.arcOpacity > 0 && (
+        <group ref={arcGroupRef} position={[0, 0, HALO_Z]}>
+          <ArcRing color={color} opacity={visuals.arcOpacity} />
+        </group>
+      )}
+
       <mesh position={[0, 0, BODY_Z]}>
         <circleGeometry args={[BODY_RADIUS, 48]} />
         {visuals.dimmed || !bodyMap ? (
-          <meshBasicMaterial
-            color={BODY_ENDED_COLOR}
-            transparent
-            opacity={visuals.dimmed ? ENDED_LINE_OPACITY : 1}
-          />
+          <meshBasicMaterial color={BODY_ENDED_COLOR} transparent opacity={dim} />
         ) : (
           <meshBasicMaterial map={bodyMap} />
         )}
       </mesh>
+
+      {session.status === 'working' && (
+        <mesh position={[0, 0, BODY_Z]}>
+          <ringGeometry args={[INNER_SHADE_INNER, INNER_SHADE_OUTER, 48]} />
+          <meshBasicMaterial color={BLACK} transparent opacity={INNER_SHADE_OPACITY} depthWrite={false} />
+        </mesh>
+      )}
 
       <mesh position={[0, 0, BODY_Z]}>
         <ringGeometry args={[BORDER_INNER, BORDER_OUTER, 64]} />
         <meshBasicMaterial
           color={visuals.dimmed ? GREY : color}
           transparent
-          opacity={borderOpacity}
+          opacity={borderOpacity * dim}
           depthWrite={false}
         />
       </mesh>
@@ -398,29 +483,54 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
         <TickRing
           key={visuals.tickCount}
           count={visuals.tickCount}
-          radius={TICK_RADIUS}
-          width={TICK_WIDTH}
-          length={TICK_LENGTH}
+          radius={visuals.tickRadius}
+          widthDeg={visuals.tickWidthDeg}
+          length={visuals.tickLength}
           color={tickColor}
-          opacity={visuals.tickOpacity}
+          opacity={visuals.tickOpacity * dim}
         />
       </group>
 
+      {coreGlowOn && glowMap && (
+        <>
+          <mesh position={[0, 0, CORE_GLOW_Z]}>
+            <planeGeometry args={[CORE_GLOW_HUE_SIZE, CORE_GLOW_HUE_SIZE]} />
+            <meshBasicMaterial
+              color={color}
+              transparent
+              opacity={CORE_GLOW_HUE_OPACITY}
+              depthWrite={false}
+              map={glowMap}
+            />
+          </mesh>
+          <mesh position={[0, 0, CORE_GLOW_Z]}>
+            <planeGeometry args={[CORE_GLOW_WHITE_SIZE, CORE_GLOW_WHITE_SIZE]} />
+            <meshBasicMaterial
+              color={WHITE}
+              transparent
+              opacity={CORE_GLOW_WHITE_OPACITY}
+              depthWrite={false}
+              map={glowMap}
+            />
+          </mesh>
+        </>
+      )}
+
       {visuals.coreOpacity > 0 && (
-        <mesh ref={coreRef} position={[0, 0, CORE_Z]}>
-          <circleGeometry args={[CORE_RADIUS, 32]} />
-          <meshBasicMaterial color={coreColor} transparent opacity={visuals.coreOpacity} />
+        <mesh position={[0, 0, CORE_Z]}>
+          <circleGeometry args={[visuals.coreRadius, 32]} />
+          <meshBasicMaterial ref={coreMaterialRef} color={coreColor} transparent opacity={visuals.coreOpacity * dim} />
         </mesh>
       )}
 
       {visuals.rippleActive && (
         <mesh ref={rippleRef} position={[0, 0, RIPPLE_Z]}>
           <ringGeometry args={[RIPPLE_INNER, RIPPLE_OUTER, 48]} />
-          <meshBasicMaterial color={WHITE} transparent opacity={1} depthWrite={false} />
+          <meshBasicMaterial color={WHITE} transparent opacity={RIPPLE_START_OPACITY} depthWrite={false} />
         </mesh>
       )}
 
-      {visuals.reticle && <SelectionReticle color={color} groupRef={reticleGroupRef} />}
+      {visuals.reticle && <SelectionReticle groupRef={reticleGroupRef} />}
 
       {visuals.rippleActive && <NeedsInputBadge />}
 

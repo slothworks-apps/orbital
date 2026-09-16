@@ -7,7 +7,6 @@ import { reportError } from '../lib/errors'
 import { tagColor } from '../lib/types'
 import type { Tag, TagRule } from '../lib/types'
 import { Panel } from '../ui/Panel'
-import { Button } from '../ui/Button'
 import { Select } from '../ui/Select'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
@@ -18,14 +17,29 @@ export interface TagsRulesProps {
   onClose: () => void
 }
 
-/** The design canvas's 8-swatch hue picker (artboard 1e). */
-const HUE_SWATCHES = [210, 225, 270, 330, 10, 60, 90, 150]
+/** The design canvas's 8-swatch hue picker, verbatim from artboard 1e. */
+const HUE_SWATCHES = [210, 250, 290, 330, 20, 60, 110, 150]
 
 const CONDITION_OPTIONS: Array<{ value: TagRule['condition']; label: string }> = [
   { value: 'path_matches', label: 'path matches' },
   { value: 'title_contains', label: 'title contains' },
   { value: 'permission_is', label: 'permission is' },
 ]
+
+/**
+ * Rules table columns. The first five are verbatim from artboard 1e
+ * (`24px 1fr 1fr 130px 44px`: grip · condition · pattern · → tag · on); the
+ * trailing 68px is a row-actions column 1e's static mock has no need for —
+ * it draws a drag grip, but drag-to-reorder is deferred, so the working
+ * reorder arrows and the delete control live here instead. Every column is
+ * `minmax(0, …)` so a narrow window squeezes the table instead of clipping
+ * the actions off the right edge. The header row, every rule row and the
+ * column captions all share this one definition so they stay aligned.
+ */
+const RULE_GRID = 'grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,130px)_44px_68px]'
+
+/** Id (not a ref — `Input` doesn't take one) so the header's "+ new tag" can focus the field when it's empty. */
+const NEW_TAG_FIELD_ID = 'tags-rules-new-tag'
 
 /** Debounce for the pattern/preview text inputs — same window as the rest of the app's debounced PATCHes. */
 const DEBOUNCE_MS = 400
@@ -36,6 +50,10 @@ function replaceTag(tags: Tag[], id: number, patch: Partial<Tag>): Tag[] {
 
 function replaceRule(rules: TagRule[], id: number, patch: Partial<TagRule>): TagRule[] {
   return rules.map((r) => (r.id === id ? { ...r, ...patch } : r))
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
 }
 
 /**
@@ -81,6 +99,27 @@ async function resyncSessions(): Promise<void> {
   }
 }
 
+/**
+ * The 22px planet marble 1e uses instead of a flat colour dot — the same
+ * radial body fill for every tag, with the tag's own hue carried by the rim
+ * and the glow (canvas 1e: `0 0 14px …/.7` on the selected card, `0 0 12px
+ * …/.6` on the resting ones).
+ */
+function TagPlanet({ hue, selected }: { hue: number; selected: boolean }) {
+  return (
+    <span
+      aria-hidden
+      data-tag-planet
+      className="h-[22px] w-[22px] shrink-0 rounded-full"
+      style={{
+        background: 'radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%)',
+        border: `1px solid oklch(80% .13 ${hue} / .55)`,
+        boxShadow: selected ? `0 0 14px oklch(80% .13 ${hue} / .7)` : `0 0 12px oklch(80% .13 ${hue} / .6)`,
+      }}
+    />
+  )
+}
+
 /** Inline-editable tag name — local draft so keystrokes don't get clobbered by store updates, committed on blur/Enter (mirrors DetailPanel's title field). */
 function TagNameField({ tag, onCommit }: { tag: Tag; onCommit: (name: string) => void }) {
   const [draft, setDraft] = useState(tag.name)
@@ -116,9 +155,12 @@ function TagNameField({ tag, onCommit }: { tag: Tag; onCommit: (name: string) =>
 }
 
 /**
- * Tag list + auto-tag rule table (artboard 1e), rendered as an overlay
- * `Panel` (not `Dialog` — too much content for the ~28rem modal width) from
- * the sidebar footer's "tags & rules" entry point.
+ * Tag list + auto-tag rule table (artboard 1e), rendered as the same
+ * 1120×740 floating glass panel `Settings` (artboard 1h) uses — back
+ * chevron, SETTINGS kicker, title, save status — with a two-column body:
+ * tags on the left (400px, per the export), the selected tag's rules on the
+ * right. Entered from the sidebar footer's "tags & rules" row or from
+ * Settings' nav.
  */
 export function TagsRules({ open, onClose }: TagsRulesProps) {
   const tags = useOrbital(useShallow((s) => s.tags))
@@ -131,6 +173,8 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const [previewPath, setPreviewPath] = useState('')
   const [previewResult, setPreviewResult] = useState<{ tagId: number | null; ruleId: number | null } | null>(null)
   const [patternDrafts, setPatternDrafts] = useState<Record<number, string>>({})
+  /** Drives the header's "saved · just now" (canvas 1e) — set by every mutation that actually landed. */
+  const [saved, setSaved] = useState(false)
 
   // Per-row debounce for the pattern field, keyed by rule id — a keystroke
   // in one row only resets that row's own timer, never every other row's
@@ -151,6 +195,12 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       Object.values(patternTimers.current).forEach(clearTimeout)
     }
   }, [])
+
+  // The panel stays mounted across `open`, so the save status has to be
+  // cleared on entry — "just now" must never be left over from a past visit.
+  useEffect(() => {
+    if (open) setSaved(false)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -183,6 +233,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
   const sortedRules = [...rules].sort((a, b) => a.position - b.position)
   const effectiveTagId = selectedTagId ?? tags[0]?.id ?? null
   const tagRules = sortedRules.filter((r) => r.tag_id === effectiveTagId)
+  const defaultTag = tags.find((t) => t.is_default)
 
   function sessionCount(tagId: number): number {
     return Object.values(sessions).filter((s) => s.tagIds.includes(tagId)).length
@@ -190,6 +241,15 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
 
   function ruleCount(tagId: number): number {
     return rules.filter((r) => r.tag_id === tagId).length
+  }
+
+  /** Canvas 1e: "3 sessions · 2 rules", "2 sessions · default" — the rule count is dropped when a tag has none. */
+  function tagMeta(tag: Tag): string {
+    const parts = [plural(sessionCount(tag.id), 'session')]
+    const ruleN = ruleCount(tag.id)
+    if (ruleN > 0) parts.push(plural(ruleN, 'rule'))
+    if (tag.is_default) parts.push('default')
+    return parts.join(' · ')
   }
 
   async function handleCreateTag() {
@@ -200,15 +260,28 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       const refreshed = await api.listTags()
       useOrbital.setState({ tags: refreshed })
       setNewTagName('')
+      setSaved(true)
     } catch (err) {
       reportError(err, 'Failed to create tag')
     }
+  }
+
+  // The header's "+ new tag" is 1e's only create affordance; the name field
+  // below the list is ours (1e renames in place on the card instead). With
+  // nothing typed yet, send focus there rather than no-oping silently.
+  function handleNewTagClick() {
+    if (!newTagName.trim()) {
+      document.getElementById(NEW_TAG_FIELD_ID)?.focus()
+      return
+    }
+    void handleCreateTag()
   }
 
   async function handleRenameTag(id: number, name: string) {
     try {
       await api.patchTag(id, { name })
       useOrbital.setState((state) => ({ tags: replaceTag(state.tags, id, { name }) }))
+      setSaved(true)
     } catch (err) {
       reportError(err, 'Failed to rename tag')
     }
@@ -218,6 +291,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTag(id, { hue })
       useOrbital.setState((state) => ({ tags: replaceTag(state.tags, id, { hue }) }))
+      setSaved(true)
     } catch (err) {
       reportError(err, 'Failed to update tag color')
     }
@@ -228,6 +302,11 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.deleteTag(tag.id)
       useOrbital.setState((state) => ({ tags: state.tags.filter((t) => t.id !== tag.id) }))
+      // Delete only ever fires from the selected card, so the selection is
+      // now dangling — fall back to the first tag rather than leaving the
+      // rules column pointing at a tag that no longer exists.
+      setSelectedTagId(null)
+      setSaved(true)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to delete tag')
@@ -241,16 +320,19 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
       await api.createTagRule({ tagId: targetTagId, condition: 'path_matches', pattern: '' })
       const refreshed = await api.listTagRules()
       useOrbital.setState({ rules: refreshed })
+      setSaved(true)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to add rule')
     }
   }
 
-  // Drag-to-reorder (as sketched in artboard 1e) is deferred to a later
-  // version — up/down buttons swap `position` with the adjacent row instead
-  // via two PATCHes, which is enough to express the same first-match-wins
-  // ordering without a drag-and-drop implementation in v1.
+  // Drag-to-reorder (the `⋮⋮` grip artboard 1e draws on every row) is
+  // deferred to a later version — the grip is rendered decoratively
+  // (`aria-hidden`, not focusable) and the up/down buttons in the row's
+  // actions cell do the real work, swapping `position` with the adjacent row
+  // via two PATCHes. That expresses the same first-match-wins ordering
+  // without a drag-and-drop implementation in v1.
   async function handleReorder(rule: TagRule, direction: 'up' | 'down') {
     // Swap within the selected tag's own list — the design manages rules per
     // tag, so "up/down" means the neighbor of the same tag.
@@ -270,6 +352,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
           return r
         }),
       }))
+      setSaved(true)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to reorder rules')
@@ -285,6 +368,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { condition })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { condition }) }))
+      setSaved(true)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to update rule')
@@ -304,6 +388,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
         .patchTagRule(rule.id, { pattern: value })
         .then(() => {
           useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { pattern: value }) }))
+          setSaved(true)
           void resyncSessions()
         })
         .catch((err) => {
@@ -317,6 +402,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { tag_id: tagId })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { tag_id: tagId }) }))
+      setSaved(true)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to update rule target tag')
@@ -329,6 +415,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.patchTagRule(rule.id, { enabled: next })
       useOrbital.setState((state) => ({ rules: replaceRule(state.rules, rule.id, { enabled: next }) }))
+      setSaved(true)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to toggle rule')
@@ -340,6 +427,7 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     try {
       await api.deleteTagRule(rule.id)
       useOrbital.setState((state) => ({ rules: state.rules.filter((r) => r.id !== rule.id) }))
+      setSaved(true)
       void resyncSessions()
     } catch (err) {
       reportError(err, 'Failed to delete rule')
@@ -352,241 +440,354 @@ export function TagsRules({ open, onClose }: TagsRulesProps) {
     previewResult?.ruleId != null ? sortedRules.findIndex((r) => r.id === previewResult.ruleId) + 1 : null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-space/70 p-6 backdrop-blur-sm">
+    // Scrim verbatim from artboard 1e: rgba(2,4,9,.5) + a 3px blur.
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]">
       <Panel
         side="float"
-        className="flex max-h-full w-full max-w-4xl flex-col gap-4 overflow-y-auto p-5"
+        className="flex h-[740px] max-h-full w-full max-w-[1120px] flex-col overflow-hidden"
       >
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="font-mono text-[10px] tracking-[0.25em] text-accent">SETTINGS</div>
-            <h2 className="text-lg font-semibold text-text-bright">Tags &amp; rules</h2>
+        {/* Header (1e: 22px 28px 18px, back chevron · kicker + title · save status). */}
+        <div className="flex items-center gap-3.5 border-b border-panel-border/60 px-7 pb-[18px] pt-[22px]">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-text-muted transition-colors hover:bg-white/5 hover:text-text-bright"
+          >
+            ‹
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="font-mono text-[10px] tracking-[0.2em] text-accent/80">SETTINGS</div>
+            <h2 className="mt-1 text-xl font-bold tracking-[-0.01em] text-text-bright">Tags &amp; rules</h2>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
-            Close
-          </Button>
+          {saved && (
+            <span
+              data-testid="save-status"
+              className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-text-muted"
+            >
+              saved · just now
+            </span>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          {/* Left: tag list */}
-          <div className="flex flex-col gap-3">
-            <h3 className="font-mono text-[11px] tracking-[0.15em] text-text-muted">TAGS</h3>
-            <ul className="flex flex-col gap-2">
+        {/* 1e's body grid is a fixed 400px tags column + the rules column; below
+            `lg` the two stack so neither gets squeezed into unreadability. */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[400px_minmax(0,1fr)]">
+          {/* Left: tags */}
+          <div className="flex min-h-0 flex-col border-b border-panel-border/60 lg:border-b-0 lg:border-r lg:border-r-panel-border/60">
+            <div className="flex items-center px-6 pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
+              TAGS · {tags.length}
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={handleNewTagClick}
+                className="font-mono tracking-[0.04em] text-accent transition-opacity hover:opacity-80"
+              >
+                + new tag
+              </button>
+            </div>
+
+            <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-4">
               {tags.map((tag) => {
                 const isSelected = tag.id === effectiveTagId
                 return (
                   // Canvas 1e: the selected card drives the rules list on the
-                  // right and is the only one showing swatches + delete.
+                  // right, is tinted in the tag's OWN hue (border …/.4 over a
+                  // …/.06 fill) and is the only one showing swatches +
+                  // delete. Selection follows focus as well as clicks so the
+                  // card is reachable by keyboard without wrapping its inner
+                  // controls in another interactive element.
                   <li
                     key={tag.id}
+                    data-tag-card={tag.id}
+                    data-selected={isSelected}
+                    aria-current={isSelected ? 'true' : undefined}
                     onClick={() => setSelectedTagId(tag.id)}
-                    aria-selected={isSelected}
-                    className={[
-                      'flex cursor-pointer flex-col gap-1.5 rounded-md border p-2 transition-colors',
+                    onFocusCapture={() => setSelectedTagId(tag.id)}
+                    style={
                       isSelected
-                        ? 'border-accent/50 bg-[rgba(150,205,255,.05)]'
-                        : 'border-panel-border hover:bg-white/5',
+                        ? {
+                            borderColor: `oklch(80% .13 ${tag.hue} / .4)`,
+                            background: `oklch(80% .13 ${tag.hue} / .06)`,
+                          }
+                        : undefined
+                    }
+                    className={[
+                      'cursor-pointer rounded-xl border transition-colors',
+                      isSelected
+                        ? 'flex flex-col gap-3 p-3.5'
+                        : 'flex items-center gap-3 border-[rgba(150,205,255,.1)] px-3.5 py-3 hover:bg-white/5',
                     ].join(' ')}
                   >
-                    <div className="flex items-center gap-2">
-                      <span
-                        aria-hidden
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ background: tagColor(tag.hue) }}
-                      />
-                      <TagNameField tag={tag} onCommit={(name) => void handleRenameTag(tag.id, name)} />
-                      <span className="shrink-0 font-mono text-[10px] text-text-muted">hue {tag.hue}</span>
-                      {isSelected && (
-                        <Button
-                          variant="danger"
-                          size="sm"
+                    <div className="flex items-center gap-3">
+                      <TagPlanet hue={tag.hue} selected={isSelected} />
+                      <div className="min-w-0 flex-1">
+                        {/* 1e marks the editable name with a dashed underline on
+                            the selected card (there: inline-block under the
+                            text; here it spans the field's width). */}
+                        <div
+                          className={
+                            isSelected ? 'border-b border-dashed border-[rgba(150,205,255,.3)]' : undefined
+                          }
+                        >
+                          <TagNameField tag={tag} onCommit={(name) => void handleRenameTag(tag.id, name)} />
+                        </div>
+                        <div className="mt-0.5 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+                          {tagMeta(tag)}
+                        </div>
+                      </div>
+                      <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+                        hue {tag.hue}
+                      </span>
+                    </div>
+
+                    {isSelected && (
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2" role="group" aria-label={`Hue for ${tag.name}`}>
+                          {HUE_SWATCHES.map((hue) => (
+                            <button
+                              key={hue}
+                              type="button"
+                              aria-label={`Hue ${hue}`}
+                              aria-pressed={tag.hue === hue}
+                              onClick={() => void handleHue(tag.id, hue)}
+                              // 1e: 22px swatch, current one ringed with a 2px
+                              // white outline at 2px offset.
+                              className="h-[22px] w-[22px] shrink-0 rounded-full outline-white aria-pressed:outline-2 aria-pressed:outline-offset-2"
+                              style={{ background: tagColor(hue) }}
+                            />
+                          ))}
+                        </div>
+                        <span className="flex-1" />
+                        <button
+                          type="button"
                           disabled={Boolean(tag.is_default)}
                           onClick={() => void handleDeleteTag(tag)}
                           aria-label={`Delete ${tag.name}`}
+                          className="shrink-0 font-mono text-[11px] text-[rgba(160,190,225,.6)] transition-colors hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[rgba(160,190,225,.6)]"
                         >
-                          Delete
-                        </Button>
-                      )}
-                    </div>
-                    <div className="font-mono text-[11px] text-text-muted">
-                      {sessionCount(tag.id)} sessions · {ruleCount(tag.id)} rules
-                      {tag.is_default === 1 ? ' · default' : ''}
-                    </div>
-                    {isSelected && (
-                      <div className="flex flex-wrap gap-1" role="group" aria-label={`Hue for ${tag.name}`}>
-                        {HUE_SWATCHES.map((hue) => (
-                          <button
-                            key={hue}
-                            type="button"
-                            aria-label={`Hue ${hue}`}
-                            aria-pressed={tag.hue === hue}
-                            onClick={() => void handleHue(tag.id, hue)}
-                            className={[
-                              'h-4 w-4 rounded-full border transition-transform',
-                              tag.hue === hue ? 'scale-110 border-text-bright' : 'border-transparent',
-                            ].join(' ')}
-                            style={{ background: tagColor(hue) }}
-                          />
-                        ))}
+                          delete
+                        </button>
                       </div>
                     )}
                   </li>
                 )
               })}
+
+              {/* Ours, not 1e's: 1e creates from the header and renames in
+                  place, but a name has to come from somewhere — a dashed row
+                  mirroring the rules table's "+ Add rule". */}
+              <li className="rounded-xl border border-dashed border-[rgba(150,205,255,.2)] px-3 py-1.5">
+                <Input
+                  id={NEW_TAG_FIELD_ID}
+                  variant="inline"
+                  aria-label="New tag name"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleCreateTag()
+                  }}
+                  placeholder="New tag name…"
+                />
+              </li>
             </ul>
-            <div className="flex gap-1.5">
-              <Input
-                aria-label="New tag name"
-                value={newTagName}
-                onChange={(e) => setNewTagName(e.target.value)}
-                placeholder="New tag"
-              />
-              <Button variant="ghost" size="sm" onClick={() => void handleCreateTag()}>
-                + new tag
-              </Button>
-            </div>
+
+            <p className="px-6 pb-5 pt-3.5 text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.6)]">
+              Tag hue drives the planet&apos;s atmosphere and ring. Untagged sessions fall back to{' '}
+              <span className="font-mono text-[rgba(200,220,245,.8)]">{defaultTag?.name ?? 'the default tag'}</span>.
+            </p>
           </div>
 
-          {/* Right: rules table */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-mono text-[11px] tracking-[0.15em] text-text-muted">
-                AUTO-TAG RULES · {tagRules.length}
-              </h3>
-              <Button variant="ghost" size="sm" onClick={() => void handleAddRule()}>
+          {/* Right: the selected tag's rules */}
+          <div className="flex min-h-0 flex-col">
+            <div className="flex items-center gap-3 px-7 pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
+              AUTO-TAG RULES · {tagRules.length}
+              <span className="flex-1" />
+              <span className="tracking-[0.04em] text-[rgba(160,190,225,.5)]">
+                evaluated top → bottom, first match wins
+              </span>
+            </div>
+
+            {/* Column captions (1e: 9.5px mono at .14em, 6px 28px). The list
+                below insets by 20px and each row by another 8px, so the two
+                grids line up on the same 28px gutter. */}
+            <div
+              className={`grid ${RULE_GRID} items-center gap-3 px-7 py-1.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.45)]`}
+            >
+              <span />
+              <span>CONDITION</span>
+              <span>PATTERN</span>
+              <span>→ TAG</span>
+              <span>ON</span>
+              <span />
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-5">
+              {tagRules.map((rule, idx) => {
+                const ruleTag = tags.find((t) => t.id === rule.tag_id)
+                return (
+                  <div
+                    key={rule.id}
+                    data-rule-row={rule.id}
+                    className={[
+                      'grid items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.35)] px-2 py-[11px]',
+                      RULE_GRID,
+                      // 1e dims a disabled rule rather than restyling it.
+                      rule.enabled === 1 ? '' : 'opacity-60',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    {/* Drag grip: decorative only — drag-to-reorder is deferred,
+                        so it is never focusable and carries no label; the arrows
+                        in the actions cell are the working control. */}
+                    <span aria-hidden data-rule-grip className="text-center text-sm text-[rgba(160,190,225,.4)]">
+                      ⋮⋮
+                    </span>
+
+                    <Select
+                      font="sans"
+                      className="w-full"
+                      aria-label={`Condition for rule ${idx + 1}`}
+                      value={rule.condition}
+                      onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                        void handleCondition(rule, e.target.value as TagRule['condition'])
+                      }
+                    >
+                      {CONDITION_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </Select>
+
+                    <Input
+                      font="mono"
+                      aria-label={`Pattern for rule ${idx + 1}`}
+                      value={patternDrafts[rule.id] ?? rule.pattern}
+                      onChange={(e) => handlePatternDraft(rule, e.target.value)}
+                      className="min-w-0"
+                    />
+
+                    {/* 1e draws the target tag as a hue-bordered pill. Ours has
+                        to stay editable, so the pill IS the select: dot and
+                        chevron are painted around a transparent native control
+                        (`color-scheme: dark` keeps the popup on-theme, since
+                        the select itself contributes no background). */}
+                    <span
+                      className="relative inline-flex min-w-0 items-center rounded-full border py-[3px] pl-[9px] pr-6"
+                      style={{ borderColor: `oklch(80% .13 ${ruleTag?.hue ?? 210} / .4)` }}
+                    >
+                      <span
+                        aria-hidden
+                        className="mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: tagColor(ruleTag?.hue ?? 210) }}
+                      />
+                      <select
+                        aria-label={`Target tag for rule ${idx + 1}`}
+                        value={rule.tag_id}
+                        onChange={(e) => void handleTargetTag(rule, Number(e.target.value))}
+                        style={{ colorScheme: 'dark' }}
+                        className="min-w-0 flex-1 cursor-pointer appearance-none bg-transparent text-[11px] font-semibold text-text-bright focus:outline-none"
+                      >
+                        {tags.map((tag) => (
+                          <option key={tag.id} value={tag.id}>
+                            {tag.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute right-2 text-[9px] text-text-muted"
+                      >
+                        ▾
+                      </span>
+                    </span>
+
+                    <Toggle
+                      aria-label={`Enable rule ${idx + 1}`}
+                      checked={rule.enabled === 1}
+                      onChange={(checked) => void handleEnabled(rule, checked)}
+                    />
+
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Move rule ${idx + 1} up`}
+                        disabled={idx === 0}
+                        onClick={() => void handleReorder(rule, 'up')}
+                        className="h-5 w-5 rounded text-text-muted transition-colors hover:bg-white/5 hover:text-text-bright disabled:opacity-25 disabled:hover:bg-transparent"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move rule ${idx + 1} down`}
+                        disabled={idx === tagRules.length - 1}
+                        onClick={() => void handleReorder(rule, 'down')}
+                        className="h-5 w-5 rounded text-text-muted transition-colors hover:bg-white/5 hover:text-text-bright disabled:opacity-25 disabled:hover:bg-transparent"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete rule ${idx + 1}`}
+                        onClick={() => void handleDeleteRule(rule)}
+                        className="h-5 w-5 rounded text-text-muted transition-colors hover:bg-red-400/10 hover:text-red-400"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* 1e: a dashed row spanning the table, not a button in the header. */}
+              <button
+                type="button"
+                data-testid="add-rule-row"
+                onClick={() => void handleAddRule()}
+                className="flex w-full items-center justify-center gap-2 rounded-[9px] border border-dashed border-[rgba(150,205,255,.2)] p-3 text-[12.5px] font-semibold text-accent transition-colors hover:border-accent/50 hover:bg-accent/5"
+              >
                 + Add rule
-              </Button>
-            </div>
-            <p className="text-[11px] text-text-muted">evaluated top → bottom, first match wins</p>
-
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] border-collapse text-left text-xs">
-                <thead>
-                  <tr className="text-[10px] uppercase tracking-wide text-text-muted">
-                    <th className="pb-1 pr-2">#</th>
-                    <th className="pb-1 pr-2">condition</th>
-                    <th className="pb-1 pr-2">pattern</th>
-                    <th className="pb-1 pr-2">tag</th>
-                    <th className="pb-1 pr-2">on</th>
-                    <th className="pb-1" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {tagRules.map((rule, idx) => (
-                    <tr key={rule.id} className="border-t border-panel-border align-middle">
-                      <td className="py-1.5 pr-2">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            aria-label={`Move rule ${idx + 1} up`}
-                            disabled={idx === 0}
-                            onClick={() => void handleReorder(rule, 'up')}
-                            className="disabled:opacity-30"
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={`Move rule ${idx + 1} down`}
-                            disabled={idx === tagRules.length - 1}
-                            onClick={() => void handleReorder(rule, 'down')}
-                            className="disabled:opacity-30"
-                          >
-                            ↓
-                          </button>
-                          <span className="text-text-muted">{idx + 1}</span>
-                        </div>
-                      </td>
-                      <td className="py-1.5 pr-2">
-                        <Select
-                          aria-label={`Condition for rule ${idx + 1}`}
-                          value={rule.condition}
-                          onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                            void handleCondition(rule, e.target.value as TagRule['condition'])
-                          }
-                        >
-                          {CONDITION_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </Select>
-                      </td>
-                      <td className="py-1.5 pr-2">
-                        <Input
-                          aria-label={`Pattern for rule ${idx + 1}`}
-                          value={patternDrafts[rule.id] ?? rule.pattern}
-                          onChange={(e) => handlePatternDraft(rule, e.target.value)}
-                          className="min-w-[8rem]"
-                        />
-                      </td>
-                      <td className="py-1.5 pr-2">
-                        <Select
-                          aria-label={`Target tag for rule ${idx + 1}`}
-                          value={rule.tag_id}
-                          onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                            void handleTargetTag(rule, Number(e.target.value))
-                          }
-                        >
-                          {tags.map((tag) => (
-                            <option key={tag.id} value={tag.id}>
-                              {tag.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </td>
-                      <td className="py-1.5 pr-2">
-                        <Toggle
-                          aria-label={`Enable rule ${idx + 1}`}
-                          checked={rule.enabled === 1}
-                          onChange={(checked) => void handleEnabled(rule, checked)}
-                        />
-                      </td>
-                      <td className="py-1.5">
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => void handleDeleteRule(rule)}
-                          aria-label={`Delete rule ${idx + 1}`}
-                        >
-                          Delete
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              </button>
             </div>
 
-            <div className="flex flex-col gap-1.5 rounded-md border border-panel-border p-2">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-muted">Preview</span>
-              <div className="flex items-center gap-2" data-testid="preview-result">
-                <Input
-                  aria-label="Sample path"
-                  font="mono"
-                  value={previewPath}
-                  onChange={(e) => setPreviewPath(e.target.value)}
-                  placeholder="/home/tomin/work/sample"
-                  className="flex-1"
-                />
-                {previewTag ? (
-                  <>
-                    <Chip label={previewTag.name} hue={previewTag.hue} />
-                    {previewRuleIndex != null && previewRuleIndex > 0 && (
-                      <span className="font-mono text-[11px] text-text-muted">rule #{previewRuleIndex}</span>
-                    )}
-                  </>
-                ) : previewPath.trim() ? (
-                  <span className="font-mono text-[11px] text-text-muted">no match</span>
-                ) : null}
-              </div>
+            {/* Preview footer (1e: PREVIEW · path · → · chip · matched rule N). */}
+            <div
+              data-testid="preview-result"
+              className="mx-7 mb-5 mt-3 flex items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.35)] px-3.5 py-3"
+            >
+              <span className="shrink-0 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">
+                PREVIEW
+              </span>
+              <Input
+                variant="inline"
+                font="mono"
+                aria-label="Sample path"
+                value={previewPath}
+                onChange={(e) => setPreviewPath(e.target.value)}
+                placeholder="~/experiments/exp-vector-search"
+                className="min-w-0 flex-1"
+              />
+              {previewTag ? (
+                <>
+                  <span aria-hidden data-testid="preview-arrow" className="shrink-0 text-[rgba(160,190,225,.5)]">
+                    →
+                  </span>
+                  <Chip label={previewTag.name} hue={previewTag.hue} active />
+                  {previewRuleIndex != null && previewRuleIndex > 0 && (
+                    <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">
+                      matched rule {previewRuleIndex}
+                    </span>
+                  )}
+                </>
+              ) : previewPath.trim() ? (
+                <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">no match</span>
+              ) : null}
             </div>
           </div>
         </div>
-
-        <p className="border-t border-panel-border pt-3 text-[11px] text-text-muted">
-          Tag hue drives the planet&apos;s atmosphere · untagged sessions fall back to the default tag.
-        </p>
       </Panel>
     </div>
   )

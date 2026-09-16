@@ -7,7 +7,6 @@ import { tagColor } from '../lib/types'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
-import { Button } from '../ui/Button'
 import { Logo } from '../ui/Logo'
 import { timeAgo, shortenPath } from '../lib/format'
 
@@ -62,15 +61,25 @@ function rowHue(session: ApiSession, tags: Tag[]): number | undefined {
 /**
  * Row lead dot per canvas 1a: solid tag-hue disc for active sessions
  * (blinking + glowing while working), hollow hue ring for history rows.
+ * The export draws list dots at 7px and the collapsed rail's at 8px.
  */
-function RowDot({ hue, status }: { hue: number | undefined; status: ApiSession['status'] }) {
+function RowDot({
+  hue,
+  status,
+  size = 7,
+}: {
+  hue: number | undefined
+  status: ApiSession['status']
+  size?: 7 | 8
+}) {
   const color = hue !== undefined ? tagColor(hue) : 'rgba(160,190,225,.6)'
+  const box = { width: `${size}px`, height: `${size}px` }
   if (status === 'ended') {
     return (
       <span
         aria-hidden
-        className="h-[7px] w-[7px] shrink-0 rounded-full border"
-        style={{ borderColor: color, opacity: 0.6 }}
+        className="shrink-0 rounded-full border"
+        style={{ ...box, borderColor: color, opacity: 0.6 }}
       />
     )
   }
@@ -78,13 +87,40 @@ function RowDot({ hue, status }: { hue: number | undefined; status: ApiSession['
   return (
     <span
       aria-hidden
-      className={['h-[7px] w-[7px] shrink-0 rounded-full', busy ? 'orbital-pulse' : ''].filter(Boolean).join(' ')}
+      className={['shrink-0 rounded-full', busy ? 'orbital-pulse' : ''].filter(Boolean).join(' ')}
       style={{
+        ...box,
         background: color,
         boxShadow: busy ? `0 0 8px ${color}` : undefined,
         opacity: busy ? 1 : 0.8,
       }}
     />
+  )
+}
+
+/**
+ * 28×28 square icon button used by the sidebar's collapse/expand toggles —
+ * the export gives these their own chrome (7px radius, .14 hairline, 14px
+ * glyph) rather than any of `Button`'s variants.
+ */
+function IconButton({
+  label,
+  glyph,
+  onClick,
+}: {
+  label: string
+  glyph: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
+    >
+      <span aria-hidden>{glyph}</span>
+    </button>
   )
 }
 
@@ -108,12 +144,15 @@ function SessionRow({
   selected,
   onSelect,
   right,
+  history = false,
 }: {
   session: ApiSession
   tags: Tag[]
   selected: boolean
   onSelect: (id: string) => void
   right: ReactNode
+  /** History rows sit a notch tighter and lighter than active ones (1a). */
+  history?: boolean
 }) {
   const hue = rowHue(session, tags)
   return (
@@ -123,13 +162,24 @@ function SessionRow({
         onClick={() => onSelect(session.id)}
         aria-current={selected ? 'true' : undefined}
         className={[
-          'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/5',
-          selected ? 'border border-panel-border bg-[rgba(150,205,255,.07)]' : 'border border-transparent',
+          'flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors hover:bg-white/5',
+          // 1a: 9px vertical on active rows, 8px on history rows.
+          history ? 'py-2' : 'py-[9px]',
+          selected
+            ? 'border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.07)]'
+            : 'border border-transparent',
         ].join(' ')}
       >
         <RowDot hue={hue} status={session.status} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-semibold text-text-bright">{session.title}</span>
+          <span
+            className={[
+              'block truncate text-[13px] text-text-bright',
+              history ? 'font-medium' : 'font-semibold',
+            ].join(' ')}
+          >
+            {session.title}
+          </span>
           <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
             {shortenPath(session.cwd)}
           </span>
@@ -242,51 +292,46 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       <div
         inert={!collapsed || undefined}
         className={[
-          'absolute inset-y-0 left-0 flex w-14 flex-col items-center gap-3.5 py-4',
+          'absolute inset-y-0 left-0 flex w-14 flex-col items-center gap-3.5 py-[18px]',
           'transition-opacity duration-300',
           collapsed ? 'opacity-100 delay-100' : 'pointer-events-none opacity-0',
         ].join(' ')}
       >
         <Logo />
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label="Expand sidebar"
-          onClick={() => setSidebarCollapsed(false)}
-        >
-          »
-        </Button>
+        <IconButton label="Expand sidebar" glyph="»" onClick={() => setSidebarCollapsed(false)} />
         <span aria-hidden className="h-px w-5 bg-panel-border" />
         {active.slice(0, 8).map((s) => (
-          <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} />
+          <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} />
         ))}
+        {/* No artboard gives the rail a settings affordance — but the entry
+            point lives in the expanded footer, so without this one it would
+            be unreachable while collapsed. */}
+        <span className="flex-1" />
+        <IconButton label="Settings" glyph="⚙" onClick={() => setDialog('settings')} />
       </div>
 
       <div
         inert={collapsed || undefined}
         className={[
-          'absolute inset-y-0 left-0 flex w-[300px] flex-col gap-4 p-4',
+          'absolute inset-y-0 left-0 flex w-[300px] flex-col',
           'transition-[opacity,transform] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
-          collapsed ? 'pointer-events-none -translate-x-3 opacity-0' : 'translate-x-0 opacity-100',
+          // Export shifts the fading layer 24px, not 12 — the extra travel is
+          // what makes the crossfade read as the panel sliding away.
+          collapsed ? 'pointer-events-none -translate-x-6 opacity-0' : 'translate-x-0 opacity-100',
         ].join(' ')}
       >
-      <div className="flex items-center justify-between gap-2.5">
-        <span className="flex items-center gap-2.5">
-          <Logo />
-          <span className="text-[13px] font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label="Collapse sidebar"
-          onClick={() => setSidebarCollapsed(true)}
-        >
-          «
-        </Button>
+      {/* Every padding below is the export's own rhythm (1a), not a uniform
+          grid: 18px gutters for headers/footer, 14px for the search and
+          chips, 8px for the row lists so selected rows bleed toward the edge. */}
+      <div className="flex items-center gap-2.5 px-[18px] pt-[18px] pb-3.5">
+        <Logo />
+        <span className="text-[13px] font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
+        <span className="flex-1" />
+        <IconButton label="Collapse sidebar" glyph="«" onClick={() => setSidebarCollapsed(true)} />
       </div>
 
       {/* Search field verbatim from canvas 1a: dark inset container with a ⌕ glyph and a ⌘K keycap. */}
-      <label className="flex items-center gap-2 rounded-[9px] border border-panel-border bg-[rgba(4,8,16,.6)] px-3 py-2 text-[13px] text-[rgba(160,190,225,.6)]">
+      <label className="mx-3.5 flex items-center gap-2 rounded-[9px] border border-panel-border bg-[rgba(4,8,16,.6)] px-3 py-[9px] text-[13px] text-[rgba(160,190,225,.6)]">
         <span aria-hidden className="text-sm">⌕</span>
         <input
           id={SEARCH_INPUT_ID}
@@ -297,12 +342,16 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           aria-label="Search sessions"
           className="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-text-bright outline-none placeholder:text-[rgba(160,190,225,.6)]"
         />
-        <span className="rounded border border-panel-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
+        <span className="rounded border border-[rgba(150,205,255,.18)] px-[5px] py-0.5 font-mono text-[10px] text-text-muted">
           ⌘K
         </span>
       </label>
 
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by tag">
+      <div
+        className="flex flex-wrap gap-1.5 px-3.5 pt-3 pb-1.5"
+        role="group"
+        aria-label="Filter by tag"
+      >
         <Chip label="All" active={filterTagId === 'all'} onClick={() => setFilterTag('all')} />
         {tags.map((tag) => (
           <Chip
@@ -315,7 +364,10 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         ))}
       </div>
 
-      <div className="flex gap-1.5" role="group" aria-label="Filter by source">
+      {/* Source filter has no counterpart in 1a — Orbital indexes terminal
+          sessions the artboards never had to distinguish. Styled as a second
+          chip row so it reads as part of the same filter block. */}
+      <div className="flex gap-1.5 px-3.5 pb-1.5" role="group" aria-label="Filter by source">
         {sourceOptions.map((opt) => (
           <Chip
             key={opt.value}
@@ -326,11 +378,11 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         ))}
       </div>
 
-      <div className="-mx-1 flex-1 overflow-y-auto px-1">
-        <h3 className="mb-1.5 flex items-center gap-2 font-mono text-[10px] tracking-[0.18em] text-text-muted">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <h3 className="flex items-center gap-2 px-[18px] pt-3.5 pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted">
           ACTIVE <span className="tracking-normal text-accent">{active.length}</span>
         </h3>
-        <ul className="flex flex-col gap-0.5" aria-label="Active sessions">
+        <ul className="flex flex-col gap-0.5 px-2" aria-label="Active sessions">
           {active.map((s) => (
             <SessionRow
               key={s.id}
@@ -343,13 +395,13 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           ))}
         </ul>
 
-        <h3 className="mb-1.5 mt-4 flex items-center justify-between font-mono text-[10px] tracking-[0.18em] text-text-muted">
+        <h3 className="flex items-center justify-between px-[18px] pt-[18px] pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted">
           HISTORY
           <span className="tracking-[0.04em]" title="sorted by most recent">
             recent ▾
           </span>
         </h3>
-        <ul className="flex flex-col gap-0.5 opacity-75" aria-label="Session history">
+        <ul className="flex flex-col gap-0.5 px-2 opacity-75" aria-label="Session history">
           {history.map((s) => (
             <SessionRow
               key={s.id}
@@ -357,6 +409,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               tags={tags}
               selected={s.id === selectedId}
               onSelect={handleSelect}
+              history
               right={
                 <span className="font-mono text-[10px] text-text-muted">
                   {timeAgo(s.lastAt ?? Date.now())}
@@ -369,14 +422,27 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <div ref={sentinelRef} data-testid="sidebar-sentinel" aria-hidden className="h-px" />
       </div>
 
-      <div className="flex items-center justify-between border-t border-panel-border pt-3 font-mono text-xs text-text-muted">
-        <span className="flex items-center gap-1.5">
-          <span>{visible.length} sessions</span>
-          <span aria-hidden>·</span>
+      <div className="flex items-center justify-between gap-2 border-t border-[rgba(150,205,255,.1)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+        <span>{visible.length} sessions</span>
+        <span className="flex items-center gap-2.5">
+          {/* 1a has no settings entry anywhere; the footer is the least
+              intrusive home for it, beside the "tags & rules" link it does specify. */}
+          <button
+            type="button"
+            aria-label="Settings"
+            className="transition-colors hover:text-text-bright"
+            onClick={() => setDialog('settings')}
+          >
+            <span aria-hidden>⚙</span>
+          </button>
+          <button
+            type="button"
+            className="transition-colors hover:text-text-bright"
+            onClick={() => setDialog('tags')}
+          >
+            tags &amp; rules ›
+          </button>
         </span>
-        <button type="button" className="hover:text-text-bright" onClick={() => setDialog('tags')}>
-          tags &amp; rules ›
-        </button>
       </div>
       </div>
     </Panel>

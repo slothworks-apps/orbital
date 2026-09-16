@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
@@ -20,14 +21,27 @@ export interface NewSessionDialogProps {
  * request per keystroke while typing a path. */
 const PREVIEW_DEBOUNCE_MS = 300
 
+/** Group kicker from canvas 1d: mono 10px, .16em tracking, 8px to the control. */
+function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) {
+  const className =
+    'flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]'
+  return htmlFor ? (
+    <label htmlFor={htmlFor} className={className}>
+      {children}
+    </label>
+  ) : (
+    <span className={className}>{children}</span>
+  )
+}
+
 /**
  * Spawns a new session (artboard 1d). cwd is a plain text `Input` — Browse
  * is deferred to a later version (no filesystem picker in v1; the input
- * alone suffices for pasting/typing a path), noted inline below the field.
- * The tag row auto-matches the cwd/mode against the tag-rule engine via
- * `previewRule`, debounced, and stays in sync with cwd/mode changes until
- * the user manually picks a different tag — after that, the manual choice
- * wins over any further auto-match.
+ * alone suffices for pasting/typing a path), so 1d's "Browse…" button is
+ * intentionally absent. The tag row auto-matches the cwd/mode against the
+ * tag-rule engine via `previewRule`, debounced, and stays in sync with
+ * cwd/mode changes until the user manually picks a different tag — after
+ * that, the manual choice wins over any further auto-match.
  */
 export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
@@ -150,54 +164,69 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       }
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={pending}>
+          <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => void handleLaunch()} disabled={pending || !cwd.trim()}>
-            Launch session <span className="ml-1 font-mono text-[10px] opacity-70">⌘↵</span>
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={() => void handleLaunch()}
+            disabled={pending || !cwd.trim()}
+          >
+            Launch session <span className="font-mono text-[10px] opacity-70">⌘⏎</span>
           </Button>
         </>
       }
     >
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="new-session-cwd" className="font-mono text-[11px] text-text-muted">
-            Working directory
-          </label>
+      {/* 20px between field groups, 8px inside one (canvas 1d). */}
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-2">
+          <FieldLabel htmlFor="new-session-cwd">PROJECT DIRECTORY</FieldLabel>
           <Input
             id="new-session-cwd"
             font="mono"
+            size="lg"
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
             placeholder="/path/to/project"
           />
           {recentDirs.length > 0 && (
-            <div className="mt-1 flex items-center gap-1.5" role="group" aria-label="Recent directories">
-              <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted">
-                recent
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
+              <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
+                RECENT
               </span>
-              <div className="flex min-w-0 flex-wrap gap-1.5">
-                {recentDirs.slice(0, 4).map((dir) => (
-                  <Chip
-                    key={dir}
-                    label={shortenPath(dir)}
-                    title={dir}
-                    active={dir === cwd}
-                    onClick={() => setCwd(dir)}
-                  />
-                ))}
-              </div>
+              {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
+                  sans tag chips the TAG row uses — kept as plain buttons. */}
+              {recentDirs.slice(0, 4).map((dir) => (
+                <button
+                  key={dir}
+                  type="button"
+                  title={dir}
+                  data-active={dir === cwd}
+                  onClick={() => setCwd(dir)}
+                  className="rounded-full border border-panel-border px-[9px] py-[3px] font-mono text-[10.5px] text-[rgba(200,220,245,.75)] transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-text-bright"
+                >
+                  {shortenPath(dir)}
+                </button>
+              ))}
             </div>
           )}
         </div>
 
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-[11px] text-text-muted">Permission mode</span>
+        <div className="flex flex-col gap-2">
+          <FieldLabel>PERMISSION MODE</FieldLabel>
           <ModeCards value={permissionMode} onChange={setPermissionMode} />
         </div>
 
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-[11px] text-text-muted">Tag</span>
+        <div className="flex flex-col gap-2">
+          <FieldLabel>
+            TAG
+            {showAutoCaption && (
+              <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">
+                · auto-matched by rule{matchedRule ? ` ${matchedRule.pattern}` : ''}
+              </span>
+            )}
+          </FieldLabel>
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
             {tags.map((tag) => (
               <Chip
@@ -209,27 +238,21 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               />
             ))}
           </div>
-          {showAutoCaption && (
-            <span className="text-[11px] text-text-muted">
-              auto-matched by rule{matchedRule ? ` ${matchedRule.pattern}` : ''}
-            </span>
-          )}
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="new-session-prompt" className="font-mono text-[11px] text-text-muted">
-            First prompt
-          </label>
+        <div className="flex flex-col gap-2">
+          <FieldLabel htmlFor="new-session-prompt">FIRST PROMPT</FieldLabel>
           <TextArea
             id="new-session-prompt"
             aria-label="First prompt"
+            size="lg"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="What should this session do?"
-            rows={3}
+            rows={4}
+            className="min-h-24 resize-y"
           />
         </div>
-
       </div>
     </Dialog>
   )

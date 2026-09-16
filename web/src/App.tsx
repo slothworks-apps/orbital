@@ -9,7 +9,6 @@ import { NewSessionDialog } from './panels/NewSessionDialog'
 import { TagsRules } from './panels/TagsRules'
 import { Settings } from './panels/Settings'
 import { Toasts } from './ui/Toasts'
-import { Button } from './ui/Button'
 
 /**
  * The app's single WebSocket connection, module-level so it's created once
@@ -105,32 +104,16 @@ export default function App() {
         <SpaceMap />
       </div>
 
-      <div className="absolute inset-y-3 left-3 z-10">
+      {/* Docked panels inset 16px from the viewport edge, per the export's
+          `left:16px;top:16px;bottom:16px` on both 1a's sidebar and 1b's
+          detail panel. */}
+      <div className="absolute inset-y-4 left-4 z-10">
         <Sidebar />
       </div>
 
-      <div className="absolute inset-y-3 right-3 z-10">
+      <div className="absolute inset-y-4 right-4 z-10">
         <DetailPanel />
       </div>
-
-      {/* No artboard specifies a Settings entry point (task-13 report
-          flagged the gap for this task) — a small fixed corner button is
-          the pragmatic v1 placement. Shifted left of DetailPanel's own
-          width (w-96 = 24rem) plus a gap whenever a session is selected
-          (DetailPanel renders), so it never sits on top of the panel's
-          title field. */}
-      <Button
-        variant="ghost"
-        size="sm"
-        aria-label="Settings"
-        className={[
-          'fixed top-3 z-20 rounded-full',
-          selectedId ? 'right-[26rem]' : 'right-3',
-        ].join(' ')}
-        onClick={() => setDialog('settings')}
-      >
-        ⚙
-      </Button>
 
       {wsStatus !== 'open' && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center pt-3">

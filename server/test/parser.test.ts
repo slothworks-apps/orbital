@@ -41,6 +41,50 @@ describe('entriesToMessages', () => {
   });
 });
 
+describe('extractMeta: bare slash commands', () => {
+  const userTurn = (uuid: string, at: string, text: string) => ({
+    type: 'user',
+    uuid,
+    timestamp: at,
+    cwd: '/Users/tomin/Projects/demo',
+    message: { role: 'user', content: text },
+  });
+
+  it('skips a leading bare command and titles from the next real turn', () => {
+    const meta = extractMeta([
+      userTurn('u1', '2026-09-01T10:00:00.000Z', '/clear'),
+      userTurn('u2', '2026-09-01T10:00:30.000Z', 'Refactor the billing importer'),
+    ] as any);
+    expect(meta.title).toBe('Refactor the billing importer');
+    // The skipped turn still counts toward the session's message tally/timestamps.
+    expect(meta.messageCount).toBe(2);
+    expect(meta.firstAt).toBe(Date.parse('2026-09-01T10:00:00.000Z'));
+  });
+
+  it('skips a run of bare commands, whatever they are', () => {
+    const meta = extractMeta([
+      userTurn('u1', '2026-09-01T10:00:00.000Z', '/clear'),
+      userTurn('u2', '2026-09-01T10:00:10.000Z', '/login'),
+      userTurn('u3', '2026-09-01T10:00:20.000Z', '/superpowers:brainstorming'),
+      userTurn('u4', '2026-09-01T10:00:30.000Z', 'Design the tag rules panel'),
+    ] as any);
+    expect(meta.title).toBe('Design the tag rules panel');
+  });
+
+  it('keeps a command that carries arguments — those describe the work', () => {
+    const meta = extractMeta([
+      userTurn('u1', '2026-09-01T10:00:00.000Z', '/clickup-branch CU-8180'),
+      userTurn('u2', '2026-09-01T10:00:30.000Z', 'now write the migration'),
+    ] as any);
+    expect(meta.title).toBe('/clickup-branch CU-8180');
+  });
+
+  it('falls back to the bare command when the session never says anything else', () => {
+    const meta = extractMeta([userTurn('u1', '2026-09-01T10:00:00.000Z', '/clear')] as any);
+    expect(meta.title).toBe('/clear');
+  });
+});
+
 describe('extractMeta', () => {
   it('handles malformed content without throwing', () => {
     const malformed = [

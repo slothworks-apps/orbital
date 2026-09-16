@@ -1,24 +1,44 @@
 import type { ButtonHTMLAttributes } from 'react'
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'ghost' | 'danger' | 'warning' | 'cta'
+  variant?:
+    | 'primary'
+    | 'ghost'
+    | 'danger'
+    | 'warning'
+    | 'warning-outline'
+    | 'accent-outline'
+    | 'cta'
   size?: 'sm' | 'md' | 'lg'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
 
+/**
+ * Variants transcribed from the export's buttons. The filled pair (1d's
+ * "Launch session", 1b's stop confirm) are 700-weight with a coloured bloom
+ * and near-black ink; the outlined pair carry the same hue as text on a
+ * transparent fill. `danger` has no counterpart in any artboard — it is
+ * Orbital's own destructive treatment.
+ */
 const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
-  primary: 'bg-accent text-space hover:bg-text-soft',
-  ghost: 'bg-transparent text-text-soft border border-panel-border hover:bg-white/5',
-  danger: 'bg-transparent text-red-400 border border-red-400/40 hover:bg-red-400/10',
-  warning: 'bg-amber-400 text-space hover:bg-amber-300',
-  cta: 'rounded-full bg-gradient-to-b from-[rgba(20,28,46,.85)] to-[rgba(10,14,26,.9)] backdrop-blur-lg border border-accent/45 text-text-bright shadow-[0_0_24px_rgba(126,231,255,.2),0_12px_30px_rgba(0,0,0,.5)] hover:border-accent/70',
+  primary: 'bg-accent text-space-deep font-bold shadow-[0_0_24px_rgba(89,228,243,.4)] hover:bg-text-soft',
+  warning: 'bg-warning text-[#1a1000] font-bold shadow-[0_0_24px_rgba(255,187,123,.4)] hover:brightness-110',
+  ghost: 'bg-transparent text-text-soft font-semibold border border-[rgba(150,205,255,.18)] hover:bg-white/5',
+  'accent-outline': 'bg-transparent text-accent font-semibold border border-accent/45 hover:bg-accent/10',
+  // 1b's composer Stop: amber outline, never a filled block — it sits inside
+  // the reply well and must not outweigh Send.
+  'warning-outline': 'bg-transparent text-warning font-semibold border border-[rgba(251,169,98,.5)] hover:bg-warning/10',
+  danger: 'bg-transparent text-red-400 font-semibold border border-red-400/40 hover:bg-red-400/10',
+  cta: 'bg-gradient-to-b from-[rgba(20,28,46,.85)] to-[rgba(10,14,26,.9)] backdrop-blur-[16px] border border-accent/45 text-text-bright font-semibold shadow-[0_0_24px_rgba(89,228,243,.2),0_12px_30px_rgba(0,0,0,.5)] hover:border-accent/70',
 }
 
+// `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
+// in-panel Send/Stop (7px/14px at 12px).
 const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
-  sm: 'px-2.5 py-1 text-xs',
+  sm: 'px-3.5 py-[7px] text-xs',
   md: 'px-3.5 py-1.5 text-sm',
-  lg: 'px-4 py-2.5 text-[13px]',
+  lg: 'px-[18px] py-[9px] text-[13px]',
 }
 
 export function Button({
@@ -28,14 +48,22 @@ export function Button({
   className,
   ...rest
 }: ButtonProps) {
+  // Radius is resolved here rather than merged from two class lists: Tailwind
+  // resolves same-property utilities by stylesheet order, not by the order
+  // they appear in `class`, so a variant and a size both naming a radius
+  // would pick a winner arbitrarily.
+  const rounding =
+    variant === 'cta' ? 'rounded-full' : size === 'sm' ? 'rounded-[7px]' : 'rounded-lg'
+
   return (
     <button
       type={type}
       data-variant={variant}
       data-size={size}
       className={[
-        'inline-flex items-center justify-center gap-2 rounded-md font-sans font-semibold transition-colors',
+        'inline-flex items-center justify-center gap-2 font-sans transition-colors',
         'disabled:cursor-not-allowed disabled:opacity-40',
+        rounding,
         variantClasses[variant],
         sizeClasses[size],
         className ?? '',

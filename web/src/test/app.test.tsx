@@ -447,10 +447,14 @@ describe('App: Toasts', () => {
 // ---------------------------------------------------------------------------
 
 describe('App: dialog ownership', () => {
-  it('opens Settings via the corner trigger, and Tags & rules via the sidebar footer', async () => {
+  it('opens Settings and Tags & rules from the sidebar footer', async () => {
     await renderApp()
 
-    fireEvent.click(screen.getByRole('button', { name: /settings/i }))
+    // Both sidebar layers stay mounted (they cross-fade), so the Settings
+    // entry point exists twice: once in the expanded footer, once in the rail.
+    const settingsEntries = screen.getAllByRole('button', { name: /settings/i })
+    expect(settingsEntries).toHaveLength(2)
+    fireEvent.click(settingsEntries[settingsEntries.length - 1])
     expect(screen.getByRole('heading', { name: 'Sessions' })).toBeInTheDocument()
     act(() => {
       useOrbital.getState().setDialog(null)

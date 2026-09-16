@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
@@ -13,6 +13,23 @@ export interface ClearDialogProps {
   onClose: () => void
   /** Called with the cleared session's id right after a successful `clearSession` — lets the caller drop any cached data (e.g. DetailPanel's lineage cache) keyed to it, since a clear can change what `getSession` would now report. */
   onCleared?: (id: string) => void
+}
+
+/** The lineage preview orbs of canvas 1g: the ending session dimmed, the
+ * successor drawn as a dashed "materializing" ring. The export animates the
+ * ring; we reuse the shared `orbital-pulse` treatment since the export's
+ * `orb-mat` keyframes live outside the files this panel owns. */
+function LineagePreviewOrbs() {
+  return (
+    <div aria-hidden className="flex shrink-0 items-center">
+      <span className="block h-[26px] w-[26px] rounded-full border border-[rgba(200,215,235,.35)] bg-[#0b141d] opacity-60" />
+      <span className="mx-1.5 w-11 border-t border-dotted border-accent/50" />
+      <span className="relative block h-[26px] w-[26px]">
+        <span className="absolute -inset-[5px] rounded-full border border-accent/80 orbital-pulse" />
+        <span className="absolute inset-0 rounded-full border border-dashed border-accent/90 bg-[rgba(20,40,55,.6)] shadow-[0_0_24px_rgba(89,228,243,.6)]" />
+      </span>
+    </div>
+  )
 }
 
 /**
@@ -83,23 +100,40 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
     }
   }
 
-  async function handleClear(startNew: boolean) {
-    if (!targetId || pending) return
-    setPending(true)
-    try {
-      await persistDontAskAgain()
-      const result = await api.clearSession(targetId, startNew)
-      onCleared?.(targetId)
-      if (startNew && result.sessionId) {
-        void useOrbital.getState().select(result.sessionId)
+  const handleClear = useCallback(
+    async (startNew: boolean) => {
+      if (!targetId || pending) return
+      setPending(true)
+      try {
+        await persistDontAskAgain()
+        const result = await api.clearSession(targetId, startNew)
+        onCleared?.(targetId)
+        if (startNew && result.sessionId) {
+          void useOrbital.getState().select(result.sessionId)
+        }
+        onClose()
+      } catch (err) {
+        reportError(err, 'Failed to clear session')
+      } finally {
+        setPending(false)
       }
-      onClose()
-    } catch (err) {
-      reportError(err, 'Failed to clear session')
-    } finally {
-      setPending(false)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [targetId, pending, dontAskAgain, onClose, onCleared],
+  )
+
+  // ⏎ starts a new session, ⇧⏎ clears only — the shortcuts the export's
+  // footer caption advertises ("esc · ⇧⏎ clear only · ⏎ new").
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.metaKey || e.ctrlKey) return
+      e.preventDefault()
+      void handleClear(!e.shiftKey)
     }
-  }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open, handleClear])
 
   const lineageDepth = settings.lineage_depth ?? '3'
   const currentGen = lineageLength !== null ? lineageLength + 1 : null
@@ -111,44 +145,75 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
     <Dialog
       open={open}
       title="Clear and start a new session?"
+      // Lowercase per the spec, not the export's "/CLEAR".
       eyebrow="/clear"
       onClose={onClose}
-      footerCaption="esc cancel · ⏎ start new"
+      footerCaption="esc · ⇧⏎ clear only · ⏎ new"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={pending}>
+          <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button variant="ghost" onClick={() => void handleClear(false)} disabled={pending}>
+          {/* 1g gives "Clear only" an accent outline, a step up from Cancel's
+              neutral one and a step below the filled primary. */}
+          <Button
+            variant="accent-outline"
+            size="lg"
+            onClick={() => void handleClear(false)}
+            disabled={pending}
+          >
             Clear only
           </Button>
-          <Button variant="primary" onClick={() => void handleClear(true)} disabled={pending}>
+          <Button variant="primary" size="lg" onClick={() => void handleClear(true)} disabled={pending}>
+            <span aria-hidden className="text-sm leading-none">
+              ↻
+            </span>
             Clear &amp; start new
           </Button>
         </>
       }
     >
-      <div className="flex flex-col gap-3 text-sm text-text-soft">
-        <p>
-          Clears the current transcript
-          {currentGen !== null ? ` — #${currentGen} → #${currentGen + 1}` : ''}
-          {' · lineage keeps last '}
-          {lineageDepth}.
+      <div className="flex flex-col">
+        {/* Copy + geometry from canvas 1g. */}
+        <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+          {session?.title && (
+            <span className="font-mono text-text-bright">
+              {session.title}
+              {currentGen !== null ? ` #${currentGen}` : ''}
+            </span>
+          )}
+          {session?.title ? ' ends' : 'This session ends'} and moves to history. Start a new session
+          in the same project (inherits its settings), or just clear and decide later.
         </p>
-        <p className="font-mono text-xs text-text-muted">
-          inherits: {session?.permissionMode ?? 'mode'} · {tagNames.length > 0 ? tagNames.join(', ') : 'tags'} · same
-          directory
-        </p>
-        <Checkbox
-          checked={dontAskAgain}
-          onChange={setDontAskAgain}
-          label={
-            <>
-              Don&apos;t ask again{' '}
-              <span className="font-mono text-[11px] text-text-muted">(Settings → Sessions)</span>
-            </>
-          }
-        />
+
+        <div className="mt-3.5 flex items-center rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3">
+          <LineagePreviewOrbs />
+          <div className="ml-4 min-w-0 font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+            <div>
+              {currentGen !== null ? `#${currentGen} → #${currentGen + 1} · ` : ''}
+              lineage keeps last <span className="text-text-bright">{lineageDepth}</span>
+            </div>
+            <div className="truncate">
+              {session?.permissionMode ?? 'mode'} ·{' '}
+              {tagNames.length > 0 ? tagNames.join(', ') : 'tags'} · same directory
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <Checkbox
+            checked={dontAskAgain}
+            onChange={setDontAskAgain}
+            label={
+              <span className="text-[12px] text-[rgba(160,190,225,.75)]">
+                Don&apos;t ask again{' '}
+                <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+                  (Settings → Sessions)
+                </span>
+              </span>
+            }
+          />
+        </div>
       </div>
     </Dialog>
   )

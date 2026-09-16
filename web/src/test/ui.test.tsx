@@ -36,12 +36,31 @@ describe('Panel', () => {
   })
 
   it('applies the glass styling classes (panel bg, border, blur, rounded)', () => {
-    const { container } = render(<Panel side="float">content</Panel>)
+    const { container } = render(<Panel side="left">content</Panel>)
     const el = container.firstElementChild as HTMLElement
     expect(el.className).toMatch(/from-\[rgba\(14,20,34/)
-    expect(el.className).toMatch(/border-panel-border/)
+    // Docked panel edge is .16 in the export — brighter than the .14 hairline token.
+    expect(el.className).toMatch(/border-\[rgba\(150,205,255,\.16\)\]/)
     expect(el.className).toMatch(/backdrop-blur/)
     expect(el.className).toMatch(/rounded/)
+  })
+
+  it('gives each side its own glass density (sidebar, detail panel, modal)', () => {
+    const left = render(<Panel side="left">content</Panel>).container
+      .firstElementChild as HTMLElement
+    const right = render(<Panel side="right">content</Panel>).container
+      .firstElementChild as HTMLElement
+    const float = render(<Panel side="float">content</Panel>).container
+      .firstElementChild as HTMLElement
+    expect(left.className).toMatch(/from-\[rgba\(14,20,34,\.72\)\]/)
+    expect(left.className).toMatch(/to-\[rgba\(8,12,22,\.78\)\]/)
+    expect(right.className).toMatch(/from-\[rgba\(14,20,34,\.78\)\]/)
+    expect(right.className).toMatch(/to-\[rgba\(8,12,22,\.84\)\]/)
+    // The centred modal (1e/1h) is the densest: it covers a scrim, not the map.
+    expect(float.className).toMatch(/from-\[rgba\(16,22,38,\.88\)\]/)
+    expect(float.className).toMatch(/to-\[rgba\(8,12,22,\.94\)\]/)
+    expect(float.className).toMatch(/backdrop-blur-\[28px\]/)
+    expect(float.className).toMatch(/rounded-2xl/)
   })
 
   it('accepts a layout-only className passthrough without dropping internal styling', () => {
@@ -52,7 +71,7 @@ describe('Panel', () => {
     )
     const el = container.firstElementChild as HTMLElement
     expect(el.className).toMatch(/mt-4/)
-    expect(el.className).toMatch(/from-\[rgba\(14,20,34/)
+    expect(el.className).toMatch(/from-\[rgba\(16,22,38/)
   })
 })
 
@@ -215,13 +234,18 @@ describe('Dialog', () => {
     expect(screen.getByRole('button', { name: 'Launch' })).toBeInTheDocument()
   })
 
-  it('renders four HUD corner brackets', () => {
+  // Queried off the dialog itself, not the render container: Dialog portals to
+  // <body> so it escapes the backdrop-filtered panels it can be rendered from.
+  it('renders four HUD corner brackets, portalled out of its mount point', () => {
     const { container } = render(
       <Dialog open title="New session" onClose={vi.fn()}>
         body
       </Dialog>,
     )
-    expect(container.querySelectorAll('[data-corner]')).toHaveLength(4)
+    expect(container).toBeEmptyDOMElement()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.querySelectorAll('[data-corner]')).toHaveLength(4)
+    expect(dialog.closest('body')).toBe(document.body)
   })
 
   it('calls onClose when Escape is pressed', () => {

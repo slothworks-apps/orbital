@@ -76,6 +76,7 @@ export function SpaceMap() {
   const select = useOrbital((s) => s.select)
   const setDialog = useOrbital((s) => s.setDialog)
   const selectedId = useOrbital((s) => s.ui.selectedId)
+  const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
 
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -234,27 +235,36 @@ export function SpaceMap() {
 
       {/* Plain-DOM HUD overlay, outside the Canvas. */}
       <div className="pointer-events-none absolute inset-0">
-        {/* right-14 keeps clear of App's fixed Settings gear (top-3 right-3). */}
-        <div className="pointer-events-none absolute right-14 top-6 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
+        <div className="pointer-events-none absolute right-6 top-6 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
           {aggregateLine}
         </div>
 
-        <div className="pointer-events-none absolute bottom-6 left-6 font-mono text-[10.5px] tracking-[0.08em] text-text-muted/70">
+        {/* The camera readout tracks the sidebar rather than the viewport edge:
+            the export animates `left` between 340px (expanded) and 96px
+            (collapsed) on the same 420ms curve as the panel width. */}
+        <div
+          className={[
+            'pointer-events-none absolute bottom-6 font-mono text-[10.5px] tracking-[0.08em] text-text-muted/70',
+            'transition-[left] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
+            sidebarCollapsed ? 'left-24' : 'left-[340px]',
+          ].join(' ')}
+        >
           {zoomPercent}% · x {camX} y {camY}
         </div>
 
-        {/* Joined zoom stack per artboard 1a; slides left of the detail panel when one is open. */}
+        {/* Joined zoom stack per artboard 1a (right:24px); 1b moves it to
+            right:490px — 24px clear of the 450px detail panel's own 16px inset. */}
         <div
           className={[
-            'pointer-events-auto absolute bottom-6 flex flex-col overflow-hidden rounded-[9px] border border-panel-border bg-[rgba(10,14,24,.7)] backdrop-blur-lg transition-[right] duration-300',
-            selectedId ? 'right-[29.5rem]' : 'right-6',
+            'pointer-events-auto absolute bottom-6 flex flex-col overflow-hidden rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,14,24,.7)] backdrop-blur-[16px] transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
+            selectedId ? 'right-[490px]' : 'right-6',
           ].join(' ')}
         >
           <button
             type="button"
             aria-label="Zoom in"
             onClick={zoomIn}
-            className="grid h-[34px] w-[34px] place-items-center border-b border-panel-border/60 text-base text-text-bright hover:bg-white/5"
+            className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] text-base text-text-bright hover:bg-white/5"
           >
             +
           </button>
@@ -262,7 +272,7 @@ export function SpaceMap() {
             type="button"
             aria-label="Zoom out"
             onClick={zoomOut}
-            className="grid h-[34px] w-[34px] place-items-center border-b border-panel-border/60 text-base text-text-bright hover:bg-white/5"
+            className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] text-base text-text-bright hover:bg-white/5"
           >
             −
           </button>
@@ -284,7 +294,7 @@ export function SpaceMap() {
         >
           <span aria-hidden className="text-base leading-none text-accent">+</span>
           New session
-          <span className="rounded border border-panel-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
+          <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(200,220,245,.7)]">
             ⌘N
           </span>
         </Button>

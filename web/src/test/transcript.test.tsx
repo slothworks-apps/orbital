@@ -196,7 +196,25 @@ describe('ToolRow', () => {
   it('shows a collapsed one-liner with the tool name and salient input', () => {
     render(<ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Bash', toolInput: { command: 'npm test' } })} />)
     expect(screen.getByText('⚙')).toBeInTheDocument()
-    expect(screen.getByText('Bash: npm test')).toBeInTheDocument()
+    // Canvas 1b splits the line into a dim `Bash:` and a bright argument,
+    // so the row is asserted through its accessible name, not one text node.
+    expect(screen.getByRole('button', { name: /Bash: npm test/ })).toBeInTheDocument()
+  })
+
+  it('flips the disclosure caret and marks the row expanded when opened', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Bash', toolInput: { command: 'npm test' } })} />
+    )
+
+    const row = container.querySelector('[data-role="tool"]')!
+    expect(row).toHaveAttribute('data-expanded', 'false')
+    expect(screen.getByText('▸')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Bash: npm test/ }))
+
+    expect(row).toHaveAttribute('data-expanded', 'true')
+    expect(screen.getByText('▾')).toBeInTheDocument()
   })
 
   it('expands to show the full input JSON and the result on click', async () => {
@@ -245,7 +263,13 @@ describe('ToolRow', () => {
 // Transcript
 // ---------------------------------------------------------------------------
 
-import { Transcript, pairMessages, isNearBottom, compensatePrepend } from '../panels/Transcript'
+import {
+  Transcript,
+  pairMessages,
+  groupToolRuns,
+  isNearBottom,
+  compensatePrepend,
+} from '../panels/Transcript'
 
 describe('isNearBottom', () => {
   it('is true when the bottom of the content is within the threshold', () => {
@@ -300,6 +324,23 @@ describe('pairMessages', () => {
 
     const items = pairMessages(messages)
     expect(items.map((i) => i.key)).toEqual(['1', '2', '3', '5'])
+  })
+
+  it('groups only *consecutive* tool rows, leaving messages as their own rows', () => {
+    const messages: ChatMessage[] = [
+      { id: '1', role: 'user', text: 'a' },
+      { id: '2', role: 'tool_use', toolName: 'Read', toolInput: { file_path: '/a.ts' }, toolUseId: 'tu1' },
+      { id: '3', role: 'tool_use', toolName: 'Bash', toolInput: { command: 'x' }, toolUseId: 'tu2' },
+      { id: '4', role: 'assistant', text: 'b' },
+      { id: '5', role: 'tool_use', toolName: 'Bash', toolInput: { command: 'y' }, toolUseId: 'tu3' },
+    ]
+
+    const groups = groupToolRuns(pairMessages(messages))
+
+    expect(groups.map((g) => g.kind)).toEqual(['message', 'tools', 'message', 'tools'])
+    expect(groups.map((g) => (g.kind === 'tools' ? g.items.length : 1))).toEqual([1, 2, 1, 1])
+    // Keys stay stable per group (first item of the run).
+    expect(groups.map((g) => g.key)).toEqual(['1', '2', '4', '5'])
   })
 
   it('leaves a tool_use with no matching tool_result as a running item', () => {
@@ -392,7 +433,7 @@ describe('Transcript', () => {
     render(<Transcript sessionId="s1" />)
 
     expect(screen.getByText('run the tests')).toBeInTheDocument()
-    expect(screen.getByText('Bash: npm test')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Bash: npm test/ })).toBeInTheDocument()
     // The tool_result is folded into the ToolRow, not rendered as its own
     // top-level message bubble.
     expect(screen.queryByText('PASS')).not.toBeInTheDocument()
@@ -583,6 +624,68 @@ describe('Transcript', () => {
 
     render(<Transcript sessionId="s1" />)
 
-    expect(screen.getByText('Bash: npm test')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Bash: npm test/ })).toBeInTheDocument()
+  })
+
+  it('blinks a caret after the last assistant turn while the session is working, and nowhere else (canvas 1b)', () => {
+    const transcripts = {
+      s1: [
+        { id: '1', role: 'user', text: 'go' } as ChatMessage,
+        { id: '2', role: 'assistant', text: 'working on it' } as ChatMessage,
+      ],
+    }
+    resetStore({
+      transcripts,
+      sessions: {
+        s1: {
+          id: 's1',
+          cwd: '/tmp',
+          title: 's1',
+          firstAt: 1,
+          lastAt: 2,
+          messageCount: 2,
+          source: 'web',
+          permissionMode: null,
+          parentId: null,
+          tagIds: [],
+          status: 'working',
+        },
+      },
+    })
+
+    const { container, rerender } = render(<Transcript sessionId="s1" />)
+    expect(container.querySelectorAll('[data-streaming-caret]')).toHaveLength(1)
+    expect(
+      container.querySelector('[data-role="assistant"] [data-streaming-caret]')
+    ).toBeInTheDocument()
+
+    // Turn finished -> the caret goes away.
+    act(() => {
+      useOrbital.setState((state) => ({
+        sessions: { s1: { ...state.sessions.s1, status: 'idle' } },
+      }))
+    })
+    rerender(<Transcript sessionId="s1" />)
+    expect(container.querySelector('[data-streaming-caret]')).not.toBeInTheDocument()
+  })
+
+  it('packs consecutive tool calls into a single tight run between conversation turns (canvas 1b)', () => {
+    resetStore({
+      transcripts: {
+        s1: [
+          { id: '1', role: 'user', text: 'run the tests' },
+          { id: '2', role: 'tool_use', toolName: 'Read', toolInput: { file_path: '/a.ts' }, toolUseId: 'tu1' },
+          { id: '3', role: 'tool_result', toolUseId: 'tu1', text: 'contents' },
+          { id: '4', role: 'tool_use', toolName: 'Bash', toolInput: { command: 'npm test' }, toolUseId: 'tu2' },
+          { id: '5', role: 'assistant', text: 'done' },
+        ],
+      },
+    })
+
+    const { container } = render(<Transcript sessionId="s1" />)
+
+    const runs = container.querySelectorAll('[data-tool-run]')
+    expect(runs).toHaveLength(1)
+    expect(runs[0].querySelectorAll('[data-role="tool"]')).toHaveLength(2)
   })
 })

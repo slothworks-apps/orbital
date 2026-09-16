@@ -57,6 +57,34 @@ export function pairMessages(messages: ChatMessage[]): TranscriptItem[] {
   return items
 }
 
+/** A run of consecutive tool rows, or a single message row. */
+export type TranscriptGroup =
+  | { kind: 'tools'; key: string; items: Extract<TranscriptItem, { kind: 'tool' }>[] }
+  | { kind: 'message'; key: string; item: Extract<TranscriptItem, { kind: 'message' }> }
+
+/**
+ * Folds consecutive tool rows into one group. Canvas 1b sets the
+ * transcript's row gap to 14px but packs a run of tool calls into a tight
+ * 4px stack, so a multi-step tool sequence reads as one block of machine
+ * work between two turns of conversation rather than as N loose rows.
+ */
+export function groupToolRuns(items: TranscriptItem[]): TranscriptGroup[] {
+  const groups: TranscriptGroup[] = []
+  for (const item of items) {
+    if (item.kind === 'message') {
+      groups.push({ kind: 'message', key: item.key, item })
+      continue
+    }
+    const last = groups[groups.length - 1]
+    if (last?.kind === 'tools') {
+      last.items.push(item)
+      continue
+    }
+    groups.push({ kind: 'tools', key: item.key, items: [item] })
+  }
+  return groups
+}
+
 /**
  * The most recent tool call still awaiting its result — i.e. what's
  * mid-edit right now — or `undefined` if nothing is running. Reuses
@@ -120,6 +148,8 @@ export interface TranscriptProps {
 export function Transcript({ sessionId }: TranscriptProps) {
   const messages = useOrbital(useShallow((s) => s.transcripts[sessionId] ?? []))
   const loadOlder = useOrbital((s) => s.loadOlder)
+  // Drives 1b's blinking caret on the turn that's still being written.
+  const isWorking = useOrbital((s) => s.sessions[sessionId]?.status === 'working')
   // SDK process crash error state (spec § Error states): set by the store
   // when this session went `working` -> `ended` without a `turn_result` in
   // between. See `store.ts`'s `turnResultSeen` bookkeeping.
@@ -224,7 +254,12 @@ export function Transcript({ sessionId }: TranscriptProps) {
   }, [loadOlder, sessionId, loadingOlder])
 
   return (
-    <div ref={containerRef} className="flex h-full flex-col gap-3 overflow-y-auto">
+    // Canvas 1b: the transcript owns the panel's 18px/22px inset and stacks
+    // its rows 14px apart.
+    <div
+      ref={containerRef}
+      className="flex h-full flex-col gap-[14px] overflow-y-auto px-[22px] py-[18px]"
+    >
       {!exhausted && messages.length > 0 && (
         <div className="flex justify-center pb-1">
           <Button variant="ghost" size="sm" onClick={() => void handleLoadOlder()} disabled={loadingOlder}>
@@ -232,11 +267,24 @@ export function Transcript({ sessionId }: TranscriptProps) {
           </Button>
         </div>
       )}
-      {items.map((item) =>
-        item.kind === 'tool' ? (
-          <ToolRow key={item.key} toolUse={item.toolUse} toolResult={item.toolResult} />
+      {groupToolRuns(items).map((group, index, groups) =>
+        group.kind === 'tools' ? (
+          // A run of tool calls packs tight (4px) inside the 14px row rhythm.
+          <div key={group.key} data-tool-run className="flex flex-col gap-1">
+            {group.items.map((item) => (
+              <ToolRow key={item.key} toolUse={item.toolUse} toolResult={item.toolResult} />
+            ))}
+          </div>
         ) : (
-          <MessageView key={item.key} message={item.message} />
+          <MessageView
+            key={group.key}
+            message={group.item.message}
+            streaming={
+              isWorking &&
+              index === groups.length - 1 &&
+              group.item.message.role === 'assistant'
+            }
+          />
         )
       )}
       {hasError && (

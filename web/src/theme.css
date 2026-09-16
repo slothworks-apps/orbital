@@ -10,6 +10,9 @@
   --color-text-muted: rgb(160 190 225 / 0.7);
   /* Design accent: oklch(85% .12 205) — precomputed sRGB (three.js materials and Tailwind alpha modifiers need a literal). */
   --color-accent: #59e4f3;
+  /* The export's amber caution hue, oklch(85% .12 60), same precomputation.
+     Used by the stop/interrupt treatments (1b's composer, 1b's stop confirm). */
+  --color-warning: #ffbb7b;
   --color-panel-solid: #0a1220;
   --font-sans: 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -89,19 +92,37 @@ body {
   background-size: 900px 900px;
 }
 
-/* State is carried by motion, never by hue — working sessions/planets pulse. */
+/* State is carried by motion, never by hue — working sessions/planets pulse.
+   Timing verbatim from the export's `orb-blink` (1.6s, trough at .3), which
+   drives every status dot in the sidebar, the rail and the chips. */
 @keyframes orbital-pulse {
   0%,
   100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.3;
   }
 }
 
 .orbital-pulse {
-  animation: orbital-pulse 1.8s ease-in-out infinite;
+  animation: orbital-pulse 1.6s ease-in-out infinite;
+}
+
+/* Streaming caret on the last assistant turn (1b): a hard terminal blink
+   (`orb-cursor 1s steps(1)`), deliberately unlike the smooth status pulse. */
+@keyframes orbital-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.orbital-caret {
+  animation: orbital-caret 1s steps(1) infinite;
 }
 
 /* Sloth easter egg (SpaceMap): slow wander across the map + a gentle bob. */

@@ -31,39 +31,61 @@ export function glowTexture(): THREE.Texture | null {
   return glow
 }
 
+/**
+ * Builds one `radial-gradient(circle at 50% 45%, …)` body disc. `stops` are
+ * `[offset, oklch(), sRGB fallback]` triples — the fallback is used where the
+ * canvas implementation cannot parse `oklch()` colour strings.
+ */
+function bodyGradient(stops: [number, string, string][]): THREE.Texture | null {
+  const size = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const gradient = ctx.createRadialGradient(size * 0.5, size * 0.45, 0, size * 0.5, size * 0.45, size * 0.62)
+  try {
+    for (const [offset, oklch] of stops) gradient.addColorStop(offset, oklch)
+  } catch {
+    // Older canvas without oklch() parsing — close sRGB approximations.
+    for (const [offset, , fallback] of stops) gradient.addColorStop(offset, fallback)
+  }
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
 let body: THREE.Texture | null | undefined
 
 /**
- * Planet body disc, per the canvas export's inline CSS:
+ * Working planet body, per the canvas export's inline CSS (1a/1c/1f/2d):
  * `radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%, oklch(16% .03 230))`.
  * Neutral (not tag-hued) and state-independent, so one shared texture.
  */
 export function bodyTexture(): THREE.Texture | null {
   if (body !== undefined) return body
-  const size = 256
-  const canvas = document.createElement('canvas')
-  canvas.width = canvas.height = size
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    body = null
-    return body
-  }
-  const cx = size * 0.5
-  const cy = size * 0.45
-  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.62)
-  try {
-    gradient.addColorStop(0, 'oklch(30% 0.05 220)')
-    gradient.addColorStop(0.7, 'oklch(20% 0.04 225)')
-    gradient.addColorStop(1, 'oklch(16% 0.03 230)')
-  } catch {
-    // Older canvas without oklch() parsing — close sRGB approximations.
-    gradient.addColorStop(0, '#20303f')
-    gradient.addColorStop(0.7, '#111c28')
-    gradient.addColorStop(1, '#0b141d')
-  }
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, size, size)
-  body = new THREE.CanvasTexture(canvas)
-  body.colorSpace = THREE.SRGBColorSpace
+  body = bodyGradient([
+    [0, 'oklch(30% 0.05 220)', '#20303f'],
+    [0.7, 'oklch(20% 0.04 225)', '#111c28'],
+    [1, 'oklch(16% 0.03 230)', '#0b141d'],
+  ])
   return body
+}
+
+let bodyIdle: THREE.Texture | null | undefined
+
+/**
+ * Idle / needs-input planet body — the export uses a distinctly darker,
+ * two-stop gradient for these states (1f, 1a, 2d):
+ * `radial-gradient(circle at 50% 45%, oklch(28% .05 220), oklch(18% .04 225) 70%)`.
+ */
+export function bodyIdleTexture(): THREE.Texture | null {
+  if (bodyIdle !== undefined) return bodyIdle
+  bodyIdle = bodyGradient([
+    [0, 'oklch(28% 0.05 220)', '#1d2c3a'],
+    [0.7, 'oklch(18% 0.04 225)', '#0e1924'],
+    [1, 'oklch(18% 0.04 225)', '#0e1924'],
+  ])
+  return bodyIdle
 }

@@ -123,7 +123,7 @@ describe('DetailPanel header', () => {
     expect(screen.getByText(/WORKING/)).toBeInTheDocument()
   })
 
-  it('renders a token-stats row and a context-usage bar from turn_result usage, including cache creation tokens', async () => {
+  it('renders the INPUT/OUTPUT/CACHE READ grid and a context-usage bar from turn_result usage, including cache creation tokens', async () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a' }) },
       // 1000 + 500 + 6000 + 2242 = 9742 tokens -> round(9742 / 200_000 * 100) = 5%
@@ -138,24 +138,56 @@ describe('DetailPanel header', () => {
       ui: { selectedId: 'a' },
     })
 
-    render(<DetailPanel />)
+    const { container } = render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(screen.getByText(/9,742/)).toBeInTheDocument()
+    // Canvas 1b's compact notation ("142.3k"), not raw counts.
+    const grid = container.querySelector('[data-usage-grid]')!
+    expect(grid).toHaveAttribute('data-empty', 'false')
+    expect(within(grid as HTMLElement).getByText('INPUT').nextElementSibling).toHaveTextContent('1k')
+    expect(within(grid as HTMLElement).getByText('OUTPUT').nextElementSibling).toHaveTextContent('2.2k')
+    expect(within(grid as HTMLElement).getByText('CACHE READ').nextElementSibling).toHaveTextContent('500')
+
+    // Cache-creation tokens count towards the context read-out even though
+    // they have no cell of their own.
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent('9.7k / 200k ctx')
     const bar = screen.getByRole('progressbar', { name: /context usage/i })
     expect(bar).toHaveAttribute('aria-valuenow', '5')
   })
 
-  it('does not render the context-usage bar when there is no usage yet', async () => {
+  it('keeps the usage grid in place with em-dash placeholders (and no progressbar) when there is no usage yet', async () => {
     resetStore({
-      sessions: { a: makeSession({ id: 'a' }) },
+      // A terminal session never reports turn_result usage at all — the
+      // block must still hold its place rather than vanish.
+      sessions: { a: makeSession({ id: 'a', source: 'terminal' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    const grid = container.querySelector('[data-usage-grid]')
+    expect(grid).toBeInTheDocument()
+    expect(grid).toHaveAttribute('data-empty', 'true')
+    for (const label of ['INPUT', 'OUTPUT', 'CACHE READ']) {
+      expect(within(grid as HTMLElement).getByText(label).nextElementSibling).toHaveTextContent('—')
+    }
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent('— / 200k ctx')
+    // No value to report -> an empty track, not a progressbar claiming 0%.
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('sizes the title field to its own value, so the dashed rule hugs the title (canvas 1b)', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', title: 'auth-refactor' }) },
       ui: { selectedId: 'a' },
     })
 
     render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    // 1b: `width:13ch` for the 13-character "auth-refactor" (+1 for the caret).
+    expect(screen.getByDisplayValue('auth-refactor')).toHaveStyle({ width: '14ch' })
   })
 
   it('renames the session on Enter, updating the store optimistically and firing the API', async () => {
@@ -453,6 +485,31 @@ describe('DetailPanel footer', () => {
       'placeholder',
       'Send a message…'
     )
+  })
+
+  it('shows the ⏎ send · ⇧⏎ newline key hint beside the composer actions (canvas 1b)', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(screen.getByText('⏎ send · ⇧⏎ newline')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /send/i })).toHaveTextContent('Send ↑')
+  })
+
+  it('hides the composer key hint for a live terminal session (no composer to drive)', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'terminal', status: 'working' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(screen.queryByText('⏎ send · ⇧⏎ newline')).not.toBeInTheDocument()
   })
 })
 
@@ -778,8 +835,11 @@ describe('DetailPanel stop flow', () => {
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     const dialog = screen.getByRole('dialog', { name: /stop the running turn/i })
-    expect(within(dialog).getByText(/Bash: npm test/)).toBeInTheDocument()
-    expect(within(dialog).getByText(/Bash: npm test · running/)).toBeInTheDocument()
+    // The dialog's mid-edit row splits the dim tool name from the bright
+    // argument (canvas 1b), so it is asserted on the row, not one text node.
+    const row = within(dialog).getByText(/^Bash/).closest('div')!
+    expect(row).toHaveTextContent('Bash: npm test')
+    expect(within(row).getByText('running')).toBeInTheDocument()
   })
 
   it('does not show a mid-edit tool row when nothing is running', async () => {
@@ -804,7 +864,7 @@ describe('DetailPanel stop flow', () => {
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     const dialog = screen.getByRole('dialog', { name: /stop the running turn/i })
-    expect(within(dialog).queryByText(/Bash: npm test/)).not.toBeInTheDocument()
+    expect(within(dialog).queryByText(/^Bash/)).not.toBeInTheDocument()
   })
 
   it('acts on the session the dialog was opened for even if the selection changes while it is open', async () => {

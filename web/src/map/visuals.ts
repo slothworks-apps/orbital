@@ -6,90 +6,168 @@ import type { SessionStatus, Subagent } from '../lib/types'
  *
  * BINDING rule (design spec "State system rule" + task-8 brief): hue always
  * comes from the session/subagent's tag; these tables carry state ONLY
- * through motion + core (rotation speed, pulse, ripple, dim/opacity). There
- * is intentionally no hue/color field anywhere in these outputs — the
- * `Planet`/`Moon` components apply `tagColor(hue)` themselves, and switch to
- * white only for the needs-input ripple/core, never re-deriving a hue.
+ * through geometry + motion + core (ring radii, rotation speed, pulse,
+ * ripple, dim/opacity). There is intentionally no hue/color field anywhere
+ * in these outputs — the `Planet`/`Moon` components apply `tagColor(hue)`
+ * themselves, and switch to white only for the needs-input ripple/core,
+ * never re-deriving a hue.
+ *
+ * UNIT CONVENTION: the design export draws the state sheet (artboard 1f)
+ * with a 100px planet body, i.e. a 50px body radius; the scene draws it at
+ * `BODY_RADIUS = 0.48`. Every length below is therefore
+ * `designPx / 50 * 0.48` (= designPx * 0.0096) and is quoted with the
+ * export's own `inset:` value so the transcription stays checkable.
  */
+
+/** Planet body radius in scene units (96px body in artboard 1a at 0.01 units/px). */
+export const BODY_RADIUS = 0.48
+
+/** designPx → scene units, relative to artboard 1f's 50px body radius. */
+const px = (designPx: number) => (designPx / 50) * BODY_RADIUS
+
+/** CSS `animation: orb-spin <sec>` → radians/sec. Negative = `reverse`. */
+const spin = (seconds: number) => (Math.PI * 2) / seconds
 
 // --- Planet ------------------------------------------------------------
 
 export interface PlanetVisuals {
   /** Tick-ring rotation speed (radians/sec applied in useFrame). 0 = static. */
   tickSpin: number
-  /** Number of radial ticks — dense for working, sparser as activity fades (canvas 1a: 60/38/26). */
+  /** Number of radial ticks = 360 / the export's repeating-conic period. */
   tickCount: number
-  /** Tick opacity (canvas: working .9, idle .45, ended .4 grey). */
+  /** Each tick's angular width in degrees (the "on" slice of the conic gradient). */
+  tickWidthDeg: number
+  /** Mid-radius of the tick band, scene units. */
+  tickRadius: number
+  /** Radial length of each tick (the mask band's width), scene units. */
+  tickLength: number
+  /** Tick opacity (canvas: working .9, idle/needs-input .45, ended .4 grey). */
   tickOpacity: number
-  /** Core pulse amplitude (0 = steady, no pulse; 1 = full breathing pulse). */
+  /**
+   * Thin inner arc ring: `repeating-conic-gradient(hue/.5 0 60deg, transparent
+   * 60deg 90deg)` → four 60° arcs on a 90° pitch. 0 = ring absent.
+   */
+  arcOpacity: number
+  /** Arc-ring rotation speed (radians/sec); negative because the export spins it `reverse`. */
+  arcSpin: number
+  /** Core blink depth (0 = steady; 1 = full `orb-blink`, opacity 1 → .3 → 1). */
   corePulse: number
+  /** Core blink period in seconds (`orb-blink 2.4s` working, `1.2s` needs-input). */
+  corePulseSec: number
   /** Core disc opacity (canvas: working 1, idle .8, ended none). */
   coreOpacity: number
+  /** Core disc radius, scene units (canvas: 16px working/needs-input, 14px idle). */
+  coreRadius: number
   /** Opacity of the breathing halo ring hugging the body (canvas peak .18, working only). */
   haloOpacity: number
-  /** Whether the halo breathes (soft opacity oscillation) — true only for `working`; steady otherwise. */
+  /** Whether the halo breathes (`orb-ring`, opacity ×.55 → ×1) — true only for `working`. */
   haloBreathes: boolean
   /** Whether the needs-input expanding white ripple ring is active. */
   rippleActive: boolean
   /**
-   * Ended: session rendered dimmed (lower opacity). Reduced scale is NOT
-   * carried by this flag — it comes from the layout's `scale` prop
-   * (`ENDED_SCALE` in `map/layout.ts`, Task 7), which the component applies
-   * directly to its root group regardless of this table.
+   * Ended: session rendered dimmed (the export wraps it in `opacity:.6`).
+   * Reduced scale is NOT carried by this flag — it comes from the layout's
+   * `scale` prop (`ENDED_SCALE` in `map/layout.ts`, Task 7), which the
+   * component applies directly to its root group regardless of this table.
    */
   dimmed: boolean
   /** Selection reticle (slow dashed ring + corner brackets) shown. */
   reticle: boolean
 }
 
+/** `opacity:.6` wrapper the export puts around every ended body (1a/1f/2d). */
+export const DIMMED_OPACITY = 0.6
+
+/** `orb-ring 2.4s` — the working halo's breathing period. */
+export const HALO_BREATH_SEC = 2.4
+/** `orb-ring` keyframes: opacity .55 at 0/100%, 1 at 50% — a multiplier on `haloOpacity`. */
+export const HALO_BREATH_MIN = 0.55
+
 /**
- * Values below are transcribed from the design export's inline CSS
- * (artboard 1a planets + 1f state sheet in `Orbital.dc.html`):
- * working = dense bright spinning ticks (repeating-conic 1.2deg/6deg → 60),
- * pulsing full core, breathing halo ring at .18 peak; idle = sparser static
- * ticks (1.5deg/9.5deg → 38) at .45, steady .8 core, no halo; ended = grey
- * sparse ticks (2deg/14deg → 26) at .4, no core, no halo, dimmed.
+ * Values below are transcribed from the design export's inline CSS — the
+ * state sheet `1f` in `Orbital.dc.html` is the reference (its five planets
+ * are all drawn at the same 100px body), cross-checked against 1a, 1c and
+ * the chosen `2d Instrument` variant, which agree on every tick gradient:
+ *   working      hue/.9  0 1.2deg, transparent 1.2deg 6deg   → 60 ticks
+ *   idle + needs hue/.45 0 1.5deg, transparent 1.5deg 8deg   → 45 ticks
+ *   ended        grey/.4 0 2deg,   transparent 2deg 12deg    → 30 ticks
  */
 const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
+  // 1f: halo inset -28, ticks inset -26 (8px band) spinning 24s, arc ring
+  // inset -14 (2px band) spinning 60s reverse, 16px core blinking 2.4s.
   working: {
-    tickSpin: 0.4,
+    tickSpin: spin(24),
     tickCount: 60,
+    tickWidthDeg: 1.2,
+    tickRadius: px(76 - 8 / 2),
+    tickLength: px(8),
     tickOpacity: 0.9,
+    arcOpacity: 0.5,
+    arcSpin: -spin(60),
     corePulse: 1,
+    corePulseSec: 2.4,
     coreOpacity: 1,
+    coreRadius: px(16 / 2),
     haloOpacity: 0.18,
     haloBreathes: true,
     rippleActive: false,
     dimmed: false,
   },
+  // 1f: ticks inset -21 (7px band), static; 14px core at .8, no blink, no
+  // halo, no arc ring, body border drops to hue/.45.
   idle: {
     tickSpin: 0,
-    tickCount: 38,
+    tickCount: 45,
+    tickWidthDeg: 1.5,
+    tickRadius: px(71 - 7 / 2),
+    tickLength: px(7),
     tickOpacity: 0.45,
+    arcOpacity: 0,
+    arcSpin: 0,
     corePulse: 0,
+    corePulseSec: 0,
     coreOpacity: 0.8,
+    coreRadius: px(14 / 2),
     haloOpacity: 0,
     haloBreathes: false,
     rippleActive: false,
     dimmed: false,
   },
+  // 1f: the idle body + tick ring exactly, plus a white `orb-pulse-out`
+  // ripple at inset -21 and a white 16px core blinking at 1.2s.
   needs_input: {
     tickSpin: 0,
-    tickCount: 60,
-    tickOpacity: 0.9,
+    tickCount: 45,
+    tickWidthDeg: 1.5,
+    tickRadius: px(71 - 7 / 2),
+    tickLength: px(7),
+    tickOpacity: 0.45,
+    arcOpacity: 0,
+    arcSpin: 0,
     corePulse: 1,
+    corePulseSec: 1.2,
     coreOpacity: 1,
+    coreRadius: px(16 / 2),
     haloOpacity: 0,
     haloBreathes: false,
     rippleActive: true,
     dimmed: false,
   },
+  // 1f: grey ticks inset -22 (3px band), flat oklch(16% .01 230) body, no
+  // core, whole body wrapped in opacity:.6.
   ended: {
     tickSpin: 0,
-    tickCount: 26,
+    tickCount: 30,
+    tickWidthDeg: 2,
+    tickRadius: px(72 - 3 / 2),
+    tickLength: px(3),
     tickOpacity: 0.4,
+    arcOpacity: 0,
+    arcSpin: 0,
     corePulse: 0,
+    corePulseSec: 0,
     coreOpacity: 0,
+    coreRadius: px(14 / 2),
     haloOpacity: 0,
     haloBreathes: false,
     rippleActive: false,
@@ -109,13 +187,29 @@ export function planetVisuals(state: SessionStatus, selected: boolean): PlanetVi
 // --- Moon ----------------------------------------------------------------
 
 export interface MoonVisuals {
-  /** Micro tick-ring rotation speed (radians/sec). 0 = static. */
+  /** Micro tick-ring rotation speed (radians/sec). 0 = static (no ring). */
   tickSpin: number
-  /** Core disc opacity (dim for idle/ended/forming, full for working/needs_input). */
+  /** Dark body disc radius, scene units (1f: 26/22/22/24/16px across states). */
+  discRadius: number
+  /** Hue rim drawn on the disc edge (`border:1px solid hue/<x>`). 0 = no rim. */
+  rimOpacity: number
+  /** Bright core radius, scene units. 0 = no core (materializing / ended). */
+  coreRadius: number
+  /** Core disc opacity. */
   coreOpacity: number
-  /** Whether the needs-input/materializing expanding white ripple is active. */
+  /** Core blink depth (0 = steady; 1 = full `orb-blink`). */
+  corePulse: number
+  /** Core blink period in seconds (working 1.4s, needs-input 1.2s). */
+  corePulseSec: number
+  /** Soft glow quad size, scene units — the export's `box-shadow: 0 0 <n>px`. */
+  glowSize: number
+  /** Glow alpha (the box-shadow's colour alpha). 0 = no glow. */
+  glowOpacity: number
+  /** Whether the needs-input expanding WHITE ripple is active. */
   rippleActive: boolean
-  /** Materializing: dashed shell (fading in) instead of a solid outline. */
+  /** Materializing: expanding HUE `orb-matring` (scale .6 → 2, opacity .8 → 0). */
+  matRing: boolean
+  /** Materializing: dashed shell breathing with `orb-mat` instead of a solid rim. */
   dashedShell: boolean
   /** Ended: grey disc, dimmed. */
   dimmed: boolean
@@ -123,64 +217,120 @@ export interface MoonVisuals {
   trailOpacity: number
 }
 
-/** Working: micro tick ring spins, full core, orbit trail visible. */
-const MOON_WORKING_TICK_SPIN = 0.6
-const MOON_WORKING_CORE_OPACITY = 1
-const MOON_WORKING_TRAIL_OPACITY = 0.4
-
-/** Idle: static disc, dim core. */
-const MOON_IDLE_CORE_OPACITY = 0.5
-const MOON_IDLE_TRAIL_OPACITY = 0.25
-
-/** Needs input: white ripple, full core. */
-const MOON_NEEDS_INPUT_CORE_OPACITY = 1
-const MOON_NEEDS_INPUT_TRAIL_OPACITY = 0.4
-
-/** Materializing: dashed shell fades in, ripple expands, core still forming. */
-const MOON_MATERIALIZING_CORE_OPACITY = 0.3
-const MOON_MATERIALIZING_TRAIL_OPACITY = 0.15
-
-/** Ended: grey disc (dimmed), orbit trail fades. */
-const MOON_ENDED_CORE_OPACITY = 0.3
+/** 1f draws every moon orbit trail at `1px dashed hue/0.22`. */
+const MOON_TRAIL_OPACITY = 0.22
+/** "orbit trail fades" for an ended subagent (1f caption). */
 const MOON_ENDED_TRAIL_OPACITY = 0.08
 
+/** `orb-matring 1.8s ease-out`: scale .6 → 2, opacity .8 → 0. */
+export const MAT_RING_SEC = 1.8
+export const MAT_RING_MIN_SCALE = 0.6
+export const MAT_RING_MAX_SCALE = 2
+export const MAT_RING_START_OPACITY = 0.8
+
+/** `orb-mat 1.8s ease-in-out`: opacity .3 ↔ .95, scale .85 ↔ 1. */
+export const MAT_SHELL_SEC = 1.8
+export const MAT_SHELL_MIN_OPACITY = 0.3
+export const MAT_SHELL_MAX_OPACITY = 0.95
+export const MAT_SHELL_MIN_SCALE = 0.85
+export const MAT_SHELL_MAX_SCALE = 1
+
+/** Micro tick ring: `hue/.9 0 4deg, transparent 4deg 18deg` → 20 ticks, `orb-spin 8s`. */
+export const MOON_TICK_COUNT = 20
+export const MOON_TICK_WIDTH_DEG = 4
+/** inset -9 on a 26px disc → band 18…22px, mid 20px, 4px long. */
+export const MOON_TICK_RADIUS = 0.2
+export const MOON_TICK_LENGTH = 0.04
+export const MOON_TICK_OPACITY = 0.9
+
+/** Moons are quoted in the export in absolute px next to a 100px body → 0.01 units/px. */
+const moonPx = (designPx: number) => designPx * 0.01
+
 const MOON_VISUALS: Record<Subagent['state'], MoonVisuals> = {
+  // 1f: 26px disc, hue/.9 rim, 0 0 16px hue/.7, micro tick ring (inset -9,
+  // 4px band) spinning 8s, 6px core blinking 1.4s.
   working: {
-    tickSpin: MOON_WORKING_TICK_SPIN,
-    coreOpacity: MOON_WORKING_CORE_OPACITY,
+    tickSpin: spin(8),
+    discRadius: moonPx(26 / 2),
+    rimOpacity: 0.9,
+    coreRadius: moonPx(6 / 2),
+    coreOpacity: 1,
+    corePulse: 1,
+    corePulseSec: 1.4,
+    glowSize: moonPx(26 + 2 * 16),
+    glowOpacity: 0.7,
     rippleActive: false,
+    matRing: false,
     dashedShell: false,
     dimmed: false,
-    trailOpacity: MOON_WORKING_TRAIL_OPACITY,
+    trailOpacity: MOON_TRAIL_OPACITY,
   },
+  // 1f: 22px disc, hue/.7 rim, 0 0 10px hue/.4, static 4px core at hue/.8.
   idle: {
     tickSpin: 0,
-    coreOpacity: MOON_IDLE_CORE_OPACITY,
+    discRadius: moonPx(22 / 2),
+    rimOpacity: 0.7,
+    coreRadius: moonPx(4 / 2),
+    coreOpacity: 0.8,
+    corePulse: 0,
+    corePulseSec: 0,
+    glowSize: moonPx(22 + 2 * 10),
+    glowOpacity: 0.4,
     rippleActive: false,
+    matRing: false,
     dashedShell: false,
     dimmed: false,
-    trailOpacity: MOON_IDLE_TRAIL_OPACITY,
+    trailOpacity: MOON_TRAIL_OPACITY,
   },
+  // 1f: the idle disc, plus a white `orb-pulse-out` ripple at inset -4 and a
+  // white 6px core (0 0 10px #fff) blinking at 1.2s.
   needs_input: {
     tickSpin: 0,
-    coreOpacity: MOON_NEEDS_INPUT_CORE_OPACITY,
+    discRadius: moonPx(22 / 2),
+    rimOpacity: 0.7,
+    coreRadius: moonPx(6 / 2),
+    coreOpacity: 1,
+    corePulse: 1,
+    corePulseSec: 1.2,
+    glowSize: moonPx(22 + 2 * 10),
+    glowOpacity: 0.9,
     rippleActive: true,
+    matRing: false,
     dashedShell: false,
     dimmed: false,
-    trailOpacity: MOON_NEEDS_INPUT_TRAIL_OPACITY,
+    trailOpacity: MOON_TRAIL_OPACITY,
   },
+  // 1f: 24px dashed shell (hue/.9) over a hue/.6-glowing 60%-alpha fill,
+  // breathing with `orb-mat`, under an expanding hue `orb-matring`. No core.
   materializing: {
     tickSpin: 0,
-    coreOpacity: MOON_MATERIALIZING_CORE_OPACITY,
-    rippleActive: true,
+    discRadius: moonPx(24 / 2),
+    rimOpacity: 0,
+    coreRadius: 0,
+    coreOpacity: 0,
+    corePulse: 0,
+    corePulseSec: 0,
+    glowSize: moonPx(24 + 2 * 14),
+    glowOpacity: 0.6,
+    rippleActive: false,
+    matRing: true,
     dashedShell: true,
     dimmed: false,
-    trailOpacity: MOON_MATERIALIZING_TRAIL_OPACITY,
+    trailOpacity: MOON_TRAIL_OPACITY,
   },
+  // 1f: 16px flat oklch(16% .01 230) disc, grey/.35 rim, opacity:.6, no core.
   ended: {
     tickSpin: 0,
-    coreOpacity: MOON_ENDED_CORE_OPACITY,
+    discRadius: moonPx(16 / 2),
+    rimOpacity: 0.35,
+    coreRadius: 0,
+    coreOpacity: 0,
+    corePulse: 0,
+    corePulseSec: 0,
+    glowSize: 0,
+    glowOpacity: 0,
     rippleActive: false,
+    matRing: false,
     dashedShell: false,
     dimmed: true,
     trailOpacity: MOON_ENDED_TRAIL_OPACITY,
@@ -195,6 +345,22 @@ const MOON_VISUALS: Record<Subagent['state'], MoonVisuals> = {
  */
 export function moonVisuals(state: Subagent['state']): MoonVisuals {
   return { ...MOON_VISUALS[state] }
+}
+
+// --- shared animation helpers -------------------------------------------
+
+/**
+ * CSS `ease-in-out` keyframes that go A → B → A over one period (`orb-blink`,
+ * `orb-ring`, `orb-mat`): returns 0 at the period's ends and 1 at its middle.
+ */
+export function oscillate(elapsedSec: number, periodSec: number): number {
+  if (periodSec <= 0) return 0
+  return (1 - Math.cos((elapsedSec / periodSec) * Math.PI * 2)) / 2
+}
+
+/** CSS `ease-out` (cubic-bezier(0,0,.58,1)) approximated for the one-shot ripples. */
+export function easeOut(progress: number): number {
+  return 1 - (1 - progress) ** 2
 }
 
 /** Max characters shown in a planet's map label (design shows short names). */

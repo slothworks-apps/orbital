@@ -15,7 +15,9 @@ interface ToggleableProps {
  */
 export function Checkbox({ checked, onChange, label, disabled = false, ...aria }: ToggleableProps) {
   return (
-    <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-text-soft">
+    // 14px box, 10px gap, 12.5px label — canvas 1h's "New session inherits"
+    // rows and 1g's "Don't ask again".
+    <label className="flex cursor-pointer select-none items-center gap-2.5 text-[12.5px] text-text-soft">
       <input
         type="checkbox"
         className="peer sr-only"
@@ -27,7 +29,7 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
       <span
         aria-hidden
         className={[
-          'flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] leading-none transition-colors',
+          'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] leading-none transition-colors',
           'peer-focus-visible:ring-1 peer-focus-visible:ring-accent',
           checked ? 'border-accent bg-accent text-space' : 'border-panel-border bg-panel-solid',
         ].join(' ')}

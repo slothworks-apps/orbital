@@ -110,8 +110,16 @@ describe('TagsRules', () => {
     })
     render(<TagsRules open onClose={vi.fn()} />)
 
-    expect(screen.getByText('2 sessions · 1 rules')).toBeInTheDocument()
-    expect(screen.getByText('0 sessions · 1 rules · default')).toBeInTheDocument()
+    // Canvas 1e pluralises and drops the rule count when a tag has none.
+    expect(screen.getByText('2 sessions · 1 rule')).toBeInTheDocument()
+    expect(screen.getByText('0 sessions · 1 rule · default')).toBeInTheDocument()
+  })
+
+  it('omits the rule count for a tag with no rules, keeping the default marker', () => {
+    resetStore({ rules: [rule1] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    expect(screen.getByText('0 sessions · default')).toBeInTheDocument()
   })
 
   it('disables delete for the default tag but not others (delete lives on the selected card)', () => {
@@ -123,6 +131,20 @@ describe('TagsRules', () => {
     // Selecting the default tag's card swaps the delete over — disabled there.
     fireEvent.click(screen.getByText('hue 60'))
     expect(screen.getByRole('button', { name: 'Delete default' })).toBeDisabled()
+  })
+
+  it('falls back to the first remaining tag after deleting the selected one', async () => {
+    vi.mocked(api.deleteTag).mockResolvedValue({ ok: true })
+    vi.mocked(api.listSessions).mockResolvedValue([])
+    resetStore({ rules: [rule1, rule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete work' }))
+
+    await waitFor(() => expect(api.deleteTag).toHaveBeenCalledWith(1))
+    // The default tag is now the head of the list — its rule is what shows.
+    await waitFor(() => expect(screen.getByLabelText('Pattern for rule 1')).toHaveValue('bug'))
+    expect(screen.getByRole('group', { name: 'Hue for default' })).toBeInTheDocument()
   })
 
   it('renames a tag on blur', async () => {
@@ -324,7 +346,9 @@ describe('TagsRules', () => {
     )
     const previewResult = screen.getByTestId('preview-result')
     await waitFor(() => expect(within(previewResult).getByText('default')).toBeInTheDocument())
-    expect(within(previewResult).getByText('rule #2')).toBeInTheDocument()
+    expect(within(previewResult).getByText('matched rule 2')).toBeInTheDocument()
+    // Canvas 1e's preview row is "PREVIEW · path · → · chip · matched rule N".
+    expect(within(previewResult).getByTestId('preview-arrow')).toBeInTheDocument()
   })
 
   it('shows "no match" when the preview finds no matching rule', async () => {
@@ -347,11 +371,124 @@ describe('TagsRules', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('shows the evaluation-order caption and the hue/default-fallback footer note', () => {
+  it('shows the evaluation-order caption and the hue/default-fallback footer note naming the default tag', () => {
     resetStore()
     render(<TagsRules open onClose={vi.fn()} />)
 
     expect(screen.getByText(/evaluated top → bottom, first match wins/i)).toBeInTheDocument()
-    expect(screen.getByText(/planet's atmosphere/i)).toBeInTheDocument()
+    const note = screen.getByText(/planet's atmosphere/i)
+    expect(note).toBeInTheDocument()
+    // Canvas 1e names the actual fallback tag, it isn't a generic sentence.
+    expect(note.textContent).toContain('fall back to default')
+  })
+
+  it('closes from the header back chevron', () => {
+    const onClose = vi.fn()
+    resetStore()
+    render(<TagsRules open onClose={onClose} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('renders the 1e panel header: SETTINGS kicker, title and the counted column headings', () => {
+    resetStore({ rules: [rule1, workRule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    expect(screen.getByText('SETTINGS')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tags & rules' })).toBeInTheDocument()
+    expect(screen.getByText('TAGS · 2')).toBeInTheDocument()
+    // Only the selected tag's rules are counted (rules are managed per tag).
+    expect(screen.getByText('AUTO-TAG RULES · 2')).toBeInTheDocument()
+    ;['CONDITION', 'PATTERN', '→ TAG', 'ON'].forEach((caption) => {
+      expect(screen.getByText(caption)).toBeInTheDocument()
+    })
+  })
+
+  it('shows "saved · just now" in the header only after a mutation lands', async () => {
+    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    expect(screen.queryByTestId('save-status')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Enable rule 1'))
+
+    await waitFor(() => expect(screen.getByTestId('save-status')).toHaveTextContent('saved · just now'))
+  })
+
+  it('gives every rule row a decorative drag grip that is not itself interactive', () => {
+    resetStore({ rules: [rule1, workRule2] })
+    const { container } = render(<TagsRules open onClose={vi.fn()} />)
+
+    const grips = container.querySelectorAll('[data-rule-grip]')
+    expect(grips).toHaveLength(2)
+    grips.forEach((grip) => {
+      // Drag-and-drop is deferred: the grip must read as decoration, with the
+      // arrow buttons doing the real reordering.
+      expect(grip.getAttribute('aria-hidden')).toBe('true')
+      expect(grip.tagName).toBe('SPAN')
+      expect(grip).not.toHaveAttribute('tabindex')
+      expect(grip.textContent).toBe('⋮⋮')
+    })
+  })
+
+  it('renders "+ Add rule" as a dashed full-width row at the end of the rules list', () => {
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const addRow = screen.getByTestId('add-rule-row')
+    expect(addRow).toBe(screen.getByRole('button', { name: '+ Add rule' }))
+    expect(addRow.className).toContain('border-dashed')
+    expect(addRow.className).toContain('w-full')
+    // It lives inside the rules list, after the last rule row (canvas 1e).
+    const list = addRow.parentElement!
+    expect(list.querySelectorAll('[data-rule-row]').length).toBe(1)
+    expect(list.lastElementChild).toBe(addRow)
+  })
+
+  it('tints the selected tag card in its own hue and keeps swatches + delete off the others', () => {
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const workCard = document.querySelector('[data-tag-card="1"]') as HTMLElement
+    const defaultCard = document.querySelector('[data-tag-card="2"]') as HTMLElement
+    expect(workCard.dataset.selected).toBe('true')
+    expect(defaultCard.dataset.selected).toBe('false')
+    // Canvas 1e: the selected card is tinted with the TAG's hue, not the accent.
+    expect(workCard.style.borderColor).toContain('210')
+    expect(within(workCard).getByRole('group', { name: 'Hue for work' })).toBeInTheDocument()
+    expect(within(defaultCard).queryByRole('group', { name: 'Hue for default' })).not.toBeInTheDocument()
+    expect(within(defaultCard).queryByRole('button', { name: 'Delete default' })).not.toBeInTheDocument()
+  })
+
+  it('offers the 8 hue swatches of canvas 1e', () => {
+    resetStore()
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    const swatches = within(screen.getByRole('group', { name: 'Hue for work' })).getAllByRole('button')
+    expect(swatches.map((s) => s.getAttribute('aria-label'))).toEqual([
+      'Hue 210',
+      'Hue 250',
+      'Hue 290',
+      'Hue 330',
+      'Hue 20',
+      'Hue 60',
+      'Hue 110',
+      'Hue 150',
+    ])
+  })
+
+  it('selects a tag card when one of its controls takes focus (keyboard reachability)', () => {
+    resetStore({ rules: [rule1, rule2] })
+    render(<TagsRules open onClose={vi.fn()} />)
+
+    // work is selected by default, so rule1 (tag 1) is the only row shown.
+    expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(1)
+    expect(screen.getByLabelText('Pattern for rule 1')).toHaveValue('/work/**')
+
+    // focusin (not the non-bubbling `focus`) is what React maps onFocus* to.
+    fireEvent.focusIn(screen.getByLabelText('Tag name for default'))
+
+    expect(screen.getByLabelText('Pattern for rule 1')).toHaveValue('bug')
   })
 })

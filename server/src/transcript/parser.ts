@@ -53,9 +53,21 @@ export function cleanTitle(text: string): string {
   return '';
 }
 
+/**
+ * A slash command with no arguments — `/clear`, `/login`, `/compact`. Sessions
+ * very often open with one, and it says nothing about what the session is, so
+ * it makes a useless title. A command WITH arguments (`/clickup-branch CU-123`)
+ * does carry the subject, so only the bare form counts as noise here.
+ */
+export function isBareSlashCommand(text: string): boolean {
+  return /^\/[A-Za-z0-9](?:[A-Za-z0-9:_-]*)$/.test(text);
+}
+
 export function extractMeta(entries: TranscriptEntry[]) {
   let cwd = '';
   let title = '';
+  /** First usable title seen, kept as a fallback if every turn is a bare command. */
+  let fallbackTitle = '';
   let firstAt: number | null = null;
   let lastAt: number | null = null;
   let messageCount = 0;
@@ -70,11 +82,18 @@ export function extractMeta(entries: TranscriptEntry[]) {
       lastAt = t;
     }
     if (!title && e.type === 'user' && e.message) {
-      const text = cleanTitle(textOf(e.message.content));
-      if (text) title = text.slice(0, 120);
+      const text = cleanTitle(textOf(e.message.content)).slice(0, 120);
+      if (!text) continue;
+      // Skip past a leading `/clear` (or any other bare command) to the first
+      // turn that actually describes the work.
+      if (isBareSlashCommand(text)) {
+        if (!fallbackTitle) fallbackTitle = text;
+        continue;
+      }
+      title = text;
     }
   }
-  return { cwd, title, firstAt, lastAt, messageCount };
+  return { cwd, title: title || fallbackTitle, firstAt, lastAt, messageCount };
 }
 
 export function entriesToMessages(entries: TranscriptEntry[]): ChatMessage[] {

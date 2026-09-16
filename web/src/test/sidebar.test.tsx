@@ -275,6 +275,46 @@ describe('Sidebar', () => {
     expect(useOrbital.getState().ui.dialog).toBe('tags')
   })
 
+  // 1a gives the sidebar no settings affordance at all, so Orbital adds one
+  // in both layers — the footer and the rail — or it would be unreachable
+  // whenever the sidebar happens to be collapsed.
+  it('opens settings from the footer and from the collapsed rail', async () => {
+    const user = userEvent.setup()
+    resetStore({ sessions: {} })
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+    const entries = screen.getAllByRole('button', { name: /settings/i })
+    expect(entries).toHaveLength(2)
+
+    for (const entry of entries) {
+      act(() => {
+        useOrbital.setState((s) => ({ ui: { ...s.ui, dialog: null } }))
+      })
+      await user.click(entry)
+      expect(useOrbital.getState().ui.dialog).toBe('settings')
+    }
+  })
+
+  // 1a splits the two lists visually: active rows sit at 9px vertical with a
+  // semibold title, history rows tighten to 8px and drop to medium.
+  it('renders history rows tighter and lighter than active rows', () => {
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Alpha', status: 'idle' }),
+        b: makeSession({ id: 'b', title: 'Beta', status: 'ended' }),
+      },
+    })
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+
+    const activeRow = screen.getByRole('button', { name: /Alpha/ })
+    const historyRow = screen.getByRole('button', { name: /Beta/ })
+    expect(activeRow.className).toMatch(/py-\[9px\]/)
+    expect(historyRow.className).toMatch(/py-2/)
+    expect(within(activeRow).getByText('Alpha').className).toMatch(/font-semibold/)
+    expect(within(historyRow).getByText('Beta').className).toMatch(/font-medium/)
+  })
+
   it('toggles sidebarCollapsed via the collapse button', async () => {
     const user = userEvent.setup()
     resetStore({ sessions: {} })

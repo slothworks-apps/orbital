@@ -106,6 +106,12 @@ function Pre({ children, className, ...rest }: PreProps) {
 
 export interface MessageViewProps {
   message: ChatMessage
+  /**
+   * Appends the export's blinking block caret after the text (canvas 1b's
+   * streaming assistant turn). Only ever set for the last assistant message
+   * of a session that is still working.
+   */
+  streaming?: boolean
 }
 
 /**
@@ -113,7 +119,7 @@ export interface MessageViewProps {
  * fenced code blocks, etc). `tool_use`/`tool_result` messages are not
  * handled here — `Transcript` pairs those and renders them via `ToolRow`.
  */
-export function MessageView({ message }: MessageViewProps) {
+export function MessageView({ message, streaming = false }: MessageViewProps) {
   const isUser = message.role === 'user'
 
   return (
@@ -123,18 +129,35 @@ export function MessageView({ message }: MessageViewProps) {
     >
       <div
         className={[
-          'message-markdown max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed',
+          'message-markdown [text-wrap:pretty]',
+          // The caret has to sit on the same line as the text it trails, so
+          // the closing paragraph goes inline while it is showing (1b).
+          streaming ? '[&>p:last-child]:inline' : '',
           '[&_p]:my-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5',
           '[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs',
           '[&_th]:border [&_th]:border-panel-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left',
           '[&_td]:border [&_td]:border-panel-border [&_td]:px-2 [&_td]:py-1',
           '[&_a]:underline [&_a]:decoration-dotted',
-          isUser ? 'bg-white/10 text-text-bright' : 'bg-transparent text-text-soft',
+          // Canvas 1b: the user's turn is an accent-tinted bubble with a
+          // notched bottom-right corner (radius 12/12/4/12), 10px×14px
+          // padding, capped at 86% of the column; the assistant's turn has
+          // no bubble at all — plain 13px/1.55 text, up to 92% wide.
+          isUser
+            ? 'max-w-[86%] rounded-[12px_12px_4px_12px] border border-accent/30 bg-accent/12 px-3.5 py-2.5 text-[13px] leading-[1.5] text-text-bright'
+            : 'max-w-[92%] text-[13px] leading-[1.55] text-[rgba(232,238,248,.92)]',
         ].join(' ')}
       >
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: Code, pre: Pre }}>
           {message.text ?? ''}
         </ReactMarkdown>
+        {streaming && (
+          // 1b: 7×14px accent block, 3px after the last glyph.
+          <span
+            aria-hidden
+            data-streaming-caret
+            className="orbital-pulse ml-[3px] inline-block h-3.5 w-[7px] translate-y-[2px] bg-accent"
+          />
+        )}
       </div>
       {message.timestamp && (
         <span className="font-mono text-[10px] text-text-muted">{message.timestamp}</span>
