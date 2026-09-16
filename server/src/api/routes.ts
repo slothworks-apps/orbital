@@ -154,6 +154,28 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
+  app.post('/api/sessions/:id/model', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { model } = req.body as { model: string };
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+      | SessionRow
+      | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    // A session the terminal owns is not ours to reconfigure — the same rule
+    // that stops us from sending it messages.
+    if (ctx.registry.get(id)) {
+      return reply.code(409).send({ error: 'session is live in a terminal' });
+    }
+    if (ctx.runner.status(id) && ctx.runner.status(id) !== 'ended') {
+      await ctx.runner.setModel(id, model);
+    }
+    // An ended session keeps the choice too: it is what the revive resumes on.
+    db.update(sessions).set({ model }).where(eq(sessions.id, id)).run();
+    const updated = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, updated) });
+    return { ok: true };
+  });
+
   app.post('/api/sessions/:id/clear', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { startNew } = (req.body ?? {}) as { startNew?: boolean };

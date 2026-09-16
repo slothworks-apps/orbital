@@ -311,6 +311,27 @@ describe('Runner', () => {
     expect(interrupt).toHaveBeenCalled();
   });
 
+  it('setModel forwards to the live query', async () => {
+    const hub = new Hub();
+    const setModel = vi.fn(async () => {});
+    const fn = ({ prompt, options }: any) => {
+      const sid = options.sessionId ?? options.resume;
+      async function* gen() { for await (const _m of prompt) { yield { type: 'result', subtype: 'success', session_id: sid, usage: {} }; } }
+      const g = gen() as any;
+      g.setModel = setModel;
+      return g;
+    };
+    const runner = new Runner({ hub, queryFn: fn });
+    const id = await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'acceptEdits' });
+    await runner.setModel(id, 'haiku');
+    expect(setModel).toHaveBeenCalledWith('haiku');
+  });
+
+  it('setModel throws for a session it does not run', async () => {
+    const runner = new Runner({ hub: new Hub(), queryFn: fakeQueryFn().fn });
+    await expect(runner.setModel('nope', 'haiku')).rejects.toThrow('not active');
+  });
+
   it('passes the claude_code preset and setting sources to the SDK', async () => {
     const hub = new Hub();
     let captured: any;

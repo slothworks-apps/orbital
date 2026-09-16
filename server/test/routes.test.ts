@@ -405,6 +405,51 @@ describe('REST routes', () => {
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
     expect(row.model).toBe('sonnet');
   });
+
+  it('switches the model of a live session', async () => {
+    const { app, db, runner } = makeApp();
+    const calls: Array<[string, string]> = [];
+    (runner as any).setModel = async (id: string, model: string) => { calls.push([id, model]); };
+    (runner as any).status = (id: string) => (id === 's2' ? 'needs_input' : undefined);
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s2/model', payload: { model: 'haiku' } });
+    expect(res.statusCode).toBe(200);
+    expect(calls).toEqual([['s2', 'haiku']]);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.model).toBe('haiku');
+  });
+
+  it('records the model of an ended session without touching the runner', async () => {
+    const { app, db, runner } = makeApp();
+    let called = false;
+    (runner as any).setModel = async () => { called = true; };
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s2/model', payload: { model: 'sonnet' } });
+    expect(res.statusCode).toBe(200);
+    expect(called).toBe(false);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.model).toBe('sonnet');
+  });
+
+  it('refuses to switch a session that is live in a terminal', async () => {
+    const { app, db } = makeApp();
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/model', payload: { model: 'haiku' } });
+    expect(res.statusCode).toBe(409);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's1')).get() as SessionRow;
+    expect(row.model).toBeNull();
+  });
+
+  it('404s for an unknown session', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/nope/model', payload: { model: 'haiku' } });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('publishes an upsert after a switch', async () => {
+    const { app, hub, runner } = makeApp();
+    (runner as any).setModel = async () => {};
+    const received = subscribeFake(hub, 'sessions');
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/model', payload: { model: 'haiku' } });
+    expect(received.at(-1).session).toMatchObject({ id: 's2', model: 'haiku' });
+  });
 });
 
 describe('buildServer smoke', () => {

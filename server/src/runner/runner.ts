@@ -55,7 +55,9 @@ interface ManagedSession {
   status: SessionStatus;
   queue: Array<(msg: unknown | null) => void>;
   pending: Array<unknown | null>;
-  generator: (AsyncGenerator<any> & { interrupt?: () => Promise<void> }) | null;
+  generator:
+    | (AsyncGenerator<any> & { interrupt?: () => Promise<void>; setModel?: (model?: string) => Promise<void> })
+    | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -342,6 +344,17 @@ export class Runner {
     await this.sessions.get(sessionId)?.generator?.interrupt?.();
     this.setStatus(sessionId, 'needs_input');
     this.armIdleTimer(sessionId);
+  }
+
+  /**
+   * Changes the model for this session's next turn. The SDK keeps the
+   * conversation — only what serves it changes — which is why the UI can
+   * promise "context is kept".
+   */
+  async setModel(sessionId: string, model: string): Promise<void> {
+    const s = this.sessions.get(sessionId);
+    if (!s || s.status === 'ended') throw new Error(`session ${sessionId} is not active`);
+    await s.generator?.setModel?.(model);
   }
 
   async end(sessionId: string): Promise<void> {
