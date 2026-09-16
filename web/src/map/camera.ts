@@ -75,15 +75,46 @@ const DELTA_LINE_TO_PIXELS = 16
  * zoom 200 both change zoom by ~10% — instead of the same fixed absolute
  * amount swamping the low end and doing nothing at the high end.
  *
- * This zoom is anchored on the camera's current x/y (center-anchored), not
- * the pointer position: `SpaceMap` never offsets `x`/`y` here, on purpose —
- * panning and zooming stay orthogonal (no zoom-to-cursor), matching the
- * task's "pan = drag, zoom = wheel, no rotation" scope. Result is clamped
- * to [MIN_ZOOM, MAX_ZOOM].
+ * Returns the zoom only, clamped to [MIN_ZOOM, MAX_ZOOM]. Where that zoom
+ * leaves the camera is `zoomAt`'s job — the wheel handler pipes one into the
+ * other so the point under the cursor is what the gesture pulls towards.
  */
 export function zoomFromWheel(zoom: number, deltaY: number, deltaMode = 0): number {
   const normalizedDeltaY = deltaMode === 1 ? deltaY * DELTA_LINE_TO_PIXELS : deltaY
   return clampZoom(zoom * Math.exp(-normalizedDeltaY * WHEEL_ZOOM_K))
+}
+
+/**
+ * Zooms to `nextZoom` while pinning the world point under `pointer`, so the
+ * map grows towards the cursor (and shrinks away from it) instead of towards
+ * the middle of the screen. `pointer` is in CSS pixels relative to the map
+ * container's top-left corner.
+ *
+ * The camera is orthographic with the frustum centred on the canvas, so a
+ * screen point maps to `world = cam + (pointer - viewportCentre) / zoom`
+ * (Y negated: screen Y grows downward, world Y upward). Holding that world
+ * point still across a zoom change leaves the camera shifted by the
+ * difference of the two reciprocals — which is why this is `1/zoom - 1/next`
+ * and not a ratio. Zooming out through the anchor therefore retraces exactly
+ * the path zooming in took.
+ *
+ * `nextZoom` is clamped first, so a gesture that runs into MIN/MAX_ZOOM stops
+ * moving the camera too, rather than sliding it while the zoom stands still.
+ */
+export function zoomAt(
+  cam: CameraState,
+  nextZoom: number,
+  pointer: Position,
+  viewport: Viewport
+): CameraState {
+  const zoom = clampZoom(nextZoom)
+  if (zoom === cam.zoom) return cam
+  const shift = 1 / cam.zoom - 1 / zoom
+  return {
+    zoom,
+    x: cam.x + (pointer.x - viewport.width / 2) * shift,
+    y: cam.y - (pointer.y - viewport.height / 2) * shift,
+  }
 }
 
 /**

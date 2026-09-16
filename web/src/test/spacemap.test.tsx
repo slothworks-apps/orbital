@@ -9,9 +9,11 @@ import {
   applyZoom,
   clampZoom,
   fitView,
+  zoomAt,
   zoomFromWheel,
   MAX_ZOOM,
   MIN_ZOOM,
+  type CameraState,
 } from '../map/camera'
 
 // ---------------------------------------------------------------------------
@@ -401,6 +403,68 @@ describe('zoomFromWheel', () => {
 
   it('defaults to pixel-mode normalization when deltaMode is omitted', () => {
     expect(zoomFromWheel(100, -100)).toBe(zoomFromWheel(100, -100, 0))
+  })
+})
+
+describe('zoomAt', () => {
+  const VIEWPORT = { width: 1000, height: 600 }
+
+  /** The projection `zoomAt` has to hold still: ortho camera, frustum centred on the canvas. */
+  function screenToWorld(cam: CameraState, point: { x: number; y: number }) {
+    return {
+      x: cam.x + (point.x - VIEWPORT.width / 2) / cam.zoom,
+      y: cam.y - (point.y - VIEWPORT.height / 2) / cam.zoom,
+    }
+  }
+
+  it('keeps the world point under the pointer in place', () => {
+    const cam: CameraState = { x: 3, y: -2, zoom: 60 }
+    const pointer = { x: 820, y: 130 }
+    const before = screenToWorld(cam, pointer)
+
+    const next = zoomAt(cam, 96, pointer, VIEWPORT)
+
+    const after = screenToWorld(next, pointer)
+    expect(after.x).toBeCloseTo(before.x, 10)
+    expect(after.y).toBeCloseTo(before.y, 10)
+  })
+
+  it('holds the anchor when zooming out too, not just in', () => {
+    const cam: CameraState = { x: -7, y: 4, zoom: 120 }
+    const pointer = { x: 90, y: 540 }
+    const before = screenToWorld(cam, pointer)
+
+    const after = screenToWorld(zoomAt(cam, 45, pointer, VIEWPORT), pointer)
+    expect(after.x).toBeCloseTo(before.x, 10)
+    expect(after.y).toBeCloseTo(before.y, 10)
+  })
+
+  it('leaves the camera centred when the pointer is the viewport centre', () => {
+    const cam: CameraState = { x: 3, y: -2, zoom: 60 }
+    const next = zoomAt(cam, 90, { x: VIEWPORT.width / 2, y: VIEWPORT.height / 2 }, VIEWPORT)
+    expect(next.x).toBeCloseTo(3, 10)
+    expect(next.y).toBeCloseTo(-2, 10)
+    expect(next.zoom).toBe(90)
+  })
+
+  it('retraces its own path: zooming back through the same point returns the camera', () => {
+    const cam: CameraState = { x: 3, y: -2, zoom: 60 }
+    const pointer = { x: 700, y: 420 }
+    const back = zoomAt(zoomAt(cam, 150, pointer, VIEWPORT), 60, pointer, VIEWPORT)
+    expect(back.x).toBeCloseTo(cam.x, 10)
+    expect(back.y).toBeCloseTo(cam.y, 10)
+    expect(back.zoom).toBe(cam.zoom)
+  })
+
+  it('clamps the zoom, and pans by the clamped amount rather than the requested one', () => {
+    const cam: CameraState = { x: 0, y: 0, zoom: 150 }
+    const pointer = { x: 900, y: 100 }
+    expect(zoomAt(cam, 1e6, pointer, VIEWPORT)).toEqual(zoomAt(cam, MAX_ZOOM, pointer, VIEWPORT))
+  })
+
+  it('does not move the camera at all when the zoom cannot change', () => {
+    const cam: CameraState = { x: 5, y: 5, zoom: MAX_ZOOM }
+    expect(zoomAt(cam, MAX_ZOOM * 2, { x: 0, y: 0 }, VIEWPORT)).toBe(cam)
   })
 })
 

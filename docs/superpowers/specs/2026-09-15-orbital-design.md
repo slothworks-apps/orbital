@@ -60,7 +60,7 @@ REST for everything else.
 
 | Source | Purpose |
 |---|---|
-| `~/.claude/sessions/<pid>.json` | live session registry: sessionId, cwd, name, status (`idle`/`working`), kind, timestamps |
+| `~/.claude/sessions/<pid>.json` | live session registry: sessionId, cwd, name, status (`busy`/`shell`/`idle`/`waiting`), kind, timestamps |
 | PID liveness (+ `procStart`) | filter stale registry files |
 | `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl` | transcripts (history + live tail); encoded-cwd = path with `/` → `-` |
 | `Task` tool calls inside transcripts | subagent detection: tool_use without result = subagent running (moon orbiting); result received = finished |
@@ -122,11 +122,25 @@ soft (skip unparseable records, log, never crash the server).
 
 ### Session status model
 
-`working` → agent mid-turn. `needs_input` → web session finished a turn and
-waits for the user (also moons/planets show white ripple per state sheet).
-`idle` → live terminal session not currently working. `ended` → no live
-process. Terminal sessions only use `working`/`idle`/`ended` (we cannot
-reliably detect needs-input for them); web sessions use all four.
+`working` → agent mid-turn. `needs_input` → a session waiting on the user
+(also moons/planets show white ripple per state sheet). `idle` → live session
+not currently working. `ended` → no live process. Both sources use all four.
+
+Terminal sessions get their status from the registry file, whose vocabulary is
+the CLI's own and not ours. The mapping lives in one place,
+`CLI_STATUS` in `server/src/watcher/registry.ts`:
+
+| registry `status` | orbital status | |
+|---|---|---|
+| `busy` | `working` | agent mid-turn |
+| `shell` | `working` | a `!` shell command is running |
+| `waiting` | `needs_input` | parked on a permission request or question |
+| `idle` | `idle` | |
+| anything else | `idle` | a newer CLI added a word; map it then |
+
+The CLI never writes `working`, so an unmapped word must fall back to `idle`
+rather than be read as live-but-unknown. See `domains/cli-session-registry` for
+the rest of the file's shape and how the vocabulary was established.
 
 ## Data model (SQLite via Drizzle ORM, better-sqlite3 driver)
 
@@ -224,6 +238,11 @@ expands), ended (grey disc, orbit trail fades).
 ### Space map (main area, artboard 1a)
 
 - Flat 2D top-down scene, orthographic camera, pan + zoom only (no rotation).
+  Wheel/pinch zoom anchors on the pointer (the point under the cursor holds
+  still); the +/− buttons and "fit" stay centre-anchored.
+- A planet's label is anchored by its top edge, 34px under the body. While the
+  planet is selected it slides clear of the selection brackets and back again,
+  on the reticle's own fade, so the title never crosses the corner square.
 - Planets clustered by tag with cluster labels (`WORK · 3`); moons on luminous
   dashed circular orbits, driven by real `subagent` WS events.
 - Top-right aggregate: `2 WORKING · 3 IDLE · 4 ENDED`.

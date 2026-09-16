@@ -153,8 +153,20 @@ const BLACK = '#000000'
 const GREY_COLOR = new THREE.Color(GREY)
 const WHITE_COLOR = new THREE.Color(WHITE)
 
-/** Label sits `calc(100% + 34px)` under the body (2d/1f). */
-const LABEL_OFFSET_Y = -(BODY_RADIUS + px(34))
+/**
+ * The label is anchored by its TOP edge, which is what the export measures:
+ * `top: calc(100% + 34px)` sits the text 34px under the body box, not its
+ * centre. That also keeps the gap honest at every zoom — `<Html>` draws at a
+ * fixed 11px, so half a line of text is a different number of world units at
+ * every zoom level, and a centred anchor would let the gap drift with it.
+ *
+ * A selected planet draws corner brackets at ±100px, and the resting label
+ * runs straight through the bottom edge of that square. So while the reticle
+ * is up the label slides clear of it, on the reticle's own fade, and returns
+ * to the export's position when the selection goes.
+ */
+const LABEL_TOP_REST_Y = -(BODY_RADIUS + px(34))
+const LABEL_TOP_SELECTED_Y = -(BRACKET_INSET + px(8))
 const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
 const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
 
@@ -548,6 +560,7 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
   const reticleRingRef = useRef<LineHandle | null>(null)
   const bracketRefs = useRef<(LineHandle | null)[]>([])
   const badgeRef = useRef<HTMLSpanElement | null>(null)
+  const labelGroupRef = useRef<THREE.Group>(null)
   const rippleElapsed = useRef(0)
   /**
    * The blink's own phase, advanced by `delta / period` rather than read off
@@ -685,6 +698,12 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
       for (const bracket of bracketRefs.current) {
         if (bracket) bracket.material.opacity = reticleFade.value
       }
+      // `<Html>` re-reads its parent's world matrix every frame, so moving the
+      // group is all it takes to carry the label with the reticle.
+      if (labelGroupRef.current) {
+        labelGroupRef.current.position.y =
+          LABEL_TOP_REST_Y + (LABEL_TOP_SELECTED_Y - LABEL_TOP_REST_Y) * reticleFade.value
+      }
     }
   })
 
@@ -775,23 +794,37 @@ export function Planet({ session, hue, x, y, scale, selected, onClick }: PlanetP
 
       {badgeMounted && <NeedsInputBadge innerRef={badgeRef} />}
 
-      <Html center position={[0, LABEL_OFFSET_Y, 0]} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
-        <span
-          style={{
-            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-            fontSize: 11,
-            letterSpacing: '0.06em',
-            color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
-            // The label is plain DOM, so its half of the state change is a CSS
-            // transition on the same curve — dropped entirely under reduced
-            // motion, which an inline style cannot express as a media query.
-            transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {truncateLabel(session.title)}
-        </span>
-      </Html>
+      <group ref={labelGroupRef} position={[0, LABEL_TOP_REST_Y, 0]}>
+        <Html zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+          <span
+            style={{
+              // All three are load-bearing. `transform` does not apply to an
+              // inline box, and the shift is what centres the label under the
+              // planet (the anchor is its top-LEFT corner). `block` rather than
+              // `inline-block` because an inline-block sits on a line box and
+              // gets baseline-aligned against the wrapper's strut — measured at
+              // ~6px of leading pushing the label off its anchor. A block box
+              // has no line box above it and starts exactly at the anchor;
+              // `max-content` keeps it shrink-to-fit so the -50% is half the
+              // text, not half the wrapper.
+              display: 'block',
+              width: 'max-content',
+              transform: 'translateX(-50%)',
+              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+              fontSize: 11,
+              letterSpacing: '0.06em',
+              color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
+              // The label is plain DOM, so its half of the state change is a CSS
+              // transition on the same curve — dropped entirely under reduced
+              // motion, which an inline style cannot express as a media query.
+              transition: reduced ? undefined : `color ${STATE_TRANSITION_MS}ms cubic-bezier(.2,.8,.2,1)`,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {truncateLabel(session.title)}
+          </span>
+        </Html>
+      </group>
     </group>
   )
 }

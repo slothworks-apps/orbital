@@ -8,7 +8,7 @@ import { Button } from '../ui/Button'
 import { Planet } from './Planet'
 import { Moon } from './Moon'
 import { useSceneModel } from './useSceneModel'
-import { applyPan, applyZoom, fitView, zoomFromWheel, type CameraState } from './camera'
+import { applyPan, applyZoom, fitView, zoomAt, zoomFromWheel, type CameraState } from './camera'
 
 /**
  * Top-down space map scene: a `Canvas` (WebGL, untestable in jsdom) driven
@@ -129,7 +129,13 @@ export function SpaceMap() {
   }, [])
 
   const handleWheel = useCallback((e: ReactWheelEvent<HTMLDivElement>) => {
-    setCamera((cam) => ({ ...cam, zoom: zoomFromWheel(cam.zoom, e.deltaY, e.deltaMode) }))
+    // Read the geometry out here, not inside the updater: React may run the
+    // updater after the event has been handed back, when `currentTarget` is
+    // already null.
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    const viewport = { width: rect.width, height: rect.height }
+    setCamera((cam) => zoomAt(cam, zoomFromWheel(cam.zoom, e.deltaY, e.deltaMode), pointer, viewport))
   }, [])
 
   const zoomIn = useCallback(() => setCamera((cam) => applyZoom(cam, ZOOM_STEP)), [])
