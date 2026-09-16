@@ -43,7 +43,7 @@ tags:
 - **New settings keys and defaults:** `default_model` = `sonnet`, `remember_model_per_project` = `true`, `map_show_model` = `true`.
 - **Settings keys used as caches:** `models_catalog` (JSON array of raw `ModelInfo`), `model_context_windows` (JSON object, model id → tokens).
 - **TDD.** Every task writes a failing test first, watches it fail, then implements. Commit at the end of each task.
-- **Run from the repo root:** `npm test` (both workspaces), `npm run typecheck`. Single server file: `npx vitest run test/<file> -w server`. Single web file: `npx vitest run src/test/<file> -w web`.
+- **Run from the repo root:** `npm test` (both workspaces), `npm run typecheck`. Single server file: `(cd server && npx vitest run test/<file>)`. Single web file: `(cd web && npx vitest run src/test/<file>)`.
 - **Design source:** `Feature - Agent model.dc.html` on the Claude Design canvas, artboards `4a`, `4b`, `4c`, read through the `DesignSync` MCP. The copy of the canvas under `design/` is stale — do not read it.
 
 ---
@@ -135,7 +135,7 @@ it('does not erase a known resolved_model when the transcript has no assistant e
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run test/parser.test.ts test/indexer.test.ts -w server`
+Run: `(cd server && npx vitest run test/parser.test.ts test/indexer.test.ts)`
 Expected: FAIL — `model` is not a property of the `extractMeta` result, `resolvedModel` is not a column.
 
 - [ ] **Step 3: Add the columns and regenerate the migration**
@@ -218,7 +218,7 @@ In `server/src/indexer/indexer.ts`, add `resolvedModel: meta.model` to the `.val
 
 - [ ] **Step 6: Run the tests and the type check**
 
-Run: `npx vitest run test/parser.test.ts test/indexer.test.ts -w server && npm run typecheck -w server`
+Run: `(cd server && npx vitest run test/parser.test.ts test/indexer.test.ts) && npm run typecheck -w server`
 Expected: PASS. Other server tests referencing `SessionRow` may need the two new fields in their fixtures — fix any that fail with `npm test -w server`.
 
 - [ ] **Step 7: Commit**
@@ -433,7 +433,7 @@ describe('ModelCatalog', () => {
 
 - [ ] **Step 2: Run the test and watch it fail**
 
-Run: `npx vitest run test/catalog.test.ts -w server`
+Run: `(cd server && npx vitest run test/catalog.test.ts)`
 Expected: FAIL — `Cannot find module '../src/models/catalog.js'`.
 
 - [ ] **Step 3: Widen `QueryFn`**
@@ -683,7 +683,7 @@ export class ModelCatalog {
 
 - [ ] **Step 5: Run the test**
 
-Run: `npx vitest run test/catalog.test.ts -w server && npm run typecheck -w server`
+Run: `(cd server && npx vitest run test/catalog.test.ts) && npm run typecheck -w server`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -769,7 +769,7 @@ function fakeQueryFnWithModelUsage() {
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run test/routes.test.ts test/runner.test.ts -w server`
+Run: `(cd server && npx vitest run test/routes.test.ts test/runner.test.ts)`
 Expected: FAIL — 404 on `/api/models`, and `onTurnUsage` is not a `Runner` dependency.
 
 - [ ] **Step 3: Add the route**
@@ -947,7 +947,7 @@ it('carries the model on assistant chat messages', () => {
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run test/routes.test.ts test/runner.test.ts -w server`
+Run: `(cd server && npx vitest run test/routes.test.ts test/runner.test.ts)`
 Expected: FAIL — `model` missing on the row and on the API shape, `onInit` unknown, `sdkToChatMessages` drops the model.
 
 - [ ] **Step 3: Extend the API shape**
@@ -1158,7 +1158,7 @@ it('publishes an upsert after a switch', async () => {
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run test/runner.test.ts test/routes.test.ts -w server`
+Run: `(cd server && npx vitest run test/runner.test.ts test/routes.test.ts)`
 Expected: FAIL — `runner.setModel is not a function`, 404 on the new route.
 
 - [ ] **Step 3: Implement `Runner.setModel`**
@@ -1247,7 +1247,7 @@ it('reports each project with the model its newest session used', async () => {
 
 - [ ] **Step 2: Run the test and watch it fail**
 
-Run: `npx vitest run test/routes.test.ts -w server`
+Run: `(cd server && npx vitest run test/routes.test.ts)`
 Expected: FAIL — `projects` is an array of strings.
 
 - [ ] **Step 3: Rewrite the endpoint**
@@ -1411,7 +1411,7 @@ it('loads the model catalog', async () => {
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run src/test/models.test.ts src/test/store.test.ts -w web`
+Run: `(cd web && npx vitest run src/test/models.test.ts src/test/store.test.ts)`
 Expected: FAIL — `Cannot find module '../lib/models'`, `api.listModels is not a function`.
 
 - [ ] **Step 3: Extend the types**
@@ -1667,7 +1667,7 @@ describe('ModelCards', () => {
 
 - [ ] **Step 2: Run the test and watch it fail**
 
-Run: `npx vitest run src/test/modelcards.test.tsx -w web`
+Run: `(cd web && npx vitest run src/test/modelcards.test.tsx)`
 Expected: FAIL — `Cannot find module '../ui/ModelCards'`.
 
 - [ ] **Step 3: Write the component**
@@ -1809,7 +1809,7 @@ export function ModelCards({
 
 - [ ] **Step 4: Run the test**
 
-Run: `npx vitest run src/test/modelcards.test.tsx -w web && npm run typecheck -w web`
+Run: `(cd web && npx vitest run src/test/modelcards.test.tsx) && npm run typecheck -w web`
 Expected: PASS.
 
 - [ ] **Step 5: Check it against the canvas and commit**
@@ -1903,7 +1903,7 @@ Add the `MODELS` fixture from Task 8 to the top of the file and `models` to `res
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run src/test/newsession.test.tsx -w web`
+Run: `(cd web && npx vitest run src/test/newsession.test.tsx)`
 Expected: FAIL — no radios named after models.
 
 - [ ] **Step 3: Implement the group**
@@ -1991,7 +1991,7 @@ Extend the footer caption to name the model, matching 4b's `Sonnet 4.5 · accept
 
 - [ ] **Step 4: Run the tests**
 
-Run: `npx vitest run src/test/newsession.test.tsx -w web && npm run typecheck -w web`
+Run: `(cd web && npx vitest run src/test/newsession.test.tsx) && npm run typecheck -w web`
 Expected: PASS.
 
 - [ ] **Step 5: Check it against the canvas and commit**
@@ -2086,7 +2086,7 @@ Give the read-out `data-testid="context-readout"` alongside its existing `data-c
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run src/test/detail.test.tsx -w web`
+Run: `(cd web && npx vitest run src/test/detail.test.tsx)`
 Expected: FAIL — no "Change model" button, read-out still says `200k`.
 
 - [ ] **Step 3: Add the `model` Badge variant**
@@ -2283,7 +2283,7 @@ In the badge row, immediately before `{session.permissionMode && <Badge … />}`
 
 - [ ] **Step 6: Run the tests**
 
-Run: `npx vitest run src/test/ui.test.tsx src/test/detail.test.tsx -w web && npm run typecheck -w web`
+Run: `(cd web && npx vitest run src/test/ui.test.tsx src/test/detail.test.tsx) && npm run typecheck -w web`
 Expected: PASS.
 
 - [ ] **Step 7: Check it against artboard 4a and commit**
@@ -2367,7 +2367,7 @@ it('renders the divider in the transcript', () => {
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run src/test/transcript.test.tsx -w web`
+Run: `(cd web && npx vitest run src/test/transcript.test.tsx)`
 Expected: FAIL — `insertModelDividers is not exported`.
 
 - [ ] **Step 3: Implement it**
@@ -2443,7 +2443,7 @@ The `streaming` prop on `MessageView` keys off `index === groups.length - 1`; di
 
 - [ ] **Step 4: Run the tests**
 
-Run: `npx vitest run src/test/transcript.test.tsx -w web && npm run typecheck -w web`
+Run: `(cd web && npx vitest run src/test/transcript.test.tsx) && npm run typecheck -w web`
 Expected: PASS.
 
 - [ ] **Step 5: Check it against the canvas and commit**
@@ -2499,7 +2499,7 @@ it('says so when the catalog is empty', () => {
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run src/test/settings.test.tsx -w web`
+Run: `(cd web && npx vitest run src/test/settings.test.tsx)`
 Expected: FAIL — no "Default model" row.
 
 - [ ] **Step 3: Add the rows**
@@ -2554,7 +2554,7 @@ Use whatever `Row`/`Toggle` arrangement the file's existing map rows already use
 
 - [ ] **Step 4: Run the tests**
 
-Run: `npx vitest run src/test/settings.test.tsx -w web && npm run typecheck -w web`
+Run: `(cd web && npx vitest run src/test/settings.test.tsx) && npm run typecheck -w web`
 Expected: PASS.
 
 - [ ] **Step 5: Check it against the canvas and commit**
@@ -2622,7 +2622,7 @@ it('omits the family for a session whose model is unknown', () => {
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
-Run: `npx vitest run src/test/spacemap.test.tsx -w web`
+Run: `(cd web && npx vitest run src/test/spacemap.test.tsx)`
 Expected: FAIL — `modelFamily` is not on `ScenePlanet`.
 
 - [ ] **Step 3: Extend the scene model**
