@@ -4,6 +4,7 @@ import type {
   Tag,
   TagRule,
   PermissionMode,
+  OrbitalModel,
 } from './types'
 
 export class ApiError extends Error {
@@ -184,9 +185,19 @@ export const api = {
   },
 
   // Projects API
-  async listProjects(): Promise<string[]> {
-    const data = await request<{ projects: string[] }>('GET', '/api/projects')
+  async listProjects(): Promise<Array<{ cwd: string; lastModel: string | null }>> {
+    const data = await request<{ projects: Array<{ cwd: string; lastModel: string | null }> }>('GET', '/api/projects')
     return data.projects
+  },
+
+  // Models API
+  async listModels(): Promise<OrbitalModel[]> {
+    const data = await request<{ models: OrbitalModel[] }>('GET', '/api/models')
+    return data.models
+  },
+
+  async setSessionModel(id: string, model: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/model`, { model })
   },
 
   // Settings API
@@ -200,4 +211,4 @@ export const api = {
 }
 
 // Export types for convenience
-export type { ApiSession, ChatMessage, Tag, TagRule, Subagent } from './types'
+export type { ApiSession, ChatMessage, Tag, TagRule, Subagent, OrbitalModel } from './types'

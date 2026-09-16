@@ -74,7 +74,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setPending(false)
       api
         .listProjects()
-        .then(setRecentDirs)
+        .then((projects) => setRecentDirs(projects.map((p) => p.cwd)))
         .catch(() => {
           // Recent-dirs chips are a convenience; the cwd input still works without them.
         })

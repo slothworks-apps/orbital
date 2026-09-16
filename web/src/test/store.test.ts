@@ -32,6 +32,8 @@ vi.mock('../lib/api', async () => {
       deleteTagRule: vi.fn(),
       previewRule: vi.fn(),
       listProjects: vi.fn(),
+      listModels: vi.fn(),
+      setSessionModel: vi.fn(),
       patchSettings: vi.fn(),
     } satisfies Record<keyof typeof actual.api, unknown>,
   }
@@ -59,6 +61,8 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     messageCount: 1,
     source: 'web',
     permissionMode: null,
+    model: null,
+    resolvedModel: null,
     parentId: null,
     tagIds: [],
     status: 'idle',
@@ -71,6 +75,7 @@ const initialSnapshot: OrbitalState = {
   order: [],
   tags: [],
   rules: [],
+  models: [],
   settings: {},
   transcripts: {},
   subagents: {},
@@ -93,6 +98,14 @@ const initialSnapshot: OrbitalState = {
 beforeEach(() => {
   useOrbital.setState(structuredClone(initialSnapshot))
   vi.clearAllMocks()
+  // Persistent defaults so a test that only cares about one field of
+  // loadInitial's Promise.all (e.g. the model-catalog test below) doesn't
+  // have to also stub out the other three calls just to keep it iterable.
+  vi.mocked(api.listSessions).mockResolvedValue([])
+  vi.mocked(api.listTags).mockResolvedValue([])
+  vi.mocked(api.listTagRules).mockResolvedValue([])
+  vi.mocked(api.getSettings).mockResolvedValue({})
+  vi.mocked(api.listModels).mockResolvedValue([])
 })
 
 describe('loadInitial', () => {
@@ -121,6 +134,14 @@ describe('loadInitial', () => {
     expect(state.tags).toEqual(tags)
     expect(state.rules).toEqual(rules)
     expect(state.settings).toEqual(settings)
+  })
+
+  it('loads the model catalog', async () => {
+    vi.mocked(api.listModels).mockResolvedValue([
+      { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient', contextWindow: 200_000 },
+    ])
+    await useOrbital.getState().loadInitial()
+    expect(useOrbital.getState().models).toHaveLength(1)
   })
 })
 

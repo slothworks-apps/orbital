@@ -1,0 +1,72 @@
+import { describe, it, expect } from 'vitest'
+import { matchModel, contextWindowFor, modelByValue, modelChipLabel, DEFAULT_CONTEXT_WINDOW } from '../lib/models'
+import { formatContextWindow } from '../lib/format'
+import type { ApiSession, OrbitalModel } from '../lib/types'
+
+const MODELS: OrbitalModel[] = [
+  { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', family: 'Opus', version: 'Opus 5 with 1M context', shortVersion: 'Opus 5', variant: '1M', blurb: 'Best for everyday, complex tasks', contextWindow: 1_000_000 },
+  { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient for routine tasks', contextWindow: 200_000 },
+]
+
+const session = (over: Partial<ApiSession>): ApiSession => ({
+  id: 's', cwd: '/w', title: 't', firstAt: null, lastAt: null, messageCount: 0,
+  source: 'web', permissionMode: null, model: null, resolvedModel: null,
+  parentId: null, tagIds: [], status: 'ended', ...over,
+})
+
+describe('matchModel', () => {
+  it('matches the requested value first', () => {
+    expect(matchModel(session({ model: 'sonnet' }), MODELS)?.family).toBe('Sonnet')
+  })
+
+  it('matches an exact resolved model', () => {
+    expect(matchModel(session({ resolvedModel: 'claude-opus-5[1m]' }), MODELS)?.family).toBe('Opus')
+  })
+
+  it('matches a resolved model with the variant suffix stripped', () => {
+    // The transcript writes `claude-opus-5` even for a `[1m]` session.
+    expect(matchModel(session({ resolvedModel: 'claude-opus-5' }), MODELS)?.family).toBe('Opus')
+  })
+
+  it('returns undefined for an unknown model', () => {
+    expect(matchModel(session({ resolvedModel: 'claude-something-9' }), MODELS)).toBeUndefined()
+  })
+})
+
+describe('contextWindowFor', () => {
+  it('uses the matched model window', () => {
+    expect(contextWindowFor(session({ model: 'opus[1m]' }), MODELS)).toBe(1_000_000)
+  })
+
+  it('never widens a window through the stripped suffix', () => {
+    // `claude-opus-5` is NOT `claude-opus-5[1m]`; guessing 1M here would draw
+    // the bar at a fifth of its real fill.
+    expect(contextWindowFor(session({ resolvedModel: 'claude-opus-5' }), MODELS)).toBe(DEFAULT_CONTEXT_WINDOW)
+  })
+
+  it('falls back for a session with no model at all', () => {
+    expect(contextWindowFor(session({}), MODELS)).toBe(DEFAULT_CONTEXT_WINDOW)
+  })
+})
+
+describe('modelByValue', () => {
+  it('finds a row by its SDK value', () => {
+    expect(modelByValue('sonnet', MODELS)?.family).toBe('Sonnet')
+    expect(modelByValue(null, MODELS)).toBeUndefined()
+  })
+})
+
+describe('modelChipLabel', () => {
+  it('appends the variant only when there is one', () => {
+    expect(modelChipLabel(MODELS[0])).toBe('Opus 5 (1M)')
+    expect(modelChipLabel(MODELS[1])).toBe('Sonnet 5')
+  })
+})
+
+describe('formatContextWindow', () => {
+  it('formats in the canvas notation', () => {
+    expect(formatContextWindow(200_000)).toBe('200k')
+    expect(formatContextWindow(1_000_000)).toBe('1M')
+    expect(formatContextWindow(1_500_000)).toBe('1.5M')
+  })
+})

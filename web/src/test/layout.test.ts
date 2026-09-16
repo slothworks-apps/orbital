@@ -20,6 +20,8 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     messageCount: 1,
     source: 'web',
     permissionMode: null,
+    model: null,
+    resolvedModel: null,
     parentId: null,
     tagIds: [],
     status: 'idle',

@@ -3,6 +3,7 @@ import { api, ApiError } from '../lib/api'
 import type {
   ApiSession,
   ChatMessage,
+  OrbitalModel,
   Subagent,
   SessionSource,
   SessionStatus,
@@ -57,6 +58,7 @@ export interface OrbitalState {
   order: string[]
   tags: Tag[]
   rules: TagRule[]
+  models: OrbitalModel[]
   settings: Record<string, string>
   transcripts: Record<string, ChatMessage[]>
   subagents: Record<string, Subagent[]>
@@ -142,6 +144,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   order: [],
   tags: [],
   rules: [],
+  models: [],
   settings: {},
   transcripts: {},
   subagents: {},
@@ -152,11 +155,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   ui: initialUiState,
 
   async loadInitial() {
-    const [sessions, tags, rules, settings] = await Promise.all([
+    const [sessions, tags, rules, settings, models] = await Promise.all([
       api.listSessions(),
       api.listTags(),
       api.listTagRules(),
       api.getSettings(),
+      // Best-effort: a failed probe with nothing cached yields [], and every
+      // surface that reads the catalog has an empty state for exactly that.
+      api.listModels().catch(() => [] as OrbitalModel[]),
     ])
 
     const sessionsMap: Record<string, ApiSession> = {}
@@ -170,6 +176,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       tags,
       rules,
       settings,
+      models,
     })
   },
 

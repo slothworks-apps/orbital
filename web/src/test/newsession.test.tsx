@@ -27,6 +27,8 @@ vi.mock('../lib/api', async () => {
       deleteTagRule: vi.fn(),
       previewRule: vi.fn(),
       listProjects: vi.fn(),
+      listModels: vi.fn(),
+      setSessionModel: vi.fn(),
       getSettings: vi.fn(),
       patchSettings: vi.fn(),
     } satisfies Record<keyof typeof actual.api, unknown>,
@@ -92,7 +94,10 @@ describe('NewSessionDialog', () => {
   })
 
   it('fetches recent directories on open and renders them as clickable chips', async () => {
-    vi.mocked(api.listProjects).mockResolvedValue(['/a/proj', '/b/proj'])
+    vi.mocked(api.listProjects).mockResolvedValue([
+      { cwd: '/a/proj', lastModel: null },
+      { cwd: '/b/proj', lastModel: null },
+    ])
     resetStore()
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
@@ -226,7 +231,7 @@ describe('NewSessionDialog — canvas 1d structure', () => {
   })
 
   it('renders recent dirs as mono path pills under the RECENT kicker, not tag chips', async () => {
-    vi.mocked(api.listProjects).mockResolvedValue(['/a/proj'])
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/a/proj', lastModel: null }])
     resetStore()
     render(<NewSessionDialog open onClose={vi.fn()} />)
 

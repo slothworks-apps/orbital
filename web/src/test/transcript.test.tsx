@@ -379,6 +379,8 @@ vi.mock('../lib/api', async () => {
       deleteTagRule: vi.fn(),
       previewRule: vi.fn(),
       listProjects: vi.fn(),
+      listModels: vi.fn(),
+      setSessionModel: vi.fn(),
       patchSettings: vi.fn(),
     } satisfies Record<keyof typeof actual.api, unknown>,
   }
@@ -647,6 +649,8 @@ describe('Transcript', () => {
           messageCount: 2,
           source: 'web',
           permissionMode: null,
+          model: null,
+          resolvedModel: null,
           parentId: null,
           tagIds: [],
           status: 'working',

@@ -40,3 +40,14 @@ export function shortenPath(cwd: string): string {
   if (segments.length <= 2) return `~/${segments.join('/')}`
   return `~/…/${segments.slice(-2).join('/')}`
 }
+
+/**
+ * Context-window sizes as the model pickers print them — "200k", "1M".
+ * Distinct from `formatTokens`: this formats a round budget, not a measured
+ * count, so it never shows a decimal it does not need.
+ */
+export function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`
+  return String(tokens)
+}

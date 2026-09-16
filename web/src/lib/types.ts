@@ -11,6 +11,8 @@ export interface ApiSession {
   messageCount: number;
   source: SessionSource;
   permissionMode: PermissionMode | null;
+  model: string | null;
+  resolvedModel: string | null;
   parentId: string | null;
   tagIds: number[];
   status: SessionStatus;
@@ -24,6 +26,22 @@ export interface ChatMessage {
   toolInput?: unknown;
   toolUseId?: string;
   timestamp?: string;
+  /** Resolved model that produced this assistant message. */
+  model?: string;
+}
+
+/** One model as every Orbital surface consumes it. Duplicated from the
+ * server's `server/src/models/catalog.ts` — this repo has no shared types
+ * package, so the two declarations must be kept field-for-field in sync. */
+export interface OrbitalModel {
+  value: string;
+  resolvedModel: string;
+  family: string;
+  version: string;
+  shortVersion: string;
+  variant: string | null;
+  blurb: string;
+  contextWindow: number | null;
 }
 
 export interface Tag {
