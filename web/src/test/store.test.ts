@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type {
   ApiSession,
   ChatMessage,
+  ErrorRecord,
   Subagent,
   Tag,
   TagRule,
@@ -15,6 +16,7 @@ import {
   visibleSessions,
   mapSessions,
   statusCounts,
+  recordedFailureFor,
   type OrbitalState,
 } from '../store/store'
 
@@ -52,6 +54,9 @@ const initialSnapshot: OrbitalState = {
   usage: {},
   historyLoaded: {},
   transcriptErrors: {},
+  lastTurnResultAt: {},
+  errors: [],
+  errorsUnseen: 0,
   toast: null,
   ui: {
     selectedId: null,
@@ -76,10 +81,25 @@ beforeEach(() => {
   vi.mocked(api.listTagRules).mockResolvedValue([])
   vi.mocked(api.getSettings).mockResolvedValue({})
   vi.mocked(api.listModels).mockResolvedValue([])
+  vi.mocked(api.listErrors).mockResolvedValue({ errors: [], unseen: 0 })
   // Every ENDED toggle saves; tests that care about the save assert on it,
   // the rest just need it not to reject.
   vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
 })
+
+function makeError(overrides: Partial<ErrorRecord> & { id: number }): ErrorRecord {
+  return {
+    at: 1_700_000_000_000,
+    source: 'server',
+    kind: 'session_failed',
+    sessionId: null,
+    message: 'spawn claude ENOENT',
+    detail: null,
+    context: null,
+    seenAt: null,
+    ...overrides,
+  }
+}
 
 describe('loadInitial', () => {
   it('fetches sessions/tags/rules/settings and populates state, order sorted by lastAt desc', async () => {
@@ -394,6 +414,132 @@ describe('sendPrompt', () => {
     })
     // The optimistic message remains in the transcript despite the failed send.
     expect(useOrbital.getState().transcripts.s1).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The shared error log
+// (`docs/superpowers/specs/2026-09-17-error-surface-design.md`).
+// ---------------------------------------------------------------------------
+
+describe('the error log', () => {
+  it('loads the newest page in loadInitial and takes the unseen count from the server, not from the page', async () => {
+    vi.mocked(api.listErrors).mockResolvedValueOnce({
+      errors: [makeError({ id: 9 }), makeError({ id: 8 })],
+      // The whole point: the client holds two rows and 200 are unread.
+      unseen: 200,
+    })
+
+    await useOrbital.getState().loadInitial()
+
+    expect(api.listErrors).toHaveBeenCalledWith({ limit: 50 })
+    expect(useOrbital.getState().errors.map((e) => e.id)).toEqual([9, 8])
+    expect(useOrbital.getState().errorsUnseen).toBe(200)
+  })
+
+  it('leaves the log empty rather than failing the whole mount when listErrors rejects', async () => {
+    vi.mocked(api.listErrors).mockRejectedValueOnce(new Error('offline'))
+
+    await expect(useOrbital.getState().loadInitial()).resolves.toBeUndefined()
+
+    expect(useOrbital.getState().errors).toEqual([])
+  })
+
+  it('prepends a WS record and follows the server count rather than the array length', () => {
+    useOrbital.setState({ errors: [makeError({ id: 1 })], errorsUnseen: 1 })
+
+    useOrbital.getState().applyErrorsEvent({
+      event: 'error',
+      error: makeError({ id: 2, message: 'boom' }),
+      unseen: 143,
+    })
+
+    const state = useOrbital.getState()
+    expect(state.errors.map((e) => e.id)).toEqual([2, 1])
+    expect(state.errorsUnseen).toBe(143)
+  })
+
+  it('raises the toast on an arriving record', () => {
+    useOrbital.getState().applyErrorsEvent({
+      event: 'error',
+      error: makeError({ id: 3, message: 'spawn claude ENOENT' }),
+      unseen: 1,
+    })
+
+    expect(useOrbital.getState().toast).toEqual({
+      kind: 'error',
+      message: 'spawn claude ENOENT',
+    })
+  })
+
+  it('replaces rather than duplicates a record it already holds (a replay after reconnect)', () => {
+    useOrbital.setState({ errors: [makeError({ id: 4, message: 'old' })], errorsUnseen: 1 })
+
+    useOrbital
+      .getState()
+      .applyErrorsEvent({ event: 'error', error: makeError({ id: 4, message: 'new' }), unseen: 1 })
+
+    expect(useOrbital.getState().errors).toHaveLength(1)
+    expect(useOrbital.getState().errors[0].message).toBe('new')
+  })
+
+  it('stamps the ids a seen event names, and every row when it names null', () => {
+    useOrbital.setState({
+      errors: [makeError({ id: 2 }), makeError({ id: 1 })],
+      errorsUnseen: 2,
+    })
+
+    useOrbital.getState().applyErrorsEvent({ event: 'seen', ids: [2], unseen: 1 })
+    expect(useOrbital.getState().errors.map((e) => e.seenAt === null)).toEqual([false, true])
+    expect(useOrbital.getState().errorsUnseen).toBe(1)
+
+    useOrbital.getState().applyErrorsEvent({ event: 'seen', ids: null, unseen: 0 })
+    expect(useOrbital.getState().errors.every((e) => e.seenAt !== null)).toBe(true)
+    expect(useOrbital.getState().errorsUnseen).toBe(0)
+  })
+
+  it('keeps an already-stamped row on its original moment', () => {
+    useOrbital.setState({ errors: [makeError({ id: 1, seenAt: 42 })], errorsUnseen: 0 })
+
+    useOrbital.getState().applyErrorsEvent({ event: 'seen', ids: null, unseen: 0 })
+
+    expect(useOrbital.getState().errors[0].seenAt).toBe(42)
+  })
+
+  it('empties the log on a cleared event', () => {
+    useOrbital.setState({ errors: [makeError({ id: 1 })], errorsUnseen: 3 })
+
+    useOrbital.getState().applyErrorsEvent({ event: 'cleared', unseen: 0 })
+
+    expect(useOrbital.getState().errors).toEqual([])
+    expect(useOrbital.getState().errorsUnseen).toBe(0)
+  })
+
+  it('markErrorsSeen posts the ids and takes the new count from the response', async () => {
+    vi.mocked(api.markErrorsSeen).mockResolvedValueOnce({ ok: true, unseen: 5 })
+    useOrbital.setState({ errors: [makeError({ id: 7 })], errorsUnseen: 6 })
+
+    await useOrbital.getState().markErrorsSeen([7])
+
+    expect(api.markErrorsSeen).toHaveBeenCalledWith([7])
+    expect(useOrbital.getState().errors[0].seenAt).not.toBeNull()
+    expect(useOrbital.getState().errorsUnseen).toBe(5)
+  })
+
+  it('markErrorsSeen does not call the API for an empty id list', async () => {
+    await useOrbital.getState().markErrorsSeen([])
+    expect(api.markErrorsSeen).not.toHaveBeenCalled()
+  })
+
+  it('clearErrorLog empties the slice after the DELETE resolves', async () => {
+    vi.mocked(api.clearErrors).mockResolvedValueOnce({ ok: true, unseen: 0 })
+    useOrbital.setState({ errors: [makeError({ id: 1 })], errorsUnseen: 1 })
+
+    await useOrbital.getState().clearErrorLog()
+
+    expect(api.clearErrors).toHaveBeenCalled()
+    expect(useOrbital.getState().errors).toEqual([])
+    expect(useOrbital.getState().errorsUnseen).toBe(0)
   })
 })
 
@@ -741,5 +887,76 @@ describe('setHideEnded', () => {
     await useOrbital.getState().loadInitial()
 
     expect(useOrbital.getState().ui.hideEnded).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Which recorded failure the transcript should still be wearing
+// ---------------------------------------------------------------------------
+
+describe('recordedFailureFor', () => {
+  function record(overrides: Partial<ErrorRecord> = {}): ErrorRecord {
+    return {
+      id: 1,
+      at: 1_000,
+      source: 'server',
+      kind: 'session_failed',
+      sessionId: 'a',
+      message: 'spawn claude ENOENT',
+      detail: null,
+      context: null,
+      seenAt: null,
+      ...overrides,
+    }
+  }
+
+  function state(overrides: Partial<OrbitalState> = {}): Pick<
+    OrbitalState,
+    'errors' | 'sessions' | 'lastTurnResultAt'
+  > {
+    return {
+      errors: [record()],
+      sessions: { a: makeSession({ id: 'a', lastAt: 500 }) },
+      lastTurnResultAt: {},
+      ...overrides,
+    }
+  }
+
+  it('returns the session\'s recorded failure when it is the last thing that happened', () => {
+    expect(recordedFailureFor(state(), 'a')?.message).toBe('spawn claude ENOENT')
+  })
+
+  it('returns nothing for a session with no recorded error', () => {
+    expect(recordedFailureFor(state(), 'b')).toBeUndefined()
+  })
+
+  /**
+   * The regression this function exists to prevent. `transcriptErrors` is
+   * cleared by a `turn_result`; a database row is not, so without a gate a
+   * session that crashed once would wear the crash forever — which is exactly
+   * what the comment on that clearing warns about.
+   */
+  it('forgets the failure once this tab has watched a later turn complete', () => {
+    const revived = state({ lastTurnResultAt: { a: 2_000 } })
+    expect(recordedFailureFor(revived, 'a')).toBeUndefined()
+  })
+
+  it('keeps the failure when the last completed turn is older than it', () => {
+    const crashedAfterAGoodTurn = state({ lastTurnResultAt: { a: 500 } })
+    expect(recordedFailureFor(crashedAfterAGoodTurn, 'a')).toBeDefined()
+  })
+
+  /**
+   * After a reload `lastTurnResultAt` is empty — this tab watched nothing —
+   * so the session's own `lastAt` has to carry the same rule.
+   */
+  it('forgets the failure when the session has been active since, across a reload', () => {
+    const activeSince = state({ sessions: { a: makeSession({ id: 'a', lastAt: 9_000 }) } })
+    expect(recordedFailureFor(activeSince, 'a')).toBeUndefined()
+  })
+
+  it('keeps the failure when neither signal is present at all', () => {
+    const noSignals = state({ sessions: {} })
+    expect(recordedFailureFor(noSignals, 'a')).toBeDefined()
   })
 })

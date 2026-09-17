@@ -83,3 +83,32 @@ export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`;
  */
 export const isReadOnly = (session: Pick<ApiSession, 'source' | 'status'>): boolean =>
   session.source === 'terminal' && session.status !== 'ended';
+
+/**
+ * Where an error was caught. The browser posts its own failures to
+ * `POST /api/errors` so both sides land in one list. Mirrored in
+ * `server/src/types.ts` — the two must move together. See
+ * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
+ */
+export type ErrorSource = 'server' | 'web'
+
+/** What kind of thing failed. A short machine label, not a message. */
+export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash'
+
+export interface ErrorRecord {
+  id: number
+  /** Epoch ms. */
+  at: number
+  source: ErrorSource
+  kind: ErrorKind
+  /** Set when the error belongs to one session, null otherwise. */
+  sessionId: string | null
+  /** The one line the toast shows. */
+  message: string
+  /** The long form — a stack, a `componentStack`, a response body. */
+  detail: string | null
+  /** Anything else worth keeping: `cwd`, `permissionMode`, `model`, request URL, HTTP status. */
+  context: Record<string, unknown> | null
+  /** When the error list showed this row. Null until then. */
+  seenAt: number | null
+}

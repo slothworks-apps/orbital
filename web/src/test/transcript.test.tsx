@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ChatMessage, OrbitalModel } from '../lib/types'
+import type { ChatMessage, ErrorRecord, OrbitalModel } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
 // ---------------------------------------------------------------------------
@@ -475,10 +475,26 @@ function resetStore(
     usage: {},
     historyLoaded: {},
     transcriptErrors: {},
+    errors: [],
+    errorsUnseen: 0,
     toast: null,
     ...overrides,
     ui: { ...defaultUi, ...overrides.ui },
   })
+}
+
+function makeError(overrides: Partial<ErrorRecord> & { id: number }): ErrorRecord {
+  return {
+    at: 1_700_000_000_000,
+    source: 'server',
+    kind: 'session_failed',
+    sessionId: null,
+    message: 'spawn claude ENOENT',
+    detail: null,
+    context: null,
+    seenAt: null,
+    ...overrides,
+  }
 }
 
 /** Puts `messages` in session `s1`'s transcript and renders it — shared by
@@ -522,6 +538,64 @@ describe('Transcript', () => {
     render(<Transcript sessionId="s1" />)
 
     expect(screen.getByRole('alert')).toHaveTextContent(/ended unexpectedly/i)
+  })
+
+  it('prints the recorded reason instead of the guess when the log has a row for the session', () => {
+    resetStore({
+      transcripts: { s1: [{ id: '1', role: 'user', text: 'go' }] },
+      transcriptErrors: { s1: true },
+      errors: [makeError({ id: 1, sessionId: 's1', message: 'spawn claude ENOENT' })],
+    })
+
+    render(<Transcript sessionId="s1" />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('spawn claude ENOENT')
+    expect(alert).not.toHaveTextContent(/ended unexpectedly/i)
+    // …and a way through to the full record.
+    expect(within(alert).getByRole('button', { name: /detail/i })).toBeInTheDocument()
+  })
+
+  it('prefers the most recent record when the session has more than one', () => {
+    resetStore({
+      transcripts: { s1: [{ id: '1', role: 'user', text: 'go' }] },
+      // Newest first, the order the log is held in.
+      errors: [
+        makeError({ id: 2, sessionId: 's1', message: 'the latest failure' }),
+        makeError({ id: 1, sessionId: 's1', message: 'an older failure' }),
+      ],
+    })
+
+    render(<Transcript sessionId="s1" />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('the latest failure')
+  })
+
+  it('falls back to the heuristic sentence when the log holds nothing for this session', () => {
+    resetStore({
+      transcripts: { s1: [{ id: '1', role: 'user', text: 'go' }] },
+      transcriptErrors: { s1: true },
+      // A record, but for a different session — a CLI that exits non-zero
+      // without the generator throwing records nothing at all.
+      errors: [makeError({ id: 1, sessionId: 's2', message: 'spawn claude ENOENT' })],
+    })
+
+    render(<Transcript sessionId="s1" />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/ended unexpectedly/i)
+  })
+
+  it('opens the error log from the recorded row’s Detail button', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      transcripts: { s1: [{ id: '1', role: 'user', text: 'go' }] },
+      errors: [makeError({ id: 1, sessionId: 's1' })],
+    })
+
+    render(<Transcript sessionId="s1" />)
+    await user.click(screen.getByRole('button', { name: /detail/i }))
+
+    expect(useOrbital.getState().ui.dialog).toBe('errors')
   })
 
   it('does not render an error row for a session without the crashed flag', () => {

@@ -12,6 +12,7 @@ import { Button } from './Button'
 export function Toasts() {
   const toast = useOrbital((s) => s.toast)
   const clearToast = useOrbital((s) => s.clearToast)
+  const setDialog = useOrbital((s) => s.setDialog)
 
   if (!toast) return null
 
@@ -28,6 +29,13 @@ export function Toasts() {
       ].join(' ')}
     >
       <span className="min-w-0 flex-1">{toast.message}</span>
+      {/* A real <button>, so it is in the tab order and answers Enter/Space
+          without this file owning any key handling of its own. Dismissing
+          below is deliberately NOT wired to the log: closing a toast closes
+          a toast, it does not mark the row read. */}
+      <Button variant="ghost" size="sm" onClick={() => setDialog('errors')}>
+        Detail
+      </Button>
       <Button variant="ghost" size="sm" onClick={clearToast} aria-label="Dismiss">
         ×
       </Button>

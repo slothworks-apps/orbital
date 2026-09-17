@@ -53,6 +53,23 @@ beforeEach(() => {
   vi.mocked(api.listTagRules).mockResolvedValue([])
   vi.mocked(api.getSettings).mockResolvedValue({})
   vi.mocked(api.listModels).mockResolvedValue([])
+  vi.mocked(api.listErrors).mockResolvedValue({ errors: [], unseen: 0 })
+  // The boundary that catches below records the crash, and `restoreAllMocks`
+  // strips apiMock's resolving default between tests.
+  vi.mocked(api.reportErrorToServer).mockResolvedValue({
+    error: {
+      id: 1,
+      at: 1,
+      source: 'web',
+      kind: 'render_crash',
+      sessionId: null,
+      message: 'sourceOptions is not defined',
+      detail: null,
+      context: null,
+      seenAt: null,
+    },
+    unseen: 1,
+  })
 })
 
 afterEach(() => {

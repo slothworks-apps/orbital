@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
+import { api } from '../lib/api'
 
 /**
  * Every mounted boundary's reset callback. Module-level rather than a
@@ -66,7 +67,24 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    // The terminal keeps saying it too — the log is an addition, not a move.
     console.error(`orbital: ${this.props.label} crashed`, error, info.componentStack)
+
+    void api
+      .reportErrorToServer({
+        kind: 'render_crash',
+        message: error.message,
+        // Both stacks, because they answer different questions: the JS stack
+        // says which code threw, the component stack says where in the tree
+        // it was mounted.
+        detail: [error.stack, info.componentStack].filter(Boolean).join('\n\n') || null,
+        context: { label: this.props.label },
+      })
+      // Same rule as `reportError`: a failed report stops at the console. A
+      // crash reporter that reports its own failures never stops.
+      .catch((reportErr) => {
+        console.error('orbital: failed to record a render crash', reportErr)
+      })
   }
 
   render(): ReactNode {

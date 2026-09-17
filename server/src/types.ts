@@ -45,3 +45,35 @@ export interface TagRule {
   condition: 'path_matches' | 'title_contains' | 'permission_is';
   pattern: string;
 }
+
+/**
+ * Where an error was caught. `web` rows arrive through `POST /api/errors` —
+ * the browser's own failures are recorded in the same table as the server's,
+ * so there is one list to read rather than two.
+ *
+ * Mirrored in `web/src/lib/types.ts`; this repo has no shared types package,
+ * so the two must move together. See
+ * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
+ */
+export type ErrorSource = 'server' | 'web';
+
+/** What kind of thing failed. A short machine label, not a message. */
+export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash';
+
+export interface ErrorRecord {
+  id: number;
+  /** Epoch ms. */
+  at: number;
+  source: ErrorSource;
+  kind: ErrorKind;
+  /** Set when the error belongs to one session, null otherwise. */
+  sessionId: string | null;
+  /** The one line a toast can show. */
+  message: string;
+  /** The long form — a stack, a `componentStack`, a response body. */
+  detail: string | null;
+  /** Anything else worth keeping: `cwd`, `permissionMode`, `model`, request URL, HTTP status. */
+  context: Record<string, unknown> | null;
+  /** When the error list showed this row. Null until then. */
+  seenAt: number | null;
+}

@@ -163,6 +163,8 @@ function resetStore() {
     usage: {},
     historyLoaded: {},
     transcriptErrors: {},
+    errors: [],
+    errorsUnseen: 0,
     toast: null,
     ui: {
       selectedId: null,

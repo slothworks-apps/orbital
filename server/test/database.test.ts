@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
@@ -65,6 +65,19 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
+/**
+ * How many migrations exist on disk, read from Drizzle's own journal rather
+ * than hardcoded — the assertion below is about "applied exactly once each",
+ * and a literal count turns every new migration into an unrelated test
+ * failure.
+ */
+function migrationsOnDisk(): number {
+  const journal = JSON.parse(
+    readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
+  ) as { entries: unknown[] };
+  return journal.entries.length;
+}
+
 describe('openDb', () => {
   it('creates schema via migrations, seeds defaults, and is idempotent', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orbital-db-'));
@@ -74,7 +87,9 @@ describe('openDb', () => {
     );
     const tableNames = tableRows.map((r) => r.name);
     expect(tableNames).toEqual(
-      expect.arrayContaining(['sessions', 'session_tags', 'settings', 'tag_rules', 'tags']),
+      expect.arrayContaining([
+        'errors', 'sessions', 'session_tags', 'settings', 'tag_rules', 'tags',
+      ]),
     );
     const def = db.select().from(tags).where(sql`${tags.isDefault} = 1`).get();
     expect(def?.name).toBe('personal');
@@ -206,7 +221,7 @@ describe('openDb', () => {
     const migrationCount = reopened.all<{ c: number }>(
       sql`SELECT COUNT(*) c FROM __drizzle_migrations`,
     )[0];
-    expect(migrationCount.c).toBe(2);
+    expect(migrationCount.c).toBe(migrationsOnDisk());
     expect(reopened.$client.pragma('user_version', { simple: true })).toBe(1);
     reopened.$client.close();
   });

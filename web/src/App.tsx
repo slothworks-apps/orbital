@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useOrbital } from './store/store'
-import type { SessionEvent, SessionsEvent } from './store/store'
+import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
 import { OrbitalSocket, resolveWsUrl } from './lib/ws'
 import { SpaceMap } from './map/SpaceMap'
 import { Sidebar } from './panels/Sidebar'
 import { DetailPanel } from './panels/DetailPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
+import { ErrorLog } from './panels/ErrorLog'
 import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
@@ -39,11 +40,13 @@ export default function App() {
   const loadInitial = useOrbital((s) => s.loadInitial)
   const applySessionsEvent = useOrbital((s) => s.applySessionsEvent)
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
+  const applyErrorsEvent = useOrbital((s) => s.applyErrorsEvent)
   const setWsStatus = useOrbital((s) => s.setWsStatus)
   const setDialog = useOrbital((s) => s.setDialog)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const dialog = useOrbital((s) => s.ui.dialog)
   const wsStatus = useOrbital((s) => s.ui.wsStatus)
+  const errorsUnseen = useOrbital((s) => s.errorsUnseen)
 
   // Initial REST snapshot (sessions/tags/rules/settings) — once per mount.
   // The flag gates `useSessionUrl`'s restore: `loadInitial` replaces the whole
@@ -62,6 +65,13 @@ export default function App() {
   useEffect(() => {
     return socket.subscribe('sessions', (msg: SessionsEvent) => applySessionsEvent(msg))
   }, [applySessionsEvent])
+
+  // `errors` topic — the shared error log, subscribed for the app's whole
+  // lifetime exactly like `sessions`, with the returned unsubscribe as this
+  // effect's cleanup.
+  useEffect(() => {
+    return socket.subscribe('errors', (msg: ErrorsEvent) => applyErrorsEvent(msg))
+  }, [applyErrorsEvent])
 
   // WS connection status -> store, surfaced below as the reconnect banner.
   // `onStatusChange` invokes its callback immediately with the current
@@ -143,6 +153,24 @@ export default function App() {
           DetailPanel owns and renders them itself. */}
       <NewSessionDialog open={dialog === 'new'} onClose={() => setDialog(null)} />
       <Settings open={dialog === 'settings'} onClose={() => setDialog(null)} />
+      <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
+
+      {/* The unseen count, and the one place that is always there to click
+          through to the log. Plain on purpose — the spec puts the visual
+          design of the error surface out of scope, and a canvas for it is
+          coming. Do not style this from the eye.
+          Sat at `bottom-20` only to clear what already owns the bottom of the
+          map: SpaceMap's "New session" CTA and the toast both sit at
+          `bottom-6`. A canvas will decide where this actually belongs. */}
+      <div className="absolute bottom-20 left-1/2 z-20 -translate-x-1/2">
+        <button
+          type="button"
+          onClick={() => setDialog('errors')}
+          className="rounded-md border border-panel-border bg-panel px-2.5 py-1 font-mono text-[11px] text-text-soft"
+        >
+          Errors{errorsUnseen > 0 ? ` (${errorsUnseen})` : ''}
+        </button>
+      </div>
 
       <Toasts />
     </div>

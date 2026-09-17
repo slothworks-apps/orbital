@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useOrbital } from '../store/store'
+import { recordedFailureFor, useOrbital } from '../store/store'
 import type { ChatMessage } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { Button } from '../ui/Button'
@@ -189,6 +189,13 @@ export function Transcript({ sessionId }: TranscriptProps) {
   // when this session went `working` -> `ended` without a `turn_result` in
   // between. See `store.ts`'s `turnResultSeen` bookkeeping.
   const hasError = useOrbital((s) => Boolean(s.transcriptErrors[sessionId]))
+  // What replaces the guess: the session's most recent row in the shared
+  // error log. When there is one it carries the real reason, and — because
+  // it comes from the database rather than from a live WS transition — it
+  // survives a reload, which `transcriptErrors` never did. Returns an
+  // element of the array, so the reference is stable between renders.
+  const recorded = useOrbital((s) => recordedFailureFor(s, sessionId))
+  const setDialog = useOrbital((s) => s.setDialog)
   // Names the divider's raw ids through the catalog (see modelNameForId) —
   // insertModelDividers itself stays catalog-free, carrying only raw ids.
   const models = useOrbital(useShallow((s) => s.models))
@@ -347,13 +354,25 @@ export function Transcript({ sessionId }: TranscriptProps) {
           />
         )
       )}
-      {hasError && (
+      {(recorded || hasError) && (
         <div
           role="alert"
           className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 font-mono text-xs text-red-300"
         >
           <span aria-hidden>⚠</span>
-          <span>Session ended unexpectedly — the assistant process may have crashed.</span>
+          {/* The heuristic stays underneath as the fallback: a CLI that exits
+              non-zero without the generator throwing records nothing, and for
+              that case the generic sentence is still the honest answer. */}
+          <span className="min-w-0 flex-1 break-words">
+            {recorded
+              ? recorded.message
+              : 'Session ended unexpectedly — the assistant process may have crashed.'}
+          </span>
+          {recorded && (
+            <Button variant="ghost" size="sm" onClick={() => setDialog('errors')}>
+              Detail
+            </Button>
+          )}
         </div>
       )}
     </div>

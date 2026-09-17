@@ -13,6 +13,7 @@ import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 import type { SessionRow } from '../src/types.js';
 import { SubagentStore } from '../src/transcript/subagents.js';
+import { ErrorLog } from '../src/errors/log.js';
 
 function makeApp() {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
@@ -50,10 +51,12 @@ function makeApp() {
   };
   const app = Fastify();
   const subagents = new SubagentStore();
+  const errors = new ErrorLog({ db, hub });
   registerRoutes(app, {
     db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent', hub,
     models: modelCatalog as any,
     subagents,
+    errors,
     settings: {
       get: (k: string) =>
         db.select({ value: settingsTable.value }).from(settingsTable)
@@ -66,7 +69,7 @@ function makeApp() {
           .run(),
     },
   });
-  return { app, db, runner, hub, registry, startCalls, modelCatalog, subagents };
+  return { app, db, runner, hub, registry, startCalls, modelCatalog, subagents, errors };
 }
 
 /** Subscribes a fake socket to a Hub topic and collects published payloads. */
@@ -579,6 +582,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       hub,
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
+      errors: new ErrorLog({ db, hub }),
       settings: {
         get: (k: string) =>
           db.select({ value: settingsTable.value }).from(settingsTable)
@@ -657,5 +661,126 @@ describe('claude_code_version', () => {
     // The rest of the settings payload is untouched.
     expect(body.ended_after_idle_minutes).toBe('30');
     await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The error log (docs/superpowers/specs/2026-09-17-error-surface-design.md)
+// ---------------------------------------------------------------------------
+
+describe('error log routes', () => {
+  let app: FastifyInstance;
+  let hub: Hub;
+  let errors: ErrorLog;
+  beforeEach(() => {
+    const result = makeApp();
+    app = result.app;
+    hub = result.hub;
+    errors = result.errors;
+  });
+
+  const post = (payload: unknown) =>
+    app.inject({ method: 'POST', url: '/api/errors', payload: payload as any });
+
+  it('GET /api/errors returns rows newest first with the whole-table unseen count', async () => {
+    for (const message of ['one', 'two', 'three']) {
+      errors.record({ source: 'server', kind: 'session_failed', message });
+    }
+    const body = (await app.inject({ method: 'GET', url: '/api/errors' })).json();
+    expect(body.errors.map((e: any) => e.message)).toEqual(['three', 'two', 'one']);
+    expect(body.unseen).toBe(3);
+  });
+
+  it('GET /api/errors pages with limit and before, and unseen stays the total', async () => {
+    for (let i = 0; i < 5; i++) {
+      errors.record({ source: 'server', kind: 'session_failed', message: `e${i}` });
+    }
+    const first = (await app.inject({ method: 'GET', url: '/api/errors?limit=2' })).json();
+    expect(first.errors.map((e: any) => e.message)).toEqual(['e4', 'e3']);
+    // Not 2: the count is of the table, not of the page.
+    expect(first.unseen).toBe(5);
+    const next = (
+      await app.inject({ method: 'GET', url: `/api/errors?limit=2&before=${first.errors[1].id}` })
+    ).json();
+    expect(next.errors.map((e: any) => e.message)).toEqual(['e2', 'e1']);
+  });
+
+  it('POST /api/errors records the browser\'s own failure and publishes it', async () => {
+    const received = subscribeFake(hub, 'errors');
+    const res = await post({
+      kind: 'api_request',
+      message: 'rename failed',
+      detail: 'HTTP 500\n{"error":"boom"}',
+      context: { url: '/api/sessions/s1', status: 500 },
+      sessionId: 's1',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.error).toMatchObject({
+      source: 'web',
+      kind: 'api_request',
+      message: 'rename failed',
+      sessionId: 's1',
+      context: { url: '/api/sessions/s1', status: 500 },
+      seenAt: null,
+    });
+    expect(body.unseen).toBe(1);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ topic: 'errors', event: 'error', unseen: 1 });
+    expect(received[0].error.message).toBe('rename failed');
+  });
+
+  it('POST /api/errors cannot be told it came from the server', async () => {
+    const body = (await post({ source: 'server', kind: 'render_crash', message: 'boom' })).json();
+    expect(body.error.source).toBe('web');
+    const listed = (await app.inject({ method: 'GET', url: '/api/errors' })).json();
+    expect(listed.errors[0].source).toBe('web');
+  });
+
+  it('POST /api/errors rejects a missing message and an unknown kind', async () => {
+    const noMessage = await post({ kind: 'api_request', message: '   ' });
+    expect(noMessage.statusCode).toBe(400);
+    expect(noMessage.json()).toEqual({ error: 'message is required' });
+
+    const badKind = await post({ kind: 'session_exploded', message: 'boom' });
+    expect(badKind.statusCode).toBe(400);
+    expect(badKind.json()).toEqual({ error: 'kind is invalid' });
+
+    // Nothing was written by either attempt.
+    expect((await app.inject({ method: 'GET', url: '/api/errors' })).json().errors).toEqual([]);
+  });
+
+  it('POST /api/errors/seen stamps a list of ids, then all of them', async () => {
+    const ids = ['a', 'b', 'c'].map(
+      (m) => errors.record({ source: 'server', kind: 'session_failed', message: m }).id,
+    );
+    const some = await app.inject({
+      method: 'POST', url: '/api/errors/seen', payload: { ids: [ids[0]] },
+    });
+    expect(some.json()).toEqual({ ok: true, unseen: 2 });
+
+    const all = await app.inject({
+      method: 'POST', url: '/api/errors/seen', payload: { all: true },
+    });
+    expect(all.json()).toEqual({ ok: true, unseen: 0 });
+    const listed = (await app.inject({ method: 'GET', url: '/api/errors' })).json();
+    expect(listed.errors.every((e: any) => typeof e.seenAt === 'number')).toBe(true);
+  });
+
+  it('POST /api/errors/seen rejects a body that is neither ids nor all', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/errors/seen', payload: {} });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'ids must be an array of numbers' });
+  });
+
+  it('DELETE /api/errors empties the log and zeroes the count', async () => {
+    errors.record({ source: 'server', kind: 'session_failed', message: 'gone' });
+    const received = subscribeFake(hub, 'errors');
+    const res = await app.inject({ method: 'DELETE', url: '/api/errors' });
+    expect(res.json()).toEqual({ ok: true, unseen: 0 });
+    expect(received[0]).toMatchObject({ topic: 'errors', event: 'cleared' });
+    expect((await app.inject({ method: 'GET', url: '/api/errors' })).json()).toEqual({
+      errors: [], unseen: 0,
+    });
   });
 });

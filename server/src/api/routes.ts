@@ -21,8 +21,9 @@ import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
 import type { SubagentStore } from '../transcript/subagents.js';
-import type { PermissionMode, SessionRow, TagRule } from '../types.js';
+import type { ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
+import type { ErrorLog } from '../errors/log.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -32,8 +33,12 @@ export interface RouteContext {
   hub: Hub;
   models: ModelCatalog;
   subagents: SubagentStore;
+  errors: ErrorLog;
   settings: { get(key: string): string; set(key: string, value: string): void };
 }
+
+/** The only kinds `POST /api/errors` will accept, mirroring `ErrorKind`. */
+const ERROR_KINDS = new Set<string>(['session_failed', 'api_request', 'render_crash']);
 
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
@@ -390,6 +395,58 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   app.get('/api/models', async () => ({ models: await ctx.models.list() }));
+
+  // The error log. One table, fed from both sides — see
+  // `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
+  app.get('/api/errors', (req) => {
+    const q = req.query as Record<string, string>;
+    return ctx.errors.list({
+      limit: q.limit != null ? Number(q.limit) : undefined,
+      before: q.before != null ? Number(q.before) : undefined,
+    });
+  });
+
+  app.post('/api/errors', (req, reply) => {
+    const body = (req.body ?? {}) as {
+      kind?: unknown; message?: unknown; detail?: unknown;
+      context?: unknown; sessionId?: unknown;
+    };
+    if (typeof body.message !== 'string' || !body.message.trim()) {
+      return reply.code(400).send({ error: 'message is required' });
+    }
+    if (typeof body.kind !== 'string' || !ERROR_KINDS.has(body.kind)) {
+      return reply.code(400).send({ error: 'kind is invalid' });
+    }
+    const error = ctx.errors.record({
+      // Not read from the body, ever. This endpoint is how the *browser*
+      // reports, and a `web` row that claims to be a `server` one would make
+      // the log lie about where a failure was caught.
+      source: 'web',
+      kind: body.kind as ErrorKind,
+      message: body.message,
+      detail: typeof body.detail === 'string' ? body.detail : null,
+      context:
+        body.context && typeof body.context === 'object'
+          ? (body.context as Record<string, unknown>)
+          : null,
+      sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+    });
+    return { error, unseen: ctx.errors.unseen() };
+  });
+
+  app.post('/api/errors/seen', (req, reply) => {
+    const body = (req.body ?? {}) as { ids?: unknown; all?: unknown };
+    if (body.all === true) return { ok: true, ...ctx.errors.markSeen('all') };
+    if (!Array.isArray(body.ids) || body.ids.some((id) => typeof id !== 'number')) {
+      return reply.code(400).send({ error: 'ids must be an array of numbers' });
+    }
+    return { ok: true, ...ctx.errors.markSeen(body.ids as number[]) };
+  });
+
+  app.delete('/api/errors', () => {
+    ctx.errors.clear();
+    return { ok: true, unseen: 0 };
+  });
 
   app.get('/api/settings', () => {
     const rows = db.select().from(settingsTable).all();

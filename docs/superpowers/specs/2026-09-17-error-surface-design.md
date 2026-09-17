@@ -1,7 +1,7 @@
 ---
 id: 2026-09-17-error-surface-design
 title: One error surface — a recorded log, a toast, and an unseen count
-status: draft
+status: done
 type: spec
 domain: sessions
 related:
@@ -183,3 +183,27 @@ record raises a toast; `reportError` posts and sets the toast; the transcript
 prints a recorded reason and falls back to the heuristic when there is none;
 opening the list stamps `seen_at` and drops the unseen count while closing a
 toast does not; `ErrorBoundary` posts a crash.
+
+## As built
+
+Two things the design did not anticipate, both found while reviewing the
+implementation and both fixed there.
+
+**The failing session's `cwd` is the Runner's to report, not the database's.**
+`onError` first read the directory off the sessions row, which
+`POST /api/sessions` inserts only *after* `runner.start()` has returned — and
+a spawn that fails is precisely where those two race. The one error we most
+wanted to explain could have arrived without the one fact that explains it.
+`Runner` now keeps a `SessionAttempt` (`cwd`, `permissionMode`, `model`) from
+the moment it registers a session and hands it to `onError`; the row is read
+only to fill in what the attempt does not carry.
+
+**A recorded failure has to be able to become history.** The transcript's red
+row was switched to the recorded error while keeping the heuristic as the
+fallback — but `transcriptErrors` is cleared by a `turn_result` and a database
+row is not, so a session that crashed, was revived and then ran cleanly would
+have worn its old crash forever. That is the exact regression the comment on
+that clearing warns about. `recordedFailureFor` gates on two signals, either
+of which retires the failure: `lastTurnResultAt`, which this tab observes and
+is immediate but empty after a reload, and the session's own `lastAt`, which
+survives a reload but trails the indexer by a moment. Neither alone is enough.

@@ -52,6 +52,20 @@ export type QueryFn = (args: {
   supportedModels?: () => Promise<unknown[]>;
 };
 
+/**
+ * What the session was started with, kept so a failure can say what it was
+ * trying to run. The sessions row carries the same three, but not always in
+ * time: `POST /api/sessions` inserts it only *after* `start()` returns, and a
+ * spawn that fails is precisely the case where the two race. The Runner knows
+ * them before the CLI is asked for anything, so it is the one place they are
+ * always available.
+ */
+export interface SessionAttempt {
+  cwd: string;
+  permissionMode: PermissionMode;
+  model: string | null;
+}
+
 interface ManagedSession {
   status: SessionStatus;
   queue: Array<(msg: unknown | null) => void>;
@@ -60,6 +74,7 @@ interface ManagedSession {
     | (AsyncGenerator<any> & { interrupt?: () => Promise<void>; setModel?: (model?: string) => Promise<void> })
     | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  attempt: SessionAttempt;
 }
 
 /**
@@ -106,6 +121,7 @@ export class Runner {
   private onTurnUsage?: (modelUsage: unknown) => void;
   private onInit?: (sessionId: string, model: string | null) => void;
   private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
+  private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
 
   constructor(deps: {
     hub: Hub;
@@ -129,6 +145,22 @@ export class Runner {
      * subagents are known continuously without anyone tailing its transcript.
      */
     onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
+    /**
+     * Whatever the SDK generator threw, with the session it was running.
+     * Called from `pump()`'s catch, where the only record of a session dying
+     * on its own used to be a line on the server's terminal that nobody was
+     * reading — see
+     * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
+     *
+     * Reporting only; the session still ends the same way it always did.
+     * `finish()` runs regardless of whether this is wired, and there is no
+     * `failed` status for it to reach.
+     *
+     * `attempt` is what the session was started with, so a failure can name
+     * the directory it could not run in without waiting for the sessions row
+     * to exist. Absent only if the session is already gone from the map.
+     */
+    onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -141,6 +173,7 @@ export class Runner {
     this.onTurnUsage = deps.onTurnUsage;
     this.onInit = deps.onInit;
     this.onEntries = deps.onEntries;
+    this.onError = deps.onError;
   }
 
   /**
@@ -252,6 +285,7 @@ export class Runner {
     }
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
+      attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -323,7 +357,16 @@ export class Runner {
         }
       }
     } catch (err) {
+      // Both, deliberately: the terminal keeps saying it, and the browser
+      // finally gets to. A reporter that throws must not stop `finish()`
+      // below from running — a session that failed twice is still a session
+      // that has to end.
       console.warn('orbital: runner pump error:', err);
+      try {
+        this.onError?.(sessionId, err, this.sessions.get(sessionId)?.attempt);
+      } catch (reportErr) {
+        console.warn('orbital: failed to record runner error:', reportErr);
+      }
     }
     // Generator finished: the SDK process exited, or end() closed the input
     // stream. Harmless after an explicit end() — the session is already gone

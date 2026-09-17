@@ -19,6 +19,7 @@ import { toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore } from './transcript/subagents.js';
 import { ModelCatalog } from './models/catalog.js';
+import { ErrorLog } from './errors/log.js';
 import type { SessionRow } from './types.js';
 import chokidar from 'chokidar';
 
@@ -117,6 +118,9 @@ export async function buildServer(overrides: {
   const sessionsDir = join(claudeDir, 'sessions');
   const db = openDb(overrides.dbPath ?? CONFIG.dbPath);
   const hub = new Hub();
+  // One log for both sides of the wire; it publishes its own changes on the
+  // `errors` topic, so it needs the hub and nothing else.
+  const errors = new ErrorLog({ db, hub });
   const registry = new SessionRegistry(sessionsDir);
   // Boot-time seed only — `PATCH /api/settings` pushes later changes straight
   // into the Runner (`setIdleTimeoutMs`), so this value never goes stale.
@@ -201,6 +205,42 @@ export async function buildServer(overrides: {
     // which is exactly what a transcript cannot tell us.
     onEntries: (sessionId, entries) => {
       if (subagents.feed(sessionId, entries)) republish(sessionId);
+    },
+    // A session that dies on its own used to say nothing at all: `pump()`
+    // logged to the server's terminal and `finish()` greyed the planet out,
+    // so a crashed launch and a finished conversation looked identical from
+    // the browser. Recording it here is what puts the real reason somewhere
+    // the UI can read — and, because it is a row, somewhere that survives a
+    // reload. The session's own settings ride along in `context`, since "what
+    // was it trying to run" is the first question a failed launch raises.
+    // What the session was trying to run is taken from the Runner's own
+    // record of the attempt, not from the sessions row: `POST /api/sessions`
+    // inserts that row only after `start()` has returned, and a spawn that
+    // fails is exactly the case where the two can race. The row is read only
+    // to fill in what the attempt does not carry.
+    onError: (sessionId, err, attempt) => {
+      const row = db
+        .select({
+          cwd: sessions.cwd,
+          permissionMode: sessions.permissionMode,
+          model: sessions.model,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .get();
+      const context = attempt
+        ? { cwd: attempt.cwd, permissionMode: attempt.permissionMode, model: attempt.model }
+        : row
+          ? { cwd: row.cwd, permissionMode: row.permissionMode, model: row.model }
+          : null;
+      errors.record({
+        source: 'server',
+        kind: 'session_failed',
+        sessionId,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context,
+      });
     },
   });
 
@@ -289,7 +329,7 @@ export async function buildServer(overrides: {
     (socket) => hub.handleSocket(socket),
   );
   registerRoutes(app, {
-    db, registry, runner, projectsDir, hub, models, subagents,
+    db, registry, runner, projectsDir, hub, models, subagents, errors,
     settings: settingsStore,
   });
   app.addHook('onClose', async () => {

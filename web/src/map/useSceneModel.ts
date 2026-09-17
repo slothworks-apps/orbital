@@ -77,6 +77,9 @@ export function useSceneModel(): SceneModel {
           usage: {},
           historyLoaded: {},
           transcriptErrors: {},
+          lastTurnResultAt: {},
+          errors: [],
+          errorsUnseen: 0,
           toast: null,
           ui: {
             selectedId,

@@ -8,7 +8,13 @@ import {
   index,
   check,
 } from 'drizzle-orm/sqlite-core';
-import type { PermissionMode, SessionSource, TagRule } from '../types.js';
+import type {
+  ErrorKind,
+  ErrorSource,
+  PermissionMode,
+  SessionSource,
+  TagRule,
+} from '../types.js';
 
 export const sessions = sqliteTable(
   'sessions',
@@ -80,6 +86,41 @@ export const settings = sqliteTable('settings', {
 });
 
 /**
+ * Every failure Orbital caught, from either side of the wire. See
+ * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
+ *
+ * Nothing here is trimmed or redacted on the way in — a local tool has no one
+ * to hide a stack trace from, and the whole point is that the real text
+ * arrives. Retention is a cap, not a clock: `ErrorLog.record` prunes to the
+ * newest 1000 rows, which is only a runaway guard.
+ *
+ * `context` is JSON *text* on disk and a parsed object on the wire; the
+ * parsing (and the tolerance for a row whose JSON is corrupt) lives in
+ * `src/errors/log.ts`, so nothing else has to remember which side it is on.
+ */
+export const errors = sqliteTable(
+  'errors',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Epoch ms. */
+    at: integer('at').notNull(),
+    source: text('source').$type<ErrorSource>().notNull(),
+    kind: text('kind').$type<ErrorKind>().notNull(),
+    sessionId: text('session_id'),
+    message: text('message').notNull(),
+    detail: text('detail'),
+    /** JSON object as text. Read it through `ErrorLog`, never raw. */
+    context: text('context'),
+    /** When the error list showed this row. Null until then. */
+    seenAt: integer('seen_at'),
+  },
+  (table) => [
+    index('idx_errors_at').on(sql`${table.at} DESC`),
+    check('error_source_check', sql`${table.source} IN ('server','web')`),
+  ],
+);
+
+/**
  * Projects a table's columns keyed by their actual DB column name
  * (snake_case) rather than the JS-side camelCase accessor used elsewhere in
  * this file. Passed straight into `db.select(...)`, this keeps the JSON
@@ -113,3 +154,5 @@ export type TagRuleRow = typeof tagRules.$inferSelect;
 export type NewTagRule = typeof tagRules.$inferInsert;
 export type SettingRow = typeof settings.$inferSelect;
 export type NewSettingRow = typeof settings.$inferInsert;
+export type ErrorRow = typeof errors.$inferSelect;
+export type NewErrorRow = typeof errors.$inferInsert;

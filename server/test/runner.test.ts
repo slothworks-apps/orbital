@@ -698,3 +698,143 @@ describe('Runner subagent reporting', () => {
     await runner.end(id);
   });
 });
+
+describe('Runner error reporting', () => {
+  /**
+   * Fake SDK whose generator throws instead of yielding a result — the shape
+   * of every "the CLI never started" failure: ENOENT on spawn, a logged-out
+   * CLI, a crash mid-turn.
+   */
+  function fakeQueryFnThrowing(err: unknown) {
+    return ({ options }: { prompt: AsyncIterable<any>; options: any }) => {
+      const sid = sessionIdOf(options);
+      async function* gen() {
+        yield { type: 'system', subtype: 'init', session_id: sid };
+        throw err;
+      }
+      return gen() as any;
+    };
+  }
+
+  let warn: any;
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it('calls onError with what was thrown and still ends the session', async () => {
+    const hub = new Hub();
+    const boom = new Error('spawn claude ENOENT');
+    const seen: Array<{ sessionId: string; err: unknown }> = [];
+    const runner = new Runner({
+      hub,
+      queryFn: fakeQueryFnThrowing(boom) as any,
+      onError: (sessionId, err) => seen.push({ sessionId, err }),
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    await vi.waitFor(() => expect(seen).toHaveLength(1), { timeout: 3000 });
+    expect(seen[0].sessionId).toBe(id);
+    // The thrown value itself, not a string of it — the wiring in index.ts is
+    // what decides how to render a stack.
+    expect(seen[0].err).toBe(boom);
+
+    // The session still ends the ordinary way: no new status, no stuck planet.
+    await vi.waitFor(() => expect(runner.status(id)).toBe('ended'), { timeout: 3000 });
+    expect(runner.active()).not.toContain(id);
+    // And the terminal keeps saying it too.
+    expect(warn).toHaveBeenCalledWith('orbital: runner pump error:', boom);
+  });
+
+  it('publishes the ended status even with no onError wired at all', async () => {
+    const hub = new Hub();
+    const received = subscribed(hub, 'session:pinned');
+    const runner = new Runner({
+      hub,
+      queryFn: fakeQueryFnThrowing(new Error('nope')) as any,
+      newSessionId: () => 'pinned',
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    await vi.waitFor(() => expect(runner.status(id)).toBe('ended'), { timeout: 3000 });
+    expect(received).toContainEqual({
+      topic: 'session:pinned', event: 'status', status: 'ended',
+    });
+  });
+
+  it('a reporter that throws does not stop the session from ending', async () => {
+    const hub = new Hub();
+    const runner = new Runner({
+      hub,
+      queryFn: fakeQueryFnThrowing(new Error('first')) as any,
+      onError: () => { throw new Error('the reporter itself broke'); },
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    await vi.waitFor(() => expect(runner.status(id)).toBe('ended'), { timeout: 3000 });
+  });
+});
+
+describe('Runner error reporting — what the session was trying to run', () => {
+  function fakeQueryFnThrowing(err: unknown) {
+    return ({ options }: { prompt: AsyncIterable<any>; options: any }) => {
+      const sid = sessionIdOf(options);
+      async function* gen() {
+        yield { type: 'system', subtype: 'init', session_id: sid };
+        throw err;
+      }
+      return gen() as any;
+    };
+  }
+
+  let warn: any;
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  /**
+   * The whole point of recording a spawn failure is being able to say WHICH
+   * directory could not be run in. `index.ts` cannot read that off the
+   * sessions row and rely on it — `POST /api/sessions` inserts the row only
+   * after `start()` returns — so the Runner hands it over itself.
+   */
+  it('hands onError the cwd, permission mode and model the session was started with', async () => {
+    const hub = new Hub();
+    const seen: Array<{ attempt: unknown }> = [];
+    const runner = new Runner({
+      hub,
+      queryFn: fakeQueryFnThrowing(new Error('spawn claude ENOENT')) as any,
+      onError: (_sessionId, _err, attempt) => seen.push({ attempt }),
+    });
+    await runner.start({
+      cwd: '/deleted/project',
+      prompt: 'go',
+      permissionMode: 'bypassPermissions',
+      model: 'opus',
+    });
+
+    await vi.waitFor(() => expect(seen).toHaveLength(1), { timeout: 3000 });
+    expect(seen[0].attempt).toEqual({
+      cwd: '/deleted/project',
+      permissionMode: 'bypassPermissions',
+      model: 'opus',
+    });
+  });
+
+  it('reports a null model rather than omitting it when none was asked for', async () => {
+    const hub = new Hub();
+    const seen: Array<{ attempt: any }> = [];
+    const runner = new Runner({
+      hub,
+      queryFn: fakeQueryFnThrowing(new Error('nope')) as any,
+      onError: (_sessionId, _err, attempt) => seen.push({ attempt }),
+    });
+    await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    await vi.waitFor(() => expect(seen).toHaveLength(1), { timeout: 3000 });
+    expect(seen[0].attempt.model).toBeNull();
+  });
+});

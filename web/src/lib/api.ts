@@ -1,6 +1,8 @@
 import type {
   ApiSession,
   ChatMessage,
+  ErrorKind,
+  ErrorRecord,
   Tag,
   TagRule,
   PermissionMode,
@@ -10,9 +12,17 @@ import type {
 export class ApiError extends Error {
   status: number
 
-  constructor(message: string, status: number) {
+  /**
+   * The request that failed. Carried because `request()` is the only place
+   * that still knows it, and a status code without a URL next to it in the
+   * error log names nothing — see `reportError` in `lib/errors`.
+   */
+  url?: string
+
+  constructor(message: string, status: number, url?: string) {
     super(message)
     this.status = status
+    this.url = url
   }
 }
 
@@ -38,7 +48,7 @@ async function request<T>(
 
   if (!response.ok) {
     const text = await response.text()
-    throw new ApiError(text || response.statusText, response.status)
+    throw new ApiError(text || response.statusText, response.status, url)
   }
 
   const data = await response.json()
@@ -200,6 +210,47 @@ export const api = {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/model`, { model })
   },
 
+  // Errors API — the one shared error log, fed from both sides. See
+  // `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
+  //
+  // `unseen` is the server's count over the WHOLE table, never of the page
+  // returned: a page of 50 can correctly report 200 unread, which is exactly
+  // why the store takes the number from here instead of counting rows.
+  async listErrors(params?: {
+    limit?: number
+    /** An error id — the page returned is the one just older than it. */
+    before?: number
+  }): Promise<{ errors: ErrorRecord[]; unseen: number }> {
+    const url = new URL('/api/errors', window.location.origin)
+    if (params?.limit !== undefined) url.searchParams.set('limit', String(params.limit))
+    if (params?.before !== undefined) url.searchParams.set('before', String(params.before))
+
+    return request<{ errors: ErrorRecord[]; unseen: number }>('GET', url.pathname + url.search)
+  },
+
+  /** Posts one of the browser's own failures. The server forces `source: 'web'`. */
+  async reportErrorToServer(body: {
+    kind: ErrorKind
+    message: string
+    detail?: string | null
+    context?: Record<string, unknown> | null
+    sessionId?: string | null
+  }): Promise<{ error: ErrorRecord; unseen: number }> {
+    return request<{ error: ErrorRecord; unseen: number }>('POST', '/api/errors', body)
+  },
+
+  async markErrorsSeen(target: number[] | 'all'): Promise<{ ok: true; unseen: number }> {
+    return request<{ ok: true; unseen: number }>(
+      'POST',
+      '/api/errors/seen',
+      target === 'all' ? { all: true } : { ids: target },
+    )
+  },
+
+  async clearErrors(): Promise<{ ok: true; unseen: number }> {
+    return request<{ ok: true; unseen: number }>('DELETE', '/api/errors')
+  },
+
   // Settings API
   async getSettings(): Promise<Record<string, string>> {
     return request<Record<string, string>>('GET', '/api/settings')
@@ -211,4 +262,14 @@ export const api = {
 }
 
 // Export types for convenience
-export type { ApiSession, ChatMessage, Tag, TagRule, Subagent, OrbitalModel } from './types'
+export type {
+  ApiSession,
+  ChatMessage,
+  ErrorKind,
+  ErrorRecord,
+  ErrorSource,
+  Tag,
+  TagRule,
+  Subagent,
+  OrbitalModel,
+} from './types'

@@ -3,6 +3,7 @@ import { api, ApiError } from '../lib/api'
 import type {
   ApiSession,
   ChatMessage,
+  ErrorRecord,
   OrbitalModel,
   SessionSource,
   SessionStatus,
@@ -25,6 +26,24 @@ export type SessionEvent =
   | { event: 'message'; message: ChatMessage }
   | { event: 'status'; status: SessionStatus }
   | { event: 'turn_result'; usage: unknown }
+
+/**
+ * Events delivered on the `errors` topic — the shared error log
+ * (`docs/superpowers/specs/2026-09-17-error-surface-design.md`).
+ *
+ * Every one of them carries `unseen` because the server owns that number:
+ * the client holds only the newest page, so counting unstamped rows in
+ * `errors` would under-report the moment there is more than one page.
+ *
+ * `seen.ids` is `null` — not the string `'all'` — for the whole-table case;
+ * that is the shape `server/src/errors/log.ts` publishes. Payloads also
+ * arrive with the hub's `topic` field merged in, which nothing here reads,
+ * the same way `SessionsEvent` ignores it.
+ */
+export type ErrorsEvent =
+  | { event: 'error'; error: ErrorRecord; unseen: number }
+  | { event: 'seen'; ids: number[] | null; unseen: number }
+  | { event: 'cleared'; unseen: number }
 
 export interface Toast {
   kind: 'error' | 'info'
@@ -49,10 +68,13 @@ export interface OrbitalUiState {
    */
   hideEnded: boolean
   wsStatus: string
-  dialog: null | 'new' | 'clear' | 'stop' | 'settings'
+  dialog: null | 'new' | 'clear' | 'stop' | 'settings' | 'errors'
   /** Sidebar collapsed to its narrow rail (Panel's `collapsed` prop). See Sidebar.tsx (task 10). */
   sidebarCollapsed: boolean
 }
+
+/** How many of the newest error rows the log holds at a time. */
+export const ERROR_PAGE_SIZE = 50
 
 export interface OrbitalState {
   sessions: Record<string, ApiSession>
@@ -73,6 +95,27 @@ export interface OrbitalState {
    * § Error states). `Transcript` renders an error row when a session's
    * flag here is set. See `turnResultSeen` below for how it's derived. */
   transcriptErrors: Record<string, boolean>
+  /**
+   * When each session last completed a turn normally, as this tab observed
+   * it. The timestamp form of the `turnResultSeen` flag below, and kept for
+   * the same reason it clears `transcriptErrors`: a session that crashed,
+   * was revived and then ran cleanly must stop showing its old failure. The
+   * flag cannot answer that for the *recorded* error, which outlives the
+   * live transition — a timestamp can, by saying the crash is older than the
+   * last good turn. Empty after a reload, where `lastAt` takes over.
+   */
+  lastTurnResultAt: Record<string, number>
+  /**
+   * The newest page of the shared error log, newest first. Only a page —
+   * `errorsUnseen` is therefore NOT derivable from it.
+   */
+  errors: ErrorRecord[]
+  /**
+   * Unread errors as the SERVER counts them, across the whole table. Taken
+   * from whatever payload last reported it (`listErrors`, an `errors` WS
+   * event, a `markErrorsSeen` response) and never recomputed from `errors`.
+   */
+  errorsUnseen: number
   toast: Toast | null
   ui: OrbitalUiState
 }
@@ -81,6 +124,9 @@ export interface OrbitalActions {
   loadInitial(): Promise<void>
   applySessionsEvent(msg: SessionsEvent): void
   applySessionEvent(sessionId: string, msg: SessionEvent): void
+  applyErrorsEvent(msg: ErrorsEvent): void
+  markErrorsSeen(target: number[] | 'all'): Promise<void>
+  clearErrorLog(): Promise<void>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[]>
   sendPrompt(id: string, text: string): Promise<void>
@@ -122,6 +168,22 @@ function nextLocalMessageId(): string {
  */
 const turnResultSeen: Record<string, boolean> = {}
 
+/**
+ * Marks the named rows as seen (`null` meaning every row), leaving
+ * already-stamped rows on their original timestamp — the server's `markSeen`
+ * never rewrites `seen_at` either, so re-opening the log must not make the
+ * client disagree with it about when a row was first shown.
+ */
+function stampSeen(errors: ErrorRecord[], ids: number[] | null): ErrorRecord[] {
+  const at = Date.now()
+  const wanted = ids === null ? null : new Set(ids)
+  return errors.map((error) =>
+    error.seenAt === null && (wanted === null || wanted.has(error.id))
+      ? { ...error, seenAt: at }
+      : error,
+  )
+}
+
 function sortIdsByLastAtDesc(sessions: Record<string, ApiSession>): string[] {
   return Object.values(sessions)
     .sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
@@ -150,11 +212,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   usage: {},
   historyLoaded: {},
   transcriptErrors: {},
+  lastTurnResultAt: {},
+  errors: [],
+  errorsUnseen: 0,
   toast: null,
   ui: initialUiState,
 
   async loadInitial() {
-    const [sessions, tags, rules, settings, models] = await Promise.all([
+    const [sessions, tags, rules, settings, models, errorPage] = await Promise.all([
       api.listSessions(),
       api.listTags(),
       api.listTagRules(),
@@ -162,6 +227,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // Best-effort: a failed probe with nothing cached yields [], and every
       // surface that reads the catalog has an empty state for exactly that.
       api.listModels().catch(() => [] as OrbitalModel[]),
+      // Also best-effort, and for a sharper reason than the catalog's: this
+      // is the error surface. It failing must not be the thing that stops
+      // the app from mounting and showing the other errors.
+      api.listErrors({ limit: ERROR_PAGE_SIZE }).catch(() => null),
     ])
 
     const sessionsMap: Record<string, ApiSession> = {}
@@ -176,6 +245,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       rules,
       settings,
       models,
+      errors: errorPage?.errors ?? [],
+      errorsUnseen: errorPage?.unseen ?? 0,
       // Seeded, not defaulted: the ENDED toggle is the one `ui` field the
       // server owns a value for, and reading it here is what makes the
       // toggle survive a reload.
@@ -300,7 +371,72 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const transcriptErrors = state.transcriptErrors[sessionId]
         ? { ...state.transcriptErrors, [sessionId]: false }
         : state.transcriptErrors
-      set({ usage: { ...state.usage, [sessionId]: msg.usage }, transcriptErrors })
+      set({
+        usage: { ...state.usage, [sessionId]: msg.usage },
+        transcriptErrors,
+        // Same clearing, for the recorded error. The flag above cannot cover
+        // it: the record is a database row that outlives this transition, so
+        // what it needs is a moment to be compared against, not a reset.
+        lastTurnResultAt: { ...state.lastTurnResultAt, [sessionId]: Date.now() },
+      })
+    }
+  },
+
+  applyErrorsEvent(msg) {
+    const state = get()
+
+    if (msg.event === 'error') {
+      // Deduped on id: a reconnect can replay, and the browser's own POST
+      // resolves with the same row the WS is about to deliver.
+      const errors = state.errors.some((e) => e.id === msg.error.id)
+        ? state.errors.map((e) => (e.id === msg.error.id ? msg.error : e))
+        : [msg.error, ...state.errors]
+      set({
+        errors,
+        errorsUnseen: msg.unseen,
+        // Every arriving record raises the one toast. It overwrites whatever
+        // was showing, which is exactly why dismissing a toast must never
+        // count as having read the row — only the log does that.
+        toast: { kind: 'error', message: msg.error.message },
+      })
+      return
+    }
+
+    if (msg.event === 'seen') {
+      set({ errors: stampSeen(state.errors, msg.ids), errorsUnseen: msg.unseen })
+      return
+    }
+
+    if (msg.event === 'cleared') {
+      set({ errors: [], errorsUnseen: msg.unseen ?? 0 })
+    }
+  },
+
+  /**
+   * Stamps `seen_at` on the rows the log has shown. The only thing that
+   * lowers the unseen count. Silent on failure: a log the user is already
+   * looking at should not raise an error toast about its own bookkeeping,
+   * and reporting it would feed the very list it failed to mark.
+   */
+  async markErrorsSeen(target) {
+    if (target !== 'all' && target.length === 0) return
+    try {
+      const result = await api.markErrorsSeen(target)
+      set((state) => ({
+        errors: stampSeen(state.errors, target === 'all' ? null : target),
+        errorsUnseen: result?.unseen ?? 0,
+      }))
+    } catch (err) {
+      console.error('orbital: failed to mark errors seen', err)
+    }
+  },
+
+  async clearErrorLog() {
+    try {
+      await api.clearErrors()
+      set({ errors: [], errorsUnseen: 0 })
+    } catch (err) {
+      console.error('orbital: failed to clear the error log', err)
     }
   },
 
@@ -458,6 +594,51 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 // the derived value yourself in `useMemo` keyed on those slices. See
 // `map/useSceneModel.ts` for a worked example of the latter.
 // ---------------------------------------------------------------------------
+
+/**
+ * The most recent recorded error for one session, or `undefined`.
+ *
+ * `errors` is newest-first, so the first match is the latest. Safe to call
+ * straight from a `useOrbital` selector: it returns an element of the array,
+ * not a new object, so the reference is stable until the log itself changes.
+ */
+export function latestErrorForSession(
+  errors: ErrorRecord[],
+  sessionId: string,
+): ErrorRecord | undefined {
+  return errors.find((error) => error.sessionId === sessionId)
+}
+
+/**
+ * The failure the transcript should be showing for a session, or `undefined`
+ * when it should be showing none.
+ *
+ * A recorded error is a row in a table, not a live flag, so it does not go
+ * away on its own — and a session that crashed, was revived and then ran
+ * cleanly must stop wearing its old crash, which is the exact rule
+ * `turn_result` already applies to `transcriptErrors`. Two things can say the
+ * failure is history, and either is enough:
+ *
+ * - this tab watched a turn complete after it (`lastTurnResultAt`), which is
+ *   immediate but only knows what it has seen;
+ * - the session has been active since (`lastAt`), which survives a reload but
+ *   trails the indexer by a moment.
+ *
+ * Neither alone is sufficient: the first is empty after a reload, the second
+ * lags right after a revive. Together they cover both.
+ */
+export function recordedFailureFor(
+  state: Pick<OrbitalState, 'errors' | 'sessions' | 'lastTurnResultAt'>,
+  sessionId: string,
+): ErrorRecord | undefined {
+  const latest = latestErrorForSession(state.errors, sessionId)
+  if (!latest) return undefined
+  const turnAt = state.lastTurnResultAt[sessionId]
+  if (turnAt != null && turnAt > latest.at) return undefined
+  const lastAt = state.sessions[sessionId]?.lastAt
+  if (lastAt != null && lastAt > latest.at) return undefined
+  return latest
+}
 
 export function visibleSessions(state: OrbitalState): ApiSession[] {
   let list = Object.values(state.sessions)
