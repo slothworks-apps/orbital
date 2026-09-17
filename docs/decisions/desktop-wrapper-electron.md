@@ -1,7 +1,7 @@
 ---
 id: desktop-wrapper-electron
 title: Ship Orbital as an Electron app, not Tauri or Electrobun
-status: active
+status: in-force
 type: adr
 domain: desktop
 related:

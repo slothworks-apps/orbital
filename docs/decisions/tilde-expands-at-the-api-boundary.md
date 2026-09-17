@@ -1,7 +1,7 @@
 ---
 id: tilde-expands-at-the-api-boundary
 title: A typed ~ expands where the request enters the server, not in the browser
-status: active
+status: in-force
 type: adr
 domain: sessions
 related:

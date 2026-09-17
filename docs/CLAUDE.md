@@ -59,6 +59,7 @@ tags:                    # optional
 - `draft`
 - `active`
 - `blocked`
+- `in-force`
 - `done`
 - `superseded`
 - `archived`

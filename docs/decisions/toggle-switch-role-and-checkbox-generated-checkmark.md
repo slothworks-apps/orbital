@@ -1,7 +1,8 @@
 ---
 id: toggle-switch-role-and-checkbox-generated-checkmark
-title: Give Toggle an explicit switch role and move Checkbox's check mark to generated content
-status: active
+title: Give Toggle an explicit switch role and move Checkbox's check mark to
+  generated content
+status: in-force
 type: adr
 related:
   - 2026-09-16-agent-model-design

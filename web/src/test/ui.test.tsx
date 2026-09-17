@@ -157,11 +157,6 @@ describe('Badge', () => {
     expect(el.style.color).toBe('var(--color-accent)')
   })
 
-  it('renders a permission-mode badge', () => {
-    render(<Badge variant="mode" value="acceptEdits" />)
-    expect(screen.getByText('acceptEdits')).toBeInTheDocument()
-  })
-
   it('renders a count badge with optional label', () => {
     render(<Badge variant="count" value={12} label="sessions" />)
     expect(screen.getByText(/12/)).toBeInTheDocument()

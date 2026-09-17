@@ -1,7 +1,7 @@
 ---
 id: models-come-from-the-sdk
 title: The model list and its context window come from the SDK, not from a table
-status: active
+status: in-force
 type: adr
 domain: sessions
 related:

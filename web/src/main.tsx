@@ -5,6 +5,7 @@ import './theme.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
+import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
 
 /**
  * Desktop half of "pinch belongs to the map" (the mobile half is the viewport
@@ -28,8 +29,24 @@ window.addEventListener(
   { passive: false }
 )
 
+/**
+ * Dev only: let a hot update clear whatever the boundaries caught.
+ *
+ * Orbital is used to drive sessions that edit Orbital, so its own `web/src`
+ * is hot-swapped mid-write and a component regularly arrives in a state that
+ * parses but throws. The update after it is almost always valid again — this
+ * is what lets the tab heal itself then, instead of sitting on the fallback
+ * until someone presses ⌘R. See
+ * `docs/fixes/hmr-of-a-half-written-file-kills-the-open-ui.md`.
+ */
+import.meta.hot?.on('vite:afterUpdate', resetErrorBoundaries)
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {/* Outermost net: App's own body (the WS wiring, the URL sync) throwing
+        should still leave something on screen to reload from. */}
+    <ErrorBoundary label="Orbital">
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

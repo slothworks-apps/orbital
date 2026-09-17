@@ -1,7 +1,7 @@
 ---
 id: retag-migration-motion
 title: A retagged session walks to its new cluster, and the camera follows it
-status: active
+status: in-force
 type: adr
 domain: sessions
 related:

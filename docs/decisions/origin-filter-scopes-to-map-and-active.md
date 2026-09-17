@@ -1,7 +1,7 @@
 ---
 id: origin-filter-scopes-to-map-and-active
 title: The origin filter scopes to the map and the active list, not history
-status: active
+status: in-force
 type: adr
 domain: sessions
 related:

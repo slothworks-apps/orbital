@@ -1,6 +1,8 @@
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended';
 export type SessionSource = 'terminal' | 'web';
-export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions';
+/** Ordered by escalating autonomy; `lib/permissionModes.ts` carries the copy
+ * and the dot colour for each. Mirrored in `server/src/types.ts`. */
+export type PermissionMode = 'plan' | 'acceptEdits' | 'auto' | 'bypassPermissions';
 
 export interface ApiSession {
   id: string;

@@ -8,6 +8,7 @@ import { DetailPanel } from './panels/DetailPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { Toasts } from './ui/Toasts'
+import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import { useSessionUrl } from './lib/sessionUrl'
 
@@ -97,18 +98,28 @@ export default function App() {
     <EscapeBoundary>
     <div className="relative h-screen w-screen overflow-hidden bg-space">
       <div className="absolute inset-0">
-        <SpaceMap />
+        <ErrorBoundary label="Space map">
+          <SpaceMap />
+        </ErrorBoundary>
       </div>
 
       {/* Docked panels inset 16px from the viewport edge, per the export's
           `left:16px;top:16px;bottom:16px` on both 1a's sidebar and 1b's
           detail panel. */}
+      {/* One boundary per docked surface, not one around the shell: a panel
+          that throws should cost that panel, leaving the other two — and with
+          them the session list and the map — readable. See
+          `docs/fixes/hmr-of-a-half-written-file-kills-the-open-ui.md`. */}
       <div className="absolute inset-y-4 left-4 z-10">
-        <Sidebar />
+        <ErrorBoundary label="Sidebar">
+          <Sidebar />
+        </ErrorBoundary>
       </div>
 
       <div className="absolute inset-y-4 right-4 z-10">
-        <DetailPanel />
+        <ErrorBoundary label="Detail panel">
+          <DetailPanel />
+        </ErrorBoundary>
       </div>
 
       {wsStatus !== 'open' && (

@@ -1,10 +1,9 @@
 import type { CSSProperties } from 'react'
 import { tagColor } from '../lib/types'
-import type { PermissionMode, SessionStatus } from '../lib/types'
+import type { SessionStatus } from '../lib/types'
 
 export type BadgeProps =
   | { variant: 'status'; value: SessionStatus; /** Tag hue tinting a working badge (canvas 1b). */ hue?: number }
-  | { variant: 'mode'; value: PermissionMode }
   | { variant: 'count'; value: number; label?: string }
   | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
 
@@ -15,8 +14,8 @@ const statusLabel: Record<SessionStatus, string> = {
   ended: 'ENDED',
 }
 
-// Canvas 1b: squared-off mono chips (radius 5px), quiet dark fill for the
-// permission mode, hue-tinted border + blinking dot while working.
+// Canvas 1b: squared-off mono chips (radius 5px), quiet dark fill, hue-tinted
+// border + blinking dot while working.
 const baseClass =
   'inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.04em]'
 
@@ -59,21 +58,9 @@ export function Badge(props: BadgeProps) {
     )
   }
 
-  if (props.variant === 'mode') {
-    return (
-      <span
-        data-variant="mode"
-        data-mode={props.value}
-        className={`${baseClass} border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.5)] text-[rgba(220,235,255,.85)]`}
-      >
-        {props.value}
-      </span>
-    )
-  }
-
   if (props.variant === 'model') {
-    // Canvas 4a: same squared mono chip as the permission mode, accent-outlined
-    // while it is a control you can open. The `▾` is drawn here (not by the
+    // Canvas 4a: the same squared mono chip as the status badge beside it,
+    // accent-outlined while it is a control you can open. The `▾` is drawn here (not by the
     // caller) so it can carry its own muted, smaller-than-the-label style and
     // only ever shows up on the interactive (switcher) chip.
     return (
@@ -82,10 +69,9 @@ export function Badge(props: BadgeProps) {
         className={`${baseClass} ${
           props.interactive
             ? 'border-accent/60 bg-accent/8 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
-            : // Same literal the `mode` badge beside it uses for the identical
-              // quiet-chip role — `border-panel-border` is `.14`, not `.2`,
-              // so the token can't stand in for it without the two chips
-              // visibly disagreeing.
+            : // The canvas's quiet-chip literal — `border-panel-border` is
+              // `.14`, not `.2`, so the token can't stand in for it without
+              // the chip reading a shade fainter than the artboard.
               'border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.5)] text-[rgba(220,235,255,.85)]'
         }`}
       >

@@ -2,7 +2,7 @@
 id: selected-session-lives-in-the-url-query
 title: Selected session lives in the URL query
 type: adr
-status: active
+status: in-force
 domain: web
 ---
 

@@ -243,6 +243,21 @@ describe('REST routes', () => {
     expect(row.cwd).toBe(`${homedir()}/Projects/slothworks/atlas`);
   });
 
+  // `auto` is the SDK's unattended mode, added to Orbital's union with the
+  // permission-mode dots. The column is untyped text, so nothing but this
+  // test catches the union and the route body type drifting apart again.
+  it('POST /api/sessions accepts auto and round-trips it onto the row', async () => {
+    const { app, db, startCalls } = makeApp();
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/p', prompt: 'go', permissionMode: 'auto' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(startCalls[0].permissionMode).toBe('auto');
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
+    expect(row.permission_mode).toBe('auto');
+  });
+
   it('POST /api/sessions publishes an upsert on the sessions topic (I3)', async () => {
     const received = subscribeFake(hub, 'sessions');
     const res = await app.inject({

@@ -1,7 +1,7 @@
 ---
 id: one-tag-per-session
 title: A session wears exactly one tag, picked from a dropdown
-status: active
+status: in-force
 type: adr
 domain: sessions
 tags:

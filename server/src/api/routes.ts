@@ -99,7 +99,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   app.post('/api/sessions', async (req, reply) => {
     const body = req.body as {
-      cwd: string; prompt: string; permissionMode: 'plan' | 'acceptEdits' | 'bypassPermissions';
+      cwd: string; prompt: string; permissionMode: PermissionMode;
       tagId?: number; model?: string; resume?: string; parentId?: string;
     };
     // The one door an unexpanded path comes through: every other cwd in this

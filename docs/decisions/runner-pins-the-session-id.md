@@ -1,7 +1,7 @@
 ---
 id: runner-pins-the-session-id
 title: Orbital pins the session id instead of waiting for the CLI to announce it
-status: active
+status: in-force
 type: adr
 domain: sessions
 related:

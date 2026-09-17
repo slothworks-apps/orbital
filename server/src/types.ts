@@ -1,6 +1,10 @@
 export type SessionSource = 'terminal' | 'web';
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended';
-export type PermissionMode = 'plan' | 'acceptEdits' | 'bypassPermissions';
+/** Ordered by escalating autonomy. Mirrored in `web/src/lib/types.ts` — this
+ * repo has no shared types package, so the two must move together. The SDK
+ * also ships `default` and `dontAsk`; Orbital offers neither, see
+ * `docs/superpowers/specs/2026-09-17-permission-mode-dots-design.md`. */
+export type PermissionMode = 'plan' | 'acceptEdits' | 'auto' | 'bypassPermissions';
 export type SubagentState = 'materializing' | 'working' | 'idle' | 'needs_input' | 'ended';
 
 export interface SessionRow {

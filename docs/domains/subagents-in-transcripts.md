@@ -2,7 +2,7 @@
 id: subagents-in-transcripts
 title: What a transcript says about subagents, and when
 type: domain
-status: active
+status: in-force
 domain: subagents
 related:
   - 2026-09-16-subagents-everywhere-design

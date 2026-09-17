@@ -17,6 +17,7 @@ import {
   EXITING,
 } from '../ui/motion'
 import { Badge } from '../ui/Badge'
+import { ModeReadout } from '../ui/ModeDot'
 import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
 import { Button } from '../ui/Button'
@@ -405,7 +406,7 @@ export function DetailPanel() {
                   }
                 />
               )}
-              {session.permissionMode && <Badge variant="mode" value={session.permissionMode} />}
+              {session.permissionMode && <ModeReadout mode={session.permissionMode} />}
               <Badge variant="status" value={session.status} hue={headerHue} />
             </div>
 

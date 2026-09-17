@@ -1,69 +1,48 @@
+import { PERMISSION_MODES } from '../lib/permissionModes'
 import type { PermissionMode } from '../lib/types'
+import { ModeDot } from './ModeDot'
 
 export interface ModeCardsProps {
   value: PermissionMode
   onChange: (mode: PermissionMode) => void
   disabled?: boolean
-  /** Settings variant (canvas 1h): short copy, `bypass` short label, tighter card, no selection dot. */
+  /** Settings variant (canvas 2f): short copy, `bypass` short label, tighter card, no selection pip. */
   compact?: boolean
 }
 
-interface ModeDescriptor {
-  value: PermissionMode
-  label: string
-  description: string
-}
-
-/** Mono raw-mode labels + one-line descriptions per artboard 1d — exact copy from the design canvas. */
-const MODES: ModeDescriptor[] = [
-  { value: 'plan', label: 'plan', description: 'Read-only. Proposes a plan before acting.' },
-  {
-    value: 'acceptEdits',
-    label: 'acceptEdits',
-    description: 'Edits files freely; asks before shell commands.',
-  },
-  {
-    value: 'bypassPermissions',
-    label: 'bypassPermissions',
-    description: 'Never asks. Use in sandboxes only.',
-  },
-]
-
-/** Settings variant per artboard 1h — same modes, shorter copy. */
-const COMPACT_MODES: ModeDescriptor[] = [
-  { value: 'plan', label: 'plan', description: 'Read-only, plans first' },
-  { value: 'acceptEdits', label: 'acceptEdits', description: 'Edits freely, asks for shell' },
-  { value: 'bypassPermissions', label: 'bypass', description: 'Never asks' },
-]
-
-/** Canvas 1d marks `bypassPermissions` with a warning-hued dot next to its label. */
-const BYPASS_DOT = 'oklch(80% .13 60)'
-
 /**
  * Selectable permission-mode cards, shared between `NewSessionDialog` and
- * `Settings` (both artboards 1d/1h show the same three cards) rather than
- * duplicated — per the task's "build it once" instruction.
+ * `Settings` (artboards 2d and 2f show the same four cards) rather than
+ * duplicated.
+ *
+ * The grid is 2×2 in both variants. Four cards in one row would give the
+ * settings column 80px per card; two rows of two is what the canvas draws.
+ *
+ * Copy, order and dot colours come from `lib/permissionModes.ts` — the header
+ * readout needs the same strings for its tooltip, and a second copy is how a
+ * picker and a readout end up disagreeing about what `auto` does.
  */
 export function ModeCards({ value, onChange, disabled = false, compact = false }: ModeCardsProps) {
-  const modes = compact ? COMPACT_MODES : MODES
   return (
-    <div role="radiogroup" aria-label="Permission mode" className="grid w-full grid-cols-3 gap-2">
-      {modes.map((mode) => {
+    <div role="radiogroup" aria-label="Permission mode" className="grid w-full grid-cols-2 gap-2">
+      {PERMISSION_MODES.map((mode) => {
         const active = value === mode.value
+        const label = compact ? mode.shortLabel : mode.label
         return (
           <button
             key={mode.value}
             type="button"
             role="radio"
             aria-checked={active}
-            aria-label={mode.label}
+            aria-label={label}
             data-active={active}
+            data-mode={mode.value}
             disabled={disabled}
             onClick={() => onChange(mode.value)}
             className={[
               'relative min-w-0 text-left transition-colors',
               'disabled:cursor-not-allowed disabled:opacity-40',
-              // 1h: 10px/12px on a 9px radius. 1d: 12px/14px on a 10px radius.
+              // 2f: 10px/12px on a 9px radius. 2d: 12px/14px on a 10px radius.
               compact ? 'rounded-[9px] border px-3 py-2.5' : 'rounded-[10px] border px-3.5 py-3',
               active
                 ? compact
@@ -73,7 +52,9 @@ export function ModeCards({ value, onChange, disabled = false, compact = false }
             ].join(' ')}
           >
             {active && !compact && (
-              // 7px accent dot with a glow, 10px inset from the corner (1d).
+              // 7px accent pip with a glow, 10px inset from the corner (2d).
+              // Selection is border + fill + pip: three channels, none of them
+              // the mode dot, so the choice survives colour blindness.
               <span
                 aria-hidden
                 className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_rgba(89,228,243,1)]"
@@ -81,18 +62,12 @@ export function ModeCards({ value, onChange, disabled = false, compact = false }
             )}
             <span
               className={[
-                'flex items-center gap-1.5 font-mono text-text-bright',
-                compact ? 'text-[11.5px]' : 'text-xs',
+                'flex items-center font-mono text-text-bright',
+                compact ? 'gap-[7px] text-[11.5px]' : 'gap-2 text-xs',
               ].join(' ')}
             >
-              {mode.label}
-              {!compact && mode.value === 'bypassPermissions' && (
-                <span
-                  aria-hidden
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: BYPASS_DOT }}
-                />
-              )}
+              <ModeDot mode={mode.value} />
+              {label}
             </span>
             <span
               className={[
@@ -101,7 +76,7 @@ export function ModeCards({ value, onChange, disabled = false, compact = false }
                 active && !compact ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.7)]',
               ].join(' ')}
             >
-              {mode.description}
+              {compact ? mode.shortDescription : mode.description}
             </span>
           </button>
         )

@@ -147,7 +147,7 @@ describe('DetailPanel header', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('shows title, cwd, permission mode and status badges for the selected session', async () => {
+  it('shows title, cwd, the permission-mode readout and the status badge for the selected session', async () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a', title: 'My session', status: 'working', permissionMode: 'plan' }) },
       ui: { selectedId: 'a' },
@@ -158,7 +158,10 @@ describe('DetailPanel header', () => {
 
     expect(screen.getByDisplayValue('My session')).toBeInTheDocument()
     expect(screen.getByText(/orbital/)).toBeInTheDocument() // shortened cwd
-    expect(screen.getByText('plan')).toBeInTheDocument()
+    // The mode is a dot in a 24×22 box, not a word — it reaches a reader
+    // through the readout's accessible name and its tooltip.
+    expect(screen.getByRole('img', { name: 'permission mode: plan' })).toBeInTheDocument()
+    expect(screen.queryByText('plan')).toBeNull()
     expect(screen.getByText(/WORKING/)).toBeInTheDocument()
   })
 

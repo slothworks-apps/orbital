@@ -2,7 +2,7 @@
 id: subagents-only-for-orbital-sessions
 title: Moons only orbit orbital's own sessions
 type: adr
-status: active
+status: in-force
 domain: subagents
 related:
   - subagents-in-transcripts

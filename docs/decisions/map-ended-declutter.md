@@ -1,7 +1,7 @@
 ---
 id: map-ended-declutter
 title: Declutter ended sessions on the map, not in the API
-status: active
+status: in-force
 type: adr
 domain: sessions
 related:

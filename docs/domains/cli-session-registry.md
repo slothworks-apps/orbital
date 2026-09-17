@@ -1,7 +1,7 @@
 ---
 id: cli-session-registry
 title: Claude Code live session registry
-status: active
+status: in-force
 type: domain
 domain: sessions
 related:
