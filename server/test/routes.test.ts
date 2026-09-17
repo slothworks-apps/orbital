@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
 import { sessionColumns, sessions, sessionTags, settings as settingsTable, tags } from '../src/db/schema.js';
@@ -222,6 +222,25 @@ describe('REST routes', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ sessionId: 'web-9' });
+  });
+
+  it('POST /api/sessions expands a ~ cwd before the runner and the row see it', async () => {
+    // The New Session dialog prefills its directory field from
+    // `default_project_dir`, a hand-typed setting that routinely holds
+    // `~/...`. A literal tilde reaches the SDK as a directory that does not
+    // exist: the spawn fails with ENOENT inside the runner's pump, and the
+    // user is left with a session row whose session never ran.
+    const { app, db, startCalls } = makeApp();
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '~/Projects/slothworks/atlas', prompt: 'go', permissionMode: 'acceptEdits' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(startCalls[0].cwd).toBe(`${homedir()}/Projects/slothworks/atlas`);
+    // Stored expanded too, or `/api/projects` lists the same directory twice,
+    // once per spelling, and the per-project model memory splits with it.
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
+    expect(row.cwd).toBe(`${homedir()}/Projects/slothworks/atlas`);
   });
 
   it('POST /api/sessions publishes an upsert on the sessions topic (I3)', async () => {

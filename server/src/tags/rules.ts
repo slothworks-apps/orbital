@@ -1,11 +1,11 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { homedir } from 'node:os';
 import type { OrbitalDb } from '../db/database.js';
 import { sessions, sessionTags, tagRuleColumns, tagRules, tags } from '../db/schema.js';
+import { expandHome } from '../paths.js';
 import type { TagRule } from '../types.js';
 
 function globToRegExp(glob: string): RegExp {
-  const expanded = glob.startsWith('~') ? homedir() + glob.slice(1) : glob;
+  const expanded = expandHome(glob);
   let out = '';
   for (let i = 0; i < expanded.length; i++) {
     if (expanded.startsWith('**', i)) { out += '.*'; i++; }

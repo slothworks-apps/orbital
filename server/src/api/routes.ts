@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
+import { expandHome } from '../paths.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
   sessionColumns,
@@ -101,10 +102,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       cwd: string; prompt: string; permissionMode: 'plan' | 'acceptEdits' | 'bypassPermissions';
       tagId?: number; model?: string; resume?: string; parentId?: string;
     };
-    const sessionId = await ctx.runner.start(body);
+    // The one door an unexpanded path comes through: every other cwd in this
+    // file is read back from a row this line already wrote. Expanding before
+    // both the runner and the insert keeps the spawn working *and* keeps one
+    // directory from appearing twice in `/api/projects`, once per spelling.
+    const cwd = expandHome(body.cwd);
+    const sessionId = await ctx.runner.start({ ...body, cwd });
     db.insert(sessions)
       .values({
-        id: sessionId, projectDir: '', cwd: body.cwd, source: 'web',
+        id: sessionId, projectDir: '', cwd, source: 'web',
         permissionMode: body.permissionMode, model: body.model ?? null,
         parentId: body.parentId ?? null, lastAt: Date.now(),
       })
