@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest'
+import { describe, expect, it, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 // ---------------------------------------------------------------------------
@@ -29,16 +29,9 @@ vi.mock('../lib/ws', () => ({
     }
   },
 }))
-vi.mock('../lib/api', () => ({
-  api: {
-    listSessions: async () => [],
-    listTags: async () => [],
-    listTagRules: async () => [],
-    getSettings: async () => ({}),
-    listModels: async () => [],
-  },
-}))
+vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
+import { api } from '../lib/api'
 import App from '../App'
 
 beforeAll(() => {
@@ -50,6 +43,16 @@ beforeAll(() => {
   global.ResizeObserver = NoopObserver
   // @ts-expect-error jsdom doesn't implement this one at all (no ambient type)
   global.IntersectionObserver = NoopObserver
+})
+
+// Only what App's mount-time `loadInitial()` reads — everything else on `api`
+// resolves to undefined and nothing here calls it.
+beforeEach(() => {
+  vi.mocked(api.listSessions).mockResolvedValue([])
+  vi.mocked(api.listTags).mockResolvedValue([])
+  vi.mocked(api.listTagRules).mockResolvedValue([])
+  vi.mocked(api.getSettings).mockResolvedValue({})
+  vi.mocked(api.listModels).mockResolvedValue([])
 })
 
 afterEach(() => {

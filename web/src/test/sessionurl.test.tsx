@@ -2,18 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, act, waitFor } from '@testing-library/react'
 import type { ApiSession } from '../lib/types'
 
-vi.mock('../lib/api', async () => {
-  const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
-  return {
-    ApiError: actual.ApiError,
-    api: {
-      ...actual.api,
-      getSession: vi.fn(),
-      getMessages: vi.fn(),
-      listSessions: vi.fn(),
-    },
-  }
-})
+vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 import { useOrbital } from '../store/store'

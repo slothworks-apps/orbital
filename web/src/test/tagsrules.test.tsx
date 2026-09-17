@@ -4,37 +4,7 @@ import userEvent from '@testing-library/user-event'
 import type { ApiSession, Tag, TagRule } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
-vi.mock('../lib/api', async () => {
-  const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
-  return {
-    ApiError: actual.ApiError,
-    api: {
-      listSessions: vi.fn(),
-      getSession: vi.fn(),
-      getMessages: vi.fn(),
-      sendMessage: vi.fn(),
-      interrupt: vi.fn(),
-      clearSession: vi.fn(),
-      renameSession: vi.fn(),
-      setSessionTags: vi.fn(),
-      createSession: vi.fn(),
-      listTags: vi.fn(),
-      createTag: vi.fn(),
-      patchTag: vi.fn(),
-      deleteTag: vi.fn(),
-      listTagRules: vi.fn(),
-      createTagRule: vi.fn(),
-      patchTagRule: vi.fn(),
-      deleteTagRule: vi.fn(),
-      previewRule: vi.fn(),
-      listProjects: vi.fn(),
-      listModels: vi.fn(),
-      setSessionModel: vi.fn(),
-      getSettings: vi.fn(),
-      patchSettings: vi.fn(),
-    } satisfies Record<keyof typeof actual.api, unknown>,
-  }
-})
+vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 import { Settings } from '../panels/Settings'

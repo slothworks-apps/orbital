@@ -11,37 +11,7 @@ const MODELS: OrbitalModel[] = [
   { value: 'haiku', resolvedModel: 'claude-haiku-4-5-20251001', family: 'Haiku', version: 'Haiku 4.5', shortVersion: 'Haiku', variant: null, blurb: 'Fastest for quick answers', contextWindow: null },
 ]
 
-vi.mock('../lib/api', async () => {
-  const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
-  return {
-    ApiError: actual.ApiError,
-    api: {
-      listSessions: vi.fn(),
-      getSession: vi.fn(),
-      getMessages: vi.fn(),
-      sendMessage: vi.fn(),
-      interrupt: vi.fn(),
-      clearSession: vi.fn(),
-      renameSession: vi.fn(),
-      setSessionTags: vi.fn(),
-      createSession: vi.fn(),
-      listTags: vi.fn(),
-      createTag: vi.fn(),
-      patchTag: vi.fn(),
-      deleteTag: vi.fn(),
-      listTagRules: vi.fn(),
-      createTagRule: vi.fn(),
-      patchTagRule: vi.fn(),
-      deleteTagRule: vi.fn(),
-      previewRule: vi.fn(),
-      listProjects: vi.fn(),
-      listModels: vi.fn(),
-      setSessionModel: vi.fn(),
-      getSettings: vi.fn(),
-      patchSettings: vi.fn(),
-    } satisfies Record<keyof typeof actual.api, unknown>,
-  }
-})
+vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 
