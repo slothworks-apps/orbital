@@ -69,3 +69,15 @@ export interface Subagent {
 }
 
 export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`;
+
+/**
+ * True for a session Orbital does not own: one it indexed from another
+ * terminal and that is still running there. The composer refuses input on
+ * these and the sidebar badges them; the server's 409 on
+ * `POST /sessions/:id/messages` is the real backstop.
+ *
+ * An `ended` terminal session is NOT read-only — `continue` resumes it as a
+ * new `source: web` session — which is why status is part of the test.
+ */
+export const isReadOnly = (session: Pick<ApiSession, 'source' | 'status'>): boolean =>
+  session.source === 'terminal' && session.status !== 'ended';

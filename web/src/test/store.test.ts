@@ -484,20 +484,23 @@ describe('visibleSessions (pure)', () => {
     expect(visibleSessions(state).map((s) => s.id)).toEqual(['s2'])
   })
 
-  it('filters by source', () => {
+  // The origin filter deliberately does NOT live here: HISTORY derives from
+  // this selector and is not origin-scoped. See the ADR
+  // `origin-filter-scopes-to-map-and-active`.
+  it('ignores the origin filter', () => {
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions: { s1, s2, s3 },
       ui: { ...initialSnapshot.ui, sourceFilter: 'terminal' },
     }
-    expect(visibleSessions(state).map((s) => s.id)).toEqual(['s2'])
+    expect(visibleSessions(state).map((s) => s.id)).toEqual(['s2', 's1', 's3'])
   })
 
-  it('combines tag, source and search filters', () => {
+  it('combines tag and search filters', () => {
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions: { s1, s2, s3 },
-      ui: { ...initialSnapshot.ui, filterTagId: 1, sourceFilter: 'web', search: 'gamma' },
+      ui: { ...initialSnapshot.ui, filterTagId: 1, search: 'gamma' },
     }
     expect(visibleSessions(state).map((s) => s.id)).toEqual(['s3'])
   })
@@ -645,6 +648,46 @@ describe('mapSessions (pure)', () => {
       ui: { ...initialSnapshot.ui, filterTagId: 1 },
     }
     expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['keep'])
+  })
+
+  // The origin filter is applied here rather than in `visibleSessions`, so
+  // the map narrows with the ACTIVE list while HISTORY keeps every row.
+  it('applies the origin filter to live sessions', () => {
+    const sessions: Record<string, ApiSession> = {
+      web: makeSession({ id: 'web', status: 'idle', source: 'web' }),
+      term: makeSession({ id: 'term', status: 'idle', source: 'terminal' }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      ui: { ...initialSnapshot.ui, sourceFilter: 'terminal' },
+    }
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['term'])
+  })
+
+  // The map filters everything it draws: a planet the filter excludes must
+  // not survive just because the session behind it has ended.
+  it('applies the origin filter to ended sessions inside the cutoff too', () => {
+    const sessions: Record<string, ApiSession> = {
+      webEnded: makeSession({
+        id: 'webEnded',
+        status: 'ended',
+        source: 'web',
+        lastAt: NOW - 1_000,
+      }),
+      termEnded: makeSession({
+        id: 'termEnded',
+        status: 'ended',
+        source: 'terminal',
+        lastAt: NOW - 1_000,
+      }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      ui: { ...initialSnapshot.ui, sourceFilter: 'web' },
+    }
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['webEnded'])
   })
 })
 

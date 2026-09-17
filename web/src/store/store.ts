@@ -467,10 +467,6 @@ export function visibleSessions(state: OrbitalState): ApiSession[] {
     list = list.filter((s) => s.tagIds.includes(tagId))
   }
 
-  if (state.ui.sourceFilter !== 'all') {
-    list = list.filter((s) => s.source === state.ui.sourceFilter)
-  }
-
   const query = state.ui.search.trim().toLowerCase()
   if (query) {
     list = list.filter(
@@ -506,9 +502,10 @@ export function endedMaxAgeMs(settings: Record<string, string>): number | null {
 }
 
 /**
- * What the space map draws: `visibleSessions` minus `ended` sessions older
- * than the cutoff. Live sessions are never dropped by age — an idle terminal
- * session that has sat untouched for a month is still a real process.
+ * What the space map draws: `visibleSessions` minus the sessions the origin
+ * filter excludes, minus `ended` sessions older than the cutoff. Live sessions
+ * are never dropped by age — an idle terminal session that has sat untouched
+ * for a month is still a real process.
  *
  * `nowMs` is a parameter rather than a `Date.now()` call so this stays pure
  * and `buildSceneModel` keeps its "same state in, same model out" contract.
@@ -520,12 +517,23 @@ export function endedMaxAgeMs(settings: Record<string, string>): number | null {
  * guards against in `sceneModel.ts`.
  */
 export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
+  // The origin filter lives here rather than in `visibleSessions` so it can
+  // narrow the map and the sidebar's ACTIVE list while leaving HISTORY whole
+  // — see the ADR `origin-filter-scopes-to-map-and-active`. The map applies
+  // it to ended planets too: it filters everything it draws, or the control
+  // means nothing here.
+  const origin = state.ui.sourceFilter
+  const list =
+    origin === 'all'
+      ? visibleSessions(state)
+      : visibleSessions(state).filter((session) => session.source === origin)
+
   const maxAgeMs = endedMaxAgeMs(state.settings)
-  if (maxAgeMs === null) return visibleSessions(state)
+  if (maxAgeMs === null) return list
   const oldest = nowMs - maxAgeMs
   // A missing `lastAt` reads as older than any cutoff: there is no evidence
   // of activity to place it inside one.
-  return visibleSessions(state).filter(
+  return list.filter(
     (session) => session.status !== 'ended' || (session.lastAt ?? 0) >= oldest
   )
 }

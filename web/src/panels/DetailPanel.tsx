@@ -27,7 +27,7 @@ import { ClearDialog } from './ClearDialog'
 import { ModelSwitcher } from './ModelSwitcher'
 import { shortenPath, formatContextWindow } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
-import { tagColor } from '../lib/types'
+import { isReadOnly, tagColor } from '../lib/types'
 import type { ApiSession, Tag } from '../lib/types'
 
 /**
@@ -273,7 +273,9 @@ export function DetailPanel() {
   // bych to skryl"), which deliberately overrides canvas 1b's "always
   // rendered" grid — a choice, not a regression.
   const canShowUsage = session?.source !== 'terminal'
-  const isTerminalLive = session?.source === 'terminal' && session.status !== 'ended'
+  // Same predicate the sidebar badges a row with — one definition, so the
+  // mark on the row and the refusal at the composer cannot drift apart.
+  const isTerminalLive = session ? isReadOnly(session) : false
   const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
 
   const sessionTag = session ? primaryTag(session, tags) : undefined

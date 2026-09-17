@@ -3,10 +3,11 @@ import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital, visibleSessions } from '../store/store'
 import { api } from '../lib/api'
-import { tagColor } from '../lib/types'
+import { isReadOnly, tagColor } from '../lib/types'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
+import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { timeAgo, shortenPath } from '../lib/format'
 
@@ -43,11 +44,28 @@ export interface SidebarProps {
   observerFactory?: ObserverFactory
 }
 
-const sourceOptions: Array<{ value: 'all' | SessionSource; label: string }> = [
-  { value: 'all', label: 'all' },
-  { value: 'terminal', label: 'terminal' },
-  { value: 'web', label: 'web' },
+/**
+ * The origin filter's vocabulary (canvas 3a). The menu spells out what the
+ * option means; the trigger keeps the short form, because it sits inside a
+ * heading that is already carrying a word and a number.
+ */
+const originOptions: Array<{ value: 'all' | SessionSource; label: string; short: string }> = [
+  { value: 'all', label: 'all sessions', short: 'all' },
+  { value: 'web', label: 'started in orbital', short: 'in orbital' },
+  { value: 'terminal', label: 'other terminals · read-only', short: 'read-only' },
 ]
+
+/** Canvas 3b: neutral, hue-free, no icon — hue on a row belongs to the tag. */
+function ReadOnlyBadge() {
+  return (
+    <span
+      title="Attached from an external terminal · read-only in Orbital"
+      className="shrink-0 rounded border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[5px] py-px font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.75)]"
+    >
+      read-only
+    </span>
+  )
+}
 
 /** First tag's hue drives a row's dot color, matching the map (canvas 1a). */
 function rowHue(session: ApiSession, tags: Tag[]): number | undefined {
@@ -192,13 +210,19 @@ function SessionRow({
       >
         <RowDot hue={hue} status={session.status} />
         <span className="min-w-0 flex-1">
-          <span
-            className={[
-              'block truncate text-[13px] text-text-bright',
-              history ? 'font-medium' : 'font-semibold',
-            ].join(' ')}
-          >
-            {session.title}
+          {/* 3b: the badge shares the name's line, so it reads as a property
+              of the session rather than of its status — and the name is what
+              gives way when the row is too narrow for both. */}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={[
+                'min-w-0 truncate text-[13px] text-text-bright',
+                history ? 'font-medium' : 'font-semibold',
+              ].join(' ')}
+            >
+              {session.title}
+            </span>
+            {!history && isReadOnly(session) && <ReadOnlyBadge />}
           </span>
           <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
             {shortenPath(session.cwd)}
@@ -211,9 +235,10 @@ function SessionRow({
 }
 
 /**
- * Left rail per artboard 1a: wordmark + collapse toggle, search (⌘K),
- * tag/source filter chips, ACTIVE/HISTORY session lists with infinite
- * scroll, and a footer session count + "tags & rules" entry point.
+ * Left rail per artboard 1a: wordmark + collapse toggle, search (⌘K), tag
+ * filter chips, ACTIVE/HISTORY session lists with infinite scroll — ACTIVE
+ * carrying 3a's origin filter in its heading — and a footer session count +
+ * "tags & rules" entry point.
  */
 export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarProps) {
   const collapsed = useOrbital((s) => s.ui.sidebarCollapsed)
@@ -237,8 +262,28 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const loadingRef = useRef(false)
   const [exhausted, setExhausted] = useState(false)
 
-  const active = useMemo(() => visible.filter((s) => s.status !== 'ended'), [visible])
+  // The origin filter narrows ACTIVE and the map; HISTORY ignores it. See
+  // the ADR `origin-filter-scopes-to-map-and-active` — an ended terminal
+  // session is not read-only, so the distinction has nothing to say there.
+  const live = useMemo(() => visible.filter((s) => s.status !== 'ended'), [visible])
+  const active = useMemo(
+    () => (sourceFilter === 'all' ? live : live.filter((s) => s.source === sourceFilter)),
+    [live, sourceFilter]
+  )
   const history = useMemo(() => visible.filter((s) => s.status === 'ended'), [visible])
+
+  // Counts describe the list the menu sits in, so `all sessions` is always
+  // the number beside the ACTIVE heading. Memoised together with the options
+  // they go into: `Select` repositions its popup when `options` changes
+  // identity, and this heading re-renders on every list update.
+  const originItems = useMemo(
+    () =>
+      originOptions.map((o) => ({
+        ...o,
+        count: o.value === 'all' ? live.length : live.filter((s) => s.source === o.value).length,
+      })),
+    [live]
+  )
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -262,12 +307,14 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   }, [])
 
   // A filter switch invalidates whatever offset/end-of-list state the
-  // previous filter combination had accumulated — the server applies
-  // tag/q/source filters BEFORE slicing by offset, so "offset" only means
-  // the same thing while the filter combination stays the same.
+  // previous filter combination had accumulated — the server applies the
+  // tag/q filters BEFORE slicing by offset, so "offset" only means the same
+  // thing while the filter combination stays the same. The origin filter is
+  // not in here because it is not in the request: it never changes which
+  // rows the server returns.
   useEffect(() => {
     setExhausted(false)
-  }, [filterTagId, search, sourceFilter])
+  }, [filterTagId, search])
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return
@@ -278,7 +325,6 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         limit: PAGE_SIZE,
         tag: filterTagId !== 'all' ? filterTagId : undefined,
         q: search || undefined,
-        source: sourceFilter !== 'all' ? sourceFilter : undefined,
       })
       for (const session of fetched) {
         applySessionsEvent({ event: 'upsert', session })
@@ -287,7 +333,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     } finally {
       loadingRef.current = false
     }
-  }, [applySessionsEvent, visible.length, filterTagId, search, sourceFilter])
+  }, [applySessionsEvent, visible.length, filterTagId, search])
 
   // Infinite scroll: observe the sentinel at the bottom of the session
   // lists and fetch the next page once it enters the viewport.
@@ -390,23 +436,20 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         ))}
       </div>
 
-      {/* Source filter has no counterpart in 1a — Orbital indexes terminal
-          sessions the artboards never had to distinguish. Styled as a second
-          chip row so it reads as part of the same filter block. */}
-      <div className="flex gap-1.5 px-3.5 pb-1.5" role="group" aria-label="Filter by source">
-        {sourceOptions.map((opt) => (
-          <Chip
-            key={opt.value}
-            label={opt.label}
-            active={sourceFilter === opt.value}
-            onClick={() => setSourceFilter(opt.value)}
-          />
-        ))}
-      </div>
-
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* 3a puts the origin filter in this heading rather than in a chip
+            row of its own: it narrows the list the heading counts. */}
         <h3 className="flex items-center gap-2 px-[18px] pt-3.5 pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted">
           ACTIVE <span className="tracking-normal text-accent">{active.length}</span>
+          <span className="flex-1" />
+          <Select
+            variant="ghost"
+            active={sourceFilter !== 'all'}
+            aria-label="Filter sessions by origin"
+            options={originItems}
+            value={sourceFilter}
+            onChange={setSourceFilter}
+          />
         </h3>
         <ul className="flex flex-col gap-0.5 px-2" aria-label="Active sessions">
           {active.map((s) => (

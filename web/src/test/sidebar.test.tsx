@@ -200,6 +200,112 @@ describe('Sidebar', () => {
     expect(within(history).getByText('5m')).toBeInTheDocument()
   })
 
+  // Artboard 3b: the badge sits on the name line, so it reads as a property
+  // of the session rather than of its status — status keeps the right edge.
+  it('badges a live terminal row read-only and leaves an orbital row unmarked', () => {
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Attached one', status: 'idle', source: 'terminal' }),
+        b: makeSession({ id: 'b', title: 'Orbital one', status: 'idle', source: 'web' }),
+      },
+    })
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+
+    const attached = screen.getByRole('button', { name: /Attached one/ })
+    const badge = within(attached).getByText('read-only')
+    expect(badge).toHaveAttribute(
+      'title',
+      'Attached from an external terminal · read-only in Orbital'
+    )
+    expect(within(screen.getByRole('button', { name: /Orbital one/ })).queryByText('read-only')).toBeNull()
+  })
+
+  // An ended terminal session is not read-only: `continue` resumes it as a
+  // new web session, so the badge would be a lie in HISTORY.
+  it('never badges a history row, terminal or not', () => {
+    resetStore({
+      sessions: {
+        a: makeSession({
+          id: 'a',
+          title: 'Finished one',
+          status: 'ended',
+          source: 'terminal',
+          lastAt: Date.now() - 5 * 60_000,
+        }),
+      },
+    })
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+
+    const history = screen.getByRole('list', { name: /session history/i })
+    expect(within(history).getByText('Finished one')).toBeInTheDocument()
+    expect(within(history).queryByText('read-only')).toBeNull()
+  })
+
+  it('narrows the ACTIVE list by origin and leaves HISTORY untouched', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Attached one', status: 'idle', source: 'terminal' }),
+        b: makeSession({ id: 'b', title: 'Orbital one', status: 'idle', source: 'web' }),
+        c: makeSession({
+          id: 'c',
+          title: 'Finished terminal',
+          status: 'ended',
+          source: 'terminal',
+          lastAt: Date.now() - 5 * 60_000,
+        }),
+      },
+    })
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+
+    await user.click(screen.getByRole('combobox', { name: /filter sessions by origin/i }))
+    await user.click(screen.getByRole('option', { name: /started in orbital/ }))
+
+    const active = screen.getByRole('list', { name: /active sessions/i })
+    expect(within(active).getByText('Orbital one')).toBeInTheDocument()
+    expect(within(active).queryByText('Attached one')).toBeNull()
+
+    const history = screen.getByRole('list', { name: /session history/i })
+    expect(within(history).getByText('Finished terminal')).toBeInTheDocument()
+  })
+
+  it('carries the short origin label on the trigger and counts on the options', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Attached one', status: 'idle', source: 'terminal' }),
+        b: makeSession({ id: 'b', title: 'Orbital one', status: 'idle', source: 'web' }),
+        c: makeSession({ id: 'c', title: 'Orbital two', status: 'working', source: 'web' }),
+        // Ended rows are not in the ACTIVE list, so they are not in its counts.
+        d: makeSession({
+          id: 'd',
+          title: 'Finished terminal',
+          status: 'ended',
+          source: 'terminal',
+          lastAt: Date.now() - 5 * 60_000,
+        }),
+      },
+    })
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+
+    const trigger = screen.getByRole('combobox', { name: /filter sessions by origin/i })
+    const triggerLabel = () => trigger.textContent?.replace('▾', '').trim()
+    expect(triggerLabel()).toBe('all')
+
+    await user.click(trigger)
+    // `all sessions` always equals the number beside the ACTIVE heading.
+    expect(screen.getByRole('option', { name: /all sessions/ })).toHaveTextContent('3')
+    expect(screen.getByRole('option', { name: /started in orbital/ })).toHaveTextContent('2')
+    expect(screen.getByRole('option', { name: /other terminals/ })).toHaveTextContent('1')
+
+    await user.click(screen.getByRole('option', { name: /other terminals/ }))
+    expect(triggerLabel()).toBe('read-only')
+  })
+
   it('narrows the visible list when a tag chip is clicked', async () => {
     const user = userEvent.setup()
     resetStore({
@@ -395,6 +501,33 @@ describe('Sidebar', () => {
     expect(api.listSessions).toHaveBeenCalledWith(
       expect.objectContaining({ offset: 1, q: 'Alpha' })
     )
+  })
+
+  // Paging covers HISTORY too, and HISTORY is not origin-scoped — a server
+  // -side origin filter would drop history rows before they could be shown.
+  it('never sends the origin filter to the next page fetch', async () => {
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Alpha', status: 'ended', source: 'web', lastAt: 1 }),
+        b: makeSession({ id: 'b', title: 'Bravo', status: 'ended', source: 'terminal', lastAt: 2 }),
+      },
+      ui: { sourceFilter: 'terminal' },
+    })
+    vi.mocked(api.listSessions).mockResolvedValue([])
+
+    const { factory, trigger } = makeCapturingObserverFactory()
+    render(<Sidebar observerFactory={factory} />)
+
+    await act(async () => {
+      trigger()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const params = vi.mocked(api.listSessions).mock.calls[0][0]
+    expect(params).not.toHaveProperty('source', 'terminal')
+    // The cursor counts every row the list holds, history included.
+    expect(params).toMatchObject({ offset: 2 })
   })
 
   it('re-arms pagination (resets end-of-list) when the active filter changes', async () => {

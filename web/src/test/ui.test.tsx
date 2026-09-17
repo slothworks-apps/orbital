@@ -641,6 +641,94 @@ describe('Select', () => {
     expect(screen.getAllByRole('option')).toHaveLength(1)
   })
 
+  // Artboard 3a's origin filter: a bare label in a list heading, which only
+  // grows chrome when it has something to say — open, or narrowing.
+  it('draws the ghost trigger bare until it is open or active', () => {
+    const { rerender } = render(<SelectHarness variant="ghost" />)
+
+    const el = trigger()
+    expect(el).toHaveAttribute('data-variant', 'ghost')
+    expect(el.className).toMatch(/border-transparent/)
+
+    fireEvent.click(el)
+    expect(el.className).not.toMatch(/border-transparent/)
+
+    fireEvent.keyDown(el, { key: 'Escape' })
+    rerender(<SelectHarness variant="ghost" active />)
+    expect(trigger().className).not.toMatch(/border-transparent/)
+  })
+
+  // 3b: "Counts sit before the ✓ column, right-aligned and muted."
+  it('renders an option count before the check column', () => {
+    render(
+      <Select
+        aria-label="Origin"
+        options={[
+          { value: 'all', label: 'all sessions', count: 5 },
+          { value: 'web', label: 'started in orbital', count: 3 },
+        ]}
+        value="all"
+        onChange={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Origin' }))
+    const selected = screen.getByRole('option', { name: /all sessions/ })
+    expect(selected).toHaveTextContent('5')
+    const [count, check] = Array.from(selected.querySelectorAll('span[aria-hidden]')).slice(-2)
+    expect(count).toHaveTextContent('5')
+    expect(check).toHaveTextContent('✓')
+  })
+
+  // The ghost trigger is a few characters wide; the menu under it is not.
+  it('keeps a width floor under the ghost popup rather than shrinking to its trigger', () => {
+    render(<SelectHarness variant="ghost" />)
+
+    fireEvent.click(trigger())
+    const popup = screen.getByRole('listbox', { name: 'Fruit' }).parentElement!
+    expect(popup.style.minWidth).toBe('186px')
+  })
+
+  // 3a: the menu spells the option out, the trigger keeps the short form.
+  it('prefers an option short label on the trigger, while the menu keeps the long one', () => {
+    render(
+      <Select
+        aria-label="Origin"
+        options={[
+          { value: 'all', label: 'all sessions', short: 'all' },
+          { value: 'terminal', label: 'other terminals · read-only', short: 'read-only' },
+        ]}
+        value="terminal"
+        onChange={vi.fn()}
+      />
+    )
+
+    const el = screen.getByRole('combobox', { name: 'Origin' })
+    expect(el.textContent?.replace('▾', '').trim()).toBe('read-only')
+
+    fireEvent.click(el)
+    expect(screen.getByRole('option', { name: /other terminals · read-only/ })).toBeInTheDocument()
+  })
+
+  // 3a hangs the origin menu off the trigger's right edge. The trigger lives
+  // at the right end of a 300px panel, so a menu aligned to its LEFT edge
+  // would spill out of the sidebar and onto the map.
+  it('right-aligns the ghost popup to its trigger', () => {
+    render(<SelectHarness variant="ghost" />)
+
+    const el = trigger()
+    fireEvent.click(el)
+    const popup = screen.getByRole('listbox', { name: 'Fruit' }).parentElement!
+
+    // jsdom has no layout, so the geometry has to be supplied.
+    el.getBoundingClientRect = () =>
+      ({ left: 240, right: 280, top: 100, bottom: 120, width: 40, height: 20 }) as DOMRect
+    Object.defineProperty(popup, 'offsetWidth', { value: 186, configurable: true })
+    fireEvent(window, new Event('resize'))
+
+    expect(popup.style.left).toBe('94px')
+  })
+
   it('is generic over the value type — numeric values round-trip without casts', () => {
     const onChange = vi.fn<(value: number) => void>()
     render(

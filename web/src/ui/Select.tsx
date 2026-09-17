@@ -8,6 +8,16 @@ export interface SelectOption<T> {
   label: string
   /** Leading dot, e.g. a tag hue (`oklch(80% .13 H)`). Also tints the `pill` trigger's border. */
   dotColor?: string
+  /** Trailing count, muted and right-aligned before the ✓ column (canvas 3b). */
+  count?: number
+  /**
+   * Shown on the trigger instead of `label` — for a control that sits
+   * somewhere too tight to spell the option out (canvas 3a's origin filter:
+   * `other terminals · read-only` in the menu, `read-only` on the trigger).
+   * Type-ahead still matches `label`, which is what the user can read while
+   * the menu is open.
+   */
+  short?: string
 }
 
 export interface SelectProps<T> {
@@ -25,9 +35,16 @@ export interface SelectProps<T> {
    * `field` is the boxed control of artboards 1h/1e; `pill` is 1e's
    * rounded-full target-tag pill, tinted with the selected option's hue;
    * `tag` is 1b's session-tag pill — the same hue, but FILLED and with the
-   * chevron inline, so the trigger reads as the tag it carries.
+   * chevron inline, so the trigger reads as the tag it carries; `ghost` is
+   * 3a's origin filter — a bare label inside a list heading, which grows
+   * chrome only while it is open or `active`.
    */
-  variant?: 'field' | 'pill' | 'tag'
+  variant?: 'field' | 'pill' | 'tag' | 'ghost'
+  /**
+   * `ghost` only: keep the lit chrome while the control is closed, because
+   * its value is doing something visible (a filter that is narrowing a list).
+   */
+  active?: boolean
   /** Shown when `value` matches no option. */
   placeholder?: string
   /**
@@ -48,6 +65,8 @@ const VIEWPORT_MARGIN = 8
 const MIN_POPUP_HEIGHT = 96
 /** Width floor for the `tag` popup (canvas 1b) — its trigger is narrower. */
 const TAG_POPUP_MIN_WIDTH = 168
+/** Width floor for the `ghost` popup (canvas 3a) — its trigger is narrower still. */
+const GHOST_POPUP_MIN_WIDTH = 186
 /** Type-ahead buffer lifetime, the same window the platform controls use. */
 const TYPEAHEAD_MS = 500
 
@@ -88,6 +107,7 @@ export function Select<T extends string | number>({
   disabled = false,
   font = 'mono',
   variant = 'field',
+  active = false,
   placeholder,
   footer,
   className,
@@ -107,7 +127,7 @@ export function Select<T extends string | number>({
   const [activeIndex, setActiveIndex] = useState(selectedIndex < 0 ? 0 : selectedIndex)
 
   const selected = selectedIndex < 0 ? undefined : options[selectedIndex]
-  const label = selected?.label ?? placeholder ?? ''
+  const label = selected?.short ?? selected?.label ?? placeholder ?? ''
 
   const openPopup = useCallback(
     (index?: number) => {
@@ -167,12 +187,22 @@ export function Select<T extends string | number>({
     popup.dataset.placement = flip ? 'above' : 'below'
 
     // The tag pill is narrower than its own menu, so 1b gives that popup a
-    // 168px floor rather than letting it shrink to the trigger.
-    const floor = variant === 'tag' ? TAG_POPUP_MIN_WIDTH : 0
+    // 168px floor rather than letting it shrink to the trigger; 3a's origin
+    // trigger is a word and a caret, and its menu is a sentence wide.
+    const floor =
+      variant === 'tag'
+        ? TAG_POPUP_MIN_WIDTH
+        : variant === 'ghost'
+          ? GHOST_POPUP_MIN_WIDTH
+          : 0
     popup.style.minWidth = `${Math.max(rect.width, floor)}px`
     const width = popup.offsetWidth
     const maxLeft = window.innerWidth - width - VIEWPORT_MARGIN
-    popup.style.left = `${Math.max(VIEWPORT_MARGIN, Math.min(rect.left, maxLeft))}px`
+    // 3a hangs the origin menu off the trigger's RIGHT edge: that trigger sits
+    // at the right end of a 300px panel, and a menu wider than it — which it
+    // always is — would otherwise spill out of the sidebar and onto the map.
+    const wanted = variant === 'ghost' ? rect.right - width : rect.left
+    popup.style.left = `${Math.max(VIEWPORT_MARGIN, Math.min(wanted, maxLeft))}px`
   }, [variant])
 
   // Re-measure rather than close: a scroll inside the rules table or the
@@ -302,6 +332,13 @@ export function Select<T extends string | number>({
 
   const isPill = variant === 'pill'
   const isTag = variant === 'tag'
+  const isGhost = variant === 'ghost'
+  // 3a paints the ghost trigger in two states only: bare, or lit. Open and
+  // "narrowing something" are the same state — both mean it has the floor.
+  const lit = isGhost && (open || active)
+  // Counts need a column that does not move between rows, so the ✓ gutter is
+  // reserved for every row as soon as one option carries a count (3b).
+  const reserveCheck = options.some((o) => o.count !== undefined)
   // 1e's pill borrows the hue for its border only; 1b's tag pill is filled
   // with it, and brightens on open (border .4 -> .7, fill .1 -> .16).
   const hue = selected?.dotColor
@@ -337,30 +374,45 @@ export function Select<T extends string | number>({
           // No width here on purpose: `className` is the only source of one,
           // so a caller's `w-[200px]` never has to out-order a built-in
           // `w-full` in the stylesheet (see the v4 footguns in web/CLAUDE.md).
-          'relative inline-flex min-w-0 cursor-pointer items-center gap-1.5 text-left text-text-bright disabled:cursor-not-allowed disabled:opacity-50',
-          isTag
-            ? // 1b's session-tag pill: 4px/9px/4px/10px inside a 999px
-              // hue-tinted border over a hue fill, 11px/600 label, chevron
-              // inline rather than in a gutter.
+          'relative inline-flex min-w-0 cursor-pointer items-center text-left disabled:cursor-not-allowed disabled:opacity-50',
+          isGhost ? 'gap-[5px]' : 'gap-1.5',
+          // The ghost branch owns its own ink in both states, so it must not
+          // also inherit `text-text-bright` — two colour utilities on one
+          // element are settled by stylesheet order, not by this array's.
+          isGhost ? '' : 'text-text-bright',
+          isGhost
+            ? // 3a's origin trigger: 3px/7px inside a 6px radius, the heading's
+              // own mono face at a looser .04em, transparent until it is lit.
               [
-                'rounded-full border py-1 pl-2.5 pr-[9px] text-[11px] font-semibold',
-                'transition-[background-color,border-color] duration-[180ms] ease-out',
-                font === 'mono' ? 'font-mono' : 'font-sans',
+                'rounded-md border px-[7px] py-[3px] font-mono text-[10px] tracking-[0.04em]',
+                'transition-[background-color,border-color,color] duration-[180ms] ease-out',
+                lit
+                  ? 'border-[rgba(150,205,255,.22)] bg-[rgba(150,205,255,.12)] text-[oklch(90%_.06_205)]'
+                  : 'border-transparent bg-transparent text-inherit hover:bg-[rgba(150,205,255,.1)]',
               ].join(' ')
-            : isPill
-              ? // 1e's target-tag pill: 3px/9px inside a 999px hue-tinted border,
-                // 11px/600 label, with the chevron living in the right gutter.
+            : isTag
+              ? // 1b's session-tag pill: 4px/9px/4px/10px inside a 999px
+                // hue-tinted border over a hue fill, 11px/600 label, chevron
+                // inline rather than in a gutter.
                 [
-                  'rounded-full border border-panel-border py-[3px] pl-[9px] pr-6 text-[11px] font-semibold',
+                  'rounded-full border py-1 pl-2.5 pr-[9px] text-[11px] font-semibold',
+                  'transition-[background-color,border-color] duration-[180ms] ease-out',
                   font === 'mono' ? 'font-mono' : 'font-sans',
                 ].join(' ')
-              : // 1h's field: 8px/10px padding, a 26px right gutter for the
-                // chevron, 8px radius over the rgba(4,8,16,.6) fill.
-                [
-                  'rounded-lg border border-panel-border bg-[rgba(4,8,16,.6)] py-2 pl-2.5 pr-[26px] transition-colors',
-                  'hover:border-accent/40 focus:border-accent/60 focus:outline-none',
-                  triggerFont[font],
-                ].join(' '),
+              : isPill
+                ? // 1e's target-tag pill: 3px/9px inside a 999px hue-tinted
+                  // border, 11px/600 label, chevron in the right gutter.
+                  [
+                    'rounded-full border border-panel-border py-[3px] pl-[9px] pr-6 text-[11px] font-semibold',
+                    font === 'mono' ? 'font-mono' : 'font-sans',
+                  ].join(' ')
+                : // 1h's field: 8px/10px padding, a 26px right gutter for the
+                  // chevron, 8px radius over the rgba(4,8,16,.6) fill.
+                  [
+                    'rounded-lg border border-panel-border bg-[rgba(4,8,16,.6)] py-2 pl-2.5 pr-[26px] transition-colors',
+                    'hover:border-accent/40 focus:border-accent/60 focus:outline-none',
+                    triggerFont[font],
+                  ].join(' '),
           className ?? '',
         ]
           .filter(Boolean)
@@ -378,8 +430,8 @@ export function Select<T extends string | number>({
           aria-hidden
           data-caret
           className={
-            isTag
-              ? // Inline, and it flips while the popup is open (1b).
+            isTag || isGhost
+              ? // Inline, and it flips while the popup is open (1b, 3a).
                 `block shrink-0 text-[8px] opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
               : [
                   'pointer-events-none absolute top-1/2 -translate-y-1/2',
@@ -456,8 +508,16 @@ export function Select<T extends string | number>({
                       />
                     )}
                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                    {isSelected && (
-                      <span aria-hidden className="shrink-0 text-[10px] text-accent">
+                    {option.count !== undefined && (
+                      <span aria-hidden className="shrink-0 text-[rgba(160,190,225,.45)]">
+                        {option.count}
+                      </span>
+                    )}
+                    {(isSelected || reserveCheck) && (
+                      <span
+                        aria-hidden
+                        className={`shrink-0 text-[10px] text-accent ${isSelected ? '' : 'opacity-0'}`}
+                      >
                         ✓
                       </span>
                     )}
