@@ -165,3 +165,34 @@ describe('resolved_model', () => {
     expect(row.resolved_model).toBe('claude-sonnet-5');
   });
 });
+
+// Tag clusters (spec 2026-09-18-tag-clusters-design § 5): new activity brings
+// a dismissed session back to the map — the indexer clears the stamp when a
+// transcript's lastAt advances, and only then.
+describe('indexProjects and map_dismissed_at', () => {
+  it('clears the stamp when new activity advances lastAt', () => {
+    const { db, projects, transcriptPath } = setup();
+    indexProjects(db, projects);
+    db.update(sessions).set({ mapDismissedAt: 123 }).where(eq(sessions.id, 'aaaa-bbbb')).run();
+    appendFileSync(
+      transcriptPath,
+      '\n{"type":"user","uuid":"u9","timestamp":"2026-09-02T12:00:00.000Z","message":{"role":"user","content":"more"}}',
+    );
+    indexProjects(db, projects);
+    const row = db.select().from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!;
+    expect(row.mapDismissedAt).toBeNull();
+  });
+
+  it('keeps the stamp across a re-index with no new activity', () => {
+    const { db, projects } = setup();
+    indexProjects(db, projects);
+    // indexedMtime blanked forces a re-parse of the same file: same lastAt.
+    db.update(sessions)
+      .set({ mapDismissedAt: 123, indexedMtime: 0 })
+      .where(eq(sessions.id, 'aaaa-bbbb'))
+      .run();
+    indexProjects(db, projects);
+    const row = db.select().from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!;
+    expect(row.mapDismissedAt).toBe(123);
+  });
+});

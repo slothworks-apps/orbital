@@ -145,6 +145,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     model: null,
     resolvedModel: null,
     parentId: null,
+    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -171,7 +172,6 @@ function resetStore() {
       filterTagId: 'all',
       search: '',
       sourceFilter: 'all',
-      hideEnded: false,
       wsStatus: 'connecting',
       dialog: null,
       sidebarCollapsed: false,
@@ -505,11 +505,13 @@ describe('App: session in the URL', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Map ENDED declutter toggle — canvas 2a/2b
+// Map aggregate readout — plain text since tag clusters: hiding ended
+// sessions is the hole's job (they fall in after the release delay), so the
+// 2a/2b suppression toggle is gone (spec 2026-09-18-tag-clusters-design § 6).
 // ---------------------------------------------------------------------------
 
-describe('map ENDED readout toggle', () => {
-  /** Two live sessions plus two ended ones, all inside the age cutoff. */
+describe('map aggregate readout', () => {
+  /** Two live sessions plus two ended ones, all inside the release delay. */
   async function renderWithEnded() {
     const recent = Date.now() - 60_000
     vi.mocked(api.listSessions).mockResolvedValue([
@@ -521,61 +523,13 @@ describe('map ENDED readout toggle', () => {
     return renderApp()
   }
 
-  function endedToggle() {
-    return screen.getByRole('button', { name: /ended/i })
-  }
-
-  it('renders the ENDED segment as the only pressable part of the readout', async () => {
+  it('renders every segment, ENDED included, as plain text — no pressable parts', async () => {
     await renderWithEnded()
-    expect(endedToggle()).toHaveTextContent('2 ENDED')
-    expect(endedToggle()).toHaveAttribute('aria-pressed', 'false')
-
-    // The rest of the readout is plain text, not a four-way status filter.
-    // Scoped to the readout row — the sidebar's session rows are buttons that
-    // legitimately carry WORKING/IDLE in their own labels.
-    const row = endedToggle().parentElement as HTMLElement
+    const row = screen.getByText(/2 ENDED/).closest('div') as HTMLElement
     expect(row).toHaveTextContent('1 WORKING')
     expect(row).toHaveTextContent('1 IDLE')
-    expect(within(row).getAllByRole('button')).toHaveLength(1)
-  })
-
-  it('presses to suppress ended planets on the map and flips its own label', async () => {
-    await renderWithEnded()
-    expect(endedToggle()).toHaveAttribute('title', 'Hide ended sessions on the map')
-
-    fireEvent.click(endedToggle())
-
-    expect(useOrbital.getState().ui.hideEnded).toBe(true)
-    expect(endedToggle()).toHaveAttribute('aria-pressed', 'true')
-    expect(endedToggle()).toHaveAttribute('title', 'Show ended sessions on the map')
-  })
-
-  // Canvas 2b: "the count reads as suppressed rather than zero".
-  it('keeps the ENDED count while suppressed, so there is something left to click', async () => {
-    await renderWithEnded()
-    fireEvent.click(endedToggle())
-    expect(endedToggle()).toHaveTextContent('2 ENDED')
-  })
-
-  // The caption stays mounted and cross-fades (canvas 2b animates its
-  // opacity), so "hidden" here means hidden from assistive tech and painted
-  // at zero alpha — not absent from the tree.
-  it('spells out the scope only once it can be misread', async () => {
-    await renderWithEnded()
-    const caption = screen.getByText(/MAP ONLY · HISTORY LIST UNCHANGED/)
-    expect(caption).toHaveAttribute('aria-hidden', 'true')
-    expect(caption.className).toContain('opacity-0')
-
-    fireEvent.click(endedToggle())
-    expect(caption).not.toHaveAttribute('aria-hidden', 'true')
-    expect(caption.className).toContain('opacity-100')
-  })
-
-  it('presses again to bring the ended planets back', async () => {
-    await renderWithEnded()
-    fireEvent.click(endedToggle())
-    fireEvent.click(endedToggle())
-    expect(useOrbital.getState().ui.hideEnded).toBe(false)
+    expect(within(row).queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryByText(/MAP ONLY · HISTORY LIST UNCHANGED/)).not.toBeInTheDocument()
   })
 })
 

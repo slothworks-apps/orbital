@@ -20,6 +20,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     model: null,
     resolvedModel: null,
     parentId: null,
+    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],

@@ -1,15 +1,23 @@
 ---
 id: map-ended-declutter
 title: Declutter ended sessions on the map, not in the API
-status: in-force
+status: superseded
 type: adr
 domain: sessions
 related:
   - 2026-09-15-orbital-design
+  - the-hole-subsumes-map-declutter
 tags:
   - space-map
 ---
 # Declutter ended sessions on the map, not in the API
+
+> **Superseded by [[the-hole-subsumes-map-declutter]]** (tag clusters,
+> 2026-09-18): the corner hole absorbs ended sessions after
+> `map_release_ended_after_minutes`, replacing both the age cutoff and the
+> ENDED toggle described below. The parts that survive unchanged are the
+> principles — the cutoff is applied client-side so the sidebar's HISTORY
+> stays whole, and live sessions are never dropped by age.
 
 ## The problem
 

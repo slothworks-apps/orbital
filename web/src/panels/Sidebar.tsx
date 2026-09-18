@@ -242,6 +242,7 @@ function SessionRow({
  */
 export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarProps) {
   const collapsed = useOrbital((s) => s.ui.sidebarCollapsed)
+  const historyRevealNonce = useOrbital((s) => s.ui.historyRevealNonce ?? 0)
   const filterTagId = useOrbital((s) => s.ui.filterTagId)
   const search = useOrbital((s) => s.ui.search)
   const sourceFilter = useOrbital((s) => s.ui.sourceFilter)
@@ -261,6 +262,16 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const sentinelRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
   const [exhausted, setExhausted] = useState(false)
+  const historyHeadingRef = useRef<HTMLHeadingElement>(null)
+
+  // Clicking the map's hole scrolls HISTORY into view — the hole is the
+  // list's spatial handle (spec 2026-09-18-tag-clusters-design § 4). The
+  // nonce (never reset) makes every click land, and `revealHistory` has
+  // already un-collapsed the rail by the time this runs.
+  useEffect(() => {
+    if (historyRevealNonce === 0) return
+    historyHeadingRef.current?.scrollIntoView({ block: 'start' })
+  }, [historyRevealNonce])
 
   // The origin filter narrows ACTIVE and the map; HISTORY ignores it. See
   // the ADR `origin-filter-scopes-to-map-and-active` — an ended terminal
@@ -464,7 +475,10 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           ))}
         </ul>
 
-        <h3 className="flex items-center justify-between px-[18px] pt-[18px] pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted">
+        <h3
+          ref={historyHeadingRef}
+          className="flex items-center justify-between px-[18px] pt-[18px] pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted"
+        >
           HISTORY
           <span className="tracking-[0.04em]" title="sorted by most recent">
             recent ▾

@@ -44,9 +44,9 @@ export function useSceneModel(): SceneModel {
   const filterTagId = useOrbital((s) => s.ui.filterTagId)
   const search = useOrbital((s) => s.ui.search)
   const sourceFilter = useOrbital((s) => s.ui.sourceFilter)
-  const hideEnded = useOrbital((s) => s.ui.hideEnded)
   const settings = useOrbital((s) => s.settings)
   const models = useOrbital((s) => s.models)
+  const sessionsTotal = useOrbital((s) => s.sessionsTotal)
 
   // The one impure input, kept in one place. Seeded once on mount and
   // advanced on a slow tick so a session ageing past the cutoff eventually
@@ -80,13 +80,13 @@ export function useSceneModel(): SceneModel {
           lastTurnResultAt: {},
           errors: [],
           errorsUnseen: 0,
+          sessionsTotal,
           toast: null,
           ui: {
             selectedId,
             filterTagId,
             search,
             sourceFilter,
-            hideEnded,
             wsStatus: '',
             dialog: null,
             sidebarCollapsed: false,
@@ -100,11 +100,11 @@ export function useSceneModel(): SceneModel {
       tags,
       settings,
       models,
+      sessionsTotal,
       selectedId,
       filterTagId,
       search,
       sourceFilter,
-      hideEnded,
       nowMs,
     ]
   )

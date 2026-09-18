@@ -87,6 +87,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { sessions: sessionsOut.slice(offset, offset + limit) };
   });
 
+  // The hole's label needs the whole index's size, and `GET /api/sessions`
+  // only ever returns a page — so the total is its own tiny endpoint rather
+  // than a reshaping of the list response every consumer already parses
+  // (spec 2026-09-18-tag-clusters-design § 4).
+  app.get('/api/sessions/count', () => {
+    const row = db.select({ total: sql<number>`COUNT(*)` }).from(sessions).get() as {
+      total: number;
+    };
+    return { total: row.total };
+  });
+
   app.get('/api/sessions/:id', (req, reply) => {
     const { id } = req.params as { id: string };
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
@@ -213,9 +224,36 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return reply.code(201).send({ sessionId });
   });
 
+  /**
+   * Map-only dismissal — the hole's absorption (spec
+   * 2026-09-18-tag-clusters-design § 5). `dismissed: true` stamps the
+   * session, `false` is the 10s undo. The map is the only reader; the
+   * sidebar, search and every list endpoint ignore the stamp.
+   */
+  app.put('/api/sessions/:id/dismissed', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { dismissed } = (req.body ?? {}) as { dismissed?: unknown };
+    if (typeof dismissed !== 'boolean') {
+      return reply.code(400).send({ error: 'dismissed must be a boolean' });
+    }
+    const result = db
+      .update(sessions)
+      .set({ mapDismissedAt: dismissed ? Date.now() : null })
+      .where(eq(sessions.id, id))
+      .run();
+    if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+    return { ok: true };
+  });
+
   app.post('/api/sessions/:id/messages', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { text } = req.body as { text: string };
+    // New activity brings a session back to the map, whichever path below
+    // delivers the message — a dismissed session someone is typing into is
+    // evidently not history any more.
+    db.update(sessions).set({ mapDismissedAt: null }).where(eq(sessions.id, id)).run();
     try {
       ctx.runner.send(id, text);
       return { ok: true };
@@ -382,12 +420,25 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const r = db.insert(tags).values({ name, hue }).run();
     return reply.code(201).send({ id: Number(r.lastInsertRowid) });
   });
-  app.patch('/api/tags/:id', (req) => {
+  app.patch('/api/tags/:id', (req, reply) => {
     const { id } = req.params as { id: string };
-    const { name, hue } = req.body as { name?: string; hue?: number };
-    const set: Partial<{ name: string; hue: number }> = {};
-    if (name != null) set.name = name;
-    if (hue != null) set.hue = hue;
+    const body = req.body as {
+      name?: string; hue?: number;
+      // The clump's stored home spot (tag clusters). Explicit null clears it
+      // back to the automatic layout, so `undefined` and `null` differ here.
+      anchor_x?: number | null; anchor_y?: number | null;
+    };
+    const set: Partial<{ name: string; hue: number; anchorX: number | null; anchorY: number | null }> = {};
+    if (body.name != null) set.name = body.name;
+    if (body.hue != null) set.hue = body.hue;
+    for (const [key, column] of [['anchor_x', 'anchorX'], ['anchor_y', 'anchorY']] as const) {
+      if (!(key in body)) continue;
+      const value = body[key];
+      if (value !== null && !Number.isFinite(value)) {
+        return reply.code(400).send({ error: `${key} must be a finite number or null` });
+      }
+      set[column] = value as number | null;
+    }
     if (Object.keys(set).length > 0) {
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();
     }

@@ -16,6 +16,13 @@ export interface ApiSession {
   model: string | null;
   resolvedModel: string | null;
   parentId: string | null;
+  /**
+   * Map-only dismissal stamp (epoch ms), or null — set when the session was
+   * dragged into the map's hole, cleared by undo or any new activity. Only
+   * the map reads it; the sidebar and search never do (spec
+   * 2026-09-18-tag-clusters-design § 5). Mirrors `server/src/api/shape.ts`.
+   */
+  mapDismissedAt: number | null;
   tagIds: number[];
   status: SessionStatus;
   /** Subagents running in this session right now — the map's moons. */
@@ -79,6 +86,14 @@ export interface Tag {
   name: string;
   hue: number;
   is_default: 0 | 1;
+  /**
+   * The clump's stored home spot on the map, in world units — written when
+   * the user drops a dragged body somewhere new; null (or absent, in old
+   * fixtures) means the automatic circle layout places the tag. Both set or
+   * both null; a half-set pair falls back to the automatic layout.
+   */
+  anchor_x?: number | null;
+  anchor_y?: number | null;
 }
 
 export interface TagRule {

@@ -88,3 +88,11 @@ clump)" comes from, and that sentence is the behaviour implemented here — but
 the spring simulation, the drag-the-clump interaction and the hole are **not**
 built. The layout stays the deterministic golden-angle spiral in `layout.ts`;
 only the motion between two of its states is animated.
+
+> **Follow-up (2026-09-18):** the tag-clusters map has since been built
+> (spec `2026-09-18-tag-clusters-design`, `web/src/map/simulation.ts`). The
+> retag walk is now the spring simulation itself — the body's tag changes
+> and the barycentre spring carries it over — while `usePointTween` remains
+> for the moons' fallback path and the camera pan. The camera-follow rules
+> in this document (already-selected only, minimum distance, no zoom) carry
+> over unchanged and now read the sim's positions.

@@ -50,6 +50,11 @@ export type ErrorsEvent =
 export interface Toast {
   kind: 'error' | 'info'
   message: string
+  /**
+   * One optional action button ("Undo" on an absorption toast). `run` is
+   * called on click; the toast is cleared by the caller of `run`, not here.
+   */
+  action?: { label: string; run: () => void }
 }
 
 export interface OrbitalUiState {
@@ -57,18 +62,6 @@ export interface OrbitalUiState {
   filterTagId: number | 'all'
   search: string
   sourceFilter: 'all' | SessionSource
-  /**
-   * Map-only suppression of `ended` planets (canvas 2a/2b). Deliberately NOT
-   * part of `mapSessions`: the planets stay in the scene model so `Planet`
-   * can fade them out, and so toggling never reflows the golden-angle
-   * layout. The sidebar's HISTORY list ignores this entirely — hence the
-   * "MAP ONLY · HISTORY LIST UNCHANGED" caption the artboard shows while it
-   * is on.
-   *
-   * Persisted as the `map_hide_ended` setting — it survives a reload, and
-   * `loadInitial` seeds this from the server.
-   */
-  hideEnded: boolean
   wsStatus: string
   dialog: null | 'new' | 'clear' | 'stop' | 'settings' | 'errors'
   /** Sidebar collapsed to its narrow rail (Panel's `collapsed` prop). See Sidebar.tsx (task 10). */
@@ -80,6 +73,13 @@ export interface OrbitalUiState {
    * behind it. Optional — absent means false.
    */
   resizingPanel?: boolean
+  /**
+   * Bumped by `revealHistory()` (clicking the map's hole). The sidebar
+   * scrolls its HISTORY heading into view on each bump — a counter rather
+   * than a flag, so two clicks in a row both land. Optional — absent means
+   * never revealed.
+   */
+  historyRevealNonce?: number
 }
 
 /** How many of the newest error rows the log holds at a time. */
@@ -125,6 +125,13 @@ export interface OrbitalState {
    * event, a `markErrorsSeen` response) and never recomputed from `errors`.
    */
   errorsUnseen: number
+  /**
+   * How many sessions the whole index holds — the hole's label subtracts
+   * the drawn planets from this (spec 2026-09-18-tag-clusters-design § 4).
+   * Seeded by `GET /api/sessions/count` at load, then tracked off the
+   * `sessions` WS topic (an upsert of an unknown id is a new row).
+   */
+  sessionsTotal: number
   toast: Toast | null
   ui: OrbitalUiState
 }
@@ -149,7 +156,11 @@ export interface OrbitalActions {
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
-  setHideEnded(hideEnded: boolean): void
+  setSessionDismissed(id: string, dismissed: boolean): Promise<void>
+  /** Moves (or, with null, clears) a tag clump's stored home on the map. */
+  setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
+  /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
+  revealHistory(): void
   setDialog(dialog: OrbitalUiState['dialog']): void
   setSidebarCollapsed(sidebarCollapsed: boolean): void
   setWsStatus(wsStatus: string): void
@@ -240,11 +251,13 @@ const initialUiState: OrbitalUiState = {
   filterTagId: 'all',
   search: '',
   sourceFilter: 'all',
-  hideEnded: false,
   wsStatus: 'connecting',
   dialog: null,
   sidebarCollapsed: false,
 }
+
+/** How long the absorption toast (and its Undo) stays up. Canvas 4a: "Undo 10 s". */
+export const UNDO_TOAST_MS = 10_000
 
 export const useOrbital = create<OrbitalStore>()((set, get) => ({
   sessions: {},
@@ -260,11 +273,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   lastTurnResultAt: {},
   errors: [],
   errorsUnseen: 0,
+  sessionsTotal: 0,
   toast: null,
   ui: initialUiState,
 
   async loadInitial() {
-    const [sessions, tags, rules, settings, models, errorPage] = await Promise.all([
+    const [sessions, tags, rules, settings, models, errorPage, sessionsTotal] = await Promise.all([
       api.listSessions(),
       api.listTags(),
       api.listTagRules(),
@@ -276,6 +290,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // is the error surface. It failing must not be the thing that stops
       // the app from mounting and showing the other errors.
       api.listErrors({ limit: ERROR_PAGE_SIZE }).catch(() => null),
+      // Best-effort too: the hole's label reading 0 sessions is a cosmetic
+      // failure, not a reason to keep the map from mounting.
+      api.sessionCount().catch(() => 0),
     ])
 
     const sessionsMap: Record<string, ApiSession> = {}
@@ -292,12 +309,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       models,
       errors: errorPage?.errors ?? [],
       errorsUnseen: errorPage?.unseen ?? 0,
-      // Seeded, not defaulted: these are the `ui` fields the server owns a
-      // value for, and reading them here is what makes them survive a
-      // reload.
+      sessionsTotal,
+      // Seeded, not defaulted: this is a `ui` field the server owns a value
+      // for, and reading it here is what makes it survive a reload.
       ui: {
         ...state.ui,
-        hideEnded: settings.map_hide_ended === 'true',
         sidebarCollapsed: settings.sidebar_collapsed === 'true',
       },
     }))
@@ -307,8 +323,15 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const state = get()
 
     if (msg.event === 'upsert') {
+      const isNew = !(msg.session.id in state.sessions)
       const sessions = { ...state.sessions, [msg.session.id]: msg.session }
-      set({ sessions, order: sortIdsByLastAtDesc(sessions) })
+      set({
+        sessions,
+        order: sortIdsByLastAtDesc(sessions),
+        // An upsert of an unknown id is a new index row, so the hole's total
+        // moves with it. A re-upsert of a known session is just a change.
+        ...(isNew ? { sessionsTotal: state.sessionsTotal + 1 } : {}),
+      })
       return
     }
 
@@ -343,6 +366,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       set({
         sessions,
         order: state.order.filter((id) => id !== msg.sessionId),
+        sessionsTotal: Math.max(0, state.sessionsTotal - 1),
       })
     }
   },
@@ -640,27 +664,84 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   /**
-   * Flips the map's ENDED suppression and saves it. Optimistic on purpose:
-   * the flip drives a half-second fade on every ended planet, and waiting
-   * for a round trip before starting it would make the button feel stuck.
-   * A failed save puts the toggle back rather than leaving the map showing
-   * a preference the server never took.
+   * Stamps (or, for the undo, clears) a session's map-only dismissal — the
+   * hole's absorption (spec 2026-09-18-tag-clusters-design § 5). Optimistic:
+   * the stamp is what starts the fall animation, and waiting a round trip
+   * before letting go of the body would make the drop feel stuck. A failed
+   * save puts the stamp back and reports.
+   *
+   * A successful dismissal raises the undo toast; the toast expires after
+   * `UNDO_TOAST_MS` (the session itself stays one click away in the
+   * sidebar's HISTORY, so the undo is a convenience, not the only way back).
    */
-  setHideEnded(hideEnded) {
-    const previous = get().ui.hideEnded
-    if (previous === hideEnded) return
-    set((state) => ({
-      ui: { ...state.ui, hideEnded },
-      settings: { ...state.settings, map_hide_ended: String(hideEnded) },
-    }))
-    api.patchSettings({ map_hide_ended: String(hideEnded) }).catch((err) => {
-      const message = err instanceof Error ? err.message : 'Failed to save the ENDED toggle'
+  async setSessionDismissed(id, dismissed) {
+    const session = get().sessions[id]
+    if (!session) return
+    const previous = session.mapDismissedAt
+    const stamp = (value: number | null) =>
+      set((state) => {
+        const current = state.sessions[id]
+        if (!current) return {}
+        return {
+          sessions: { ...state.sessions, [id]: { ...current, mapDismissedAt: value } },
+        }
+      })
+    stamp(dismissed ? Date.now() : null)
+    try {
+      await api.setSessionDismissed(id, dismissed)
+    } catch (err) {
+      stamp(previous)
+      const message = err instanceof Error ? err.message : 'Failed to save the dismissal'
+      set({ toast: { kind: 'error', message } })
+      return
+    }
+    if (!dismissed) return
+    const title = session.title || 'Session'
+    const toast: Toast = {
+      kind: 'info',
+      message: `${title} absorbed — still in the sidebar's history`,
+      action: { label: 'Undo', run: () => void get().setSessionDismissed(id, false) },
+    }
+    set({ toast })
+    setTimeout(() => {
+      // Only expire OUR toast: something newer showing must stay.
+      if (get().toast === toast) set({ toast: null })
+    }, UNDO_TOAST_MS)
+  },
+
+  /**
+   * Moves a tag clump's home to wherever the user dropped its dragged body
+   * (tag clusters follow-up; `rehomeTarget` decides when a drop qualifies).
+   * Optimistic like the dismissal: the springs start pulling the clump to
+   * its new home immediately, and a failed save puts the old home back and
+   * reports. `null` clears the stored home back to the automatic layout.
+   */
+  async setTagAnchor(tagId, anchor) {
+    const tag = get().tags.find((t) => t.id === tagId)
+    if (!tag) return
+    const previous = { anchor_x: tag.anchor_x ?? null, anchor_y: tag.anchor_y ?? null }
+    const next = { anchor_x: anchor?.x ?? null, anchor_y: anchor?.y ?? null }
+    const apply = (values: { anchor_x: number | null; anchor_y: number | null }) =>
       set((state) => ({
-        ui: { ...state.ui, hideEnded: previous },
-        settings: { ...state.settings, map_hide_ended: String(previous) },
-        toast: { kind: 'error', message },
+        tags: state.tags.map((t) => (t.id === tagId ? { ...t, ...values } : t)),
       }))
-    })
+    apply(next)
+    try {
+      await api.patchTag(tagId, next)
+    } catch (err) {
+      apply(previous)
+      const message = err instanceof Error ? err.message : 'Failed to save the cluster home'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
+
+  revealHistory() {
+    // The un-collapse goes through the persisting setter on purpose: the
+    // click is the user opening the sidebar, same as the rail's own button.
+    get().setSidebarCollapsed(false)
+    set((state) => ({
+      ui: { ...state.ui, historyRevealNonce: (state.ui.historyRevealNonce ?? 0) + 1 },
+    }))
   },
 
   setDialog(dialog) {
@@ -776,26 +857,67 @@ export function visibleSessions(state: OrbitalState): ApiSession[] {
   return list.sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
 }
 
-/** Sentinel for the map cutoff's "Never" preset: no age cutoff at all. */
-export const ENDED_AGE_NEVER = 'never'
-/** Used when `map_ended_max_age_days` is missing or unparseable. */
-const DEFAULT_ENDED_MAX_AGE_DAYS = 1
-const MS_PER_DAY = 86_400_000
+/** Sentinel for the release delay's "Never" preset: bonds are never cut by time. */
+export const RELEASE_NEVER = 'never'
+/** Used when `map_release_ended_after_minutes` is missing or unparseable. Canvas 4b: "after 2 h". */
+const DEFAULT_RELEASE_AFTER_MINUTES = 120
+const MS_PER_MINUTE = 60_000
+/**
+ * How long past its release a session stays in the scene as a falling body
+ * before it is dropped outright. The slow ambient fall is ~8s (canvas 4a);
+ * anything that releases while the map is closed simply never plays it.
+ */
+export const RELEASE_FALL_GRACE_MS = 15_000
 
 /**
- * The map's `ended` age cutoff in milliseconds, or `null` for "never".
+ * The delay after which an `ended` session's tag bond is cut and it falls
+ * into the hole, in milliseconds — or `null` for "never" (spec
+ * 2026-09-18-tag-clusters-design § 5-6).
  *
- * Stored server-side as `map_ended_max_age_days` but applied here: the
- * cutoff decides what this client draws, not what the API returns. Keeping
- * it off the query is what leaves the sidebar's HISTORY list complete and
- * its `offset: visible.length` paging arithmetic intact.
+ * Stored server-side as `map_release_ended_after_minutes` but applied here:
+ * the release decides what this client draws, not what the API returns.
+ * Keeping it off the query is what leaves the sidebar's HISTORY list
+ * complete and its `offset: visible.length` paging arithmetic intact.
  */
-export function endedMaxAgeMs(settings: Record<string, string>): number | null {
-  const raw = settings.map_ended_max_age_days
-  if (raw === ENDED_AGE_NEVER) return null
-  const days = Number(raw)
-  if (!Number.isFinite(days) || days <= 0) return DEFAULT_ENDED_MAX_AGE_DAYS * MS_PER_DAY
-  return days * MS_PER_DAY
+export function releaseDelayMs(settings: Record<string, string>): number | null {
+  const raw = settings.map_release_ended_after_minutes
+  if (raw === RELEASE_NEVER) return null
+  const minutes = Number(raw)
+  if (!Number.isFinite(minutes) || minutes <= 0) return DEFAULT_RELEASE_AFTER_MINUTES * MS_PER_MINUTE
+  return minutes * MS_PER_MINUTE
+}
+
+/**
+ * Where a session stands with the hole:
+ *
+ * - `none` — bonded (or live); drawn normally.
+ * - `releasing` — its bond was just cut (manually, or the release delay
+ *   elapsed); still in the scene so the fall can play.
+ * - `absorbed` — gone from the map. Still whole in the sidebar and search.
+ *
+ * A `working`/`needs_input` session is always `none`: the map never lies
+ * about what is running, whatever a stale dismissal stamp says (the server
+ * clears stamps on activity, this is the client-side belt to that brace).
+ * An ended session with no `lastAt` is `absorbed` outright — there is no
+ * moment to measure a fall from, and animating ancient history out of the
+ * map on every load would be noise.
+ */
+export function absorptionFor(
+  session: ApiSession,
+  settings: Record<string, string>,
+  nowMs: number
+): 'none' | 'releasing' | 'absorbed' {
+  if (session.status === 'working' || session.status === 'needs_input') return 'none'
+  if (session.mapDismissedAt != null) {
+    return nowMs - session.mapDismissedAt < RELEASE_FALL_GRACE_MS ? 'releasing' : 'absorbed'
+  }
+  if (session.status !== 'ended') return 'none'
+  const delay = releaseDelayMs(settings)
+  if (delay === null) return 'none'
+  if (session.lastAt == null) return 'absorbed'
+  const releasedForMs = nowMs - (session.lastAt + delay)
+  if (releasedForMs < 0) return 'none'
+  return releasedForMs < RELEASE_FALL_GRACE_MS ? 'releasing' : 'absorbed'
 }
 
 /** The Appearance slider's range (canvas 5a: 0.70×–1.60×, step 0.05). */
@@ -847,18 +969,14 @@ export function parseDetailPanelWidth(
 
 /**
  * What the space map draws: `visibleSessions` minus the sessions the origin
- * filter excludes, minus `ended` sessions older than the cutoff. Live sessions
- * are never dropped by age — an idle terminal session that has sat untouched
- * for a month is still a real process.
+ * filter excludes, minus everything the hole has absorbed (`absorptionFor`).
+ * A session that is `releasing` is still returned — the scene keeps it as a
+ * falling body until its grace runs out. Live sessions are never dropped by
+ * time — an idle terminal session that has sat untouched for a month is
+ * still a real process.
  *
  * `nowMs` is a parameter rather than a `Date.now()` call so this stays pure
  * and `buildSceneModel` keeps its "same state in, same model out" contract.
- *
- * Note what is NOT here: `ui.hideEnded`. That is a per-planet render flag,
- * so hidden planets can fade out (canvas 2a animates opacity and scale over
- * .5s) and so toggling it never renumbers the golden-angle spiral and
- * teleports every other planet — the same hazard `withStableSessionOrder`
- * guards against in `sceneModel.ts`.
  */
 export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
   // The origin filter lives here rather than in `visibleSessions` so it can
@@ -872,14 +990,7 @@ export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
       ? visibleSessions(state)
       : visibleSessions(state).filter((session) => session.source === origin)
 
-  const maxAgeMs = endedMaxAgeMs(state.settings)
-  if (maxAgeMs === null) return list
-  const oldest = nowMs - maxAgeMs
-  // A missing `lastAt` reads as older than any cutoff: there is no evidence
-  // of activity to place it inside one.
-  return list.filter(
-    (session) => session.status !== 'ended' || (session.lastAt ?? 0) >= oldest
-  )
+  return list.filter((session) => absorptionFor(session, state.settings, nowMs) !== 'absorbed')
 }
 
 export function statusCounts(
@@ -892,11 +1003,8 @@ export function statusCounts(
     needs_input: 0,
     ended: 0,
   }
-  // Aggregates over mapSessions (post tag/search/source filters and post age
-  // cutoff), since the aggregate describes what's currently on the map. It is
-  // deliberately blind to `hideEnded`: canvas 2b wants the ENDED count to
-  // keep counting while suppressed — "it is what you click to bring them
-  // back" — so a zero there would leave nothing to press.
+  // Aggregates over mapSessions (post tag/search/source filters and post
+  // absorption), since the aggregate describes what's currently on the map.
   for (const session of mapSessions(state, nowMs)) {
     counts[session.status] += 1
   }

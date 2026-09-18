@@ -34,6 +34,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     model: null,
     resolvedModel: null,
     parentId: null,
+    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -55,21 +56,20 @@ const defaultUi: OrbitalUiState = {
   filterTagId: 'all',
   search: '',
   sourceFilter: 'all',
-  hideEnded: false,
   wsStatus: 'connected',
   dialog: null,
   sidebarCollapsed: false,
 }
 
-/** Fixed clock for the ended-age cutoff — never Date.now(), the model is pure. */
+/** Fixed clock for the timed release — never Date.now(), the model is pure. */
 const NOW = 1_800_000_000_000
 const DAY = 86_400_000
 
 /**
- * `buildSceneModel` at a fixed clock. Most tests here predate the ended-age
- * cutoff and carry a 1970 `lastAt`; `makeState` opts them out of it with the
+ * `buildSceneModel` at a fixed clock. Most tests here predate the timed
+ * release and carry a 1970 `lastAt`; `makeState` opts them out of it with the
  * "never" preset, so they keep asserting what they were written to assert.
- * Tests about the cutoff itself call `buildSceneModel` directly.
+ * Tests about the release itself call `buildSceneModel` directly.
  */
 function sceneModelAt(state: OrbitalState, nowMs: number = NOW): SceneModel {
   return buildSceneModel(state, nowMs)
@@ -82,7 +82,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     tags: [workTag, personalTag, defaultTag],
     rules: [],
     models: [],
-    settings: { map_ended_max_age_days: 'never' },
+    settings: { map_release_ended_after_minutes: 'never' },
     transcripts: {},
     usage: {},
     historyLoaded: {},
@@ -90,6 +90,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     lastTurnResultAt: {},
     errors: [],
     errorsUnseen: 0,
+    sessionsTotal: 0,
     toast: null,
     ui: defaultUi,
     ...overrides,
@@ -328,116 +329,107 @@ describe('buildSceneModel model family', () => {
 })
 
 // ---------------------------------------------------------------------------
-// ended decluttering — canvas 2a/2b
+// tag clusters — timed release, the hole, anchors (canvas 4a/4b)
 // ---------------------------------------------------------------------------
 
-describe('buildSceneModel and the ended age cutoff', () => {
-  it('draws no planet at all for an ended session past the cutoff', () => {
+describe('buildSceneModel and the timed release', () => {
+  it('draws no planet at all for an absorbed ended session, and flags a releasing one', () => {
     const sessions = [
       makeSession({ id: 'live', tagIds: [1], status: 'idle', lastAt: NOW - 90 * DAY }),
       makeSession({ id: 'fresh', tagIds: [1], status: 'ended', lastAt: NOW - 1_000 }),
-      makeSession({ id: 'stale', tagIds: [1], status: 'ended', lastAt: NOW - 30 * DAY }),
+      makeSession({ id: 'releasing', tagIds: [1], status: 'ended', lastAt: NOW - 2 * 3_600_000 - 1_000 }),
+      makeSession({ id: 'absorbed', tagIds: [1], status: 'ended', lastAt: NOW - 30 * DAY }),
     ]
-    const state = withSessions(sessions, { settings: { map_ended_max_age_days: '1' } })
+    const state = withSessions(sessions, { settings: {} }) // 2h default delay
     const model = buildSceneModel(state, NOW)
 
-    expect(model.planets.map((p) => p.session.id).sort()).toEqual(['fresh', 'live'])
-    expect(model.counts.ended).toBe(1)
+    const byId = new Map(model.planets.map((p) => [p.session.id, p]))
+    expect([...byId.keys()].sort()).toEqual(['fresh', 'live', 'releasing'])
+    expect(byId.get('releasing')?.released).toBe(true)
+    expect(byId.get('fresh')?.released).toBe(false)
+  })
+
+  it('flags a manually dismissed session as released while its fall grace runs', () => {
+    const sessions = [
+      makeSession({ id: 'dismissed', tagIds: [1], status: 'idle', mapDismissedAt: NOW - 1_000 }),
+      makeSession({ id: 'kept', tagIds: [1], status: 'idle' }),
+    ]
+    const model = buildSceneModel(withSessions(sessions), NOW)
+
+    const byId = new Map(model.planets.map((p) => [p.session.id, p]))
+    expect(byId.get('dismissed')?.released).toBe(true)
+    expect(byId.get('kept')?.released).toBe(false)
+  })
+
+  // A released body's bond is cut — it is no longer part of the clump the
+  // label describes (canvas 4a's chips count bonded bodies).
+  it('drops released planets from the cluster label count, and the label entirely when none remain', () => {
+    const sessions = [
+      makeSession({ id: 'a', tagIds: [1], status: 'working' }),
+      makeSession({ id: 'b', tagIds: [1], status: 'idle', mapDismissedAt: NOW - 1_000 }),
+      makeSession({ id: 'c', tagIds: [2], status: 'idle', mapDismissedAt: NOW - 1_000 }),
+    ]
+    const model = buildSceneModel(withSessions(sessions), NOW)
+    expect(model.labels.map((l) => l.text)).toEqual(['WORK · 1'])
+    // The released planets themselves stay, so their fall can play.
+    expect(model.planets).toHaveLength(3)
   })
 })
 
-describe('buildSceneModel and hideEnded', () => {
-  const sessions = [
-    makeSession({ id: 'a', tagIds: [1], status: 'working' }),
-    makeSession({ id: 'b', tagIds: [1], status: 'idle' }),
-    makeSession({ id: 'z-ended', tagIds: [1], status: 'ended' }),
-  ]
-  const hidden = withSessions(sessions, { ui: { ...defaultUi, hideEnded: true } })
+describe('buildSceneModel anchors and hole', () => {
+  it('produces one anchor per cluster, deterministic, with the tag hue', () => {
+    const sessions = [
+      makeSession({ id: 'a', tagIds: [1] }),
+      makeSession({ id: 'b', tagIds: [2] }),
+    ]
+    const first = sceneModelAt(withSessions(sessions))
+    const again = sceneModelAt(withSessions(sessions))
 
-  it('keeps the ended planet in the model and flags it hidden, so it can fade out', () => {
-    const model = buildSceneModel(hidden, NOW)
-    const byId = new Map(model.planets.map((p) => [p.session.id, p]))
-
-    expect(byId.get('z-ended')?.hidden).toBe(true)
-    expect(byId.get('a')?.hidden).toBe(false)
-    expect(byId.get('b')?.hidden).toBe(false)
+    expect(first.anchors.map((a) => a.tagId).sort()).toEqual([1, 2])
+    expect(first.anchors).toEqual(again.anchors)
+    const work = first.anchors.find((a) => a.tagId === 1)
+    expect(work?.hue).toBe(210)
+    expect(Number.isFinite(work?.x)).toBe(true)
+    expect(Number.isFinite(work?.y)).toBe(true)
   })
 
-  // Toggling must not renumber the golden-angle spiral — otherwise every
-  // other planet in the cluster teleports, the hazard withStableSessionOrder
-  // exists to prevent.
-  it('leaves every other planet at exactly the position it had while ended were shown', () => {
-    const shown = buildSceneModel(withSessions(sessions), NOW)
-    const after = buildSceneModel(hidden, NOW)
-    const pos = (m: SceneModel, id: string) => {
-      const p = m.planets.find((q) => q.session.id === id)
-      return p && { x: p.x, y: p.y, scale: p.scale }
+  it('pins the hole bottom-right of the whole field, clear of every planet', () => {
+    const sessions = [
+      makeSession({ id: 'a', tagIds: [1] }),
+      makeSession({ id: 'b', tagIds: [2] }),
+      makeSession({ id: 'c', tagIds: [2] }),
+    ]
+    const model = sceneModelAt(withSessions(sessions))
+
+    expect(model.hole.x).toBeGreaterThan(0)
+    expect(model.hole.y).toBeLessThan(0)
+    for (const planet of model.planets) {
+      expect(planet.x).toBeLessThan(model.hole.x)
+      expect(planet.y).toBeGreaterThan(model.hole.y)
     }
-
-    expect(pos(after, 'a')).toEqual(pos(shown, 'a'))
-    expect(pos(after, 'b')).toEqual(pos(shown, 'b'))
   })
 
-  // Canvas 2a: `cWork: hid ? 2 : 3` — the cluster label counts what is drawn.
-  it('drops hidden planets from the cluster label count', () => {
-    expect(sceneModelAt(withSessions(sessions)).labels[0].text).toBe('WORK · 3')
-    expect(buildSceneModel(hidden, NOW).labels[0].text).toBe('WORK · 2')
+  it('places a hole even on an empty map — it is the history handle, not a planet', () => {
+    const model = sceneModelAt(makeState({ sessionsTotal: 47 }))
+    expect(Number.isFinite(model.hole.x)).toBe(true)
+    expect(model.hole.count).toBe(47)
   })
 
-  // A label over nothing is exactly the clutter the toggle is pressed to
-  // remove — and unlike a planet, it is DOM text that would go on reading
-  // over empty space.
-  it('drops a cluster label whose every planet is suppressed', () => {
-    const allEnded = [
-      makeSession({ id: 'a', tagIds: [1], status: 'working' }),
-      makeSession({ id: 'b', tagIds: [2], status: 'ended' }),
-      makeSession({ id: 'c', tagIds: [2], status: 'ended' }),
+  it('counts the sessions in the index that are not drawn (released ones already count)', () => {
+    const sessions = [
+      makeSession({ id: 'a', tagIds: [1] }),
+      makeSession({ id: 'b', tagIds: [1], status: 'idle', mapDismissedAt: NOW - 1_000 }),
     ]
-    const shown = sceneModelAt(withSessions(allEnded))
-    expect(shown.labels.map((l) => l.text)).toEqual(['WORK · 1', 'PERSONAL · 2'])
-
-    const model = buildSceneModel(
-      withSessions(allEnded, { ui: { ...defaultUi, hideEnded: true } }),
-      NOW
-    )
-    expect(model.labels.map((l) => l.text)).toEqual(['WORK · 1'])
-    // The planets themselves stay, so they can fade rather than vanish.
-    expect(model.planets).toHaveLength(3)
+    // 10 in the index, 1 drawn-and-bonded ('a') — the falling 'b' is already
+    // the hole's, so only the bonded body subtracts.
+    const model = sceneModelAt(withSessions(sessions, { sessionsTotal: 10 }))
+    expect(model.hole.count).toBe(9)
   })
 
-  it('anchors the label above the topmost planet still drawn, not above a hidden one', () => {
-    // Spiral index 1 is the one that lands highest, and the cluster is laid
-    // out in id order — so `b` is the cluster's topmost planet.
-    const topmostIsEnded = [
-      makeSession({ id: 'a', tagIds: [1], status: 'working' }),
-      makeSession({ id: 'b', tagIds: [1], status: 'ended' }),
-      makeSession({ id: 'c', tagIds: [1], status: 'working' }),
-    ]
-    const state = withSessions(topmostIsEnded)
-    const shown = buildSceneModel(state, NOW)
-    const hiddenModel = buildSceneModel(
-      withSessions(topmostIsEnded, { ui: { ...defaultUi, hideEnded: true } }),
-      NOW
-    )
-
-    const drawnTop = Math.max(
-      ...hiddenModel.planets.filter((p) => !p.hidden).map((p) => p.y)
-    )
-    const suppressedTop = Math.max(...shown.planets.map((p) => p.y))
-    // Only meaningful if the ended planet really is the cluster's topmost.
-    expect(suppressedTop).toBeGreaterThan(drawnTop)
-    expect(hiddenModel.labels[0].y).toBeLessThan(shown.labels[0].y)
-  })
-
-  // Canvas 2b: the ENDED number keeps counting; it is what you click to
-  // bring them back.
-  it('keeps the ended count intact so the readout reads suppressed, not zero', () => {
-    expect(buildSceneModel(hidden, NOW).counts).toEqual({
-      working: 1,
-      idle: 1,
-      needs_input: 0,
-      ended: 1,
-    })
+  it('never counts below zero, however stale the total', () => {
+    const sessions = [makeSession({ id: 'a', tagIds: [1] })]
+    const model = sceneModelAt(withSessions(sessions, { sessionsTotal: 0 }))
+    expect(model.hole.count).toBe(0)
   })
 })
 

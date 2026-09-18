@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `map_dismissed_at` integer;

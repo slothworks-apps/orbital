@@ -20,27 +20,21 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   inherit_permission_mode: 'true',
   ended_after_idle_minutes: '30',
   /**
-   * How long an `ended` session keeps being drawn on the space map, in days,
-   * or `never` for no cutoff. Stored here but applied client-side (see
-   * `mapSessions` in `web/src/store/store.ts`): the map is a view, and
-   * keeping the cutoff out of `GET /api/sessions` is what leaves the
-   * sidebar's HISTORY list complete and its offset paging intact.
+   * How long an `ended` session keeps its tag bond on the space map, in
+   * minutes, or `never` — after that it is released and falls into the
+   * corner hole (tag clusters, spec 2026-09-18-tag-clusters-design § 6).
+   * Replaces `map_ended_max_age_days` AND `map_hide_ended`: the hole is now
+   * the one answer to "where did my ended session go". Stored here but
+   * applied client-side (see `mapSessions` in `web/src/store/store.ts`):
+   * the map is a view, and keeping the cutoff out of `GET /api/sessions` is
+   * what leaves the sidebar's HISTORY list complete and its paging intact.
    */
-  map_ended_max_age_days: '1',
+  map_release_ended_after_minutes: '120',
   /** Pre-selected in the New session dialog and used by Clear (canvas 4c). A
    * value the catalog does not offer falls back to its first row, client-side. */
   default_model: 'sonnet',
   remember_model_per_project: 'true',
   map_show_model: 'true',
-  /**
-   * The map's ENDED toggle (canvas 2a/2b). A view flag, but a sticky one —
-   * a user who decluttered the map meant it, and having it come back on
-   * every reload makes the toggle feel broken. Kept here rather than in
-   * `localStorage` so it travels with the rest of the map's preferences
-   * (`map_ended_max_age_days` next door) instead of living in a second,
-   * per-browser store.
-   */
-  map_hide_ended: 'false',
   /**
    * Appearance → default planet size (canvas 5a, `Feature - Planet
    * size.dc.html`). Stored as the normalized multiplier ('0.7'–'1.6', slider

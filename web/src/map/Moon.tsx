@@ -36,6 +36,7 @@ import {
 } from './transition'
 import { glowTexture } from './textures'
 import { oklchTagColor, setOklchTagColor, TickRing } from './Planet'
+import type { SimBody } from './simulation'
 
 /**
  * Small disc orbiting its parent planet, driven purely by props + an
@@ -114,6 +115,13 @@ export interface MoonProps {
    * The counter-zoom factor is separate and scales the whole system.
    */
   bodyScale?: number
+  /**
+   * The parent planet's simulation body. When present, the moon anchors to
+   * its LIVE position every frame (the sim owns all motion); the
+   * `parentX`/`parentY` props then only seed the first frame. Same stable
+   * mutated-in-place object as `Planet`'s `simBody`.
+   */
+  parentBody?: SimBody
 }
 
 /** Circle outline used for the orbit trail, the materializing shell and its expanding ring. */
@@ -176,7 +184,7 @@ function useMoonMaterials(): MoonMaterials {
   return materials
 }
 
-export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, bodyScale = 1 }: MoonProps) {
+export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, bodyScale = 1, parentBody }: MoonProps) {
   const mix = useStateMix(MOON_STATES, subagent.state)
   const hueTween = useHueTween(hue)
   const materials = useMoonMaterials()
@@ -274,7 +282,13 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, body
   }
 
   useFrame((state, delta) => {
-    if (advancePointTween(parentMove, delta) && parentGroupRef.current) {
+    if (parentBody) {
+      // The sim owns the parent's motion — the moon rides it 1:1, so a
+      // dragged or walking planet never leaves its moons behind.
+      if (parentGroupRef.current) {
+        parentGroupRef.current.position.set(parentBody.x, parentBody.y, 0)
+      }
+    } else if (advancePointTween(parentMove, delta) && parentGroupRef.current) {
       parentGroupRef.current.position.set(parentMove.x.value, parentMove.y.value, 0)
     }
 
@@ -358,8 +372,11 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, body
   })
 
   return (
-    // The tween's current value, NOT the props — see `usePointTween`.
-    <group ref={parentGroupRef} position={[parentMove.x.value, parentMove.y.value, 0]}>
+    // The tween's (or the sim body's) current value, NOT the props — see `usePointTween`.
+    <group
+      ref={parentGroupRef}
+      position={[parentBody?.x ?? parentMove.x.value, parentBody?.y ?? parentMove.y.value, 0]}
+    >
       {/* Dashed orbit ring traced once around the parent planet's position (`1px dashed hue/.22` in 1f). */}
       <Line
         ref={trailRef}

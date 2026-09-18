@@ -100,14 +100,14 @@ describe('openDb', () => {
       .where(sql`${settings.key} = 'default_permission_mode'`)
       .get();
     expect(mode?.value).toBe('acceptEdits');
-    // The map stops drawing ended sessions after a day by default; the web
-    // client reads this key and applies the cutoff itself.
-    const endedAge = db
+    // The map releases ended sessions into the hole after 2h by default; the
+    // web client reads this key and applies the cutoff itself.
+    const releaseAfter = db
       .select()
       .from(settings)
-      .where(sql`${settings.key} = 'map_ended_max_age_days'`)
+      .where(sql`${settings.key} = 'map_release_ended_after_minutes'`)
       .get();
-    expect(endedAge?.value).toBe('1');
+    expect(releaseAfter?.value).toBe('120');
     expect(db.$client.pragma('user_version', { simple: true })).toBe(1);
     db.$client.close();
     const again = openDb(join(dir, 'index.db')); // must not throw on re-run
@@ -195,11 +195,10 @@ describe('openDb', () => {
     const settingsRows = db.select().from(settings).all();
     expect(Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))).toEqual({
       ...LEGACY_SETTINGS,
-      map_ended_max_age_days: '1',
+      map_release_ended_after_minutes: '120',
       default_model: 'sonnet',
       remember_model_per_project: 'true',
       map_show_model: 'true',
-      map_hide_ended: 'false',
       planet_scale: '1',
       map_scale_labels: 'false',
       detail_panel_width: '450',
@@ -228,5 +227,22 @@ describe('openDb', () => {
     expect(migrationCount.c).toBe(migrationsOnDisk());
     expect(reopened.$client.pragma('user_version', { simple: true })).toBe(1);
     reopened.$client.close();
+  });
+});
+
+// Tag clusters (spec 2026-09-18-tag-clusters-design § 6): the release delay
+// replaces both old map declutter settings.
+describe('cluster release-delay default', () => {
+  it('seeds map_release_ended_after_minutes and no longer seeds the old declutter keys', async () => {
+    const { openDb } = await import('../src/db/database.js');
+    const { settings } = await import('../src/db/schema.js');
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-defaults-')), 'index.db'));
+    const rows = Object.fromEntries(db.select().from(settings).all().map((r) => [r.key, r.value]));
+    expect(rows.map_release_ended_after_minutes).toBe('120');
+    expect(rows.map_hide_ended).toBeUndefined();
+    expect(rows.map_ended_max_age_days).toBeUndefined();
   });
 });

@@ -54,12 +54,17 @@ const IDLE_OPTIONS: Array<{ value: string; label: string }> = [
  * stops drawing an already-ended one. `never` means no age cutoff — the
  * sentinel `endedMaxAgeMs` (`store/store.ts`) reads.
  */
-const ENDED_AGE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '1', label: '1 day' },
-  { value: '7', label: '7 days' },
-  { value: '14', label: '14 days' },
-  { value: '30', label: '30 days' },
-  { value: 'never', label: 'Never — keep drawing them' },
+/**
+ * The Clusters release delay (spec 2026-09-18-tag-clusters-design § 6):
+ * how long an ended session keeps its tag bond on the map before it falls
+ * into the corner hole. Stored in minutes; 2h is the canvas 4b default.
+ */
+const RELEASE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '30', label: '30 minutes' },
+  { value: '120', label: '2 hours' },
+  { value: '480', label: '8 hours' },
+  { value: '1440', label: '1 day' },
+  { value: 'never', label: 'Never — keep them bonded' },
 ]
 
 /**
@@ -322,7 +327,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const inheritTags = settings.inherit_tags !== 'false'
   const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
   const endedAfterIdle = settings.ended_after_idle_minutes ?? '30'
-  const mapEndedMaxAge = settings.map_ended_max_age_days ?? '1'
+  const releaseEndedAfter = settings.map_release_ended_after_minutes ?? '120'
   // `default_model` is a value, not a flag — a missing key means "no
   // preference yet", not "off", so it reads as `null` rather than a default.
   const defaultModel = settings.default_model ?? ''
@@ -726,17 +731,20 @@ export function Settings({ open, onClose }: SettingsProps) {
                 className="w-[200px]"
               />
             </Row>
+            {/* Clusters (canvas 4b's "Settings → Sessions → Clusters"): the
+                one control over the hole's timed absorption. Replaces both
+                the old age cutoff and the ENDED map toggle. */}
             <Row
-              title="Stop drawing ended sessions after"
-              desc="Older history stays in the sidebar and in search — it just leaves the map."
+              title="Release ended sessions into history after"
+              desc="The bond is cut and the body falls into the corner hole. It stays in the sidebar and in search — it just leaves the map."
             >
               <Select
-                id="settings-map-ended-age"
-                aria-label="Stop drawing ended sessions after"
+                id="settings-release-ended-after"
+                aria-label="Release ended sessions into history after"
                 font="sans"
-                options={ENDED_AGE_OPTIONS}
-                value={mapEndedMaxAge}
-                onChange={(next) => void patchAndSet({ map_ended_max_age_days: next })}
+                options={RELEASE_OPTIONS}
+                value={releaseEndedAfter}
+                onChange={(next) => void patchAndSet({ map_release_ended_after_minutes: next })}
                 className="w-[200px]"
               />
             </Row>

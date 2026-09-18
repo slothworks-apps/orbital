@@ -57,6 +57,7 @@ function sandboxSession(status: SessionStatus): ApiSession {
     model: null,
     resolvedModel: null,
     parentId: null,
+    mapDismissedAt: null,
     tagIds: [],
     status,
     subagents: [],

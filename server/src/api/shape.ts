@@ -32,6 +32,12 @@ export interface ApiSession {
   /** The model that actually ran, as reported by the CLI, or null. */
   resolvedModel: string | null;
   parentId: string | null;
+  /**
+   * Map-only dismissal stamp (epoch ms), or null. Set by dragging the body
+   * into the hole; the map hides a stamped session, everything else ignores
+   * it (spec 2026-09-18-tag-clusters-design § 5).
+   */
+  mapDismissedAt: number | null;
   tagIds: number[];
   status: SessionStatus;
   /** Subagents running in this session right now; empty for everything else. */
@@ -60,6 +66,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     permissionMode: row.permission_mode,
     model: row.model, resolvedModel: row.resolved_model,
     parentId: row.parent_id,
+    mapDismissedAt: row.map_dismissed_at,
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
     subagents: ctx.subagents.get(row.id),

@@ -31,9 +31,11 @@ function chooseIdle(label: string | RegExp): void {
   fireEvent.click(screen.getByRole('option', { name: label }))
 }
 
-/** Same portalled-listbox dance for the map's ended-age cutoff. */
-function chooseEndedAge(label: string | RegExp): void {
-  fireEvent.click(screen.getByRole('combobox', { name: /stop drawing ended sessions after/i }))
+/** Same portalled-listbox dance for the Clusters release delay. */
+function chooseReleaseDelay(label: string | RegExp): void {
+  fireEvent.click(
+    screen.getByRole('combobox', { name: /release ended sessions into history after/i })
+  )
   fireEvent.click(screen.getByRole('option', { name: label }))
 }
 import { Settings } from '../panels/Settings'
@@ -43,7 +45,6 @@ const defaultUi: OrbitalUiState = {
   filterTagId: 'all',
   search: '',
   sourceFilter: 'all',
-  hideEnded: false,
   wsStatus: 'connected',
   dialog: 'settings',
   sidebarCollapsed: false,
@@ -183,26 +184,28 @@ describe('Settings', () => {
     expect(useOrbital.getState().settings.ended_after_idle_minutes).toBe('60')
   })
 
-  it('patches the map ended-age cutoff', async () => {
+  // Clusters (spec 2026-09-18-tag-clusters-design § 6): the release delay is
+  // the one control over the hole's timed absorption, stored in minutes.
+  it('patches the Clusters release delay', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    chooseEndedAge('7 days')
+    chooseReleaseDelay('8 hours')
 
     await waitFor(() =>
-      expect(api.patchSettings).toHaveBeenCalledWith({ map_ended_max_age_days: '7' })
+      expect(api.patchSettings).toHaveBeenCalledWith({ map_release_ended_after_minutes: '480' })
     )
-    expect(useOrbital.getState().settings.map_ended_max_age_days).toBe('7')
+    expect(useOrbital.getState().settings.map_release_ended_after_minutes).toBe('480')
   })
 
-  it('offers "Never" for the ended-age cutoff, which turns the age filter off', async () => {
+  it('offers "Never" for the release delay, which keeps ended sessions bonded', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    chooseEndedAge(/never/i)
+    chooseReleaseDelay(/never/i)
 
     await waitFor(() =>
-      expect(api.patchSettings).toHaveBeenCalledWith({ map_ended_max_age_days: 'never' })
+      expect(api.patchSettings).toHaveBeenCalledWith({ map_release_ended_after_minutes: 'never' })
     )
   })
 
@@ -279,6 +282,7 @@ function makeSession(id: string, cwd: string) {
     model: null,
     resolvedModel: null,
     parentId: null,
+    mapDismissedAt: null,
     tagIds: [],
     status: 'idle' as const,
     subagents: [],

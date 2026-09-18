@@ -40,6 +40,7 @@ import {
 } from './transition'
 import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
 import { bodyZoomFactor } from './camera'
+import type { SimBody } from './simulation'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
@@ -283,6 +284,21 @@ export interface PlanetProps {
   labelTitlePx?: number
   labelFamilyPx?: number
   onClick?: (sessionId: string) => void
+  /**
+   * The planet's body in the tag-cluster simulation. When present, the frame
+   * loop reads the LIVE position (and the fall transform) off it every frame
+   * instead of tweening the `x`/`y` props — the sim owns all motion,
+   * including the retag walk. The object is mutated in place by the sim and
+   * keeps a stable identity, so it never causes re-renders. Absent in the
+   * sandbox and unit tests, where the props position stands.
+   */
+  simBody?: SimBody
+  /**
+   * Starts a body drag (canvas 4a). Fired from pointer-down on the planet's
+   * meshes; the drag itself (threshold, capture, drop-on-the-hole) lives in
+   * `SpaceMap`, which owns the pointer and the camera.
+   */
+  onBodyPointerDown?: (sessionId: string, e: ThreeEvent<PointerEvent>) => void
 }
 
 /**
@@ -638,6 +654,8 @@ export function Planet({
   labelTitlePx = 11,
   labelFamilyPx = 9.5,
   onClick,
+  simBody,
+  onBodyPointerDown,
 }: PlanetProps) {
   const mix = useStateMix(PLANET_STATES, session.status)
   const hueTween = useHueTween(hue)
@@ -703,6 +721,9 @@ export function Planet({
    * the next frame corrects.
    */
   const groupRef = useRef<THREE.Group>(null)
+  /** Wraps every mesh (not the label): the fall's stretch-along-the-path and
+   * shrink are written here, so the text never rotates with the body. */
+  const fallGroupRef = useRef<THREE.Group>(null)
   const tickGroupRef = useRef<THREE.Group>(null!)
   const arcGroupRef = useRef<THREE.Group>(null!)
   const coreRef = useRef<THREE.Mesh>(null!)
@@ -826,7 +847,36 @@ export function Planet({
     if (mixMoved || hueMoved || hideMoved || !settled.current) applyState()
     settled.current = !(mixMoved || hueMoved || hideMoved)
 
-    if (advancePointTween(move, delta) && groupRef.current) {
+    if (simBody) {
+      // The simulation owns the position outright — walks, drags and falls
+      // all arrive through the mutated body, never through the props.
+      if (groupRef.current) {
+        groupRef.current.position.x = simBody.x
+        groupRef.current.position.y = simBody.y
+      }
+      if (fallGroupRef.current) {
+        if (simBody.mode === 'hold') {
+          fallGroupRef.current.rotation.z = 0
+          fallGroupRef.current.scale.set(1, 1, 1)
+        } else {
+          // Stretch along the travel direction, shrink toward the horizon
+          // (canvas 4a: `rotate(ang) scale(scale*stretch, scale)`); `gone`
+          // leaves fallScale at 0, which blanks the body without touching
+          // the label's own fade.
+          fallGroupRef.current.rotation.z = simBody.fallAngle
+          fallGroupRef.current.scale.set(
+            simBody.fallScale * simBody.fallStretch,
+            simBody.fallScale,
+            1
+          )
+        }
+        // The label fades out over the last stretch of the fall rather than
+        // riding a stretching body (canvas fades it with distance).
+        if (labelRef.current && simBody.mode !== 'hold') {
+          labelRef.current.style.opacity = String(simBody.fallScale * hideFade.value)
+        }
+      }
+    } else if (advancePointTween(move, delta) && groupRef.current) {
       groupRef.current.position.x = move.x.value
       groupRef.current.position.y = move.y.value
     }
@@ -927,6 +977,10 @@ export function Planet({
     onClick?.(session.id)
   }
 
+  const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
+    onBodyPointerDown?.(session.id, event)
+  }
+
   const handleHoverOver = () => {
     hoverTypeElapsed.current = 0
     setLabelHovered(true)
@@ -936,12 +990,14 @@ export function Planet({
   return (
     <group
       ref={groupRef}
-      // The tweens' current values, NOT `x`/`y`/`scale` — see `usePointTween`
-      // and the `groupRef` comment above.
-      position={[move.x.value, move.y.value, 0]}
+      // The tweens' (or the sim body's) current values, NOT `x`/`y`/`scale`
+      // — see `usePointTween` and the `groupRef` comment above.
+      position={[simBody?.x ?? move.x.value, simBody?.y ?? move.y.value, 0]}
       scale={scaleTween.value * scaleMultiplier}
       onClick={onClick ? handleClick : undefined}
+      onPointerDown={onBodyPointerDown ? handlePointerDown : undefined}
     >
+     <group ref={fallGroupRef}>
       {hasGlowTexture && (
         <mesh position={[0, 0, HALO_Z]} material={materials.glow}>
           <planeGeometry args={[GLOW_SIZE, GLOW_SIZE]} />
@@ -1038,6 +1094,7 @@ export function Planet({
       >
         <circleGeometry args={[HALO_RING_OUTER, 32]} />
       </mesh>
+     </group>
 
       {labelMounted && (
         <group ref={labelGroupRef} position={[0, LABEL_TOP_REST_Y, 0]}>

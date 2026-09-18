@@ -4,6 +4,7 @@ import {
   sqliteTable,
   text,
   integer,
+  real,
   primaryKey,
   index,
   check,
@@ -34,6 +35,13 @@ export const sessions = sqliteTable(
     /** The model that actually ran, as the transcript/SDK reports it (`claude-opus-5`). */
     resolvedModel: text('resolved_model'),
     parentId: text('parent_id'),
+    /**
+     * Map-only dismissal (tag clusters, spec 2026-09-18-tag-clusters-design):
+     * when set, the session was dragged into the hole and stays off the map.
+     * Epoch ms. Cleared by the undo endpoint and by any new activity (the
+     * indexer, a sent message) — the sidebar and search never read it.
+     */
+    mapDismissedAt: integer('map_dismissed_at'),
     indexedMtime: integer('indexed_mtime').notNull().default(0),
     indexedSize: integer('indexed_size').notNull().default(0),
   },
@@ -45,6 +53,14 @@ export const tags = sqliteTable('tags', {
   name: text('name').notNull().unique(),
   hue: integer('hue').notNull(),
   isDefault: integer('is_default').notNull().default(0),
+  /**
+   * The tag clump's home spot on the space map, in world units — written
+   * when the user drops a dragged body somewhere new (tag clusters, agreed
+   * 2026-09-18). Null = the automatic circle layout places it. Both set or
+   * both null; the client is what maintains that.
+   */
+  anchorX: real('anchor_x'),
+  anchorY: real('anchor_y'),
 });
 
 export const sessionTags = sqliteTable(

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { MutableRefObject, RefObject } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import type { Group, OrthographicCamera } from 'three'
 import { useOrbital, parsePlanetScale, parseDetailPanelWidth } from '../store/store'
@@ -8,21 +9,36 @@ import { labelFontPx } from './visuals'
 import { Button } from '../ui/Button'
 import { Planet } from './Planet'
 import { Moon } from './Moon'
+import { Hole } from './Hole'
 import { useSceneModel } from './useSceneModel'
 import type { SceneLabel } from './sceneModel'
+import { LABEL_MARGIN, PLANET_BASE_RADIUS } from './layout'
+import {
+  createSimulation,
+  dragSimBody,
+  holeDropState,
+  rehomeTarget,
+  reconcileSimulation,
+  settleSimulation,
+  stepSimulation,
+  type SimBody,
+  type SimInput,
+  type SimState,
+} from './simulation'
 import {
   BODY_MOVE_MS,
   advancePointTween,
   createPointTween,
   prefersReducedMotion,
   retargetPointTween,
-  usePointTween,
 } from './transition'
 import {
   applyPan,
   applyZoom,
+  bodyZoomFactor,
   centerOn,
   fitView,
+  screenToWorld,
   zoomAt,
   zoomFromWheel,
   type CameraState,
@@ -89,27 +105,30 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
 }
 
 /**
- * A cluster's label, following its planets rather than cutting to the new
- * anchor. The label is pinned above the cluster's topmost planet, so
- * retagging moves it twice over — the cluster gains or loses a member AND its
- * spiral renumbers — and a label that jumps while every planet under it
- * glides is worse than no animation at all.
+ * A cluster's label, tracking the clump per frame: anchored above the
+ * topmost BONDED body of its tag, read straight off the simulation the same
+ * way the planets read their own positions. Falls back to the scene model's
+ * anchor when the sim has no bodies for the tag yet (first frame).
  *
- * `Html` reprojects from its parent's world matrix every frame, so tweening
- * the wrapping group is all it takes.
+ * `Html` reprojects from its parent's world matrix every frame, so writing
+ * the wrapping group's position is all it takes.
  */
-function ClusterLabel({ label }: { label: SceneLabel }) {
-  const move = usePointTween(label.x, label.y)
+function ClusterLabel({ label, simRef }: { label: SceneLabel; simRef: RefObject<SimState> }) {
   const groupRef = useRef<Group>(null)
 
-  useFrame((_, delta) => {
-    if (advancePointTween(move, delta) && groupRef.current) {
-      groupRef.current.position.set(move.x.value, move.y.value, 0)
+  useFrame(() => {
+    if (!groupRef.current) return
+    let top: SimBody | null = null
+    for (const body of simRef.current.bodies.values()) {
+      if (body.tagId !== label.tagId || body.mode !== 'hold') continue
+      if (!top || body.y + body.r > top.y + top.r) top = body
     }
+    if (top) groupRef.current.position.set(top.x, top.y + top.r + LABEL_MARGIN, 0)
+    else groupRef.current.position.set(label.x, label.y, 0)
   })
 
   return (
-    <group ref={groupRef} position={[move.x.value, move.y.value, 0]}>
+    <group ref={groupRef} position={[label.x, label.y, 0]}>
       {/* zIndexRange keeps map text under the z-10 side panels and z-50 dialogs (drei's default range is in the millions). */}
       <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
         <span
@@ -127,6 +146,32 @@ function ClusterLabel({ label }: { label: SceneLabel }) {
       </Html>
     </group>
   )
+}
+
+/** The ring-flash duration on absorption (canvas 4a script: `this.flash = 0.45`). */
+const ABSORB_FLASH_SEC = 0.45
+
+/**
+ * Steps the spring simulation once per frame, ahead of every planet's own
+ * frame callback (negative priority), and turns absorption events into the
+ * hole's ring flash. Under reduced motion the sim was already settled
+ * synchronously at reconcile time, so there is nothing to animate here.
+ */
+function SimStepper({
+  simRef,
+  flashRef,
+  reduced,
+}: {
+  simRef: RefObject<SimState>
+  flashRef: MutableRefObject<number>
+  reduced: boolean
+}) {
+  useFrame((_, delta) => {
+    if (reduced) return
+    const events = stepSimulation(simRef.current, delta)
+    if (events.absorbed.length > 0) flashRef.current = ABSORB_FLASH_SEC
+  }, -1)
+  return null
 }
 
 /**
@@ -224,7 +269,6 @@ export function SpaceMap() {
   const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
-  const hideEnded = useOrbital((s) => s.ui.hideEnded)
   const errorsUnseen = useOrbital((s) => s.errorsUnseen)
   const errorLogOpen = useOrbital((s) => s.ui.dialog === 'errors')
   // 24px clear of the open panel and its 16px inset; the export's own edge
@@ -234,7 +278,38 @@ export function SpaceMap() {
   const overlayTransition = resizingPanel
     ? ''
     : 'transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]'
-  const setHideEnded = useOrbital((s) => s.setHideEnded)
+  const setSessionDismissed = useOrbital((s) => s.setSessionDismissed)
+  const setTagAnchor = useOrbital((s) => s.setTagAnchor)
+  const revealHistory = useOrbital((s) => s.revealHistory)
+
+  // --- Spring simulation (spec 2026-09-18-tag-clusters-design § 1-2) --------
+  // The sim state lives in a ref and is reconciled against every fresh scene
+  // model DURING render (deliberately — bodies must exist before the planets
+  // that read them render; the reconcile is idempotent, so StrictMode's
+  // double-render is harmless). Motion happens in <SimStepper>'s frame loop;
+  // under reduced motion the sim is settled synchronously instead and
+  // renders statically.
+  const simRef = useRef<SimState>(null as unknown as SimState)
+  if (simRef.current === null) simRef.current = createSimulation()
+  const holeFlashRef = useRef(0)
+  const reduced = prefersReducedMotion()
+  useMemo(() => {
+    const input: SimInput = {
+      bodies: model.planets.map((p) => ({
+        id: p.session.id,
+        tagId: p.tagId,
+        x: p.x,
+        y: p.y,
+        r: p.scale * PLANET_BASE_RADIUS,
+        live: p.session.status === 'working' || p.session.status === 'needs_input',
+        released: p.released,
+      })),
+      anchors: model.anchors.map(({ tagId, x, y }) => ({ tagId, x, y })),
+      hole: { x: model.hole.x, y: model.hole.y },
+    }
+    reconcileSimulation(simRef.current, input)
+    if (reduced) settleSimulation(simRef.current)
+  }, [model, reduced])
 
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
   /** Read by the follow effect, which needs where the camera IS without re-running whenever it moves. */
@@ -246,6 +321,20 @@ export function SpaceMap() {
   /** Set true once a drag crosses `DRAG_THRESHOLD_PX`; the click handler below checks this to ignore the trailing click a drag-release produces. Reset on the next pointerdown, not on pointerup — the native `click` event fires AFTER pointerup, so it must still see this drag's `true`. */
   const draggedRef = useRef(false)
 
+  /**
+   * A pending/engaged BODY drag (canvas 4a): pointer-down landed on a planet,
+   * so the pointer belongs to that body, not to the pan. Below the movement
+   * threshold the gesture stays a click (select); past it the body pins to
+   * the pointer and its clump trails after it through the barycentre spring.
+   */
+  const bodyDragRef = useRef<{
+    id: string
+    pointerId: number
+    startX: number
+    startY: number
+    engaged: boolean
+  } | null>(null)
+
   const handleSelect = useCallback(
     (id: string) => {
       if (draggedRef.current) return
@@ -254,46 +343,126 @@ export function SpaceMap() {
     [select]
   )
 
+  const handleBodyPointerDown = useCallback((id: string, e: ThreeEvent<PointerEvent>) => {
+    if (e.nativeEvent.button !== 0) return
+    bodyDragRef.current = {
+      id,
+      pointerId: e.nativeEvent.pointerId,
+      startX: e.nativeEvent.clientX,
+      startY: e.nativeEvent.clientY,
+      engaged: false,
+    }
+  }, [])
+
+  /** The dragged pointer's world position, for pinning the sim body under it. */
+  const pointerToWorld = useCallback((e: ReactPointerEvent<HTMLDivElement>): Position => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    return screenToWorld(
+      cameraRef.current,
+      { x: e.clientX - rect.left, y: e.clientY - rect.top },
+      { width: rect.width, height: rect.height }
+    )
+  }, [])
+
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return
       // A hand on the map outranks a pan in flight.
       cancelPan()
-      dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY, captured: false }
       draggedRef.current = false
+      // The three.js pointer-down on a planet ran first (the canvas is a
+      // child of this container): that pointer is dragging a BODY, so the
+      // map must not also pan under it.
+      if (bodyDragRef.current?.pointerId === e.pointerId) return
+      dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY, captured: false }
     },
     [cancelPan]
   )
 
-  const handlePointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== e.pointerId) return
-    const dx = e.clientX - drag.lastX
-    const dy = e.clientY - drag.lastY
+  const handlePointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const bodyDrag = bodyDragRef.current
+      if (bodyDrag && bodyDrag.pointerId === e.pointerId) {
+        if (!bodyDrag.engaged) {
+          // Same click-jitter threshold as the pan: below it the gesture is
+          // still a click on the planet.
+          if (
+            Math.abs(e.clientX - bodyDrag.startX) < DRAG_THRESHOLD_PX &&
+            Math.abs(e.clientY - bodyDrag.startY) < DRAG_THRESHOLD_PX
+          ) {
+            return
+          }
+          bodyDrag.engaged = true
+          draggedRef.current = true
+          e.currentTarget.setPointerCapture(e.pointerId)
+        }
+        dragSimBody(simRef.current, bodyDrag.id, pointerToWorld(e))
+        // Reduced motion renders the sim statically, so a drag converges the
+        // field synchronously instead of animating toward it.
+        if (reduced) settleSimulation(simRef.current)
+        return
+      }
 
-    if (!drag.captured) {
-      // Don't capture the pointer (or count this as a drag) until it's
-      // actually moved past the click-jitter threshold — capturing
-      // eagerly on pointerdown steals the native click that would
-      // otherwise fire on a Planet mesh for a plain click, breaking
-      // click-to-select.
-      if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return
-      drag.captured = true
-      draggedRef.current = true
-      e.currentTarget.setPointerCapture(e.pointerId)
-    }
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      const dx = e.clientX - drag.lastX
+      const dy = e.clientY - drag.lastY
 
-    drag.lastX = e.clientX
-    drag.lastY = e.clientY
-    setCamera((cam) => applyPan(cam, dx, dy))
-  }, [])
+      if (!drag.captured) {
+        // Don't capture the pointer (or count this as a drag) until it's
+        // actually moved past the click-jitter threshold — capturing
+        // eagerly on pointerdown steals the native click that would
+        // otherwise fire on a Planet mesh for a plain click, breaking
+        // click-to-select.
+        if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return
+        drag.captured = true
+        draggedRef.current = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+      }
 
-  const handlePointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== e.pointerId) return
-    if (drag.captured) e.currentTarget.releasePointerCapture(e.pointerId)
-    dragRef.current = null
-  }, [])
+      drag.lastX = e.clientX
+      drag.lastY = e.clientY
+      setCamera((cam) => applyPan(cam, dx, dy))
+    },
+    [pointerToWorld, reduced]
+  )
+
+  const handlePointerUp = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const bodyDrag = bodyDragRef.current
+      if (bodyDrag && bodyDrag.pointerId === e.pointerId) {
+        bodyDragRef.current = null
+        if (bodyDrag.engaged) {
+          e.currentTarget.releasePointerCapture(e.pointerId)
+          const sim = simRef.current
+          // Releasing an idle/ended body inside the halo cuts its bond —
+          // absorption, with the 10s undo toast. A working body is never
+          // absorbable: it just springs back (the halo repels it). The same
+          // predicate drives the hole's armed drop-target signal, so what
+          // the hole promises on release is exactly what happens. Any other
+          // drop re-homes the clump: the tag's anchor moves to the release
+          // point (persisted), so the dragged body stays put and its mates
+          // fly to it — except near the hole, where `rehomeTarget` declines
+          // and the clump drifts back to its old home. Both read BEFORE
+          // dragSimBody(null): they require an active drag.
+          const factor = bodyZoomFactor(cameraRef.current.zoom)
+          const drop = holeDropState(sim, bodyDrag.id, factor)
+          const rehome = rehomeTarget(sim, bodyDrag.id, factor)
+          dragSimBody(sim, bodyDrag.id, null)
+          if (drop === 'armed') void setSessionDismissed(bodyDrag.id, true)
+          else if (rehome) void setTagAnchor(rehome.tagId, { x: rehome.x, y: rehome.y })
+          if (reduced) settleSimulation(simRef.current)
+        }
+        return
+      }
+
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      if (drag.captured) e.currentTarget.releasePointerCapture(e.pointerId)
+      dragRef.current = null
+    },
+    [reduced, setSessionDismissed, setTagAnchor]
+  )
 
   const handleWheel = useCallback(
     (e: ReactWheelEvent<HTMLDivElement>) => {
@@ -320,14 +489,25 @@ export function SpaceMap() {
 
   const handleFit = useCallback(() => {
     cancelPan()
-    const positions = model.planets.map((p) => ({ x: p.x, y: p.y }))
+    // The hole is part of the map — fit frames it with the planets, so the
+    // history landmark is never fitted out of view.
+    const positions: Position[] = [
+      ...model.planets.map((p) => ({ x: p.x, y: p.y })),
+      { x: model.hole.x, y: model.hole.y },
+    ]
     const rect = containerRef.current?.getBoundingClientRect()
     const viewport = {
       width: rect?.width ?? window.innerWidth,
       height: rect?.height ?? window.innerHeight,
     }
     setCamera(fitView(positions, viewport))
-  }, [cancelPan, model.planets])
+  }, [cancelPan, model.planets, model.hole.x, model.hole.y])
+
+  const handleHoleOpen = useCallback(() => {
+    // The click a drag-release produces must not also open the sidebar.
+    if (draggedRef.current) return
+    revealHistory()
+  }, [revealHistory])
 
   /**
    * Follows the selected planet when the LAYOUT moves it — which in practice
@@ -340,7 +520,7 @@ export function SpaceMap() {
    * see, and hauling the camera there would take the rest of the map away
    * from them for no reason.
    */
-  const followed = model.planets.find((p) => p.selected && !p.hidden)
+  const followed = model.planets.find((p) => p.selected && !p.released)
   const followedId = followed?.session.id
   const followedX = followed?.x
   const followedY = followed?.y
@@ -390,16 +570,18 @@ export function SpaceMap() {
   const camY = Math.round(camera.y)
 
   /**
-   * Everything left of the ENDED segment, which stays plain text. Canvas 2b:
-   * "only ENDED is pressable, so there is nothing to mistake for a four-way
-   * status filter."
+   * The aggregate readout. ENDED is plain text again: the 2a/2b suppression
+   * toggle is gone — hiding ended sessions is the hole's job now (they fall
+   * in after the release delay), so a second hide control would compete with
+   * it (spec 2026-09-18-tag-clusters-design § 6).
    */
   const aggregateLine = useMemo(() => {
-    const { working, needs_input: needsInput, idle } = model.counts
+    const { working, needs_input: needsInput, idle, ended } = model.counts
     const segments = [
       `${working} WORKING`,
       ...(needsInput > 0 ? [`${needsInput} NEEDS INPUT`] : []),
       `${idle} IDLE`,
+      `${ended} ENDED`,
     ]
     return segments.join(' · ')
   }, [model.counts])
@@ -424,6 +606,7 @@ export function SpaceMap() {
           space, and the oklch → linear-sRGB path is already correct. */}
       <Canvas flat orthographic camera={{ zoom: INITIAL_CAMERA.zoom, position: [0, 0, 100] }}>
         <CameraRig camera={camera} />
+        <SimStepper simRef={simRef} flashRef={holeFlashRef} reduced={reduced} />
         <ambientLight intensity={0.6} />
 
         {model.planets.map((planet) => (
@@ -438,11 +621,12 @@ export function SpaceMap() {
             scale={planet.scale}
             scaleMultiplier={planetScale}
             selected={planet.selected}
-            hidden={planet.hidden}
             modelFamily={planet.modelFamily}
             labelTitlePx={labelFont.title}
             labelFamilyPx={labelFont.family}
             onClick={handleSelect}
+            simBody={simRef.current.bodies.get(planet.session.id)}
+            onBodyPointerDown={handleBodyPointerDown}
           />
         ))}
 
@@ -456,12 +640,21 @@ export function SpaceMap() {
             orbitRadius={moon.orbitRadius}
             phase={moon.phase}
             bodyScale={planetScale}
+            parentBody={simRef.current.bodies.get(moon.sessionId)}
           />
         ))}
 
         {model.labels.map((label) => (
-          <ClusterLabel key={label.tagId} label={label} />
+          <ClusterLabel key={label.tagId} label={label} simRef={simRef} />
         ))}
+
+        <Hole
+          hole={model.hole}
+          flashRef={holeFlashRef}
+          simRef={simRef}
+          dragRef={bodyDragRef}
+          onOpen={handleHoleOpen}
+        />
       </Canvas>
 
       {/* Plain-DOM HUD overlay, outside the Canvas. `z-6` is load-bearing: the
@@ -471,11 +664,9 @@ export function SpaceMap() {
           button and the zoom stack. Still under the z-10 panels and z-50
           dialogs. */}
       <div className="pointer-events-none absolute inset-0 z-[6]">
-        {/* Aggregate readout (1a, right:24px/top:24px), whose last segment is
-            the ENDED declutter toggle per 2a/2b. It tracks the detail panel on
-            the same 420ms curve as the zoom stack below — otherwise the panel
-            slides in over the top of it. The row stays `pointer-events-none`
-            so only the button itself is hittable. */}
+        {/* Aggregate readout (1a, right:24px/top:24px), plain text end to end.
+            It tracks the detail panel on the same 420ms curve as the zoom
+            stack below — otherwise the panel slides in over the top of it. */}
         <div
           data-overlay="aggregate"
           className={[
@@ -488,51 +679,6 @@ export function SpaceMap() {
         >
           <div className="flex items-center gap-2 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
             <span>{aggregateLine}</span>
-            <span className="text-[rgba(160,190,225,.28)]">·</span>
-            <button
-              type="button"
-              title={
-                hideEnded
-                  ? 'Show ended sessions on the map'
-                  : 'Hide ended sessions on the map'
-              }
-              aria-pressed={hideEnded}
-              onClick={() => setHideEnded(!hideEnded)}
-              className={[
-                'pointer-events-auto flex items-center gap-1.5 rounded-full border py-[3px] pl-2 pr-[9px]',
-                'font-mono text-[10.5px] tracking-[0.1em]',
-                'transition-[background-color,border-color,color] duration-200 ease-out',
-                hideEnded
-                  ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
-                  : 'border-[rgba(150,205,255,.13)] bg-transparent text-[rgba(178,203,230,.85)] hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]',
-              ].join(' ')}
-            >
-              {/* Hollow dot that gains a slash when suppressed — a crossed-out
-                  planet rather than a second icon. */}
-              <span className="relative block h-[7px] w-[7px] rounded-full border border-current opacity-[.85]">
-                <span
-                  className={[
-                    'absolute left-[-2px] top-[2.5px] block h-px w-[11px] -rotate-45 bg-current',
-                    'transition-opacity duration-200 ease-out',
-                    hideEnded ? 'opacity-100' : 'opacity-0',
-                  ].join(' ')}
-                />
-              </span>
-              <span className={hideEnded ? 'line-through' : undefined}>
-                {model.counts.ended} ENDED
-              </span>
-            </button>
-          </div>
-          {/* Only appears once the readout could be misread as hiding history too. */}
-          <div
-            className={[
-              'font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.5)]',
-              'transition-opacity duration-[250ms] ease-out',
-              hideEnded ? 'opacity-100' : 'opacity-0',
-            ].join(' ')}
-            aria-hidden={!hideEnded}
-          >
-            MAP ONLY · HISTORY LIST UNCHANGED
           </div>
         </div>
 

@@ -29,13 +29,31 @@ export function Toasts() {
       ].join(' ')}
     >
       <span className="min-w-0 flex-1">{toast.message}</span>
+      {/* The toast's own action ("Undo" on an absorption) — the action clears
+          the toast itself: leaving it up would offer an undo that already
+          happened. */}
+      {toast.action && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            toast.action?.run()
+            clearToast()
+          }}
+        >
+          {toast.action.label}
+        </Button>
+      )}
       {/* A real <button>, so it is in the tab order and answers Enter/Space
           without this file owning any key handling of its own. Dismissing
           below is deliberately NOT wired to the log: closing a toast closes
-          a toast, it does not mark the row read. */}
-      <Button variant="ghost" size="sm" onClick={() => setDialog('errors')}>
-        Detail
-      </Button>
+          a toast, it does not mark the row read. Only error toasts link to
+          the error log — an info toast has no row there to show. */}
+      {toast.kind === 'error' && (
+        <Button variant="ghost" size="sm" onClick={() => setDialog('errors')}>
+          Detail
+        </Button>
+      )}
       <Button variant="ghost" size="sm" onClick={clearToast} aria-label="Dismiss">
         ×
       </Button>

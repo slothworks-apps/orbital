@@ -21,6 +21,8 @@ export interface SessionRow {
   model: string | null;
   resolved_model: string | null;
   parent_id: string | null;
+  /** Map-only dismissal stamp (epoch ms), or null. See db/schema.ts. */
+  map_dismissed_at: number | null;
   indexed_mtime: number;
   indexed_size: number;
 }

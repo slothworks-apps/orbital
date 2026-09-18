@@ -210,7 +210,9 @@ describe('REST routes', () => {
 
   it('GET /api/tags and /api/tag-rules preserve original snake_case key order (derived projection maps)', async () => {
     const tagsRes = await app.inject({ method: 'GET', url: '/api/tags' });
-    expect(Object.keys(tagsRes.json().tags[0])).toEqual(['id', 'name', 'hue', 'is_default']);
+    expect(Object.keys(tagsRes.json().tags[0])).toEqual([
+      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y',
+    ]);
 
     await app.inject({
       method: 'POST', url: '/api/tag-rules',
@@ -949,5 +951,122 @@ describe('error log routes', () => {
     expect((await app.inject({ method: 'GET', url: '/api/errors' })).json()).toEqual({
       errors: [], unseen: 0,
     });
+  });
+});
+
+// Tag clusters: map-only dismissal + the hole's index total.
+// Spec: docs/superpowers/specs/2026-09-18-tag-clusters-design.md § 4–5.
+describe('map dismissal and session count', () => {
+  let app: FastifyInstance;
+  let db: ReturnType<typeof makeApp>['db'];
+  let hub: Hub;
+
+  beforeEach(() => {
+    ({ app, db, hub } = makeApp());
+  });
+
+  it('PUT /api/sessions/:id/dismissed stamps map_dismissed_at and publishes the upsert', async () => {
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({
+      method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(typeof row.map_dismissed_at).toBe('number');
+    expect(received[0]).toMatchObject({
+      event: 'upsert',
+      session: { id: 's2', mapDismissedAt: row.map_dismissed_at },
+    });
+  });
+
+  it('PUT /api/sessions/:id/dismissed with dismissed:false clears the stamp (undo)', async () => {
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
+    const res = await app.inject({
+      method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: false },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.map_dismissed_at).toBeNull();
+  });
+
+  it('PUT /api/sessions/:id/dismissed 404s an unknown session and 400s a non-boolean body', async () => {
+    const missing = await app.inject({
+      method: 'PUT', url: '/api/sessions/nope/dismissed', payload: { dismissed: true },
+    });
+    expect(missing.statusCode).toBe(404);
+    const bad = await app.inject({
+      method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: 'yes' },
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it('GET /api/sessions/count returns the whole index total, unpaged', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/count' });
+    expect(res.json()).toEqual({ total: 2 });
+  });
+
+  it('sending a message to a dismissed session clears the dismissal', async () => {
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
+    // s2 is inactive in the runner, so this goes down the revive path.
+    await app.inject({
+      method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'continue' },
+    });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.map_dismissed_at).toBeNull();
+  });
+
+  it('GET /api/sessions/:id carries mapDismissedAt on the wire', async () => {
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s2' });
+    expect(typeof res.json().session.mapDismissedAt).toBe('number');
+  });
+});
+
+// Tag clusters: a clump's home moves where the user drops it, per tag,
+// persisted (agreed in chat 2026-09-18, extends spec § 2).
+describe('tag anchors', () => {
+  let app: FastifyInstance;
+
+  beforeEach(() => {
+    ({ app } = makeApp());
+  });
+
+  it('PATCH /api/tags/:id stores an anchor and GET /api/tags returns it', async () => {
+    const res = await app.inject({
+      method: 'PATCH', url: '/api/tags/10', payload: { anchor_x: 12.5, anchor_y: -3.25 },
+    });
+    expect(res.statusCode).toBe(200);
+    const tags = (await app.inject({ method: 'GET', url: '/api/tags' })).json().tags;
+    const work = tags.find((t: { id: number }) => t.id === 10);
+    expect(work.anchor_x).toBe(12.5);
+    expect(work.anchor_y).toBe(-3.25);
+  });
+
+  it('PATCH /api/tags/:id with null anchors clears them (back to the automatic layout)', async () => {
+    await app.inject({
+      method: 'PATCH', url: '/api/tags/10', payload: { anchor_x: 1, anchor_y: 2 },
+    });
+    await app.inject({
+      method: 'PATCH', url: '/api/tags/10', payload: { anchor_x: null, anchor_y: null },
+    });
+    const tags = (await app.inject({ method: 'GET', url: '/api/tags' })).json().tags;
+    const work = tags.find((t: { id: number }) => t.id === 10);
+    expect(work.anchor_x).toBeNull();
+    expect(work.anchor_y).toBeNull();
+  });
+
+  it('rejects a non-finite anchor', async () => {
+    const res = await app.inject({
+      method: 'PATCH', url: '/api/tags/10', payload: { anchor_x: 'far', anchor_y: 0 },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('an anchor patch leaves name and hue alone', async () => {
+    await app.inject({
+      method: 'PATCH', url: '/api/tags/10', payload: { anchor_x: 5, anchor_y: 5 },
+    });
+    const tags = (await app.inject({ method: 'GET', url: '/api/tags' })).json().tags;
+    expect(tags.find((t: { id: number }) => t.id === 10)).toMatchObject({ name: 'work', hue: 210 });
   });
 });

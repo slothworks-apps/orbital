@@ -11,6 +11,12 @@ export interface Cluster {
   tagId: number
   hue: number
   label: string
+  /**
+   * The tag's stored home spot (the user dropped the clump there), or null
+   * for the automatic circle placement. Carried off the tag by
+   * `clusterSessions`; `clusterAnchors` is where it takes effect.
+   */
+  anchor: { x: number; y: number } | null
   sessions: ApiSession[]
 }
 
@@ -81,6 +87,17 @@ export const CLUSTER_GAP = 1.0
 /** Vertical offset of a cluster's label anchor above its topmost planet. */
 export const LABEL_MARGIN = 0.5
 
+/**
+ * How far past the cluster field's bounding circle the hole sits, in world
+ * units, measured along the bottom-right diagonal. Comfortably beyond the
+ * simulation's hole-repulsion halo (`HOLE_REPEL_RADIUS`, ~8.8 units), so a
+ * resting clump is not permanently leaning on the repulsion.
+ */
+export const HOLE_CLEARANCE = 10
+
+/** The hole sits on the bottom-right diagonal (canvas 4a: corner at 1210,752 of 1440×900). */
+const HOLE_ANGLE = -Math.PI / 4
+
 // --- clusterSessions --------------------------------------------------------
 
 /**
@@ -110,7 +127,18 @@ export function clusterSessions(sessions: ApiSession[], tags: Tag[]): Cluster[] 
   for (const [tagId, groupSessions] of groups) {
     const tag = tagById.get(tagId)
     if (!tag) continue
-    clusters.push({ tagId, hue: tag.hue, label: tag.name, sessions: groupSessions })
+    clusters.push({
+      tagId,
+      hue: tag.hue,
+      label: tag.name,
+      // Both coordinates or nothing: a half-set pair (which the client never
+      // writes) reads as no stored home rather than as a home at 0.
+      anchor:
+        tag.anchor_x != null && tag.anchor_y != null
+          ? { x: tag.anchor_x, y: tag.anchor_y }
+          : null,
+      sessions: groupSessions,
+    })
   }
 
   clusters.sort((a, b) => {
@@ -209,12 +237,42 @@ export function layoutClusters(
   const result = new Map<string, PlanetPosition>()
   if (clusters.length === 0) return result
 
+  const anchors = clusterAnchors(clusters, opts)
+  for (const cluster of clusters) {
+    const center = anchors.get(cluster.tagId)
+    if (!center) continue
+    const positions = spiralPositions(cluster, center, resolved)
+    for (const [id, pos] of positions) result.set(id, pos)
+  }
+
+  return result
+}
+
+// --- clusterAnchors ---------------------------------------------------------
+
+/**
+ * Each tag's home spot: cluster centers evenly spaced on a circle around the
+ * origin, exactly as `layoutClusters` has always placed them (deterministic:
+ * `clusterSessions` sorts the input by tagId ascending, default last). These
+ * are what the tag-cluster simulation's home-anchor springs pull toward, and
+ * what the golden-angle spiral seeds new bodies around.
+ *
+ * Pure: same `clusters` + `opts` in, same Map out, every time.
+ */
+export function clusterAnchors(
+  clusters: Cluster[],
+  opts?: LayoutOptions
+): Map<number, { x: number; y: number }> {
+  const resolved = resolveOptions(opts)
+  const anchors = new Map<number, { x: number; y: number }>()
+  if (clusters.length === 0) return anchors
+
   const n = clusters.length
   const angleStep = n > 1 ? (2 * Math.PI) / n : 0
 
-  // First lay each cluster out around its own local origin so we can measure
-  // its bounding radius, then derive how far apart cluster centers need to
-  // be on the shared orbit circle.
+  // Lay each cluster out around its own local origin so we can measure its
+  // bounding radius, then derive how far apart cluster centers need to be on
+  // the shared orbit circle.
   const localPositions = clusters.map((cluster) => spiralPositions(cluster, { x: 0, y: 0 }, resolved))
   const localRadii = clusters.map((cluster, idx) =>
     boundingRadius(cluster, localPositions[idx], { x: 0, y: 0 }, resolved.planetBaseRadius)
@@ -231,13 +289,51 @@ export function layoutClusters(
   }
 
   clusters.forEach((cluster, idx) => {
+    // A stored home (the user dropped the clump there) beats the circle; the
+    // circle position is still computed for everyone else, off the same
+    // index, so moving one tag never reshuffles its neighbours.
+    if (cluster.anchor) {
+      anchors.set(cluster.tagId, { x: cluster.anchor.x, y: cluster.anchor.y })
+      return
+    }
     const theta = idx * angleStep
-    const center = { x: orbitRadius * Math.cos(theta), y: orbitRadius * Math.sin(theta) }
-    const positions = spiralPositions(cluster, center, resolved)
-    for (const [id, pos] of positions) result.set(id, pos)
+    anchors.set(cluster.tagId, {
+      x: orbitRadius * Math.cos(theta),
+      y: orbitRadius * Math.sin(theta),
+    })
   })
 
-  return result
+  return anchors
+}
+
+// --- holePosition -----------------------------------------------------------
+
+/**
+ * Where the corner hole sits: on the bottom-right diagonal, `HOLE_CLEARANCE`
+ * beyond the circle that bounds every cluster (anchor distance + that
+ * cluster's own bounding radius). World-space and deterministic, so the hole
+ * pans, zooms and fits with the map rather than floating over it.
+ */
+export function holePosition(
+  clusters: Cluster[],
+  opts?: LayoutOptions
+): { x: number; y: number } {
+  const resolved = resolveOptions(opts)
+  const anchors = clusterAnchors(clusters, opts)
+
+  let fieldRadius = 0
+  for (const cluster of clusters) {
+    const anchor = anchors.get(cluster.tagId)
+    if (!anchor) continue
+    const positions = spiralPositions(cluster, anchor, resolved)
+    const r =
+      Math.hypot(anchor.x, anchor.y) +
+      boundingRadius(cluster, positions, anchor, resolved.planetBaseRadius)
+    if (r > fieldRadius) fieldRadius = r
+  }
+
+  const distance = fieldRadius + HOLE_CLEARANCE
+  return { x: distance * Math.cos(HOLE_ANGLE), y: distance * Math.sin(HOLE_ANGLE) }
 }
 
 // --- clusterLabelPos --------------------------------------------------------

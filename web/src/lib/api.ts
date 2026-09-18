@@ -139,6 +139,17 @@ export const api = {
     return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/tags`, { tagIds })
   },
 
+  /** Map-only dismissal (the hole's absorption); `false` is the undo. */
+  async setSessionDismissed(id: string, dismissed: boolean): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/dismissed`, { dismissed })
+  },
+
+  /** The whole index's session count — the hole's label; the list endpoint only ever returns a page. */
+  async sessionCount(): Promise<number> {
+    const data = await request<{ total: number }>('GET', '/api/sessions/count')
+    return data.total
+  },
+
   // Tags API
   async listTags(): Promise<Tag[]> {
     const data = await request<{ tags: Tag[] }>('GET', '/api/tags')
@@ -150,7 +161,11 @@ export const api = {
     return data.id
   },
 
-  async patchTag(id: number, body: Partial<{ name: string; hue: number }>): Promise<{ ok: boolean }> {
+  async patchTag(
+    id: number,
+    // `anchor_*: null` clears the clump's stored home, so null and absent differ.
+    body: Partial<{ name: string; hue: number; anchor_x: number | null; anchor_y: number | null }>
+  ): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('PATCH', `/api/tags/${id}`, body)
   },
 

@@ -145,6 +145,23 @@ export function zoomAt(
   }
 }
 
+/**
+ * The world point under a screen position (CSS px relative to the map
+ * container's top-left). The same projection `zoomAt` holds still: ortho
+ * camera, frustum centred on the canvas, screen Y inverted. Used by the
+ * body-drag interaction to pin a dragged planet to the pointer.
+ */
+export function screenToWorld(
+  cam: CameraState,
+  point: Position,
+  viewport: Viewport
+): Position {
+  return {
+    x: cam.x + (point.x - viewport.width / 2) / cam.zoom,
+    y: cam.y - (point.y - viewport.height / 2) / cam.zoom,
+  }
+}
+
 /** Screen-space chrome covering the map's edges, in CSS pixels. */
 export interface Insets {
   /** Sidebar side. */

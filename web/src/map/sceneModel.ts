@@ -1,10 +1,12 @@
 import type { ApiSession, SessionStatus, Subagent } from '../lib/types'
 import { matchModel } from '../lib/models'
 import type { OrbitalState } from '../store/store'
-import { mapSessions, statusCounts } from '../store/store'
+import { absorptionFor, mapSessions, statusCounts } from '../store/store'
 import {
+  clusterAnchors,
   clusterLabelPos,
   clusterSessions,
+  holePosition,
   layoutClusters,
   GOLDEN_ANGLE,
   PLANET_BASE_RADIUS,
@@ -36,16 +38,18 @@ export interface ScenePlanet {
   scale: number
   selected: boolean
   hue: number
+  /** The cluster's tag — the sim's grouping key for springs and separation. */
+  tagId: number
   /** This session's live subagents (also flattened into top-level `moons`). */
   subagents: Subagent[]
   /**
-   * Suppressed by the map's ENDED toggle (`ui.hideEnded`). Still in the
-   * model on purpose: canvas 2a fades a hidden planet out over .5s
-   * (`opacity` 0, `scale` .82) rather than removing it, and keeping it in
-   * the layout means toggling never renumbers the spiral for anyone else.
-   * A planet dropped by the *age cutoff* never reaches this array at all.
+   * The session's tag bond was just cut (manual dismissal, or the release
+   * delay elapsed) and the body is falling into the hole. Still in the model
+   * on purpose: the simulation plays the fall from wherever the body stands,
+   * and `mapSessions` drops the session outright once its fall grace runs
+   * out (spec 2026-09-18-tag-clusters-design § 4-5).
    */
-  hidden: boolean
+  released: boolean
   /**
    * Family alone (`Opus`), drawn as a second label line — or null when the
    * map toggle is off or the model is not one the catalog knows. Never the
@@ -73,11 +77,30 @@ export interface SceneLabel {
   hue: number
 }
 
+/** A tag's home spot — what the simulation's home-anchor spring pulls toward. */
+export interface SceneAnchor {
+  tagId: number
+  hue: number
+  x: number
+  y: number
+}
+
+/** The corner hole: world-space position plus its label's session count. */
+export interface SceneHole {
+  x: number
+  y: number
+  /** Sessions in the index that are not drawn as bonded bodies — the "N sessions" of the label. */
+  count: number
+}
+
 export interface SceneModel {
   planets: ScenePlanet[]
   moons: SceneMoon[]
   labels: SceneLabel[]
   counts: Record<SessionStatus, number>
+  /** One per drawn cluster, keyed by tag — the sim's home anchors. */
+  anchors: SceneAnchor[]
+  hole: SceneHole
 }
 
 /**
@@ -117,11 +140,13 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
 export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel {
   const sessions = mapSessions(state, nowMs)
   const clusters = clusterSessions(sessions, state.tags)
-  const positions = layoutClusters(withStableSessionOrder(clusters))
+  const stable = withStableSessionOrder(clusters)
+  const positions = layoutClusters(stable)
+  const anchorByTag = clusterAnchors(stable)
   const counts = statusCounts(state, nowMs)
   const selectedId = state.ui.selectedId
-  const isHidden = (session: ApiSession) =>
-    state.ui.hideEnded && session.status === 'ended'
+  const isReleased = (session: ApiSession) =>
+    absorptionFor(session, state.settings, nowMs) === 'releasing'
   const showModel = state.settings.map_show_model !== 'false'
 
   const planets: ScenePlanet[] = []
@@ -143,8 +168,9 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         scale: pos.scale,
         selected: session.id === selectedId,
         hue: cluster.hue,
+        tagId: cluster.tagId,
         subagents,
-        hidden: isHidden(session),
+        released: isReleased(session),
         modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
       })
 
@@ -164,24 +190,41 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
 
   const labels: SceneLabel[] = []
   for (const cluster of clusters) {
-    // Counts what is drawn, not what the cluster holds — canvas 2a drops the
-    // label counts (`cWork: hid ? 2 : 3`) while the ENDED readout keeps its
-    // own count. A cluster of nothing but suppressed planets drops its label
-    // with them: `NAME · 0` hanging over empty space is the clutter the
-    // toggle was pressed to get rid of.
-    const shown = cluster.sessions.filter((s) => !isHidden(s))
-    if (shown.length === 0) continue
-    // Anchored above the topmost planet still on screen, not above a
-    // suppressed one — otherwise the label drifts off on its own.
-    const pos = clusterLabelPos({ ...cluster, sessions: shown }, positions)
+    // Counts the bonded bodies, not everything the cluster holds — a
+    // released body's bond is cut, so the chip stops claiming it (canvas
+    // 4a's chips count what holds together). A cluster whose every body has
+    // been released drops its label with them: `NAME · 0` hanging over
+    // emptying space is clutter.
+    const bonded = cluster.sessions.filter((s) => !isReleased(s))
+    if (bonded.length === 0) continue
+    // Anchored above the topmost planet still bonded, not above a falling
+    // one — otherwise the label chases the fall.
+    const pos = clusterLabelPos({ ...cluster, sessions: bonded }, positions)
     labels.push({
       tagId: cluster.tagId,
-      text: `${cluster.label.toUpperCase()} · ${shown.length}`,
+      text: `${cluster.label.toUpperCase()} · ${bonded.length}`,
       x: pos.x,
       y: pos.y,
       hue: cluster.hue,
     })
   }
 
-  return { planets, moons, labels, counts }
+  const anchors: SceneAnchor[] = []
+  for (const cluster of clusters) {
+    const anchor = anchorByTag.get(cluster.tagId)
+    if (anchor) anchors.push({ tagId: cluster.tagId, hue: cluster.hue, ...anchor })
+  }
+
+  // The hole's label subtracts the bonded bodies from the index total: a
+  // falling body is already the hole's, and a stale total must never read
+  // negative.
+  const bondedCount = planets.filter((p) => !p.released).length
+  const holePos = holePosition(stable)
+  const hole: SceneHole = {
+    x: holePos.x,
+    y: holePos.y,
+    count: Math.max(0, state.sessionsTotal - bondedCount),
+  }
+
+  return { planets, moons, labels, counts, anchors, hole }
 }

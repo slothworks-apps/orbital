@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import type { ApiSession, Tag } from '../lib/types'
 import {
   clusterSessions,
+  clusterAnchors,
+  holePosition,
   layoutClusters,
   clusterLabelPos,
   ACTIVE_SCALE,
@@ -23,6 +25,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     model: null,
     resolvedModel: null,
     parentId: null,
+    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -246,5 +249,47 @@ describe('clusterLabelPos', () => {
     const positions = layoutClusters(clusters)
     const cluster = clusters[0]
     expect(clusterLabelPos(cluster, positions)).toEqual(clusterLabelPos(cluster, positions))
+  })
+})
+
+// Tag clusters: a stored per-tag anchor (the user dropped the clump there)
+// replaces that tag's computed circle position, everywhere the anchor feeds —
+// home springs, seeds, the hole.
+describe('stored tag anchors', () => {
+  const movedWork: Tag = { ...workTag, anchor_x: 40, anchor_y: -12 }
+  const sessions = [
+    makeSession({ id: 'a', tagIds: [1] }),
+    makeSession({ id: 'b', tagIds: [1] }),
+    makeSession({ id: 'c', tagIds: [2] }),
+  ]
+
+  it('clusterAnchors prefers the stored anchor and leaves other tags on the circle', () => {
+    const auto = clusterAnchors(clusterSessions(sessions, tags))
+    const moved = clusterAnchors(clusterSessions(sessions, [movedWork, personalTag, defaultTag]))
+    expect(moved.get(1)).toEqual({ x: 40, y: -12 })
+    expect(moved.get(2)).toEqual(auto.get(2))
+  })
+
+  it('seeds the moved cluster around its stored anchor', () => {
+    const clusters = clusterSessions(sessions, [movedWork, personalTag, defaultTag])
+    const positions = layoutClusters(clusters)
+    for (const id of ['a', 'b']) {
+      const p = positions.get(id)!
+      expect(Math.hypot(p.x - 40, p.y - -12)).toBeLessThan(10)
+    }
+  })
+
+  it('a half-stored anchor (one coordinate null) falls back to the circle', () => {
+    const half: Tag = { ...workTag, anchor_x: 40, anchor_y: null }
+    const auto = clusterAnchors(clusterSessions(sessions, tags))
+    const moved = clusterAnchors(clusterSessions(sessions, [half, personalTag, defaultTag]))
+    expect(moved.get(1)).toEqual(auto.get(1))
+  })
+
+  it('the hole keeps clear of a cluster dragged toward it', () => {
+    const auto = holePosition(clusterSessions(sessions, tags))
+    const towardHole: Tag = { ...workTag, anchor_x: auto.x, anchor_y: auto.y }
+    const pushed = holePosition(clusterSessions(sessions, [towardHole, personalTag, defaultTag]))
+    expect(Math.hypot(pushed.x, pushed.y)).toBeGreaterThan(Math.hypot(auto.x, auto.y))
   })
 })

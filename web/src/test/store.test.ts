@@ -19,6 +19,9 @@ import {
   recordedFailureFor,
   parsePlanetScale,
   parseDetailPanelWidth,
+  releaseDelayMs,
+  absorptionFor,
+  RELEASE_FALL_GRACE_MS,
   type OrbitalState,
 } from '../store/store'
 
@@ -38,6 +41,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     model: null,
     resolvedModel: null,
     parentId: null,
+    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -59,13 +63,13 @@ const initialSnapshot: OrbitalState = {
   lastTurnResultAt: {},
   errors: [],
   errorsUnseen: 0,
+  sessionsTotal: 0,
   toast: null,
   ui: {
     selectedId: null,
     filterTagId: 'all',
     search: '',
     sourceFilter: 'all',
-    hideEnded: false,
     wsStatus: 'connecting',
     dialog: null,
     sidebarCollapsed: false,
@@ -567,7 +571,6 @@ describe('filter/search/dialog setters', () => {
     useOrbital.getState().setFilterTag(3)
     useOrbital.getState().setSearch('foo')
     useOrbital.getState().setSourceFilter('web')
-    useOrbital.getState().setHideEnded(true)
     useOrbital.getState().setDialog('new')
     useOrbital.getState().setWsStatus('open')
     useOrbital.getState().setSidebarCollapsed(true)
@@ -577,7 +580,6 @@ describe('filter/search/dialog setters', () => {
       filterTagId: 3,
       search: 'foo',
       sourceFilter: 'web',
-      hideEnded: true,
       wsStatus: 'open',
       dialog: 'new',
       sidebarCollapsed: true,
@@ -655,7 +657,7 @@ describe('statusCounts (pure)', () => {
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      settings: { map_ended_max_age_days: 'never' },
+      settings: { map_release_ended_after_minutes: 'never' },
     }
     expect(statusCounts(state, NOW)).toEqual({ working: 2, idle: 1, needs_input: 1, ended: 1 })
   })
@@ -680,7 +682,7 @@ describe('statusCounts (pure)', () => {
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      settings: { map_ended_max_age_days: 'never' },
+      settings: { map_release_ended_after_minutes: 'never' },
       ui: { ...initialSnapshot.ui, filterTagId: 1 },
     }
     // Only sessions a, c, e (tagIds includes 1) should be counted.
@@ -688,14 +690,67 @@ describe('statusCounts (pure)', () => {
   })
 })
 
+describe('releaseDelayMs (pure)', () => {
+  it('parses minutes, honours "never", and falls back to 2h', () => {
+    expect(releaseDelayMs({ map_release_ended_after_minutes: '30' })).toBe(30 * 60_000)
+    expect(releaseDelayMs({ map_release_ended_after_minutes: 'never' })).toBeNull()
+    expect(releaseDelayMs({})).toBe(120 * 60_000)
+    expect(releaseDelayMs({ map_release_ended_after_minutes: 'garbage' })).toBe(120 * 60_000)
+    expect(releaseDelayMs({ map_release_ended_after_minutes: '-5' })).toBe(120 * 60_000)
+  })
+})
+
+describe('absorptionFor (pure)', () => {
+  const settings = {} // 2h default delay
+
+  it('is none for a live session, however old, and for a fresh ended one', () => {
+    expect(absorptionFor(makeSession({ id: 'w', status: 'working', lastAt: NOW - 90 * DAY }), settings, NOW)).toBe('none')
+    expect(absorptionFor(makeSession({ id: 'e', status: 'ended', lastAt: NOW - 3_600_000 }), settings, NOW)).toBe('none')
+  })
+
+  it('is releasing just past the delay (the fall plays), absorbed once the grace has passed', () => {
+    const releasedJustNow = makeSession({
+      id: 'r', status: 'ended', lastAt: NOW - 2 * 3_600_000 - 1_000,
+    })
+    expect(absorptionFor(releasedJustNow, settings, NOW)).toBe('releasing')
+    const releasedLongAgo = makeSession({
+      id: 'a', status: 'ended',
+      lastAt: NOW - 2 * 3_600_000 - RELEASE_FALL_GRACE_MS - 1_000,
+    })
+    expect(absorptionFor(releasedLongAgo, settings, NOW)).toBe('absorbed')
+  })
+
+  it('treats an ended session with no lastAt as long absorbed — no fall for ancient history', () => {
+    expect(absorptionFor(makeSession({ id: 'n', status: 'ended', lastAt: null }), settings, NOW)).toBe('absorbed')
+  })
+
+  it('never releases by time under the "never" preset', () => {
+    const ancient = makeSession({ id: 'x', status: 'ended', lastAt: NOW - 400 * DAY })
+    expect(absorptionFor(ancient, { map_release_ended_after_minutes: 'never' }, NOW)).toBe('none')
+  })
+
+  it('a manual dismissal releases immediately and absorbs after the grace, but never a working session', () => {
+    const dismissed = makeSession({ id: 'd', status: 'idle', mapDismissedAt: NOW - 1_000 })
+    expect(absorptionFor(dismissed, settings, NOW)).toBe('releasing')
+    const old = makeSession({
+      id: 'o', status: 'idle', mapDismissedAt: NOW - RELEASE_FALL_GRACE_MS - 1_000,
+    })
+    expect(absorptionFor(old, settings, NOW)).toBe('absorbed')
+    // A working session is on the map no matter what a stale stamp says.
+    const working = makeSession({ id: 'w', status: 'working', mapDismissedAt: NOW - DAY })
+    expect(absorptionFor(working, settings, NOW)).toBe('none')
+  })
+})
+
 describe('mapSessions (pure)', () => {
-  it('drops ended sessions past the age cutoff and keeps the ones inside it', () => {
+  it('drops absorbed ended sessions and keeps fresh + releasing ones', () => {
     const sessions: Record<string, ApiSession> = {
-      fresh: makeSession({ id: 'fresh', status: 'ended', lastAt: NOW - 2 * 3_600_000 }),
-      stale: makeSession({ id: 'stale', status: 'ended', lastAt: NOW - 3 * DAY }),
+      fresh: makeSession({ id: 'fresh', status: 'ended', lastAt: NOW - 3_600_000 }),
+      releasing: makeSession({ id: 'releasing', status: 'ended', lastAt: NOW - 2 * 3_600_000 - 1_000 }),
+      absorbed: makeSession({ id: 'absorbed', status: 'ended', lastAt: NOW - 3 * DAY }),
     }
     const state: OrbitalState = { ...initialSnapshot, sessions }
-    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['fresh'])
+    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['fresh', 'releasing'])
   })
 
   it('never drops a live session, however old its last message is', () => {
@@ -708,62 +763,40 @@ describe('mapSessions (pure)', () => {
     expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['i', 'n', 'w'])
   })
 
-  it('treats an ended session with no lastAt as older than any cutoff', () => {
+  it('drops a manually dismissed idle session once its fall grace has passed', () => {
     const sessions: Record<string, ApiSession> = {
-      nulled: makeSession({ id: 'nulled', status: 'ended', lastAt: null }),
+      gone: makeSession({
+        id: 'gone', status: 'idle', mapDismissedAt: NOW - RELEASE_FALL_GRACE_MS - 1_000,
+      }),
+      kept: makeSession({ id: 'kept', status: 'idle' }),
     }
     const state: OrbitalState = { ...initialSnapshot, sessions }
-    expect(mapSessions(state, NOW)).toEqual([])
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['kept'])
   })
 
-  it('applies no age cutoff at all under the "never" preset', () => {
+  it('applies no timed release at all under the "never" preset', () => {
     const sessions: Record<string, ApiSession> = {
       ancient: makeSession({ id: 'ancient', status: 'ended', lastAt: NOW - 400 * DAY }),
-      nulled: makeSession({ id: 'nulled', status: 'ended', lastAt: null }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      settings: { map_ended_max_age_days: 'never' },
+      settings: { map_release_ended_after_minutes: 'never' },
     }
-    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['ancient', 'nulled'])
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['ancient'])
   })
 
-  it('honours a configured cutoff other than the default', () => {
+  it('honours a configured delay other than the default', () => {
     const sessions: Record<string, ApiSession> = {
-      d3: makeSession({ id: 'd3', status: 'ended', lastAt: NOW - 3 * DAY }),
-      d10: makeSession({ id: 'd10', status: 'ended', lastAt: NOW - 10 * DAY }),
+      inside: makeSession({ id: 'inside', status: 'ended', lastAt: NOW - 20 * 60_000 }),
+      outside: makeSession({ id: 'outside', status: 'ended', lastAt: NOW - 40 * 60_000 }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      settings: { map_ended_max_age_days: '7' },
+      settings: { map_release_ended_after_minutes: '30' },
     }
-    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['d3'])
-  })
-
-  it('falls back to a one-day cutoff when the setting is absent', () => {
-    const sessions: Record<string, ApiSession> = {
-      inside: makeSession({ id: 'inside', status: 'ended', lastAt: NOW - 23 * 3_600_000 }),
-      outside: makeSession({ id: 'outside', status: 'ended', lastAt: NOW - 25 * 3_600_000 }),
-    }
-    const state: OrbitalState = { ...initialSnapshot, sessions }
     expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['inside'])
-  })
-
-  // `hideEnded` is a render flag, not a filter: the planets must stay in the
-  // model so `Planet` can fade them out (canvas 2a animates opacity/scale
-  // rather than removing them), and so toggling never reflows the layout.
-  it('ignores hideEnded — that is a render flag, not a filter', () => {
-    const sessions: Record<string, ApiSession> = {
-      e: makeSession({ id: 'e', status: 'ended', lastAt: NOW - 1_000 }),
-    }
-    const state: OrbitalState = {
-      ...initialSnapshot,
-      sessions,
-      ui: { ...initialSnapshot.ui, hideEnded: true },
-    }
-    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['e'])
   })
 
   it('composes with the tag filter rather than replacing it', () => {
@@ -826,86 +859,139 @@ describe('mapSessions (pure)', () => {
   })
 })
 
-describe('statusCounts and the ended cutoff', () => {
-  it('counts ended sessions inside the cutoff only', () => {
+describe('statusCounts and the timed release', () => {
+  it('counts ended sessions still on the map only', () => {
     const sessions: Record<string, ApiSession> = {
       fresh: makeSession({ id: 'fresh', status: 'ended', lastAt: NOW - 1_000 }),
-      stale: makeSession({ id: 'stale', status: 'ended', lastAt: NOW - 30 * DAY }),
+      absorbed: makeSession({ id: 'absorbed', status: 'ended', lastAt: NOW - 30 * DAY }),
       live: makeSession({ id: 'live', status: 'working' }),
     }
     const state: OrbitalState = { ...initialSnapshot, sessions }
     expect(statusCounts(state, NOW)).toEqual({ working: 1, idle: 0, needs_input: 0, ended: 1 })
   })
+})
 
-  // Canvas 2b: "the count reads as suppressed rather than zero. The ENDED
-  // number keeps counting; it is what you click to bring them back."
-  it('keeps counting ended sessions while hideEnded suppresses them', () => {
-    const sessions: Record<string, ApiSession> = {
-      a: makeSession({ id: 'a', status: 'ended', lastAt: NOW - 1_000 }),
-      b: makeSession({ id: 'b', status: 'ended', lastAt: NOW - 2_000 }),
+describe('setSessionDismissed', () => {
+  const session = () =>
+    makeSession({ id: 'sd', title: 'auth refactor', status: 'idle' })
+
+  beforeEach(() => {
+    useOrbital.setState({ sessions: { sd: session() }, order: ['sd'] })
+  })
+
+  it('stamps optimistically, saves, and raises the undo toast on success', async () => {
+    await useOrbital.getState().setSessionDismissed('sd', true)
+
+    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toEqual(expect.any(Number))
+    expect(api.setSessionDismissed).toHaveBeenCalledWith('sd', true)
+    const toast = useOrbital.getState().toast
+    expect(toast).toMatchObject({ kind: 'info' })
+    expect(toast?.message).toContain('auth refactor')
+    expect(toast?.action?.label).toBe('Undo')
+  })
+
+  it('the toast expires on its own after the undo window', async () => {
+    vi.useFakeTimers()
+    try {
+      await useOrbital.getState().setSessionDismissed('sd', true)
+      expect(useOrbital.getState().toast).not.toBeNull()
+      vi.advanceTimersByTime(10_000)
+      expect(useOrbital.getState().toast).toBeNull()
+    } finally {
+      vi.useRealTimers()
     }
-    const state: OrbitalState = {
-      ...initialSnapshot,
-      sessions,
-      ui: { ...initialSnapshot.ui, hideEnded: true },
-    }
-    expect(statusCounts(state, NOW).ended).toBe(2)
+  })
+
+  it('undo clears the stamp and saves the clear, without raising another toast', async () => {
+    await useOrbital.getState().setSessionDismissed('sd', true)
+    useOrbital.getState().clearToast()
+
+    await useOrbital.getState().setSessionDismissed('sd', false)
+
+    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toBeNull()
+    expect(api.setSessionDismissed).toHaveBeenLastCalledWith('sd', false)
+    expect(useOrbital.getState().toast).toBeNull()
+  })
+
+  it('puts the stamp back and reports when the save fails', async () => {
+    vi.mocked(api.setSessionDismissed).mockRejectedValue(new Error('dismissal server down'))
+
+    await useOrbital.getState().setSessionDismissed('sd', true)
+
+    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toBeNull()
+    expect(useOrbital.getState().toast).toEqual({
+      kind: 'error',
+      message: 'dismissal server down',
+    })
   })
 })
 
-describe('setHideEnded', () => {
-  it('toggles the map-only ended suppression', () => {
-    expect(useOrbital.getState().ui.hideEnded).toBe(false)
-    useOrbital.getState().setHideEnded(true)
-    expect(useOrbital.getState().ui.hideEnded).toBe(true)
-    useOrbital.getState().setHideEnded(false)
-    expect(useOrbital.getState().ui.hideEnded).toBe(false)
+describe('setTagAnchor', () => {
+  const workTag: Tag = { id: 1, name: 'work', hue: 210, is_default: 0, anchor_x: null, anchor_y: null }
+
+  beforeEach(() => {
+    useOrbital.setState({ tags: [workTag] })
   })
 
-  // The toggle has to survive a reload — see `map_hide_ended`.
-  it('saves the toggle, and flips the map before the save comes back', () => {
-    let resolveSave = (_: { ok: boolean }) => {}
-    vi.mocked(api.patchSettings).mockReturnValue(
-      new Promise((resolve) => {
-        resolveSave = resolve
-      })
-    )
+  it('moves the home optimistically and saves it', async () => {
+    await useOrbital.getState().setTagAnchor(1, { x: 40, y: -12 })
 
-    useOrbital.getState().setHideEnded(true)
-
-    expect(useOrbital.getState().ui.hideEnded).toBe(true)
-    expect(useOrbital.getState().settings.map_hide_ended).toBe('true')
-    expect(api.patchSettings).toHaveBeenCalledWith({ map_hide_ended: 'true' })
-    resolveSave({ ok: true })
+    const tag = useOrbital.getState().tags.find((t) => t.id === 1)
+    expect(tag).toMatchObject({ anchor_x: 40, anchor_y: -12 })
+    expect(api.patchTag).toHaveBeenCalledWith(1, { anchor_x: 40, anchor_y: -12 })
   })
 
-  it('does not save a toggle that changes nothing', () => {
-    useOrbital.getState().setHideEnded(false)
-    expect(api.patchSettings).not.toHaveBeenCalled()
+  it('clears the home with null (back to the automatic layout)', async () => {
+    await useOrbital.getState().setTagAnchor(1, { x: 40, y: -12 })
+    await useOrbital.getState().setTagAnchor(1, null)
+
+    const tag = useOrbital.getState().tags.find((t) => t.id === 1)
+    expect(tag).toMatchObject({ anchor_x: null, anchor_y: null })
+    expect(api.patchTag).toHaveBeenLastCalledWith(1, { anchor_x: null, anchor_y: null })
   })
 
-  it('puts the toggle back and reports when the save fails', async () => {
-    vi.mocked(api.patchSettings).mockRejectedValue(new Error('settings server down'))
+  it('puts the home back and reports when the save fails', async () => {
+    vi.mocked(api.patchTag).mockRejectedValue(new Error('anchors unreachable'))
 
-    useOrbital.getState().setHideEnded(true)
-    await vi.waitFor(() => expect(useOrbital.getState().ui.hideEnded).toBe(false))
+    await useOrbital.getState().setTagAnchor(1, { x: 40, y: -12 })
 
-    expect(useOrbital.getState().settings.map_hide_ended).toBe('false')
+    const tag = useOrbital.getState().tags.find((t) => t.id === 1)
+    expect(tag).toMatchObject({ anchor_x: null, anchor_y: null })
     expect(useOrbital.getState().toast).toEqual({
       kind: 'error',
-      message: 'settings server down',
+      message: 'anchors unreachable',
     })
   })
+})
 
-  it('loadInitial seeds the toggle from the saved setting', async () => {
-    vi.mocked(api.listSessions).mockResolvedValue([])
-    vi.mocked(api.listTags).mockResolvedValue([])
-    vi.mocked(api.listTagRules).mockResolvedValue([])
-    vi.mocked(api.getSettings).mockResolvedValue({ map_hide_ended: 'true' })
-
+describe('sessionsTotal — the hole label count', () => {
+  it('loadInitial fetches the index total', async () => {
+    vi.mocked(api.sessionCount).mockResolvedValue(47)
     await useOrbital.getState().loadInitial()
+    expect(useOrbital.getState().sessionsTotal).toBe(47)
+  })
 
-    expect(useOrbital.getState().ui.hideEnded).toBe(true)
+  it('survives a failed count probe as zero', async () => {
+    vi.mocked(api.sessionCount).mockRejectedValue(new Error('down'))
+    await useOrbital.getState().loadInitial()
+    expect(useOrbital.getState().sessionsTotal).toBe(0)
+  })
+
+  it('tracks upserts of unknown sessions and removals', () => {
+    useOrbital.setState({ sessionsTotal: 5 })
+    useOrbital.getState().applySessionsEvent({
+      event: 'upsert',
+      session: makeSession({ id: 'brand-new' }),
+    })
+    expect(useOrbital.getState().sessionsTotal).toBe(6)
+    // A re-upsert of a known session is not a new row.
+    useOrbital.getState().applySessionsEvent({
+      event: 'upsert',
+      session: makeSession({ id: 'brand-new', title: 'renamed' }),
+    })
+    expect(useOrbital.getState().sessionsTotal).toBe(6)
+    useOrbital.getState().applySessionsEvent({ event: 'remove', sessionId: 'brand-new' })
+    expect(useOrbital.getState().sessionsTotal).toBe(5)
   })
 })
 
