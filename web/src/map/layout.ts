@@ -125,7 +125,8 @@ export function clusterSessions(sessions: ApiSession[], tags: Tag[]): Cluster[] 
 
 // --- layoutClusters ---------------------------------------------------------
 
-function scaleFor(session: ApiSession): number {
+/** Exported for the `/sandbox` workbench, which replays the tier change on a lone planet. */
+export function scaleFor(session: ApiSession): number {
   if (session.status === 'ended') return ENDED_SCALE
   if (session.status === 'idle') return IDLE_SCALE
   return ACTIVE_SCALE

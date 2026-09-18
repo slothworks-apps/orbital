@@ -1,11 +1,12 @@
 ---
 id: planets-shrink-slower-than-the-map
 title: Planets should shrink more slowly than the map does when zooming out
-status: backlog
+status: done
 type: idea
 domain: web
 related:
   - map-ended-declutter
+  - counter-zoom-inflates-the-whole-moon-system
 tags:
   - space-map
   - camera

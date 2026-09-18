@@ -1,7 +1,7 @@
 ---
 id: new-session-shortcut-moves-to-option-n
 title: Move the new-session shortcut off ⌘N, which the browser keeps for itself
-status: backlog
+status: done
 type: idea
 domain: web
 related:

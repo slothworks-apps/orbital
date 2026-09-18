@@ -466,6 +466,65 @@ describe('Tag Rules API', () => {
   })
 })
 
+describe('Errors API', () => {
+  it('omits Content-Type on body-less requests so Fastify does not reject the empty body', async () => {
+    // Fastify parses the body of any request that declares a content type, and
+    // answers a declared-but-empty JSON body with 400 FST_ERR_CTP_EMPTY_JSON_BODY
+    // — which is exactly what made "Clear all" silently do nothing.
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, unseen: 0 }), { status: 200 })
+    )
+
+    await api.clearErrors()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const options = fetchMock.mock.calls[0][1] as RequestInit
+    expect(options.method).toBe('DELETE')
+    expect(options.body).toBeUndefined()
+    expect(options.headers).not.toHaveProperty('Content-Type')
+  })
+
+  it('still declares JSON on requests that do carry a body', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, unseen: 0 }), { status: 200 })
+    )
+
+    await api.markErrorsSeen('all')
+
+    const options = fetchMock.mock.calls[0][1] as RequestInit
+    expect(options.headers).toHaveProperty('Content-Type', 'application/json')
+    expect(options.body).toBe(JSON.stringify({ all: true }))
+  })
+
+  it('stamps web reports with a dev flag in dev builds, so HMR-era errors read apart from real ones', async () => {
+    // Vitest runs with import.meta.env.DEV === true, which is the branch that
+    // must stamp. A production build simply leaves the context untouched.
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: {}, unseen: 1 }), { status: 200 })
+    )
+
+    await api.reportErrorToServer({
+      kind: 'render_crash',
+      message: 'boom',
+      context: { label: 'Space map' },
+    })
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.context).toEqual({ label: 'Space map', dev: true })
+  })
+
+  it('creates a context for the dev flag when the report carries none', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: {}, unseen: 1 }), { status: 200 })
+    )
+
+    await api.reportErrorToServer({ kind: 'api_request', message: 'boom' })
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.context).toEqual({ dev: true })
+  })
+})
+
 describe('Projects API', () => {
   it('listProjects should unwrap and return projects array of strings', async () => {
     const projects = ['/home/user/project1', '/home/user/project2']

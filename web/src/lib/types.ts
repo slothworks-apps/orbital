@@ -32,6 +32,32 @@ export interface ChatMessage {
   timestamp?: string;
   /** Resolved model that produced this assistant message. */
   model?: string;
+  /**
+   * A user turn's machine wrapping (slash-command expansion, system
+   * reminders), split off server-side so `text` is only what the human
+   * typed. Folded behind a chip in `MessageView` (spec:
+   * 2026-09-18-transcript-folding-design).
+   */
+  command?: { name: string | null; body: string; blocks: number };
+  /** tool_result only: the block carried `is_error: true`. */
+  isError?: boolean;
+  /** Images this message carries — refs into the server's image store
+   * (`GET /api/images/<ref>`), never bytes. Mirrors `server/src/types.ts`.
+   * Spec: 2026-09-18-transcript-images-design. */
+  images?: ImageRefEntry[];
+}
+
+/**
+ * One stored transcript image: a pointer the browser turns into an
+ * `<img src="/api/images/<ref>">`. `w`/`h` are the stored pixel size so the
+ * box can be reserved before decode; null when the server couldn't sniff
+ * them.
+ */
+export interface ImageRefEntry {
+  ref: string;
+  w: number | null;
+  h: number | null;
+  bytes: number;
 }
 
 /** One model as every Orbital surface consumes it. Duplicated from the

@@ -116,6 +116,43 @@ describe('ErrorLog', () => {
     expect(copied).toContain('the stack')
   })
 
+  it('marks a record stamped by a dev build with the DEV chip, so it reads apart from real errors', () => {
+    // Canvas 5c: a dev record carries a dashed DEV chip and drops to muted
+    // ink; a real error never shows the chip.
+    resetStore([
+      makeError({ id: 2, seenAt: 1, message: 'from a dev rebuild', context: { dev: true } }),
+      makeError({ id: 1, seenAt: 1, message: 'a real one' }),
+    ])
+
+    render(<ErrorLog open onClose={() => {}} />)
+
+    const rows = within(screen.getByRole('list', { name: /recorded errors/i })).getAllByRole(
+      'listitem',
+    )
+    expect(within(rows[0]).getByText('DEV')).toBeInTheDocument()
+    expect(within(rows[1]).queryByText('DEV')).not.toBeInTheDocument()
+  })
+
+  it('spells the kind out in uppercase without the underscore (canvas 5b)', () => {
+    resetStore([makeError({ id: 1, seenAt: 1, kind: 'render_crash' })])
+
+    render(<ErrorLog open onClose={() => {}} />)
+
+    expect(screen.getByText('RENDER CRASH')).toBeInTheDocument()
+  })
+
+  it('counts its entries in the header and reports how many unseen it just cleared', async () => {
+    resetStore(
+      [makeError({ id: 2 }), makeError({ id: 1, seenAt: 1 })],
+      1,
+    )
+
+    render(<ErrorLog open onClose={() => {}} />)
+
+    await waitFor(() => expect(api.markErrorsSeen).toHaveBeenCalledWith([2]))
+    expect(await screen.findByText('2 entries · 1 unseen cleared')).toBeInTheDocument()
+  })
+
   it('clears the whole log from its Clear all button', async () => {
     const user = userEvent.setup()
     resetStore([makeError({ id: 1, seenAt: 1 })])

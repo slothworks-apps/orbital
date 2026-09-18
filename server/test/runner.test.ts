@@ -551,6 +551,60 @@ describe('Runner', () => {
     );
     expect(msgs[0].model).toBe('claude-opus-5');
   });
+
+  it('sdkToChatMessages: stores live image blocks and emits refs, never base64', () => {
+    const puts: string[] = [];
+    const store = {
+      put: (mediaType: string, base64: string) => {
+        puts.push(base64);
+        return { ref: `${'0'.repeat(63)}1.png`, w: 10, h: 20, bytes: 5 };
+      },
+    };
+    const imageBlock = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'LIVEB64' } };
+    const nextSeq = (() => { let n = 0; return () => ++n; })();
+
+    const userMsgs = sdkToChatMessages(
+      { type: 'user', session_id: 's', message: { role: 'user', content: [imageBlock] } },
+      nextSeq, store,
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0]).toMatchObject({ role: 'user', images: [{ ref: `${'0'.repeat(63)}1.png`, w: 10, h: 20 }] });
+
+    const resultMsgs = sdkToChatMessages(
+      {
+        type: 'user', session_id: 's',
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: [{ type: 'text', text: 'shot' }, imageBlock] }] },
+      },
+      nextSeq, store,
+    );
+    expect(resultMsgs[0]).toMatchObject({ role: 'tool_result', text: 'shot' });
+    expect(resultMsgs[0].images).toHaveLength(1);
+    expect(JSON.stringify([userMsgs, resultMsgs])).not.toContain('LIVEB64');
+    expect(puts).toEqual(['LIVEB64', 'LIVEB64']);
+  });
+
+  it('splits a live user turn\'s command expansion, same as the indexed path', () => {
+    const msgs = sdkToChatMessages(
+      {
+        type: 'user', session_id: 's',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'go <command-name>/commit</command-name><command-contents>body</command-contents>' }],
+        },
+      },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    expect(msgs[0]).toMatchObject({ role: 'user', text: 'go' });
+    expect(msgs[0].command).toMatchObject({ name: '/commit', blocks: 2 });
+  });
+
+  it('marks a live failed tool_result with isError', () => {
+    const msgs = sdkToChatMessages(
+      { type: 'user', session_id: 's', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'boom', is_error: true }] } },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    expect(msgs[0].isError).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

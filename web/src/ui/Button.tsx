@@ -9,7 +9,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'warning-outline'
     | 'accent-outline'
     | 'cta'
-  size?: 'sm' | 'md' | 'lg'
+    | 'pill'
+    | 'pill-active'
+    | 'pill-muted'
+  size?: 'sm' | 'md' | 'lg' | 'pill'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -36,6 +39,13 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // planet rather than over empty space. Same colours, opaque — and with the
   // fill solid the blur has nothing left to blur, so it goes too.
   cta: 'bg-gradient-to-b from-[#141c2e] to-[#0a0e1a] border border-accent/45 text-text-bright font-semibold shadow-[0_0_24px_rgba(89,228,243,.2),0_12px_30px_rgba(0,0,0,.5)] hover:border-accent/70',
+  // The error log's row actions (canvas 5b/5c): hairline pills whose active
+  // state ("Hide detail") lights the fill, and a muted rank for dev records.
+  pill: 'bg-transparent text-[rgba(220,235,255,.8)] font-semibold border border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.3)] hover:bg-white/5',
+  'pill-active':
+    'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)]',
+  'pill-muted':
+    'bg-transparent text-[rgba(190,212,238,.6)] font-semibold border border-[rgba(150,205,255,.1)] hover:bg-white/5',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -44,6 +54,8 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   sm: 'px-3.5 py-[7px] text-xs',
   md: 'px-3.5 py-1.5 text-sm',
   lg: 'px-[18px] py-[9px] text-[13px]',
+  // 5b's row pills: 4px/10px at 11px.
+  pill: 'px-2.5 py-1 text-[11px]',
 }
 
 export function Button({
@@ -58,7 +70,11 @@ export function Button({
   // they appear in `class`, so a variant and a size both naming a radius
   // would pick a winner arbitrarily.
   const rounding =
-    variant === 'cta' ? 'rounded-full' : size === 'sm' ? 'rounded-[7px]' : 'rounded-lg'
+    variant === 'cta' || variant.startsWith('pill')
+      ? 'rounded-full'
+      : size === 'sm'
+        ? 'rounded-[7px]'
+        : 'rounded-lg'
 
   return (
     <button

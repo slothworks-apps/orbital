@@ -31,16 +31,20 @@ async function request<T>(
   url: string,
   body?: unknown
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
+  const headers: Record<string, string> = {}
 
   const options: RequestInit = {
     method,
     headers,
   }
 
+  // Only a request that carries a body declares a content type. Fastify
+  // parses the body of ANY request that declares one, and answers a
+  // declared-but-empty JSON body with 400 FST_ERR_CTP_EMPTY_JSON_BODY —
+  // which silently broke every body-less DELETE/POST here (clearErrors,
+  // interrupt, deleteTag, deleteTagRule).
   if (body !== undefined) {
+    headers['Content-Type'] = 'application/json'
     options.body = JSON.stringify(body)
   }
 
@@ -240,7 +244,15 @@ export const api = {
     context?: Record<string, unknown> | null
     sessionId?: string | null
   }): Promise<{ error: ErrorRecord; unseen: number }> {
-    return request<{ error: ErrorRecord; unseen: number }>('POST', '/api/errors', body)
+    // A dev build stamps every report it makes: HMR of a half-written file
+    // throws errors no built app ever would, and the log has to keep them
+    // tellable from real ones after the fact. Stamped here — the one door
+    // every web report goes through — not at each call site.
+    const context = import.meta.env.DEV ? { ...body.context, dev: true } : body.context
+    return request<{ error: ErrorRecord; unseen: number }>('POST', '/api/errors', {
+      ...body,
+      context,
+    })
   },
 
   async markErrorsSeen(target: number[] | 'all'): Promise<{ ok: true; unseen: number }> {

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { act, render } from '@testing-library/react'
+import { beforeAll, describe, it, expect } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import { buildSceneModel, type SceneModel } from '../map/sceneModel'
@@ -7,6 +7,7 @@ import { useSceneModel } from '../map/useSceneModel'
 import {
   applyPan,
   applyZoom,
+  bodyZoomFactor,
   centerOn,
   clampZoom,
   fitView,
@@ -458,6 +459,31 @@ describe('clampZoom', () => {
   })
 })
 
+describe('bodyZoomFactor', () => {
+  it('is exactly 1 at the reference zoom (60) and above — the close-up view never changes', () => {
+    expect(bodyZoomFactor(60)).toBe(1)
+    expect(bodyZoomFactor(120)).toBe(1)
+    expect(bodyZoomFactor(MAX_ZOOM)).toBe(1)
+  })
+
+  it('follows (60/zoom)^0.5 in the open range — √2 at half the reference zoom', () => {
+    expect(bodyZoomFactor(30)).toBeCloseTo(Math.SQRT2, 10)
+  })
+
+  it('clamps at the cap near MIN_ZOOM, where the raw curve would exceed it', () => {
+    // (60/20)^0.5 ≈ 1.732 — the cap catches the bottom of the range.
+    expect(bodyZoomFactor(MIN_ZOOM)).toBe(1.7)
+  })
+
+  it('is monotonically non-increasing in zoom', () => {
+    const zooms = [MIN_ZOOM, 25, 30, 40, 50, 60, 100, MAX_ZOOM]
+    const factors = zooms.map(bodyZoomFactor)
+    for (let i = 1; i < factors.length; i++) {
+      expect(factors[i]).toBeLessThanOrEqual(factors[i - 1])
+    }
+  })
+})
+
 describe('applyPan', () => {
   it('moves the camera opposite to drag X, and same-sign to drag Y (screen Y inverted vs world Y)', () => {
     const cam = { x: 0, y: 0, zoom: 60 }
@@ -771,5 +797,71 @@ describe('useSceneModel', () => {
     const last = seen[seen.length - 1]
     expect(last).not.toBe(first)
     expect(last.planets).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Overlays track the live detail-panel width (drag handle)
+// ---------------------------------------------------------------------------
+
+describe('SpaceMap overlays and the live panel width', () => {
+  // R3F's <Canvas> measures itself via react-use-measure, which needs
+  // ResizeObserver — jsdom has none. Same scoped polyfill as app.test.tsx.
+  beforeAll(() => {
+    class NoopObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    global.ResizeObserver = NoopObserver
+  })
+
+  // `ui` is itself partial — the calls below override a single flag, and the
+  // rest is filled from `defaultUi` in the setState spread.
+  async function renderMap(
+    overrides: Partial<Omit<OrbitalState, 'ui'>> & { ui?: Partial<OrbitalUiState> } = {},
+  ) {
+    useOrbital.setState({
+      sessions: { a: makeSession({ id: 'a', tagIds: [1], lastAt: Date.now() }) },
+      order: ['a'],
+      tags: [workTag, personalTag, defaultTag],
+      rules: [],
+      settings: {},
+      transcripts: {},
+      usage: {},
+      historyLoaded: {},
+      toast: null,
+      ...overrides,
+      ui: { ...defaultUi, selectedId: 'a', ...(overrides.ui ?? {}) },
+    })
+    const { SpaceMap } = await import('../map/SpaceMap')
+    return render(<SpaceMap />)
+  }
+
+  it('offsets the aggregate readout and the zoom stack by the stored panel width', async () => {
+    await renderMap({ settings: { detail_panel_width: '600' } })
+
+    // 600px panel + 16px inset + 24px gap. The positioned element is the
+    // zoom COLUMN (errors trigger + joined stack), not the stack itself.
+    const zoomStack = screen
+      .getByRole('button', { name: 'Zoom in' })
+      .closest('[data-overlay="zoom-column"]') as HTMLElement
+    expect(zoomStack.style.right).toBe('640px')
+    const readout = screen.getByText(/ENDED/).closest('[data-overlay="aggregate"]') as HTMLElement
+    expect(readout.style.right).toBe('640px')
+  })
+
+  it('falls back to the 24px edge inset when nothing is selected', async () => {
+    await renderMap({ ui: { selectedId: null } })
+    const zoomStack = screen
+      .getByRole('button', { name: 'Zoom in' })
+      .closest('[data-overlay="zoom-column"]') as HTMLElement
+    expect(zoomStack.style.right).toBe('24px')
+  })
+
+  it('drops the right transition while the panel is being resized', async () => {
+    await renderMap({ ui: { resizingPanel: true } })
+    const zoomStack = screen.getByRole('button', { name: 'Zoom in' }).parentElement as HTMLElement
+    expect(zoomStack.className).not.toMatch(/transition-\[right\]/)
   })
 })

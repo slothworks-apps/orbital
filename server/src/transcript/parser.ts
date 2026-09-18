@@ -1,4 +1,5 @@
-import type { ChatMessage } from '../types.js';
+import type { ChatMessage, ImageRefEntry } from '../types.js';
+import type { ImageStore } from '../images/store.js';
 
 export interface TranscriptEntry {
   type: string;
@@ -44,6 +45,50 @@ function textOf(content: string | Array<Record<string, unknown>>): string {
 // may be missing when the block runs to the end of the message.
 const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents)>[\s\S]*?(<\/\1>|$)/g;
 
+/**
+ * The command-expansion fold (spec: 2026-09-18-transcript-folding-design).
+ * A user turn wrapped in the CLI's machine tags splits into what the human
+ * actually typed (everything outside the tags, whitespace preserved, then
+ * trimmed) and the machinery itself — name from `<command-name>` verbatim
+ * including the slash, `body` the raw tag blocks joined in order (nothing
+ * is thrown away; "expanded" in the UI renders this), `blocks` how many
+ * there were (the "machine context ×3" chip label). No tags → no command.
+ */
+export function splitUserText(text: string): {
+  text: string;
+  command?: { name: string | null; body: string; blocks: number };
+} {
+  const matches = [...text.matchAll(NOISE_BLOCK)];
+  if (matches.length === 0) return { text };
+  const name = /<command-name>([^<\n]+)<\/command-name>/.exec(text)?.[1]?.trim() ?? null;
+  return {
+    // Plain removal + trim, NOT the title path's whitespace collapse — a
+    // human paragraph with a reminder appended must keep its newlines.
+    text: text.replace(NOISE_BLOCK, '').trim(),
+    command: { name, body: matches.map((m) => m[0]).join('\n'), blocks: matches.length },
+  };
+}
+
+/** Longest stored session title, ellipsis included. */
+export const TITLE_MAX_CHARS = 120;
+
+/**
+ * Cap a derived title at TITLE_MAX_CHARS, breaking at a word boundary and
+ * appending an ellipsis — so wherever the full stored title is shown (the
+ * map label's hover expansion, the detail panel) the cut stays visible
+ * instead of ending mid-word as if that were the whole prompt. A boundary
+ * in the first half of the budget would keep a useless stub ("Look at…"
+ * for a prompt that opens with a long URL), so those hard-cut mid-word
+ * and let the ellipsis carry the message alone.
+ */
+export function truncateTitle(text: string): string {
+  if (text.length <= TITLE_MAX_CHARS) return text;
+  const slice = text.slice(0, TITLE_MAX_CHARS - 1);
+  const boundary = slice.lastIndexOf(' ');
+  const keep = boundary >= TITLE_MAX_CHARS / 2 ? slice.slice(0, boundary) : slice;
+  return `${keep.trimEnd()}…`;
+}
+
 export function cleanTitle(text: string): string {
   const commandName = /<command-name>([^<\n]+)<\/command-name>/.exec(text)?.[1]?.trim();
   const commandArgs = /<command-args>([^<\n]*)/.exec(text)?.[1]?.trim();
@@ -86,7 +131,7 @@ export function extractMeta(entries: TranscriptEntry[]) {
       lastAt = t;
     }
     if (!title && e.type === 'user' && e.message) {
-      const text = cleanTitle(textOf(e.message.content)).slice(0, 120);
+      const text = truncateTitle(cleanTitle(textOf(e.message.content)));
       if (!text) continue;
       // Skip past a leading `/clear` (or any other bare command) to the first
       // turn that actually describes the work.
@@ -100,7 +145,54 @@ export function extractMeta(entries: TranscriptEntry[]) {
   return { cwd, title: title || fallbackTitle, firstAt, lastAt, messageCount, model };
 }
 
-export function entriesToMessages(entries: TranscriptEntry[]): ChatMessage[] {
+/**
+ * Decode one transcript `image` block into the content-addressed store and
+ * return its wire entry — or null (no store, or an unusable block), in
+ * which case the block drops, which was the behaviour before images
+ * existed on the wire at all (spec: 2026-09-18-transcript-images-design).
+ */
+export function imageRefOf(
+  block: Record<string, unknown>,
+  images?: ImageStore,
+): ImageRefEntry | null {
+  if (!images) return null;
+  const source = block.source as Record<string, unknown> | undefined;
+  if (!source || source.type !== 'base64') return null;
+  if (typeof source.media_type !== 'string' || typeof source.data !== 'string') return null;
+  return images.put(source.media_type, source.data);
+}
+
+/**
+ * A tool_result's `content` split for the wire: text blocks joined, image
+ * blocks stored and turned into refs. `JSON.stringify` survives only as
+ * the fallback for an array carrying neither — stringifying an image
+ * block put megabytes of base64 into a `<pre>`, which is the bug this
+ * exists to fix.
+ */
+export function toolResultParts(
+  content: unknown,
+  images?: ImageStore,
+): { text: string; images: ImageRefEntry[] } {
+  if (typeof content === 'string') return { text: content, images: [] };
+  if (!Array.isArray(content)) return { text: JSON.stringify(content), images: [] };
+  const texts: string[] = [];
+  const refs: ImageRefEntry[] = [];
+  let known = false;
+  for (const block of content) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      texts.push(block.text);
+      known = true;
+    } else if (block?.type === 'image') {
+      known = true;
+      const entry = imageRefOf(block, images);
+      if (entry) refs.push(entry);
+    }
+  }
+  if (!known) return { text: JSON.stringify(content), images: [] };
+  return { text: texts.join('\n'), images: refs };
+}
+
+export function entriesToMessages(entries: TranscriptEntry[], images?: ImageStore): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const e of entries) {
     if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || e.isSidechain) continue;
@@ -110,25 +202,49 @@ export function entriesToMessages(entries: TranscriptEntry[]): ChatMessage[] {
         : { timestamp: e.timestamp };
     const content = e.message.content;
     if (typeof content === 'string') {
-      out.push({ id: `${e.uuid}:0`, role: e.type, text: content, ...base });
+      if (e.type === 'user') {
+        const split = splitUserText(content);
+        out.push({
+          id: `${e.uuid}:0`, role: 'user', text: split.text,
+          ...(split.command ? { command: split.command } : {}), ...base,
+        });
+      } else {
+        out.push({ id: `${e.uuid}:0`, role: e.type, text: content, ...base });
+      }
       continue;
     }
     if (!Array.isArray(content)) continue;
     content.forEach((block, i) => {
       const id = `${e.uuid}:${i}`;
       if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-        out.push({ id, role: e.type as 'user' | 'assistant', text: block.text, ...base });
+        if (e.type === 'user') {
+          const split = splitUserText(block.text);
+          out.push({
+            id, role: 'user', text: split.text,
+            ...(split.command ? { command: split.command } : {}), ...base,
+          });
+        } else {
+          out.push({ id, role: 'assistant', text: block.text, ...base });
+        }
       } else if (block.type === 'tool_use') {
         out.push({
           id, role: 'tool_use', toolName: String(block.name ?? ''),
           toolInput: block.input, toolUseId: String(block.id ?? ''), ...base,
         });
       } else if (block.type === 'tool_result') {
+        const parts = toolResultParts(block.content, images);
         out.push({
           id, role: 'tool_result', toolUseId: String(block.tool_use_id ?? ''),
-          text: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+          text: parts.text,
+          ...(parts.images.length ? { images: parts.images } : {}),
+          ...(block.is_error === true ? { isError: true } : {}),
           ...base,
         });
+      } else if (block.type === 'image') {
+        const entry = imageRefOf(block as Record<string, unknown>, images);
+        // The loop's top guard narrowed e.type, but TS loses it in the
+        // forEach closure.
+        if (entry) out.push({ id, role: e.type as 'user' | 'assistant', images: [entry], ...base });
       }
     });
   }

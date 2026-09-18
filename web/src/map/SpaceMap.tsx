@@ -3,7 +3,8 @@ import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent }
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import type { Group, OrthographicCamera } from 'three'
-import { useOrbital } from '../store/store'
+import { useOrbital, parsePlanetScale, parseDetailPanelWidth } from '../store/store'
+import { labelFontPx } from './visuals'
 import { Button } from '../ui/Button'
 import { Planet } from './Planet'
 import { Moon } from './Moon'
@@ -53,10 +54,11 @@ const SLOTH_TOP_PERCENT = (640 / 900) * 100
 
 /**
  * Map width the panels sit on, in CSS pixels — what `centerOn` keeps the
- * followed planet clear of. The detail panel is 450px inset by 16px (1b); the
- * sidebar is 340px open and 96px collapsed (1a).
+ * followed planet clear of. The detail panel's width is live (drag handle,
+ * `detail_panel_width`) plus its 16px inset (1b); the sidebar is 340px open
+ * and 96px collapsed (1a).
  */
-const DETAIL_PANEL_PX = 450 + 16
+const DETAIL_PANEL_GUTTER_PX = 16
 const SIDEBAR_OPEN_PX = 340
 const SIDEBAR_COLLAPSED_PX = 96
 
@@ -209,9 +211,29 @@ export function SpaceMap() {
   const model = useSceneModel()
   const select = useOrbital((s) => s.select)
   const setDialog = useOrbital((s) => s.setDialog)
+  // Appearance → default planet size (canvas 5a). Premultiplied into each
+  // planet's `scale` prop at the call site below, so `sceneModel`/`layout`
+  // never see it — orbit radii and cluster spacing stay put by design.
+  const planetScale = useOrbital((s) => parsePlanetScale(s.settings))
+  const scaleLabels = useOrbital((s) => s.settings.map_scale_labels === 'true')
+  const labelFont = labelFontPx(planetScale, scaleLabels)
+  // Live panel width for the follow inset and the right-anchored overlays —
+  // the drag handle moves it, and while it is held (`resizingPanel`) the
+  // overlays drop their transition so they track the pointer with the panel.
+  const detailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, window.innerWidth))
+  const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
   const hideEnded = useOrbital((s) => s.ui.hideEnded)
+  const errorsUnseen = useOrbital((s) => s.errorsUnseen)
+  const errorLogOpen = useOrbital((s) => s.ui.dialog === 'errors')
+  // 24px clear of the open panel and its 16px inset; the export's own edge
+  // inset (right:24px) when nothing is selected. No transition while the
+  // drag handle is held — the overlays track the pointer with the panel.
+  const overlayRightPx = selectedId ? detailPanelWidth + DETAIL_PANEL_GUTTER_PX + 24 : 24
+  const overlayTransition = resizingPanel
+    ? ''
+    : 'transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]'
   const setHideEnded = useOrbital((s) => s.setHideEnded)
 
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
@@ -338,18 +360,23 @@ export function SpaceMap() {
     const target = centerOn(cam, { x: followedX, y: followedY }, {
       left: sidebarCollapsed ? SIDEBAR_COLLAPSED_PX : SIDEBAR_OPEN_PX,
       // The panel is open whenever something is selected, and something is
-      // selected whenever there is a planet to follow.
-      right: DETAIL_PANEL_PX,
+      // selected whenever there is a planet to follow. Its width is live —
+      // a dragged-wider panel must keep the followed planet clear of it.
+      right: detailPanelWidth + DETAIL_PANEL_GUTTER_PX,
     })
     panTo({ x: cam.x, y: cam.y }, { x: target.x, y: target.y })
-  }, [followedId, followedX, followedY, panTo, sidebarCollapsed])
+  }, [followedId, followedX, followedY, panTo, sidebarCollapsed, detailPanelWidth])
 
-  // ⌘N / Ctrl+N opens the new-session dialog, matching the floating
-  // button's shortcut hint — but not while the user is typing somewhere
-  // (a search box, a dialog field), where "n" is just a letter.
+  // ⌥N / Alt+N opens the new-session dialog, matching the floating
+  // button's shortcut hint. Not ⌘N: browsers reserve that for a new window
+  // at the application level, so the page never sees it. Matched on e.code
+  // because on a US layout ⌥N is the dead key for a combining tilde and
+  // e.key arrives as '˜' — the physical key is what is meant. Ignored while
+  // the user is typing somewhere (a search box, a dialog field), where ⌥N
+  // is a character someone may genuinely be entering.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'n') return
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.code !== 'KeyN') return
       if (isTypingTarget(e.target)) return
       e.preventDefault()
       setDialog('new')
@@ -388,7 +415,14 @@ export function SpaceMap() {
       onWheel={handleWheel}
     >
       <SpaceBackdrop />
-      <Canvas orthographic camera={{ zoom: INITIAL_CAMERA.zoom, position: [0, 0, 100] }}>
+      {/* `flat` is R3F's name for `NoToneMapping`. Without it R3F defaults the
+          renderer to ACES Filmic, whose signature — saturated bright colours
+          desaturating near the top of the range — greyed out every hue the
+          canvas specifies (the export is plain CSS in a browser, tone-mapped
+          by nothing). See `docs/fixes/aces-tone-mapping-desaturates-the-map.md`.
+          Do NOT add `linear` alongside it: that switches the output colour
+          space, and the oklch → linear-sRGB path is already correct. */}
+      <Canvas flat orthographic camera={{ zoom: INITIAL_CAMERA.zoom, position: [0, 0, 100] }}>
         <CameraRig camera={camera} />
         <ambientLight intensity={0.6} />
 
@@ -399,10 +433,15 @@ export function SpaceMap() {
             hue={planet.hue}
             x={planet.x}
             y={planet.y}
+            // Split, not premultiplied: the tier half tweens on a state
+            // change, the slider half must track a drag 1:1 (see PlanetProps).
             scale={planet.scale}
+            scaleMultiplier={planetScale}
             selected={planet.selected}
             hidden={planet.hidden}
             modelFamily={planet.modelFamily}
+            labelTitlePx={labelFont.title}
+            labelFamilyPx={labelFont.family}
             onClick={handleSelect}
           />
         ))}
@@ -416,6 +455,7 @@ export function SpaceMap() {
             parentY={moon.parentY}
             orbitRadius={moon.orbitRadius}
             phase={moon.phase}
+            bodyScale={planetScale}
           />
         ))}
 
@@ -437,11 +477,14 @@ export function SpaceMap() {
             slides in over the top of it. The row stays `pointer-events-none`
             so only the button itself is hittable. */}
         <div
+          data-overlay="aggregate"
           className={[
             'pointer-events-none absolute top-6 flex flex-col items-end gap-2',
-            'transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
-            selectedId ? 'right-[490px]' : 'right-6',
-          ].join(' ')}
+            overlayTransition,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={{ right: overlayRightPx }}
         >
           <div className="flex items-center gap-2 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
             <span>{aggregateLine}</span>
@@ -506,38 +549,82 @@ export function SpaceMap() {
           {zoomPercent}% · x {camX} y {camY}
         </div>
 
-        {/* Joined zoom stack per artboard 1a (right:24px); 1b moves it to
-            right:490px — 24px clear of the 450px detail panel's own 16px inset. */}
+        {/* Zoom column per artboard 1a (right:24px); an open panel moves it
+            24px clear of the panel's live width + 16px inset. The errors
+            trigger rides on top of the joined zoom stack so the whole column
+            tracks the panel as one. */}
         <div
+          data-overlay="zoom-column"
           className={[
-            'pointer-events-auto absolute bottom-6 flex flex-col overflow-hidden rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,14,24,.7)] backdrop-blur-[16px] transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
-            selectedId ? 'right-[490px]' : 'right-6',
-          ].join(' ')}
+            'pointer-events-auto absolute bottom-6 flex flex-col items-stretch gap-2',
+            overlayTransition,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={{ right: overlayRightPx }}
         >
+          {/* The one always-there way into the error log — canvas 5a/5c.
+              Same shell as the zoom stack, 8px above it, never joined to it.
+              Nothing unseen → the glyph drops to muted ink and the badge is
+              absent; open → accent frame and ring. The badge red is
+              oklch(60% .2 25), precomputed to #de3b3d, and is the only red
+              on the map. */}
           <button
             type="button"
-            aria-label="Zoom in"
-            onClick={zoomIn}
-            className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] text-base text-text-bright hover:bg-white/5"
+            aria-label={errorsUnseen > 0 ? `Error log — ${errorsUnseen} unseen` : 'Error log'}
+            title="Error log"
+            onClick={() => setDialog('errors')}
+            className={[
+              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-[rgba(10,14,24,.7)] text-base font-bold leading-none backdrop-blur-[16px] transition-colors',
+              errorLogOpen
+                ? 'border-accent/50 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
+                : [
+                    'border-[rgba(150,205,255,.16)] hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.1)] hover:text-white',
+                    errorsUnseen > 0 ? 'text-text-bright' : 'text-[rgba(200,220,245,.6)]',
+                  ].join(' '),
+            ].join(' ')}
           >
-            +
+            <span aria-hidden>!</span>
+            {errorsUnseen > 0 && (
+              <span
+                aria-hidden
+                className={[
+                  'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-[rgba(2,4,9,.8)] bg-[#de3b3d] font-mono text-[9.5px] font-medium tracking-[0.02em] text-white',
+                  // The wider 99+ badge hangs 4px further out (5c).
+                  errorsUnseen > 99 ? '-right-2.5 px-[5px]' : '-right-1.5 px-1',
+                ].join(' ')}
+              >
+                {errorsUnseen > 99 ? '99+' : errorsUnseen}
+              </span>
+            )}
           </button>
-          <button
-            type="button"
-            aria-label="Zoom out"
-            onClick={zoomOut}
-            className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] text-base text-text-bright hover:bg-white/5"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            aria-label="Fit view"
-            onClick={handleFit}
-            className="grid h-[34px] w-[34px] place-items-center text-sm text-text-bright hover:bg-white/5"
-          >
-            ⌖
-          </button>
+
+          <div className="flex flex-col overflow-hidden rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,14,24,.7)] backdrop-blur-[16px]">
+            <button
+              type="button"
+              aria-label="Zoom in"
+              onClick={zoomIn}
+              className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] text-base text-text-bright hover:bg-white/5"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom out"
+              onClick={zoomOut}
+              className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] text-base text-text-bright hover:bg-white/5"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              aria-label="Fit view"
+              onClick={handleFit}
+              className="grid h-[34px] w-[34px] place-items-center text-sm text-text-bright hover:bg-white/5"
+            >
+              ⌖
+            </button>
+          </div>
         </div>
 
         <Button
@@ -549,7 +636,7 @@ export function SpaceMap() {
           <span aria-hidden className="text-base leading-none text-accent">+</span>
           New session
           <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(200,220,245,.7)]">
-            ⌘N
+            ⌥N
           </span>
         </Button>
 

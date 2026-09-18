@@ -1060,3 +1060,69 @@ describe('DetailPanel stop flow', () => {
     expect(api.interrupt).not.toHaveBeenCalledWith('b')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Resizable width (docs/ideas/resizable-detail-panel.md)
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel — resizable width', () => {
+  // jsdom has no PointerEvent constructor and drops `clientX` from
+  // fireEvent.pointerDown's synthesized event — a MouseEvent with the
+  // pointer type carries the coordinate, and React dispatches by type.
+  const firePointer = (el: Element, type: string, clientX: number) =>
+    fireEvent(el, new MouseEvent(type, { bubbles: true, clientX }))
+
+  it('renders a drag handle on the inner edge with separator semantics', async () => {
+    await renderDetail({ session: webSession })
+    const handle = screen.getByRole('separator', { name: /resize panel/i })
+    expect(handle).toHaveAttribute('aria-orientation', 'vertical')
+  })
+
+  it('dragging updates the stored width live and PATCHes once on release', async () => {
+    vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
+    await renderDetail({ session: webSession })
+    const handle = screen.getByRole('separator', { name: /resize panel/i })
+
+    // Right-docked panel: moving the pointer LEFT makes it wider.
+    firePointer(handle, 'pointerdown', 500)
+    firePointer(handle, 'pointermove', 460)
+    expect(useOrbital.getState().settings.detail_panel_width).toBe('490')
+    firePointer(handle, 'pointermove', 440)
+    expect(useOrbital.getState().settings.detail_panel_width).toBe('510')
+
+    // Live via the store only — persisted once, on release.
+    expect(api.patchSettings).not.toHaveBeenCalled()
+    firePointer(handle, 'pointerup', 440)
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ detail_panel_width: '510' })
+    )
+    expect(api.patchSettings).toHaveBeenCalledTimes(1)
+  })
+
+  it('clamps the drag to the 360px floor', async () => {
+    vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
+    await renderDetail({ session: webSession })
+    const handle = screen.getByRole('separator', { name: /resize panel/i })
+
+    firePointer(handle, 'pointerdown', 500)
+    firePointer(handle, 'pointermove', 900)
+    expect(useOrbital.getState().settings.detail_panel_width).toBe('360')
+  })
+
+  it('double-click resets to the export 450 and saves it', async () => {
+    vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
+    await renderDetail({ session: webSession })
+    act(() => {
+      useOrbital.setState((s) => ({
+        settings: { ...s.settings, detail_panel_width: '600' },
+      }))
+    })
+
+    fireEvent.doubleClick(screen.getByRole('separator', { name: /resize panel/i }))
+
+    expect(useOrbital.getState().settings.detail_panel_width).toBe('450')
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ detail_panel_width: '450' })
+    )
+  })
+})

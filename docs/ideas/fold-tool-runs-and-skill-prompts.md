@@ -1,7 +1,7 @@
 ---
 id: fold-tool-runs-and-skill-prompts
 title: Fold a tool run, and a skill's expanded prompt, behind one line
-status: backlog
+status: done
 type: idea
 domain: web
 related:

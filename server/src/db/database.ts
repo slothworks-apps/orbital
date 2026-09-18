@@ -41,6 +41,26 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * per-browser store.
    */
   map_hide_ended: 'false',
+  /**
+   * Appearance → default planet size (canvas 5a, `Feature - Planet
+   * size.dc.html`). Stored as the normalized multiplier ('0.7'–'1.6', slider
+   * step 0.05), not the slider's percent value. Applied client-side in
+   * `SpaceMap` — layout and orbits never see it, only drawn body scale.
+   */
+  planet_scale: '1',
+  /** Appearance → scale labels with bodies (canvas 5a). Off keeps session
+   * names at their fixed 11px mono regardless of `planet_scale`. */
+  map_scale_labels: 'false',
+  /**
+   * Detail panel width in CSS px, dragged via the panel's inner-edge handle.
+   * The export's 450px is the default and the double-click reset. Clamped
+   * client-side ([360, 60% of the viewport]) — the server just stores it.
+   */
+  detail_panel_width: '450',
+  /** The sidebar's collapsed-to-rail state. Sticky for the same reason as
+   * `map_hide_ended`: a rail that springs back open on every reload makes
+   * the collapse feel broken. */
+  sidebar_collapsed: 'false',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };

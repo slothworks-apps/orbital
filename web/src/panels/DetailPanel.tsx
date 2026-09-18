@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useOrbital } from '../store/store'
+import {
+  useOrbital,
+  clampDetailPanelWidth,
+  parseDetailPanelWidth,
+  DETAIL_PANEL_DEFAULT_PX,
+} from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
@@ -135,6 +140,61 @@ export function DetailPanel() {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [lineageCache, setLineageCache] = useState<Record<string, string[]>>({})
+
+  // Resizable width (docs/ideas/resizable-detail-panel.md). The store value
+  // moves LIVE during the drag — the panel and the map's follow inset track
+  // the pointer — and the PATCH goes out once, on release. Same optimistic
+  // shape as the Appearance slider; a failed save is recorded and the value
+  // stands until reload.
+  const detailWidth = parseDetailPanelWidth(settings, window.innerWidth)
+  const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  // In the store, not local state: SpaceMap's right-anchored overlays (the
+  // aggregate readout, the zoom stack) drop their `right` transition on the
+  // same flag, so they track the drag 1:1 alongside the panel.
+  const draggingWidth = useOrbital((s) => s.ui.resizingPanel ?? false)
+  const setDraggingWidth = (resizingPanel: boolean) =>
+    useOrbital.setState((state) => ({ ui: { ...state.ui, resizingPanel } }))
+
+  const setWidthLocal = (width: number) => {
+    const value = String(Math.round(clampDetailPanelWidth(width, window.innerWidth)))
+    useOrbital.setState((state) => ({
+      settings: { ...state.settings, detail_panel_width: value },
+    }))
+    return value
+  }
+
+  const saveWidth = (value: string) => {
+    api
+      .patchSettings({ detail_panel_width: value })
+      .catch((err) => reportError(err, 'Failed to save the panel width'))
+  }
+
+  const handleWidthPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    widthDragRef.current = { startX: e.clientX, startWidth: detailWidth }
+    setDraggingWidth(true)
+    // Optional-chained: jsdom has no pointer capture.
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  const handleWidthPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = widthDragRef.current
+    if (!drag) return
+    // Right-docked panel: the pointer moving LEFT widens it.
+    setWidthLocal(drag.startWidth + (drag.startX - e.clientX))
+  }
+
+  const handleWidthPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = widthDragRef.current
+    if (!drag) return
+    widthDragRef.current = null
+    setDraggingWidth(false)
+    saveWidth(setWidthLocal(drag.startWidth + (drag.startX - e.clientX)))
+  }
+
+  const handleWidthReset = () => {
+    saveWidth(setWidthLocal(DETAIL_PANEL_DEFAULT_PX))
+  }
 
   // Prompt draft is reset ONLY when the selected session actually changes —
   // never on a title/session update for the SAME session (a rename firing
@@ -301,7 +361,29 @@ export function DetailPanel() {
         presence === 'exiting' ? EXITING : '',
       ].join(' ')}
     >
-    <Panel side="right" glowHue={headerHue ?? ACCENT_HUE} className="relative flex h-full flex-col overflow-hidden">
+    <Panel
+      side="right"
+      glowHue={headerHue ?? ACCENT_HUE}
+      widthPx={detailWidth}
+      widthTransition={!draggingWidth}
+      className="relative flex h-full flex-col overflow-hidden"
+    >
+      {/* Inner-edge drag handle: widen by dragging left, double-click resets
+          to the export's 450. Sits above the panel content (z) but inside
+          the overflow-hidden shell. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panel"
+        aria-valuenow={detailWidth}
+        title="Drag to resize · double-click to reset"
+        onPointerDown={handleWidthPointerDown}
+        onPointerMove={handleWidthPointerMove}
+        onPointerUp={handleWidthPointerUp}
+        onPointerCancel={handleWidthPointerUp}
+        onDoubleClick={handleWidthReset}
+        className="absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
+      />
       {/* Top hairline glint in the session's tag hue (canvas 1b). */}
       <div
         aria-hidden

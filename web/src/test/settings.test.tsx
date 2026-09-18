@@ -219,15 +219,16 @@ describe('Settings', () => {
     expect(useOrbital.getState().settings.default_permission_mode).toBe('acceptEdits')
   })
 
-  it('lists General/Permissions/Appearance/Shortcuts as disabled nav items', () => {
+  it('lists General/Permissions/Shortcuts as disabled nav items; Sessions and Appearance are live', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    for (const label of ['General', 'Permissions', 'Appearance', 'Shortcuts']) {
+    for (const label of ['General', 'Permissions', 'Shortcuts']) {
       const button = screen.getByRole('button', { name: new RegExp(`^${label}`) })
       expect(button).toBeDisabled()
     }
     expect(screen.getByRole('button', { name: /^Sessions$/ })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Appearance$/ })).not.toBeDisabled()
   })
 
   it('shows the orbital version in the nav footer', () => {
@@ -459,5 +460,103 @@ describe('Settings — model preferences (canvas 4c)', () => {
   it('hides the sample chip when the default matches no catalog row', () => {
     renderSettings({ settings: { default_model: 'gpt-5' }, models: MODELS })
     expect(screen.queryByTestId('map-model-sample')).not.toBeInTheDocument()
+  })
+})
+
+describe('Settings — Appearance (canvas 5a)', () => {
+  function openAppearance() {
+    fireEvent.click(screen.getByRole('button', { name: 'Appearance', hidden: true }))
+  }
+
+  it('is reachable from the nav and shows the planet-size slider with its readout', () => {
+    renderSettings()
+    openAppearance()
+
+    expect(screen.getByLabelText(/default planet size/i)).toBeInTheDocument()
+    // '1.00×' is both the readout and the middle tick label under the track.
+    expect(screen.getAllByText('1.00×').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('default')).toBeInTheDocument()
+  })
+
+  it('slider change updates the store immediately (live map) and PATCHes debounced', async () => {
+    renderSettings({ settings: { planet_scale: '1' } })
+    openAppearance()
+
+    const slider = screen.getByLabelText(/default planet size/i)
+    fireEvent.change(slider, { target: { value: '110' } })
+    fireEvent.change(slider, { target: { value: '115' } })
+
+    // Immediate: the map behind the dialog rescales live, no Apply.
+    expect(useOrbital.getState().settings.planet_scale).toBe('1.15')
+    expect(screen.getByText('1.15×')).toBeInTheDocument()
+    expect(screen.getByText('larger bodies · fewer per screen')).toBeInTheDocument()
+    // Persisted once, debounced — not per drag step.
+    expect(api.patchSettings).not.toHaveBeenCalled()
+    await waitFor(
+      () => expect(api.patchSettings).toHaveBeenCalledWith({ planet_scale: '1.15' }),
+      { timeout: 1000 }
+    )
+    expect(api.patchSettings).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the denser-map note below 1.00×', () => {
+    renderSettings({ settings: { planet_scale: '0.85' } })
+    openAppearance()
+    expect(screen.getByText('0.85×')).toBeInTheDocument()
+    expect(screen.getByText('denser map')).toBeInTheDocument()
+  })
+
+  it('RESET returns to 1.00×', async () => {
+    renderSettings({ settings: { planet_scale: '1.3' } })
+    openAppearance()
+
+    fireEvent.click(screen.getByRole('button', { name: 'RESET', hidden: true }))
+
+    expect(useOrbital.getState().settings.planet_scale).toBe('1')
+    await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ planet_scale: '1' }))
+  })
+
+  it('Home resets to 1.00× and Shift+Arrow moves five steps (canvas 5b keyboard spec)', () => {
+    renderSettings({ settings: { planet_scale: '0.7' } })
+    openAppearance()
+
+    const slider = screen.getByLabelText(/default planet size/i)
+    fireEvent.keyDown(slider, { key: 'Home' })
+    expect(useOrbital.getState().settings.planet_scale).toBe('1')
+
+    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true })
+    expect(useOrbital.getState().settings.planet_scale).toBe('1.25')
+
+    // Clamped at the top end.
+    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true })
+    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true })
+    expect(useOrbital.getState().settings.planet_scale).toBe('1.6')
+  })
+
+  it('the labels toggle PATCHes map_scale_labels', async () => {
+    renderSettings({ settings: { map_scale_labels: 'false' } })
+    openAppearance()
+
+    fireEvent.click(screen.getByRole('switch', { name: /scale labels with bodies/i, hidden: true }))
+
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ map_scale_labels: 'true' })
+    )
+    expect(useOrbital.getState().settings.map_scale_labels).toBe('true')
+  })
+
+  it('the preview row shows the three tier diameters at the current scale and collapses', () => {
+    renderSettings({ settings: { planet_scale: '1.5' } })
+    openAppearance()
+
+    // 34/60/92 px tiers × 1.5, rounded to whole pixels (canvas 5b).
+    expect(screen.getByText('51px')).toBeInTheDocument()
+    expect(screen.getByText('90px')).toBeInTheDocument()
+    expect(screen.getByText('138px')).toBeInTheDocument()
+
+    const toggle = screen.getByRole('button', { name: /preview/i, hidden: true })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 })

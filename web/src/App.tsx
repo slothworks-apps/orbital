@@ -37,7 +37,7 @@ const socket = getSocket()
  * the WS status banner. Owns the data lifecycle (`loadInitial` + the
  * `sessions`/`session:<id>` WS subscriptions) and the one keyboard shortcut
  * not already owned by a panel (`Esc`) — `Sidebar` owns ⌘K, `SpaceMap` owns
- * ⌘N (see its own comment), so neither is duplicated here.
+ * ⌥N (see its own comment), so neither is duplicated here.
  */
 export default function App() {
   const loadInitial = useOrbital((s) => s.loadInitial)
@@ -49,7 +49,6 @@ export default function App() {
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const dialog = useOrbital((s) => s.ui.dialog)
   const wsStatus = useOrbital((s) => s.ui.wsStatus)
-  const errorsUnseen = useOrbital((s) => s.errorsUnseen)
 
   // Initial REST snapshot (sessions/tags/rules/settings) — once per mount.
   // The flag gates `useSessionUrl`'s restore: `loadInitial` replaces the whole
@@ -158,22 +157,8 @@ export default function App() {
       <Settings open={dialog === 'settings'} onClose={() => setDialog(null)} />
       <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
 
-      {/* The unseen count, and the one place that is always there to click
-          through to the log. Plain on purpose — the spec puts the visual
-          design of the error surface out of scope, and a canvas for it is
-          coming. Do not style this from the eye.
-          Sat at `bottom-20` only to clear what already owns the bottom of the
-          map: SpaceMap's "New session" CTA and the toast both sit at
-          `bottom-6`. A canvas will decide where this actually belongs. */}
-      <div className="absolute bottom-20 left-1/2 z-20 -translate-x-1/2">
-        <button
-          type="button"
-          onClick={() => setDialog('errors')}
-          className="rounded-md border border-panel-border bg-panel px-2.5 py-1 font-mono text-[11px] text-text-soft"
-        >
-          Errors{errorsUnseen > 0 ? ` (${errorsUnseen})` : ''}
-        </button>
-      </div>
+      {/* The way into the error log lives in SpaceMap's HUD now — an icon
+          with the unseen count as its badge, riding the zoom column. */}
 
       <Toasts />
     </div>

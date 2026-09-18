@@ -371,3 +371,51 @@ export function truncateLabel(title: string, max: number = LABEL_MAX_CHARS): str
   if (title.length <= max) return title
   return `${title.slice(0, max - 1).trimEnd()}…`
 }
+
+/**
+ * Typing pace of the hover-expanded label. Judgement calls, not canvas
+ * values — the canvas draws no hover states anywhere. The cap keeps a very
+ * long title from typing forever: past it the pace speeds up instead.
+ */
+export const LABEL_TYPE_MS_PER_CHAR = 20
+export const LABEL_TYPE_MAX_MS = 600
+
+/**
+ * The hover-expanded label's typing reveal: what the label shows after the
+ * pointer has rested on the planet for `elapsedMs`. Starts on the truncated
+ * prefix `truncateLabel` already shows (minus its ellipsis) and types the
+ * rest — so the expansion reads as the ellipsis unfolding, not a swap.
+ */
+export function typedLabel(title: string, elapsedMs: number): string {
+  if (title.length <= LABEL_MAX_CHARS) return title
+  const base = title.slice(0, LABEL_MAX_CHARS - 1).trimEnd().length
+  const remaining = title.length - base
+  const duration = Math.min(remaining * LABEL_TYPE_MS_PER_CHAR, LABEL_TYPE_MAX_MS)
+  const progress = Math.min(Math.max(elapsedMs / duration, 0), 1)
+  return title.slice(0, base + Math.floor(progress * remaining))
+}
+
+/** Planet label sizes as the canvas draws them: 11px mono title, 9.5px family line. */
+const LABEL_TITLE_PX = 11
+const LABEL_FAMILY_PX = 9.5
+/** Type floors from canvas 5a — "hairlines and type floors do not [scale] (10 px mono minimum)". */
+const LABEL_TITLE_FLOOR_PX = 10
+const LABEL_FAMILY_FLOOR_PX = 9.5
+
+/**
+ * Label font sizes under the Appearance settings (canvas 5a): with "Scale
+ * labels with bodies" off the canvas sizes hold at every `planet_scale`;
+ * with it on they multiply by the scale, floored so small scales never make
+ * a name unreadable. The counter-zoom factor never enters here — it exists
+ * to close the gap between a shrinking body and a fixed label.
+ */
+export function labelFontPx(
+  planetScale: number,
+  scaleLabels: boolean
+): { title: number; family: number } {
+  if (!scaleLabels) return { title: LABEL_TITLE_PX, family: LABEL_FAMILY_PX }
+  return {
+    title: Math.max(LABEL_TITLE_FLOOR_PX, LABEL_TITLE_PX * planetScale),
+    family: Math.max(LABEL_FAMILY_FLOOR_PX, LABEL_FAMILY_PX * planetScale),
+  }
+}

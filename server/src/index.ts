@@ -20,6 +20,7 @@ import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore } from './transcript/subagents.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
+import { createImageStore } from './images/store.js';
 import type { SessionRow } from './types.js';
 import chokidar from 'chokidar';
 
@@ -180,10 +181,16 @@ export async function buildServer(overrides: {
   const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
 
+  // One store for both message producers, so a live image and its reloaded
+  // twin land as the same file and the same ref.
+  const imagesDir = join(CONFIG.dataDir, 'images');
+  const images = createImageStore(imagesDir);
+
   const runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
     idleTimeoutMs,
+    images,
     onStatus: (sessionId, status) => {
       // An ended session has nothing running in it — and nothing left to
       // observe the `tool_result` that would otherwise retire its agents.
@@ -280,7 +287,7 @@ export async function buildServer(overrides: {
     if (!transcriptPath) return;
     const tail = new TranscriptTail(transcriptPath);
     tail.on('entries', (entries) => {
-      for (const msg of entriesToMessages(entries)) {
+      for (const msg of entriesToMessages(entries, images)) {
         hub.publish(topic, { event: 'message', message: msg });
       }
     });
@@ -330,6 +337,7 @@ export async function buildServer(overrides: {
   );
   registerRoutes(app, {
     db, registry, runner, projectsDir, hub, models, subagents, errors,
+    images, imagesDir,
     settings: settingsStore,
   });
   app.addHook('onClose', async () => {

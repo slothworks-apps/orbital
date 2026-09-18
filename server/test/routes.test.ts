@@ -13,6 +13,7 @@ import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 import type { SessionRow } from '../src/types.js';
 import { SubagentStore } from '../src/transcript/subagents.js';
+import { createImageStore } from '../src/images/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 
 function makeApp() {
@@ -52,8 +53,11 @@ function makeApp() {
   const app = Fastify();
   const subagents = new SubagentStore();
   const errors = new ErrorLog({ db, hub });
+  const imagesDir = mkdtempSync(join(tmpdir(), 'orbital-images-'));
+  const imageStore = createImageStore(imagesDir);
   registerRoutes(app, {
     db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent', hub,
+    images: imageStore, imagesDir,
     models: modelCatalog as any,
     subagents,
     errors,
@@ -69,7 +73,7 @@ function makeApp() {
           .run(),
     },
   });
-  return { app, db, runner, hub, registry, startCalls, modelCatalog, subagents, errors };
+  return { app, db, runner, hub, registry, startCalls, modelCatalog, subagents, errors, imageStore };
 }
 
 /** Subscribes a fake socket to a Hub topic and collects published payloads. */
@@ -226,6 +230,36 @@ describe('REST routes', () => {
     const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/messages' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ messages: [] });
+  });
+
+  it('GET /api/images/:ref serves stored bytes with the right type and an immutable cache header', async () => {
+    const { app, imageStore } = makeApp();
+    // A real PNG signature so the stored file is what the route claims it is.
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(25),
+    ]);
+    const entry = imageStore.put('image/png', png.toString('base64'))!;
+
+    const res = await app.inject({ method: 'GET', url: `/api/images/${entry.ref}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
+    expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    expect(res.rawPayload.equals(png)).toBe(true);
+  });
+
+  it('GET /api/images/:ref 404s malformed refs — traversal never reaches the filesystem', async () => {
+    const { app } = makeApp();
+    for (const ref of ['..%2F..%2Fetc%2Fpasswd', 'abc.png', `${'a'.repeat(64)}.svg`]) {
+      const res = await app.inject({ method: 'GET', url: `/api/images/${ref}` });
+      expect(res.statusCode).toBe(404);
+    }
+  });
+
+  it('GET /api/images/:ref 404s a well-formed ref whose file was pruned', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'GET', url: `/api/images/${'0'.repeat(64)}.png` });
+    expect(res.statusCode).toBe(404);
   });
 
   it('GET /api/sessions/:id/messages still 404s for a session nobody has heard of', async () => {
@@ -609,6 +643,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       errors: new ErrorLog({ db, hub }),
+      images: { put: () => null }, imagesDir: '/nonexistent',
       settings: { get: () => '', set: () => {} },
     });
     return { app, db, runner, hub, close: () => { runner.dispose(); db.$client.close(); } };
@@ -714,6 +749,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       errors: new ErrorLog({ db, hub }),
+      images: { put: () => null }, imagesDir: '/nonexistent',
       settings: {
         get: (k: string) =>
           db.select({ value: settingsTable.value }).from(settingsTable)

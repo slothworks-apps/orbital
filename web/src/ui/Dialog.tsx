@@ -23,9 +23,13 @@ export interface DialogProps {
   /**
    * Panel width and chrome, straight off the export:
    * `sm` = 440px stop confirm (1b), `md` = 560px clear confirm (1g),
-   * `lg` = 660px form dialog with a ruled header (1d).
+   * `lg` = 660px form dialog with a ruled header (1d),
+   * `xl` = 760px error log (canvas 5b) — lg's chrome, one step wider.
    */
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+  /** Mono muted line on the ruled header's right, before the esc keycap
+   * (5b: "12 entries · 3 unseen cleared"). */
+  headerMeta?: ReactNode
   /**
    * Which hue owns the frame — the accent everywhere except the stop confirm,
    * which the export frames in amber down to its corner brackets (1b).
@@ -52,7 +56,17 @@ const cornerBase: Record<'tl' | 'tr' | 'bl' | 'br', string> = {
   br: 'absolute -right-px -bottom-px border-r-[1.5px] border-b-[1.5px]',
 }
 
-const cornerRadius: Record<'sm' | 'md' | 'lg', Record<'tl' | 'tr' | 'bl' | 'br', string>> = {
+const XL_CORNERS = {
+  tl: 'h-[18px] w-[18px] rounded-tl-2xl',
+  tr: 'h-[18px] w-[18px] rounded-tr-2xl',
+  bl: 'h-[18px] w-[18px] rounded-bl-2xl',
+  br: 'h-[18px] w-[18px] rounded-br-2xl',
+}
+
+const cornerRadius: Record<
+  'sm' | 'md' | 'lg' | 'xl',
+  Record<'tl' | 'tr' | 'bl' | 'br', string>
+> = {
   sm: {
     tl: 'h-4 w-4 rounded-tl-[14px]',
     tr: 'h-4 w-4 rounded-tr-[14px]',
@@ -65,12 +79,8 @@ const cornerRadius: Record<'sm' | 'md' | 'lg', Record<'tl' | 'tr' | 'bl' | 'br',
     bl: 'h-4 w-4 rounded-bl-[14px]',
     br: 'h-4 w-4 rounded-br-[14px]',
   },
-  lg: {
-    tl: 'h-[18px] w-[18px] rounded-tl-2xl',
-    tr: 'h-[18px] w-[18px] rounded-tr-2xl',
-    bl: 'h-[18px] w-[18px] rounded-bl-2xl',
-    br: 'h-[18px] w-[18px] rounded-br-2xl',
-  },
+  lg: XL_CORNERS,
+  xl: XL_CORNERS,
 }
 
 const corners = ['tl', 'tr', 'bl', 'br'] as const
@@ -80,13 +90,15 @@ const sizeClasses: Record<NonNullable<DialogProps['size']>, string> = {
   sm: 'w-[440px] rounded-[14px] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)]',
   md: 'w-[560px] rounded-[14px] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)]',
   lg: 'w-[660px] rounded-2xl bg-gradient-to-b from-[rgba(16,22,38,.9)] to-[rgba(8,12,22,.94)]',
+  xl: 'w-[760px] rounded-2xl bg-gradient-to-b from-[rgba(16,22,38,.9)] to-[rgba(8,12,22,.94)]',
 }
 
-/** Inner gutter: confirms sit at 24px, the form dialog at 26px. */
+/** Inner gutter: confirms sit at 24px, the form dialogs at 26px. */
 const gutter: Record<NonNullable<DialogProps['size']>, string> = {
   sm: 'px-6',
   md: 'px-6',
   lg: 'px-[26px]',
+  xl: 'px-[26px]',
 }
 
 const BASE_SHADOW = '0 40px 120px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07)'
@@ -116,6 +128,7 @@ export function Dialog({
   size = 'md',
   tone = 'accent',
   eyebrowPulse = false,
+  headerMeta,
   footer,
   footerCaption,
   onClose,
@@ -131,9 +144,9 @@ export function Dialog({
   const entered = state === 'entered'
   const duration = state === 'exiting' ? MODAL_EXIT_DURATION : MODAL_ENTER_DURATION
   const frame = toneFrame[tone]
-  // Only the form dialog (1d) rules off its header; the confirms run the
-  // eyebrow, title and body together as one padded block.
-  const ruledHeader = size === 'lg'
+  // Only the form dialogs (1d, 5b) rule off their header; the confirms run
+  // the eyebrow, title and body together as one padded block.
+  const ruledHeader = size === 'lg' || size === 'xl'
 
   // Portalled to <body> on purpose. `StopDialog`/`ClearDialog` are rendered
   // from inside `DetailPanel`, whose glass uses `backdrop-filter` — and a
@@ -203,14 +216,19 @@ export function Dialog({
             <h2
               className={[
                 'truncate font-bold tracking-[-0.01em] text-text-bright',
-                // 1d's form dialog runs a notch larger than the confirms.
-                size === 'lg' ? 'mt-1 text-xl' : 'mt-2 text-[19px]',
+                // The form dialogs run a notch larger than the confirms.
+                ruledHeader ? 'mt-1 text-xl' : 'mt-2 text-[19px]',
               ].join(' ')}
             >
               {title}
             </h2>
           </div>
-          {/* Only the form dialog carries a close affordance, and the export
+          {headerMeta != null && (
+            <span className="shrink-0 self-start font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+              {headerMeta}
+            </span>
+          )}
+          {/* Only the form dialogs carry a close affordance, and the export
               draws it as an `esc` keycap rather than an ✕. The confirms rely
               on their footer's "esc cancel" hint (1g/1b). */}
           {ruledHeader && (

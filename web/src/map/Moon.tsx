@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Subagent } from '../lib/types'
+import { bodyZoomFactor } from './camera'
 import {
   MAT_RING_MAX_SCALE,
   MAT_RING_MIN_SCALE,
@@ -107,6 +108,12 @@ export interface MoonProps {
   orbitRadius: number
   /** Starting angle on the orbit, in radians — keeps multiple moons spread out. */
   phase: number
+  /**
+   * Appearance → default planet size (canvas 5a): multiplies the moon's BODY
+   * only, never `orbitRadius` or the trail — "orbit radii are untouched".
+   * The counter-zoom factor is separate and scales the whole system.
+   */
+  bodyScale?: number
 }
 
 /** Circle outline used for the orbit trail, the materializing shell and its expanding ring. */
@@ -169,7 +176,7 @@ function useMoonMaterials(): MoonMaterials {
   return materials
 }
 
-export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: MoonProps) {
+export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, bodyScale = 1 }: MoonProps) {
   const mix = useStateMix(MOON_STATES, subagent.state)
   const hueTween = useHueTween(hue)
   const materials = useMoonMaterials()
@@ -266,15 +273,29 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase }: Mo
     if (matRingRef.current) matRingRef.current.material.color.copy(hueC)
   }
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (advancePointTween(parentMove, delta) && parentGroupRef.current) {
       parentGroupRef.current.position.set(parentMove.x.value, parentMove.y.value, 0)
+    }
+
+    if (parentGroupRef.current) {
+      // Counter-zoom, same factor as the parent planet's — written on the
+      // parent-anchored group so the trail, the orbit radius and the moon's
+      // body inflate together as one system ("celý systém měsíce" per the
+      // idea's brainstorm). The angular speed below reads the unscaled
+      // `orbitRadius`, so the orbit's pace does not change with zoom.
+      parentGroupRef.current.scale.setScalar(bodyZoomFactor(state.camera.zoom))
     }
 
     angle.current += (ORBIT_ANGULAR_SPEED / Math.max(orbitRadius, 0.01)) * delta
     const localX = orbitRadius * Math.cos(angle.current)
     const localY = orbitRadius * Math.sin(angle.current)
-    if (bodyGroupRef.current) bodyGroupRef.current.position.set(localX, localY, 0)
+    if (bodyGroupRef.current) {
+      bodyGroupRef.current.position.set(localX, localY, 0)
+      // Appearance planet-size multiplier, body only — the trail and the
+      // orbit radius above deliberately don't move with it (canvas 5a).
+      bodyGroupRef.current.scale.setScalar(bodyScale)
+    }
 
     const mixMoved = advanceStateMix(mix, delta)
     const hueMoved = advanceTween(hueTween, delta)

@@ -3,6 +3,8 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
+import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
+import type { ImageStore } from '../images/store.js';
 
 /**
  * Sentinel for canvas 1h's "Never — only on Clear": no idle timer at all.
@@ -83,7 +85,7 @@ interface ManagedSession {
  * (Runner) bind it to a per-instance counter so ids can't collide when two
  * messages land in the same millisecond with the same block index.
  */
-export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number): ChatMessage[] {
+export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: ImageStore): ChatMessage[] {
   const content = sdkMsg.message?.content;
   if (!Array.isArray(content)) return [];
   const model = typeof sdkMsg.message?.model === 'string' ? sdkMsg.message.model : undefined;
@@ -91,19 +93,27 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number): ChatMessa
   content.forEach((block: any, i: number) => {
     const id = `${sdkMsg.session_id}:${nextSeq()}:${i}`;
     if (block.type === 'text' && block.text?.trim()) {
-      out.push({
-        id,
-        role: sdkMsg.type === 'user' ? 'user' : 'assistant',
-        text: block.text,
-        ...(sdkMsg.type === 'user' ? {} : { model }),
-      });
+      if (sdkMsg.type === 'user') {
+        // Same split as the indexed path (`entriesToMessages`) — a live
+        // command expansion must fold identically to a reloaded one.
+        const split = splitUserText(block.text);
+        out.push({ id, role: 'user', text: split.text, ...(split.command ? { command: split.command } : {}) });
+      } else {
+        out.push({ id, role: 'assistant', text: block.text, model });
+      }
     } else if (block.type === 'tool_use') {
       out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id });
     } else if (block.type === 'tool_result') {
+      const parts = toolResultParts(block.content ?? '', images);
       out.push({
         id, role: 'tool_result', toolUseId: block.tool_use_id,
-        text: typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? ''),
+        text: parts.text,
+        ...(parts.images.length ? { images: parts.images } : {}),
+        ...(block.is_error === true ? { isError: true } : {}),
       });
+    } else if (block.type === 'image') {
+      const entry = imageRefOf(block, images);
+      if (entry) out.push({ id, role: sdkMsg.type === 'user' ? 'user' : 'assistant', images: [entry] });
     }
   });
   return out;
@@ -122,6 +132,7 @@ export class Runner {
   private onInit?: (sessionId: string, model: string | null) => void;
   private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
+  private images?: ImageStore;
 
   constructor(deps: {
     hub: Hub;
@@ -134,6 +145,9 @@ export class Runner {
     newSessionId?: () => string;
     /** `null` disables the idle timer entirely (the `IDLE_NEVER` preset). */
     idleTimeoutMs?: number | null;
+    /** Content-addressed store live image blocks are decoded into; absent
+     * (some tests) they drop, which was always the live path's behaviour. */
+    images?: ImageStore;
     onStatus?: (sessionId: string, status: SessionStatus) => void;
     /** Receives each turn result's `modelUsage`, which is where context-window sizes come from. */
     onTurnUsage?: (modelUsage: unknown) => void;
@@ -174,6 +188,7 @@ export class Runner {
     this.onInit = deps.onInit;
     this.onEntries = deps.onEntries;
     this.onError = deps.onError;
+    this.images = deps.images;
   }
 
   /**
@@ -356,7 +371,7 @@ export class Runner {
         }
         if (msg.type === 'assistant' || msg.type === 'user') {
           this.onEntries?.(sessionId, [msg as TranscriptEntry]);
-          for (const chat of sdkToChatMessages(msg, () => ++this.seq)) {
+          for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images)) {
             this.hub.publish(topic, { event: 'message', message: chat });
           }
         } else if (msg.type === 'result') {

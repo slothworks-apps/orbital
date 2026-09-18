@@ -73,6 +73,13 @@ export interface OrbitalUiState {
   dialog: null | 'new' | 'clear' | 'stop' | 'settings' | 'errors'
   /** Sidebar collapsed to its narrow rail (Panel's `collapsed` prop). See Sidebar.tsx (task 10). */
   sidebarCollapsed: boolean
+  /**
+   * True while the detail panel's drag handle is held. The panel and the
+   * map's right-anchored overlays drop their width/right transitions for the
+   * duration, so everything tracks the pointer 1:1 instead of easing 420ms
+   * behind it. Optional — absent means false.
+   */
+  resizingPanel?: boolean
 }
 
 /** How many of the newest error rows the log holds at a time. */
@@ -285,10 +292,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       models,
       errors: errorPage?.errors ?? [],
       errorsUnseen: errorPage?.unseen ?? 0,
-      // Seeded, not defaulted: the ENDED toggle is the one `ui` field the
-      // server owns a value for, and reading it here is what makes the
-      // toggle survive a reload.
-      ui: { ...state.ui, hideEnded: settings.map_hide_ended === 'true' },
+      // Seeded, not defaulted: these are the `ui` fields the server owns a
+      // value for, and reading them here is what makes them survive a
+      // reload.
+      ui: {
+        ...state.ui,
+        hideEnded: settings.map_hide_ended === 'true',
+        sidebarCollapsed: settings.sidebar_collapsed === 'true',
+      },
     }))
   },
 
@@ -656,8 +667,24 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     set((state) => ({ ui: { ...state.ui, dialog } }))
   },
 
+  // Same optimistic shape as `setHideEnded`: the rail collapses now, the
+  // save follows, and a failed save puts it back rather than leaving the
+  // sidebar in a state the server never took.
   setSidebarCollapsed(sidebarCollapsed) {
-    set((state) => ({ ui: { ...state.ui, sidebarCollapsed } }))
+    const previous = get().ui.sidebarCollapsed
+    if (previous === sidebarCollapsed) return
+    set((state) => ({
+      ui: { ...state.ui, sidebarCollapsed },
+      settings: { ...state.settings, sidebar_collapsed: String(sidebarCollapsed) },
+    }))
+    api.patchSettings({ sidebar_collapsed: String(sidebarCollapsed) }).catch((err) => {
+      const message = err instanceof Error ? err.message : 'Failed to save the sidebar state'
+      set((state) => ({
+        ui: { ...state.ui, sidebarCollapsed: previous },
+        settings: { ...state.settings, sidebar_collapsed: String(previous) },
+        toast: { kind: 'error', message },
+      }))
+    })
   },
 
   setWsStatus(wsStatus) {
@@ -769,6 +796,53 @@ export function endedMaxAgeMs(settings: Record<string, string>): number | null {
   const days = Number(raw)
   if (!Number.isFinite(days) || days <= 0) return DEFAULT_ENDED_MAX_AGE_DAYS * MS_PER_DAY
   return days * MS_PER_DAY
+}
+
+/** The Appearance slider's range (canvas 5a: 0.70×–1.60×, step 0.05). */
+export const PLANET_SCALE_MIN = 0.7
+export const PLANET_SCALE_MAX = 1.6
+
+/**
+ * `planet_scale` as the map consumes it: the stored multiplier parsed and
+ * clamped to the slider's own range, falling back to 1 (the default) for a
+ * missing or unparsable value. Applied to drawn body scale only — layout,
+ * orbits and cluster spacing never see it (spec:
+ * 2026-09-18-planet-size-design).
+ */
+export function parsePlanetScale(settings: Record<string, string>): number {
+  const raw = Number(settings.planet_scale)
+  if (!Number.isFinite(raw)) return 1
+  return Math.min(PLANET_SCALE_MAX, Math.max(PLANET_SCALE_MIN, raw))
+}
+
+/** The export's detail-panel width (canvas 1b) — the default and the handle's double-click reset. */
+export const DETAIL_PANEL_DEFAULT_PX = 450
+/** Below this the header's three-column usage grid and the composer's action row stop fitting. */
+export const DETAIL_PANEL_MIN_PX = 360
+/** Ceiling as a share of the viewport, so the map stays usable beside the panel. */
+const DETAIL_PANEL_MAX_VIEWPORT_SHARE = 0.6
+
+/**
+ * Clamps a candidate width to [360, 60% of the viewport]. The floor wins
+ * when the two conflict on a very narrow window — a panel under 360px stops
+ * fitting its own header. Shared by the parse below and the drag handle's
+ * live math.
+ */
+export function clampDetailPanelWidth(width: number, viewportWidth: number): number {
+  const ceiling = viewportWidth * DETAIL_PANEL_MAX_VIEWPORT_SHARE
+  return Math.max(DETAIL_PANEL_MIN_PX, Math.min(ceiling, width))
+}
+
+/**
+ * `detail_panel_width` as the layout consumes it: parsed, falling back to
+ * the export's 450 for a missing or unparsable value, then clamped.
+ */
+export function parseDetailPanelWidth(
+  settings: Record<string, string>,
+  viewportWidth: number
+): number {
+  const raw = Number(settings.detail_panel_width)
+  return clampDetailPanelWidth(Number.isFinite(raw) ? raw : DETAIL_PANEL_DEFAULT_PX, viewportWidth)
 }
 
 /**

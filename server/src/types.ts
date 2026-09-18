@@ -25,6 +25,19 @@ export interface SessionRow {
   indexed_size: number;
 }
 
+/**
+ * One stored transcript image on the wire: a pointer into the server's
+ * content-addressed store (`GET /api/images/<ref>`), never the bytes.
+ * `w`/`h` are sniffed at store time so the client can reserve the box
+ * before decode; null when the sniffer didn't recognise the payload.
+ */
+export interface ImageRefEntry {
+  ref: string;
+  w: number | null;
+  h: number | null;
+  bytes: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool_use' | 'tool_result';
@@ -35,6 +48,20 @@ export interface ChatMessage {
   timestamp?: string;
   /** Resolved model that produced this assistant message. Absent on user turns. */
   model?: string;
+  /**
+   * A user turn's machine wrapping (slash-command expansion, system
+   * reminders), split off by `splitUserText` so `text` is only what the
+   * human typed. `name` verbatim from `<command-name>` incl. the slash,
+   * `body` the raw tag blocks, `blocks` how many. The web folds this
+   * behind a chip (spec: 2026-09-18-transcript-folding-design).
+   */
+  command?: { name: string | null; body: string; blocks: number };
+  /** tool_result only: the block carried `is_error: true`. */
+  isError?: boolean;
+  /** Images this message carries — refs into the image store, never data.
+   * A pasted user image is its own message (no text); a tool_result keeps
+   * its text beside them. Spec: 2026-09-18-transcript-images-design. */
+  images?: ImageRefEntry[];
 }
 
 export interface TagRule {

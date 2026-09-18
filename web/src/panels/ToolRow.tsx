@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ChatMessage } from '../lib/types'
 import { ansiToHtml } from '../lib/highlight'
+import { ImageThumb, formatBytes } from './ImageThumb'
 
 /** Tools whose salient input lives in a `file_path` field. */
 const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
@@ -109,7 +110,32 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
           {toolResult && (
             <div>
               <SectionLabel>RESULT</SectionLabel>
-              {toolUse.toolName === 'Bash' ? (
+              {toolResult.images?.length ? (
+                // An image result is a body under the row, like a <pre>
+                // output block (canvas 7b): 96px thumb, mono readout beside
+                // it — dimensions and size are all an image block carries.
+                <div className="flex flex-col gap-2">
+                  {toolResult.images.map((image) => (
+                    <div key={image.ref} className="flex items-start gap-2.5">
+                      <ImageThumb image={image} variant="tool" source={toolUse.toolName ?? 'tool result'} />
+                      <div className="min-w-0 font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.6)]">
+                        {image.w && image.h ? (
+                          <>
+                            {image.w}×{image.h}
+                            <br />
+                          </>
+                        ) : null}
+                        {formatBytes(image.bytes)}
+                      </div>
+                    </div>
+                  ))}
+                  {toolResult.text ? (
+                    <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                      {toolResult.text}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : toolUse.toolName === 'Bash' ? (
                 <pre
                   className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]"
                   // eslint-disable-next-line react/no-danger -- ansiToHtml escapes its input before colorizing

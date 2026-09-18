@@ -26,6 +26,30 @@ describe('Panel', () => {
     expect(container.firstElementChild).toHaveAttribute('data-side', 'float')
   })
 
+  it('widthPx replaces the fixed width class with an inline width', () => {
+    const { container } = render(
+      <Panel side="right" widthPx={620}>
+        content
+      </Panel>
+    )
+    const el = container.firstElementChild as HTMLElement
+    expect(el.style.width).toBe('620px')
+    expect(el.className).not.toMatch(/w-\[450px\]/)
+  })
+
+  it('widthTransition={false} drops the width transition for a live drag', () => {
+    const { container, rerender } = render(<Panel side="right">content</Panel>)
+    const el = container.firstElementChild as HTMLElement
+    expect(el.className).toMatch(/transition-\[width\]/)
+
+    rerender(
+      <Panel side="right" widthTransition={false}>
+        content
+      </Panel>
+    )
+    expect(el.className).not.toMatch(/transition-\[width\]/)
+  })
+
   it('reflects collapsed state via data-attribute', () => {
     const { container, rerender } = render(<Panel side="left">content</Panel>)
     expect(container.firstElementChild).toHaveAttribute('data-collapsed', 'false')

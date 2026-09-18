@@ -26,11 +26,39 @@ export interface Viewport {
 export const MIN_ZOOM = 20
 export const MAX_ZOOM = 200
 
-/** Extra world-space padding kept around a fitted bounding box's edges. */
+/**
+ * Extra world-space padding kept around a fitted bounding box's edges.
+ * Also what absorbs `bodyZoomFactor` at fit zoom: fit frames positions only,
+ * and the largest inflated body radius (~1.14 world units for a big planet
+ * at the factor cap) still lands inside these 2 units.
+ */
 const FIT_PADDING = 2
 
 export function clampZoom(zoom: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
+}
+
+/** The map's default zoom — the zoom at which bodies are drawn exactly as the canvas specifies them. */
+const REFERENCE_ZOOM = 60
+/** Exponent of the counter-zoom curve; 0 would track zoom linearly, 1 would be a fixed-pixel map pin. */
+const FACTOR_K = 0.5
+/** Cap so the very bottom of the zoom range doesn't run the curve away (raw value there is ~1.73). */
+const FACTOR_MAX = 1.7
+
+/**
+ * How much a planet (and its whole moon system) inflates to stay readable as
+ * the camera zooms OUT: drawn world radius rises as `zoom^-K`, so on-screen
+ * size falls as `zoom^(1-K)` instead of linearly. One-sided — clamped to 1
+ * from below — so at and above the default zoom nothing changes and the
+ * close-up stays exactly as the canvas draws it
+ * (docs/ideas/planets-shrink-slower-than-the-map.md).
+ *
+ * Pure and exported for unit tests; the frame loops in `Planet`/`Moon` read
+ * `state.camera.zoom` and multiply this into their group scale, because
+ * camera state deliberately never reaches React (`useSceneModel`).
+ */
+export function bodyZoomFactor(zoom: number): number {
+  return Math.min(FACTOR_MAX, Math.max(1, (REFERENCE_ZOOM / zoom) ** FACTOR_K))
 }
 
 /**

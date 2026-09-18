@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, act, within } from '@testing-library/react'
+import { render, screen, waitFor, act, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ChatMessage, ErrorRecord, OrbitalModel } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
@@ -147,6 +147,52 @@ describe('MessageView', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Transcript images (spec: 2026-09-18-transcript-images-design)
+// ---------------------------------------------------------------------------
+
+const IMG = { ref: `${'a'.repeat(64)}.png`, w: 1512, h: 982, bytes: 1_200_000 }
+
+describe('MessageView images', () => {
+  it('an image-only user turn renders the thumbnail as the bubble — no empty markdown bubble', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', role: 'user', images: [IMG] })} />
+    )
+    const img = container.querySelector('img')
+    expect(img).toBeInTheDocument()
+    expect(img!.getAttribute('src')).toBe(`/api/images/${IMG.ref}`)
+    expect(container.querySelector('.message-markdown')).not.toBeInTheDocument()
+  })
+
+  it('text + image renders the bubble with the image below it', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', role: 'user', text: 'before/after', images: [IMG] })} />
+    )
+    expect(container.querySelector('.message-markdown')).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeInTheDocument()
+  })
+
+  it('clicking a thumbnail opens the lightbox dialog; its close control dismisses it', () => {
+    render(<MessageView message={makeMessage({ id: '1', role: 'user', images: [IMG] })} />)
+    fireEvent.click(screen.getByRole('button', { name: /open image/i }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    // usePresence holds the node through the exit fade; it must at least be inert.
+    const dialog = screen.queryByRole('dialog')
+    if (dialog) expect(dialog.closest('[data-state="exiting"]')).not.toBeNull()
+  })
+
+  it('a pruned image swaps to the NOT IN CACHE placeholder and stops being clickable', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', role: 'user', images: [IMG] })} />
+    )
+    fireEvent.error(container.querySelector('img')!)
+    expect(screen.getByText('NOT IN CACHE')).toBeInTheDocument()
+    expect(container.querySelector('img')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /open image/i })).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // ToolRow
 // ---------------------------------------------------------------------------
 
@@ -193,6 +239,24 @@ describe('salientInput', () => {
 })
 
 describe('ToolRow', () => {
+  it('renders an image result as a thumbnail with a dims · size readout, never JSON', () => {
+    const { container } = render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 't1', toolName: 'Playwright' })}
+        toolResult={makeToolResult({
+          id: 'r1', toolUseId: 't1', text: '',
+          images: [{ ref: `${'b'.repeat(64)}.png`, w: 1280, h: 800, bytes: 219_136 }],
+        })}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Playwright/ }))
+    const img = container.querySelector('img')
+    expect(img).toBeInTheDocument()
+    expect(img!.getAttribute('src')).toBe(`/api/images/${'b'.repeat(64)}.png`)
+    expect(screen.getByText(/1280×800/)).toBeInTheDocument()
+    expect(screen.getByText(/214 KB/)).toBeInTheDocument()
+  })
+
   it('shows a collapsed one-liner with the tool name and salient input', () => {
     render(<ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Bash', toolInput: { command: 'npm test' } })} />)
     expect(screen.getByText('⚙')).toBeInTheDocument()
@@ -820,7 +884,7 @@ describe('Transcript', () => {
     expect(container.querySelector('[data-streaming-caret]')).not.toBeInTheDocument()
   })
 
-  it('packs consecutive tool calls into a single tight run between conversation turns (canvas 1b)', () => {
+  it('packs consecutive tool calls into one run, folded behind a header (canvas 1b + 6b)', () => {
     resetStore({
       transcripts: {
         s1: [
@@ -837,6 +901,143 @@ describe('Transcript', () => {
 
     const runs = container.querySelectorAll('[data-tool-run]')
     expect(runs).toHaveLength(1)
-    expect(runs[0].querySelectorAll('[data-role="tool"]')).toHaveLength(2)
+    // Folded by default: no openable ToolRows, one header, and — because
+    // tu2 has no result yet — the live trace beneath it.
+    expect(runs[0].querySelectorAll('[data-role="tool"]')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: /2 tool calls/ })).toBeInTheDocument()
+    expect(runs[0].querySelector('[data-live-tool]')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Folding (spec: 2026-09-18-transcript-folding-design)
+// ---------------------------------------------------------------------------
+
+import { summarizeToolRun } from '../panels/Transcript'
+
+describe('summarizeToolRun', () => {
+  const use = (id: string, name: string) => ({
+    kind: 'tool' as const,
+    key: id,
+    toolUse: makeToolUse({ id, toolName: name }),
+    toolResult: makeToolResult({ id: `${id}r`, toolUseId: id }),
+  })
+
+  it('counts calls and sorts kinds by count desc, then first appearance', () => {
+    const s = summarizeToolRun([
+      use('1', 'Bash'), use('2', 'Read'), use('3', 'Read'),
+      use('4', 'Edit'), use('5', 'Read'), use('6', 'Bash'),
+    ])
+    expect(s.count).toBe(6)
+    expect(s.breakdown).toBe('Read ×3, Bash ×2, Edit')
+  })
+
+  it('names the top three kinds and appends +n more beyond that', () => {
+    const s = summarizeToolRun([
+      use('1', 'Read'), use('2', 'Read'), use('3', 'Bash'), use('4', 'Bash'),
+      use('5', 'Edit'), use('6', 'Write'), use('7', 'Grep'),
+    ])
+    expect(s.breakdown).toBe('Read ×2, Bash ×2, Edit +2 more')
+  })
+})
+
+describe('Transcript: folded tool runs', () => {
+  const run = (n: number, opts: { unfinishedLast?: boolean; failFirst?: boolean } = {}) => {
+    const messages: ChatMessage[] = [{ id: 'u', role: 'user', text: 'go' }]
+    for (let i = 1; i <= n; i += 1) {
+      messages.push({ id: `t${i}`, role: 'tool_use', toolName: i % 2 ? 'Read' : 'Bash', toolInput: { file_path: `f${i}` }, toolUseId: `tu${i}` })
+      if (!(opts.unfinishedLast && i === n)) {
+        messages.push({ id: `r${i}`, role: 'tool_result', toolUseId: `tu${i}`, text: 'ok', ...(opts.failFirst && i === 1 ? { isError: true } : {}) })
+      }
+    }
+    return messages
+  }
+
+  it('folds 2+ consecutive calls behind a header and hides the rows', () => {
+    renderTranscript(run(3))
+    const header = screen.getByRole('button', { name: /3 tool calls/ })
+    expect(header).toHaveTextContent('Read ×2, Bash')
+    expect(screen.queryByRole('button', { name: /Read: f1/ })).not.toBeInTheDocument()
+  })
+
+  it('a single call keeps today\'s row — no header', () => {
+    renderTranscript(run(1))
+    expect(screen.queryByText(/tool calls/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Read: f1/ })).toBeInTheDocument()
+  })
+
+  it('clicking the header expands today\'s full stack, clicking again folds it', () => {
+    renderTranscript(run(3))
+    const header = screen.getByRole('button', { name: /3 tool calls/ })
+    fireEvent.click(header)
+    expect(screen.getByRole('button', { name: /Read: f1/ })).toBeInTheDocument()
+    fireEvent.click(header)
+    expect(screen.queryByRole('button', { name: /Read: f1/ })).not.toBeInTheDocument()
+  })
+
+  it('a live run stays folded with the one unfinished call visible beneath the header', () => {
+    renderTranscript(run(3, { unfinishedLast: true }))
+    const header = screen.getByRole('button', { name: /3 tool calls/ })
+    expect(header).toHaveTextContent('running')
+    // The unfinished row is a plain trace, not an openable ToolRow. (The
+    // salient path sits in its own span, so it's the single-node target.)
+    expect(screen.getByText('f3')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Read: f3/ })).not.toBeInTheDocument()
+    // The finished calls stay folded into the count.
+    expect(screen.queryByText('f1')).not.toBeInTheDocument()
+  })
+
+  it('a run containing a failed call opens itself and says n failed — but a manual toggle wins', () => {
+    renderTranscript(run(2, { failFirst: true }))
+    const header = screen.getByRole('button', { name: /2 tool calls/ })
+    expect(header).toHaveTextContent('1 failed')
+    expect(screen.getByRole('button', { name: /Read: f1/ })).toBeInTheDocument()
+    fireEvent.click(header)
+    expect(screen.queryByRole('button', { name: /Read: f1/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('MessageView: folded command expansion', () => {
+  const command = { name: '/code-review', body: '<command-contents>You are reviewing.\nRead the diff.</command-contents>', blocks: 2 }
+
+  it('renders the human text as the bubble and the expansion as a chip', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', role: 'user', text: 'look here', command })} />
+    )
+    expect(screen.getByText('look here')).toBeInTheDocument()
+    const chip = screen.getByRole('button', { name: /\/code-review/ })
+    expect(chip).toHaveTextContent('2 lines')
+    expect(container.querySelector('pre')).not.toBeInTheDocument()
+  })
+
+  it('typed nothing → the chip stands alone, no empty bubble', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', role: 'user', text: '', command })} />
+    )
+    expect(screen.getByRole('button', { name: /\/code-review/ })).toBeInTheDocument()
+    expect(container.querySelector('[data-role="user"] .markdown, [data-role="user"] p')).not.toBeInTheDocument()
+  })
+
+  it('expanding shows the body verbatim in a <pre>, never as markdown', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', role: 'user', text: 'go', command })} />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /\/code-review/ }))
+    const pre = container.querySelector('pre')
+    expect(pre).toBeInTheDocument()
+    expect(pre?.textContent).toContain('<command-contents>')
+    expect(pre?.textContent).toContain('You are reviewing.')
+  })
+
+  it('an unnamed injection reads machine context, with ×n for multiple blocks', () => {
+    render(
+      <MessageView
+        message={makeMessage({
+          id: '1', role: 'user', text: 'try again',
+          command: { name: null, body: '<system-reminder>a</system-reminder>\n<system-reminder>b</system-reminder>', blocks: 2 },
+        })}
+      />
+    )
+    expect(screen.getByRole('button', { name: /machine context ×2/ })).toBeInTheDocument()
   })
 })

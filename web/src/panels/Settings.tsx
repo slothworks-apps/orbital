@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useOrbital } from '../store/store'
+import { useOrbital, parsePlanetScale, PLANET_SCALE_MAX, PLANET_SCALE_MIN } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
@@ -63,17 +63,18 @@ const ENDED_AGE_OPTIONS: Array<{ value: string; label: string }> = [
 ]
 
 /**
- * The nav, in canvas order. Two sections are live: "Sessions" (1h) and
- * "Tags & rules" (1e) — 1e is the same dialog with the 4th row selected, not
- * a screen of its own, which is why it is a section here rather than a link.
- * The rest are drawn but inert until they have something to hold.
+ * The nav, in canvas order. Three sections are live: "Sessions" (1h),
+ * "Tags & rules" (1e — the same dialog with the 4th row selected, not a
+ * screen of its own, which is why it is a section here rather than a link)
+ * and "Appearance" (5a, `Feature - Planet size.dc.html`). The rest are drawn
+ * but inert until they have something to hold.
  */
 const NAV_ITEMS = [
   { key: 'general', label: 'General', disabled: true },
   { key: 'sessions', label: 'Sessions', disabled: false },
   { key: 'permissions', label: 'Permissions', disabled: true },
   { key: 'tags', label: 'Tags & rules', disabled: false },
-  { key: 'appearance', label: 'Appearance', disabled: true },
+  { key: 'appearance', label: 'Appearance', disabled: false },
   { key: 'shortcuts', label: 'Shortcuts', disabled: true },
 ] as const
 
@@ -115,6 +116,91 @@ function Row({ title, desc, children }: { title: string; desc: string; children:
   )
 }
 
+/**
+ * The Appearance preview's three size tiers, transcribed from canvas 5a
+ * (ended · live · live with subagents). `base` is the 1.00× diameter in px,
+ * `capK` the canvas's caption-gap coefficient (`margin-top = base × scale ×
+ * capK + 8`). The tick ring is the artboard's `repeating-conic-gradient`
+ * masked to a band `mask[0]`/`mask[1]` px inside the edge; the lg tier's
+ * ring spin is left out — a settings illustration, not the map.
+ */
+const PREVIEW_TIERS = [
+  {
+    base: 34,
+    capK: 0.24,
+    inset: '-22%',
+    dim: true,
+    ring: 'repeating-conic-gradient(rgba(200,215,235,.4) 0 2deg, transparent 2deg 12deg)',
+    mask: [3, 2],
+    body: 'oklch(16% .01 230)',
+    border: '1px solid rgba(200,215,235,.35)',
+    core: null as string | null,
+    shadow: undefined as string | undefined,
+  },
+  {
+    base: 60,
+    capK: 0.24,
+    inset: '-22%',
+    dim: false,
+    ring: 'repeating-conic-gradient(oklch(80% .13 210 / .45) 0 1.5deg, transparent 1.5deg 8deg)',
+    mask: [5, 4],
+    body: 'radial-gradient(circle at 50% 45%, oklch(28% .05 220), oklch(18% .04 225) 70%)',
+    border: '1px solid oklch(80% .13 210 / .45)',
+    core: 'oklch(80% .13 210 / .8)',
+    shadow: undefined,
+  },
+  {
+    base: 92,
+    capK: 0.28,
+    inset: '-26%',
+    dim: false,
+    ring: 'repeating-conic-gradient(oklch(80% .13 60 / .5) 0 1.2deg, transparent 1.2deg 6deg)',
+    mask: [6, 5],
+    body: 'radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%, oklch(16% .03 230))',
+    border: '1px solid oklch(80% .13 60 / .6)',
+    core: 'oklch(80% .13 60 / .85)',
+    shadow: '0 0 22px oklch(80% .13 60 / .25), inset 0 0 0 5px rgba(0,0,0,.25)',
+  },
+]
+
+/** One mock body of the Appearance preview (canvas 5a), sized to the live scale. */
+function PreviewTier({ tier, scale }: { tier: (typeof PREVIEW_TIERS)[number]; scale: number }) {
+  const size = Math.round(tier.base * scale)
+  const maskCss = `radial-gradient(farthest-side, transparent calc(100% - ${tier.mask[0]}px), #000 calc(100% - ${tier.mask[1]}px))`
+  return (
+    <div className="flex flex-none flex-col items-center">
+      <div
+        className="relative transition-[width,height] duration-[180ms] ease-out"
+        style={{ width: size, height: size, opacity: tier.dim ? 0.6 : undefined }}
+      >
+        <span
+          aria-hidden
+          className="absolute block rounded-full"
+          style={{ inset: tier.inset, background: tier.ring, maskImage: maskCss, WebkitMaskImage: maskCss }}
+        />
+        <span
+          aria-hidden
+          className="absolute inset-0 block rounded-full"
+          style={{ background: tier.body, border: tier.border, boxShadow: tier.shadow }}
+        />
+        {tier.core && (
+          <span
+            aria-hidden
+            className="absolute left-1/2 top-1/2 block h-[16%] w-[16%] -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{ background: tier.core }}
+          />
+        )}
+      </div>
+      <div
+        className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.6)]"
+        style={{ marginTop: Math.round(tier.base * scale * tier.capK + 8) }}
+      >
+        {size}px
+      </div>
+    </div>
+  )
+}
+
 /** Orb sizes/opacities of the lineage chain illustration, verbatim from
  * canvas 1h (oldest → current, the current one accent-ringed with a core). */
 const CHAIN_ORBS = [
@@ -140,6 +226,9 @@ export function Settings({ open, onClose }: SettingsProps) {
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [saved, setSaved] = useState(false)
   const [section, setSection] = useState<SectionKey>('sessions')
+  // Appearance preview (canvas 5a): open by default, collapse state lives
+  // only for the dialog's visit — deliberately not persisted (spec).
+  const [previewOpen, setPreviewOpen] = useState(true)
 
   useEffect(() => {
     if (!open) return
@@ -147,6 +236,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     // left over from the last one — the dialog is held mounted across `open`.
     setSection('sessions')
     setSaved(false)
+    setPreviewOpen(true)
   }, [open])
 
   useEffect(() => {
@@ -163,6 +253,47 @@ export function Settings({ open, onClose }: SettingsProps) {
       setSaved(true)
     } catch (err) {
       reportError(err, 'Failed to save settings')
+    }
+  }
+
+  /**
+   * The planet-size slider is the one continuous control in here, so the
+   * panel's await-then-update rule (made for discrete clicks) does not apply:
+   * the store gets the value IMMEDIATELY — the map behind the dialog rescales
+   * live, no Apply (canvas 5a) — and the PATCH is debounced. A failed save is
+   * recorded, and the optimistic value stands until reload (spec:
+   * 2026-09-18-planet-size-design).
+   */
+  const scaleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (scaleTimerRef.current) clearTimeout(scaleTimerRef.current)
+    },
+    []
+  )
+
+  function setPlanetScale(next: number) {
+    const clamped = Math.min(PLANET_SCALE_MAX, Math.max(PLANET_SCALE_MIN, next))
+    const value = String(Math.round(clamped * 100) / 100)
+    useOrbital.setState((state) => ({ settings: { ...state.settings, planet_scale: value } }))
+    if (scaleTimerRef.current) clearTimeout(scaleTimerRef.current)
+    scaleTimerRef.current = setTimeout(() => {
+      void patchAndSet({ planet_scale: value })
+    }, DEBOUNCE_MS)
+  }
+
+  /** Canvas 5b keyboard spec: ←/→ one step (native), ⇧ five, Home = 1.00×
+   * (native Home would jump to the minimum instead). */
+  function handleScaleKeys(e: ReactKeyboardEvent<HTMLInputElement>, current: number) {
+    if (e.key === 'Home') {
+      e.preventDefault()
+      setPlanetScale(1)
+    } else if (e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowUp')) {
+      e.preventDefault()
+      setPlanetScale(current + 0.25)
+    } else if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowDown')) {
+      e.preventDefault()
+      setPlanetScale(current - 0.25)
     }
   }
 
@@ -197,6 +328,11 @@ export function Settings({ open, onClose }: SettingsProps) {
   const defaultModel = settings.default_model ?? ''
   const rememberModelPerProject = settings.remember_model_per_project !== 'false'
   const mapShowModel = settings.map_show_model !== 'false'
+  // Appearance (canvas 5a).
+  const planetScale = parsePlanetScale(settings)
+  const mapScaleLabels = settings.map_scale_labels === 'true'
+  const scaleNote =
+    planetScale === 1 ? 'default' : planetScale > 1 ? 'larger bodies · fewer per screen' : 'denser map'
   // canvas 4c: the sample chip beside the toggle above shows what it will
   // actually draw — the selected default's family, upper-cased — rather than
   // a placeholder, so it renders nothing when there is no catalog or no
@@ -327,11 +463,118 @@ export function Settings({ open, onClose }: SettingsProps) {
 
           {section === 'tags' ? (
             <TagsRulesSection active onSaved={() => setSaved(true)} />
+          ) : section === 'appearance' ? (
+            /* Appearance (canvas 5a): MAP kicker, the planet-size slider, the
+               collapsible preview and the labels toggle. */
+            <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
+              <SectionLabel first>MAP</SectionLabel>
+              <Row
+                title="Default planet size"
+                desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
+              >
+                <div className="flex w-full flex-col gap-[9px]">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-[15px] text-text-bright">
+                      {planetScale.toFixed(2)}×
+                    </span>
+                    <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+                      {scaleNote}
+                    </span>
+                    <span className="flex-1" />
+                    <button
+                      type="button"
+                      onClick={() => setPlanetScale(1)}
+                      className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+                    >
+                      RESET
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min={70}
+                    max={160}
+                    step={5}
+                    value={Math.round(planetScale * 100)}
+                    aria-label="Default planet size"
+                    onChange={(e) => setPlanetScale(Number(e.target.value) / 100)}
+                    onKeyDown={(e) => handleScaleKeys(e, planetScale)}
+                    className="h-[18px] w-full cursor-grab accent-accent"
+                  />
+                  <div className="flex justify-between font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+                    <span>0.70×</span>
+                    <span>1.00×</span>
+                    <span>1.60×</span>
+                  </div>
+                </div>
+              </Row>
+
+              {/* Collapsible preview row (canvas 5a): full-width header
+                  button, the tier strip animates shut instead of unmounting. */}
+              <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
+                <button
+                  type="button"
+                  aria-expanded={previewOpen}
+                  onClick={() => setPreviewOpen((v) => !v)}
+                  className="flex items-start gap-2.5 text-left"
+                >
+                  <span
+                    aria-hidden
+                    className="mt-[1px] grid h-4 w-4 flex-none place-items-center text-[9px] text-[rgba(160,190,225,.7)] transition-transform duration-[180ms]"
+                    style={{ transform: previewOpen ? undefined : 'rotate(-90deg)' }}
+                  >
+                    ▾
+                  </span>
+                  <span className="flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="text-[13.5px] font-semibold text-text-bright">Preview</span>
+                      {!previewOpen && (
+                        <span className="font-mono text-[10px] tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+                          collapsed
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-1 block text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                      The three size tiers at the current scale: ended, live, live with subagents.
+                      Labels keep their 10 px mono floor at every scale.
+                    </span>
+                  </span>
+                </button>
+                <div
+                  className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)]"
+                  style={{
+                    height: previewOpen ? 300 : 0,
+                    opacity: previewOpen ? 1 : 0,
+                    padding: previewOpen ? '24px 28px' : '0px 28px',
+                    borderStyle: 'solid',
+                    borderWidth: previewOpen ? 1 : 0,
+                    transition:
+                      'height .22s cubic-bezier(.2,.9,.25,1), opacity .18s ease, padding .22s ease',
+                  }}
+                >
+                  {PREVIEW_TIERS.map((tier) => (
+                    <PreviewTier key={tier.base} tier={tier} scale={planetScale} />
+                  ))}
+                </div>
+              </div>
+
+              <Row
+                title="Scale labels with bodies"
+                desc="Off keeps session names at 11 px mono regardless of scale — better for dense maps at 1.40× and above."
+              >
+                <Toggle
+                  aria-label="Scale labels with bodies"
+                  checked={mapScaleLabels}
+                  onChange={(checked) =>
+                    void patchAndSet({ map_scale_labels: checked ? 'true' : 'false' })
+                  }
+                />
+              </Row>
+            </div>
           ) : (
           /* Content column: 8/32/20 padding per canvas 1h. Only Sessions can
-             be selected besides Tags & rules, so this column is the other
-             branch outright. The project-dir draft lives in `Settings`, not
-             here, so swapping the column away costs no state. */
+             be selected besides Tags & rules and Appearance, so this column
+             is the remaining branch outright. The project-dir draft lives in
+             `Settings`, not here, so swapping the column away costs no state. */
           <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
             <SectionLabel first>NEW SESSIONS</SectionLabel>
             <Row

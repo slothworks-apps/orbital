@@ -68,32 +68,38 @@ import { DIMMED_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type Plan
  */
 
 /**
- * State-change duration, ms. This is the export's own `transition:width .42s
- * cubic-bezier(.2,.8,.2,1)` — the curve and duration the sidebar collapses on
- * and that `SpaceMap`'s HUD already uses (`duration-[420ms]`). It is
- * deliberately longer than `ui/motion.ts`'s 180/140ms open/close pair: those
- * are a surface appearing, this is an object that is already on screen
- * changing what it is, and at modal speed a planet's rings read as a flicker
- * rather than as a change of state.
+ * State-change duration, ms. The CURVE is the export's
+ * `cubic-bezier(.2,.8,.2,1)`; the duration deliberately DIVERGES from the
+ * export's `.42s` (the sidebar-collapse timing `SpaceMap`'s HUD still uses):
+ * tuned longer on the `/sandbox` workbench, where the export's duration left
+ * the ring/body crossfade barely readable on a map-sized planet (Tomin,
+ * 2026-09-18). It is deliberately longer than `ui/motion.ts`'s open/close
+ * pair: those are a surface appearing, this is an object that is already on
+ * screen changing what it is, and at modal speed a planet's rings read as a
+ * flicker rather than as a change of state.
  */
-export const STATE_TRANSITION_MS = 420
+export const STATE_TRANSITION_MS = 800
 
 /**
  * Selection reticle fade.
  *
- * It began on the app's short modal pair (180/140) on the reasoning that a
- * selection ring acknowledges a click rather than making an entrance. That
- * was wrong for what is actually on screen: a modal fades a whole filled
- * surface, while this is a 1px dashed ring and four hairline brackets, and
- * opacity alone across three frames reads as appearing rather than arriving.
+ * It began on the app's short modal pair (`MODAL_ENTER_MS`/`MODAL_EXIT_MS`)
+ * on the reasoning that a selection ring acknowledges a click rather than
+ * making an entrance. That was wrong for what is actually on screen: a modal
+ * fades a whole filled surface, while this is a 1px dashed ring and four
+ * hairline brackets, and opacity alone across a few frames reads as
+ * appearing rather than arriving. It has since been slowed twice — past the
+ * modal pair, then again on the `/sandbox` workbench alongside
+ * `STATE_TRANSITION_MS` (Tomin, 2026-09-18) — and carries a small scale
+ * settle as well (`RETICLE_ENTER_SCALE`).
  *
- * So it is slower than a modal and carries a small scale settle as well
- * (`RETICLE_ENTER_SCALE`). The rule from `ui/motion.ts` still holds and is
- * what keeps these two apart: an entrance is the app presenting something and
- * can afford to be seen, an exit is the user having already moved on.
+ * The exit keeps the prior enter:exit ratio; the rule from `ui/motion.ts`
+ * holds and is what keeps the two apart: an entrance is the app presenting
+ * something and can afford to be seen, an exit is the user having already
+ * moved on.
  */
-export const RETICLE_ENTER_MS = 320
-export const RETICLE_EXIT_MS = 200
+export const RETICLE_ENTER_MS = 600
+export const RETICLE_EXIT_MS = 360
 
 /**
  * The reticle arrives fractionally wide and settles, so the eye has something
@@ -317,12 +323,15 @@ export function advanceTween(tw: Tween, deltaSec: number): boolean {
 /**
  * How long a body takes to walk to a new place on the map.
  *
- * Deliberately slower than `STATE_TRANSITION_MS`: a state change is a body
- * changing appearance in place, whereas retagging is a MIGRATION — the layout
- * moves the session into another cluster and renumbers both spirals, so the
- * planet crosses a large part of the map. At 420ms that trip still reads as a
- * teleport with motion blur; at 700ms the eye can follow which planet went
- * where, which is the whole point of animating it.
+ * Sized for a MIGRATION, not an in-place change: retagging moves the session
+ * into another cluster and renumbers both spirals, so the planet crosses a
+ * large part of the map. At `ui/motion.ts`'s modal speed that trip reads as
+ * a teleport with motion blur; at this duration the eye can follow which
+ * planet went where, which is the whole point of animating it. It is no
+ * longer ordered relative to `STATE_TRANSITION_MS` (the state change has
+ * been tuned past it), but the two must stay in the same league so a retag
+ * that also changes tier reads as one movement — pinned by the "body
+ * migration" test.
  */
 export const BODY_MOVE_MS = 700
 
@@ -681,6 +690,24 @@ export function useStateMix<S extends string>(
     retargetStateMix(mix, target, prefersReducedMotion())
   }, [mix, target])
   return mix
+}
+
+/**
+ * Tier-scale tween — the layout ties a planet's scale to its status
+ * (`ACTIVE_SCALE`/`IDLE_SCALE`/`ENDED_SCALE` in `map/layout.ts`), so without
+ * this a state change snapped the body size in one frame while every material
+ * crossfaded over `STATE_TRANSITION_MS`, and the snap was the dominant visual
+ * event (docs/fixes/state-change-snaps-the-planet-scale.md). Same duration
+ * and curve as the state mix, so the size arrives together with the rings.
+ */
+export function useScaleTween(scale: number, durationMs: number = STATE_TRANSITION_MS): Tween {
+  const ref = useRef<Tween | null>(null)
+  if (ref.current === null) ref.current = createTween(scale, durationMs)
+  const tw = ref.current
+  useLayoutEffect(() => {
+    retargetTween(tw, scale, durationMs, prefersReducedMotion())
+  }, [tw, scale, durationMs])
+  return tw
 }
 
 /** Hue angle tween — retagging a session eases its colour across rather than cutting. */

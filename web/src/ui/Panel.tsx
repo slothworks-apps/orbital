@@ -12,6 +12,18 @@ export interface PanelProps {
    */
   glowHue?: number
   /**
+   * Live width in CSS px for a docked panel, replacing the side's fixed
+   * width class — the detail panel's drag handle drives this. Ignored while
+   * `collapsed` (the rail width wins) and meaningless for `float`.
+   */
+  widthPx?: number
+  /**
+   * Set false during a pointer drag so the width tracks the cursor 1:1 —
+   * 420ms of easing behind the pointer feels broken. Back to true at rest
+   * so collapse/expand keeps the canvas timing.
+   */
+  widthTransition?: boolean
+  /**
    * Layout-only passthrough (margin, grid-area, absolute positioning offsets).
    * Never use this to override internal panel styling (bg/border/blur) — variants are props-driven.
    */
@@ -72,16 +84,25 @@ export function Panel({
   side = 'float',
   collapsed = false,
   glowHue,
+  widthPx,
+  widthTransition = true,
   className,
   children,
 }: PanelProps) {
-  const width = collapsed ? (side === 'float' ? '' : 'w-14') : sideWidth[side]
+  const useLiveWidth = !collapsed && side !== 'float' && widthPx !== undefined
+  const width = collapsed ? (side === 'float' ? '' : 'w-14') : useLiveWidth ? '' : sideWidth[side]
 
   // The bloom is hue-dependent, so it can't live in a static class — it
-  // replaces the whole shadow list when present (1b).
+  // replaces the whole shadow list when present (1b). The live width joins
+  // it for the same reason: a dragged number can't be a class.
   const style: CSSProperties | undefined =
-    glowHue !== undefined
-      ? { boxShadow: `${sideShadow[side]}, 0 0 40px oklch(80% 0.13 ${glowHue} / 0.08)` }
+    glowHue !== undefined || useLiveWidth
+      ? {
+          ...(glowHue !== undefined
+            ? { boxShadow: `${sideShadow[side]}, 0 0 40px oklch(80% 0.13 ${glowHue} / 0.08)` }
+            : undefined),
+          ...(useLiveWidth ? { width: widthPx } : undefined),
+        }
       : undefined
 
   return (
@@ -93,8 +114,9 @@ export function Panel({
         sideChrome[side],
         sideRounding[side],
         width,
-        // Collapse/expand timing verbatim from the canvas export.
-        'transition-[width] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
+        // Collapse/expand timing verbatim from the canvas export; dropped
+        // during a drag so the width tracks the pointer (see widthTransition).
+        widthTransition ? 'transition-[width] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]' : '',
         className ?? '',
       ]
         .filter(Boolean)

@@ -2,10 +2,18 @@ import '@fontsource/manrope/latin-400.css'
 import '@fontsource/manrope/latin-600.css'
 import '@fontsource/jetbrains-mono/latin-400.css'
 import './theme.css'
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App.tsx'
 import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
+
+// Lazy on BOTH sides of the sandbox branch, because importing `App.tsx` is
+// not free: it calls `getSocket()` at module scope (its once-per-page-load
+// guarantee — see `lib/socket.ts`), so an eager import here would open the
+// app's WebSocket underneath the server-free sandbox.
+const App = lazy(() => import('./App.tsx'))
+const SandboxPage = lazy(() =>
+  import('./sandbox/SandboxPage.tsx').then((m) => ({ default: m.SandboxPage }))
+)
 
 /**
  * Desktop half of "pinch belongs to the map" (the mobile half is the viewport
@@ -41,12 +49,25 @@ window.addEventListener(
  */
 import.meta.hot?.on('vite:afterUpdate', resetErrorBoundaries)
 
+/**
+ * `/sandbox` swaps the whole app for the planet animation workbench. A real
+ * path, unlike the session URL's query parameter (`lib/sessionUrl.ts`),
+ * because the web app is only ever served by vite (the Fastify server hosts
+ * no static files), and vite's default `appType: 'spa'` already rewrites
+ * unknown paths to `index.html` in both `dev` and `preview`. If the bundle
+ * ever moves behind another host, that host needs the same SPA fallback for
+ * this route to survive a refresh. Branching here rather than inside `App`
+ * keeps the sandbox free of App's side effects — no WebSocket, no store
+ * loads.
+ */
+const sandbox = window.location.pathname === '/sandbox'
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {/* Outermost net: App's own body (the WS wiring, the URL sync) throwing
         should still leave something on screen to reload from. */}
     <ErrorBoundary label="Orbital">
-      <App />
+      <Suspense fallback={null}>{sandbox ? <SandboxPage /> : <App />}</Suspense>
     </ErrorBoundary>
   </StrictMode>,
 )

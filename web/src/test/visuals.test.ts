@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { renderHook } from '@testing-library/react'
 import type { SessionStatus, Subagent } from '../lib/types'
 import {
   BODY_RADIUS,
@@ -12,10 +13,14 @@ import {
   MOON_TICK_COUNT,
   MOON_TICK_WIDTH_DEG,
   easeOut,
+  labelFontPx,
   moonVisuals,
   oscillate,
   planetVisuals,
   truncateLabel,
+  typedLabel,
+  LABEL_TYPE_MS_PER_CHAR,
+  LABEL_TYPE_MAX_MS,
 } from '../map/visuals'
 import {
   MOON_STATES as MIX_MOON_STATES,
@@ -49,6 +54,7 @@ import {
   shortestHueDelta,
   stackAlphas,
   tickLayerWeight,
+  useScaleTween,
 } from '../map/transition'
 
 const PLANET_STATES: SessionStatus[] = ['working', 'idle', 'needs_input', 'ended']
@@ -339,6 +345,44 @@ describe('truncateLabel', () => {
     const out = truncateLabel(long)
     expect(out.length).toBeLessThanOrEqual(26)
     expect(out.endsWith('…')).toBe(true)
+  })
+})
+
+// The hover-expanded label's typing reveal. Pure — the Planet frame loop
+// feeds it elapsed hover time and writes the result into the overlay's
+// textContent, so this is the whole logic jsdom can't reach through R3F.
+describe('typedLabel', () => {
+  const long = 'Pomoz mi vymyslet finální název pro tento projekt a jeho moduly'
+
+  it('shows a short title whole at any elapsed time', () => {
+    expect(typedLabel('auth-refactor', 0)).toBe('auth-refactor')
+    expect(typedLabel('auth-refactor', 10_000)).toBe('auth-refactor')
+  })
+
+  it('starts on the truncated prefix, without the ellipsis', () => {
+    const prefix = truncateLabel(long).slice(0, -1)
+    expect(typedLabel(long, 0)).toBe(prefix)
+  })
+
+  it('reveals characters monotonically, always a prefix of the title', () => {
+    let last = typedLabel(long, 0).length
+    for (let t = 0; t <= LABEL_TYPE_MAX_MS; t += 16) {
+      const out = typedLabel(long, t)
+      expect(long.startsWith(out)).toBe(true)
+      expect(out.length).toBeGreaterThanOrEqual(last)
+      last = out.length
+    }
+  })
+
+  it('is complete once every remaining character has had its per-char time', () => {
+    const remaining = long.length - typedLabel(long, 0).length
+    expect(typedLabel(long, remaining * LABEL_TYPE_MS_PER_CHAR)).toBe(long)
+  })
+
+  it('caps the whole reveal at LABEL_TYPE_MAX_MS for very long titles', () => {
+    const epic = 'x'.repeat(200)
+    expect(typedLabel(epic, LABEL_TYPE_MAX_MS)).toBe(epic)
+    expect(typedLabel(epic, LABEL_TYPE_MAX_MS / 2)).not.toBe(epic)
   })
 })
 
@@ -658,10 +702,59 @@ describe('hue transitions', () => {
   })
 })
 
+describe('tier scale transitions', () => {
+  // The layout ties scale to status (`scaleFor` in map/layout.ts), so
+  // without this tween a state change snapped the body size in one frame
+  // while everything else crossfaded — see
+  // docs/fixes/state-change-snaps-the-planet-scale.md.
+  it('eases a tier-scale change instead of snapping', () => {
+    const { result, rerender } = renderHook(({ scale }) => useScaleTween(scale), {
+      initialProps: { scale: 1 },
+    })
+    expect(result.current.value).toBe(1)
+    expect(result.current.active).toBe(false)
+
+    rerender({ scale: 0.71 })
+    const tw = result.current
+    expect(tw.active).toBe(true)
+    // One frame in, the value has left 1 but not arrived at .71.
+    advanceTween(tw, STATE_TRANSITION_MS / 2 / 1000)
+    expect(tw.value).toBeLessThan(1)
+    expect(tw.value).toBeGreaterThan(0.71)
+
+    advanceTween(tw, STATE_TRANSITION_MS / 1000)
+    expect(tw.value).toBeCloseTo(0.71, 12)
+    expect(tw.active).toBe(false)
+  })
+
+  it('an interrupted tier change continues from where it visibly is', () => {
+    const { result, rerender } = renderHook(({ scale }) => useScaleTween(scale), {
+      initialProps: { scale: 1 },
+    })
+    rerender({ scale: 0.44 })
+    const tw = result.current
+    advanceTween(tw, STATE_TRANSITION_MS / 2 / 1000)
+    const midway = tw.value
+
+    // Retarget mid-flight (ended → working again): starts from the midway
+    // value, never snaps back to an endpoint first.
+    rerender({ scale: 1 })
+    expect(tw.from).toBeCloseTo(midway, 12)
+    advanceTween(tw, STATE_TRANSITION_MS / 4 / 1000)
+    expect(tw.value).toBeGreaterThan(midway)
+    expect(tw.value).toBeLessThan(1)
+  })
+})
+
 describe('body migration', () => {
   // Retagging moves a session into another cluster; it should walk there.
-  it('is slower than a state change, because it crosses the map', () => {
-    expect(BODY_MOVE_MS).toBeGreaterThan(STATE_TRANSITION_MS)
+  // This used to pin "slower than a state change", until the state change
+  // was tuned past it (sandbox, 2026-09-18). What survives: the walk stays
+  // in the same league as the state change, so a retag that also changes
+  // tier reads as one movement, not two on different clocks.
+  it('walks in step with a state change', () => {
+    expect(BODY_MOVE_MS).toBeGreaterThan(STATE_TRANSITION_MS / 2)
+    expect(BODY_MOVE_MS).toBeLessThan(STATE_TRANSITION_MS * 2)
   })
 
   it('eases both axes together and lands exactly on the new position', () => {
@@ -815,5 +908,22 @@ describe('reticle durations', () => {
   it('stays mounted past the end of its own exit tween', () => {
     expect(RETICLE_LINGER_GRACE_MS).toBeGreaterThan(0)
     expect(RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS).toBeGreaterThan(RETICLE_EXIT_MS)
+  })
+})
+
+describe('labelFontPx', () => {
+  it('keeps the fixed sizes when label scaling is off, at any planet scale', () => {
+    expect(labelFontPx(1.6, false)).toEqual({ title: 11, family: 9.5 })
+    expect(labelFontPx(0.7, false)).toEqual({ title: 11, family: 9.5 })
+  })
+
+  it('multiplies the canvas sizes by the planet scale when on', () => {
+    const { title, family } = labelFontPx(1.6, true)
+    expect(title).toBeCloseTo(17.6, 10)
+    expect(family).toBeCloseTo(15.2, 10)
+  })
+
+  it('floors at 10px title / 9.5px family — type floors do not scale (canvas 5a)', () => {
+    expect(labelFontPx(0.7, true)).toEqual({ title: 10, family: 9.5 })
   })
 })

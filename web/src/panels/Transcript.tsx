@@ -5,7 +5,7 @@ import type { ChatMessage } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { Button } from '../ui/Button'
 import { MessageView } from './MessageView'
-import { ToolRow } from './ToolRow'
+import { ToolRow, salientInput } from './ToolRow'
 
 /** Initial size of the rendered window (in paired items), and the amount a
  * successful "load older" grows it by (bounded — see `handleLoadOlder`
@@ -86,6 +86,28 @@ export function groupToolRuns(items: TranscriptItem[]): TranscriptGroup[] {
     groups.push({ kind: 'tools', key: item.key, items: [item] })
   }
   return groups
+}
+
+/**
+ * Header line of a folded tool run (canvas 6b): call count plus a kind
+ * breakdown — kinds sorted by count desc then first appearance, `×n` only
+ * when n > 1, top three kinds named and the rest folded into `+n more`.
+ */
+export function summarizeToolRun(
+  items: Extract<TranscriptItem, { kind: 'tool' }>[]
+): { count: number; breakdown: string } {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const name = item.toolUse.toolName ?? 'Tool'
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  const kinds = [...counts.entries()].sort((a, b) => b[1] - a[1])
+  const named = kinds.slice(0, 3).map(([name, n]) => (n > 1 ? `${name} ×${n}` : name))
+  const more = kinds.length - 3
+  return {
+    count: items.length,
+    breakdown: more > 0 ? `${named.join(', ')} +${more} more` : named.join(', '),
+  }
 }
 
 /**
@@ -180,6 +202,93 @@ export interface TranscriptProps {
  * from under you); prepending older history instead compensates
  * `scrollTop` to keep the reader's position visually anchored.
  */
+/**
+ * A folded run of 2+ consecutive tool calls (canvas 6b). Folded is the
+ * default; a run containing a failed call defaults OPEN and its right slot
+ * says `n failed`; a live run stays folded with only its one unfinished
+ * call visible beneath the header — the run's leading edge, not a child.
+ * The right slot holds one value at a time: `running`, `n failed`, or (on
+ * hover) the verb. `toggled` is the user's explicit choice and always wins.
+ */
+function ToolRunGroup({
+  items,
+  toggled,
+  onToggle,
+}: {
+  items: Extract<TranscriptItem, { kind: 'tool' }>[]
+  toggled: boolean | undefined
+  onToggle: (next: boolean) => void
+}) {
+  const summary = summarizeToolRun(items)
+  const unfinished = items.find((item) => !item.toolResult)
+  const failed = items.filter((item) => item.toolResult?.isError).length
+  const open = toggled ?? failed > 0
+  const rightSlot = unfinished ? 'running' : failed > 0 ? `${failed} failed` : ''
+  const liveLabel = unfinished ? salientInput(unfinished.toolUse.toolName, unfinished.toolUse.toolInput) : ''
+
+  return (
+    <div data-tool-run data-folded={!open} className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => onToggle(!open)}
+        aria-expanded={open}
+        className={[
+          'group flex w-full items-center gap-2 rounded-[7px] border px-2.5 py-[7px] text-left font-mono text-[11.5px] text-[rgba(200,220,245,.8)]',
+          // Canvas 6b: open header keeps a brighter border + faint fill so
+          // the group reads as one block; hover brightens further (6b D).
+          open
+            ? 'border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.05)]'
+            : 'border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)]',
+          'hover:border-[rgba(150,205,255,.22)] hover:bg-[rgba(150,205,255,.07)]',
+          'focus-visible:border-[oklch(85%_0.12_205_/_0.7)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(85%_0.12_205_/_0.18)]',
+        ].join(' ')}
+      >
+        {/* One glyph, rotated when open — never swapped, so it animates (6d). */}
+        <span
+          aria-hidden
+          className={[
+            'w-2 text-[9px] text-[rgba(160,190,225,.6)] transition-transform duration-[160ms] ease-out',
+            open ? 'rotate-90' : '',
+          ].join(' ')}
+        >
+          ▸
+        </span>
+        <span aria-hidden className="text-[rgba(160,190,225,.6)]">⚙</span>
+        <span className="shrink-0 text-text-bright">{summary.count} tool calls</span>
+        <span aria-hidden className="text-[rgba(150,205,255,.28)]">·</span>
+        <span className="min-w-0 flex-1 truncate text-[rgba(160,190,225,.6)]">{summary.breakdown}</span>
+        {/* One slot, never two values at once (6d): hover swaps in the verb. */}
+        <span className="shrink-0 text-[rgba(160,190,225,.5)]">
+          <span className="group-hover:hidden">{rightSlot}</span>
+          <span className="hidden group-hover:inline">{open ? 'collapse' : 'expand'}</span>
+        </span>
+      </button>
+
+      {open ? (
+        items.map((item) => (
+          <ToolRow key={item.key} toolUse={item.toolUse} toolResult={item.toolResult} />
+        ))
+      ) : unfinished ? (
+        // The live row: a plain trace with its caret slot left EMPTY — it
+        // isn't openable yet — and the ⚙ blinking at the WORKING tempo.
+        <div
+          data-live-tool
+          className="flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono text-[11.5px] text-[rgba(200,220,245,.8)]"
+        >
+          <span aria-hidden className="w-2" />
+          <span aria-hidden className="orbital-pulse text-[rgba(160,190,225,.6)]">⚙</span>
+          <span className="min-w-0 flex-1 truncate">
+            {unfinished.toolUse.toolName}
+            {liveLabel ? ': ' : ''}
+            <span className="text-text-bright">{liveLabel}</span>
+            <span className="text-[rgba(160,190,225,.5)]">…</span>
+          </span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function Transcript({ sessionId }: TranscriptProps) {
   const messages = useOrbital(useShallow((s) => s.transcripts[sessionId] ?? []))
   const loadOlder = useOrbital((s) => s.loadOlder)
@@ -203,6 +312,11 @@ export function Transcript({ sessionId }: TranscriptProps) {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [exhausted, setExhausted] = useState(false)
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
+  // Folded tool runs (spec: 2026-09-18-transcript-folding-design). An
+  // explicit toggle always wins over the default (folded, or open for a run
+  // containing a failure). Keyed by the group's first message id — stable
+  // while streaming appends to the run. Reset on session switch is accepted.
+  const [runToggles, setRunToggles] = useState<Record<string, boolean>>({})
 
   // Pair on the FULL array first (see pairMessages' doc comment), then
   // window the paired rows — never the other way around.
@@ -336,12 +450,19 @@ export function Transcript({ sessionId }: TranscriptProps) {
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
           </div>
         ) : group.kind === 'tools' ? (
-          // A run of tool calls packs tight (4px) inside the 14px row rhythm.
-          <div key={group.key} data-tool-run className="flex flex-col gap-1">
-            {group.items.map((item) => (
-              <ToolRow key={item.key} toolUse={item.toolUse} toolResult={item.toolResult} />
-            ))}
-          </div>
+          group.items.length === 1 ? (
+            // A lone call is not a run — no header, today's row (canvas 6b A).
+            <div key={group.key} data-tool-run className="flex flex-col gap-1">
+              <ToolRow toolUse={group.items[0].toolUse} toolResult={group.items[0].toolResult} />
+            </div>
+          ) : (
+            <ToolRunGroup
+              key={group.key}
+              items={group.items}
+              toggled={runToggles[group.key]}
+              onToggle={(next) => setRunToggles((t) => ({ ...t, [group.key]: next }))}
+            />
+          )
         ) : (
           <MessageView
             key={group.key}

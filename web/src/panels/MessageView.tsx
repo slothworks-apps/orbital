@@ -4,6 +4,10 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../lib/types'
 import { highlightCode } from '../lib/highlight'
+import { ImageThumb } from './ImageThumb'
+
+/** 7a: two or more images share one wrapping row, each capped narrower. */
+const TWO_UP_WIDTH_PX = 171
 
 /** Matches remark/rehype's `language-xxx` class, which is only ever applied
  * to fenced code blocks (never to inline `code`) — the standard way to tell
@@ -104,6 +108,18 @@ function Pre({ children, className, ...rest }: PreProps) {
   )
 }
 
+/** The machine-tag names, for stripping from the chip's line count only —
+ * the expanded <pre> always shows the body verbatim, tags included. */
+const COMMAND_TAG =
+  /<\/?(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents)>/g
+
+/** Chip line count (canvas 6d): body lines after tag stripping, trailing blanks dropped. */
+export function commandLineCount(body: string): number {
+  const lines = body.replace(COMMAND_TAG, '').split('\n')
+  while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop()
+  return lines.length
+}
+
 export interface MessageViewProps {
   message: ChatMessage
   /**
@@ -121,12 +137,23 @@ export interface MessageViewProps {
  */
 export function MessageView({ message, streaming = false }: MessageViewProps) {
   const isUser = message.role === 'user'
+  // The command-expansion fold (canvas 6c, spec:
+  // 2026-09-18-transcript-folding-design). Only user turns carry `command`.
+  const command = isUser ? message.command : undefined
+  const [commandOpen, setCommandOpen] = useState(false)
+  // Typed nothing → no empty bubble, the chip is the whole turn (6c B).
+  const hasText = Boolean(message.text?.trim())
+  // Transcript images (canvas 7a): an image-only turn renders the
+  // thumbnail AS the bubble — no empty markdown bubble above it.
+  const images = message.images ?? []
+  const hasImages = images.length > 0
 
   return (
     <div
       data-role={message.role}
       className={['flex flex-col gap-1', isUser ? 'items-end' : 'items-start'].join(' ')}
     >
+      {(hasText || (!command && !hasImages)) && (
       <div
         className={[
           'message-markdown [text-wrap:pretty]',
@@ -159,6 +186,64 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
           />
         )}
       </div>
+      )}
+      {hasImages && (
+        // 7a: one wrapping row, 6px gap; under a bubble the image sits at
+        // the column's own gap, aligned to the bubble's right edge.
+        <div className={['flex flex-wrap gap-1.5', isUser ? 'justify-end' : 'justify-start'].join(' ')}>
+          {images.map((image) => (
+            <ImageThumb
+              key={image.ref}
+              image={image}
+              variant={isUser && !hasText && !command ? 'user-solo' : 'user'}
+              source="pasted image"
+              widthCapPx={images.length > 1 ? TWO_UP_WIDTH_PX : undefined}
+            />
+          ))}
+        </div>
+      )}
+      {command && (
+        <>
+          {/* The expansion chip (canvas 6c): resting chip convention —
+              1px border, no fill, 5/10px padding — right-aligned under the
+              bubble at a 6px gap (the column's 4px gap + 2px). */}
+          <button
+            type="button"
+            aria-expanded={commandOpen}
+            onClick={() => setCommandOpen((v) => !v)}
+            className={[
+              'mt-[2px] flex items-center gap-[7px] rounded-[7px] border px-2.5 py-[5px] font-mono text-[11.5px]',
+              commandOpen
+                ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+                : 'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.8)] hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)]',
+            ].join(' ')}
+          >
+            <span
+              aria-hidden
+              className={[
+                'w-2 text-[9px] text-[rgba(160,190,225,.6)] transition-transform duration-[160ms] ease-out',
+                commandOpen ? 'rotate-90' : '',
+              ].join(' ')}
+            >
+              ▸
+            </span>
+            {command.name ? (
+              <span className="text-text-bright">{command.name}</span>
+            ) : (
+              // Nothing here was authored — muted row ink, never #e8eef8 (6c D).
+              <span>machine context{command.blocks > 1 ? ` ×${command.blocks}` : ''}</span>
+            )}
+            <span className="text-[rgba(160,190,225,.5)]">· {commandLineCount(command.body)} lines</span>
+          </button>
+          {commandOpen && (
+            // Verbatim, never markdown; left-aligned even in a right-aligned
+            // turn — it's a file, not speech (6c C).
+            <pre className="mt-[2px] max-h-[168px] w-full self-stretch overflow-auto whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 text-left font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+              {command.body}
+            </pre>
+          )}
+        </>
+      )}
       {message.timestamp && (
         <span className="font-mono text-[10px] text-text-muted">{message.timestamp}</span>
       )}

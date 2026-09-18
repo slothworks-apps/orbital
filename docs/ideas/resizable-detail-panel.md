@@ -1,7 +1,7 @@
 ---
 id: resizable-detail-panel
 title: Let the detail panel be dragged wider
-status: backlog
+status: done
 type: idea
 domain: web
 related:

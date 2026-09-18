@@ -321,18 +321,20 @@ describe('App: session subscription follows selection', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Keyboard: Esc (⌘N is SpaceMap's own — verified not duplicated here)
+// Keyboard: Esc (⌥N is SpaceMap's own — verified not duplicated here)
 // ---------------------------------------------------------------------------
 
 describe('App: keyboard', () => {
-  it('⌘N opens the new-session dialog via SpaceMap\'s own handler (not duplicated by App)', async () => {
+  it('⌥N opens the new-session dialog via SpaceMap\'s own handler (not duplicated by App)', async () => {
     await renderApp()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
-    fireEvent.keyDown(document, { key: 'n', metaKey: true })
+    // On a US layout ⌥N is a dead key, so e.key arrives as '˜' — the
+    // handler must match on e.code, which names the physical key.
+    fireEvent.keyDown(document, { key: '˜', code: 'KeyN', altKey: true })
 
     expect(useOrbital.getState().ui.dialog).toBe('new')
-    // Exactly one dialog node — a duplicate ⌘N registration in App would
+    // Exactly one dialog node — a duplicate ⌥N registration in App would
     // still set the same value (idempotent), but this also guards against
     // NewSessionDialog being rendered twice in the tree.
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
@@ -340,6 +342,22 @@ describe('App: keyboard', () => {
     // Let NewSessionDialog's own recent-dirs fetch (fired by opening it)
     // settle before the test ends, or its resolution lands outside act().
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+  })
+
+  it('⌘N no longer opens the dialog (the browser reserves it for a new window)', async () => {
+    await renderApp()
+
+    fireEvent.keyDown(document, { key: 'n', code: 'KeyN', metaKey: true })
+
+    expect(useOrbital.getState().ui.dialog).toBeNull()
+  })
+
+  it('⌘⌥N does not open the dialog — the binding is ⌥N alone', async () => {
+    await renderApp()
+
+    fireEvent.keyDown(document, { key: '˜', code: 'KeyN', altKey: true, metaKey: true })
+
+    expect(useOrbital.getState().ui.dialog).toBeNull()
   })
 
   it('Esc closes an open dialog first, without also deselecting the current session', async () => {
@@ -558,5 +576,57 @@ describe('map ENDED readout toggle', () => {
     fireEvent.click(endedToggle())
     fireEvent.click(endedToggle())
     expect(useOrbital.getState().ui.hideEnded).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Errors trigger: an icon in the map HUD above the zoom stack, with the
+// unseen count as its badge — no longer the plain pill above "New session".
+// ---------------------------------------------------------------------------
+
+describe('errors trigger in the map HUD', () => {
+  it('carries the unseen count in its badge and its accessible name (canvas 5a)', async () => {
+    await renderApp()
+    act(() => {
+      useOrbital.setState({ errorsUnseen: 3 })
+    })
+
+    const trigger = screen.getByRole('button', { name: 'Error log — 3 unseen' })
+    expect(within(trigger).getByText('3')).toBeInTheDocument()
+  })
+
+  it('caps the badge at 99+ while the accessible name keeps the real count (canvas 5c)', async () => {
+    await renderApp()
+    act(() => {
+      useOrbital.setState({ errorsUnseen: 120 })
+    })
+
+    const trigger = screen.getByRole('button', { name: 'Error log — 120 unseen' })
+    expect(within(trigger).getByText('99+')).toBeInTheDocument()
+  })
+
+  it('drops the badge, not the button, when everything is seen', async () => {
+    await renderApp()
+
+    const trigger = screen.getByRole('button', { name: 'Error log' })
+    expect(within(trigger).queryByText('0')).not.toBeInTheDocument()
+  })
+
+  it('opens the error log', async () => {
+    await renderApp()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Error log' }))
+
+    expect(useOrbital.getState().ui.dialog).toBe('errors')
+    expect(screen.getByRole('heading', { name: 'Errors' })).toBeInTheDocument()
+  })
+
+  it('sits in the zoom column of the map HUD, so it tracks the detail panel with it', async () => {
+    await renderApp()
+
+    const trigger = screen.getByRole('button', { name: 'Error log' })
+    const column = trigger.closest('[data-overlay="zoom-column"]') as HTMLElement
+    expect(column).not.toBeNull()
+    expect(within(column).getByRole('button', { name: 'Zoom in' })).toBeInTheDocument()
   })
 })

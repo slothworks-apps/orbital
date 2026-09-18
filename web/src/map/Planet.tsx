@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type ComponentRef, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
@@ -11,6 +11,7 @@ import {
   easeOut,
   oscillate,
   truncateLabel,
+  typedLabel,
 } from './visuals'
 import {
   ENDED_HIDE_MS,
@@ -34,9 +35,11 @@ import {
   useHueTween,
   useLingering,
   usePointTween,
+  useScaleTween,
   useStateMix,
 } from './transition'
 import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
+import { bodyZoomFactor } from './camera'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
@@ -203,6 +206,18 @@ const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
 const LABEL_MODEL_COLOR = 'rgba(160,190,225,.7)'
 
 /**
+ * Hover-expanded label (idea doc `expand-a-planet-label-on-hover`). The
+ * canvas draws no hover states anywhere, so every value in this block is a
+ * judgement call, not a transcription: the enter/exit fades, the wrap
+ * width, the scrim. The typing pace lives beside `typedLabel` in
+ * `visuals.ts`.
+ */
+const HOVER_LABEL_ENTER_MS = 160
+const HOVER_LABEL_EXIT_MS = 120
+const HOVER_LABEL_MAX_WIDTH_PX = 240
+const HOVER_LABEL_SCRIM = 'rgba(4,8,16,.85)'
+
+/**
  * Per-layer z offsets so the (visually transparent) halo never composites
  * OVER the opaque body/core — everything otherwise sits at the group's
  * local origin (z=0), which would let render order + alpha blending paint
@@ -236,7 +251,18 @@ export interface PlanetProps {
   hue: number
   x: number
   y: number
+  /**
+   * Tier scale from the layout (`ACTIVE_SCALE`/`IDLE_SCALE`/`ENDED_SCALE`).
+   * Tweened inside on the state-change curve, because the layout ties it to
+   * `session.status` — passing a new value snaps nothing (see
+   * `useScaleTween`).
+   */
   scale: number
+  /**
+   * The Appearance `planet_scale` slider — kept OUT of the tween so a drag
+   * tracks the pointer 1:1 instead of easing a state-transition behind it.
+   */
+  scaleMultiplier?: number
   selected: boolean
   /**
    * Suppressed by the map's ENDED toggle. Fades and shrinks out rather than
@@ -249,6 +275,13 @@ export interface PlanetProps {
    * toggle is off or the session's model matches no catalog row.
    */
   modelFamily?: string | null
+  /**
+   * Label font sizes from `labelFontPx` — the canvas's 11/9.5px unless the
+   * Appearance "scale labels with bodies" toggle multiplies them (floored;
+   * canvas 5a). Computed by the caller so the floor logic lives in one place.
+   */
+  labelTitlePx?: number
+  labelFamilyPx?: number
   onClick?: (sessionId: string) => void
 }
 
@@ -598,13 +631,21 @@ export function Planet({
   x,
   y,
   scale,
+  scaleMultiplier = 1,
   selected,
   hidden = false,
   modelFamily = null,
+  labelTitlePx = 11,
+  labelFamilyPx = 9.5,
   onClick,
 }: PlanetProps) {
   const mix = useStateMix(PLANET_STATES, session.status)
   const hueTween = useHueTween(hue)
+  // The tier scale changes WITH the status (layout.ts), so it rides the same
+  // curve and duration as the material crossfade — un-tweened it snapped the
+  // body size in one frame and masked the whole transition
+  // (docs/fixes/state-change-snaps-the-planet-scale.md).
+  const scaleTween = useScaleTween(scale)
   // Retagging moves the session into another cluster and renumbers both
   // spirals, so the planet walks there rather than cutting.
   const move = usePointTween(x, y)
@@ -640,11 +681,26 @@ export function Planet({
   const reduced = prefersReducedMotion()
 
   /**
-   * The root group. The JSX `scale` prop stays as the base value — it is
-   * what a planet is drawn at before the first frame, and in jsdom where
-   * `useFrame` never runs — while the frame loop multiplies the hide fade
-   * into it. R3F re-applying the prop on an unrelated re-render can stamp
-   * over a fade in flight, which the next frame corrects.
+   * Hover-expanded label. `labelHovered` is the planet's first hover state
+   * — anything else that wants hover later (a cursor, a tooltip) should
+   * grow from it. The overlay only exists while the title actually
+   * truncates: hovering a short-named planet changes nothing, so no scrim
+   * ever flashes over a label that is already whole.
+   */
+  const [labelHovered, setLabelHovered] = useState(false)
+  const hoverActive = labelHovered && !hidden && truncateLabel(session.title) !== session.title
+  const hoverFade = useFadeTween(hoverActive, HOVER_LABEL_ENTER_MS, HOVER_LABEL_EXIT_MS)
+  const overlayMounted = useLingering(hoverActive, HOVER_LABEL_EXIT_MS)
+
+  /**
+   * The root group. The JSX `scale` prop renders the TWEEN's current value
+   * (times the multiplier), not the incoming prop — same reasoning as
+   * `usePointTween`'s position: the re-render that delivers a new tier
+   * happens a frame before the tween starts, so rendering the target would
+   * flash the new size for a frame and then yank it back. The frame loop
+   * multiplies the hide fade and counter-zoom into it; R3F re-applying the
+   * prop on an unrelated re-render can stamp over those for a frame, which
+   * the next frame corrects.
    */
   const groupRef = useRef<THREE.Group>(null)
   const tickGroupRef = useRef<THREE.Group>(null!)
@@ -658,6 +714,11 @@ export function Planet({
   const badgeRef = useRef<HTMLSpanElement | null>(null)
   const labelRef = useRef<HTMLSpanElement | null>(null)
   const labelGroupRef = useRef<THREE.Group>(null)
+  const overlayRef = useRef<HTMLSpanElement | null>(null)
+  const overlayTextRef = useRef<HTMLSpanElement | null>(null)
+  const overlayCursorRef = useRef<HTMLSpanElement | null>(null)
+  /** Milliseconds the pointer has rested on the planet — drives `typedLabel`. */
+  const hoverTypeElapsed = useRef(0)
   const rippleElapsed = useRef(0)
   /**
    * The blink's own phase, advanced by `delta / period` rather than read off
@@ -770,9 +831,14 @@ export function Planet({
       groupRef.current.position.y = move.y.value
     }
 
+    advanceTween(scaleTween, delta)
     const hide = endedHideTransform(hideFade.value)
     if (groupRef.current) {
-      groupRef.current.scale.setScalar(scale * hide.scale)
+      // Counter-zoom: planets shrink more slowly than the map when zooming
+      // out (identity at/above the default zoom) — see `bodyZoomFactor`.
+      groupRef.current.scale.setScalar(
+        scaleTween.value * scaleMultiplier * hide.scale * bodyZoomFactor(state.camera.zoom)
+      )
       // Fully faded out: stop drawing the subtree altogether rather than
       // paying for a dozen invisible meshes every frame.
       groupRef.current.visible = hide.opacity > 0.001
@@ -834,6 +900,26 @@ export function Planet({
       // must not write it, or R3F's next render stamps over whatever this
       // wrote.
     }
+
+    // Hover-expanded label: the typing reveal and both fades are written
+    // straight onto the overlay's DOM, like `labelRef`'s opacity above —
+    // no React re-render per character.
+    if (overlayMounted) {
+      if (hoverActive) hoverTypeElapsed.current += delta * 1000
+      advanceTween(hoverFade, delta)
+      if (overlayRef.current) {
+        overlayRef.current.style.opacity = String(hoverFade.value * hide.opacity)
+        overlayRef.current.style.transform = `translate(-50%, ${(1 - hoverFade.value) * 2}px)`
+      }
+      if (overlayTextRef.current) {
+        const text = reduced ? session.title : typedLabel(session.title, hoverTypeElapsed.current)
+        if (overlayTextRef.current.textContent !== text) overlayTextRef.current.textContent = text
+        if (overlayCursorRef.current) {
+          overlayCursorRef.current.style.display =
+            hoverActive && text !== session.title ? 'inline' : 'none'
+        }
+      }
+    }
   })
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
@@ -841,12 +927,19 @@ export function Planet({
     onClick?.(session.id)
   }
 
+  const handleHoverOver = () => {
+    hoverTypeElapsed.current = 0
+    setLabelHovered(true)
+  }
+  const handleHoverOut = () => setLabelHovered(false)
+
   return (
     <group
       ref={groupRef}
-      // The tween's current value, NOT `x`/`y` — see `usePointTween`.
+      // The tweens' current values, NOT `x`/`y`/`scale` — see `usePointTween`
+      // and the `groupRef` comment above.
       position={[move.x.value, move.y.value, 0]}
-      scale={scale}
+      scale={scaleTween.value * scaleMultiplier}
       onClick={onClick ? handleClick : undefined}
     >
       {hasGlowTexture && (
@@ -930,6 +1023,22 @@ export function Planet({
 
       {badgeMounted && <NeedsInputBadge innerRef={badgeRef} />}
 
+      {/* Hover target: ONE invisible disc, not over/out on the group — the
+          planet is a stack of overlapping child meshes, and the pointer
+          crossing between them fires out/over pairs on the group, which
+          would restart the label's typing mid-hover. An invisible mesh
+          still raycasts. Sized to the halo ring's outer edge, roughly the
+          planet's visual footprint; clicks on it bubble to the group's
+          onClick unchanged. */}
+      <mesh
+        position={[0, 0, RETICLE_Z]}
+        visible={false}
+        onPointerOver={handleHoverOver}
+        onPointerOut={handleHoverOut}
+      >
+        <circleGeometry args={[HALO_RING_OUTER, 32]} />
+      </mesh>
+
       {labelMounted && (
         <group ref={labelGroupRef} position={[0, LABEL_TOP_REST_Y, 0]}>
           <Html zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
@@ -964,7 +1073,7 @@ export function Planet({
                 style={{
                   display: 'block',
                   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                  fontSize: 11,
+                  fontSize: labelTitlePx,
                   letterSpacing: '0.06em',
                   color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
                   // The label is plain DOM, so its half of the state change is a
@@ -986,7 +1095,7 @@ export function Planet({
                     marginTop: 5,
                     textAlign: 'center',
                     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-                    fontSize: 9.5,
+                    fontSize: labelFamilyPx,
                     letterSpacing: '0.1em',
                     // The canvas value while live; falls to the same dimmed
                     // value as the title once ended, so the family line stops
@@ -1003,6 +1112,47 @@ export function Planet({
               )}
             </span>
           </Html>
+
+          {/* Hover-expanded label: the full title typing itself out over a
+              scrim, laid OVER the resting label (which stays put — the
+              overlay's first characters are identical, so it reads as the
+              ellipsis unfolding). zIndexRange above the resting labels'
+              [5, 0] so the full title reads over the neighbours' labels
+              instead of tangled into them. Opacity, transform and text are
+              all frame-loop writes — see the hover block in useFrame. */}
+          {overlayMounted && (
+            <Html zIndexRange={[20, 10]} style={{ pointerEvents: 'none' }}>
+              <span
+                ref={overlayRef}
+                style={{
+                  display: 'block',
+                  width: 'max-content',
+                  maxWidth: HOVER_LABEL_MAX_WIDTH_PX,
+                  transform: 'translateX(-50%)',
+                  opacity: 0,
+                  textAlign: 'center',
+                  background: HOVER_LABEL_SCRIM,
+                  borderRadius: 4,
+                  padding: '3px 8px',
+                  // Keeps the overlay's first text line on the resting
+                  // label's anchor, so the expansion grows around the title
+                  // instead of nudging it down by the padding.
+                  marginTop: -3,
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: labelTitlePx,
+                  letterSpacing: '0.06em',
+                  lineHeight: 1.5,
+                  color: LABEL_COLOR_ACTIVE,
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                <span ref={overlayTextRef} />
+                <span ref={overlayCursorRef} style={{ display: 'none' }}>
+                  ▌
+                </span>
+              </span>
+            </Html>
+          )}
         </group>
       )}
     </group>

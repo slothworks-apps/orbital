@@ -24,6 +24,7 @@ import type { SubagentStore } from '../transcript/subagents.js';
 import type { ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
+import type { ImageStore } from '../images/store.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -31,6 +32,10 @@ export interface RouteContext {
   runner: Runner;
   projectsDir: string;
   hub: Hub;
+  /** Content-addressed transcript image store + the directory it serves
+   * from (spec: 2026-09-18-transcript-images-design). */
+  images: ImageStore;
+  imagesDir: string;
   models: ModelCatalog;
   subagents: SubagentStore;
   errors: ErrorLog;
@@ -39,6 +44,14 @@ export interface RouteContext {
 
 /** The only kinds `POST /api/errors` will accept, mirroring `ErrorKind`. */
 const ERROR_KINDS = new Set<string>(['session_failed', 'api_request', 'render_crash']);
+
+/** Served type per stored extension (the store writes `jpg`, never `jpeg`). */
+const IMAGE_CONTENT_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+};
 
 /**
  * A v4 UUID in the one spelling `randomUUID()` produces: lowercase hex, `4`
@@ -106,7 +119,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     let messages;
     try {
       const text = readFileSync(join(ctx.projectsDir, row.project_dir, `${id}.jsonl`), 'utf8');
-      messages = entriesToMessages(parseTranscript(text));
+      messages = entriesToMessages(parseTranscript(text), ctx.images);
     } catch {
       // Two different "missing"s, and only one of them is a 404. An unknown
       // id already left above — that session does not exist. Getting here
@@ -121,6 +134,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const before = q.before ? messages.findIndex((m) => m.id === q.before) : messages.length;
     const end = before === -1 ? messages.length : before;
     return { messages: messages.slice(Math.max(0, end - limit), end) };
+  });
+
+  // Transcript images, served straight from the content-addressed store.
+  // The ref regex is the whole security story: 64 lowercase hex chars plus
+  // a whitelisted extension can neither traverse nor name anything the
+  // store did not write. The hash-as-name is also what makes `immutable`
+  // honest — a ref's bytes can be pruned, never replaced.
+  app.get('/api/images/:ref', (req, reply) => {
+    const { ref } = req.params as { ref: string };
+    const match = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.exec(ref);
+    if (!match) return reply.code(404).send({ error: 'not found' });
+    let bytes;
+    try {
+      bytes = readFileSync(join(ctx.imagesDir, ref));
+    } catch {
+      // Pruned from the cache — the web draws its NOT IN CACHE placeholder.
+      return reply.code(404).send({ error: 'not found' });
+    }
+    reply.header('content-type', IMAGE_CONTENT_TYPES[match[1]]);
+    reply.header('cache-control', 'public, max-age=31536000, immutable');
+    return reply.send(bytes);
   });
 
   app.post('/api/sessions', async (req, reply) => {

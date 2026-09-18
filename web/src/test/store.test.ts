@@ -17,6 +17,8 @@ import {
   mapSessions,
   statusCounts,
   recordedFailureFor,
+  parsePlanetScale,
+  parseDetailPanelWidth,
   type OrbitalState,
 } from '../store/store'
 
@@ -907,6 +909,54 @@ describe('setHideEnded', () => {
   })
 })
 
+describe('setSidebarCollapsed', () => {
+  // The collapse has to survive a reload — see `sidebar_collapsed`.
+  it('saves the collapse, and collapses the rail before the save comes back', () => {
+    let resolveSave = (_: { ok: boolean }) => {}
+    vi.mocked(api.patchSettings).mockReturnValue(
+      new Promise((resolve) => {
+        resolveSave = resolve
+      })
+    )
+
+    useOrbital.getState().setSidebarCollapsed(true)
+
+    expect(useOrbital.getState().ui.sidebarCollapsed).toBe(true)
+    expect(useOrbital.getState().settings.sidebar_collapsed).toBe('true')
+    expect(api.patchSettings).toHaveBeenCalledWith({ sidebar_collapsed: 'true' })
+    resolveSave({ ok: true })
+  })
+
+  it('does not save a collapse that changes nothing', () => {
+    useOrbital.getState().setSidebarCollapsed(false)
+    expect(api.patchSettings).not.toHaveBeenCalled()
+  })
+
+  it('puts the rail back and reports when the save fails', async () => {
+    vi.mocked(api.patchSettings).mockRejectedValue(new Error('settings server down'))
+
+    useOrbital.getState().setSidebarCollapsed(true)
+    await vi.waitFor(() => expect(useOrbital.getState().ui.sidebarCollapsed).toBe(false))
+
+    expect(useOrbital.getState().settings.sidebar_collapsed).toBe('false')
+    expect(useOrbital.getState().toast).toEqual({
+      kind: 'error',
+      message: 'settings server down',
+    })
+  })
+
+  it('loadInitial seeds the collapse from the saved setting', async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([])
+    vi.mocked(api.listTags).mockResolvedValue([])
+    vi.mocked(api.listTagRules).mockResolvedValue([])
+    vi.mocked(api.getSettings).mockResolvedValue({ sidebar_collapsed: 'true' })
+
+    await useOrbital.getState().loadInitial()
+
+    expect(useOrbital.getState().ui.sidebarCollapsed).toBe(true)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Which recorded failure the transcript should still be wearing
 // ---------------------------------------------------------------------------
@@ -975,5 +1025,46 @@ describe('recordedFailureFor', () => {
   it('keeps the failure when neither signal is present at all', () => {
     const noSignals = state({ sessions: {} })
     expect(recordedFailureFor(noSignals, 'a')).toBeDefined()
+  })
+})
+
+describe('parsePlanetScale', () => {
+  it('parses the stored multiplier', () => {
+    expect(parsePlanetScale({ planet_scale: '1.15' })).toBe(1.15)
+  })
+
+  it('defaults to 1 when the key is missing or not a number', () => {
+    expect(parsePlanetScale({})).toBe(1)
+    expect(parsePlanetScale({ planet_scale: 'garbage' })).toBe(1)
+  })
+
+  it('clamps to the slider range [0.7, 1.6]', () => {
+    expect(parsePlanetScale({ planet_scale: '0.2' })).toBe(0.7)
+    expect(parsePlanetScale({ planet_scale: '9' })).toBe(1.6)
+  })
+})
+
+describe('parseDetailPanelWidth', () => {
+  it('parses the stored width', () => {
+    expect(parseDetailPanelWidth({ detail_panel_width: '600' }, 1600)).toBe(600)
+  })
+
+  it('defaults to 450 when the key is missing or not a number', () => {
+    expect(parseDetailPanelWidth({}, 1600)).toBe(450)
+    expect(parseDetailPanelWidth({ detail_panel_width: 'wide' }, 1600)).toBe(450)
+  })
+
+  it('clamps to the 360px floor', () => {
+    expect(parseDetailPanelWidth({ detail_panel_width: '100' }, 1600)).toBe(360)
+  })
+
+  it('clamps to 60% of the viewport', () => {
+    expect(parseDetailPanelWidth({ detail_panel_width: '2000' }, 1600)).toBe(960)
+  })
+
+  it('keeps the floor when 60% of a narrow viewport would fall below it', () => {
+    // The floor wins over the ceiling — a panel narrower than 360 stops
+    // fitting its own header grid, per the idea doc.
+    expect(parseDetailPanelWidth({ detail_panel_width: '500' }, 500)).toBe(360)
   })
 })
