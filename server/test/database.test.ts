@@ -108,6 +108,14 @@ describe('openDb', () => {
       .where(sql`${settings.key} = 'map_release_ended_after_minutes'`)
       .get();
     expect(releaseAfter?.value).toBe('120');
+    // Naming sessions from their contents spends a model in the background,
+    // so it is off until someone turns it on.
+    const autoTitle = db
+      .select()
+      .from(settings)
+      .where(sql`${settings.key} = 'auto_title_sessions'`)
+      .get();
+    expect(autoTitle?.value).toBe('false');
     expect(db.$client.pragma('user_version', { simple: true })).toBe(1);
     db.$client.close();
     const again = openDb(join(dir, 'index.db')); // must not throw on re-run
@@ -203,6 +211,7 @@ describe('openDb', () => {
       map_scale_labels: 'false',
       detail_panel_width: '450',
       sidebar_collapsed: 'false',
+      auto_title_sessions: 'false',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

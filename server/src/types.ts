@@ -6,6 +6,13 @@ export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended';
  * `docs/superpowers/specs/2026-09-17-permission-mode-dots-design.md`. */
 export type PermissionMode = 'plan' | 'acceptEdits' | 'auto' | 'bypassPermissions';
 export type SubagentState = 'materializing' | 'working' | 'idle' | 'needs_input' | 'ended';
+/**
+ * Where a session's title came from. `derived` is the indexer's read of the
+ * first user turn, `auto` is the titler's, and `manual` is a person's — the
+ * only one nothing may overwrite. See
+ * `docs/superpowers/specs/2026-09-18-auto-title-design.md`.
+ */
+export type TitleSource = 'derived' | 'auto' | 'manual';
 
 export interface SessionRow {
   id: string;

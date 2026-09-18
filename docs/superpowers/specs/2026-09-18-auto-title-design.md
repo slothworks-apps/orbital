@@ -1,7 +1,7 @@
 ---
 id: 2026-09-18-auto-title-design
 title: Auto-title — a session renames itself as its subject moves
-status: draft
+status: done
 type: spec
 domain: sessions
 related:
@@ -173,7 +173,11 @@ and both halves of this hang off two of them.
 
 - `onEntries(sessionId, entries)` — the feeder. It already carries the raw
   transcript entries for a web session (it is what `SubagentTracker` eats), so
-  the titler accumulates the user text it will need from the same stream.
+  the titler accumulates the user text it will need from the same stream,
+  through `entriesToMessages`. That conversion turns out to matter twice over:
+  it drops sidechains, so a subagent's chatter never names the session, and it
+  runs each user turn through `splitUserText`, so the gate weighs what a person
+  typed rather than the slash-command expansion wrapped around it.
 - `onStatus(sessionId, 'needs_input')` — the trigger. `pump()` sets exactly
   that status after each `result` message, so a turn ending *is* that call.
   `onTurnUsage` fires at the same moment but carries only `modelUsage`, with

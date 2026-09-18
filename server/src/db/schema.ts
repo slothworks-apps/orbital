@@ -15,6 +15,7 @@ import type {
   PermissionMode,
   SessionSource,
   TagRule,
+  TitleSource,
 } from '../types.js';
 
 export const sessions = sqliteTable(
@@ -24,6 +25,8 @@ export const sessions = sqliteTable(
     projectDir: text('project_dir').notNull(),
     cwd: text('cwd').notNull().default(''),
     title: text('title').notNull().default(''),
+    /** Who named this session — only `manual` is a person's word, and nothing overwrites it. */
+    titleSource: text('title_source').$type<TitleSource>().notNull().default('derived'),
     firstAt: integer('first_at'),
     lastAt: integer('last_at'),
     messageCount: integer('message_count').notNull().default(0),

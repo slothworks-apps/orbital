@@ -18,6 +18,7 @@ import { registerRoutes } from './api/routes.js';
 import { toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore } from './transcript/subagents.js';
+import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
@@ -107,7 +108,11 @@ export function isAllowedHost(hostHeader: string | undefined | null): boolean {
 }
 
 export async function buildServer(overrides: {
-  dbPath?: string; claudeDir?: string; queryFn?: QueryFn;
+  dbPath?: string;
+  claudeDir?: string;
+  queryFn?: QueryFn;
+  /** The titler's one-shot call. Its own seam: it sends a whole prompt, not a stream. */
+  titleQueryFn?: TitleQueryFn;
 } = {}): Promise<FastifyInstance> {
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
@@ -186,6 +191,39 @@ export async function buildServer(overrides: {
   const imagesDir = join(CONFIG.dataDir, 'images');
   const images = createImageStore(imagesDir);
 
+  // Names a session from its own contents while it runs. Only web sessions
+  // reach it, because only they come through the Runner at all — a terminal
+  // session's transcript is read, never owned. See
+  // `docs/superpowers/specs/2026-09-18-auto-title-design.md`.
+  const titler = new SessionTitler({
+    queryFn: (overrides.titleQueryFn ?? query) as unknown as TitleQueryFn,
+    readSession: (sessionId) =>
+      db
+        .select({ title: sessions.title, titleSource: sessions.titleSource })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .get(),
+    applyTitle: (sessionId, title) => {
+      db.update(sessions)
+        .set({ title, titleSource: 'auto' })
+        .where(eq(sessions.id, sessionId))
+        .run();
+      republish(sessionId);
+    },
+    // Read per call, never captured: a value read once at boot ignores the
+    // switch until a restart, which `ended_after_idle_minutes` already taught.
+    isEnabled: () => settingsStore.get('auto_title_sessions') === 'true',
+    onError: (sessionId, err) =>
+      errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: 'generating a session title' },
+      }),
+  });
+
   const runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
@@ -195,6 +233,11 @@ export async function buildServer(overrides: {
       // An ended session has nothing running in it — and nothing left to
       // observe the `tool_result` that would otherwise retire its agents.
       if (status === 'ended') subagents.drop(sessionId);
+      // `needs_input` is how `pump()` spells "a turn just ended", and it is
+      // the only hook that carries the session id at that moment
+      // (`onTurnUsage` fires alongside it but knows only the usage).
+      if (status === 'ended') titler.forget(sessionId);
+      else if (status === 'needs_input') void titler.considerTurnEnd(sessionId);
       hub.publish('sessions', { event: 'status', sessionId, status });
     },
     onTurnUsage: (modelUsage) => models.recordContextWindows(modelUsage),
@@ -212,6 +255,9 @@ export async function buildServer(overrides: {
     // which is exactly what a transcript cannot tell us.
     onEntries: (sessionId, entries) => {
       if (subagents.feed(sessionId, entries)) republish(sessionId);
+      // Same stream, second reader: the titler needs what was said, in the
+      // shape the transcript already converts to.
+      titler.feed(sessionId, entriesToMessages(entries));
     },
     // A session that dies on its own used to say nothing at all: `pump()`
     // logged to the server's terminal and `finish()` greyed the planet out,

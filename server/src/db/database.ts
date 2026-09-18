@@ -36,6 +36,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   remember_model_per_project: 'true',
   map_show_model: 'true',
   /**
+   * Naming a session from its own contents while it runs
+   * (`docs/superpowers/specs/2026-09-18-auto-title-design.md`). Off by
+   * default: it spends a model in the background, so it should be a decision
+   * rather than a surprise.
+   */
+  auto_title_sessions: 'false',
+  /**
    * Appearance → default planet size (canvas 5a, `Feature - Planet
    * size.dc.html`). Stored as the normalized multiplier ('0.7'–'1.6', slider
    * step 0.05), not the slider's percent value. Applied client-side in

@@ -362,7 +362,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.patch('/api/sessions/:id', (req, reply) => {
     const { id } = req.params as { id: string };
     const { title } = req.body as { title: string };
-    const result = db.update(sessions).set({ title }).where(eq(sessions.id, id)).run();
+    // A title someone typed is a decision, not a guess: `manual` is what stops
+    // the titler from ever renaming this session again.
+    const result = db
+      .update(sessions)
+      .set({ title, titleSource: 'manual' })
+      .where(eq(sessions.id, id))
+      .run();
     if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
     return { ok: true };
   });

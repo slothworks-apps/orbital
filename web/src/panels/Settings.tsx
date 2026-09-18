@@ -324,6 +324,9 @@ export function Settings({ open, onClose }: SettingsProps) {
   const defaultPermissionMode = ((settings.default_permission_mode as PermissionMode) || 'acceptEdits')
   const lineageDepth = settings.lineage_depth ?? '3'
   const confirmBeforeClear = settings.confirm_before_clear !== 'false'
+  // Opt-in, so the default is the absent key reading as off — the opposite of
+  // every `!== 'false'` above it.
+  const autoTitleSessions = settings.auto_title_sessions === 'true'
   const inheritTags = settings.inherit_tags !== 'false'
   const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
   const endedAfterIdle = settings.ended_after_idle_minutes ?? '30'
@@ -700,6 +703,18 @@ export function Settings({ open, onClose }: SettingsProps) {
                 checked={confirmBeforeClear}
                 onChange={(checked) =>
                   void patchAndSet({ confirm_before_clear: checked ? 'true' : 'false' })
+                }
+              />
+            </Row>
+            <Row
+              title="Generate session titles from content"
+              desc="Renames a running session when its subject moves. Each rename costs a small model call."
+            >
+              <Toggle
+                aria-label="Generate session titles from content"
+                checked={autoTitleSessions}
+                onChange={(checked) =>
+                  void patchAndSet({ auto_title_sessions: checked ? 'true' : 'false' })
                 }
               />
             </Row>

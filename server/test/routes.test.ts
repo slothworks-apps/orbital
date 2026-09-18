@@ -151,6 +151,14 @@ describe('REST routes', () => {
     expect(list.json().sessions).toHaveLength(1);
   });
 
+  it('PATCH /api/sessions/:id marks the title as one a person typed', async () => {
+    await app.inject({
+      method: 'PATCH', url: '/api/sessions/s1', payload: { title: 'renamed by hand' },
+    });
+    const row = db.select().from(sessions).where(eq(sessions.id, 's1')).get();
+    expect(row.titleSource).toBe('manual');
+  });
+
   it('PUT /api/sessions/:id/tags records manual add and removal', async () => {
     await app.inject({ method: 'PUT', url: '/api/sessions/s2/tags', payload: { tagIds: [10] } });
     const list = await app.inject({ method: 'GET', url: '/api/sessions?tag=10' });
