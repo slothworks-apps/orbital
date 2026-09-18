@@ -453,6 +453,55 @@ describe('Runner', () => {
     expect(new Set(ids).size).toBe(2);
   });
 
+  it('start() pins a caller-supplied sessionId instead of minting one', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFn();
+    let captured: any;
+    const runner = new Runner({
+      hub,
+      queryFn: ((args: any) => { captured = args.options; return fn(args); }) as any,
+      newSessionId: () => 'minted-and-unwanted',
+    });
+    // Subscribing *before* the launch is the whole point of letting the
+    // caller pin one: the browser mints the id, joins `session:<id>`, and
+    // only then asks for the session, so the first turn cannot publish into
+    // a topic nobody is in yet.
+    const received = subscribed(hub, 'session:from-the-browser');
+    const id = await runner.start({
+      cwd: '/p', prompt: 'hello', permissionMode: 'acceptEdits',
+      sessionId: 'from-the-browser',
+    });
+    expect(id).toBe('from-the-browser');
+    // Handed to the CLI too, not merely returned — otherwise the process
+    // would run under an id nothing else agrees on.
+    expect(captured.sessionId).toBe('from-the-browser');
+    expect(runner.active()).toEqual(['from-the-browser']);
+    await vi.waitFor(() =>
+      expect(received.find((r) => r.event === 'message')?.message.text).toBe('echo:hello'),
+    );
+  });
+
+  it('start() lets resume win over a supplied sessionId', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFn();
+    let captured: any;
+    const runner = new Runner({
+      hub,
+      queryFn: ((args: any) => { captured = args.options; return fn(args); }) as any,
+      newSessionId: () => 'web-1',
+    });
+    const id = await runner.start({
+      cwd: '/p', prompt: 'x', permissionMode: 'plan',
+      resume: 'old-1', sessionId: 'from-the-browser',
+    });
+    // A resumed session's id is already fixed by its transcript, and the two
+    // are mutually exclusive in the SDK — so the pin must not even reach the
+    // options object.
+    expect(id).toBe('old-1');
+    expect(captured.resume).toBe('old-1');
+    expect(captured.sessionId).toBeUndefined();
+  });
+
   it('start() with resume of an active session throws (collision guard)', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFn();

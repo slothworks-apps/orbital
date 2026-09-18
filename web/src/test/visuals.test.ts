@@ -38,6 +38,9 @@ import {
   endedHideTransform,
   ENDED_HIDDEN_SCALE,
   ENDED_HIDE_MS,
+  reticleEnterScale,
+  RETICLE_ENTER_SCALE,
+  RETICLE_LINGER_GRACE_MS,
   easeMotion,
   retargetHueTween,
   retargetPointTween,
@@ -763,5 +766,54 @@ describe('endedHideTransform', () => {
 
   it('runs for the half second the artboard specifies', () => {
     expect(ENDED_HIDE_MS).toBe(500)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// selection reticle — canvas 1f
+// ---------------------------------------------------------------------------
+
+describe('reticleEnterScale', () => {
+  it('is exactly 1 when fully selected, so nothing multiplies the canvas size', () => {
+    expect(reticleEnterScale(1)).toBe(1)
+  })
+
+  it('starts wide and settles inward', () => {
+    expect(reticleEnterScale(0)).toBe(RETICLE_ENTER_SCALE)
+    expect(reticleEnterScale(0.5)).toBeGreaterThan(reticleEnterScale(1))
+    expect(reticleEnterScale(0.5)).toBeLessThan(reticleEnterScale(0))
+  })
+
+  it('is monotonic across the fade, so the settle never reverses', () => {
+    const steps = [0, 0.25, 0.5, 0.75, 1].map(reticleEnterScale)
+    for (let i = 1; i < steps.length; i += 1) {
+      expect(steps[i]).toBeLessThan(steps[i - 1])
+    }
+  })
+})
+
+describe('reticle durations', () => {
+  /** `ui/motion.ts`'s standing rule: an exit is the user having already moved on. */
+  it('leaves faster than it arrives', () => {
+    expect(RETICLE_EXIT_MS).toBeLessThan(RETICLE_ENTER_MS)
+  })
+
+  /**
+   * The ring is 1px dashed with four hairline brackets. Opacity alone over a
+   * modal's 180ms is under three frames of change, which reads as appearing
+   * rather than arriving — the reason these left the modal pair.
+   */
+  it('arrives over longer than a modal does', () => {
+    expect(RETICLE_ENTER_MS).toBeGreaterThan(180)
+  })
+
+  /**
+   * `useLingering` counts wall-clock while the fade needs rendered frames, so
+   * the mount has to outlast the tween or a dropped frame pops the ring away
+   * mid-fade.
+   */
+  it('stays mounted past the end of its own exit tween', () => {
+    expect(RETICLE_LINGER_GRACE_MS).toBeGreaterThan(0)
+    expect(RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS).toBeGreaterThan(RETICLE_EXIT_MS)
   })
 })

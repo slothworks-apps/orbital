@@ -218,6 +218,22 @@ describe('REST routes', () => {
     ]);
   });
 
+  // A just-launched session has a row (`project_dir: ''`) and no transcript
+  // yet — the CLI writes that file a moment later. The first fetch after a
+  // launch used to 404 on it, which left a red line in the console on every
+  // single launch.
+  it('GET /api/sessions/:id/messages returns an empty transcript for a session with no file yet', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/messages' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ messages: [] });
+  });
+
+  it('GET /api/sessions/:id/messages still 404s for a session nobody has heard of', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/does-not-exist/messages' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: 'not found' });
+  });
+
   it('POST /api/sessions starts a web session via the runner', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/sessions',
@@ -555,6 +571,121 @@ describe('buildServer smoke', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ sessions: [] });
     await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions with an id the browser minted (it subscribes first)
+// ---------------------------------------------------------------------------
+
+describe('POST /api/sessions with a browser-minted session id', () => {
+  const CLIENT_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+  const SERVER_MINTED = '8c2a1f6e-7b3d-4c5a-9e1f-2a3b4c5d6e7f';
+
+  /** SDK fake that parks on stdin: the session stays alive and says nothing. */
+  const idleSdk = ({ prompt }: any) => {
+    async function* gen(): AsyncGenerator<any> {
+      for await (const _msg of prompt) { /* take the turn, answer nothing */ }
+    }
+    return gen() as any;
+  };
+
+  // A real Runner, not the fake at the top of this file: the point of the
+  // 400 case is that no CLI was spawned, and a fake whose `active()` is a
+  // hardcoded `[]` could never show that.
+  function makeLaunchApp() {
+    const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-mint-')), 'index.db'));
+    const hub = new Hub();
+    const runner = new Runner({
+      hub, queryFn: idleSdk as any, newSessionId: () => SERVER_MINTED,
+    });
+    const app = Fastify();
+    registerRoutes(app, {
+      db,
+      registry: { get: () => undefined, all: () => [] } as any,
+      runner,
+      projectsDir: '/nonexistent',
+      hub,
+      models: { list: async () => [], recordContextWindows: () => {} } as any,
+      subagents: new SubagentStore(),
+      errors: new ErrorLog({ db, hub }),
+      settings: { get: () => '', set: () => {} },
+    });
+    return { app, db, runner, hub, close: () => { runner.dispose(); db.$client.close(); } };
+  }
+
+  const launch = (app: FastifyInstance, payload: Record<string, unknown>) =>
+    app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits', ...payload },
+    });
+
+  it('creates the session under exactly the id the browser sent', async () => {
+    const { app, db, runner, close } = makeLaunchApp();
+    const res = await launch(app, { sessionId: CLIENT_ID });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ sessionId: CLIENT_ID });
+    // The row, the runner and the topic the browser is already sitting on
+    // all name the same session — which is the entire point.
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, CLIENT_ID)).get() as SessionRow;
+    expect(row).toBeDefined();
+    expect(row.source).toBe('web');
+    expect(runner.status(CLIENT_ID)).toBeDefined();
+    expect(runner.active()).toEqual([CLIENT_ID]);
+    close();
+  });
+
+  // Not a UUID at all, a v1 UUID (the CLI takes no other shape than v4), and
+  // an empty string — which is *present* and wrong, not absent.
+  for (const [label, sessionId] of [
+    ['not a UUID', 'my-favourite-session'],
+    ['a v1 UUID', '2c1e4f7a-9c1b-11ee-b9d1-0242ac120002'],
+    ['an empty string', ''],
+  ] as const) {
+    it(`400s on ${label} and starts nothing`, async () => {
+      const { app, db, runner, close } = makeLaunchApp();
+      const res = await launch(app, { sessionId });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ error: 'sessionId must be a v4 UUID' });
+      // The worst outcome here would be a 400 that still spawned a CLI: a
+      // running session nothing in the UI can ever name.
+      expect(runner.active()).toEqual([]);
+      expect(db.select(sessionColumns).from(sessions).all()).toEqual([]);
+      close();
+    });
+  }
+
+  it('409s when a row already holds that id', async () => {
+    const { app, db, runner, close } = makeLaunchApp();
+    db.insert(sessions)
+      .values({ id: CLIENT_ID, projectDir: 'p', cwd: '/w/x', lastAt: 1, source: 'terminal' })
+      .run();
+    const res = await launch(app, { sessionId: CLIENT_ID });
+    expect(res.statusCode).toBe(409);
+    expect(runner.active()).toEqual([]);
+    close();
+  });
+
+  it('409s when the runner is already running that id', async () => {
+    const { app, runner, close } = makeLaunchApp();
+    // Live in the runner but with no row of its own — the sessions table
+    // alone would have said this id was free.
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'plan', sessionId: CLIENT_ID });
+    const res = await launch(app, { sessionId: CLIENT_ID });
+    expect(res.statusCode).toBe(409);
+    expect(runner.active()).toEqual([CLIENT_ID]);
+    close();
+  });
+
+  it('mints server-side when the body carries no sessionId at all', async () => {
+    const { app, db, runner, close } = makeLaunchApp();
+    const res = await launch(app, {});
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ sessionId: SERVER_MINTED });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, SERVER_MINTED)).get() as SessionRow;
+    expect(row).toBeDefined();
+    expect(runner.active()).toEqual([SERVER_MINTED]);
+    close();
   });
 });
 

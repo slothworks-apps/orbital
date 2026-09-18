@@ -77,10 +77,23 @@ function resetStore(
   })
 }
 
-/** Seeds a single session (+ its models/usage) and renders the panel — the
- * shared entry point for the model-chip tests, which only ever care about
- * one session at a time. */
-function renderDetail({
+/**
+ * Seeds a single session (+ its models/usage), renders the panel and waits
+ * for it to finish settling — the shared entry point for the model-chip
+ * tests, which only ever care about one session at a time.
+ *
+ * Mounting the panel starts one piece of async work: the lineage effect
+ * calls `api.getSession(id)` and writes the answer into `lineageCache`. That
+ * write lands a microtask after `render()` returns, so a caller that
+ * asserted synchronously pinned the tree one render BEFORE the panel was
+ * done — and React logged "an update to DetailPanel was not wrapped in
+ * act(...)" when the write finally arrived, after the test had ended.
+ * Awaiting the fetch here settles the tree first and puts the state update
+ * inside act, the same way the header tests do it. Do not swap this for an
+ * `act()` wrapper around `render`: that hides the message without making
+ * the assertions run against the settled tree.
+ */
+async function renderDetail({
   session,
   models = [],
   usage,
@@ -95,7 +108,9 @@ function renderDetail({
     usage: usage ? { [session.id]: usage } : {},
     ui: { selectedId: session.id },
   })
-  return render(<DetailPanel />)
+  const result = render(<DetailPanel />)
+  await waitFor(() => expect(api.getSession).toHaveBeenCalledWith(session.id))
+  return result
 }
 
 beforeEach(() => {
@@ -409,31 +424,31 @@ describe('DetailPanel header', () => {
 // ---------------------------------------------------------------------------
 
 describe('DetailPanel model chip', () => {
-  it('shows the session model next to the permission badge', () => {
-    renderDetail({ session: { ...webSession, model: 'opus[1m]' }, models: MODELS })
+  it('shows the session model next to the permission badge', async () => {
+    await renderDetail({ session: { ...webSession, model: 'opus[1m]' }, models: MODELS })
     // Short version plus the variant — the full "Opus 5 with 1M context" would
     // wrap this row (see the naming table in the plan header).
     expect(screen.getByRole('button', { name: /Change model/ })).toHaveTextContent('Opus 5 (1M)')
   })
 
-  it('names a terminal session from its resolved model, without a variant the context bar cannot back up', () => {
+  it('names a terminal session from its resolved model, without a variant the context bar cannot back up', async () => {
     // Only the variant-STRIPPED match here (`claude-opus-5` vs the row's
     // `claude-opus-5[1m]`), so contextWindowFor resolves null and no bar is
     // drawn at all (moot in this case anyway, since a terminal session hides
     // the whole usage block) — the chip must not claim 1M when there is no
     // read-out to back it up (F2).
-    renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5' }, models: MODELS })
+    await renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5' }, models: MODELS })
     expect(screen.getByText('Opus 5')).toBeInTheDocument()
     expect(screen.queryByText('Opus 5 (1M)')).not.toBeInTheDocument()
   })
 
-  it('keeps the variant when the resolved model matches a row exactly', () => {
-    renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5[1m]' }, models: MODELS })
+  it('keeps the variant when the resolved model matches a row exactly', async () => {
+    await renderDetail({ session: { ...terminalSession, resolvedModel: 'claude-opus-5[1m]' }, models: MODELS })
     expect(screen.getByText('Opus 5 (1M)')).toBeInTheDocument()
   })
 
-  it('opens the switcher and marks the current model', () => {
-    renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
+  it('opens the switcher and marks the current model', async () => {
+    await renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
     fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
     expect(screen.getByRole('option', { name: 'Sonnet 5' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText(/APPLIES FROM NEXT TURN/)).toBeInTheDocument()
@@ -441,14 +456,14 @@ describe('DetailPanel model chip', () => {
 
   it('switches the model', async () => {
     vi.mocked(api.setSessionModel).mockResolvedValue({ ok: true })
-    renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
+    await renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
     fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
     fireEvent.click(screen.getByRole('option', { name: 'Haiku 4.5' }))
     await waitFor(() => expect(api.setSessionModel).toHaveBeenCalledWith(webSession.id, 'haiku'))
   })
 
-  it('closes on an outside pointerdown, matching every other popover in the app (F4)', () => {
-    renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
+  it('closes on an outside pointerdown, matching every other popover in the app (F4)', async () => {
+    await renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
     fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
     expect(screen.getByRole('listbox')).toBeInTheDocument()
 
@@ -470,19 +485,19 @@ describe('DetailPanel model chip', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
-  it('is inert with an explanatory title when the catalog is empty', () => {
-    renderDetail({ session: { ...webSession, model: 'sonnet' }, models: [] })
+  it('is inert with an explanatory title when the catalog is empty', async () => {
+    await renderDetail({ session: { ...webSession, model: 'sonnet' }, models: [] })
     expect(screen.queryByRole('button', { name: /Change model/ })).not.toBeInTheDocument()
     expect(screen.getByTitle(/model list could not be read/i)).toBeInTheDocument()
   })
 
-  it('does not offer a switch on a session live in a terminal', () => {
-    renderDetail({ session: { ...terminalSession, status: 'working', model: null, resolvedModel: 'claude-sonnet-5' }, models: MODELS })
+  it('does not offer a switch on a session live in a terminal', async () => {
+    await renderDetail({ session: { ...terminalSession, status: 'working', model: null, resolvedModel: 'claude-sonnet-5' }, models: MODELS })
     expect(screen.queryByRole('button', { name: /Change model/ })).not.toBeInTheDocument()
   })
 
-  it('scales the context bar to the session model', () => {
-    renderDetail({
+  it('scales the context bar to the session model', async () => {
+    await renderDetail({
       session: { ...webSession, model: 'opus[1m]' },
       models: MODELS,
       usage: { input_tokens: 100_000, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
@@ -491,8 +506,8 @@ describe('DetailPanel model chip', () => {
     expect(screen.getByRole('progressbar', { name: 'Context usage' })).toHaveAttribute('aria-valuenow', '10')
   })
 
-  it('draws no context bar or read-out for a model it cannot place, rather than guessing a size', () => {
-    renderDetail({ session: { ...webSession, model: null, resolvedModel: 'claude-mystery-1' }, models: MODELS })
+  it('draws no context bar or read-out for a model it cannot place, rather than guessing a size', async () => {
+    await renderDetail({ session: { ...webSession, model: null, resolvedModel: 'claude-mystery-1' }, models: MODELS })
     expect(screen.queryByTestId('context-readout')).not.toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     // The rest of the usage block (a web session, so it CAN report usage)

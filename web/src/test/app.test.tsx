@@ -362,6 +362,12 @@ describe('App: keyboard', () => {
     act(() => {
       useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a', dialog: null } }))
     })
+    // Selecting mounts DetailPanel, which fetches the session's lineage. Await
+    // it before pressing anything: otherwise the `setLineageCache` it resolves
+    // into lands after this test has returned, outside act. The test below
+    // never warned only because its `waitFor` drains the same microtask by
+    // accident. See `docs/fixes/detailpanel-model-chip-updates-outside-act.md`.
+    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
 
     fireEvent.keyDown(document, { key: 'Escape' })
 

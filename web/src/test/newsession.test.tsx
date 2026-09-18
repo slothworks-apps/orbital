@@ -13,8 +13,20 @@ const MODELS: OrbitalModel[] = [
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
+// Launching now goes through the store, which subscribes to the new session's
+// topic before its request goes out — so this file reaches the socket. Mocked
+// rather than left real: `getSocket()` would otherwise open a WebSocket
+// against jsdom on every launch test.
+const { subscribeSpy } = vi.hoisted(() => ({ subscribeSpy: vi.fn(() => () => {}) }))
+vi.mock('../lib/socket', () => ({
+  getSocket: () => ({ subscribe: subscribeSpy }),
+}))
+
 import { api } from '../lib/api'
 import { NewSessionDialog } from '../panels/NewSessionDialog'
+
+/** RFC 4122 v4, the only shape the CLI accepts as a session id. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 const workTag: Tag = { id: 1, name: 'work', hue: 210, is_default: 0 }
 const defaultTag: Tag = { id: 2, name: 'default', hue: 60, is_default: 1 }
@@ -143,8 +155,21 @@ describe('NewSessionDialog', () => {
         prompt: 'do the thing',
         permissionMode: 'acceptEdits',
         tagId: 1,
+        model: undefined,
+        // Minted by the browser, not the server, so the subscribe below could
+        // happen first. See `docs/fixes/first-turn-can-outrun-the-ws-subscription.md`.
+        sessionId: expect.stringMatching(UUID_V4),
       })
     )
+
+    // The point of the whole arrangement: the topic was subscribed BEFORE the
+    // request that starts the session went out, not after it came back.
+    const launchedId = vi.mocked(api.createSession).mock.calls[0][0].sessionId
+    expect(subscribeSpy).toHaveBeenCalledWith(`session:${launchedId}`, expect.any(Function))
+    expect(subscribeSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.createSession).mock.invocationCallOrder[0]
+    )
+
     expect(onClose).toHaveBeenCalled()
     await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('new-session-id'))
   })

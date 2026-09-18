@@ -270,16 +270,26 @@ export class Runner {
    * happens" report). Instead Orbital *pins* the id via `options.sessionId`
    * and hands it to the CLI, so the id is known before the process says a
    * word. See `docs/decisions/runner-pins-the-session-id.md`.
+   *
+   * `sessionId` lets the *caller* pin that id rather than have one minted
+   * here. The browser mints it and subscribes to `session:<id>` before it
+   * posts the launch, so the window in which the first turn could publish to
+   * a topic nobody is listening on never opens. `resume` still wins over it:
+   * a resumed session's id is already fixed by its transcript, and the two
+   * are mutually exclusive in the SDK.
    */
   async start(opts: {
     cwd: string;
     prompt: string;
     permissionMode: PermissionMode;
     resume?: string;
+    /** An id the caller has already committed to. Must be a v4 UUID — the only shape the CLI accepts. */
+    sessionId?: string;
     model?: string;
   }): Promise<string> {
-    // A resume keeps the transcript's own id; a fresh session gets a new one.
-    const sessionId = opts.resume ?? this.newSessionId();
+    // A resume keeps the transcript's own id; otherwise the caller's pinned
+    // id if it brought one, and a freshly minted one if it did not.
+    const sessionId = opts.resume ?? opts.sessionId ?? this.newSessionId();
     if (this.sessions.has(sessionId)) {
       throw new Error(`resume collision: session ${sessionId} already active`);
     }

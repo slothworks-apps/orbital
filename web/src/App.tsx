@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useOrbital } from './store/store'
 import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
-import { OrbitalSocket, resolveWsUrl } from './lib/ws'
+import { getSocket } from './lib/socket'
 import { SpaceMap } from './map/SpaceMap'
 import { Sidebar } from './panels/Sidebar'
 import { DetailPanel } from './panels/DetailPanel'
@@ -14,16 +14,19 @@ import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import { useSessionUrl } from './lib/sessionUrl'
 
 /**
- * The app's single WebSocket connection, module-level so it's created once
- * per page load — NOT inside the component, where React 18 `StrictMode`'s
- * dev-only mount→cleanup→mount cycle would otherwise have to be guarded
- * against spinning up a second socket. `OrbitalSocket.subscribe` is
+ * The app's single WebSocket connection, taken at module level so it's created
+ * once per page load — NOT inside the component, where React 18
+ * `StrictMode`'s dev-only mount→cleanup→mount cycle would otherwise have to be
+ * guarded against spinning up a second socket. `OrbitalSocket.subscribe` is
  * refcounted and idempotent-safe to call repeatedly (each effect below
  * subscribes on mount and unsubscribes via its returned cleanup), so
  * `StrictMode` double-invoking those effects is harmless on its own —
  * this only needs to be a singleton to avoid a second live connection.
+ *
+ * The connection itself now lives in `lib/socket`, because the store launches
+ * sessions and has to subscribe before its own request goes out.
  */
-const socket = new OrbitalSocket(resolveWsUrl('/ws', window.location))
+const socket = getSocket()
 
 /**
  * App shell (final integration task): mounts the full-bleed `SpaceMap`,

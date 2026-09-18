@@ -97,6 +97,10 @@ export const api = {
     permissionMode: PermissionMode
     tagId?: number
     model?: string
+    /** Minted by the browser so it can subscribe to the session's topic before
+     * this request goes out. Omitted, the server mints one as it always did.
+     * See `docs/fixes/first-turn-can-outrun-the-ws-subscription.md`. */
+    sessionId?: string
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId

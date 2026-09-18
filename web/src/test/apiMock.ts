@@ -19,13 +19,22 @@ import type * as apiModule from '../lib/api'
  * vi.mocked(api.listSessions).mockResolvedValue([…])
  * ```
  *
+ * The resolving default is passed to `vi.fn` as its ARGUMENT, not installed
+ * afterwards with `.mockResolvedValue(undefined)`. That is load-bearing, not
+ * style: vitest treats the argument as the mock's original implementation, so
+ * it survives `mockReset`, `mockRestore` and `vi.restoreAllMocks()`, while an
+ * implementation installed afterwards is stripped by all three. A file that
+ * restores mocks between tests used to fall back to a bare `vi.fn()` and get
+ * the `undefined` this helper exists to prevent; now restoring only undoes the
+ * test's own overrides and lands back on a default that still resolves.
+ *
  * The rest of the module — `ApiError` above all, which `instanceof` checks in
  * the store depend on — is passed through untouched.
  */
 export async function mockApiModule(): Promise<typeof apiModule> {
   const actual = await vi.importActual<typeof apiModule>('../lib/api')
   const api = Object.fromEntries(
-    Object.keys(actual.api).map((name) => [name, vi.fn().mockResolvedValue(undefined)]),
+    Object.keys(actual.api).map((name) => [name, vi.fn(async () => undefined)]),
   ) as unknown as typeof actual.api
   return { ...actual, api }
 }

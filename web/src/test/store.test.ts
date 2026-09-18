@@ -280,6 +280,23 @@ describe('applySessionEvent', () => {
     expect(useOrbital.getState().transcriptErrors.idle1).toBeUndefined()
   })
 
+  // The third state of `turnResultSeen`: no entry at all. A session that was
+  // already `working` when `loadInitial()` ran never produced a `working`
+  // event here, so this tab never watched its turn start and knows nothing
+  // about whether it resolved. That absence is ignorance, not evidence, and
+  // must not be read as "no turn_result" — see the fix
+  // `a-session-already-working-at-mount-reads-as-crashed`.
+  it('does not flag transcriptErrors for a session that was already working at mount', () => {
+    useOrbital.setState({
+      sessions: { mounted1: makeSession({ id: 'mounted1', status: 'working' }) },
+    })
+    // No `working` event first: that transition happened before this tab
+    // subscribed to the session's topic.
+    useOrbital.getState().applySessionEvent('mounted1', { event: 'status', status: 'ended' })
+    expect(useOrbital.getState().transcriptErrors.mounted1).toBeUndefined()
+    expect(useOrbital.getState().sessions.mounted1.status).toBe('ended')
+  })
+
   it('clears a crash flag once the session is revived and completes a turn, and a later graceful end keeps it cleared', () => {
     useOrbital.setState({ sessions: { revived1: makeSession({ id: 'revived1', status: 'idle' }) } })
 

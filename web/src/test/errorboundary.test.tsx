@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
+import { describe, expect, it, vi, afterEach } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
@@ -18,29 +18,6 @@ function silenceReactErrorLog() {
 function Boom(): never {
   throw new Error('sourceOptions is not defined')
 }
-
-/** The row the server would echo back for `Boom`'s crash. */
-const recorded = {
-  error: {
-    id: 1,
-    at: 1,
-    source: 'web',
-    kind: 'render_crash',
-    sessionId: null,
-    message: 'sourceOptions is not defined',
-    detail: null,
-    context: null,
-    seenAt: null,
-  },
-  unseen: 1,
-} as const
-
-// Re-stubbed per test, not once: `restoreAllMocks` below strips the resolving
-// default `apiMock` gives every method, and `componentDidCatch` chains a
-// `.catch` onto this call.
-beforeEach(() => {
-  vi.mocked(api.reportErrorToServer).mockResolvedValue({ ...recorded })
-})
 
 afterEach(() => {
   vi.restoreAllMocks()

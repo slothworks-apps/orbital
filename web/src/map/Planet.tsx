@@ -18,6 +18,7 @@ import {
   PLANET_TICK_LAYERS,
   RETICLE_ENTER_MS,
   RETICLE_EXIT_MS,
+  RETICLE_LINGER_GRACE_MS,
   STATE_TRANSITION_MS,
   advancePointTween,
   advanceStateMix,
@@ -26,6 +27,7 @@ import {
   createPlanetBlend,
   endedHideTransform,
   prefersReducedMotion,
+  reticleEnterScale,
   stackAlphas,
   tickLayerWeight,
   useFadeTween,
@@ -134,14 +136,23 @@ const RIPPLE_OUTER = px(71)
 /**
  * Selection reticle (1f, "Selected": `Any state + slow dashed reticle and
  * corner brackets`). The export's markup is a dashed ring at `inset:-42px`
- * carrying `animation: orb-spin 40s linear infinite`, followed by four
+ * carrying `animation: orb-spin 160s linear infinite`, followed by four
  * `10px` `1.5px solid #fff` corner spans at `±50px` which are SIBLINGS of
  * that ring and carry no animation of their own — so the ring turns and the
  * brackets stand still. They are therefore built as two groups here, and
  * only the ring group is rotated.
  */
 const RETICLE_RADIUS = px(92)
-const RETICLE_SPIN_SPEED = (Math.PI * 2) / 40
+/**
+ * One revolution every 160 seconds — `animation: orb-spin 160s linear
+ * infinite` on the dashed ring in `Orbital.dc.html`.
+ *
+ * This read 40s until it was checked against the canvas, which turns the ring
+ * four times faster than designed and is a large part of why a selected
+ * planet read as busy. No `orb-spin 40s` exists anywhere in the canvas; the
+ * number was mis-transcribed rather than moved.
+ */
+const RETICLE_SPIN_SPEED = (Math.PI * 2) / 160
 const RETICLE_DASH_SIZE = 0.08
 const RETICLE_DASH_GAP = 0.06
 const RETICLE_COLOR = '#e6f5ff'
@@ -165,13 +176,27 @@ const WHITE_COLOR = new THREE.Color(WHITE)
  * fixed 11px, so half a line of text is a different number of world units at
  * every zoom level, and a centred anchor would let the gap drift with it.
  *
- * A selected planet draws corner brackets at ±100px, and the resting label
- * runs straight through the bottom edge of that square. So while the reticle
- * is up the label slides clear of it, on the reticle's own fade, and returns
- * to the export's position when the selection goes.
+ * It does not move when the planet is selected, and that is deliberate.
+ *
+ * The label used to slide clear of the bracket square on the reticle's own
+ * fade, because the resting text runs through the bottom edge of it. The
+ * travel is only ~14px at rest zoom, but the label is the one thing in the
+ * frame that is NOT fading — its opacity follows the ended suppression, never
+ * the selection — so while the ring dissolved, the text slid at full
+ * strength, and the eye followed the one thing that moved.
+ *
+ * The canvas does not ask for the slide. Artboard 1f draws the reticle on a
+ * planet with no title under it at all (the text below it is the state
+ * sheet's own caption, at a fixed `top:206px`), and `1.5px solid #fff` — the
+ * brackets — appears exactly once in `Orbital.dc.html`. So the design never
+ * specifies a selected planet *with* a label: the overlap is unaddressed, not
+ * accepted, and the slide was the implementation's own invention.
+ *
+ * If the overlap ever looks wrong on screen, move the reticle — fade the
+ * bottom bracket while a label is under it, or shorten it — rather than
+ * moving the text. See `docs/fixes/selection-reticle-drags-the-label.md`.
  */
 const LABEL_TOP_REST_Y = -(BODY_RADIUS + px(34))
-const LABEL_TOP_SELECTED_Y = -(BRACKET_INSET + px(8))
 const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
 const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
 /** Family line under the title (canvas 4a). Subordinate to the name in both states. */
@@ -411,16 +436,33 @@ type LineHandle = ComponentRef<typeof Line>
  * line materials are handed back to the parent through refs.
  */
 function SelectionReticle({
+  scaleGroupRef,
   ringGroupRef,
   ringRef,
   bracketRefs,
 }: {
+  /** Outer group the frame loop scales for the arrival. Owns `scale` alone;
+   * the group inside it owns `rotation.z` alone. */
+  scaleGroupRef: RefObject<THREE.Group | null>
   ringGroupRef: RefObject<THREE.Group | null>
   ringRef: RefObject<LineHandle | null>
   bracketRefs: RefObject<(LineHandle | null)[]>
 }) {
+  // Rule 1 in this file's header, for the reticle: the frame loop owns these
+  // opacities, so they cannot also be JSX props. As props R3F re-applied `0`
+  // on every render and blanked the reticle for a frame — and a SELECTED
+  // `working` session re-renders on every WS update, so that frame came up
+  // constantly. Zeroed here instead, before the first paint, so the group
+  // still starts invisible and fades in from nothing.
+  useLayoutEffect(() => {
+    if (ringRef.current) ringRef.current.material.opacity = 0
+    for (const bracket of bracketRefs.current) {
+      if (bracket) bracket.material.opacity = 0
+    }
+  }, [ringRef, bracketRefs])
+
   return (
-    <group position={[0, 0, RETICLE_Z]}>
+    <group ref={scaleGroupRef} position={[0, 0, RETICLE_Z]}>
       <group ref={ringGroupRef}>
         <Line
           ref={ringRef}
@@ -431,7 +473,6 @@ function SelectionReticle({
           dashSize={RETICLE_DASH_SIZE}
           gapSize={RETICLE_DASH_GAP}
           transparent
-          opacity={0}
         />
       </group>
       {BRACKET_POINTS.map((points, i) => (
@@ -446,7 +487,6 @@ function SelectionReticle({
           color={WHITE}
           lineWidth={1.5}
           transparent
-          opacity={0}
         />
       ))}
     </group>
@@ -582,7 +622,12 @@ export function Planet({
 
   // Kept mounted through their fade-out, so deselecting and leaving
   // needs-input dissolve instead of being yanked out of the tree by React.
-  const reticleMounted = useLingering(selected, RETICLE_EXIT_MS)
+  // The reticle is held a frame or two PAST its tween, not for exactly as
+  // long as it: `useLingering` counts wall-clock while the fade needs that
+  // many rendered frames. A dropped frame lets the timer win and the group
+  // leaves while the ring is still faintly visible — a pop at the end of the
+  // exit, which is the thing the exit exists to avoid.
+  const reticleMounted = useLingering(selected, RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS)
   const badgeMounted = useLingering(session.status === 'needs_input', STATE_TRANSITION_MS)
   /**
    * A suppressed planet's title has to LEAVE the document, not just turn
@@ -606,6 +651,7 @@ export function Planet({
   const arcGroupRef = useRef<THREE.Group>(null!)
   const coreRef = useRef<THREE.Mesh>(null!)
   const rippleRef = useRef<THREE.Mesh>(null!)
+  const reticleScaleRef = useRef<THREE.Group>(null)
   const reticleGroupRef = useRef<THREE.Group>(null)
   const reticleRingRef = useRef<LineHandle | null>(null)
   const bracketRefs = useRef<(LineHandle | null)[]>([])
@@ -765,7 +811,7 @@ export function Planet({
     }
 
     if (reticleGroupRef.current) {
-      // The export spins the dashed ring (`orb-spin 40s`); the bracket spans
+      // The canvas spins the dashed ring (`orb-spin 160s`); the bracket spans
       // are its unanimated siblings and stay put.
       reticleGroupRef.current.rotation.z += RETICLE_SPIN_SPEED * delta
     }
@@ -774,12 +820,19 @@ export function Planet({
       for (const bracket of bracketRefs.current) {
         if (bracket) bracket.material.opacity = reticleFade.value * hide.opacity
       }
-      // `<Html>` re-reads its parent's world matrix every frame, so moving the
-      // group is all it takes to carry the label with the reticle.
-      if (labelGroupRef.current) {
-        labelGroupRef.current.position.y =
-          LABEL_TOP_REST_Y + (LABEL_TOP_SELECTED_Y - LABEL_TOP_REST_Y) * reticleFade.value
+      // Ring and brackets settle together, so the whole mark arrives as one
+      // object rather than as a fade with a spinning part. Scale is written on
+      // the outer group, which nothing else touches — the spin owns
+      // `rotation.z` on the group inside it, and neither writes the other's
+      // property (rule 1 in this file's header).
+      if (reticleScaleRef.current) {
+        const scale = reticleEnterScale(reticleFade.value)
+        reticleScaleRef.current.scale.set(scale, scale, 1)
       }
+      // The label deliberately does not move with any of this — see
+      // `LABEL_TOP_REST_Y`. Its `position` is a JSX prop and the frame loop
+      // must not write it, or R3F's next render stamps over whatever this
+      // wrote.
     }
   })
 
@@ -868,6 +921,7 @@ export function Planet({
 
       {reticleMounted && (
         <SelectionReticle
+          scaleGroupRef={reticleScaleRef}
           ringGroupRef={reticleGroupRef}
           ringRef={reticleRingRef}
           bracketRefs={bracketRefs}

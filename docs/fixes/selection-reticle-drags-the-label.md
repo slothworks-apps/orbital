@@ -1,7 +1,7 @@
 ---
 id: selection-reticle-drags-the-label
 title: The selection reticle drags the planet's title with it, and pops rather than arrives
-status: backlog
+status: done
 type: fix
 domain: web
 related:
@@ -12,104 +12,90 @@ tags:
 ---
 # The selection reticle drags the planet's title with it, and pops rather than arrives
 
-Selecting and deselecting a planet does not read as one surface fading in and
-out. The title shifts, and the dashed ring is simply there and then simply
-gone. Three things are behind it, and only the first is a real mistake.
+Selecting and deselecting a planet did not read as one surface fading in and
+out. The title shifted, and the dashed ring was simply there and then simply
+gone. Five things were behind it.
 
-## The label rides the reticle
+## The label rode the reticle
 
-`Planet`'s frame loop interpolates the label group's `y` on the reticle's own
-fade:
+`Planet`'s frame loop interpolated the label group's `y` on the reticle's own
+fade, so the resting title would slide clear of the bracket square at ±100px.
+The travel is only 0.23 world units — about 14px at the default zoom, over
+140ms on deselect. What made it conspicuous is that the label was the only
+thing in the frame that was **not** fading: its opacity is driven by
+`hideFade` (the ended suppression) and never by selection, so while the ring
+and brackets dissolved, the text slid at full strength. The eye follows the
+one thing that moves.
 
-```ts
-labelGroupRef.current.position.y =
-  LABEL_TOP_REST_Y + (LABEL_TOP_SELECTED_Y - LABEL_TOP_REST_Y) * reticleFade.value
-```
+**Fixed by pinning the label at `LABEL_TOP_REST_Y` and deleting the
+interpolation.** The canvas was re-read before doing it and does not object:
+artboard 1f's "Selected" cell draws the reticle on a planet with no title
+under it at all — the text below it is the state sheet's own caption at a
+fixed `top:206px` — and `1.5px solid #fff`, the corner brackets, appears
+exactly once in the whole of `Orbital.dc.html`. The design never specifies a
+selected planet *with* a label, so the overlap was unaddressed rather than
+accepted, and the slide was the implementation's own invention. If the overlap
+looks wrong on screen, the reticle should move — fade the bottom bracket while
+a label is under it, or shorten it — not the text.
 
-That is deliberate — the comment above `LABEL_TOP_REST_Y` explains it: the
-resting label sits 34px under the body and therefore runs straight through the
-bottom edge of the bracket square at ±100px, so while the reticle is up the
-label slides clear of it.
+## A re-render could snap it
 
-The travel is `px(100) + px(8) - (BODY_RADIUS + px(34))` = 0.23 world units,
-about 14px at the default zoom, and it happens in 140ms on deselect. What
-makes it conspicuous is that the label is the only thing in the frame that is
-**not** fading: its opacity is driven by `hideFade` (the ended suppression)
-and never by selection, so while the ring and brackets dissolve, the text
-slides at full strength. The eye follows the one thing that moves.
+The label group carried `position` as a JSX prop while the frame loop wrote
+`position.y` every frame — the hazard rule 1 in `Planet`'s own header states
+for materials. With the interpolation gone the prop is now the only owner, so
+this is fixed by construction rather than by a rule anyone has to remember.
 
-## A re-render can snap it
+`SelectionReticle`'s two `opacity={0}` props were the same smell and got the
+same treatment: the frame loop owns those opacities, so they are zeroed in a
+layout effect on mount instead of being re-applied by R3F on every render. A
+selected `working` session re-renders on every WS update, so that blanked
+frame was coming up constantly.
 
-The label group carries `position={[0, LABEL_TOP_REST_Y, 0]}` as a JSX prop
-while the frame loop writes `position.y` every frame. This is exactly the
-hazard rule 1 in `Planet`'s own header states for materials — R3F re-applies
-the prop on the next render and stamps over the frame loop's value. Here the
-loop restores it on the following frame (the write is guarded by
-`reticleFade.value > 0`, which holds while selected), so the cost is a
-single-frame jump of the text rather than a stuck label. But a selected
-`working` session re-renders on every WS update, so that frame comes up
-often.
+## The ring had no entrance
 
-## The ring has no entrance
+`RETICLE_ENTER_MS` / `RETICLE_EXIT_MS` were the modal pair from `ui/motion.ts`
+(180/140), and opacity was all that moved. On a 1px dashed ring that is under
+three frames of change, which is why it read as appearing rather than
+arriving.
 
-`RETICLE_ENTER_MS` / `RETICLE_EXIT_MS` are 180/140ms — the modal durations
-from `ui/motion.ts` — and opacity is all that moves. On a 1px dashed ring with
-no other motion cue that is under three frames of change, which is why it
-reads as appearing rather than arriving. The same in reverse on deselect.
+They are now **320/200**, with a small scale settle: `reticleEnterScale`
+carries the whole mark from 1.06 to 1.0 on the way in and back out on the way
+out, so it dissolves outward rather than ceasing. The scale is written on a
+new outer group that owns nothing else — the spin still owns `rotation.z` on
+the group inside it, so neither writes the other's property. `ui/motion.ts`'s
+rule still holds: the exit is shorter than the entrance.
 
-Worth noting what is *not* the cause: `reticleMounted` unmounting the group
-after the exit is not what moves the text, and keeping the reticle mounted
-permanently would leave five invisible `Line` draw calls per planet standing
-on a map that can hold fifty.
+The scale is a judgement call and is marked as one in the code. An artboard
+cannot specify an entrance, so there was nothing to transcribe.
 
-There is, though, a race in that unmount. `useLingering(selected,
-RETICLE_EXIT_MS)` holds the group for a wall-clock 140ms while the fade needs
-140ms of *rendered frames*; a dropped frame lets the timer win and the group
-leave while the ring is still faintly visible — a pop at the end of the exit.
+## The unmount could win the race
 
-And the ring turns four times too fast. `RETICLE_SPIN_SPEED` is `2π/40`, one
-revolution every 40 seconds, and the comment beside it cites `orb-spin 40s`.
-The canvas has the reticle at **`orb-spin 160s`**, and no `orb-spin 40s`
-exists anywhere in `Orbital.dc.html` today — either it was transcribed wrong
-or the canvas moved afterwards. The geometry around it is faithful (the ring's
-`inset:-42px` is the code's `px(92)`, the brackets sit at ±100px), so this is
-the one number to re-take. A reticle circling four times faster than designed
-is part of why the selection reads as busy.
+`useLingering(selected, RETICLE_EXIT_MS)` held the group for a wall-clock
+140ms while the fade needs 140ms of *rendered frames*; a dropped frame let the
+timer win and the group left while the ring was still faintly visible — a pop
+at the end of the exit. It now holds `RETICLE_EXIT_MS +
+RETICLE_LINGER_GRACE_MS` (two frames at 60fps), enough to cover a dropped
+frame without leaving five invisible `Line` draw calls standing on a map that
+can hold fifty planets.
 
-## What it should do
+## The ring turned four times too fast
 
-- **The title should not move.** Pin the label group at `LABEL_TOP_REST_Y` and
-  drop the interpolation. The canvas was checked before writing this down and
-  does not object: 1f's "Selected" cell draws the reticle on a planet with no
-  title under it at all (the text below it is the state sheet's own caption at
-  a fixed `top:206px`), and `1.5px solid #fff` — the corner brackets — appears
-  nowhere else in `Orbital.dc.html`. So the design never specifies a selected
-  planet *with* a label, the overlap is unaddressed rather than accepted, and
-  the slide is the implementation's own invention. Pinning the label is not a
-  deviation. If the overlap then looks wrong on screen, move the reticle —
-  fade the bottom bracket while a label is under it, or shorten it — rather
-  than moving the text.
-- **Whatever owns that `y` should own it alone.** If the label has to keep
-  moving, stop passing `position` as a JSX prop on a group the frame loop
-  writes to, the same way no state-dependent material takes `opacity` as a
-  prop today. `SelectionReticle`'s two `opacity={0}` props are the same smell
-  and deserve the same treatment.
-- **Give the ring an arrival.** Opacity plus a small scale settle (something
-  like 1.06 → 1.0), over longer than 180ms, and the reverse on the way out —
-  still shorter on exit than on entrance, per `ui/motion.ts`'s rule. The dash
-  phase drifting as it arrives would suit a reticle too, and the ring already
-  spins.
-- **Hold longer than the fade.** `useLingering` should outlast
-  `RETICLE_EXIT_MS` by a frame or two, or the unmount should follow the tween
-  reaching 0 rather than a timer.
+`RETICLE_SPIN_SPEED` was `2π/40` — one revolution every 40 seconds — and the
+comment beside it cited `orb-spin 40s`. The canvas has the reticle at
+**`orb-spin 160s`**, and `grep` over `Orbital.dc.html` finds no `orb-spin 40s`
+anywhere in it. Mis-transcribed rather than moved. Now `2π/160`.
+
+The geometry around it was faithful and is unchanged: the ring's `inset:-42px`
+is the code's `px(92)`, and the brackets sit at ±100px.
+
+## Where the arithmetic went
+
+`reticleEnterScale` lives in `web/src/map/transition.ts`, not in the frame
+loop, because `useFrame` never runs under jsdom — arithmetic left in `Planet`
+cannot be tested at all. `web/src/test/visuals.test.ts` covers it alongside
+`endedHideTransform`: exactly 1 when selected, monotonic across the fade, and
+the duration rules (exit shorter than entrance, entrance longer than a modal,
+mount outlasting the tween).
 
 Reduced motion stays instant on all of it — `retargetTween` already collapses
-the duration, and that is the right behaviour, not a case to animate around.
-
-## Where
-
-`web/src/map/Planet.tsx`: `LABEL_TOP_REST_Y` / `LABEL_TOP_SELECTED_Y`, the
-reticle block at the end of `useFrame`, and `SelectionReticle`. Durations live
-in `web/src/map/transition.ts`. None of it is reachable from jsdom, where
-`useFrame` never runs — if any arithmetic survives the change, it belongs in a
-pure function there and gets tested directly, like `endedHideTransform`.
+the duration, and `useLingering` already short-circuits its timer.

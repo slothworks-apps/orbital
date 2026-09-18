@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import { api, ApiError } from '../lib/api'
+import { getSocket } from '../lib/socket'
 import type {
   ApiSession,
   ChatMessage,
   ErrorRecord,
   OrbitalModel,
+  PermissionMode,
   SessionSource,
   SessionStatus,
   Tag,
@@ -127,6 +129,13 @@ export interface OrbitalActions {
   applyErrorsEvent(msg: ErrorsEvent): void
   markErrorsSeen(target: number[] | 'all'): Promise<void>
   clearErrorLog(): Promise<void>
+  launchSession(body: {
+    cwd: string
+    prompt: string
+    permissionMode: PermissionMode
+    tagId?: number
+    model?: string
+  }): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[]>
   sendPrompt(id: string, text: string): Promise<void>
@@ -155,18 +164,47 @@ function nextLocalMessageId(): string {
  * Non-reactive bookkeeping (not store state — nothing needs to re-render off
  * this changing, only off the `transcriptErrors` flag it feeds) tracking
  * whether the session's current turn has already produced a `turn_result`.
- * Reset to `false` when a session's `status` event reports `working`
- * (a new turn starting), set `true` when a `turn_result` event arrives.
- * If `status` then reports `ended` while this is still `false`, the turn
- * ended without ever resolving — the SDK process crash error state.
  *
- * Caveat: a session whose `working` transition happened before this app
- * subscribed to its `session:<id>` topic (e.g. it was already `working` at
- * `loadInitial()` time) has no entry here yet, so an `ended` arriving for it
- * reads as "crashed" even if the turn actually completed normally off-screen.
- * Acceptable for this minimal v1 implementation — noted per the task brief.
+ * Three states, and the third is the one that matters:
+ *
+ * - `false` — this tab watched the turn start (a `status` event reporting
+ *   `working`) and has not seen it resolve. An `ended` now means the turn
+ *   ended without ever resolving: the SDK process crash error state.
+ * - `true` — a `turn_result` arrived. The turn resolved; not a crash.
+ * - `undefined` — no entry, because this tab never saw this session start a
+ *   turn at all. Its `working` transition happened before the app subscribed
+ *   to its `session:<id>` topic (it was already `working` at `loadInitial()`
+ *   time). We have no evidence either way, and absence of evidence is not a
+ *   crash — so an `ended` for such a session is left alone.
+ *
+ * Hence the crash check tests for an explicit `false` rather than for
+ * falsiness: `!undefined` would accuse a session this tab never watched of a
+ * failure that most likely never happened
+ * (`docs/fixes/a-session-already-working-at-mount-reads-as-crashed.md`).
  */
-const turnResultSeen: Record<string, boolean> = {}
+const turnResultSeen: Record<string, boolean | undefined> = {}
+
+/**
+ * Unsubscribe functions for the `session:<id>` topics `launchSession` opened
+ * before their session existed.
+ *
+ * App also subscribes to whichever session is selected, and these overlap with
+ * that on purpose: `OrbitalSocket.subscribe` is refcounted and carries several
+ * handlers per topic, so both live side by side and each releases
+ * independently. A message delivered twice is harmless — the transcript
+ * reducer dedups by message id, and `status`/`turn_result` are idempotent.
+ *
+ * Released when the session ends, which is the one moment after which the
+ * topic can say nothing further.
+ */
+const launchSubscriptions = new Map<string, () => void>()
+
+function releaseLaunchSubscription(sessionId: string): void {
+  const release = launchSubscriptions.get(sessionId)
+  if (!release) return
+  launchSubscriptions.delete(sessionId)
+  release()
+}
 
 /**
  * Marks the named rows as seen (`null` meaning every row), leaving
@@ -344,10 +382,19 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         turnResultSeen[sessionId] = false
       }
 
+      // An ended session's topic has nothing left to say, so the subscription
+      // `launchSession` opened ahead of the request is done. Harmless if there
+      // is none — every session that was not launched from this tab.
+      if (msg.status === 'ended') releaseLaunchSubscription(sessionId)
+
       // SDK process crash: a turn started (`working`) and the session ended
-      // without ever producing a `turn_result` in between.
+      // without ever producing a `turn_result` in between. Explicitly
+      // `false`, never merely falsy — `undefined` means this tab never
+      // watched the turn start and so has nothing to accuse it of.
       const crashed =
-        msg.status === 'ended' && previousStatus === 'working' && !turnResultSeen[sessionId]
+        msg.status === 'ended' &&
+        previousStatus === 'working' &&
+        turnResultSeen[sessionId] === false
 
       set({
         sessions: {
@@ -438,6 +485,48 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     } catch (err) {
       console.error('orbital: failed to clear the error log', err)
     }
+  },
+
+  async launchSession(body) {
+    // The id is minted HERE, not by the server, so that this tab can be
+    // listening to `session:<id>` before the request that starts the session
+    // goes out. `Runner.start()` returns without waiting for the CLI
+    // ([[runner-pins-the-session-id]]) and publishes onto that topic as soon
+    // as it has anything, while `Hub.publish` keeps no backlog — so anything
+    // said before the subscribe was simply lost. Now there is nothing to
+    // lose: the window never opens.
+    const sessionId = crypto.randomUUID()
+
+    // Imperative on purpose. Setting state and letting App's effect subscribe
+    // would put a React commit between here and the request, which is the
+    // same "usually fast enough" this change exists to stop relying on.
+    const release = getSocket().subscribe(`session:${sessionId}`, (msg: SessionEvent) =>
+      get().applySessionEvent(sessionId, msg),
+    )
+    launchSubscriptions.set(sessionId, release)
+
+    let started: string
+    try {
+      started = await api.createSession({ ...body, sessionId })
+    } catch (err) {
+      releaseLaunchSubscription(sessionId)
+      throw err
+    }
+
+    // The server echoes the id back, and it should be the one we sent — it
+    // either takes ours or refuses the request. If it ever isn't, we are
+    // subscribed to a topic nothing will publish on, which is the exact
+    // failure this whole change is about, so move rather than assume.
+    if (started !== sessionId) {
+      releaseLaunchSubscription(sessionId)
+      launchSubscriptions.set(
+        started,
+        getSocket().subscribe(`session:${started}`, (msg: SessionEvent) =>
+          get().applySessionEvent(started, msg),
+        ),
+      )
+    }
+    return started
   },
 
   async select(id) {

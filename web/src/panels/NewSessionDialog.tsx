@@ -52,6 +52,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const rules = useOrbital(useShallow((s) => s.rules))
   const models = useOrbital(useShallow((s) => s.models))
   const select = useOrbital((s) => s.select)
+  const launchSession = useOrbital((s) => s.launchSession)
 
   const [cwd, setCwd] = useState('')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits')
@@ -140,7 +141,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     if (!cwd.trim() || pending) return
     setPending(true)
     try {
-      const sessionId = await api.createSession({
+      // Through the store, not `api.createSession` directly: the launch has to
+      // subscribe to the new session's topic before its request goes out, and
+      // the socket is the store's to reach.
+      // See `docs/fixes/first-turn-can-outrun-the-ws-subscription.md`.
+      const sessionId = await launchSession({
         cwd: cwd.trim(),
         prompt,
         permissionMode,
@@ -154,7 +159,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, model, pending, onClose, select])
+  }, [cwd, prompt, permissionMode, tagId, model, pending, onClose, select, launchSession])
 
   // ⌘↵ / Ctrl+↵ launches from anywhere in the dialog.
   useEffect(() => {

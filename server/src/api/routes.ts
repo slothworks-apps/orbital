@@ -40,6 +40,20 @@ export interface RouteContext {
 /** The only kinds `POST /api/errors` will accept, mirroring `ErrorKind`. */
 const ERROR_KINDS = new Set<string>(['session_failed', 'api_request', 'render_crash']);
 
+/**
+ * A v4 UUID in the one spelling `randomUUID()` produces: lowercase hex, `4`
+ * opening the third group, `8`/`9`/`a`/`b` opening the fourth.
+ *
+ * This is the only shape the CLI accepts as `options.sessionId`
+ * (`docs/decisions/runner-pins-the-session-id.md`), and it is what the server
+ * has always minted — so a client-supplied id is held to exactly the same
+ * standard rather than being trusted as an opaque string. Uppercase is
+ * rejected too: `crypto.randomUUID()` never emits it in either runtime, and
+ * the id goes on to be a primary key, a WS topic and a filename, each of
+ * which would treat the two spellings as two different sessions.
+ */
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
 
@@ -94,7 +108,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       const text = readFileSync(join(ctx.projectsDir, row.project_dir, `${id}.jsonl`), 'utf8');
       messages = entriesToMessages(parseTranscript(text));
     } catch {
-      return reply.code(404).send({ error: 'transcript missing' });
+      // Two different "missing"s, and only one of them is a 404. An unknown
+      // id already left above — that session does not exist. Getting here
+      // means the row does exist and only the file is absent, which is the
+      // ordinary state of a session Orbital has just launched: the row goes
+      // in with `project_dir: ''` and the CLI writes the transcript a moment
+      // later. A session with nothing written yet has an empty transcript,
+      // not a missing one, so say so instead of 404ing every launch.
+      return { messages: [] };
     }
     const limit = Math.min(Number(q.limit ?? 100), 500);
     const before = q.before ? messages.findIndex((m) => m.id === q.before) : messages.length;
@@ -106,13 +127,39 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const body = req.body as {
       cwd: string; prompt: string; permissionMode: PermissionMode;
       tagId?: number; model?: string; resume?: string; parentId?: string;
+      sessionId?: string;
     };
     // The one door an unexpanded path comes through: every other cwd in this
     // file is read back from a row this line already wrote. Expanding before
     // both the runner and the insert keeps the spawn working *and* keeps one
     // directory from appearing twice in `/api/projects`, once per spelling.
     const cwd = expandHome(body.cwd);
-    const sessionId = await ctx.runner.start({ ...body, cwd });
+    // The browser may mint the id itself and subscribe to `session:<id>`
+    // before it posts this, so the first turn cannot be published into a
+    // topic nobody is in yet. Optional: `clear` with `startNew` and every
+    // other internal caller still lets the server mint. `null` counts as
+    // absent; an empty string does not — that is a client that meant to send
+    // an id and sent nothing.
+    const clientId = body.sessionId ?? undefined;
+    if (clientId !== undefined) {
+      if (!SESSION_ID_RE.test(clientId)) {
+        return reply.code(400).send({ error: 'sessionId must be a v4 UUID' });
+      }
+      // Both halves matter. A row alone would miss a session live in this
+      // process whose row has not landed (or was deleted), and the runner
+      // alone would miss every session from a previous boot. `status()` also
+      // answers for sessions that have already ended, which is the answer we
+      // want: their transcript still sits on disk under that name.
+      const rowExists = db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, clientId))
+        .get() !== undefined;
+      if (rowExists || ctx.runner.status(clientId) !== undefined) {
+        return reply.code(409).send({ error: 'session id is already taken' });
+      }
+    }
+    const sessionId = await ctx.runner.start({ ...body, cwd, sessionId: clientId });
     db.insert(sessions)
       .values({
         id: sessionId, projectDir: '', cwd, source: 'web',

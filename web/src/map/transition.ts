@@ -79,13 +79,43 @@ import { DIMMED_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type Plan
 export const STATE_TRANSITION_MS = 420
 
 /**
- * Selection reticle fade. A selection ring is an affordance acknowledging a
- * click, not an entrance, so it uses the app's short modal pair from
- * `ui/motion.ts` (180ms in / 140ms out) rather than the 420ms state duration —
- * and, like every other exit in the app, it leaves faster than it arrives.
+ * Selection reticle fade.
+ *
+ * It began on the app's short modal pair (180/140) on the reasoning that a
+ * selection ring acknowledges a click rather than making an entrance. That
+ * was wrong for what is actually on screen: a modal fades a whole filled
+ * surface, while this is a 1px dashed ring and four hairline brackets, and
+ * opacity alone across three frames reads as appearing rather than arriving.
+ *
+ * So it is slower than a modal and carries a small scale settle as well
+ * (`RETICLE_ENTER_SCALE`). The rule from `ui/motion.ts` still holds and is
+ * what keeps these two apart: an entrance is the app presenting something and
+ * can afford to be seen, an exit is the user having already moved on.
  */
-export const RETICLE_ENTER_MS = 180
-export const RETICLE_EXIT_MS = 140
+export const RETICLE_ENTER_MS = 320
+export const RETICLE_EXIT_MS = 200
+
+/**
+ * The reticle arrives fractionally wide and settles, so the eye has something
+ * to follow besides a fade. Deliberately small: the ring sits 92px out from a
+ * 50px body, so even 6% is ~5px of travel at rest zoom — enough to read as
+ * motion, not enough to read as a bounce. The canvas cannot specify this (an
+ * artboard has no entrance), so it is a judgement call, marked as one.
+ */
+export const RETICLE_ENTER_SCALE = 1.06
+
+/**
+ * Extra time the reticle group stays mounted beyond its exit tween.
+ *
+ * `useLingering` counts wall-clock milliseconds while the tween needs that
+ * many *rendered frames*. On a dropped frame the timer wins and React pulls
+ * the group while the ring is still faintly drawn — which is a pop, and the
+ * exit exists to prevent exactly that. Two frames at 60fps, as a floor rather
+ * than a guess at the worst case: the group is five invisible `Line` draw
+ * calls for that long, on a map that can hold fifty planets, so this buys
+ * insurance without leaving them standing.
+ */
+export const RETICLE_LINGER_GRACE_MS = 34
 
 // --- easing ---------------------------------------------------------------
 
@@ -241,6 +271,24 @@ export function endedHideTransform(fade: number): { opacity: number; scale: numb
     opacity: fade,
     scale: ENDED_HIDDEN_SCALE + (1 - ENDED_HIDDEN_SCALE) * fade,
   }
+}
+
+/**
+ * The reticle's scale for a given selection fade, where 1 is fully selected
+ * and 0 fully gone.
+ *
+ * Settles inward on the way in (`RETICLE_ENTER_SCALE` → 1) and expands back
+ * out on the way out, which is the same curve read backwards — a mark that
+ * dissolves outward rather than simply ceasing. Exactly 1 at `fade === 1`, so
+ * a selected planet's reticle is the size the canvas draws it and nothing
+ * else multiplies it.
+ *
+ * Pure, and here rather than in `Planet`, because `useFrame` never runs under
+ * jsdom: arithmetic left in the frame loop cannot be tested at all, and this
+ * is the whole of the arithmetic.
+ */
+export function reticleEnterScale(fade: number): number {
+  return 1 + (RETICLE_ENTER_SCALE - 1) * (1 - fade)
 }
 
 export function retargetTween(tw: Tween, to: number, durationMs = tw.durationMs, reduced = false): void {
