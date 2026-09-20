@@ -8,7 +8,12 @@ import { timeAgo, shortenPath } from '../lib/format'
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
-import { Sidebar, type ObserverFactory, type ObserverLike } from '../panels/Sidebar'
+import {
+  Sidebar,
+  partitionSessions,
+  type ObserverFactory,
+  type ObserverLike,
+} from '../panels/Sidebar'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -142,6 +147,67 @@ describe('shortenPath', () => {
 })
 
 // ---------------------------------------------------------------------------
+// partitionSessions
+// ---------------------------------------------------------------------------
+
+describe('partitionSessions', () => {
+  it('takes pinned rows out of ACTIVE and HISTORY entirely', () => {
+    const sections = partitionSessions(
+      [
+        makeSession({ id: 'a', status: 'working', pinnedAt: 5 }),
+        makeSession({ id: 'b', status: 'working' }),
+        makeSession({ id: 'c', status: 'ended', pinnedAt: 9 }),
+        makeSession({ id: 'd', status: 'ended' }),
+      ],
+      'all'
+    )
+
+    expect(sections.pinned.map((s) => s.id)).toEqual(['a', 'c'])
+    expect(sections.active.map((s) => s.id)).toEqual(['b'])
+    expect(sections.history.map((s) => s.id)).toEqual(['d'])
+  })
+
+  it('keeps PINNED in pin order, oldest first, whatever the list order was', () => {
+    const sections = partitionSessions(
+      [
+        makeSession({ id: 'late', status: 'ended', pinnedAt: 300, lastAt: 900 }),
+        makeSession({ id: 'early', status: 'ended', pinnedAt: 100, lastAt: 100 }),
+        makeSession({ id: 'middle', status: 'working', pinnedAt: 200 }),
+      ],
+      'all'
+    )
+
+    expect(sections.pinned.map((s) => s.id)).toEqual(['early', 'middle', 'late'])
+  })
+
+  it('applies the origin filter to ACTIVE only, never to PINNED or HISTORY', () => {
+    const sessions = [
+      makeSession({ id: 'a', status: 'idle', source: 'terminal' }),
+      makeSession({ id: 'b', status: 'idle', source: 'web' }),
+      makeSession({ id: 'c', status: 'idle', source: 'terminal', pinnedAt: 1 }),
+      makeSession({ id: 'd', status: 'ended', source: 'terminal' }),
+    ]
+
+    const sections = partitionSessions(sessions, 'web')
+
+    expect(sections.active.map((s) => s.id)).toEqual(['b'])
+    expect(sections.pinned.map((s) => s.id)).toEqual(['c'])
+    expect(sections.history.map((s) => s.id)).toEqual(['d'])
+    // The ACTIVE heading's counts come off the unfiltered live list.
+    expect(sections.live.map((s) => s.id)).toEqual(['a', 'b'])
+  })
+
+  it('leaves the list it was given alone', () => {
+    const sessions = [
+      makeSession({ id: 'a', status: 'ended', pinnedAt: 2 }),
+      makeSession({ id: 'b', status: 'ended', pinnedAt: 1 }),
+    ]
+    partitionSessions(sessions, 'all')
+    expect(sessions.map((s) => s.id)).toEqual(['a', 'b'])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
 
@@ -171,6 +237,71 @@ describe('Sidebar', () => {
     expect(within(history).getByText('5m')).toBeInTheDocument()
   })
 
+  // 4c: PINNED is a section, not a filter — the row leaves ACTIVE/HISTORY
+  // for it, and the heading is absent entirely while nothing is pinned.
+  it('grows a PINNED section only once something is pinned', () => {
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Working one', status: 'working' }),
+        b: makeSession({ id: 'b', title: 'Done one', status: 'ended', lastAt: 100 }),
+      },
+    })
+
+    const { rerender } = render(<Sidebar observerFactory={noopObserverFactory} />)
+    expect(screen.queryByRole('list', { name: /pinned sessions/i })).toBeNull()
+
+    act(() => {
+      useOrbital.setState((s) => ({
+        sessions: { ...s.sessions, a: { ...s.sessions.a, pinnedAt: 42 } },
+      }))
+    })
+    rerender(<Sidebar observerFactory={noopObserverFactory} />)
+
+    const pinnedList = screen.getByRole('list', { name: /pinned sessions/i })
+    expect(within(pinnedList).getByText('Working one')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('list', { name: /active sessions/i })).queryByText('Working one')
+    ).toBeNull()
+  })
+
+  it('pins a row from its own action without selecting the row', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Alpha', status: 'ended', lastAt: 100 }),
+      },
+    })
+    const pinSpy = vi
+      .spyOn(useOrbital.getState(), 'setSessionPinned')
+      .mockResolvedValue(undefined)
+    const selectSpy = vi.spyOn(useOrbital.getState(), 'select')
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+    await user.click(screen.getByRole('button', { name: 'Pin session' }))
+
+    expect(pinSpy).toHaveBeenCalledWith('a', true)
+    expect(selectSpy).not.toHaveBeenCalled()
+  })
+
+  it('offers the reverse action, pressed, on a pinned row', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', title: 'Alpha', status: 'ended', lastAt: 100, pinnedAt: 7 }),
+      },
+    })
+    const pinSpy = vi
+      .spyOn(useOrbital.getState(), 'setSessionPinned')
+      .mockResolvedValue(undefined)
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+    const toggle = screen.getByRole('button', { name: 'Unpin session' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(toggle)
+    expect(pinSpy).toHaveBeenCalledWith('a', false)
+  })
+
   // Artboard 3b: the badge sits on the name line, so it reads as a property
   // of the session rather than of its status — status keeps the right edge.
   it('badges a live terminal row read-only and leaves an orbital row unmarked', () => {
@@ -183,13 +314,15 @@ describe('Sidebar', () => {
 
     render(<Sidebar observerFactory={noopObserverFactory} />)
 
-    const attached = screen.getByRole('button', { name: /Attached one/ })
-    const badge = within(attached).getByText('read-only')
+    // The row's press is an absolute layer under the content (4c), so the
+    // badge is a sibling of that button rather than a child — scope by row.
+    const row = (title: string) => screen.getByText(title).closest('li') as HTMLElement
+    const badge = within(row('Attached one')).getByText('read-only')
     expect(badge).toHaveAttribute(
       'title',
       'Attached from an external terminal · read-only in Orbital'
     )
-    expect(within(screen.getByRole('button', { name: /Orbital one/ })).queryByText('read-only')).toBeNull()
+    expect(within(row('Orbital one')).queryByText('read-only')).toBeNull()
   })
 
   // An ended terminal session is not read-only: `continue` resumes it as a
@@ -328,7 +461,7 @@ describe('Sidebar', () => {
     const selectSpy = vi.spyOn(useOrbital.getState(), 'select')
 
     render(<Sidebar observerFactory={noopObserverFactory} />)
-    await user.click(screen.getByText('Alpha session'))
+    await user.click(screen.getByRole('button', { name: 'Alpha session' }))
 
     expect(selectSpy).toHaveBeenCalledWith('a')
   })

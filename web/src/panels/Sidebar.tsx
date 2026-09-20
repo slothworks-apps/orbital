@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital, visibleSessions } from '../store/store'
 import { api } from '../lib/api'
@@ -9,6 +9,7 @@ import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
+import { PinButton } from '../ui/PinButton'
 import { timeAgo, shortenPath } from '../lib/format'
 
 /** How many sessions `loadMore` asks for per infinite-scroll page. */
@@ -181,6 +182,7 @@ function SessionRow({
   tags,
   selected,
   onSelect,
+  onTogglePin,
   right,
   history = false,
 }: {
@@ -188,24 +190,38 @@ function SessionRow({
   tags: Tag[]
   selected: boolean
   onSelect: (id: string) => void
+  onTogglePin: (id: string, pinned: boolean) => void
   right: ReactNode
   /** History rows sit a notch tighter and lighter than active ones (1a). */
   history?: boolean
 }) {
   const hue = rowHue(session, tags)
+  const pinned = session.pinnedAt != null
   return (
-    <li>
+    // Two sibling interactive elements — the pin is a button, and a button
+    // inside the row button would be invalid HTML. Same shape `ToolRow` uses:
+    // the row's own press is an absolute layer under a content line that
+    // takes no pointer, except the pin, which takes its own (canvas 4c).
+    <li
+      className={[
+        'group/row relative rounded-lg transition-colors hover:bg-white/5',
+        selected
+          ? 'border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.07)]'
+          : 'border border-transparent',
+      ].join(' ')}
+    >
       <button
         type="button"
         onClick={() => onSelect(session.id)}
         aria-current={selected ? 'true' : undefined}
+        aria-label={session.title}
+        className="absolute inset-0 h-full w-full rounded-lg"
+      />
+      <div
         className={[
-          'flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors hover:bg-white/5',
+          'pointer-events-none relative flex w-full items-center gap-2.5 px-2.5 text-left',
           // 1a: 9px vertical on active rows, 8px on history rows.
           history ? 'py-2' : 'py-[9px]',
-          selected
-            ? 'border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.07)]'
-            : 'border border-transparent',
         ].join(' ')}
       >
         <RowDot hue={hue} status={session.status} />
@@ -228,10 +244,86 @@ function SessionRow({
             {shortenPath(session.cwd)}
           </span>
         </span>
+        {/* The slot is in every row of every section, at the same size and in
+            the same gap — 4c's whole point is that revealing it moves
+            nothing. */}
+        <span className="pointer-events-auto flex shrink-0">
+          <PinButton
+            size={18}
+            pinned={pinned}
+            onToggle={() => onTogglePin(session.id, !pinned)}
+          />
+        </span>
         <span className="shrink-0">{right}</span>
-      </button>
+      </div>
     </li>
   )
+}
+
+/** ACTIVE/PINNED/HISTORY heading, per canvas 1a with 4a's accent count. */
+function SectionHeading({
+  label,
+  count,
+  first,
+  children,
+  headingRef,
+}: {
+  label: string
+  count?: number
+  /** The first heading in the scroller sits tighter under the chip row (1a). */
+  first?: boolean
+  children?: ReactNode
+  headingRef?: Ref<HTMLHeadingElement>
+}) {
+  return (
+    <h3
+      ref={headingRef}
+      className={[
+        'flex items-center gap-2 px-[18px] pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted',
+        first ? 'pt-3.5' : 'pt-[18px]',
+      ].join(' ')}
+    >
+      {label}
+      {count !== undefined && <span className="tracking-normal text-accent">{count}</span>}
+      {children}
+    </h3>
+  )
+}
+
+export interface SidebarSections {
+  /** Pinned rows, oldest pin first — PINNED keeps pin order (spec § Sidebar). */
+  pinned: ApiSession[]
+  /** Unpinned live rows before the origin filter, which is what ACTIVE counts. */
+  live: ApiSession[]
+  active: ApiSession[]
+  history: ApiSession[]
+}
+
+/**
+ * The sidebar's three sections. A pinned session appears under PINNED only —
+ * never in two places — which is why the pinned rows come out of the list
+ * before ACTIVE and HISTORY are cut from what is left (spec
+ * 2026-09-20-pinned-sessions-design).
+ *
+ * The origin filter still narrows ACTIVE alone: it says where a LIVE session
+ * is driven from, and a pinned row is in PINNED whoever drives it.
+ */
+export function partitionSessions(
+  visible: ApiSession[],
+  sourceFilter: 'all' | SessionSource
+): SidebarSections {
+  const pinned: ApiSession[] = []
+  const rest: ApiSession[] = []
+  for (const session of visible) (session.pinnedAt != null ? pinned : rest).push(session)
+  pinned.sort((a, b) => (a.pinnedAt ?? 0) - (b.pinnedAt ?? 0))
+
+  const live = rest.filter((s) => s.status !== 'ended')
+  return {
+    pinned,
+    live,
+    active: sourceFilter === 'all' ? live : live.filter((s) => s.source === sourceFilter),
+    history: rest.filter((s) => s.status === 'ended'),
+  }
 }
 
 /**
@@ -254,6 +346,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const setSidebarCollapsed = useOrbital((s) => s.setSidebarCollapsed)
   const setDialog = useOrbital((s) => s.setDialog)
   const select = useOrbital((s) => s.select)
+  const setSessionPinned = useOrbital((s) => s.setSessionPinned)
   const applySessionsEvent = useOrbital((s) => s.applySessionsEvent)
 
   const tags = useOrbital(useShallow((s) => s.tags))
@@ -276,12 +369,10 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   // The origin filter narrows ACTIVE and the map; HISTORY ignores it. See
   // the ADR `origin-filter-scopes-to-map-and-active` — an ended terminal
   // session is not read-only, so the distinction has nothing to say there.
-  const live = useMemo(() => visible.filter((s) => s.status !== 'ended'), [visible])
-  const active = useMemo(
-    () => (sourceFilter === 'all' ? live : live.filter((s) => s.source === sourceFilter)),
-    [live, sourceFilter]
+  const { pinned, live, active, history } = useMemo(
+    () => partitionSessions(visible, sourceFilter),
+    [visible, sourceFilter]
   )
-  const history = useMemo(() => visible.filter((s) => s.status === 'ended'), [visible])
 
   // Counts describe the list the menu sits in, so `all sessions` is always
   // the number beside the ACTIVE heading. Memoised together with the options
@@ -301,6 +392,13 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       void select(id)
     },
     [select]
+  )
+
+  const handleTogglePin = useCallback(
+    (id: string, next: boolean) => {
+      void setSessionPinned(id, next)
+    },
+    [setSessionPinned]
   )
 
   // ⌘K focuses search — unless the user is already typing somewhere else
@@ -448,10 +546,41 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* PINNED above ACTIVE (4a). Absent entirely while nothing is
+            pinned — an empty section would be a standing reminder of a
+            feature you are not using. A live pinned row keeps its blinking
+            dot, weight and WORKING/IDLE label: only its section changed. */}
+        {pinned.length > 0 && (
+          <>
+            <SectionHeading label="PINNED" count={pinned.length} first />
+            <ul className="flex flex-col gap-0.5 px-2" aria-label="Pinned sessions">
+              {pinned.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  tags={tags}
+                  selected={s.id === selectedId}
+                  onSelect={handleSelect}
+                  onTogglePin={handleTogglePin}
+                  history={s.status === 'ended'}
+                  right={
+                    s.status === 'ended' ? (
+                      <span className="font-mono text-[10px] text-text-muted">
+                        {timeAgo(s.lastAt ?? Date.now())}
+                      </span>
+                    ) : (
+                      <RowStatus status={s.status} hue={rowHue(s, tags)} />
+                    )
+                  }
+                />
+              ))}
+            </ul>
+          </>
+        )}
+
         {/* 3a puts the origin filter in this heading rather than in a chip
             row of its own: it narrows the list the heading counts. */}
-        <h3 className="flex items-center gap-2 px-[18px] pt-3.5 pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted">
-          ACTIVE <span className="tracking-normal text-accent">{active.length}</span>
+        <SectionHeading label="ACTIVE" count={active.length} first={pinned.length === 0}>
           <span className="flex-1" />
           <Select
             variant="ghost"
@@ -461,7 +590,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
             value={sourceFilter}
             onChange={setSourceFilter}
           />
-        </h3>
+        </SectionHeading>
         <ul className="flex flex-col gap-0.5 px-2" aria-label="Active sessions">
           {active.map((s) => (
             <SessionRow
@@ -470,20 +599,18 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               tags={tags}
               selected={s.id === selectedId}
               onSelect={handleSelect}
+              onTogglePin={handleTogglePin}
               right={<RowStatus status={s.status} hue={rowHue(s, tags)} />}
             />
           ))}
         </ul>
 
-        <h3
-          ref={historyHeadingRef}
-          className="flex items-center justify-between px-[18px] pt-[18px] pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted"
-        >
-          HISTORY
+        <SectionHeading label="HISTORY" headingRef={historyHeadingRef}>
+          <span className="flex-1" />
           <span className="tracking-[0.04em]" title="sorted by most recent">
             recent ▾
           </span>
-        </h3>
+        </SectionHeading>
         <ul className="flex flex-col gap-0.5 px-2 opacity-75" aria-label="Session history">
           {history.map((s) => (
             <SessionRow
@@ -492,6 +619,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               tags={tags}
               selected={s.id === selectedId}
               onSelect={handleSelect}
+              onTogglePin={handleTogglePin}
               history
               right={
                 <span className="font-mono text-[10px] text-text-muted">
@@ -506,7 +634,12 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-[rgba(150,205,255,.1)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
-        <span>{visible.length} sessions</span>
+        {/* 4a's footer carries the pin count beside the session count, and
+            only while there is one to carry. */}
+        <span>
+          {visible.length} sessions
+          {pinned.length > 0 && ` · ${pinned.length} pinned`}
+        </span>
         {/* Settings is the footer's only entry point now — the canvas moved
             tags & rules inside the dialog as a section, so the link that used
             to sit here would land on the same screen. */}
