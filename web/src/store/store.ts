@@ -217,6 +217,8 @@ export interface OrbitalActions {
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
   setSessionDismissed(id: string, dismissed: boolean): Promise<void>
+  /** Pins (or unpins) a session — the manual exemption from the release timer. */
+  setSessionPinned(id: string, pinned: boolean): Promise<void>
   /** Moves (or, with null, clears) a tag clump's stored home on the map. */
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
@@ -934,6 +936,42 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   /**
+   * Pins (or unpins) a session — the manual exemption from the map's release
+   * timer (spec 2026-09-20-pinned-sessions-design). Optimistic like the
+   * dismissal: the toggle lives in two surfaces that have to agree within a
+   * frame, and a round trip between the click and the row moving into PINNED
+   * would read as a stuck control. A failed save puts both fields back and
+   * reports.
+   *
+   * Pinning clears `mapDismissedAt` locally because the server clears it too
+   * — that is what pulls an absorbed session back onto the map. No undo
+   * toast: unpinning is the same one click that pinned.
+   */
+  async setSessionPinned(id, pinned) {
+    const session = get().sessions[id]
+    if (!session) return
+    const previous = { pinnedAt: session.pinnedAt ?? null, mapDismissedAt: session.mapDismissedAt }
+    const stamp = (fields: { pinnedAt: number | null; mapDismissedAt: number | null }) =>
+      set((state) => {
+        const current = state.sessions[id]
+        if (!current) return {}
+        return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
+      })
+    stamp(
+      pinned
+        ? { pinnedAt: Date.now(), mapDismissedAt: null }
+        : { pinnedAt: null, mapDismissedAt: previous.mapDismissedAt }
+    )
+    try {
+      await api.setSessionPinned(id, pinned)
+    } catch (err) {
+      stamp(previous)
+      const message = err instanceof Error ? err.message : 'Failed to save the pin'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
+
+  /**
    * Moves a tag clump's home to wherever the user dropped its dragged body
    * (tag clusters follow-up; `rehomeTarget` decides when a drop qualifies).
    * Optimistic like the dismissal: the springs start pulling the clump to
@@ -1133,6 +1171,13 @@ export function releaseDelayMs(settings: Record<string, string>): number | null 
  * An ended session with no `lastAt` is `absorbed` outright — there is no
  * moment to measure a fall from, and animating ancient history out of the
  * map on every load would be noise.
+ *
+ * A pinned session is `none` however long it has been ended: the pin is the
+ * manual exemption from the release timer (spec
+ * 2026-09-20-pinned-sessions-design). It is checked AFTER `mapDismissedAt`
+ * and not before, because the manual gesture wins — the server clears the
+ * pin when it stamps a dismissal, so a row carrying both is mid-flight and
+ * the stamp is the newer word.
  */
 export function absorptionFor(
   session: ApiSession,
@@ -1143,6 +1188,7 @@ export function absorptionFor(
   if (session.mapDismissedAt != null) {
     return nowMs - session.mapDismissedAt < RELEASE_FALL_GRACE_MS ? 'releasing' : 'absorbed'
   }
+  if (session.pinnedAt != null) return 'none'
   if (session.status !== 'ended') return 'none'
   const delay = releaseDelayMs(settings)
   if (delay === null) return 'none'

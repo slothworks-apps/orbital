@@ -237,6 +237,11 @@ export const api = {
     return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/dismissed`, { dismissed })
   },
 
+  /** The pin — exemption from the map's release timer; `false` unpins. */
+  async setSessionPinned(id: string, pinned: boolean): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/pinned`, { pinned })
+  },
+
   /** The whole index's session count — the hole's label; the list endpoint only ever returns a page. */
   async sessionCount(): Promise<number> {
     const data = await request<{ total: number }>('GET', '/api/sessions/count')

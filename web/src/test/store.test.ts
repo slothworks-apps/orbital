@@ -1001,6 +1001,31 @@ describe('absorptionFor (pure)', () => {
     const working = makeSession({ id: 'w', status: 'working', mapDismissedAt: NOW - DAY })
     expect(absorptionFor(working, settings, NOW)).toBe('none')
   })
+
+  // The pin is the manual exemption from the timer (spec
+  // 2026-09-20-pinned-sessions-design § Web).
+  it('a pin keeps an ended session on the map however long past the delay', () => {
+    const ancient = makeSession({
+      id: 'p', status: 'ended',
+      lastAt: NOW - 2 * 3_600_000 - RELEASE_FALL_GRACE_MS - 1_000,
+    })
+    expect(absorptionFor(ancient, settings, NOW)).toBe('absorbed')
+    expect(absorptionFor({ ...ancient, pinnedAt: NOW - DAY }, settings, NOW)).toBe('none')
+  })
+
+  it('a pinned session with no lastAt stays on the map', () => {
+    const pinned = makeSession({ id: 'pn', status: 'ended', lastAt: null, pinnedAt: NOW - DAY })
+    expect(absorptionFor(pinned, settings, NOW)).toBe('none')
+  })
+
+  // The manual gesture wins: the server clears the pin when it stamps a
+  // dismissal, so a row carrying both is mid-flight — the stamp decides.
+  it('a dismissal stamp beats a pin', () => {
+    const both = makeSession({
+      id: 'b', status: 'idle', mapDismissedAt: NOW - 1_000, pinnedAt: NOW - DAY,
+    })
+    expect(absorptionFor(both, settings, NOW)).toBe('releasing')
+  })
 })
 
 describe('mapSessions (pure)', () => {
@@ -1184,6 +1209,60 @@ describe('setSessionDismissed', () => {
       kind: 'error',
       message: 'dismissal server down',
     })
+  })
+})
+
+describe('setSessionPinned', () => {
+  beforeEach(() => {
+    useOrbital.setState({
+      sessions: { sp: makeSession({ id: 'sp', title: 'auth refactor', status: 'ended' }) },
+      order: ['sp'],
+    })
+  })
+
+  it('stamps optimistically and saves, without a toast', async () => {
+    await useOrbital.getState().setSessionPinned('sp', true)
+
+    expect(useOrbital.getState().sessions.sp.pinnedAt).toEqual(expect.any(Number))
+    expect(api.setSessionPinned).toHaveBeenCalledWith('sp', true)
+    expect(useOrbital.getState().toast).toBeNull()
+  })
+
+  // Mirrors the server: pinning is what pulls an absorbed session back.
+  it('pinning clears the dismissal stamp locally too', async () => {
+    useOrbital.setState({
+      sessions: {
+        sp: makeSession({ id: 'sp', status: 'ended', mapDismissedAt: 1_000 }),
+      },
+    })
+
+    await useOrbital.getState().setSessionPinned('sp', true)
+
+    expect(useOrbital.getState().sessions.sp.mapDismissedAt).toBeNull()
+    expect(useOrbital.getState().sessions.sp.pinnedAt).toEqual(expect.any(Number))
+  })
+
+  it('unpinning clears the stamp and saves the clear', async () => {
+    await useOrbital.getState().setSessionPinned('sp', true)
+    await useOrbital.getState().setSessionPinned('sp', false)
+
+    expect(useOrbital.getState().sessions.sp.pinnedAt).toBeNull()
+    expect(api.setSessionPinned).toHaveBeenLastCalledWith('sp', false)
+  })
+
+  it('rolls both fields back and reports when the save fails', async () => {
+    useOrbital.setState({
+      sessions: {
+        sp: makeSession({ id: 'sp', status: 'ended', mapDismissedAt: 1_000 }),
+      },
+    })
+    vi.mocked(api.setSessionPinned).mockRejectedValue(new Error('pin server down'))
+
+    await useOrbital.getState().setSessionPinned('sp', true)
+
+    expect(useOrbital.getState().sessions.sp.pinnedAt).toBeNull()
+    expect(useOrbital.getState().sessions.sp.mapDismissedAt).toBe(1_000)
+    expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'pin server down' })
   })
 })
 

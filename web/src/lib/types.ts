@@ -35,6 +35,18 @@ export interface ApiSession {
    * 2026-09-18-tag-clusters-design § 5). Mirrors `server/src/api/shape.ts`.
    */
   mapDismissedAt: number | null;
+  /**
+   * When the user pinned this session (epoch ms), or null — the manual
+   * exemption from the map's release timer (spec
+   * 2026-09-20-pinned-sessions-design). A time rather than a flag because
+   * the sidebar's PINNED section keeps pin order. Never non-null at the
+   * same time as `mapDismissedAt`. Mirrors `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `contextUsedTokens`: the server
+   * always sends the field, absent and null mean the same thing to every
+   * reader, and requiring it would rewrite every session fixture in the suite.
+   */
+  pinnedAt?: number | null;
   tagIds: number[];
   status: SessionStatus;
   /** Subagents running in this session right now — the map's moons. */
