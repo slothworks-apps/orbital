@@ -17,7 +17,14 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
   return (
     // 14px box, 10px gap, 12.5px label — canvas 1h's "New session inherits"
     // rows and 1g's "Don't ask again".
-    <label className="flex cursor-pointer select-none items-center gap-2.5 text-[12.5px] text-text-soft">
+    // `relative` is load-bearing: the sr-only input is position:absolute, and
+    // without a positioned label its containing block is whatever positioned
+    // ancestor the caller happens to have. Inside a scrolling column that means
+    // the input escapes the scroller's clipping, bloats an outer
+    // overflow-hidden ancestor's scrollHeight, and the browser scroll-on-focus
+    // then scrolls that ancestor when the label is clicked — shearing the
+    // whole layout (Settings dialog, 2026-09-20).
+    <label className="relative flex cursor-pointer select-none items-center gap-2.5 text-[12.5px] text-text-soft">
       <input
         type="checkbox"
         className="peer sr-only"
@@ -49,7 +56,8 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
  */
 export function Toggle({ checked, onChange, label, disabled = false, ...aria }: ToggleableProps) {
   return (
-    <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-text-soft">
+    // `relative` for the same containment reason as Checkbox's label above.
+    <label className="relative flex cursor-pointer select-none items-center gap-2 text-sm text-text-soft">
       <input
         type="checkbox"
         // Explicit switch semantics: a screen reader should hear "on/off",
