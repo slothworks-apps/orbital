@@ -6,6 +6,7 @@ import {
   clampDetailPanelWidth,
   parseDetailPanelWidth,
   parseContextThresholds,
+  releaseDelayMs,
   DETAIL_PANEL_DEFAULT_PX,
 } from '../store/store'
 import {
@@ -31,6 +32,8 @@ import {
   EXITING,
 } from '../ui/motion'
 import { Badge } from '../ui/Badge'
+import { PinButton } from '../ui/PinButton'
+import { Tooltip } from '../ui/Tooltip'
 import { ModeReadout } from '../ui/ModeDot'
 import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
@@ -44,7 +47,12 @@ import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { ModelSwitcher } from './ModelSwitcher'
-import { shortenPath, formatContextWindow } from '../lib/format'
+import {
+  shortenPath,
+  formatContextWindow,
+  formatDuration,
+  releaseFootnote,
+} from '../lib/format'
 import { contextWindowFor } from '../lib/models'
 import { isReadOnly, tagColor } from '../lib/types'
 import type { ApiSession, Tag } from '../lib/types'
@@ -66,6 +74,13 @@ function primaryTag(session: ApiSession, tags: Tag[]): Tag | undefined {
 /** Hue the panel's accents fall back to when the session has no tag — the
  * export's own `oklch(85% .12 205)` accent (canvas 1b). */
 const ACCENT_HUE = 205
+
+/**
+ * How long the pointer rests on the pin before its tooltip appears (canvas
+ * 4d). Long enough that crossing the header's action group on the way to ×
+ * never raises it.
+ */
+const PIN_TOOLTIP_DELAY_MS = 400
 
 /** Placeholder for a stat the session has no data for. Terminal sessions
  * never report `turn_result` usage, so the grid renders em dashes rather
@@ -125,6 +140,7 @@ export function DetailPanel() {
   const dialog = useOrbital((s) => s.ui.dialog)
   const setDialog = useOrbital((s) => s.setDialog)
   const sendPrompt = useOrbital((s) => s.sendPrompt)
+  const setSessionPinned = useOrbital((s) => s.setSessionPinned)
   // The question this session is stopped on, and what has been answered of it
   // so far (spec: 2026-09-20-interactive-decisions-design § Web UI).
   const pendingDecision = useOrbital((s) => (id ? s.pendingDecisions[id] : undefined))
@@ -376,6 +392,15 @@ export function DetailPanel() {
       ? openQuestion(pendingDecision.input.questions, decisionAnswers ?? {})
       : undefined
 
+  const pinned = session?.pinnedAt != null
+  // The release delay as the MAP applies it, so the tooltip and the footer
+  // quote the same number the body actually falls on.
+  const releaseAfterMs = releaseDelayMs(settings)
+  const footNote =
+    session?.status === 'ended'
+      ? releaseFootnote({ pinned, endedAt: session.lastAt ?? null, releaseAfterMs })
+      : null
+
   const sessionTag = session ? primaryTag(session, tags) : undefined
   const headerHue = sessionTag?.hue
   const accent = tagColor(headerHue ?? ACCENT_HUE)
@@ -516,6 +541,29 @@ export function DetailPanel() {
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-bright" />
             </span>
           )}
+          {/* 4b: the pin sits left of Clear and ×, and IS the pinned
+              indicator — there is no status chip for it; the footer below
+              carries the wording. */}
+          {session && (
+            <Tooltip
+              title={pinned ? 'Unpin' : 'Pin'}
+              description={
+                pinned
+                  ? releaseAfterMs == null
+                    ? 'The release timer is off.'
+                    : `Releases into history ${formatDuration(releaseAfterMs)} after it ended.`
+                  : 'Keeps the session on the map — it is never released into history.'
+              }
+              align="right"
+              delayMs={PIN_TOOLTIP_DELAY_MS}
+            >
+              <PinButton
+                size={28}
+                pinned={pinned}
+                onToggle={() => void setSessionPinned(session.id, !pinned)}
+              />
+            </Tooltip>
+          )}
           {session?.source === 'web' && (
             <Button variant="ghost" size="sm" onClick={handleClearClick}>
               Clear
@@ -642,6 +690,15 @@ export function DetailPanel() {
       >
         <Transcript sessionId={id} />
       </div>
+
+      {/* 4a's foot note: what the pin promises, or how long this session has
+          left on the map. Only an ended session has either to say — a live
+          one is not going anywhere. */}
+      {footNote && (
+        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3 font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+          {footNote}
+        </div>
+      )}
 
       {/* Composer — canvas 1b: padding 14px 16px 16px over a hairline rule. */}
       <div className="border-t border-panel-border px-4 pb-4 pt-3.5">

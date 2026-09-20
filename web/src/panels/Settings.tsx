@@ -814,7 +814,10 @@ export function Settings({ open, onClose }: SettingsProps) {
                 the old age cutoff and the ENDED map toggle. */}
             <Row
               title="Release ended sessions into history after"
-              desc="The bond is cut and the body falls into the corner hole. It stays in the sidebar and in search — it just leaves the map."
+              // The clause from 4d's string table: this is the one screen
+              // where the timer looks absolute, so it is where the exemption
+              // has to be named.
+              desc="The bond is cut and the body falls into the corner hole. It stays in the sidebar and in search — it just leaves the map — pinned sessions are never released."
             >
               <Select
                 id="settings-release-ended-after"

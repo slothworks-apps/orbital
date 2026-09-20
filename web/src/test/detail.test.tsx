@@ -123,6 +123,116 @@ beforeEach(() => {
 })
 
 // ---------------------------------------------------------------------------
+// Header: the pin toggle (canvas 4b/4d)
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel pin toggle', () => {
+  it('names the action it would perform and carries the state in aria-pressed', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', status: 'ended' }) },
+      ui: { selectedId: 'a' },
+    })
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    const toggle = screen.getByRole('button', { name: 'Pin session' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    act(() => {
+      useOrbital.setState((s) => ({
+        sessions: { ...s.sessions, a: { ...s.sessions.a, pinnedAt: 5 } },
+      }))
+    })
+
+    expect(screen.getByRole('button', { name: 'Unpin session' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
+
+  it('pins the selected session through the store', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', status: 'ended' }) },
+      ui: { selectedId: 'a' },
+    })
+    const pinSpy = vi.spyOn(useOrbital.getState(), 'setSessionPinned').mockResolvedValue(undefined)
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    await user.click(screen.getByRole('button', { name: 'Pin session' }))
+    expect(pinSpy).toHaveBeenCalledWith('a', true)
+  })
+
+  it('describes the pin on keyboard focus, reading the release setting back', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', status: 'ended' }) },
+      settings: { map_release_ended_after_minutes: '1440' },
+      ui: { selectedId: 'a' },
+    })
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    const toggle = screen.getByRole('button', { name: 'Pin session' })
+    act(() => toggle.focus())
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Keeps the session on the map — it is never released into history.'
+    )
+
+    act(() => {
+      useOrbital.setState((s) => ({
+        sessions: { ...s.sessions, a: { ...s.sessions.a, pinnedAt: 5 } },
+      }))
+    })
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Releases into history 1d after it ended.')
+  })
+
+  it('promises no release in the tooltip when the release timer is off', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', status: 'ended', pinnedAt: 5 }) },
+      settings: { map_release_ended_after_minutes: 'never' },
+      ui: { selectedId: 'a' },
+    })
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    act(() => screen.getByRole('button', { name: 'Unpin session' }).focus())
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toHaveTextContent('The release timer is off.')
+    expect(tooltip).not.toHaveTextContent(/releases into history/i)
+  })
+
+  it('carries the pin in the footer of an ended session, and nothing for a live one', async () => {
+    const now = Date.now()
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', status: 'ended', lastAt: now - 2 * 60 * 60_000, pinnedAt: 5 }),
+      },
+      settings: { map_release_ended_after_minutes: '1440' },
+      ui: { selectedId: 'a' },
+    })
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(screen.getByText(/stays on the map until you unpin it/)).toBeInTheDocument()
+
+    act(() => {
+      useOrbital.setState((s) => ({
+        sessions: { ...s.sessions, a: { ...s.sessions.a, pinnedAt: null } },
+      }))
+    })
+    expect(screen.getByText(/^ended 2h ago · releases into history in/)).toBeInTheDocument()
+
+    act(() => {
+      useOrbital.setState((s) => ({
+        sessions: { ...s.sessions, a: { ...s.sessions.a, status: 'idle' } },
+      }))
+    })
+    expect(screen.queryByText(/releases into history/)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Header: title, cwd, tags, badges, usage
 // ---------------------------------------------------------------------------
 
