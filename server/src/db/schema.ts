@@ -57,6 +57,19 @@ export const sessions = sqliteTable(
      * COLUMN` actually puts it, keeping `sessionColumns` in physical order.
      */
     contextUsedTokens: integer('context_used_tokens'),
+    /**
+     * The manual exemption from the map's release timer (spec
+     * 2026-09-20-pinned-sessions-design): epoch ms of the moment the user
+     * pinned the session, null when it is not pinned. The stamp is a time
+     * rather than a flag because the sidebar's PINNED section keeps pin
+     * order, and `GET /api/sessions` sorts on it.
+     *
+     * Never set at the same time as `mapDismissedAt` — the two are mutually
+     * exclusive, each route clearing the other. Declared last for the same
+     * reason as `contextUsedTokens`: `ALTER TABLE ... ADD COLUMN` appends,
+     * and `sessionColumns` has to stay in physical order.
+     */
+    pinnedAt: integer('pinned_at'),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );

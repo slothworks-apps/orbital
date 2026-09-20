@@ -46,6 +46,14 @@ export interface ApiSession {
    * it (spec 2026-09-18-tag-clusters-design § 5).
    */
   mapDismissedAt: number | null;
+  /**
+   * When the user pinned this session (epoch ms), or null. A pinned session
+   * is exempt from the map's release timer indefinitely and sorts to the
+   * front of `GET /api/sessions` (spec
+   * 2026-09-20-pinned-sessions-design § Server). Never non-null at the same
+   * time as `mapDismissedAt`.
+   */
+  pinnedAt: number | null;
   tagIds: number[];
   status: SessionStatus;
   /** Subagents running in this session right now; empty for everything else. */
@@ -84,6 +92,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     parentId: row.parent_id,
     contextUsedTokens: row.context_used_tokens,
     mapDismissedAt: row.map_dismissed_at,
+    pinnedAt: row.pinned_at,
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
     subagents: ctx.subagents.get(row.id),

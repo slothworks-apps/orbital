@@ -1085,6 +1085,108 @@ describe('map dismissal and session count', () => {
   });
 });
 
+// Pinned sessions: the manual exemption from the release timer.
+// Spec: docs/superpowers/specs/2026-09-20-pinned-sessions-design.md § Server.
+describe('pinned sessions', () => {
+  let app: FastifyInstance;
+  let db: ReturnType<typeof makeApp>['db'];
+  let hub: Hub;
+
+  beforeEach(() => {
+    ({ app, db, hub } = makeApp());
+  });
+
+  const rowOf = (id: string) =>
+    db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+
+  it('PUT /api/sessions/:id/pinned stamps pinned_at and publishes the upsert', async () => {
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({
+      method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(typeof rowOf('s2').pinned_at).toBe('number');
+    expect(received[0]).toMatchObject({
+      event: 'upsert',
+      session: { id: 's2', pinnedAt: rowOf('s2').pinned_at },
+    });
+  });
+
+  it('PUT /api/sessions/:id/pinned with pinned:false clears the stamp', async () => {
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
+    const res = await app.inject({
+      method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(rowOf('s2').pinned_at).toBeNull();
+  });
+
+  it('PUT /api/sessions/:id/pinned 404s an unknown session and 400s a non-boolean body', async () => {
+    const missing = await app.inject({
+      method: 'PUT', url: '/api/sessions/nope/pinned', payload: { pinned: true },
+    });
+    expect(missing.statusCode).toBe(404);
+    const bad = await app.inject({
+      method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: 'yes' },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toEqual({ error: 'pinned must be a boolean' });
+  });
+
+  // The two stamps never coexist — pinning an absorbed session is what pulls
+  // it back onto the map.
+  it('pinning clears an existing dismissal', async () => {
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
+    const row = rowOf('s2');
+    expect(row.map_dismissed_at).toBeNull();
+    expect(typeof row.pinned_at).toBe('number');
+  });
+
+  // Manual gesture wins: dragging a pinned planet into the hole unpins it.
+  it('dismissing clears an existing pin', async () => {
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
+    const row = rowOf('s2');
+    expect(row.pinned_at).toBeNull();
+    expect(typeof row.map_dismissed_at).toBe('number');
+  });
+
+  it('activity clears the dismissal but leaves the pin', async () => {
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
+    const pinnedAt = rowOf('s2').pinned_at;
+    db.update(sessions).set({ mapDismissedAt: 123 }).where(eq(sessions.id, 's2')).run();
+    // s2 is inactive in the runner, so this goes down the revive path.
+    await app.inject({
+      method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'continue' },
+    });
+    const row = rowOf('s2');
+    expect(row.map_dismissed_at).toBeNull();
+    expect(row.pinned_at).toBe(pinnedAt);
+  });
+
+  // Pinned rows have to arrive with the first page whatever their age — the
+  // sidebar's `offset: visible.length` paging depends on client accumulation
+  // matching server order, so the ordering belongs in the SQL, not a re-sort.
+  it('GET /api/sessions puts pinned rows first, in pin order, ahead of newer rows', async () => {
+    db.insert(sessions)
+      .values({ id: 's3', projectDir: 'p', cwd: '/w/z', title: 'newest', lastAt: 300, source: 'terminal' })
+      .run();
+    // s2 (lastAt 100) pinned first, s1 (lastAt 200) second: pin order, not age.
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
+    db.update(sessions).set({ pinnedAt: 1 }).where(eq(sessions.id, 's2')).run();
+    db.update(sessions).set({ pinnedAt: 2 }).where(eq(sessions.id, 's1')).run();
+    const listed = res200(await app.inject({ method: 'GET', url: '/api/sessions' }));
+    expect(listed.sessions.map((s: any) => s.id)).toEqual(['s2', 's1', 's3']);
+  });
+
+  it('GET /api/sessions/:id carries pinnedAt on the wire', async () => {
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s2' });
+    expect(typeof res.json().session.pinnedAt).toBe('number');
+  });
+});
+
 // The file viewer's read (spec 2026-09-19-file-viewer-design § Server). The
 // seeded sessions carry fake cwds like /w/x, so these tests add a session
 // whose cwd is a real tmpdir and put the fixtures there.

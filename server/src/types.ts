@@ -35,6 +35,8 @@ export interface SessionRow {
   /** Context tokens at the end of the last turn, or null if never measured.
    * See db/schema.ts. */
   context_used_tokens: number | null;
+  /** When the user pinned this session (epoch ms), or null. See db/schema.ts. */
+  pinned_at: number | null;
 }
 
 /**

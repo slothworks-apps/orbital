@@ -114,7 +114,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     let rows = db
       .select(sessionColumns)
       .from(sessions)
-      .orderBy(desc(sessions.lastAt))
+      // Pinned rows first, in pin order, then the rest by recency. In the SQL
+      // rather than a re-sort afterwards because this route over-fetches and
+      // then slices a page out: a pinned row that sorted below the fetch
+      // window would never reach the client at all, and the sidebar's
+      // `offset: visible.length` arithmetic only stays valid while client
+      // accumulation matches server order (spec
+      // 2026-09-20-pinned-sessions-design § Server).
+      .orderBy(sql`${sessions.pinnedAt} IS NULL`, sessions.pinnedAt, desc(sessions.lastAt))
       .limit(limit * 4 + offset) // over-fetch, filter, then page
       .all() as SessionRow[];
     if (q.source) rows = rows.filter((r) => r.source === q.source);
@@ -436,6 +443,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * 2026-09-18-tag-clusters-design § 5). `dismissed: true` stamps the
    * session, `false` is the 10s undo. The map is the only reader; the
    * sidebar, search and every list endpoint ignore the stamp.
+   *
+   * Dismissing also clears any pin: the manual gesture wins, so dragging a
+   * pinned planet into the hole absorbs it and unpins it in one move (spec
+   * 2026-09-20-pinned-sessions-design § Server).
    */
   app.put('/api/sessions/:id/dismissed', (req, reply) => {
     const { id } = req.params as { id: string };
@@ -445,7 +456,37 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const result = db
       .update(sessions)
-      .set({ mapDismissedAt: dismissed ? Date.now() : null })
+      .set(
+        dismissed
+          ? { mapDismissedAt: Date.now(), pinnedAt: null }
+          : { mapDismissedAt: null },
+      )
+      .where(eq(sessions.id, id))
+      .run();
+    if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+    return { ok: true };
+  });
+
+  /**
+   * The pin — a per-session, manual exemption from the map's release timer
+   * (spec 2026-09-20-pinned-sessions-design). `pinned: true` stamps the row
+   * with now, `false` clears it; the timer itself is applied client-side, so
+   * the server's whole job is the stamp and the ordering it feeds.
+   *
+   * Pinning also clears the dismissal, which is what pulls an already
+   * absorbed session back onto the map. The two stamps never coexist.
+   */
+  app.put('/api/sessions/:id/pinned', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { pinned } = (req.body ?? {}) as { pinned?: unknown };
+    if (typeof pinned !== 'boolean') {
+      return reply.code(400).send({ error: 'pinned must be a boolean' });
+    }
+    const result = db
+      .update(sessions)
+      .set(pinned ? { pinnedAt: Date.now(), mapDismissedAt: null } : { pinnedAt: null })
       .where(eq(sessions.id, id))
       .run();
     if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
