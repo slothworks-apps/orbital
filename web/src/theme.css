@@ -273,6 +273,13 @@ body {
   animation: orbital-fade-out 0.2s ease forwards;
 }
 
+/* A question card arriving in the transcript (canvas 9d "arrival"). Only the
+   fade is ours — the scroll rule is the transcript's existing stick-to-bottom
+   logic, which already says "never steal scroll from someone reading". */
+.orbital-card-in {
+  animation: orbital-fade-in 0.18s ease;
+}
+
 /* ---------------------------------------------------------------------------
    Sent tokens in the transcript (canvas 9e SENT). The tint holds after the
    turn is sent — display-only: no hover, no cursor change, no focus ring, and

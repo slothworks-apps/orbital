@@ -800,6 +800,63 @@ describe('Runner subagent reporting', () => {
     expect(blocks).toContainEqual(expect.objectContaining({ type: 'tool_result', tool_use_id: 't1' }));
     await runner.end(id);
   });
+
+  /**
+   * Fake SDK that streams one agent's whole task lifecycle, mixed in with the
+   * `system` subtypes that must not be mistaken for it.
+   */
+  function fakeQueryFnWithTaskEvents() {
+    return ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+      const sid = sessionIdOf(options);
+      async function* gen() {
+        for await (const _userMsg of prompt) {
+          yield { type: 'system', subtype: 'init', session_id: sid };
+          yield { type: 'system', subtype: 'commands_changed', commands: [], session_id: sid };
+          yield {
+            type: 'system', subtype: 'task_started', session_id: sid,
+            task_id: 'k1', tool_use_id: 't1', description: 'reviewer',
+            subagent_type: 'code-reviewer', task_type: 'local_agent', is_backgrounded: true,
+          };
+          yield { type: 'system', subtype: 'task_progress', session_id: sid, task_id: 'k1' };
+          yield {
+            type: 'system', subtype: 'background_tasks_changed', session_id: sid,
+            tasks: [{ task_id: 'k1', task_type: 'local_agent', description: 'reviewer' }],
+          };
+          // Another session's task event: the id filter must drop it.
+          yield {
+            type: 'system', subtype: 'task_started', session_id: 'someone-else',
+            task_id: 'k9', description: 'stray', task_type: 'local_agent',
+          };
+          yield {
+            type: 'system', subtype: 'task_notification', session_id: sid,
+            task_id: 'k1', tool_use_id: 't1', status: 'completed', summary: 'done',
+          };
+          yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
+        }
+      }
+      return gen() as any;
+    };
+  }
+
+  it('forwards only the three task lifecycle system messages to onTaskEvent', async () => {
+    const hub = new Hub();
+    const seen: Array<{ sessionId: string; msg: any }> = [];
+    const runner = new Runner({
+      hub,
+      queryFn: fakeQueryFnWithTaskEvents() as any,
+      onTaskEvent: (sessionId, msg) => seen.push({ sessionId, msg }),
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    await vi.waitFor(() => expect(seen.length).toBe(3), { timeout: 3000 });
+
+    expect(seen.every((s) => s.sessionId === id)).toBe(true);
+    expect(seen.map((s) => s.msg.subtype)).toEqual([
+      'task_started',
+      'background_tasks_changed',
+      'task_notification',
+    ]);
+    await runner.end(id);
+  });
 });
 
 describe('Runner error reporting', () => {
@@ -1242,5 +1299,216 @@ describe('Runner attachments', () => {
 
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0].message.content).toEqual([{ type: 'text', text: 'words' }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Interactive decisions: the canUseTool channel
+// (spec: 2026-09-20-interactive-decisions-design)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fake SDK that hands its `canUseTool` back to the test — the callback is the
+ * whole channel, and nothing else about the query exercises it. Its generator
+ * takes each turn and answers nothing, so the session stays `working` the way
+ * it is while the CLI is inside a tool call, and `ask()` blocks exactly like
+ * the real one: a promise with no park deadline.
+ */
+function fakeQueryFnAsking() {
+  const sent: any[] = [];
+  const controller = new AbortController();
+  let options: any;
+  const fn = ({ prompt, options: o }: { prompt: AsyncIterable<any>; options: any }) => {
+    options = o;
+    async function* gen(): AsyncGenerator<any> {
+      for await (const userMsg of prompt) sent.push(userMsg);
+    }
+    return gen() as any;
+  };
+  const ask = (input: unknown, toolUseID = 'tu-1', toolName = 'AskUserQuestion'): Promise<any> =>
+    options.canUseTool(toolName, input, {
+      signal: controller.signal, toolUseID, requestId: 'req-1',
+    });
+  return { fn, ask, sent, abort: () => controller.abort() };
+}
+
+const ONE_QUESTION = {
+  questions: [
+    {
+      question: 'Which library should we use?',
+      header: 'Library',
+      options: [
+        { label: 'date-fns', description: 'small' },
+        { label: 'luxon', description: 'complete' },
+      ],
+      multiSelect: false,
+    },
+  ],
+};
+
+const TWO_QUESTIONS = {
+  questions: [
+    ...ONE_QUESTION.questions,
+    {
+      question: 'Ship it behind a flag?',
+      header: 'Rollout',
+      options: [
+        { label: 'Yes', description: 'safer' },
+        { label: 'No', description: 'simpler' },
+      ],
+      multiSelect: false,
+    },
+  ],
+};
+
+/** A runner parked on `ONE_QUESTION`, with the hub traffic it produced. */
+async function parked(input: unknown = ONE_QUESTION) {
+  const hub = new Hub();
+  const { fn, ask, sent, abort } = fakeQueryFnAsking();
+  const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+  const received = subscribed(hub, 'session:web-1');
+  const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
+  const decision = ask(input);
+  return { runner, id, received, decision, sent, abort, ask };
+}
+
+describe('Runner decisions', () => {
+  it('parks an AskUserQuestion, announces it, and waits in needs_input', async () => {
+    const { runner, id, received } = await parked();
+    expect(runner.status(id)).toBe('needs_input');
+    expect(received).toContainEqual({
+      topic: 'session:web-1',
+      event: 'decision_pending',
+      decision: { id: 'tu-1', kind: 'question', input: ONE_QUESTION, createdAt: expect.any(Number) },
+    });
+    // The same decision is on the snapshot, which is what a reloaded page
+    // recovers the question from.
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-1', kind: 'question' });
+  });
+
+  it('arms no idle timer for a parked question, whatever the setting says', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new Hub();
+      const { fn, ask } = fakeQueryFnAsking();
+      const runner = new Runner({
+        hub, queryFn: fn as any, idleTimeoutMs: 15 * 60_000, newSessionId: () => 'web-1',
+      });
+      const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
+      void ask(ONE_QUESTION);
+      expect(runner.status(id)).toBe('needs_input');
+      expect(vi.getTimerCount()).toBe(0);
+      // Not even a live setting change hands it one: an unanswered question
+      // has no deadline, mirroring the SDK's own promise.
+      runner.setIdleTimeoutMs(5 * 60_000);
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(60 * 60_000);
+      expect(runner.status(id)).toBe('needs_input');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('answerDecision allows with the answers merged into the tool input', async () => {
+    const { runner, id, received, decision } = await parked();
+    expect(runner.answerDecision(id, 'tu-1', { 'Which library should we use?': 'luxon' })).toBe(true);
+
+    expect(await decision).toEqual({
+      behavior: 'allow',
+      updatedInput: { ...ONE_QUESTION, answers: { 'Which library should we use?': 'luxon' } },
+    });
+    expect(received).toContainEqual({
+      topic: 'session:web-1', event: 'decision_resolved', decisionId: 'tu-1',
+    });
+    expect(runner.pendingDecision(id)).toBeNull();
+    expect(runner.status(id)).toBe('working');
+  });
+
+  it('rejects an answer that names a decision that is not the parked one', async () => {
+    const { runner, id, decision } = await parked();
+    expect(runner.answerDecision(id, 'some-other-tool-use', { a: 'b' })).toBe(false);
+    expect(runner.answerDecision('never-heard-of-it', 'tu-1', { a: 'b' })).toBe(false);
+    // Still parked, and still the only thing that can settle it.
+    expect(runner.pendingDecision(id)).not.toBeNull();
+
+    expect(runner.answerDecision(id, 'tu-1', { 'Which library should we use?': 'luxon' })).toBe(true);
+    await decision;
+    // The loser of two open windows: right id, already settled.
+    expect(runner.answerDecision(id, 'tu-1', { 'Which library should we use?': 'date-fns' })).toBe(false);
+  });
+
+  it('send() while parked answers every question with the typed text and enqueues nothing', async () => {
+    const { runner, id, decision, sent } = await parked(TWO_QUESTIONS);
+    await vi.waitFor(() => expect(sent).toHaveLength(1)); // the starting prompt
+    runner.send(id, 'neither, use the stdlib');
+
+    expect(await decision).toEqual({
+      behavior: 'allow',
+      updatedInput: {
+        ...TWO_QUESTIONS,
+        answers: {
+          'Which library should we use?': 'neither, use the stdlib',
+          'Ship it behind a flag?': 'neither, use the stdlib',
+        },
+      },
+    });
+    // The text answered the question instead of becoming a turn of its own.
+    expect(sent).toHaveLength(1);
+    expect(runner.status(id)).toBe('working');
+    expect(runner.pendingDecision(id)).toBeNull();
+  });
+
+  it('interrupt() settles a parked question as deny', async () => {
+    const { runner, id, received, decision } = await parked();
+    await runner.interrupt(id);
+    expect(await decision).toMatchObject({ behavior: 'deny' });
+    expect(received).toContainEqual({
+      topic: 'session:web-1', event: 'decision_resolved', decisionId: 'tu-1',
+    });
+    expect(runner.pendingDecision(id)).toBeNull();
+  });
+
+  it('end() settles a parked question as deny — no promise outlives its session', async () => {
+    const { runner, id, received, decision } = await parked();
+    await runner.end(id);
+    expect(await decision).toMatchObject({ behavior: 'deny' });
+    expect(received).toContainEqual({
+      topic: 'session:web-1', event: 'decision_resolved', decisionId: 'tu-1',
+    });
+    expect(runner.pendingDecision(id)).toBeNull();
+  });
+
+  it('an aborted request drops the decision and tells every client', async () => {
+    const { runner, id, received, decision, abort } = await parked();
+    abort();
+    // The SDK ignores the late result; what matters is that nothing stays
+    // parked and no card is left waiting.
+    expect(await decision).toMatchObject({ behavior: 'deny' });
+    expect(runner.pendingDecision(id)).toBeNull();
+    expect(received).toContainEqual({
+      topic: 'session:web-1', event: 'decision_resolved', decisionId: 'tu-1',
+    });
+  });
+
+  it('denies every other tool, the way the SDK did with no canUseTool at all', async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
+
+    expect(await ask({ command: 'rm -rf /' }, 'tu-2', 'Bash')).toMatchObject({ behavior: 'deny' });
+    expect(runner.pendingDecision(id)).toBeNull();
+    expect(runner.status(id)).toBe('working');
+  });
+
+  it('a second question while one is parked settles the first rather than dropping it', async () => {
+    // Defensive: the model is blocked on the first, so this should not happen.
+    // If it does, an overwritten resolver would block that tool call forever.
+    const { runner, id, decision, ask } = await parked();
+    const second = ask(TWO_QUESTIONS, 'tu-2');
+    expect(await decision).toMatchObject({ behavior: 'deny' });
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-2' });
+    await runner.end(id);
+    expect(await second).toMatchObject({ behavior: 'deny' });
   });
 });

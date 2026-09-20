@@ -1,6 +1,6 @@
 import { effectiveTagIds } from '../tags/rules.js';
 import type { OrbitalDb } from '../db/database.js';
-import type { Runner } from '../runner/runner.js';
+import type { PendingDecision, Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '../types.js';
 import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
@@ -42,6 +42,14 @@ export interface ApiSession {
   status: SessionStatus;
   /** Subagents running in this session right now; empty for everything else. */
   subagents: SubagentInfo[];
+  /**
+   * The question this session's CLI is blocked on, or null — which is what
+   * every terminal and ended session gets, their decisions having died with
+   * the process that parked them. On the snapshot rather than only on the hub
+   * so a page reload recovers the question (spec
+   * 2026-09-20-interactive-decisions-design § State and lifecycle).
+   */
+  pendingDecision: PendingDecision | null;
 }
 
 export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
@@ -70,5 +78,6 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
     subagents: ctx.subagents.get(row.id),
+    pendingDecision: ctx.runner.pendingDecision(row.id),
   };
 }

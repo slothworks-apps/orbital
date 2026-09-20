@@ -6,7 +6,7 @@ import { buildServer } from '../src/index.js';
 
 /**
  * The whole chain against a real `buildServer`, the one place the pieces meet:
- * SDK stream -> Runner.onEntries -> SubagentStore -> toApiSession ->
+ * SDK stream -> Runner.onTaskEvent -> SubagentStore -> toApiSession ->
  * GET /api/sessions. The unit tests each prove one link; only this proves
  * index.ts wires them to each other.
  *
@@ -15,7 +15,14 @@ import { buildServer } from '../src/index.js';
  * transcript cannot answer the question.
  */
 
-/** Fake SDK that starts one subagent, parks, and finishes it when released. */
+/**
+ * Fake SDK that starts one subagent, parks, and finishes it when released —
+ * in the order the real CLI uses it. The `Agent` tool_result comes back
+ * immediately with nothing but a launch acknowledgement, because the agent
+ * runs in the background; the agent's real end is the task notification
+ * minutes later. Anything reading the tool blocks retires the agent at the
+ * `result` below, which is the bug this arrangement guards against.
+ */
 function fakeQueryFnWithSubagent() {
   let release!: () => void;
   const finished = new Promise<void>((resolve) => { release = resolve; });
@@ -25,6 +32,12 @@ function fakeQueryFnWithSubagent() {
       for await (const _ of prompt) {
         yield { type: 'system', subtype: 'init', session_id: sid };
         yield {
+          type: 'system', subtype: 'task_started', session_id: sid,
+          task_id: 'k1', tool_use_id: 'ag1', description: 'reviewer',
+          subagent_type: 'code-reviewer', task_type: 'local_agent',
+          is_backgrounded: true, spawn_depth: 1,
+        };
+        yield {
           type: 'assistant', session_id: sid,
           message: {
             role: 'assistant',
@@ -33,13 +46,28 @@ function fakeQueryFnWithSubagent() {
             ],
           },
         };
-        await finished;
         yield {
           type: 'user', session_id: sid,
           message: {
             role: 'user',
-            content: [{ type: 'tool_result', tool_use_id: 'ag1', content: 'reviewed' }],
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'ag1',
+                content: 'Async agent launched successfully. (This tool result is internal metadata …)',
+              },
+            ],
           },
+        };
+        // Ends the turn while the agent keeps working. The session going
+        // `needs_input` is the test's proof that the launch tool_result above
+        // has already been through the store.
+        yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
+        await finished;
+        yield {
+          type: 'system', subtype: 'task_notification', session_id: sid,
+          task_id: 'k1', tool_use_id: 'ag1', status: 'completed',
+          summary: 'Agent "reviewer" finished',
         };
         yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
       }
@@ -56,13 +84,13 @@ function tempClaudeDir() {
   return { claudeDir, dbPath: join(claudeDir, 'index.db') };
 }
 
-async function subagentsOf(app: any, id: string) {
+async function sessionOf(app: any, id: string) {
   const res = await app.inject({ method: 'GET', url: '/api/sessions' });
-  return res.json().sessions.find((s: { id: string }) => s.id === id)?.subagents;
+  return res.json().sessions.find((s: { id: string }) => s.id === id);
 }
 
 describe("a subagent in one of orbital's own sessions, end to end", () => {
-  it('appears while it runs and is gone once it reports back', async () => {
+  it('survives its own launch tool_result and is gone once its notification arrives', async () => {
     const { claudeDir, dbPath } = tempClaudeDir();
     const sdk = fakeQueryFnWithSubagent();
     const app = await buildServer({ claudeDir, dbPath, queryFn: sdk.fn as any });
@@ -73,17 +101,20 @@ describe("a subagent in one of orbital's own sessions, end to end", () => {
       });
       const { sessionId } = created.json();
 
-      // While the subagent runs — nothing has been selected, nothing tailed.
+      // The turn is over, so the launch tool_result has been consumed, and
+      // the agent is still on the planet. Nothing has been selected, nothing
+      // tailed.
       await vi.waitFor(async () => {
-        expect(await subagentsOf(app, sessionId)).toEqual([
-          { id: 'ag1', name: 'reviewer', state: 'working' },
-        ]);
+        expect((await sessionOf(app, sessionId))?.status).toBe('needs_input');
       }, { timeout: 3000 });
+      expect((await sessionOf(app, sessionId))?.subagents).toEqual([
+        { id: 'k1', name: 'reviewer', state: 'working', toolUseId: 'ag1' },
+      ]);
 
       sdk.release();
 
       await vi.waitFor(async () => {
-        expect(await subagentsOf(app, sessionId)).toEqual([]);
+        expect((await sessionOf(app, sessionId))?.subagents).toEqual([]);
       }, { timeout: 3000 });
     } finally {
       await app.close();

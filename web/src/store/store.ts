@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { api, ApiError } from '../lib/api'
 import { getSocket } from '../lib/socket'
+import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
 import type {
   ApiSession,
   AttachmentSource,
@@ -8,6 +9,7 @@ import type {
   ErrorRecord,
   ImageRefEntry,
   OrbitalModel,
+  PendingDecision,
   PermissionMode,
   SessionSource,
   SessionStatus,
@@ -30,6 +32,10 @@ export type SessionEvent =
   | { event: 'message'; message: ChatMessage }
   | { event: 'status'; status: SessionStatus }
   | { event: 'turn_result'; usage: unknown }
+  /** The session is blocked on a question (spec: 2026-09-20-interactive-decisions-design). */
+  | { event: 'decision_pending'; decision: PendingDecision }
+  /** It was settled — by this tab, another window, an interrupt, or the session ending. */
+  | { event: 'decision_resolved'; decisionId: string }
 
 /**
  * Events delivered on the `errors` topic — the shared error log
@@ -136,6 +142,28 @@ export interface OrbitalState {
    */
   errorsUnseen: number
   /**
+   * The question each session is blocked on right now, keyed by session id
+   * (spec: 2026-09-20-interactive-decisions-design). A session has at most
+   * one — the SDK blocks on the `canUseTool` promise, so there is nothing to
+   * queue behind it.
+   */
+  pendingDecisions: Record<string, PendingDecision>
+  /**
+   * Answers collected so far, keyed by DECISION id (which is the
+   * `AskUserQuestion` tool_use's `toolUseId`). Two jobs in one map:
+   *
+   * - while the card is pending it holds the partial answers of a 2–4
+   *   question card, which is what `activeQuestionIndex` gates the next
+   *   question on;
+   * - after the POST it is what the card renders its answered form from,
+   *   which is how the card flips over "before the next agent token arrives"
+   *   (canvas 9d) instead of waiting for the `tool_result` to come back.
+   *
+   * Kept past `decision_resolved` for exactly that reason, and never
+   * persisted: on the next reload the `tool_result` is the answer's home.
+   */
+  decisionAnswers: Record<string, AnswerMap>
+  /**
    * How many sessions the whole index holds — the hole's label subtracts
    * the drawn planets from this (spec 2026-09-18-tag-clusters-design § 4).
    * Seeded by `GET /api/sessions/count` at load, then tracked off the
@@ -176,6 +204,14 @@ export interface OrbitalActions {
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[]>
   sendPrompt(id: string, text: string, attachments?: readonly SentAttachment[]): Promise<void>
+  /**
+   * Records one question's answer on the session's pending decision and,
+   * once every question has one, POSTs the complete record. The card and the
+   * composer share this one door — clicking an option, confirming a
+   * multiSelect and typing into the composer differ only in the string they
+   * arrive with.
+   */
+  answerQuestion(sessionId: string, question: string, answer: string): void
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
@@ -283,6 +319,28 @@ function dropSeen(errors: ErrorRecord[], ids: number[] | null): ErrorRecord[] {
   return errors.filter((error) => !seen.has(error.id))
 }
 
+/**
+ * Adopts the pending decision a session snapshot carries — the reload path,
+ * and the one that puts the question back after a refresh.
+ *
+ * Deliberately ADD-ONLY: a snapshot whose `pendingDecision` is null does not
+ * clear a decision this tab already knows about. An upsert is published for
+ * every kind of session activity, and one published by a path that does not
+ * refresh the field would otherwise silently un-ask a live question. The
+ * three things that legitimately end a decision all say so explicitly —
+ * `decision_resolved`, a 404 from the POST, and `loadInitial`'s full
+ * snapshot rebuild.
+ */
+function seedDecision(
+  state: Pick<OrbitalState, 'pendingDecisions'>,
+  session: ApiSession,
+): Partial<OrbitalState> {
+  const decision = session.pendingDecision
+  if (!decision) return {}
+  if (state.pendingDecisions[session.id]?.id === decision.id) return {}
+  return { pendingDecisions: { ...state.pendingDecisions, [session.id]: decision } }
+}
+
 function sortIdsByLastAtDesc(sessions: Record<string, ApiSession>): string[] {
   return Object.values(sessions)
     .sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
@@ -317,6 +375,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   lastTurnResultAt: {},
   errors: [],
   errorsUnseen: 0,
+  pendingDecisions: {},
+  decisionAnswers: {},
   sessionsTotal: 0,
   toast: null,
   ui: initialUiState,
@@ -340,13 +400,20 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     ])
 
     const sessionsMap: Record<string, ApiSession> = {}
+    // The one AUTHORITATIVE rebuild of the pending map: this is a full
+    // snapshot of the index, so a decision that was settled while this tab
+    // was gone is correctly absent afterwards. Every other seeding path only
+    // ever adds (see `seedDecision`).
+    const pendingDecisions: Record<string, PendingDecision> = {}
     for (const session of sessions) {
       sessionsMap[session.id] = session
+      if (session.pendingDecision) pendingDecisions[session.id] = session.pendingDecision
     }
 
     set((state) => ({
       sessions: sessionsMap,
       order: sortIdsByLastAtDesc(sessionsMap),
+      pendingDecisions,
       tags,
       rules,
       settings,
@@ -372,6 +439,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       set({
         sessions,
         order: sortIdsByLastAtDesc(sessions),
+        ...seedDecision(state, msg.session),
         // An upsert of an unknown id is a new index row, so the hole's total
         // moves with it. A re-upsert of a known session is just a change.
         ...(isNew ? { sessionsTotal: state.sessionsTotal + 1 } : {}),
@@ -504,6 +572,27 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       return
     }
 
+    if (msg.event === 'decision_pending') {
+      set({
+        pendingDecisions: { ...state.pendingDecisions, [sessionId]: msg.decision },
+      })
+      return
+    }
+
+    if (msg.event === 'decision_resolved') {
+      // Whoever settled it — this tab, the other window, an interrupt — the
+      // card locks. Guarded on the id so a late broadcast for a decision
+      // already superseded by a newer one cannot unlock the new one.
+      const current = state.pendingDecisions[sessionId]
+      if (!current || current.id !== msg.decisionId) return
+      const pendingDecisions = { ...state.pendingDecisions }
+      delete pendingDecisions[sessionId]
+      // `decisionAnswers[decisionId]` deliberately STAYS: it is what the card
+      // renders its answered form from until the `tool_result` arrives.
+      set({ pendingDecisions })
+      return
+    }
+
     if (msg.event === 'turn_result') {
       turnResultSeen[sessionId] = true
       // A turn_result means the session's current turn completed normally,
@@ -613,6 +702,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async select(id) {
+    // Selecting a session is the other moment its snapshot is consulted: a
+    // tab that loaded before the question was asked, or that never had this
+    // session's topic open, learns about it from the row itself.
+    const selected = get().sessions[id]
+    if (selected) set((state) => seedDecision(state, selected))
+
     set((state) => ({
       ui: {
         ...state.ui,
@@ -676,6 +771,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async sendPrompt(id, text, attachments) {
+    // "Composer text answers the question" (spec § State and lifecycle): while
+    // a question is open the typed words ARE the free-form answer, and no user
+    // turn is enqueued — the text reaches the model as the answer, which is
+    // what it meant. Empty text is not an answer, so an image-only turn still
+    // goes out the normal way.
+    const decision = get().pendingDecisions[id]
+    if (decision && text.trim()) {
+      const open = openQuestion(
+        decision.input.questions,
+        get().decisionAnswers[decision.id] ?? {},
+      )
+      if (open) {
+        get().answerQuestion(id, open.question, text)
+        return
+      }
+    }
+
     const images = attachments?.map((a) => a.entry)
     const optimisticMessage: ChatMessage = {
       id: nextLocalMessageId(),
@@ -724,6 +836,42 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const message = err instanceof Error ? err.message : 'Failed to send message'
       set({ toast: { kind: 'error', message } })
     }
+  },
+
+  answerQuestion(sessionId, question, answer) {
+    const decision = get().pendingDecisions[sessionId]
+    if (!decision) return
+
+    const answers: AnswerMap = {
+      ...(get().decisionAnswers[decision.id] ?? {}),
+      [question]: answer,
+    }
+    set((state) => ({
+      decisionAnswers: { ...state.decisionAnswers, [decision.id]: answers },
+    }))
+
+    // A 2–4 question card sends once, when the last question closes — until
+    // then the partial record above is all that exists, and it is what gates
+    // the next question open.
+    const complete = completedAnswers(decision.input.questions, answers)
+    if (!complete) return
+
+    api.answerDecision(sessionId, decision.id, complete).catch((err) => {
+      // 404 is not a failure: someone else answered first, or the decision
+      // was settled by an interrupt or the session ending. The card is
+      // already showing the answer it sent; all that is left is to stop
+      // treating the question as open (spec § State and lifecycle: "first
+      // answer wins; the loser's POST gets 404").
+      if (err instanceof ApiError && err.status === 404) {
+        get().applySessionEvent(sessionId, {
+          event: 'decision_resolved',
+          decisionId: decision.id,
+        })
+        return
+      }
+      const message = err instanceof Error ? err.message : 'Failed to send the answer'
+      set({ toast: { kind: 'error', message } })
+    })
   },
 
   setFilterTag(filterTagId) {

@@ -6,11 +6,14 @@ import {
   settleSimulation,
   dragSimBody,
   holeDropState,
+  minDistance,
   rehomeTarget,
+  separation,
   HOLE_CAPTURE_RADIUS,
   HOLE_DROP_RADIUS,
   HOLE_REPEL_RADIUS,
   SAME_TAG_GAP,
+  SEPARATION_SAME,
   CROSS_TAG_GAP,
   type SimInput,
   type SimState,
@@ -319,5 +322,122 @@ describe('rehomeTarget', () => {
     const sim = makeSim()
     expect(rehomeTarget(sim, null, 1)).toBeNull()
     expect(rehomeTarget(sim, 'a2', 1)).toBeNull()
+  })
+})
+
+// A planet's `r` is its FOOTPRINT — its own radius, or its outermost moon
+// shell when the moon system reaches further — so spawning subagents has to
+// make room rather than grow moons through the neighbours.
+describe('footprints and separation', () => {
+  /** Two same-tag bodies either side of a shared anchor, nothing else on the map. */
+  function pair(r: number): SimState {
+    const sim = createSimulation()
+    reconcileSimulation(sim, {
+      bodies: [
+        { id: 'p1', tagId: 1, x: -1, y: 0, r, live: true, released: false },
+        { id: 'p2', tagId: 1, x: 1, y: 0, r, live: true, released: false },
+      ],
+      anchors: [{ tagId: 1, x: 0, y: 0 }],
+      hole: { x: 100, y: -100 },
+    })
+    return sim
+  }
+
+  function spread(sim: SimState, zoomFactor = 1): number {
+    settleSimulation(sim, zoomFactor)
+    return Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, body(sim, 'p1').y - body(sim, 'p2').y)
+  }
+
+  it('measures the clearance from the footprints, leaving the canvas gap alone', () => {
+    expect(minDistance(1, 1, true)).toBeCloseTo(2 + SAME_TAG_GAP, 10)
+    expect(minDistance(1, 1, false)).toBeCloseTo(2 + CROSS_TAG_GAP, 10)
+    // Zooming out inflates the drawn bodies, so it inflates what they are
+    // kept clear of — but never the empty space the canvas specifies.
+    expect(minDistance(1, 1, true, 1.7)).toBeCloseTo(3.4 + SAME_TAG_GAP, 10)
+  })
+
+  it('settles bigger footprints further apart, never inside one another', () => {
+    const small = spread(pair(1))
+    const withMoons = spread(pair(2.04))
+    const many = spread(pair(3))
+
+    expect(withMoons).toBeGreaterThan(small)
+    expect(many).toBeGreaterThan(withMoons)
+    // The real requirement: the two systems never share space.
+    expect(withMoons).toBeGreaterThan(2 * 2.04)
+    expect(many).toBeGreaterThan(2 * 3)
+  })
+
+  it('keeps them clear at far zoom too, where every body is drawn inflated', () => {
+    // A planet carrying three moons, at the counter-zoom factor's cap.
+    const zoomFactor = 1.7
+    const r = 2.04
+    expect(spread(pair(r), zoomFactor)).toBeGreaterThan(2 * r * zoomFactor)
+  })
+
+  it('widens the clump as the camera zooms out and closes it again on the way back', () => {
+    const near = spread(pair(1), 1)
+    const far = spread(pair(1), 1.7)
+    expect(far).toBeGreaterThan(near)
+  })
+
+  it('wakes a settled clump when a body grows a moon, so the springs walk it open', () => {
+    const sim = pair(1)
+    settleSimulation(sim)
+    expect([...sim.bodies.values()].every((b) => b.asleep)).toBe(true)
+    const before = Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, 0)
+
+    reconcileSimulation(sim, {
+      bodies: [
+        { id: 'p1', tagId: 1, x: -1, y: 0, r: 2.04, live: true, released: false },
+        { id: 'p2', tagId: 1, x: 1, y: 0, r: 1, live: true, released: false },
+      ],
+      anchors: [{ tagId: 1, x: 0, y: 0 }],
+      hole: { x: 100, y: -100 },
+    })
+    expect([...sim.bodies.values()].some((b) => b.asleep)).toBe(false)
+
+    // …and it opens gradually rather than jumping: one tick moves it a
+    // little, the settle moves it the rest of the way.
+    step(sim, 1)
+    const afterOneTick = Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, 0)
+    expect(afterOneTick).toBeGreaterThan(before)
+    expect(afterOneTick - before).toBeLessThan(0.1)
+
+    settleSimulation(sim)
+    const settled = Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, 0)
+    expect(settled).toBeGreaterThan(afterOneTick)
+    expect(settled).toBeGreaterThan(2.04 + 1)
+  })
+})
+
+// The separation ramp: proportional to the pair's size, where the canvas
+// script's was independent of it — a clump must not close over a planet's
+// moons just because that planet got bigger.
+describe('separation', () => {
+  const REFERENCE_MIN = minDistance(1, 1, true)
+
+  it('reproduces the canvas script exactly at the pair it was tuned on', () => {
+    for (const d of [1, 2, 3, 4, 4.8]) {
+      expect(separation(REFERENCE_MIN, d, true)).toBeCloseTo(
+        ((REFERENCE_MIN - d) / REFERENCE_MIN) * SEPARATION_SAME,
+        12
+      )
+    }
+  })
+
+  it('pushes harder the larger the pair, at the point where the two bodies touch', () => {
+    const atTouch = (r: number) => {
+      const min = minDistance(r, r, true)
+      return separation(min, min - SAME_TAG_GAP, true)
+    }
+    expect(atTouch(2.04)).toBeGreaterThan(atTouch(1))
+    expect(atTouch(3)).toBeGreaterThan(atTouch(2.04))
+  })
+
+  it('never pushes at or beyond the minimum distance, and stays bounded inside it', () => {
+    const min = minDistance(3, 3, true)
+    expect(separation(min, min, true)).toBe(0)
+    expect(separation(min, 0, true)).toBe(separation(min, min - REFERENCE_MIN, true))
   })
 })

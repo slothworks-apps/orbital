@@ -27,6 +27,59 @@ export interface ApiSession {
   status: SessionStatus;
   /** Subagents running in this session right now — the map's moons. */
   subagents: Subagent[];
+  /**
+   * The question this session is blocked on, or null. Part of the session
+   * snapshot precisely so a reload does not lose it (spec:
+   * 2026-09-20-interactive-decisions-design § State and lifecycle) — the
+   * `decision_pending` WS event is only heard by a tab that was already
+   * connected. Mirrors `server/src/api/shape.ts`.
+   *
+   * Optional here (like `Tag.anchor_*`): the server always sends the field,
+   * but absent and null mean the same thing to every reader, and requiring
+   * it would rewrite every session fixture in the suite for no signal.
+   */
+  pendingDecision?: PendingDecision | null;
+}
+
+/**
+ * One option row of an `AskUserQuestion` question. `preview` is what the
+ * focused row reveals below the block; most options do not carry one.
+ * Mirrors the SDK's `AskUserQuestionInput`.
+ */
+export interface QuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+/** One question of an `AskUserQuestion` call: 2–4 options, single or multi. */
+export interface QuestionSpec {
+  question: string;
+  /** The chip over the question — capped and uppercased by the card. */
+  header: string;
+  options: QuestionOption[];
+  multiSelect: boolean;
+}
+
+/** The tool call's input as the SDK delivers it: 1–4 questions. */
+export interface AskUserQuestionInput {
+  questions: QuestionSpec[];
+}
+
+/**
+ * A decision the session is blocked on. `kind` is the extension point the
+ * spec leaves for permission prompts and dialogs later; today only
+ * `'question'` rides this channel.
+ *
+ * `id` IS the `AskUserQuestion` tool_use's `toolUseId`, which is what lets a
+ * transcript card recognise itself as the pending one without any extra
+ * correlation state.
+ */
+export interface PendingDecision {
+  id: string;
+  kind: 'question';
+  input: AskUserQuestionInput;
+  createdAt: number;
 }
 
 export interface ChatMessage {

@@ -76,11 +76,6 @@ export function applyPan(cam: CameraState, dx: number, dy: number): CameraState 
   }
 }
 
-/** Adjusts zoom by a delta (positive = zoom in), clamped to [MIN_ZOOM, MAX_ZOOM]. Used by the +/- buttons (fixed step). */
-export function applyZoom(cam: CameraState, deltaZoom: number): CameraState {
-  return { ...cam, zoom: clampZoom(cam.zoom + deltaZoom) }
-}
-
 /**
  * `log(1.1) / 100`, chosen so that one standard Chrome mouse-wheel notch
  * (`deltaY` of about ±100, `deltaMode` 0/pixel) changes zoom by about 10%.

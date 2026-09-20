@@ -19,7 +19,7 @@ import {
   tagRules,
   tags,
 } from '../db/schema.js';
-import { parseIdleTimeoutMs, type Runner } from '../runner/runner.js';
+import { decisionQuestions, parseIdleTimeoutMs, type Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
@@ -491,6 +491,42 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, revivedRow) });
       return { ok: true, revived: true };
     }
+  });
+
+  /**
+   * The answer to a parked question (spec
+   * 2026-09-20-interactive-decisions-design § Channel). REST rather than the
+   * hub because answering has a real outcome the client has to hear: the
+   * decision may already be gone — answered in another window, interrupted, or
+   * ended — and that is this 404.
+   *
+   * `answers` is complete or it is nothing: one entry per question, keyed by
+   * the question's own text, which is the shape the SDK takes it in. What each
+   * answer *says* is the client's business; only its presence is checked here.
+   */
+  app.post('/api/sessions/:id/decision/:decisionId', (req, reply) => {
+    const { id, decisionId } = req.params as { id: string; decisionId: string };
+    const { answers } = (req.body ?? {}) as { answers?: unknown };
+    if (
+      !answers ||
+      typeof answers !== 'object' ||
+      Array.isArray(answers) ||
+      Object.values(answers).some((a) => typeof a !== 'string')
+    ) {
+      return reply.code(400).send({ error: 'answers must be an object of strings' });
+    }
+    const pending = ctx.runner.pendingDecision(id);
+    if (!pending || pending.id !== decisionId) return reply.code(404).send({ error: 'not found' });
+    const given = answers as Record<string, string>;
+    if (decisionQuestions(pending.input).some((q) => typeof given[q] !== 'string')) {
+      return reply.code(400).send({ error: 'answers is missing a question' });
+    }
+    // Re-read rather than trusting the lookup above: the decision may have
+    // settled between the two, which is the same 404 as never having existed.
+    if (!ctx.runner.answerDecision(id, decisionId, given)) {
+      return reply.code(404).send({ error: 'not found' });
+    }
+    return { ok: true };
   });
 
   app.post('/api/sessions/:id/interrupt', async (req) => {

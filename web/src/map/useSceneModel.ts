@@ -80,6 +80,8 @@ export function useSceneModel(): SceneModel {
           lastTurnResultAt: {},
           errors: [],
           errorsUnseen: 0,
+          pendingDecisions: {},
+          decisionAnswers: {},
           sessionsTotal,
           toast: null,
           ui: {

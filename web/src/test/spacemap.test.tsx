@@ -1,12 +1,11 @@
 import { beforeAll, describe, it, expect } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import { buildSceneModel, type SceneModel } from '../map/sceneModel'
 import { useSceneModel } from '../map/useSceneModel'
 import {
   applyPan,
-  applyZoom,
   bodyZoomFactor,
   centerOn,
   clampZoom,
@@ -17,6 +16,8 @@ import {
   MIN_ZOOM,
   type CameraState,
 } from '../map/camera'
+import { PLANET_BASE_RADIUS } from '../map/layout'
+import { moonVisuals } from '../map/visuals'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -65,6 +66,8 @@ const defaultUi: OrbitalUiState = {
 /** Fixed clock for the timed release — never Date.now(), the model is pure. */
 const NOW = 1_800_000_000_000
 const DAY = 86_400_000
+/** Comfortably past the zoom tween's duration, so a click has finished arriving. */
+const ZOOM_STEP_SETTLE_MS = 900
 
 /**
  * `buildSceneModel` at a fixed clock. Most tests here predate the timed
@@ -89,6 +92,8 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     historyLoaded: {},
     transcriptErrors: {},
     lastTurnResultAt: {},
+    pendingDecisions: {},
+    decisionAnswers: {},
     errors: [],
     errorsUnseen: 0,
     sessionsTotal: 0,
@@ -232,6 +237,41 @@ describe('buildSceneModel', () => {
     const [m1, m2] = model.moons
     expect(m1.orbitRadius).not.toBe(m2.orbitRadius)
     expect(m1.phase).not.toBe(m2.phase)
+  })
+
+  it('gives a moonless planet the footprint of its own body', () => {
+    const model = sceneModelAt(withSessions([makeSession({ id: 'a', tagIds: [1] })]))
+    const planet = model.planets[0]
+
+    expect(planet.footprint).toBe(planet.scale * PLANET_BASE_RADIUS)
+  })
+
+  it('widens the footprint to the outermost moon shell, and widens it again per subagent', () => {
+    const one = sceneModelAt(
+      withSessions([makeSession({ id: 'a', tagIds: [1], subagents: [makeSubagent({ id: 's1' })] })])
+    )
+    const three = sceneModelAt(
+      withSessions([
+        makeSession({
+          id: 'a',
+          tagIds: [1],
+          subagents: [
+            makeSubagent({ id: 's1' }),
+            makeSubagent({ id: 's2' }),
+            makeSubagent({ id: 's3' }),
+          ],
+        }),
+      ])
+    )
+
+    // Measured to the moon's own edge, not to the trail it rides.
+    const outer = three.moons[three.moons.length - 1]
+    expect(three.planets[0].footprint).toBeCloseTo(
+      outer.orbitRadius + moonVisuals(outer.subagent.state).discRadius,
+      10
+    )
+    expect(one.planets[0].footprint).toBeGreaterThan(one.planets[0].scale * PLANET_BASE_RADIUS)
+    expect(three.planets[0].footprint).toBeGreaterThan(one.planets[0].footprint)
   })
 
   it('drops ended subagents — moons exist only for LIVE subagents', () => {
@@ -494,20 +534,6 @@ describe('applyPan', () => {
   it('never touches zoom', () => {
     const next = applyPan({ x: 0, y: 0, zoom: 60 }, 10, 10)
     expect(next.zoom).toBe(60)
-  })
-})
-
-describe('applyZoom', () => {
-  it('adds the delta and clamps to range', () => {
-    expect(applyZoom({ x: 0, y: 0, zoom: 60 }, 20).zoom).toBe(80)
-    expect(applyZoom({ x: 0, y: 0, zoom: MAX_ZOOM }, 50).zoom).toBe(MAX_ZOOM)
-    expect(applyZoom({ x: 0, y: 0, zoom: MIN_ZOOM }, -50).zoom).toBe(MIN_ZOOM)
-  })
-
-  it('never touches x/y', () => {
-    const next = applyZoom({ x: 5, y: -3, zoom: 60 }, 10)
-    expect(next.x).toBe(5)
-    expect(next.y).toBe(-3)
   })
 })
 
@@ -850,5 +876,76 @@ describe('SpaceMap overlays and the live panel width', () => {
       .getByRole('button', { name: 'Zoom in' })
       .closest('[data-overlay="zoom-column"]') as HTMLElement
     expect(zoomStack.style.right).toBe('24px')
+  })
+})
+
+// The +/- buttons ease the zoom instead of cutting to it
+// (ADR `the-zoom-buttons-ease-in-log-space`). Driven through the real DOM
+// because the whole of the logic is the hook wiring: a unit test of the
+// tween would not have caught the buttons doing nothing.
+describe('SpaceMap zoom buttons', () => {
+  beforeAll(() => {
+    class NoopObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    global.ResizeObserver = NoopObserver
+  })
+
+  async function renderMap() {
+    useOrbital.setState({
+      sessions: { a: makeSession({ id: 'a', tagIds: [1], lastAt: Date.now() }) },
+      order: ['a'],
+      tags: [workTag, personalTag, defaultTag],
+      rules: [],
+      settings: {},
+      transcripts: {},
+      usage: {},
+      historyLoaded: {},
+      toast: null,
+      ui: { ...defaultUi, selectedId: null },
+    })
+    const { SpaceMap } = await import('../map/SpaceMap')
+    return render(<SpaceMap />)
+  }
+
+  /** The HUD's `NN% · x … y …` readout, as a number. */
+  function zoomPercent(): number {
+    const readout = screen.getByText(/% · x/)
+    return Number(readout.textContent?.match(/^(\d+)%/)?.[1])
+  }
+
+  /** Lets the rAF-driven tween run to completion. */
+  async function settle() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, ZOOM_STEP_SETTLE_MS))
+    })
+  }
+
+  it('arrives at a full step in, and back out again', async () => {
+    await renderMap()
+    const start = zoomPercent()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    await settle()
+    const zoomedIn = zoomPercent()
+    expect(zoomedIn).toBeGreaterThan(start)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }))
+    await settle()
+    expect(zoomPercent()).toBe(start)
+  })
+
+  it('accumulates presses made during a run, and stops at the end of the range', async () => {
+    await renderMap()
+    // Every press lands while the previous run is still in flight: each one
+    // has to add a step to where the run is HEADED, not re-aim at one step
+    // past wherever the animation currently stands.
+    for (let i = 0; i < 12; i++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }))
+    }
+    await settle()
+    expect(zoomPercent()).toBe(MIN_ZOOM)
   })
 })

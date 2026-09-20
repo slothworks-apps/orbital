@@ -5,7 +5,9 @@ import type { ChatMessage } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { Button } from '../ui/Button'
 import { MessageView } from './MessageView'
+import { QuestionCard } from './QuestionCard'
 import { ToolRow, salientInput } from './ToolRow'
+import { QUESTION_TOOL_NAME } from '../lib/questionCard'
 
 /** Initial size of the rendered window (in paired items), and the amount a
  * successful "load older" grows it by (bounded — see `handleLoadOlder`
@@ -58,10 +60,12 @@ export function pairMessages(messages: ChatMessage[]): TranscriptItem[] {
   return items
 }
 
-/** A run of consecutive tool rows, a single message row, or a model-switch
- * marker inserted between two assistant messages (see `insertModelDividers`). */
+/** A run of consecutive tool rows, a question card, a single message row, or
+ * a model-switch marker inserted between two assistant messages (see
+ * `insertModelDividers`). */
 export type TranscriptGroup =
   | { kind: 'tools'; key: string; items: Extract<TranscriptItem, { kind: 'tool' }>[] }
+  | { kind: 'question'; key: string; item: Extract<TranscriptItem, { kind: 'tool' }> }
   | { kind: 'message'; key: string; item: Extract<TranscriptItem, { kind: 'message' }> }
   | { kind: 'model-divider'; key: string; from: string; to: string; timestamp?: string }
 
@@ -70,12 +74,25 @@ export type TranscriptGroup =
  * transcript's row gap to 14px but packs a run of tool calls into a tight
  * 4px stack, so a multi-step tool sequence reads as one block of machine
  * work between two turns of conversation rather than as N loose rows.
+ *
+ * `AskUserQuestion` is the one exception: it becomes its own group so the
+ * folding rules can never reach it (spec:
+ * 2026-09-20-interactive-decisions-design — "a pending card cannot be folded
+ * by the transcript-folding rules"). A question is not machine work to be
+ * skimmed past; it is the moment the session stopped on the user. Being a
+ * group of its own also breaks the run around it, which is right: the calls
+ * before the question and the calls after it are two different stretches of
+ * work.
  */
 export function groupToolRuns(items: TranscriptItem[]): TranscriptGroup[] {
   const groups: TranscriptGroup[] = []
   for (const item of items) {
     if (item.kind === 'message') {
       groups.push({ kind: 'message', key: item.key, item })
+      continue
+    }
+    if (item.toolUse.toolName === QUESTION_TOOL_NAME) {
+      groups.push({ kind: 'question', key: item.key, item })
       continue
     }
     const last = groups[groups.length - 1]
@@ -449,6 +466,13 @@ export function Transcript({ sessionId }: TranscriptProps) {
             </span>
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
           </div>
+        ) : group.kind === 'question' ? (
+          <QuestionCard
+            key={group.key}
+            sessionId={sessionId}
+            toolUse={group.item.toolUse}
+            toolResult={group.item.toolResult}
+          />
         ) : group.kind === 'tools' ? (
           group.items.length === 1 ? (
             // A lone call is not a run — no header, today's row (canvas 6b A).

@@ -8,6 +8,7 @@ import {
   DETAIL_PANEL_DEFAULT_PX,
 } from '../store/store'
 import { api } from '../lib/api'
+import { openQuestion } from '../lib/questionCard'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
 import { usePresence } from '../ui/usePresence'
@@ -139,6 +140,12 @@ export function DetailPanel() {
   const dialog = useOrbital((s) => s.ui.dialog)
   const setDialog = useOrbital((s) => s.setDialog)
   const sendPrompt = useOrbital((s) => s.sendPrompt)
+  // The question this session is stopped on, and what has been answered of it
+  // so far (spec: 2026-09-20-interactive-decisions-design § Web UI).
+  const pendingDecision = useOrbital((s) => (id ? s.pendingDecisions[id] : undefined))
+  const decisionAnswers = useOrbital((s) =>
+    pendingDecision ? s.decisionAnswers[pendingDecision.id] : undefined,
+  )
 
   const [titleDraft, setTitleDraft] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -371,6 +378,16 @@ export function DetailPanel() {
   // mark on the row and the refusal at the composer cannot drift apart.
   const isTerminalLive = session ? isReadOnly(session) : false
   const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
+
+  // The FIRST unanswered question of the pending card, or undefined once the
+  // last one is answered — which is what makes the composer revert to a
+  // normal reply the moment the card is settled by a click (canvas 9c).
+  // A terminal session Orbital only watches can read the question but never
+  // answer it, so its composer is unchanged too.
+  const openDecisionQuestion =
+    pendingDecision && !isTerminalLive
+      ? openQuestion(pendingDecision.input.questions, decisionAnswers ?? {})
+      : undefined
 
   const sessionTag = session ? primaryTag(session, tags) : undefined
   const headerHue = sessionTag?.hue
@@ -634,8 +651,21 @@ export function DetailPanel() {
             onSend={handleSend}
             placement="above"
             variant="panel"
-            hint="⏎ send · ⇧⏎ newline · ⌘V paste image"
-            placeholder={promptPlaceholder}
+            // Canvas 9c: one hint line rewritten while a question is open —
+            // ⏎ answers it, it does not start a new turn.
+            hint={
+              openDecisionQuestion
+                ? '⏎ answers the question · ⇧⏎ newline'
+                : '⏎ send · ⇧⏎ newline · ⌘V paste image'
+            }
+            answering={openDecisionQuestion !== undefined}
+            // The placeholder names the question's header chip, so with 2–4
+            // stacked you know WHICH one you would be answering (canvas 9c).
+            placeholder={
+              openDecisionQuestion
+                ? `Answer ${openDecisionQuestion.header}, or pick an option above…`
+                : promptPlaceholder
+            }
             aria-label="Prompt"
             attachments={attachments}
             dropArmed={dropArmed}

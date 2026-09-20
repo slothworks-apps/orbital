@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
+import { TASK_EVENT_SUBTYPES, type TaskEvent } from '../transcript/subagents.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import type { ImageStore, ImageWriter } from '../images/store.js';
 
@@ -104,10 +106,56 @@ export interface SessionAttempt {
   model: string | null;
 }
 
+/**
+ * The one tool Orbital can render a surface for. Every other tool the CLI asks
+ * about is denied — see `decide`.
+ */
+const QUESTION_TOOL = 'AskUserQuestion';
+
+/**
+ * A blocked tool call waiting on the browser, as it travels on the hub
+ * (`decision_pending`) and in the session snapshot (`ApiSession`).
+ *
+ * `kind` is an open union on purpose: ordinary permission prompts and
+ * `onUserDialog` dialogs ride this same envelope later without changing the
+ * transport (spec 2026-09-20-interactive-decisions-design § Channel).
+ */
+export interface PendingDecision {
+  /** The SDK's `toolUseID` — what an answer has to name to be accepted. */
+  id: string;
+  kind: 'question';
+  /** The tool's own input, verbatim: `AskUserQuestionInput` for `question`. */
+  input: Record<string, unknown>;
+  createdAt: number;
+}
+
+/**
+ * The question texts of a decision's input, which are the keys its `answers`
+ * map is keyed by. Total: anything that is not a question with text is not
+ * something an answer could be missing for.
+ */
+export function decisionQuestions(input: Record<string, unknown>): string[] {
+  const raw = (input as { questions?: unknown }).questions;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((q) => (q as { question?: unknown })?.question)
+    .filter((q): q is string => typeof q === 'string' && q.length > 0);
+}
+
 interface ManagedSession {
   status: SessionStatus;
   queue: Array<(msg: unknown | null) => void>;
   pending: Array<unknown | null>;
+  /**
+   * The decision this session's CLI is blocked on, with the resolver of the
+   * `canUseTool` promise that block *is*. One at a time: the model cannot ask
+   * a second question while it waits on the first.
+   */
+  decision: {
+    pending: PendingDecision;
+    /** Settles the SDK's promise and drops the abort listener with it. */
+    settle: (result: PermissionResult) => void;
+  } | null;
   /**
    * The live query handle — the object `queryFn` returned. It is both the
    * message stream `pump()` drains and the control channel `interrupt`,
@@ -180,6 +228,7 @@ export class Runner {
   private onTurnUsage?: (modelUsage: unknown) => void;
   private onInit?: (sessionId: string, model: string | null) => void;
   private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
+  private onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
   private images?: ImageStore;
 
@@ -204,10 +253,19 @@ export class Runner {
     onInit?: (sessionId: string, model: string | null) => void;
     /**
      * Every assistant/user message the SDK streams, in transcript-entry shape.
-     * The stream carries the session's `Task` blocks, so a web session's
-     * subagents are known continuously without anyone tailing its transcript.
+     * What the session said, for readers that care about its contents — the
+     * auto-titler. Subagent liveness does *not* come from here; see
+     * `onTaskEvent`.
      */
     onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
+    /**
+     * The task lifecycle the SDK streams as `system` messages
+     * (`TASK_EVENT_SUBTYPES`): where a subagent's live state comes from.
+     * The tool blocks cannot answer it, because `Agent` runs in the background
+     * and its `tool_result` comes back at launch
+     * (adr: subagent-liveness-from-sdk-task-events).
+     */
+    onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
     /**
      * Whatever the SDK generator threw, with the session it was running.
      * Called from `pump()`'s catch, where the only record of a session dying
@@ -236,6 +294,7 @@ export class Runner {
     this.onTurnUsage = deps.onTurnUsage;
     this.onInit = deps.onInit;
     this.onEntries = deps.onEntries;
+    this.onTaskEvent = deps.onTaskEvent;
     this.onError = deps.onError;
     this.images = deps.images;
   }
@@ -264,6 +323,9 @@ export class Runner {
     this.idleTimeoutMs = idleTimeoutMs;
     for (const [sessionId, s] of this.sessions) {
       if (s.status !== 'needs_input') continue;
+      // A parked question has no deadline (see `decide`), so a setting change
+      // must not hand it one either.
+      if (s.decision) continue;
       this.armIdleTimer(sessionId);
     }
   }
@@ -338,6 +400,10 @@ export class Runner {
 
   /** Final state transition shared by explicit end() and natural SDK-generator completion. */
   private finish(sessionId: string): void {
+    // The backstop for the paths that do not go through end(): a generator
+    // that completed or threw while a question was parked. No promise may
+    // outlive its session.
+    this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
     this.setStatus(sessionId, 'ended');
     this.ended.add(sessionId);
     const s = this.sessions.get(sessionId);
@@ -388,7 +454,7 @@ export class Runner {
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
-      commands: null,
+      commands: null, decision: null,
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -413,6 +479,11 @@ export class Runner {
       permissionMode: opts.permissionMode,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       settingSources: ['user', 'project', 'local'],
+      // Without this the SDK treats every "ask" decision as terminal and
+      // auto-denies it, which is what used to push `AskUserQuestion` into
+      // plain prose (spec 2026-09-20-interactive-decisions-design).
+      canUseTool: ((toolName, input, canUseOpts) =>
+        this.decide(sessionId, toolName, input, canUseOpts)) satisfies CanUseTool,
     };
     // `sessionId` and `resume` are mutually exclusive in the SDK; resuming
     // already fixes the id, so it is only pinned for a fresh session.
@@ -453,6 +524,13 @@ export class Runner {
         // change (a skill discovered as the agent moves into a subdirectory).
         // The SDK's instruction is to REPLACE the cached list with it, so that
         // is what this does — a re-ask would return the same thing anyway.
+        // A subagent's life, as the CLI reports it; the tool blocks below
+        // cannot tell when one ends (`onTaskEvent`). Every other `system`
+        // subtype falls through unread, as before.
+        if (msg.type === 'system' && TASK_EVENT_SUBTYPES.has(msg.subtype)) {
+          this.onTaskEvent?.(sessionId, msg as TaskEvent);
+          continue;
+        }
         if (msg.type === 'system' && msg.subtype === 'commands_changed') {
           const s = this.sessions.get(sessionId);
           if (s && Array.isArray(msg.commands)) s.commands = shapeCommands(msg.commands);
@@ -496,9 +574,132 @@ export class Runner {
     else s.pending.push(msg);
   }
 
+  /**
+   * The SDK's `canUseTool`: what the CLI blocks on while it waits for a
+   * human. An unsettled promise blocks the tool forever — the SDK gives it no
+   * park deadline — so every path out of here settles exactly once.
+   */
+  private decide(
+    sessionId: string,
+    toolName: string,
+    input: Record<string, unknown>,
+    opts: Parameters<CanUseTool>[2],
+  ): Promise<PermissionResult> {
+    // The extension point for permission prompts and dialogs: a new `kind` on
+    // the same envelope. Until Orbital has a surface for one, denying
+    // reproduces exactly what the SDK did while no `canUseTool` was passed.
+    if (toolName !== QUESTION_TOOL) {
+      return Promise.resolve({
+        behavior: 'deny',
+        message: `Orbital has no prompt surface for ${toolName}.`,
+      });
+    }
+    const s = this.sessions.get(sessionId);
+    if (!s) {
+      return Promise.resolve({ behavior: 'deny', message: `session ${sessionId} is not active` });
+    }
+    // Defensive: the model is blocked on the first question, so a second
+    // cannot normally arrive. If one does, the older promise is settled rather
+    // than dropped — an overwritten resolver is a permanently blocked tool.
+    this.settleDecision(sessionId, {
+      behavior: 'deny',
+      message: 'Superseded by a newer question.',
+    });
+    const pending: PendingDecision = {
+      id: opts.toolUseID, kind: 'question', input, createdAt: Date.now(),
+    };
+    return new Promise<PermissionResult>((resolve) => {
+      // Already aborted: `addEventListener` would never fire, and parking a
+      // decision nothing will ever answer is worse than denying it now.
+      if (opts.signal.aborted) {
+        resolve({ behavior: 'deny', message: 'The request was aborted.' });
+        return;
+      }
+      const onAbort = () =>
+        this.settleDecision(sessionId, { behavior: 'deny', message: 'The request was aborted.' });
+      opts.signal.addEventListener('abort', onAbort, { once: true });
+      s.decision = {
+        pending,
+        settle: (result) => {
+          opts.signal.removeEventListener('abort', onAbort);
+          resolve(result);
+        },
+      };
+      this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: pending });
+      // No idle timer is armed for this: a parked question has no deadline,
+      // mirroring the SDK, whose `canUseTool` promise has none either.
+      this.setStatus(sessionId, 'needs_input');
+    });
+  }
+
+  /**
+   * Settles this session's parked decision, if it has one, and tells every
+   * client so their cards lock. `false` when there was nothing parked, which
+   * is what makes calling this from every exit path harmless.
+   */
+  private settleDecision(sessionId: string, result: PermissionResult): boolean {
+    const s = this.sessions.get(sessionId);
+    const parked = s?.decision;
+    if (!s || !parked) return false;
+    // Cleared before the resolve, so a settle path that re-enters here
+    // (abort racing an answer) finds nothing left to settle.
+    s.decision = null;
+    parked.settle(result);
+    this.hub.publish(`session:${sessionId}`, {
+      event: 'decision_resolved',
+      decisionId: parked.pending.id,
+    });
+    return true;
+  }
+
+  /**
+   * The decision this session is blocked on, or `null` — including for every
+   * session this process does not run, whose questions died with it. It is on
+   * the session snapshot so a page reload recovers the question.
+   */
+  pendingDecision(sessionId: string): PendingDecision | null {
+    return this.sessions.get(sessionId)?.decision?.pending ?? null;
+  }
+
+  /**
+   * Answers the parked question and unblocks the tool. `false` for every case
+   * the route reports as 404: a session it does not run, and an id that is not
+   * the parked one — a decision already settled among them, which is how the
+   * loser of two open windows finds out.
+   *
+   * `answers` is taken as given: the route checks there is one per question,
+   * nothing checks what they say.
+   */
+  answerDecision(sessionId: string, decisionId: string, answers: Record<string, string>): boolean {
+    const parked = this.sessions.get(sessionId)?.decision;
+    if (!parked || parked.pending.id !== decisionId) return false;
+    this.settleDecision(sessionId, {
+      behavior: 'allow',
+      updatedInput: { ...parked.pending.input, answers },
+    });
+    this.setStatus(sessionId, 'working');
+    return true;
+  }
+
   send(sessionId: string, text: string, attachments?: string[]): void {
     const s = this.sessions.get(sessionId);
     if (!s || s.status === 'ended') throw new Error(`session ${sessionId} is not active`);
+    // Composer text answers a parked question instead of starting a turn: the
+    // model asked, so the text it gets back is the answer, which is what the
+    // typing meant. Every question gets the same text — the web client routes
+    // per question before it ever posts here, and this is the fallback for the
+    // race and for the API. Attachments have nowhere to go on this path.
+    const parked = s.decision;
+    if (parked && text) {
+      const answers: Record<string, string> = {};
+      for (const question of decisionQuestions(parked.pending.input)) answers[question] = text;
+      this.settleDecision(sessionId, {
+        behavior: 'allow',
+        updatedInput: { ...parked.pending.input, answers },
+      });
+      this.setStatus(sessionId, 'working');
+      return;
+    }
     const msg = this.userMessage(sessionId, text, attachments);
     // Nothing to say: leave the session exactly as it was. Flipping it to
     // `working` first would strand it there — no turn is running, so no
@@ -546,6 +747,9 @@ export class Runner {
   }
 
   async interrupt(sessionId: string): Promise<void> {
+    // Nothing is auto-answered on the user's behalf: an interrupted question
+    // is a denied one, and its card locks unanswered.
+    this.settleDecision(sessionId, { behavior: 'deny', message: 'The user interrupted.' });
     await this.sessions.get(sessionId)?.generator?.interrupt?.();
     this.setStatus(sessionId, 'needs_input');
     this.armIdleTimer(sessionId);
@@ -565,6 +769,9 @@ export class Runner {
   async end(sessionId: string): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s) return;
+    // Before the input stream closes, so the CLI is unblocked while it can
+    // still read the answer to the question it is parked on.
+    this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
     if (s.idleTimer) clearTimeout(s.idleTimer);
     s.idleTimer = null;
     this.enqueue(sessionId, null); // close the input stream

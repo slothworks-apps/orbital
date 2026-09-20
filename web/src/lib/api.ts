@@ -194,6 +194,26 @@ export const api = {
     throw new ApiError(text || response.statusText, response.status, url)
   },
 
+  /**
+   * Answers the question the session is blocked on (spec:
+   * 2026-09-20-interactive-decisions-design § Channel). REST rather than the
+   * hub because answering has a real outcome: a 404 means the decision no
+   * longer exists — already answered in another window, interrupted, or the
+   * session ended — which the store treats as "resolved", not as an error.
+   *
+   * `answers` is COMPLETE: one entry per question, keyed by the exact
+   * question text, as the SDK's `updatedInput.answers` expects.
+   */
+  async answerDecision(
+    id: string,
+    decisionId: string,
+    answers: Record<string, string>
+  ): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/decision/${decisionId}`, {
+      answers,
+    })
+  },
+
   async interrupt(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/interrupt`)
   },
@@ -433,10 +453,14 @@ export const api = {
 // Export types for convenience
 export type {
   ApiSession,
+  AskUserQuestionInput,
   AttachmentSource,
   AttachmentUpload,
   ChatMessage,
   CommandSource,
+  PendingDecision,
+  QuestionOption,
+  QuestionSpec,
   ImageProvenance,
   ImageRefEntry,
   CompletionKey,

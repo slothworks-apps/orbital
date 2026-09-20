@@ -1,3 +1,26 @@
+# Orbital
+
+Orbital is a local web app that shows your Claude Code sessions as a 2D
+space map: sessions are planets, subagents are orbiting moons. Its reason
+to exist is multitasking — when several projects and tasks run at once, it
+cuts the overhead of tracking them: one map shows what is running, what
+needs your input and what has ended, and a session can be opened, continued
+or spawned directly from the browser (through the Claude Agent SDK, billed
+to your subscription the same way the CLI is).
+
+Two npm workspaces:
+
+- `server/` — Fastify API + WebSocket. Watches `~/.claude` for the CLI's
+  session transcripts (an undocumented, unstable format that can break on
+  CLI updates) and runs the sessions Orbital spawns itself. SQLite via
+  drizzle. Binds to `127.0.0.1` only; there is no authentication.
+- `web/` — React + Vite frontend; the map renders with react-three-fiber,
+  state lives in zustand.
+
+`npm run dev` starts both. The README covers run/test commands, billing
+(`ANTHROPIC_API_KEY` is deleted from the server's environment on startup
+unless `ORBITAL_USE_API_KEY=1`) and the `~/.claude` caveats.
+
 <!-- atlas:begin 2026-09-16 -->
 ## Documentation
 

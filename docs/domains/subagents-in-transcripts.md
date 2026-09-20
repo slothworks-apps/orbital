@@ -28,7 +28,7 @@ built on that name matches nothing at all.
 `SubagentTracker` now accepts both names. A future rename will break it the
 same way, silently: nothing errors, subagents simply stop being found.
 
-## A running subagent is not in the transcript
+## A blocking subagent is not in the transcript while it runs
 
 Both lines — the `Agent` `tool_use` and its `tool_result` — are written when
 the subagent **finishes**. Two independent observations:
@@ -51,10 +51,47 @@ channel out of a terminal session is its messaging socket,
 `~/.claude/tasks/` is not it: on this machine its newest directory is two
 weeks old and holds only `.lock` and `.highwatermark`.
 
-## Where live subagent state does exist
+## A background subagent leaves two records, minutes apart
 
-Orbital's own sessions. The runner reads the SDK stream as it is produced, so
-an `Agent` `tool_use` reaches it when the model emits it, not when the
-subagent returns. That path is unaffected by everything above.
+Measured 2026-09-20 in an orbital web session (`353af9e1-…`). `Agent` runs
+in the background by default now, and the transcript shows it in two places:
 
-**Untested as of this writing** — no web session has run a subagent yet.
+- The `tool_use` and a `tool_result` 74 ms later whose text begins
+  `Async agent launched successfully` and names an `agentId`. This is the
+  launch, not the result.
+- Five minutes later a `user` line whose `message.content` is a **string**,
+  not a block array: `<task-notification>` with `<task-id>`,
+  `<tool-use-id>`, `<status>completed</status>`, a `<summary>` and the
+  agent's `<result>`. The same text also appears as `queue-operation`
+  lines (`enqueue`, then `remove`) while it waits for the next turn.
+
+So the pair-of-lines finding above holds only for `run_in_background: false`.
+For a background agent the transcript does bracket the real work — but a
+reader that retires an agent on its first `tool_result` sees a 74 ms life,
+which is what [[background-agents-retire-their-moon-at-launch]] was.
+
+The notification's own `<note>` says one task may notify more than once: the
+user can resume an agent with `SendMessage`, after which it works and
+notifies again with the same `task-id`.
+
+## Where live subagent state comes from
+
+Orbital's own sessions, and only from the SDK stream. The runner reads it as
+it is produced, and Claude Code reports a task's life there as `system`
+messages (`@anthropic-ai/claude-agent-sdk` 0.3.272, `sdk.d.ts`):
+
+- `task_started`: `task_id`, `tool_use_id`, `description`, `subagent_type`,
+  `task_type` (`local_agent` for a subagent; `local_bash` for a background
+  shell), `is_backgrounded`, `spawn_depth`, `ambient`.
+- `task_notification`: `task_id`, `tool_use_id`, `status` of `completed`,
+  `failed` or `stopped`.
+- `task_progress`: `usage`, `last_tool_name`, `summary`. Not consumed yet.
+- `background_tasks_changed`: the full set of live background tasks, replace
+  semantics, ids only.
+
+The tracker takes `working` from `task_started` and `ended` from
+`task_notification`, with `background_tasks_changed` as the safety net for a
+backgrounded agent whose notification never comes. The tool blocks are not
+consulted for liveness at all ([[subagent-liveness-from-sdk-task-events]]).
+Tested 2026-09-20 against a fake stream in the real message order; the first
+real web session with three agents is what found the bug.

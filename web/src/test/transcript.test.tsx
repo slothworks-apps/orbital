@@ -475,6 +475,52 @@ describe('pairMessages', () => {
     expect(groups.map((g) => g.key)).toEqual(['1', '2', '4', '5'])
   })
 
+  it('gives an AskUserQuestion call a group of its own, and breaks the run around it', () => {
+    // Spec 2026-09-20-interactive-decisions-design: a question is not machine
+    // work to be folded away — the folding rules must never be able to reach
+    // it, which is what being its own group kind buys.
+    const messages: ChatMessage[] = [
+      { id: '1', role: 'tool_use', toolName: 'Read', toolInput: {}, toolUseId: 'tu1' },
+      { id: '2', role: 'tool_use', toolName: 'Bash', toolInput: {}, toolUseId: 'tu2' },
+      {
+        id: '3',
+        role: 'tool_use',
+        toolName: 'AskUserQuestion',
+        toolInput: { questions: [] },
+        toolUseId: 'tu3',
+      },
+      { id: '4', role: 'tool_use', toolName: 'Bash', toolInput: {}, toolUseId: 'tu4' },
+    ]
+
+    const groups = groupToolRuns(pairMessages(messages))
+
+    expect(groups.map((g) => g.kind)).toEqual(['tools', 'question', 'tools'])
+    expect(groups.map((g) => g.key)).toEqual(['1', '3', '4'])
+  })
+
+  it('never folds two question cards together', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: '1',
+        role: 'tool_use',
+        toolName: 'AskUserQuestion',
+        toolInput: { questions: [] },
+        toolUseId: 'tu1',
+      },
+      {
+        id: '2',
+        role: 'tool_use',
+        toolName: 'AskUserQuestion',
+        toolInput: { questions: [] },
+        toolUseId: 'tu2',
+      },
+    ]
+    expect(groupToolRuns(pairMessages(messages)).map((g) => g.kind)).toEqual([
+      'question',
+      'question',
+    ])
+  })
+
   it('leaves a tool_use with no matching tool_result as a running item', () => {
     const messages: ChatMessage[] = [
       { id: '1', role: 'tool_use', toolName: 'Bash', toolInput: { command: 'x' }, toolUseId: 'tu1' },

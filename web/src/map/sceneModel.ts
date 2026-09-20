@@ -1,5 +1,6 @@
 import type { ApiSession, SessionStatus, Subagent } from '../lib/types'
 import { matchModel } from '../lib/models'
+import { moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
 import { absorptionFor, mapSessions, statusCounts } from '../store/store'
 import {
@@ -42,6 +43,14 @@ export interface ScenePlanet {
   tagId: number
   /** This session's live subagents (also flattened into top-level `moons`). */
   subagents: Subagent[]
+  /**
+   * How much room the body actually takes up, in layout units: its own
+   * layout radius, or the outermost moon shell when the moon system reaches
+   * further. This — not the bare planet radius — is what the simulation
+   * separates bodies by, so a session that spawns subagents pushes its
+   * neighbours out instead of growing its moon system through them.
+   */
+  footprint: number
   /**
    * The session's tag bond was just cut (manual dismissal, or the release
    * delay elapsed) and the body is falling into the hole. Still in the model
@@ -161,6 +170,25 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
       // live session, so a moon no longer depends on the session being open.
       const subagents = session.subagents.filter((a) => a.state !== 'ended')
 
+      // Moons first: the planet's footprint is the outermost shell they
+      // reach, and that is what the planet is then placed by.
+      let footprint = pos.scale * PLANET_BASE_RADIUS
+      subagents.forEach((subagent, i) => {
+        const orbitRadius = pos.scale * PLANET_BASE_RADIUS + MOON_ORBIT_MARGIN + i * MOON_ORBIT_STEP
+        moons.push({
+          subagent,
+          sessionId: session.id,
+          hue: cluster.hue,
+          parentX: pos.x,
+          parentY: pos.y,
+          orbitRadius,
+          phase: i * MOON_PHASE_STEP,
+        })
+        // Measured to the moon's own edge, not to the dashed trail it rides.
+        const shell = orbitRadius + moonVisuals(subagent.state).discRadius
+        if (shell > footprint) footprint = shell
+      })
+
       planets.push({
         session,
         x: pos.x,
@@ -170,20 +198,9 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         hue: cluster.hue,
         tagId: cluster.tagId,
         subagents,
+        footprint,
         released: isReleased(session),
         modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
-      })
-
-      subagents.forEach((subagent, i) => {
-        moons.push({
-          subagent,
-          sessionId: session.id,
-          hue: cluster.hue,
-          parentX: pos.x,
-          parentY: pos.y,
-          orbitRadius: pos.scale * PLANET_BASE_RADIUS + MOON_ORBIT_MARGIN + i * MOON_ORBIT_STEP,
-          phase: i * MOON_PHASE_STEP,
-        })
       })
     }
   }

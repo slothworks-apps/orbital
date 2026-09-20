@@ -90,6 +90,13 @@ export interface ComposerProps {
   variant: 'panel' | 'dialog'
   /** Resting hint copy. The popup and the unknown-command note swap in over it. */
   hint: string
+  /**
+   * A question is open and ⏎ answers it rather than starting a new turn
+   * (spec: 2026-09-20-interactive-decisions-design; canvas 9c). Border steps
+   * to the accent, and the hint line takes the accent plus the blinking dot.
+   * The copy itself still comes from `hint` — this only says how it is worn.
+   */
+  answering?: boolean
   placeholder?: string
   id?: string
   'aria-label'?: string
@@ -119,6 +126,7 @@ export function Composer({
   placement,
   variant,
   hint,
+  answering = false,
   placeholder,
   id,
   actions,
@@ -333,9 +341,14 @@ export function Composer({
           // 9c-1: the marker is 96px tall, so the panel's well grows to it for
           // the duration of the drag — the dialog's already is.
           dropArmed ? 'min-h-24' : '',
-          focused
+          // Canvas 9c COLOUR: "composer pending border — accent/.38 → .5
+          // typed". The typed state is the same chrome focus already wears,
+          // which is why they share a branch.
+          focused || (answering && value.length > 0)
             ? 'border-accent/50 ring-[3px] ring-accent/10'
-            : 'border-[rgba(150,205,255,.18)]',
+            : answering
+              ? 'border-accent/38'
+              : 'border-[rgba(150,205,255,.18)]',
         ].join(' ')}
       >
         {/* The chip row: above the text, inside the well (canvas 9c-2). Three
@@ -500,6 +513,16 @@ export function Composer({
                 className="block h-[11px] w-[11px] shrink-0 rounded-[3px] border border-[rgba(160,190,225,.35)]"
               />
               {note}
+            </span>
+          ) : answering ? (
+            // Canvas 9c: the accent hint with the blinking dot in front of
+            // it — the one line that says ⏎ no longer starts a new turn.
+            <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] text-accent/90">
+              <span
+                aria-hidden
+                className="orbital-pulse block h-[5px] w-[5px] shrink-0 rounded-full bg-accent"
+              />
+              {hint}
             </span>
           ) : (
             <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">

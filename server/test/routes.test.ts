@@ -52,6 +52,10 @@ function makeApp() {
     // No live query by default — the fs catalog alone, which is what an ended
     // session and the dialog get. Tests that want the SDK half replace this.
     commands: async (): Promise<any[] | null> => null,
+    // Nothing parked on a question by default — the state of every session
+    // that is not waiting on one. Tests that want a decision replace both.
+    pendingDecision: (_id: string): any => null,
+    answerDecision: (_id: string, _decisionId: string, _answers: Record<string, string>) => false,
     interrupt: async () => {}, end: async () => {},
   };
   const hub = new Hub();
@@ -154,6 +158,15 @@ describe('REST routes', () => {
     ]);
     // A session with none says so explicitly rather than omitting the field.
     expect(body.sessions[1].subagents).toEqual([]);
+  });
+
+  it('GET /api/sessions carries the decision a session is parked on', async () => {
+    const decision = { id: 'tu-1', kind: 'question', input: { questions: [] }, createdAt: 1 };
+    runner.pendingDecision = (id: string) => (id === 's1' ? decision : null);
+    const body = (await app.inject({ method: 'GET', url: '/api/sessions' })).json();
+    // This is how a reloaded page gets its question back.
+    expect(body.sessions[0].pendingDecision).toEqual(decision);
+    expect(body.sessions[1].pendingDecision).toBeNull();
   });
 
   it('GET /api/sessions lists by recency with merged status and tags', async () => {
@@ -1631,5 +1644,98 @@ describe('attachments on the send paths', () => {
       });
       expect(res.statusCode).toBe(400);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions/:id/decision/:decisionId
+// (spec: 2026-09-20-interactive-decisions-design)
+// ---------------------------------------------------------------------------
+
+describe('the decision endpoint', () => {
+  const QUESTION = {
+    questions: [
+      {
+        question: 'Which library should we use?',
+        header: 'Library',
+        options: [
+          { label: 'date-fns', description: 'small' },
+          { label: 'luxon', description: 'complete' },
+        ],
+        multiSelect: false,
+      },
+      {
+        question: 'Ship it behind a flag?',
+        header: 'Rollout',
+        options: [
+          { label: 'Yes', description: 'safer' },
+          { label: 'No', description: 'simpler' },
+        ],
+        multiSelect: false,
+      },
+    ],
+  };
+  const ANSWERS = {
+    'Which library should we use?': 'luxon',
+    'Ship it behind a flag?': 'Yes',
+  };
+
+  /** An app whose runner is parked on `QUESTION` for session s1. */
+  function makeParkedApp() {
+    const made = makeApp();
+    const answered: any[] = [];
+    made.runner.pendingDecision = (id: string) =>
+      id === 's1' ? { id: 'tu-1', kind: 'question', input: QUESTION, createdAt: 1 } : null;
+    made.runner.answerDecision = (id: string, decisionId: string, answers: Record<string, string>) => {
+      answered.push({ id, decisionId, answers });
+      return decisionId === 'tu-1';
+    };
+    return { ...made, answered };
+  }
+
+  const answer = (app: FastifyInstance, url: string, payload: unknown) =>
+    app.inject({ method: 'POST', url, payload: payload as any });
+
+  it('answers the parked decision and hands the runner the whole set', async () => {
+    const { app, answered } = makeParkedApp();
+    const res = await answer(app, '/api/sessions/s1/decision/tu-1', { answers: ANSWERS });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    expect(answered).toEqual([{ id: 's1', decisionId: 'tu-1', answers: ANSWERS }]);
+  });
+
+  it('404s a session with nothing parked, known or not', async () => {
+    const { app, answered } = makeParkedApp();
+    for (const id of ['s2', 'never-heard-of-it']) {
+      const res = await answer(app, `/api/sessions/${id}/decision/tu-1`, { answers: ANSWERS });
+      expect(res.statusCode).toBe(404);
+    }
+    expect(answered).toEqual([]);
+  });
+
+  it('404s an id that is not the parked one — the loser of two open windows', async () => {
+    const { app, answered } = makeParkedApp();
+    const res = await answer(app, '/api/sessions/s1/decision/tu-0', { answers: ANSWERS });
+    expect(res.statusCode).toBe(404);
+    expect(answered).toEqual([]);
+  });
+
+  it('400s a body that is not a map of answer strings', async () => {
+    const { app, answered } = makeParkedApp();
+    for (const payload of [{}, { answers: 'luxon' }, { answers: ['luxon'] }, { answers: { a: 1 } }]) {
+      const res = await answer(app, '/api/sessions/s1/decision/tu-1', payload);
+      expect(res.statusCode).toBe(400);
+    }
+    expect(answered).toEqual([]);
+  });
+
+  it('400s an answer set that misses a question', async () => {
+    const { app, answered } = makeParkedApp();
+    const res = await answer(app, '/api/sessions/s1/decision/tu-1', {
+      answers: { 'Which library should we use?': 'luxon' },
+    });
+    expect(res.statusCode).toBe(400);
+    // Nothing half-answered reaches the model.
+    expect(answered).toEqual([]);
   });
 });

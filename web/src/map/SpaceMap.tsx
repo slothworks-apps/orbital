@@ -12,7 +12,7 @@ import { Moon } from './Moon'
 import { Hole } from './Hole'
 import { useSceneModel } from './useSceneModel'
 import type { SceneLabel } from './sceneModel'
-import { LABEL_MARGIN, PLANET_BASE_RADIUS } from './layout'
+import { LABEL_MARGIN } from './layout'
 import {
   createSimulation,
   dragSimBody,
@@ -28,15 +28,18 @@ import {
 import {
   BODY_MOVE_MS,
   advancePointTween,
+  advanceTween,
   createPointTween,
+  createTween,
   prefersReducedMotion,
   retargetPointTween,
+  retargetTween,
 } from './transition'
 import {
   applyPan,
-  applyZoom,
   bodyZoomFactor,
   centerOn,
+  clampZoom,
   fitView,
   screenToWorld,
   zoomAt,
@@ -55,6 +58,15 @@ import {
 
 const INITIAL_CAMERA: CameraState = { x: 0, y: 0, zoom: 60 }
 const ZOOM_STEP = 20
+/**
+ * How long one press of the +/- buttons takes to arrive. Not a canvas value
+ * (the export draws no zoom animation): it is the duration the map's own
+ * chrome already moves on — the overlay transition beside the zoom stack —
+ * whose curve is `easeMotion`. Deliberately shorter than `BODY_MOVE_MS`:
+ * this is a button pressed four times in a row, not a body walking to a new
+ * home.
+ */
+const ZOOM_STEP_MS = 420
 /** Below this many screen px of movement, a pointer down+up is treated as a click, not a drag-pan. */
 const DRAG_THRESHOLD_PX = 3
 
@@ -166,9 +178,12 @@ function SimStepper({
   flashRef: MutableRefObject<number>
   reduced: boolean
 }) {
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (reduced) return
-    const events = stepSimulation(simRef.current, delta)
+    // The same counter-zoom every body is DRAWN with, so what the springs
+    // keep clear of is what the eye sees. Read off the three camera rather
+    // than passed as a prop: camera state deliberately never reaches React.
+    const events = stepSimulation(simRef.current, delta, bodyZoomFactor(state.camera.zoom))
     if (events.absorbed.length > 0) flashRef.current = ABSORB_FLASH_SEC
   }, -1)
   return null
@@ -232,6 +247,76 @@ function usePanTo(setCamera: (next: (cam: CameraState) => CameraState) => void) 
 }
 
 /**
+ * Eases camera zoom by a step, for the +/- buttons — the same
+ * `requestAnimationFrame` into `setCamera` shape as `usePanTo`, and for the
+ * same reason: the zoom is what the HUD readout and every following gesture
+ * are computed from, so it has to actually BE there when the run ends, not
+ * merely look like it.
+ *
+ * Interpolated in LOG space, because zoom is multiplicative — `zoomFromWheel`
+ * already treats it that way. A linear ramp from 20 to 40 doubles the map in
+ * the first half of the run and adds a third in the second; a log ramp covers
+ * the same proportion of the change in every frame, which is what reads as
+ * one smooth move.
+ *
+ * `cancel` is the same contract as `usePanTo`'s: any pointer or wheel gesture
+ * abandons the run where it stands rather than fighting the hand on the map.
+ */
+function useZoomTo(setCamera: (next: (cam: CameraState) => CameraState) => void) {
+  const tween = useRef(createTween(Math.log(INITIAL_CAMERA.zoom), ZOOM_STEP_MS))
+  /** Where the run in flight is HEADED — what a second press builds on. */
+  const target = useRef(INITIAL_CAMERA.zoom)
+  const frame = useRef(0)
+  const lastMs = useRef(0)
+
+  const cancel = useCallback(() => {
+    if (frame.current !== 0) cancelAnimationFrame(frame.current)
+    frame.current = 0
+    tween.current.active = false
+  }, [])
+
+  useEffect(() => cancel, [cancel])
+
+  const zoomBy = useCallback(
+    (delta: number, from: number) => {
+      // A second press while the first is still running extends it instead of
+      // restarting from where the animation currently stands — otherwise
+      // tapping + repeatedly would crawl, each press re-aiming at a target
+      // only one step past the middle of the last run.
+      const running = frame.current !== 0
+      if (!running) {
+        tween.current.value = Math.log(from)
+        tween.current.to = tween.current.value
+        target.current = from
+      }
+      const to = clampZoom(target.current + delta)
+      if (to === target.current) return
+      target.current = to
+      retargetTween(tween.current, Math.log(to), ZOOM_STEP_MS, prefersReducedMotion())
+      if (running) return
+
+      const step = (nowMs: number) => {
+        const delta = (nowMs - lastMs.current) / 1000
+        lastMs.current = nowMs
+        advanceTween(tween.current, delta)
+        // Exactly the target once the run is over: exp(log(x)) is only
+        // x to within a rounding error, and the HUD reads this number.
+        const zoom = tween.current.active ? Math.exp(tween.current.value) : target.current
+        // Functional update, so a pan that lands mid-zoom keeps its position.
+        setCamera((cam) => ({ ...cam, zoom }))
+        frame.current = tween.current.active ? requestAnimationFrame(step) : 0
+      }
+
+      lastMs.current = performance.now()
+      frame.current = requestAnimationFrame(step)
+    },
+    [setCamera]
+  )
+
+  return { zoomBy, cancel }
+}
+
+/**
  * Space backdrop, verbatim from artboard 1a: nebula wash + two star layers
  * as plain DOM behind the transparent WebGL canvas (the design builds them
  * from CSS gradients, so we reuse those exact declarations in theme.css).
@@ -289,6 +374,10 @@ export function SpaceMap() {
   // double-render is harmless). Motion happens in <SimStepper>'s frame loop;
   // under reduced motion the sim is settled synchronously instead and
   // renders statically.
+  const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
+  /** Read by the follow effect, which needs where the camera IS without re-running whenever it moves. */
+  const cameraRef = useRef(camera)
+  cameraRef.current = camera
   const simRef = useRef<SimState>(null as unknown as SimState)
   if (simRef.current === null) simRef.current = createSimulation()
   const holeFlashRef = useRef(0)
@@ -300,7 +389,7 @@ export function SpaceMap() {
         tagId: p.tagId,
         x: p.x,
         y: p.y,
-        r: p.scale * PLANET_BASE_RADIUS,
+        r: p.footprint,
         live: p.session.status === 'working' || p.session.status === 'needs_input',
         released: p.released,
       })),
@@ -308,14 +397,19 @@ export function SpaceMap() {
       hole: { x: model.hole.x, y: model.hole.y },
     }
     reconcileSimulation(simRef.current, input)
-    if (reduced) settleSimulation(simRef.current)
+    // Reading the camera ref (never the state) keeps this out of the memo's
+    // deps: a wheel notch must not re-settle the sim, it just changes what
+    // the next frame separates by.
+    if (reduced) settleSimulation(simRef.current, bodyZoomFactor(cameraRef.current.zoom))
   }, [model, reduced])
 
-  const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA)
-  /** Read by the follow effect, which needs where the camera IS without re-running whenever it moves. */
-  const cameraRef = useRef(camera)
-  cameraRef.current = camera
   const { panTo, cancel: cancelPan } = usePanTo(setCamera)
+  const { zoomBy, cancel: cancelZoom } = useZoomTo(setCamera)
+  /** A hand on the map — or any camera move of its own — outranks both runs in flight. */
+  const cancelCameraMotion = useCallback(() => {
+    cancelPan()
+    cancelZoom()
+  }, [cancelPan, cancelZoom])
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number; captured: boolean } | null>(null)
   /** Set true once a drag crosses `DRAG_THRESHOLD_PX`; the click handler below checks this to ignore the trailing click a drag-release produces. Reset on the next pointerdown, not on pointerup — the native `click` event fires AFTER pointerup, so it must still see this drag's `true`. */
@@ -367,8 +461,7 @@ export function SpaceMap() {
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return
-      // A hand on the map outranks a pan in flight.
-      cancelPan()
+      cancelCameraMotion()
       draggedRef.current = false
       // The three.js pointer-down on a planet ran first (the canvas is a
       // child of this container): that pointer is dragging a BODY, so the
@@ -376,7 +469,7 @@ export function SpaceMap() {
       if (bodyDragRef.current?.pointerId === e.pointerId) return
       dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY, captured: false }
     },
-    [cancelPan]
+    [cancelCameraMotion]
   )
 
   const handlePointerMove = useCallback(
@@ -466,7 +559,7 @@ export function SpaceMap() {
 
   const handleWheel = useCallback(
     (e: ReactWheelEvent<HTMLDivElement>) => {
-      cancelPan()
+      cancelCameraMotion()
       // Read the geometry out here, not inside the updater: React may run the
       // updater after the event has been handed back, when `currentTarget` is
       // already null.
@@ -475,20 +568,21 @@ export function SpaceMap() {
       const viewport = { width: rect.width, height: rect.height }
       setCamera((cam) => zoomAt(cam, zoomFromWheel(cam.zoom, e.deltaY, e.deltaMode), pointer, viewport))
     },
-    [cancelPan]
+    [cancelCameraMotion]
   )
 
+  // Only the pan is cancelled here: the zoom run is the one being extended.
   const zoomIn = useCallback(() => {
     cancelPan()
-    setCamera((cam) => applyZoom(cam, ZOOM_STEP))
-  }, [cancelPan])
+    zoomBy(ZOOM_STEP, cameraRef.current.zoom)
+  }, [cancelPan, zoomBy])
   const zoomOut = useCallback(() => {
     cancelPan()
-    setCamera((cam) => applyZoom(cam, -ZOOM_STEP))
-  }, [cancelPan])
+    zoomBy(-ZOOM_STEP, cameraRef.current.zoom)
+  }, [cancelPan, zoomBy])
 
   const handleFit = useCallback(() => {
-    cancelPan()
+    cancelCameraMotion()
     // The hole is part of the map — fit frames it with the planets, so the
     // history landmark is never fitted out of view.
     const positions: Position[] = [
@@ -501,7 +595,7 @@ export function SpaceMap() {
       height: rect?.height ?? window.innerHeight,
     }
     setCamera(fitView(positions, viewport))
-  }, [cancelPan, model.planets, model.hole.x, model.hole.y])
+  }, [cancelCameraMotion, model.planets, model.hole.x, model.hole.y])
 
   const handleHoleOpen = useCallback(() => {
     // The click a drag-release produces must not also open the sidebar.

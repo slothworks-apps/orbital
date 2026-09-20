@@ -176,11 +176,12 @@ export async function buildServer(overrides: {
   // Running subagents, keyed by session. Read back out through
   // `toApiSession`, so a change means "republish the session".
   //
-  // Only the runner ever feeds this, i.e. only orbital's own sessions have
-  // subagents. A terminal session's transcript cannot answer the question:
-  // the CLI writes an `Agent` tool_use and its result together, when the
-  // subagent has already finished, so "running" is observable there for about
-  // 70ms. See `docs/domains/subagents-in-transcripts.md`.
+  // Only the runner ever feeds this, from the SDK's task events, i.e. only
+  // orbital's own sessions have subagents. Neither a transcript nor the tool
+  // blocks can answer the question: an `Agent` runs in the background and its
+  // tool_result comes back at launch. See
+  // `docs/domains/subagents-in-transcripts.md` and
+  // `docs/decisions/subagent-liveness-from-sdk-task-events.md`.
   const subagents = new SubagentStore();
   // Built on call, not up front: the runner it names is constructed below and
   // is itself one of the things that asks for a republish.
@@ -251,13 +252,16 @@ export async function buildServer(overrides: {
       db.update(sessions).set({ resolvedModel: model }).where(eq(sessions.id, sessionId)).run();
       republish(sessionId);
     },
-    // The one feeder. The SDK stream is read as it is produced, so an `Agent`
-    // tool_use arrives when the model emits it — before the subagent runs,
-    // which is exactly what a transcript cannot tell us.
+    // The one feeder. The SDK reports a task's start and end as `system`
+    // messages; the tool blocks cannot, because `Agent` runs in the
+    // background and its tool_result comes back at launch
+    // (adr: subagent-liveness-from-sdk-task-events).
+    onTaskEvent: (sessionId, msg) => {
+      if (subagents.feedTask(sessionId, msg)) republish(sessionId);
+    },
+    // What the session said, for the titler, in the shape the transcript
+    // already converts to.
     onEntries: (sessionId, entries) => {
-      if (subagents.feed(sessionId, entries)) republish(sessionId);
-      // Same stream, second reader: the titler needs what was said, in the
-      // shape the transcript already converts to.
       titler.feed(sessionId, entriesToMessages(entries));
     },
     // A session that dies on its own used to say nothing at all: `pump()`

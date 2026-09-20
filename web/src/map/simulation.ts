@@ -20,6 +20,8 @@
  * React: the driver holds it in a ref and applies positions imperatively.
  */
 
+import { PLANET_BASE_RADIUS } from './layout'
+
 // --- Constants, canvas 4a script -------------------------------------------
 // The canvas map is pixel-based; its working planet body is r=34px while the
 // world's working planet is r=1 unit, so distances convert at 34px = 1 unit.
@@ -40,9 +42,9 @@ const DAMPING = 0.92
 export const SAME_TAG_GAP = 96 * PX
 /** Clearance kept between different-tag bodies beyond r₁+r₂ (canvas 4a footer: "190 px across tags"). */
 export const CROSS_TAG_GAP = 190 * PX
-/** Separation acceleration at full overlap, same tag (canvas: `0.34` px). */
-const SEPARATION_SAME = 0.34 * PX
-/** Separation acceleration at full overlap, different tags (canvas: `0.32` px). */
+/** Separation acceleration once the two footprints touch, same tag (canvas: `0.34` px). */
+export const SEPARATION_SAME = 0.34 * PX
+/** Separation acceleration once the two footprints touch, different tags (canvas: `0.32` px). */
 const SEPARATION_CROSS = 0.32 * PX
 
 /** The hole's repulsion halo (canvas: `hd < 300`): bonded bodies inside get pushed out. */
@@ -97,7 +99,12 @@ const SETTLE_MAX_TICKS = 3600
 export interface SimBody {
   id: string
   tagId: number
-  /** Body radius in world units (tier scale × PLANET_BASE_RADIUS). */
+  /**
+   * How much room the body takes up, in world units — its tier radius, or
+   * its outermost moon shell when the moon system reaches further
+   * (`ScenePlanet.footprint`). Separation, the barycentre weighting and the
+   * cluster label's anchor all measure from this.
+   */
   r: number
   /** working/needs_input: repelled by the hole, never absorbable. */
   live: boolean
@@ -197,7 +204,13 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
       existing.tagId = spec.tagId
       structuralChange = true
     }
-    existing.r = spec.r
+    if (existing.r !== spec.r) {
+      // A moon appearing widens the body: everyone has to be awake for the
+      // springs to walk the neighbours out, or a sleeping clump would simply
+      // keep sitting inside the new footprint.
+      existing.r = spec.r
+      structuralChange = true
+    }
     existing.live = spec.live
     if (spec.released && existing.mode === 'hold') {
       existing.mode = 'fall'
@@ -308,12 +321,14 @@ export function dragSimBody(
 /**
  * Advances the simulation by `dtSeconds`, in fixed 60Hz substeps (capped, so
  * a hitched frame catches up smoothly instead of exploding the springs).
- * Deterministic: same state + same dt sequence = bit-identical results.
+ * Deterministic: same state + same dt sequence + same `zoomFactor` =
+ * bit-identical results — the zoom arrives as an argument precisely to keep
+ * that true, the same way `buildSceneModel` takes its clock as `nowMs`.
  */
-export function stepSimulation(sim: SimState, dtSeconds: number): SimEvents {
+export function stepSimulation(sim: SimState, dtSeconds: number, zoomFactor = 1): SimEvents {
   const events: SimEvents = { absorbed: [] }
   const substeps = Math.max(1, Math.min(MAX_SUBSTEPS, Math.round(dtSeconds / TICK_SEC)))
-  for (let i = 0; i < substeps; i++) tick(sim, events)
+  for (let i = 0; i < substeps; i++) tick(sim, events, zoomFactor)
   return events
 }
 
@@ -322,7 +337,7 @@ export function stepSimulation(sim: SimState, dtSeconds: number): SimEvents {
  * resolve instantly (no animation to honour) and the springs converge before
  * anything is drawn. Bounded by SETTLE_MAX_TICKS as a runaway guard.
  */
-export function settleSimulation(sim: SimState): SimEvents {
+export function settleSimulation(sim: SimState, zoomFactor = 1): SimEvents {
   const events: SimEvents = { absorbed: [] }
   for (const body of sim.bodies.values()) {
     if (body.mode === 'fall') {
@@ -337,9 +352,66 @@ export function settleSimulation(sim: SimState): SimEvents {
       if (body.mode === 'hold' && !body.asleep) anyAwake = true
     }
     if (!anyAwake) break
-    tick(sim, events)
+    tick(sim, events, zoomFactor)
   }
   return events
+}
+
+/**
+ * How close two bodies' centres are allowed to get: their two footprints,
+ * plus the design's empty clearance between them (96px same tag, 190px
+ * across tags, canvas 4a).
+ *
+ * The footprints — and only the footprints — are multiplied by
+ * `zoomFactor`, which is `bodyZoomFactor(zoom)`: zooming out draws every
+ * body up to 1.7x larger than its world radius, and separation that ignored
+ * that would let two inflated moon systems grow through each other at the
+ * far view. The clearance itself is left alone, so the empty space between
+ * two moonless planets at the default zoom stays exactly the canvas's.
+ *
+ * Pure and exported for unit tests.
+ */
+export function minDistance(
+  r1: number,
+  r2: number,
+  sameTag: boolean,
+  zoomFactor = 1
+): number {
+  return (r1 + r2) * zoomFactor + (sameTag ? SAME_TAG_GAP : CROSS_TAG_GAP)
+}
+
+/**
+ * The pair the canvas script was tuned against: two active planets, each
+ * `PLANET_BASE_RADIUS`. `separation` reproduces the canvas exactly at this
+ * size and departs from it only as bodies grow past it.
+ */
+const referenceMin = (sameTag: boolean) => minDistance(PLANET_BASE_RADIUS, PLANET_BASE_RADIUS, sameTag)
+
+/**
+ * Separation acceleration for a pair already inside `min`, at distance `d`.
+ *
+ * The canvas 4a script pushes with `(min - d) / min * SEPARATION`, which
+ * has two problems once a body can be much larger than a bare planet — and
+ * with moon footprints, it can:
+ *
+ * - the ramp is measured against the pair's own `min`, so the same physical
+ *   overlap registers as a smaller fraction the bigger the bodies are;
+ * - the force tops out at `SEPARATION` however large they are, while the
+ *   cohesion spring pulling them back together grows with the clump.
+ *
+ * So both are measured against the reference pair instead: the ramp over a
+ * FIXED distance, and the strength scaled by how big this pair is next to
+ * that reference. Separation is then proportional to size, where the
+ * canvas's was independent of it — which is what stops a clump from closing
+ * over a planet's moons. At the reference pair both corrections are 1 and
+ * this is the canvas script, unchanged and bit-identical.
+ *
+ * Pure and exported for unit tests.
+ */
+export function separation(min: number, d: number, sameTag: boolean): number {
+  const reference = referenceMin(sameTag)
+  const strength = (sameTag ? SEPARATION_SAME : SEPARATION_CROSS) * (min / reference)
+  return Math.min(1, (min - d) / reference) * strength
 }
 
 // --- The tick ----------------------------------------------------------------
@@ -351,7 +423,7 @@ interface Centre {
   w: number
 }
 
-function tick(sim: SimState, events: SimEvents): void {
+function tick(sim: SimState, events: SimEvents, zoomFactor: number): void {
   // Radius-weighted barycentre per tag, over bonded bodies only — a falling
   // body has no bond left to pull with (canvas: `if (n.free) continue`).
   const centres = new Map<number, Centre>()
@@ -411,9 +483,9 @@ function tick(sim: SimState, events: SimEvents): void {
       const dy = body.y - other.y
       const d = Math.hypot(dx, dy) || 0.01
       const same = other.tagId === body.tagId
-      const min = body.r + other.r + (same ? SAME_TAG_GAP : CROSS_TAG_GAP)
+      const min = minDistance(body.r, other.r, same, zoomFactor)
       if (d < min) {
-        const f = ((min - d) / min) * (same ? SEPARATION_SAME : SEPARATION_CROSS)
+        const f = separation(min, d, same)
         ax += (dx / d) * f
         ay += (dy / d) * f
       }
