@@ -1,7 +1,7 @@
 ---
 id: 2026-09-20-interactive-decisions-design
 title: Interactive decisions — AskUserQuestion as a clickable card
-status: active
+status: done
 type: spec
 domain: web
 related:
