@@ -205,6 +205,9 @@ function SessionRow({
     <li
       className={[
         'group/row relative rounded-lg transition-colors hover:bg-white/5',
+        // 1a dims ended rows; per-row rather than on the list, because 4c
+        // puts ended and live rows side by side inside PINNED.
+        history ? 'opacity-75' : '',
         selected
           ? 'border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.07)]'
           : 'border border-transparent',
@@ -611,7 +614,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
             recent ▾
           </span>
         </SectionHeading>
-        <ul className="flex flex-col gap-0.5 px-2 opacity-75" aria-label="Session history">
+        <ul className="flex flex-col gap-0.5 px-2" aria-label="Session history">
           {history.map((s) => (
             <SessionRow
               key={s.id}
