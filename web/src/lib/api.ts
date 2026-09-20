@@ -1,8 +1,14 @@
 import type {
   ApiSession,
+  AttachmentUpload,
   ChatMessage,
+  CompletionKey,
+  ImageRefEntry,
   ErrorKind,
   ErrorRecord,
+  FileCompletionEntry,
+  FilePreview,
+  SlashCommand,
   Tag,
   TagRule,
   PermissionMode,
@@ -41,8 +47,8 @@ async function request<T>(
   // Only a request that carries a body declares a content type. Fastify
   // parses the body of ANY request that declares one, and answers a
   // declared-but-empty JSON body with 400 FST_ERR_CTP_EMPTY_JSON_BODY —
-  // which silently broke every body-less DELETE/POST here (clearErrors,
-  // interrupt, deleteTag, deleteTagRule).
+  // which silently broke every body-less DELETE/POST here (interrupt,
+  // deleteTag, deleteTagRule).
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json'
     options.body = JSON.stringify(body)
@@ -57,6 +63,12 @@ async function request<T>(
 
   const data = await response.json()
   return data as T
+}
+
+/** `?session=<id>` or `?cwd=<dir>` — never both (the server reads one). */
+function applyCompletionKey(url: URL, key: CompletionKey): void {
+  if ('session' in key) url.searchParams.set('session', key.session)
+  else url.searchParams.set('cwd', key.cwd)
 }
 
 // Sessions API
@@ -105,20 +117,81 @@ export const api = {
      * this request goes out. Omitted, the server mints one as it always did.
      * See `docs/fixes/first-turn-can-outrun-the-ws-subscription.md`. */
     sessionId?: string
+    /** Image refs the dialog's first turn carries (spec: 2026-09-20-composer-design). */
+    attachments?: string[]
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
   },
 
+  /**
+   * `attachments` is omitted from the body when there is nothing to send —
+   * absent and empty mean the same thing to the server, and an always-present
+   * `[]` would make every existing body assertion in the suite wrong for no
+   * gain.
+   */
   async sendMessage(
     id: string,
-    text: string
+    text: string,
+    attachments?: readonly string[]
   ): Promise<{ ok: boolean; revived?: boolean }> {
     return request<{ ok: boolean; revived?: boolean }>(
       'POST',
       `/api/sessions/${id}/messages`,
-      { text }
+      attachments && attachments.length > 0 ? { text, attachments } : { text }
     )
+  },
+
+  /**
+   * One composer attachment (spec: 2026-09-20-composer-design § Image intake).
+   *
+   * Outside the shared `request` helper for two reasons, both the same ones
+   * `filePreview` above is: the body is `multipart/form-data`, which a JSON
+   * helper cannot carry (and whose boundary only the browser may write — hence
+   * no `Content-Type` header here), and 413/415/400 are intake STATES carrying
+   * a measured fact, not errors. Only a status outside the contract throws.
+   *
+   * `signal` is the chip's own `AbortController`: × cancels this upload and
+   * nothing else.
+   *
+   * `sessionId` is `null` in the New Session dialog, which has no session until
+   * Launch — and then the sessionless route takes the bytes. The two routes run
+   * the same handler and answer the same contract (the image store is
+   * content-addressed and global, so a session id never scoped the write); this
+   * only picks the door.
+   */
+  async uploadAttachment(
+    sessionId: string | null,
+    file: File,
+    opts?: { signal?: AbortSignal }
+  ): Promise<AttachmentUpload> {
+    const url = sessionId === null ? '/api/attachments' : `/api/sessions/${sessionId}/attachments`
+    const body = new FormData()
+    body.append('file', file, file.name)
+
+    const response = await fetch(url, { method: 'POST', body, signal: opts?.signal })
+
+    if (response.ok) {
+      return { kind: 'ok', entry: (await response.json()) as ImageRefEntry }
+    }
+
+    const text = await response.text()
+    let parsed: { error?: string; size?: number; truncated?: boolean; mediaType?: string } = {}
+    try {
+      parsed = JSON.parse(text) as typeof parsed
+    } catch {
+      // A refusal without a JSON body falls through to the ApiError below.
+    }
+
+    if (response.status === 413 && parsed.error === 'too_large') {
+      return { kind: 'too_large', size: parsed.size ?? 0, truncated: parsed.truncated === true }
+    }
+    if (response.status === 415 && parsed.error === 'not_image') {
+      return { kind: 'not_image', mediaType: parsed.mediaType ?? 'unknown' }
+    }
+    if (response.status === 400 && parsed.error === 'empty_file') return { kind: 'empty' }
+
+    throw new ApiError(text || response.statusText, response.status, url)
   },
 
   async interrupt(id: string): Promise<{ ok: boolean }> {
@@ -217,6 +290,75 @@ export const api = {
     )
   },
 
+  // Files API — the read-only file viewer's one route (spec:
+  // 2026-09-19-file-viewer-design).
+  //
+  // Deliberately NOT through the shared `request` helper: 403/404/413/415
+  // are expected states carrying `size`/`mediaType`, not errors, so this
+  // reads non-2xx bodies itself and returns the `FilePreview` union.
+  // Refusals are viewer states, never toasts; only a network-level failure
+  // (or a status outside the contract) surfaces as an error.
+  //
+  // The `:line` suffix never travels to the server — callers strip it and
+  // keep it for scrolling.
+  async filePreview(sessionId: string, path: string): Promise<FilePreview> {
+    const url = new URL('/api/files', window.location.origin)
+    url.searchParams.set('session', sessionId)
+    url.searchParams.set('path', path)
+    const requestUrl = url.pathname + url.search
+
+    const response = await fetch(requestUrl, { method: 'GET' })
+
+    if (response.ok) {
+      const data = (await response.json()) as {
+        content: string
+        size: number
+        mtimeMs: number
+        lines: number
+      }
+      return { kind: 'ok', ...data }
+    }
+
+    const text = await response.text()
+    let body: { error?: string; size?: number; mediaType?: string } = {}
+    try {
+      body = JSON.parse(text) as typeof body
+    } catch {
+      // A refusal without a JSON body falls through to the ApiError below.
+    }
+
+    if (response.status === 403 && body.error === 'outside_cwd') return { kind: 'outside' }
+    if (response.status === 404) return { kind: 'not_found' }
+    if (response.status === 413 && body.error === 'too_large') {
+      return { kind: 'too_large', size: body.size ?? 0 }
+    }
+    if (response.status === 415 && body.error === 'binary') {
+      return { kind: 'binary', size: body.size ?? 0, mediaType: body.mediaType ?? 'binary' }
+    }
+
+    throw new ApiError(text || response.statusText, response.status, requestUrl)
+  },
+
+  // Completion API — the composer's two sources (spec:
+  // 2026-09-20-composer-design § Server). Both take the same `CompletionKey`,
+  // because the only difference between the panel's composer and the dialog's
+  // is that one has a session and the other only a directory.
+  async commands(key: CompletionKey): Promise<SlashCommand[]> {
+    const url = new URL('/api/commands', window.location.origin)
+    applyCompletionKey(url, key)
+    const data = await request<{ commands: SlashCommand[] }>('GET', url.pathname + url.search)
+    return data.commands
+  },
+
+  /** `prefix` is sent verbatim, empty included — an empty prefix lists the cwd. */
+  async filesComplete(key: CompletionKey, prefix: string): Promise<FileCompletionEntry[]> {
+    const url = new URL('/api/files/complete', window.location.origin)
+    applyCompletionKey(url, key)
+    url.searchParams.set('prefix', prefix)
+    const data = await request<{ entries: FileCompletionEntry[] }>('GET', url.pathname + url.search)
+    return data.entries
+  },
+
   // Projects API
   async listProjects(): Promise<Array<{ cwd: string; lastModel: string | null }>> {
     const data = await request<{ projects: Array<{ cwd: string; lastModel: string | null }> }>('GET', '/api/projects')
@@ -278,10 +420,6 @@ export const api = {
     )
   },
 
-  async clearErrors(): Promise<{ ok: true; unseen: number }> {
-    return request<{ ok: true; unseen: number }>('DELETE', '/api/errors')
-  },
-
   // Settings API
   async getSettings(): Promise<Record<string, string>> {
     return request<Record<string, string>>('GET', '/api/settings')
@@ -295,10 +433,19 @@ export const api = {
 // Export types for convenience
 export type {
   ApiSession,
+  AttachmentSource,
+  AttachmentUpload,
   ChatMessage,
+  CommandSource,
+  ImageProvenance,
+  ImageRefEntry,
+  CompletionKey,
   ErrorKind,
+  FileCompletionEntry,
+  SlashCommand,
   ErrorRecord,
   ErrorSource,
+  FilePreview,
   Tag,
   TagRule,
   Subagent,

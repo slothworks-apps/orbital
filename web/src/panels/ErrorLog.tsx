@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import type { ErrorRecord } from '../lib/types'
@@ -182,35 +182,11 @@ export interface ErrorLogProps {
 export function ErrorLog({ open, onClose }: ErrorLogProps) {
   const errors = useOrbital(useShallow((s) => s.errors))
   const markErrorsSeen = useOrbital((s) => s.markErrorsSeen)
-  const clearErrorLog = useOrbital((s) => s.clearErrorLog)
 
-  // The rows THIS opening has stamped — the header's "N unseen cleared" (5b).
-  // Grows while open (rows can arrive live) and resets on close. A Set, not a
-  // counter, so StrictMode's dev-only double-invoked effect cannot count the
-  // same ids twice.
-  const [clearedIds, setClearedIds] = useState<ReadonlySet<number>>(new Set())
-  useEffect(() => {
-    if (!open) setClearedIds(new Set())
-  }, [open])
-
-  // "A list you opened is a list you were shown": every loaded row gets
-  // stamped, not only the ones scrolled past. Keyed on the unseen ids rather
-  // than on `open` alone so a record ARRIVING while the log is already open
-  // is stamped too — the effect simply runs again with a new key.
-  const unseenIds = errors.filter((error) => error.seenAt === null).map((error) => error.id)
-  const unseenKey = unseenIds.join(',')
-  useEffect(() => {
-    if (!open || unseenKey === '') return
-    const ids = unseenKey.split(',').map(Number)
-    setClearedIds((prev) => new Set([...prev, ...ids]))
-    void markErrorsSeen(ids)
-    // `unseenKey` is the real dependency; `unseenIds` is a fresh array on
-    // every render and would loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, unseenKey, markErrorsSeen])
-
-  const clearedOnOpen = clearedIds.size
-  const entryCount = `${errors.length} ${errors.length === 1 ? 'entry' : 'entries'}`
+  // Deliberately NO marking on open. The log is an unread inbox over a
+  // permanent table: the user reads, decides nothing here needs them, and
+  // says so with the button — reading is not marking.
+  const entryCount = `${errors.length} unread ${errors.length === 1 ? 'entry' : 'entries'}`
 
   return (
     <Dialog
@@ -219,25 +195,22 @@ export function ErrorLog({ open, onClose }: ErrorLogProps) {
       eyebrow="LOG"
       size="xl"
       onClose={onClose}
-      headerMeta={
-        errors.length > 0
-          ? clearedOnOpen > 0
-            ? `${entryCount} · ${clearedOnOpen} unseen cleared`
-            : entryCount
-          : undefined
-      }
+      headerMeta={errors.length > 0 ? entryCount : undefined}
       footerCaption="newest first · dev records included"
       footer={
         <>
-          {/* Red belongs to the badge and the error dot alone (5b), so Clear
-              all is a plain outline, not a danger button. */}
+          {/* Red belongs to the badge and the error dot alone (5b), so this
+              is a plain outline, not a danger button. Marking is the user's
+              explicit act and the only way rows leave the inbox — the server
+              keeps them all in its table. Stamps the WHOLE table, not just
+              the loaded page. */}
           <Button
             variant="ghost"
             size="lg"
-            onClick={() => void clearErrorLog()}
+            onClick={() => void markErrorsSeen('all')}
             disabled={errors.length === 0}
           >
-            Clear all
+            Mark all seen
           </Button>
           <Button variant="primary" size="lg" onClick={onClose}>
             Close
@@ -246,7 +219,7 @@ export function ErrorLog({ open, onClose }: ErrorLogProps) {
       }
     >
       {errors.length === 0 ? (
-        <p className="text-[13px] text-[rgba(200,214,235,.85)]">No errors recorded.</p>
+        <p className="text-[13px] text-[rgba(200,214,235,.85)]">No unread errors.</p>
       ) : (
         <ul aria-label="Recorded errors" className="flex flex-col">
           {errors.map((error) => (

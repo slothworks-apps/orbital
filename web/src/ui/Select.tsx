@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useEscapeLayer } from './escapeLayer'
+import { usePopupPosition } from './usePopupPosition'
 
 export interface SelectOption<T> {
   value: T
@@ -58,11 +59,9 @@ export interface SelectProps<T> {
   className?: string
 }
 
-/** Gap between the trigger and the popup, and the popup's minimum clearance from the viewport edge. */
+/** Gap between the trigger and the popup. The viewport margin and the height
+ * floor live with the mechanics, in `usePopupPosition`. */
 const POPUP_GAP = 4
-const VIEWPORT_MARGIN = 8
-/** Never squeeze the popup below this; below it, flip instead. */
-const MIN_POPUP_HEIGHT = 96
 /** Width floor for the `tag` popup (canvas 1b) — its trigger is narrower. */
 const TAG_POPUP_MIN_WIDTH = 168
 /** Width floor for the `ghost` popup (canvas 3a) — its trigger is narrower still. */
@@ -158,66 +157,25 @@ export function Select<T extends string | number>({
     [closePopup, onChange, options, value],
   )
 
-  /**
-   * Portalled to `<body>` and positioned from the trigger's rect, for two
-   * reasons that have both already bitten this codebase: a `backdrop-filter`
-   * ancestor (every `Panel`) becomes the containing block for `position:
-   * fixed` descendants, and the rules table / settings body are overflow
-   * containers that would clip an absolutely-positioned popup.
-   */
-  const reposition = useCallback(() => {
-    const trigger = triggerRef.current
-    const popup = popupRef.current
-    if (!trigger || !popup) return
-
-    const rect = trigger.getBoundingClientRect()
-    // Measure unconstrained first, so the flip decision is made against the
-    // height the list actually wants rather than against last frame's cap.
-    popup.style.maxHeight = ''
-    const natural = popup.offsetHeight
-
-    const below = window.innerHeight - rect.bottom - POPUP_GAP - VIEWPORT_MARGIN
-    const above = rect.top - POPUP_GAP - VIEWPORT_MARGIN
-    const flip = natural > below && above > below
-    const maxHeight = Math.max(MIN_POPUP_HEIGHT, flip ? above : below)
-    popup.style.maxHeight = `${maxHeight}px`
-
-    const height = Math.min(natural, maxHeight)
-    popup.style.top = flip ? `${rect.top - POPUP_GAP - height}px` : `${rect.bottom + POPUP_GAP}px`
-    popup.dataset.placement = flip ? 'above' : 'below'
-
-    // The tag pill is narrower than its own menu, so 1b gives that popup a
-    // 168px floor rather than letting it shrink to the trigger; 3a's origin
-    // trigger is a word and a caret, and its menu is a sentence wide.
-    const floor =
+  // Portalled to `<body>` and positioned from the trigger's rect — see
+  // `usePopupPosition`, which owns the flip/clamp/re-measure mechanics this
+  // control and the composer's completion list share.
+  //
+  // The tag pill is narrower than its own menu, so 1b gives that popup a 168px
+  // floor rather than letting it shrink to the trigger; 3a's origin trigger is
+  // a word and a caret, and its menu is a sentence wide — and 3a hangs that
+  // menu off the trigger's RIGHT edge, because the trigger sits at the right
+  // end of a 300px panel and a left-aligned menu would spill onto the map.
+  usePopupPosition(open, triggerRef, popupRef, {
+    gap: POPUP_GAP,
+    align: variant === 'ghost' ? 'right' : 'left',
+    minWidth:
       variant === 'tag'
         ? TAG_POPUP_MIN_WIDTH
         : variant === 'ghost'
           ? GHOST_POPUP_MIN_WIDTH
-          : 0
-    popup.style.minWidth = `${Math.max(rect.width, floor)}px`
-    const width = popup.offsetWidth
-    const maxLeft = window.innerWidth - width - VIEWPORT_MARGIN
-    // 3a hangs the origin menu off the trigger's RIGHT edge: that trigger sits
-    // at the right end of a 300px panel, and a menu wider than it — which it
-    // always is — would otherwise spill out of the sidebar and onto the map.
-    const wanted = variant === 'ghost' ? rect.right - width : rect.left
-    popup.style.left = `${Math.max(VIEWPORT_MARGIN, Math.min(wanted, maxLeft))}px`
-  }, [variant])
-
-  // Re-measure rather than close: a scroll inside the rules table or the
-  // settings body must not yank the popup away mid-interaction.
-  useLayoutEffect(() => {
-    if (!open) return
-    reposition()
-    const onViewportChange = () => reposition()
-    window.addEventListener('scroll', onViewportChange, true)
-    window.addEventListener('resize', onViewportChange)
-    return () => {
-      window.removeEventListener('scroll', onViewportChange, true)
-      window.removeEventListener('resize', onViewportChange)
-    }
-  }, [open, options, reposition])
+          : 0,
+  })
 
   // Opening lands on the selected row even when the list is longer than the
   // popup. `scrollIntoView` is absent in jsdom, hence the optional call.

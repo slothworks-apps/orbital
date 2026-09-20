@@ -40,6 +40,23 @@ export interface DialogProps {
   footer?: ReactNode
   /** Left side of the footer row — mono muted keyboard hints or captions. */
   footerCaption?: ReactNode
+  /**
+   * Attaches to the dialog's own surface. The New Session dialog's image intake
+   * needs it because 9d-D's drop target is the DIALOG, not the composer's well
+   * — the same reason the detail panel arms its whole shell (canvas 9c-1) — and
+   * that element is this component's, not the caller's.
+   *
+   * A callback ref, not a `useRef` object: the surface is unmounted between
+   * opens, so an effect keyed on a ref object would bind its listeners on the
+   * one render where the element did not exist yet. See `useImageDrop`.
+   */
+  surfaceRef?: (element: HTMLElement | null) => void
+  /**
+   * Paints the armed drop chrome over the frame (canvas 9c-1 / 9e drop state:
+   * accent border `.45` over a matching inset ring `.12`). The caller owns the
+   * drag itself and dims its own content.
+   */
+  dropArmed?: boolean
   onClose: () => void
   children?: ReactNode
 }
@@ -85,12 +102,24 @@ const cornerRadius: Record<
 
 const corners = ['tl', 'tr', 'bl', 'br'] as const
 
-/** Width + radius + glass fill per artboard. */
+/**
+ * Frame radius per artboard. Its own map because the armed drop overlay is
+ * drawn as a second box over the frame and has to match it exactly — one
+ * definition, so the two cannot drift.
+ */
+const frameRadius: Record<NonNullable<DialogProps['size']>, string> = {
+  sm: 'rounded-[14px]',
+  md: 'rounded-[14px]',
+  lg: 'rounded-2xl',
+  xl: 'rounded-2xl',
+}
+
+/** Width + glass fill per artboard. */
 const sizeClasses: Record<NonNullable<DialogProps['size']>, string> = {
-  sm: 'w-[440px] rounded-[14px] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)]',
-  md: 'w-[560px] rounded-[14px] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)]',
-  lg: 'w-[660px] rounded-2xl bg-gradient-to-b from-[rgba(16,22,38,.9)] to-[rgba(8,12,22,.94)]',
-  xl: 'w-[760px] rounded-2xl bg-gradient-to-b from-[rgba(16,22,38,.9)] to-[rgba(8,12,22,.94)]',
+  sm: 'w-[440px] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)]',
+  md: 'w-[560px] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)]',
+  lg: 'w-[660px] bg-gradient-to-b from-[rgba(16,22,38,.9)] to-[rgba(8,12,22,.94)]',
+  xl: 'w-[760px] bg-gradient-to-b from-[rgba(16,22,38,.9)] to-[rgba(8,12,22,.94)]',
 }
 
 /** Inner gutter: confirms sit at 24px, the form dialogs at 26px. */
@@ -131,6 +160,8 @@ export function Dialog({
   headerMeta,
   footer,
   footerCaption,
+  surfaceRef,
+  dropArmed = false,
   onClose,
   children,
 }: DialogProps) {
@@ -169,15 +200,18 @@ export function Dialog({
       ].join(' ')}
     >
       <div
+        ref={surfaceRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         data-size={size}
         data-tone={tone}
+        data-drop-armed={dropArmed || undefined}
         style={{ boxShadow: `${BASE_SHADOW}, ${frame.bloom}` }}
         className={[
           'relative flex max-h-full max-w-full flex-col border font-sans text-text-bright backdrop-blur-[28px]',
           sizeClasses[size],
+          frameRadius[size],
           frame.border,
           MODAL_TRANSITION,
           duration,
@@ -265,6 +299,26 @@ export function Dialog({
             <div className="flex shrink-0 items-center gap-2.5">{footer}</div>
           </footer>
         )}
+        {/* The armed drop chrome (canvas 9c-1 / 9e): accent border at .45 over a
+            matching inset ring at .12, arriving over .12s.
+
+            Its own overlay element rather than classes on the frame, for the two
+            reasons the detail panel's is: the frame already carries
+            MODAL_TRANSITION, and a second transition-property utility on one
+            element resolves by stylesheet order rather than by intent (see
+            web/CLAUDE.md); and the frame's box-shadow is an inline style the
+            inset ring would have to fight. It never takes the pointer, so the
+            drag still reaches the surface's own listeners. */}
+        <div
+          aria-hidden
+          className={[
+            'pointer-events-none absolute inset-0 border transition-[border-color,box-shadow] duration-[120ms] ease-in',
+            frameRadius[size],
+            dropArmed
+              ? 'border-[oklch(85%_.12_205_/_.45)] shadow-[inset_0_0_0_1px_oklch(85%_.12_205_/_.12)]'
+              : 'border-transparent',
+          ].join(' ')}
+        />
       </div>
     </div>
     </EscapeBoundary>,

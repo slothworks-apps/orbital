@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
+import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
+import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
+import { ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
 import { openDb } from '../src/db/database.js';
 import { sessionColumns, sessions, sessionTags, settings as settingsTable, tags } from '../src/db/schema.js';
 import { registerRoutes } from '../src/api/routes.js';
@@ -37,10 +41,17 @@ function makeApp() {
     all: () => [{ sessionId: 's1', status: 'working' }],
   };
   const startCalls: any[] = [];
+  const sendCalls: any[] = [];
   const runner = {
     status: () => undefined, active: () => [],
     start: async (body: any) => { startCalls.push(body); return 'web-9'; },
-    send: (id: string) => { throw new Error(`session ${id} is not active`); },
+    send: (id: string, text: string, attachments?: string[]): void => {
+      sendCalls.push({ id, text, attachments });
+      throw new Error(`session ${id} is not active`);
+    },
+    // No live query by default — the fs catalog alone, which is what an ended
+    // session and the dialog get. Tests that want the SDK half replace this.
+    commands: async (): Promise<any[] | null> => null,
     interrupt: async () => {}, end: async () => {},
   };
   const hub = new Hub();
@@ -51,13 +62,20 @@ function makeApp() {
     recordContextWindows: () => {},
   };
   const app = Fastify();
+  // The attachments route is multipart, so the parser the real server installs
+  // has to be here too — without it every upload would 415 before reaching a
+  // single one of its own checks.
+  app.register(multipart);
   const subagents = new SubagentStore();
   const errors = new ErrorLog({ db, hub });
   const imagesDir = mkdtempSync(join(tmpdir(), 'orbital-images-'));
   const imageStore = createImageStore(imagesDir);
+  // An empty `~/.claude` per app: the command catalog reads real files, so a
+  // test that wants commands writes them.
+  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-claude-'));
   registerRoutes(app, {
     db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent', hub,
-    images: imageStore, imagesDir,
+    images: imageStore, imagesDir, claudeDir,
     models: modelCatalog as any,
     subagents,
     errors,
@@ -73,7 +91,17 @@ function makeApp() {
           .run(),
     },
   });
-  return { app, db, runner, hub, registry, startCalls, modelCatalog, subagents, errors, imageStore };
+  return {
+    app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, errors,
+    imageStore, imagesDir, claudeDir,
+  };
+}
+
+/** The body of a response that had to succeed — a 500 reads as a diff in the
+ * shape assertion otherwise, which is a slow way to find out. */
+function res200(res: { statusCode: number; json: () => any }): any {
+  expect(res.statusCode).toBe(200);
+  return res.json();
 }
 
 /** Subscribes a fake socket to a Hub topic and collects published payloads. */
@@ -653,7 +681,8 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       errors: new ErrorLog({ db, hub }),
-      images: { put: () => null }, imagesDir: '/nonexistent',
+      images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
+      claudeDir: '/nonexistent',
       settings: { get: () => '', set: () => {} },
     });
     return { app, db, runner, hub, close: () => { runner.dispose(); db.$client.close(); } };
@@ -759,7 +788,8 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       errors: new ErrorLog({ db, hub }),
-      images: { put: () => null }, imagesDir: '/nonexistent',
+      images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
+      claudeDir: '/nonexistent',
       settings: {
         get: (k: string) =>
           db.select({ value: settingsTable.value }).from(settingsTable)
@@ -847,11 +877,13 @@ describe('claude_code_version', () => {
 
 describe('error log routes', () => {
   let app: FastifyInstance;
+  let db: ReturnType<typeof makeApp>['db'];
   let hub: Hub;
   let errors: ErrorLog;
   beforeEach(() => {
     const result = makeApp();
     app = result.app;
+    db = result.db;
     hub = result.hub;
     errors = result.errors;
   });
@@ -940,8 +972,10 @@ describe('error log routes', () => {
       method: 'POST', url: '/api/errors/seen', payload: { all: true },
     });
     expect(all.json()).toEqual({ ok: true, unseen: 0 });
+    // The list is an inbox — read rows leave it but stay in the table.
     const listed = (await app.inject({ method: 'GET', url: '/api/errors' })).json();
-    expect(listed.errors.every((e: any) => typeof e.seenAt === 'number')).toBe(true);
+    expect(listed).toEqual({ errors: [], unseen: 0 });
+    expect(db.$client.prepare('SELECT COUNT(*) AS n FROM errors').get()).toEqual({ n: 3 });
   });
 
   it('POST /api/errors/seen rejects a body that is neither ids nor all', async () => {
@@ -950,15 +984,11 @@ describe('error log routes', () => {
     expect(res.json()).toEqual({ error: 'ids must be an array of numbers' });
   });
 
-  it('DELETE /api/errors empties the log and zeroes the count', async () => {
-    errors.record({ source: 'server', kind: 'session_failed', message: 'gone' });
-    const received = subscribeFake(hub, 'errors');
+  it('there is no delete route — the log is a history the API cannot empty', async () => {
+    errors.record({ source: 'server', kind: 'session_failed', message: 'stays' });
     const res = await app.inject({ method: 'DELETE', url: '/api/errors' });
-    expect(res.json()).toEqual({ ok: true, unseen: 0 });
-    expect(received[0]).toMatchObject({ topic: 'errors', event: 'cleared' });
-    expect((await app.inject({ method: 'GET', url: '/api/errors' })).json()).toEqual({
-      errors: [], unseen: 0,
-    });
+    expect(res.statusCode).toBe(404);
+    expect(db.$client.prepare('SELECT COUNT(*) AS n FROM errors').get()).toEqual({ n: 1 });
   });
 });
 
@@ -1030,6 +1060,105 @@ describe('map dismissal and session count', () => {
   });
 });
 
+// The file viewer's read (spec 2026-09-19-file-viewer-design § Server). The
+// seeded sessions carry fake cwds like /w/x, so these tests add a session
+// whose cwd is a real tmpdir and put the fixtures there.
+describe('GET /api/files', () => {
+  let app: FastifyInstance;
+  let cwd: string;
+
+  beforeEach(() => {
+    const result = makeApp();
+    app = result.app;
+    cwd = mkdtempSync(join(tmpdir(), 'orbital-files-'));
+    result.db
+      .insert(sessions)
+      .values({
+        id: 'sf', projectDir: 'p', cwd, title: 'file viewer', lastAt: 300,
+        source: 'web', permissionMode: null,
+      })
+      .run();
+  });
+
+  const get = (session: string, path?: string) =>
+    app.inject({
+      method: 'GET',
+      url: `/api/files?session=${encodeURIComponent(session)}${
+        path !== undefined ? `&path=${encodeURIComponent(path)}` : ''
+      }`,
+    });
+
+  it('400s when session or path is missing or empty', async () => {
+    for (const url of ['/api/files', '/api/files?session=sf', '/api/files?path=a.txt', '/api/files?session=sf&path=']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: 'missing_params' });
+    }
+  });
+
+  it('404s an unknown session', async () => {
+    const res = await get('nope', 'a.txt');
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('200s a readable file with content, size, mtimeMs and lines', async () => {
+    writeFileSync(join(cwd, 'notes.md'), '# hi\nsecond line');
+    const res = await get('sf', 'notes.md');
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ content: '# hi\nsecond line', lines: 2 });
+    expect(body.size).toBe(Buffer.byteLength('# hi\nsecond line'));
+    expect(body.mtimeMs).toBeTypeOf('number');
+  });
+
+  it('403s a path outside the session cwd', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'));
+    writeFileSync(join(outside, 'secret.txt'), 'secret');
+    const res = await get('sf', join(outside, 'secret.txt'));
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: 'outside_cwd' });
+  });
+
+  it('403s a ../ traversal shape — it never reaches a file', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'));
+    writeFileSync(join(outside, 'secret.txt'), 'secret');
+    // A sibling tmpdir reached by climbing out of cwd.
+    const res = await get('sf', `../${basename(outside)}/secret.txt`);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: 'outside_cwd' });
+  });
+
+  it('404s a file that is not on disk', async () => {
+    const res = await get('sf', 'ghost.txt');
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('413s a file over FILE_PREVIEW_MAX_BYTES, size measured', async () => {
+    const size = FILE_PREVIEW_MAX_BYTES + 1;
+    writeFileSync(join(cwd, 'big.log'), Buffer.alloc(size));
+    const res = await get('sf', 'big.log');
+    expect(res.statusCode).toBe(413);
+    expect(res.json()).toEqual({ error: 'too_large', size });
+  });
+
+  it('415s a binary file with its media type', async () => {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]);
+    writeFileSync(join(cwd, 'pic.png'), bytes);
+    const res = await get('sf', 'pic.png');
+    expect(res.statusCode).toBe(415);
+    expect(res.json()).toEqual({ error: 'binary', size: bytes.length, mediaType: 'image/png' });
+  });
+
+  it('treats a :line suffix as part of the path — the client strips it, not us', async () => {
+    writeFileSync(join(cwd, 'a.ts'), 'x');
+    // `a.ts:12` names nothing on disk; the server never parses it apart.
+    const res = await get('sf', 'a.ts:12');
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 // Tag clusters: a clump's home moves where the user drops it, per tag,
 // persisted (agreed in chat 2026-09-18, extends spec § 2).
 describe('tag anchors', () => {
@@ -1076,5 +1205,431 @@ describe('tag anchors', () => {
     });
     const tags = (await app.inject({ method: 'GET', url: '/api/tags' })).json().tags;
     expect(tags.find((t: { id: number }) => t.id === 10)).toMatchObject({ name: 'work', hue: 210 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The composer: command catalog, path completion, attachments
+// (spec: 2026-09-20-composer-design § Server)
+// ---------------------------------------------------------------------------
+
+describe('GET /api/commands', () => {
+  /** A command on disk, the flat `~/.claude/commands/<name>.md` shape. */
+  function writeCommand(claudeDir: string, name: string, description: string) {
+    mkdirSync(join(claudeDir, 'commands'), { recursive: true });
+    writeFileSync(join(claudeDir, 'commands', `${name}.md`), `---\ndescription: ${description}\n---\nbody\n`);
+  }
+
+  it('400s when neither session nor cwd is given', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'GET', url: '/api/commands' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'missing_params' });
+  });
+
+  it('a session with no live query gets the filesystem catalog alone — no built-ins', async () => {
+    const { app, db, claudeDir } = makeApp();
+    const cwd = mkdtempSync(join(tmpdir(), 'orbital-cmd-cwd-'));
+    db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
+    writeCommand(claudeDir, 'ship', 'ship it');
+    mkdirSync(join(cwd, '.claude', 'commands'), { recursive: true });
+    writeFileSync(join(cwd, '.claude', 'commands', 'deploy.md'), '---\ndescription: deploy\n---\n');
+
+    const res = await app.inject({ method: 'GET', url: '/api/commands?session=sc' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      commands: [
+        { name: 'deploy', description: 'deploy', source: 'project' },
+        { name: 'ship', description: 'ship it', source: 'user' },
+      ],
+    });
+  });
+
+  it('with a live query the SDK list is the truth; the scan only attributes source', async () => {
+    const { app, db, runner, claudeDir } = makeApp();
+    const cwd = mkdtempSync(join(tmpdir(), 'orbital-cmd-cwd-'));
+    db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
+    writeCommand(claudeDir, 'ship', 'ship it');
+    // On disk but NOT in the SDK list: the CLI would not honour it, so it is
+    // not offered.
+    writeCommand(claudeDir, 'stale', 'left over');
+    runner.commands = async () => [
+      { name: 'ship', description: 'ship it' },
+      { name: 'clear', description: 'Clear conversation history' },
+      { name: 'usage', description: 'Show plan usage', aliases: ['cost'] },
+    ];
+
+    const res = await app.inject({ method: 'GET', url: '/api/commands?session=sc' });
+    expect(res.json()).toEqual({
+      commands: [
+        { name: 'clear', description: 'Clear conversation history', source: 'built-in' },
+        { name: 'ship', description: 'ship it', source: 'user' },
+        { name: 'usage', description: 'Show plan usage', source: 'built-in', aliases: ['cost'] },
+      ],
+    });
+  });
+
+  it('a description the CLI leaves empty falls back to the scanned one', async () => {
+    const { app, db, runner, claudeDir } = makeApp();
+    const cwd = mkdtempSync(join(tmpdir(), 'orbital-cmd-cwd-'));
+    db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
+    writeCommand(claudeDir, 'ship', 'ship it');
+    runner.commands = async () => [{ name: 'ship', description: '' }];
+
+    expect(res200(await app.inject({ method: 'GET', url: '/api/commands?session=sc' })).commands)
+      .toEqual([{ name: 'ship', description: 'ship it', source: 'user' }]);
+  });
+
+  it('carries an argument hint through when the CLI gives one', async () => {
+    const { app, db, runner } = makeApp();
+    db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd: '/w', lastAt: 1, source: 'web' }).run();
+    runner.commands = async () => [
+      { name: 'add-dir', description: 'Add a directory', argumentHint: '<path>' },
+    ];
+
+    expect(res200(await app.inject({ method: 'GET', url: '/api/commands?session=sc' })).commands)
+      .toEqual([
+        { name: 'add-dir', description: 'Add a directory', source: 'built-in', argumentHint: '<path>' },
+      ]);
+  });
+
+  it('?cwd= answers for the dialog, which has no session yet, and expands ~', async () => {
+    const { app, claudeDir } = makeApp();
+    const cwd = mkdtempSync(join(homedir(), '.orbital-cmd-test-'));
+    writeCommand(claudeDir, 'ship', 'ship it');
+    mkdirSync(join(cwd, '.claude', 'commands'), { recursive: true });
+    writeFileSync(join(cwd, '.claude', 'commands', 'deploy.md'), '');
+
+    const res = await app.inject({
+      method: 'GET', url: `/api/commands?cwd=${encodeURIComponent(`~/${basename(cwd)}`)}`,
+    });
+    expect(res.json().commands.map((c: any) => `${c.source}/${c.name}`)).toEqual([
+      'project/deploy', 'user/ship',
+    ]);
+  });
+
+  it('404s an unknown session', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'GET', url: '/api/commands?session=nope' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'not_found' });
+  });
+});
+
+describe('GET /api/files/complete', () => {
+  let app: FastifyInstance;
+  let cwd: string;
+
+  beforeEach(() => {
+    const result = makeApp();
+    app = result.app;
+    cwd = mkdtempSync(join(tmpdir(), 'orbital-complete-'));
+    result.db
+      .insert(sessions)
+      .values({ id: 'sf', projectDir: 'p', cwd, title: 'completion', lastAt: 1, source: 'web' })
+      .run();
+  });
+
+  const complete = (query: string) =>
+    app.inject({ method: 'GET', url: `/api/files/complete?${query}` });
+
+  const names = async (query: string) => (await complete(query)).json().entries.map((e: any) => e.name);
+
+  it('400s when neither session nor cwd is given', async () => {
+    const res = await complete('prefix=s');
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'missing_params' });
+  });
+
+  it('lists the project root for an empty prefix, directories first then files', async () => {
+    mkdirSync(join(cwd, 'src'));
+    mkdirSync(join(cwd, 'assets'));
+    writeFileSync(join(cwd, 'README.md'), 'hi');
+    writeFileSync(join(cwd, 'app.ts'), 'x');
+
+    const res = await complete('session=sf&prefix=');
+    expect(res.statusCode).toBe(200);
+    // Alphabetical is locale-alphabetical, so `app.ts` sorts before
+    // `README.md` rather than after every capital letter.
+    expect(res.json().entries).toEqual([
+      { name: 'assets', dir: true },
+      { name: 'src', dir: true },
+      { name: 'app.ts', dir: false, size: 1 },
+      { name: 'README.md', dir: false, size: 2 },
+    ]);
+  });
+
+  it('splits the prefix into directory and base, matching on the base', async () => {
+    mkdirSync(join(cwd, 'src'));
+    writeFileSync(join(cwd, 'src', 'composer.tsx'), 'x');
+    writeFileSync(join(cwd, 'src', 'compare.ts'), 'x');
+    writeFileSync(join(cwd, 'src', 'other.ts'), 'x');
+
+    expect(await names('session=sf&prefix=src/comp')).toEqual(['compare.ts', 'composer.tsx']);
+    // A trailing slash is "everything in here".
+    expect(await names('session=sf&prefix=src/')).toEqual(['compare.ts', 'composer.tsx', 'other.ts']);
+  });
+
+  it('hides dotfiles unless the base starts with a dot', async () => {
+    writeFileSync(join(cwd, '.env'), 'x');
+    mkdirSync(join(cwd, '.claude'));
+    writeFileSync(join(cwd, 'visible.txt'), 'x');
+
+    expect(await names('session=sf&prefix=')).toEqual(['visible.txt']);
+    expect(await names('session=sf&prefix=.')).toEqual(['.claude', '.env']);
+    expect(await names('session=sf&prefix=.e')).toEqual(['.env']);
+  });
+
+  it('caps the list at FILE_COMPLETE_MAX', async () => {
+    for (let i = 0; i < FILE_COMPLETE_MAX + 10; i++) {
+      writeFileSync(join(cwd, `f${String(i).padStart(3, '0')}.txt`), 'x');
+    }
+    const entries = (await complete('session=sf&prefix=f')).json().entries;
+    expect(entries).toHaveLength(FILE_COMPLETE_MAX);
+    // The cap takes the first of the sorted list, not an arbitrary slice.
+    expect(entries[0].name).toBe('f000.txt');
+  });
+
+  it('a directory outside the sandbox is empty, never an error', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'));
+    writeFileSync(join(outside, 'secret.txt'), 'secret');
+    for (const prefix of [join(outside, 'sec'), `../${basename(outside)}/sec`]) {
+      const res = await complete(`session=sf&prefix=${encodeURIComponent(prefix)}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ entries: [] });
+    }
+  });
+
+  it('a missing directory is empty, never an error', async () => {
+    const res = await complete('session=sf&prefix=ghost/a');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ entries: [] });
+  });
+
+  it('a symlink out of the sandbox is empty — realpath decides', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'));
+    writeFileSync(join(outside, 'secret.txt'), 'secret');
+    symlinkSync(outside, join(cwd, 'innocent'));
+    expect((await complete('session=sf&prefix=innocent/')).json()).toEqual({ entries: [] });
+  });
+
+  it('404s an unknown session', async () => {
+    const res = await complete('session=nope&prefix=a');
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('?cwd= answers for the dialog', async () => {
+    mkdirSync(join(cwd, 'src'));
+    const res = await complete(`cwd=${encodeURIComponent(cwd)}&prefix=s`);
+    expect(res.json().entries).toEqual([{ name: 'src', dir: true }]);
+  });
+});
+
+describe('POST /api/sessions/:id/attachments', () => {
+  /** A real PNG header, so what comes back is what the store would serve. */
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    (() => {
+      const ihdr = Buffer.alloc(25);
+      ihdr.writeUInt32BE(13, 0);
+      ihdr.write('IHDR', 4);
+      ihdr.writeUInt32BE(320, 8);
+      ihdr.writeUInt32BE(200, 12);
+      return ihdr;
+    })(),
+  ]);
+
+  /** One multipart body with one file part, built by hand — this is the wire
+   * shape the browser's FormData produces. */
+  function multipartBody(
+    filename: string,
+    contentType: string,
+    bytes: Buffer,
+  ): { payload: Buffer; headers: Record<string, string> } {
+    const boundary = '----orbitaltestboundary';
+    const head = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n`,
+    );
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+    return {
+      payload: Buffer.concat([head, bytes, tail]),
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    };
+  }
+
+  const upload = (app: FastifyInstance, id: string, filename: string, type: string, bytes: Buffer) => {
+    const { payload, headers } = multipartBody(filename, type, bytes);
+    return app.inject({ method: 'POST', url: `/api/sessions/${id}/attachments`, payload, headers });
+  };
+
+  it('201s with the ImageRefEntry, and the bytes are readable back out of the store', async () => {
+    const { app, imageStore } = makeApp();
+    const res = await upload(app, 's1', 'capture.png', 'image/png', png);
+    expect(res.statusCode).toBe(201);
+    const entry = res.json();
+    expect(entry).toMatchObject({ w: 320, h: 200, bytes: png.length });
+    expect(entry.ref).toMatch(/^[a-f0-9]{64}\.png$/);
+    expect(imageStore.read(entry.ref)).toEqual({
+      mediaType: 'image/png', base64: png.toString('base64'),
+    });
+  });
+
+  it('415s a file that is not an image the store will take, naming the type', async () => {
+    const { app } = makeApp();
+    const res = await upload(app, 's1', 'notes.pdf', 'application/pdf', Buffer.from('%PDF-1.4'));
+    expect(res.statusCode).toBe(415);
+    expect(res.json()).toEqual({ error: 'not_image', mediaType: 'application/pdf' });
+  });
+
+  it('413s over ATTACHMENT_MAX_BYTES, with the measured size', async () => {
+    const { app } = makeApp();
+    const big = Buffer.concat([png, Buffer.alloc(ATTACHMENT_MAX_BYTES)]);
+    const res = await upload(app, 's1', 'huge.png', 'image/png', big);
+    expect(res.statusCode).toBe(413);
+    expect(res.json()).toEqual({ error: 'too_large', size: big.length });
+  });
+
+  it('still 413s past the read wall, saying the size is not the whole file', async () => {
+    // Far over the ceiling: the route stops reading rather than buffering
+    // whatever was sent, so the size it reports is what it read, flagged.
+    const { app } = makeApp();
+    const res = await upload(
+      app, 's1', 'enormous.png', 'image/png',
+      Buffer.concat([png, Buffer.alloc(ATTACHMENT_MAX_BYTES * 3)]),
+    );
+    expect(res.statusCode).toBe(413);
+    expect(res.json()).toMatchObject({ error: 'too_large', truncated: true });
+    expect(res.json().size).toBeLessThanOrEqual(ATTACHMENT_MAX_BYTES * 2);
+  });
+
+  it('404s an unknown session', async () => {
+    const { app } = makeApp();
+    const res = await upload(app, 'does-not-exist', 'capture.png', 'image/png', png);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('400s a request with no file part at all', async () => {
+    const { app } = makeApp();
+    const boundary = '----orbitaltestboundary';
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s1/attachments',
+      payload: Buffer.from(`--${boundary}--\r\n`),
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'missing_file' });
+  });
+
+  /**
+   * The sessionless door the New Session dialog uploads through: the same
+   * handler one route up, minus a lookup that never guarded anything (the store
+   * is content-addressed and global — see the route's own comment).
+   */
+  describe('POST /api/attachments — before a session exists', () => {
+    const uploadSessionless = (
+      app: FastifyInstance,
+      filename: string,
+      type: string,
+      bytes: Buffer,
+    ) => {
+      const { payload, headers } = multipartBody(filename, type, bytes);
+      return app.inject({ method: 'POST', url: '/api/attachments', payload, headers });
+    };
+
+    it('201s with the same ImageRefEntry, with no session in sight', async () => {
+      const { app, imageStore } = makeApp();
+      const res = await uploadSessionless(app, 'flamegraph.png', 'image/png', png);
+      expect(res.statusCode).toBe(201);
+      const entry = res.json();
+      expect(entry).toMatchObject({ w: 320, h: 200, bytes: png.length });
+      expect(entry.ref).toMatch(/^[a-f0-9]{64}\.png$/);
+      expect(imageStore.read(entry.ref)).toEqual({
+        mediaType: 'image/png', base64: png.toString('base64'),
+      });
+    });
+
+    it('refuses a non-image exactly as the scoped route does', async () => {
+      const { app } = makeApp();
+      const res = await uploadSessionless(app, 'notes.pdf', 'application/pdf', Buffer.from('%PDF-1.4'));
+      expect(res.statusCode).toBe(415);
+      expect(res.json()).toEqual({ error: 'not_image', mediaType: 'application/pdf' });
+    });
+  });
+});
+
+describe('attachments on the send paths', () => {
+  const REF = `${'a'.repeat(64)}.png`;
+
+  it('POST /api/sessions/:id/messages hands the refs to the runner', async () => {
+    const { app, db, runner, sendCalls } = makeApp();
+    db.insert(sessions).values({ id: 'sa', projectDir: 'p', cwd: '/w', lastAt: 1, source: 'web' }).run();
+    runner.send = (id: string, text: string, attachments?: string[]) => {
+      sendCalls.push({ id, text, attachments });
+    };
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/sa/messages',
+      payload: { text: 'look', attachments: [REF] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(sendCalls.at(-1)).toEqual({ id: 'sa', text: 'look', attachments: [REF] });
+  });
+
+  it('a revive carries them into start()', async () => {
+    const { app, startCalls } = makeApp();
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s2/messages',
+      payload: { text: 'wake up', attachments: [REF] },
+    });
+    expect(res.json()).toMatchObject({ revived: true });
+    expect(startCalls.at(-1)).toMatchObject({ resume: 's2', prompt: 'wake up', attachments: [REF] });
+  });
+
+  it('POST /api/sessions carries them into the first turn', async () => {
+    const { app, startCalls } = makeApp();
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits', attachments: [REF] },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(startCalls.at(-1)).toMatchObject({ attachments: [REF] });
+  });
+
+  it('400s a ref that is not one the image store could have written', async () => {
+    const { app, db } = makeApp();
+    db.insert(sessions).values({ id: 'sa', projectDir: 'p', cwd: '/w', lastAt: 1, source: 'web' }).run();
+    const bad = [
+      '../../etc/passwd',
+      `${'a'.repeat(64)}.svg`,
+      'deadbeef.png',
+      `${'A'.repeat(64)}.png`,
+    ];
+    for (const ref of bad) {
+      const messages = await app.inject({
+        method: 'POST', url: '/api/sessions/sa/messages', payload: { text: 'x', attachments: [ref] },
+      });
+      expect(messages.statusCode).toBe(400);
+      expect(messages.json()).toEqual({ error: 'invalid_attachment' });
+
+      const launch = await app.inject({
+        method: 'POST', url: '/api/sessions',
+        payload: { cwd: '/p', prompt: 'go', permissionMode: 'plan', attachments: [ref] },
+      });
+      expect(launch.statusCode).toBe(400);
+    }
+  });
+
+  it('400s attachments that are not an array of strings', async () => {
+    const { app, db } = makeApp();
+    db.insert(sessions).values({ id: 'sa', projectDir: 'p', cwd: '/w', lastAt: 1, source: 'web' }).run();
+    for (const attachments of ['nope', [1], {}]) {
+      const res = await app.inject({
+        method: 'POST', url: '/api/sessions/sa/messages', payload: { text: 'x', attachments },
+      });
+      expect(res.statusCode).toBe(400);
+    }
   });
 });

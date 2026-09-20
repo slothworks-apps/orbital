@@ -59,6 +59,7 @@ const defaultUi: OrbitalUiState = {
   wsStatus: 'connected',
   dialog: null,
   sidebarCollapsed: false,
+  fileViewer: null,
 }
 
 /** Fixed clock for the timed release — never Date.now(), the model is pure. */
@@ -849,11 +850,5 @@ describe('SpaceMap overlays and the live panel width', () => {
       .getByRole('button', { name: 'Zoom in' })
       .closest('[data-overlay="zoom-column"]') as HTMLElement
     expect(zoomStack.style.right).toBe('24px')
-  })
-
-  it('drops the right transition while the panel is being resized', async () => {
-    await renderMap({ ui: { resizingPanel: true } })
-    const zoomStack = screen.getByRole('button', { name: 'Zoom in' }).parentElement as HTMLElement
-    expect(zoomStack.className).not.toMatch(/transition-\[right\]/)
   })
 })

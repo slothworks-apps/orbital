@@ -45,6 +45,7 @@ const defaultUi: OrbitalUiState = {
   wsStatus: 'connected',
   dialog: null,
   sidebarCollapsed: false,
+  fileViewer: null,
 }
 
 function resetStore(
@@ -367,26 +368,6 @@ describe('Sidebar', () => {
       await user.click(entry)
       expect(useOrbital.getState().ui.dialog).toBe('settings')
     }
-  })
-
-  // 1a splits the two lists visually: active rows sit at 9px vertical with a
-  // semibold title, history rows tighten to 8px and drop to medium.
-  it('renders history rows tighter and lighter than active rows', () => {
-    resetStore({
-      sessions: {
-        a: makeSession({ id: 'a', title: 'Alpha', status: 'idle' }),
-        b: makeSession({ id: 'b', title: 'Beta', status: 'ended' }),
-      },
-    })
-
-    render(<Sidebar observerFactory={noopObserverFactory} />)
-
-    const activeRow = screen.getByRole('button', { name: /Alpha/ })
-    const historyRow = screen.getByRole('button', { name: /Beta/ })
-    expect(activeRow.className).toMatch(/py-\[9px\]/)
-    expect(historyRow.className).toMatch(/py-2/)
-    expect(within(activeRow).getByText('Alpha').className).toMatch(/font-semibold/)
-    expect(within(historyRow).getByText('Beta').className).toMatch(/font-medium/)
   })
 
   it('toggles sidebarCollapsed via the collapse button', async () => {

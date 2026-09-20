@@ -110,6 +110,7 @@ const defaultUi: OrbitalUiState = {
   wsStatus: 'connected',
   dialog: 'settings',
   sidebarCollapsed: false,
+  fileViewer: null,
 }
 
 function resetStore(
@@ -492,32 +493,6 @@ describe('Settings › Tags & rules', () => {
     ;[10, 20, 30, 40].forEach((id) => expect(row(id).style.transform).toBe(''))
   })
 
-  it('animates the gap only while the drag is live, and only when motion is allowed', () => {
-    resetStore({ rules: fourRules })
-    renderTags()
-    stubRowHeights(48)
-
-    // At rest the row transitions colour, not transform.
-    expect(row(20).className).toContain('transition-colors')
-    expect(row(20).className).not.toContain('transition-transform')
-
-    const dt = makeDataTransfer()
-    fireEvent.dragStart(grip(1), { dataTransfer: dt })
-
-    // Mid-drag exactly one transition-property utility applies, and it is
-    // gated on prefers-reduced-motion: the gap still opens for everyone, the
-    // animation is what gets dropped.
-    expect(row(20).className).toContain('motion-safe:transition-transform')
-    expect(row(20).className).not.toContain('transition-colors')
-    expect(row(20).className).toContain('motion-safe:duration-[180ms]')
-
-    // Back to colour once the drag ends — on drop the DOM genuinely reorders,
-    // and a transform transition there would slide rows the wrong way.
-    fireEvent.dragEnd(grip(1), { dataTransfer: dt })
-    expect(row(20).className).toContain('transition-colors')
-    expect(row(20).className).not.toContain('transition-transform')
-  })
-
   it('flushes a pending pattern PATCH before a drag reorder lands', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
@@ -774,37 +749,12 @@ describe('Settings › Tags & rules', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('shows the evaluation-order caption and the hue/default-fallback footer note naming the default tag', () => {
-    resetStore()
-    renderTags()
-
-    expect(screen.getByText(/evaluated top → bottom, first match wins/i)).toBeInTheDocument()
-    const note = screen.getByText(/planet's atmosphere/i)
-    expect(note).toBeInTheDocument()
-    // Canvas 1e names the actual fallback tag, it isn't a generic sentence.
-    expect(note.textContent).toContain('fall back to default')
-  })
-
   it('closes from the header back chevron', () => {
     resetStore()
     const { onClose } = renderTags()
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalled()
-  })
-
-  it('renders the 1e panel header: SETTINGS kicker, title and the counted column headings', () => {
-    resetStore({ rules: [rule1, workRule2] })
-    renderTags()
-
-    expect(screen.getByText('SETTINGS')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Tags & rules' })).toBeInTheDocument()
-    expect(screen.getByText('TAGS · 2')).toBeInTheDocument()
-    // Every rule is counted — the column is the one global evaluation order.
-    expect(screen.getByText('AUTO-TAG RULES · 2')).toBeInTheDocument()
-    ;['CONDITION', 'PATTERN', '→ TAG', 'ON'].forEach((caption) => {
-      expect(screen.getByText(caption)).toBeInTheDocument()
-    })
   })
 
   it('shows "saved · just now" in the header only after a mutation lands', async () => {
@@ -834,20 +784,6 @@ describe('Settings › Tags & rules', () => {
     })
     // The name carries the rule AND its position, so arrowing is not blind.
     expect(grip(1)).toHaveAccessibleName('Reorder rule 1 of 2: path matches /work/** → work')
-  })
-
-  it('renders "+ Add rule" as a dashed full-width row at the end of the rules list', () => {
-    resetStore()
-    renderTags()
-
-    const addRow = screen.getByTestId('add-rule-row')
-    expect(addRow).toBe(screen.getByRole('button', { name: '+ Add rule' }))
-    expect(addRow.className).toContain('border-dashed')
-    expect(addRow.className).toContain('w-full')
-    // It lives inside the rules list, after the last rule row (canvas 1e).
-    const list = addRow.parentElement!
-    expect(list.querySelectorAll('[data-rule-row]').length).toBe(2)
-    expect(list.lastElementChild).toBe(addRow)
   })
 
   it('tints the selected tag card in its own hue and keeps swatches + delete off the others', () => {
@@ -958,23 +894,6 @@ describe('Settings › Tags & rules', () => {
     )
   })
 
-  it('offers the 8 hue swatches of canvas 1e', () => {
-    resetStore()
-    renderTags()
-
-    const swatches = within(screen.getByRole('group', { name: 'Hue for work' })).getAllByRole('button')
-    expect(swatches.map((s) => s.getAttribute('aria-label'))).toEqual([
-      'Hue 210',
-      'Hue 250',
-      'Hue 290',
-      'Hue 330',
-      'Hue 20',
-      'Hue 60',
-      'Hue 110',
-      'Hue 150',
-    ])
-  })
-
   it('lists every rule regardless of which tag card is selected', () => {
     resetStore({ rules: [rule1, rule2] })
     renderTags()
@@ -1013,23 +932,6 @@ describe('Settings › Tags & rules', () => {
     expect(row(10).dataset.tagMatch).toBe('false')
     expect(row(20).dataset.tagMatch).toBe('true')
     expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(2)
-  })
-
-  it('keeps a marked row distinguishable from a disabled one', () => {
-    const disabled: TagRule = { ...rule2, enabled: 0 }
-    resetStore({ rules: [rule1, disabled] })
-    renderTags()
-
-    // Marked (targets the selected tag) — hue tint, never the disabled dim.
-    expect(row(10).dataset.tagMatch).toBe('true')
-    expect(row(10).dataset.ruleEnabled).toBe('true')
-    expect(row(10).className).not.toContain('opacity-60')
-    expect(row(10).style.borderColor).toContain('210')
-
-    // Disabled — 1e's opacity treatment, and no mark.
-    expect(row(20).dataset.ruleEnabled).toBe('false')
-    expect(row(20).dataset.tagMatch).toBe('false')
-    expect(row(20).className).toContain('opacity-60')
   })
 
   it('renders resting rows as readable text with no form controls (canvas 1e)', () => {

@@ -130,7 +130,8 @@ export const errors = sqliteTable(
     detail: text('detail'),
     /** JSON object as text. Read it through `ErrorLog`, never raw. */
     context: text('context'),
-    /** When the error list showed this row. Null until then. */
+    /** When the user marked this row read. Null while it still sits in the
+     * unread inbox; a stamped row leaves the list but stays in the table. */
     seenAt: integer('seen_at'),
   },
   (table) => [

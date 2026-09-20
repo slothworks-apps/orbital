@@ -90,6 +90,7 @@ export function useSceneModel(): SceneModel {
             wsStatus: '',
             dialog: null,
             sidebarCollapsed: false,
+            fileViewer: null,
           },
         },
         nowMs

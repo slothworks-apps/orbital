@@ -1,7 +1,7 @@
 ---
 id: clickable-file-paths-in-the-transcript
 title: File paths in the transcript should be pressable, and markdown should open in Orbital
-status: backlog
+status: done
 type: idea
 domain: web
 related:
@@ -16,6 +16,11 @@ tags:
 A session's whole output is about files, and not one of them can be opened
 from the panel. Reading `docs/ideas/subagent-model.md:12` in an assistant turn
 means selecting the path, switching to an editor and pasting it.
+
+> Shipped 2026-09-19 — see [[2026-09-19-file-viewer-design]]: pressable
+> paths in tool rows, INPUT values *and* assistant prose, plus the
+> in-Orbital viewer. Targets 2 and 3 below (editor, Finder) wait on
+> [[desktop-wrapper-electron]] and live with that idea.
 
 ## What is text today
 

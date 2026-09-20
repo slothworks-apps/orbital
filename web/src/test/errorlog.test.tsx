@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, waitFor, within, act } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ErrorRecord } from '../lib/types'
 
@@ -40,7 +40,6 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetStore()
   vi.mocked(api.markErrorsSeen).mockResolvedValue({ ok: true, unseen: 0 })
-  vi.mocked(api.clearErrors).mockResolvedValue({ ok: true, unseen: 0 })
   vi.mocked(api.reportErrorToServer).mockResolvedValue({
     error: makeError({ id: 1 }),
     unseen: 1,
@@ -141,64 +140,27 @@ describe('ErrorLog', () => {
     expect(screen.getByText('RENDER CRASH')).toBeInTheDocument()
   })
 
-  it('counts its entries in the header and reports how many unseen it just cleared', async () => {
-    resetStore(
-      [makeError({ id: 2 }), makeError({ id: 1, seenAt: 1 })],
-      1,
-    )
-
-    render(<ErrorLog open onClose={() => {}} />)
-
-    await waitFor(() => expect(api.markErrorsSeen).toHaveBeenCalledWith([2]))
-    expect(await screen.findByText('2 entries · 1 unseen cleared')).toBeInTheDocument()
-  })
-
-  it('clears the whole log from its Clear all button', async () => {
-    const user = userEvent.setup()
-    resetStore([makeError({ id: 1, seenAt: 1 })])
-
-    render(<ErrorLog open onClose={() => {}} />)
-    await user.click(screen.getByRole('button', { name: /clear all/i }))
-
-    await waitFor(() => expect(api.clearErrors).toHaveBeenCalledTimes(1))
-    expect(useOrbital.getState().errors).toEqual([])
-  })
-
-  it('marks every loaded row seen on open and drops the unseen count to the server’s number', async () => {
-    vi.mocked(api.markErrorsSeen).mockResolvedValue({ ok: true, unseen: 0 })
+  it('marks nothing on open — reading is not marking', async () => {
+    // The inbox contract: rows leave the list only when the user says so.
     resetStore([makeError({ id: 2 }), makeError({ id: 1 })], 2)
 
     render(<ErrorLog open onClose={() => {}} />)
 
-    await waitFor(() => expect(api.markErrorsSeen).toHaveBeenCalledWith([2, 1]))
-    await waitFor(() => expect(useOrbital.getState().errorsUnseen).toBe(0))
-    expect(useOrbital.getState().errors.every((e) => e.seenAt !== null)).toBe(true)
+    expect(api.markErrorsSeen).not.toHaveBeenCalled()
+    expect(useOrbital.getState().errorsUnseen).toBe(2)
   })
 
-  it('marks a record that arrives while it is already open too', async () => {
-    vi.mocked(api.markErrorsSeen).mockResolvedValue({ ok: true, unseen: 0 })
-    resetStore([makeError({ id: 1 })], 1)
+  it('Mark all seen stamps the whole table and empties the inbox', async () => {
+    const user = userEvent.setup()
+    resetStore([makeError({ id: 2 }), makeError({ id: 1 })], 2)
 
     render(<ErrorLog open onClose={() => {}} />)
-    await waitFor(() => expect(api.markErrorsSeen).toHaveBeenCalledWith([1]))
+    await user.click(screen.getByRole('button', { name: /mark all seen/i }))
 
-    act(() => {
-      useOrbital
-        .getState()
-        .applyErrorsEvent({ event: 'error', error: makeError({ id: 2 }), unseen: 1 })
-    })
-
-    await waitFor(() => expect(api.markErrorsSeen).toHaveBeenCalledWith([2]))
-    await waitFor(() => expect(useOrbital.getState().errorsUnseen).toBe(0))
-  })
-
-  it('marks nothing while it is closed', () => {
-    resetStore([makeError({ id: 1 })], 1)
-
-    render(<ErrorLog open={false} onClose={() => {}} />)
-
-    expect(api.markErrorsSeen).not.toHaveBeenCalled()
-    expect(useOrbital.getState().errorsUnseen).toBe(1)
+    await waitFor(() => expect(api.markErrorsSeen).toHaveBeenCalledWith('all'))
+    // The rows leave the list (they stay in the server's table).
+    await waitFor(() => expect(useOrbital.getState().errors).toEqual([]))
+    expect(useOrbital.getState().errorsUnseen).toBe(0)
   })
 })
 

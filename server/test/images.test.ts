@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createImageStore } from '../src/images/store.js';
@@ -113,6 +113,53 @@ describe('createImageStore', () => {
     const store = createImageStore(dir);
     expect(store.put('image/png', '')).toBeNull();
     expect(store.put('image/png', '%%%%')).toBeNull();
+  });
+
+  it('putBytes takes the buffer straight, and put lands on the same ref', () => {
+    const store = createImageStore(dir);
+    const bytes = pngBytes(64, 48);
+    const viaBytes = store.putBytes('image/png', bytes);
+    expect(viaBytes).toMatchObject({ w: 64, h: 48, bytes: bytes.length });
+    expect(viaBytes!.ref).toMatch(/^[a-f0-9]{64}\.png$/);
+    // The upload hop and the transcript hop are the same bytes, so they must
+    // be the same file — the whole point of addressing by content.
+    expect(store.put('image/png', bytes.toString('base64'))!.ref).toBe(viaBytes!.ref);
+    expect(readdirSync(dir)).toHaveLength(1);
+  });
+
+  it('putBytes refuses a media type outside the whitelist, and empty bytes', () => {
+    const store = createImageStore(dir);
+    expect(store.putBytes('application/pdf', Buffer.from('%PDF-1.4'))).toBeNull();
+    expect(store.putBytes('image/png', Buffer.alloc(0))).toBeNull();
+    expect(readdirSync(dir)).toHaveLength(0);
+  });
+
+  it('read round-trips what putBytes stored, media type back from the extension', () => {
+    const store = createImageStore(dir);
+    const bytes = jpegBytes(200, 100);
+    const entry = store.putBytes('image/jpeg', bytes)!;
+    expect(store.read(entry.ref)).toEqual({
+      mediaType: 'image/jpeg',
+      base64: bytes.toString('base64'),
+    });
+  });
+
+  it('read is null for a ref that names nothing, and for one that is not a ref at all', () => {
+    const store = createImageStore(dir);
+    expect(store.read(`${'a'.repeat(64)}.png`)).toBeNull();
+    // The same shape guard the images route applies: neither traversal nor an
+    // unlisted extension can name a file the store did not write.
+    expect(store.read('../../etc/passwd')).toBeNull();
+    expect(store.read('deadbeef.png')).toBeNull();
+    expect(store.read(`${'a'.repeat(64)}.jpeg`)).toBeNull();
+    expect(store.read('')).toBeNull();
+  });
+
+  it('read is null for a pruned ref rather than throwing', () => {
+    const store = createImageStore(dir);
+    const entry = store.putBytes('image/png', pngBytes(8, 8))!;
+    rmSync(join(dir, entry.ref));
+    expect(store.read(entry.ref)).toBeNull();
   });
 
   it('prunes oldest-by-mtime past the byte cap, never the file just written', () => {

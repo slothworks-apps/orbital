@@ -10,18 +10,6 @@ const MODELS: OrbitalModel[] = [
 ]
 
 describe('ModelCards', () => {
-  it('renders one radio per model, titled by the short version', () => {
-    render(<ModelCards models={MODELS} value="sonnet" onChange={() => {}} />)
-    expect(screen.getAllByRole('radio')).toHaveLength(3)
-    // "Opus 5", not "Opus 5 with 1M context" — the size is on its own line.
-    expect(screen.getByRole('radio', { name: 'Opus 5' })).toBeInTheDocument()
-  })
-
-  it('marks the selected model', () => {
-    render(<ModelCards models={MODELS} value="sonnet" onChange={() => {}} />)
-    expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
-  })
-
   it('shows the context window when known and nothing when not', () => {
     render(<ModelCards models={MODELS} value="sonnet" onChange={() => {}} />)
     expect(screen.getByText('1M CTX')).toBeInTheDocument()

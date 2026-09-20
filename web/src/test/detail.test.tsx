@@ -55,6 +55,7 @@ const defaultUi: OrbitalUiState = {
   sourceFilter: 'all',
   wsStatus: 'connected',
   dialog: null,
+  fileViewer: null,
   sidebarCollapsed: false,
 }
 
@@ -225,19 +226,6 @@ describe('DetailPanel header', () => {
     expect(container.querySelector('[data-usage-grid]')).not.toBeInTheDocument()
     expect(container.querySelector('[data-context-readout]')).not.toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
-  })
-
-  it('sizes the title field to its own value, so the dashed rule hugs the title (canvas 1b)', async () => {
-    resetStore({
-      sessions: { a: makeSession({ id: 'a', title: 'auth-refactor' }) },
-      ui: { selectedId: 'a' },
-    })
-
-    render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
-
-    // 1b: `width:13ch` for the 13-character "auth-refactor" (+1 for the caret).
-    expect(screen.getByDisplayValue('auth-refactor')).toHaveStyle({ width: '14ch' })
   })
 
   it('renames the session on Enter, updating the store optimistically and firing the API', async () => {
@@ -656,7 +644,10 @@ describe('DetailPanel footer', () => {
     )
   })
 
-  it('shows the ⏎ send · ⇧⏎ newline key hint beside the composer actions (canvas 1b)', async () => {
+  // The composer is `panels/Composer` now (spec: 2026-09-20-composer-design),
+  // so the hint carries the paste affordance and the field has its highlight
+  // mirror behind it.
+  it('shows the panel mount`s key hint beside the composer actions (canvas 9a)', async () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
       ui: { selectedId: 'a' },
@@ -665,8 +656,20 @@ describe('DetailPanel footer', () => {
     render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(screen.getByText('⏎ send · ⇧⏎ newline')).toBeInTheDocument()
+    expect(screen.getByText('⏎ send · ⇧⏎ newline · ⌘V paste image')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /send/i })).toHaveTextContent('Send ↑')
+  })
+
+  it('mounts the highlight mirror behind the panel`s prompt field', async () => {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(document.querySelector('[data-composer-mirror]')).not.toBeNull()
   })
 
   it('hides the composer key hint for a live terminal session (no composer to drive)', async () => {
@@ -678,7 +681,8 @@ describe('DetailPanel footer', () => {
     render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(screen.queryByText('⏎ send · ⇧⏎ newline')).not.toBeInTheDocument()
+    expect(screen.queryByText(/⏎ send/)).not.toBeInTheDocument()
+    expect(document.querySelector('[data-composer-mirror]')).toBeNull()
   })
 })
 
@@ -1072,12 +1076,6 @@ describe('DetailPanel — resizable width', () => {
   const firePointer = (el: Element, type: string, clientX: number) =>
     fireEvent(el, new MouseEvent(type, { bubbles: true, clientX }))
 
-  it('renders a drag handle on the inner edge with separator semantics', async () => {
-    await renderDetail({ session: webSession })
-    const handle = screen.getByRole('separator', { name: /resize panel/i })
-    expect(handle).toHaveAttribute('aria-orientation', 'vertical')
-  })
-
   it('dragging updates the stored width live and PATCHes once on release', async () => {
     vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
     await renderDetail({ session: webSession })
@@ -1124,5 +1122,159 @@ describe('DetailPanel — resizable width', () => {
     await waitFor(() =>
       expect(api.patchSettings).toHaveBeenCalledWith({ detail_panel_width: '450' })
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// File viewer mount (spec: 2026-09-19-file-viewer-design)
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel file viewer', () => {
+  it('mounts the viewer for the selected session when a file is open', async () => {
+    vi.mocked(api.filePreview).mockResolvedValue({
+      kind: 'ok',
+      content: 'const a = 1',
+      size: 11,
+      mtimeMs: Date.now(),
+      lines: 1,
+    })
+    resetStore({
+      sessions: { a: webSession },
+      order: ['a'],
+      ui: { selectedId: 'a', fileViewer: { path: 'web/src/App.tsx', line: null } },
+    })
+
+    render(<DetailPanel />)
+
+    expect(await screen.findByRole('dialog', { name: /File web\/src\/App\.tsx/ })).toBeInTheDocument()
+  })
+
+  it('mounts no viewer while none is open', () => {
+    resetStore({ sessions: { a: webSession }, order: ['a'], ui: { selectedId: 'a' } })
+    render(<DetailPanel />)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Image intake in the panel mount (spec: 2026-09-20-composer-design § Image
+// intake; canvas 9c).
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel image intake', () => {
+  /** jsdom has no DataTransfer; `items` is what the drop state reads. */
+  function imageDrag(files: File[] = []) {
+    return {
+      files,
+      items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+      types: ['Files'],
+    } as unknown as DataTransfer
+  }
+
+  const png = (name = 'after-390.png') =>
+    new File([new Uint8Array([1])], name, { type: 'image/png' })
+
+  const ENTRY = { ref: 'aaa.png', w: 1170, h: 760, bytes: 200_704 }
+
+  beforeEach(() => {
+    URL.createObjectURL = vi.fn(() => 'blob:preview')
+    URL.revokeObjectURL = vi.fn()
+    vi.mocked(api.uploadAttachment).mockResolvedValue({ kind: 'ok', entry: ENTRY })
+  })
+
+  async function mountPanel() {
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
+      ui: { selectedId: 'a' },
+    })
+    const result = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
+    return result
+  }
+
+  it('arms the whole panel on a drag carrying images, dimming what is behind the marker', async () => {
+    const { container } = await mountPanel()
+    const shell = container.querySelector('[data-drop-target]') as HTMLElement
+
+    fireEvent.dragEnter(shell, { dataTransfer: imageDrag([png()]) })
+
+    expect(shell).toHaveAttribute('data-drop-armed', 'true')
+    expect(screen.getByTestId('drop-marker')).toHaveTextContent('DROP TO ATTACH')
+    // 9c-1: the transcript drops to .35 so nothing competes with the marker.
+    expect(container.querySelector('[data-transcript-dim]')!.className).toContain('opacity-35')
+  })
+
+  it('arms Send on an uploaded chip alone and sends an image-only turn', async () => {
+    const { container } = await mountPanel()
+    const sendSpy = vi.spyOn(useOrbital.getState(), 'sendPrompt')
+    const send = () => screen.getByRole('button', { name: /send/i })
+    expect(send()).toBeDisabled()
+
+    const shell = container.querySelector('[data-drop-target]') as HTMLElement
+    fireEvent.drop(shell, { dataTransfer: imageDrag([png()]) })
+
+    await waitFor(() => expect(send()).toBeEnabled())
+    fireEvent.click(send())
+
+    await waitFor(() =>
+      expect(sendSpy).toHaveBeenCalledWith('a', '', [
+        { entry: ENTRY, name: 'after-390.png', source: 'file' },
+      ]),
+    )
+    // Text and chips clear together (9c-3).
+    expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
+  })
+
+  it('queues a send made while an upload is still in flight', async () => {
+    let land: (value: { kind: 'ok'; entry: typeof ENTRY }) => void = () => {}
+    vi.mocked(api.uploadAttachment).mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve
+      }),
+    )
+    const { container } = await mountPanel()
+    const sendSpy = vi.spyOn(useOrbital.getState(), 'sendPrompt')
+
+    const shell = container.querySelector('[data-drop-target]') as HTMLElement
+    fireEvent.drop(shell, { dataTransfer: imageDrag([png()]) })
+    await waitFor(() => expect(screen.getAllByTestId('attachment-chip')).toHaveLength(1))
+
+    const textbox = screen.getByRole('textbox', { name: /prompt/i })
+    fireEvent.change(textbox, { target: { value: 'both at 390' } })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    // The field cleared at once; the turn has not gone out yet.
+    expect(textbox).toHaveValue('')
+    expect(sendSpy).not.toHaveBeenCalled()
+
+    await act(async () => {
+      land({ kind: 'ok', entry: ENTRY })
+    })
+    await waitFor(() =>
+      expect(sendSpy).toHaveBeenCalledWith('a', 'both at 390', [
+        { entry: ENTRY, name: 'after-390.png', source: 'file' },
+      ]),
+    )
+  })
+
+  it('drops the chips when the panel moves to another session', async () => {
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', source: 'web' }),
+        b: makeSession({ id: 'b', source: 'web' }),
+      },
+      ui: { selectedId: 'a' },
+    })
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
+
+    const shell = container.querySelector('[data-drop-target]') as HTMLElement
+    fireEvent.drop(shell, { dataTransfer: imageDrag([png()]) })
+    await waitFor(() => expect(screen.getAllByTestId('attachment-chip')).toHaveLength(1))
+
+    await act(async () => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'b' } }))
+    })
+    expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
   })
 })

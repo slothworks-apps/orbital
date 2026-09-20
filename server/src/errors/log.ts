@@ -114,9 +114,13 @@ export class ErrorLog {
   }
 
   /**
-   * Newest first, paged by id rather than by offset: rows are pruned from the
-   * far end while a client pages, and an offset would silently skip or repeat
-   * rows when that happens.
+   * The unread inbox: only rows without `seen_at`, newest first. A row the
+   * user marked read leaves the list for good but stays in the table — the
+   * db keeps the full history, the UI only shows what still wants attention.
+   *
+   * Paged by id rather than by offset: rows are pruned from the far end
+   * while a client pages, and an offset would silently skip or repeat rows
+   * when that happens.
    */
   list(opts: { limit?: number; before?: number } = {}): ErrorPage {
     const limit = Math.min(Math.max(Number(opts.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT, 1), MAX_LIMIT);
@@ -124,7 +128,11 @@ export class ErrorLog {
     const rows = this.db
       .select()
       .from(errors)
-      .where(paged ? lt(errors.id, Number(opts.before)) : undefined)
+      .where(
+        paged
+          ? and(isNull(errors.seenAt), lt(errors.id, Number(opts.before)))
+          : isNull(errors.seenAt),
+      )
       .orderBy(desc(errors.id))
       .limit(limit)
       .all() as ErrorRow[];
@@ -133,7 +141,7 @@ export class ErrorLog {
 
   /**
    * Stamps `seen_at` on rows that do not already have one — an id already
-   * stamped keeps the moment it was first shown, so re-opening the list does
+   * stamped keeps the moment it was first read, so a later 'all' pass does
    * not rewrite history.
    */
   markSeen(target: number[] | 'all'): { unseen: number } {
@@ -144,12 +152,6 @@ export class ErrorLog {
     const unseen = this.unseen();
     this.hub.publish(ERRORS_TOPIC, { event: 'seen', ids, unseen });
     return { unseen };
-  }
-
-  /** Empties the table. The user asked for the list to be gone, so it goes. */
-  clear(): void {
-    this.db.delete(errors).run();
-    this.hub.publish(ERRORS_TOPIC, { event: 'cleared', unseen: 0 });
   }
 
   /** Unseen rows across the whole table. */

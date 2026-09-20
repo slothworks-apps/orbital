@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
+import multipart from '@fastify/multipart';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -368,6 +369,10 @@ export async function buildServer(overrides: {
     }
   });
   await app.register(websocket);
+  // The one non-JSON body Orbital takes: a composer attachment
+  // (`POST /api/sessions/:id/attachments`). The route sets its own size limit
+  // per request, so nothing is configured here.
+  await app.register(multipart);
   app.get(
     '/ws',
     {
@@ -382,7 +387,7 @@ export async function buildServer(overrides: {
     (socket) => hub.handleSocket(socket),
   );
   registerRoutes(app, {
-    db, registry, runner, projectsDir, hub, models, subagents, errors,
+    db, registry, runner, projectsDir, claudeDir, hub, models, subagents, errors,
     images, imagesDir,
     settings: settingsStore,
   });

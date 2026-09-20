@@ -75,7 +75,7 @@ A row in a new `errors` table (drizzle migration, alongside `settings`):
 | `message` | text | the one-line summary the toast shows |
 | `detail` | text, nullable | stack, `componentStack`, or response body — whatever the long form is |
 | `context` | text, nullable | JSON: `cwd`, `permissionMode`, `model`, request URL, HTTP status |
-| `seen_at` | integer, nullable | when the list showed this row to the user |
+| `seen_at` | integer, nullable | when the user marked this row read — read rows leave the list, never the table |
 
 Nothing is trimmed, redacted or summarised on the way in. A local tool has no
 one to hide a stack trace from, and the whole point of the change is that the
@@ -91,19 +91,24 @@ guard.
 
 - `record(entry)` — inserts, prunes, publishes the row on the hub topic
   `errors` as `{ event: 'error', error }`, and returns it.
-- `list({ limit, before })` — newest first, paged the way the sidebar's
-  history already pages. It returns the rows *and* `unseen`, the total count
-  of `seen_at IS NULL` across the whole table, so a count of 200 is right on
-  a page of 50.
-- `markSeen(ids | 'all')` — stamps `seen_at`, publishes the change.
-- `clear()` — empties the table, publishes the change.
+- `list({ limit, before })` — the *unread inbox*: only rows with
+  `seen_at IS NULL`, newest first, paged the way the sidebar's history
+  already pages. It returns the rows *and* `unseen`, the total count across
+  the whole table, so a count of 200 is right on a page of 50.
+- `markSeen(ids | 'all')` — stamps `seen_at`, publishes the change. A
+  stamped row leaves the list for good but stays in the table.
+- There is no `clear()` and no way to empty the *table* through the API
+  (decided 2026-09-20; the original delete-based Clear all silently threw
+  the history away). The db keeps every error ever recorded — the intended
+  use is triage: read, mark seen, and later maybe hand a stored record to
+  the developer or an agent to fix. The only thing that ever removes a row
+  is the runaway cap's prune.
 
 Routes, in `server/src/api/routes.ts`:
 
 - `GET /api/errors?limit=&before=`
 - `POST /api/errors` — the browser's own errors, forced to `source: 'web'`
 - `POST /api/errors/seen` — `{ ids }` or `{ all: true }`
-- `DELETE /api/errors`
 
 `Runner` gains an `onError?(sessionId, err)` dep, called from `pump()`'s
 catch. `index.ts` wires it to `record()` with `kind: 'session_failed'`, the
@@ -140,10 +145,12 @@ in this design that must not feed itself.
 
 `panels/ErrorLog.tsx`, over the existing `ui/Dialog`: newest first, each row
 expandable to its full `detail` and `context`, a copy button per row, and
-*Clear all*. Opening it stamps `seen_at` on every row it has loaded — not
-only the ones scrolled past, because a list you opened is a list you were
-shown. That is the only thing that lowers the unseen count. A record arriving
-while the list is already open is stamped too.
+*Mark all seen* (originally *Clear all*, before clearing stopped deleting).
+Opening the log marks nothing — reading is not marking (revised 2026-09-20;
+originally opening stamped every loaded row). The user reads, decides
+nothing needs them, and says so with the button, which stamps the whole
+table and empties the inbox. That click is the only thing that lowers the
+unseen count.
 
 The unseen count is exposed by the store and rendered as plainly as possible
 until there is a design for it.

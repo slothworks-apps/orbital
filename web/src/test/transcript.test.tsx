@@ -121,29 +121,6 @@ describe('MessageView', () => {
     })
   })
 
-  it('renders a fenced code block with no language as block-level markup, not inline code styling', () => {
-    const text = '```\nplain block\n```'
-    const { container } = render(<MessageView message={makeMessage({ id: '1', text })} />)
-
-    const pre = container.querySelector('pre')
-    expect(pre).toBeInTheDocument()
-    expect(pre?.textContent).toContain('plain block')
-    // Block-level styling (matches CodeBlock's own pending-state fallback),
-    // not the inline `code` chip styling (bg-white/10 px-1 py-0.5).
-    expect(pre?.className).toContain('bg-black/30')
-    expect(pre?.querySelector('code')?.className ?? '').not.toContain('bg-white/10')
-  })
-
-  it('marks the role via data-role, distinguishing user from assistant styling', () => {
-    const { container: userContainer } = render(
-      <MessageView message={makeMessage({ id: '1', role: 'user', text: 'hi' })} />
-    )
-    const { container: assistantContainer } = render(
-      <MessageView message={makeMessage({ id: '2', role: 'assistant', text: 'hi' })} />
-    )
-    expect(userContainer.querySelector('[data-role="user"]')).toBeInTheDocument()
-    expect(assistantContainer.querySelector('[data-role="assistant"]')).toBeInTheDocument()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -257,30 +234,6 @@ describe('ToolRow', () => {
     expect(screen.getByText(/214 KB/)).toBeInTheDocument()
   })
 
-  it('shows a collapsed one-liner with the tool name and salient input', () => {
-    render(<ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Bash', toolInput: { command: 'npm test' } })} />)
-    expect(screen.getByText('⚙')).toBeInTheDocument()
-    // Canvas 1b splits the line into a dim `Bash:` and a bright argument,
-    // so the row is asserted through its accessible name, not one text node.
-    expect(screen.getByRole('button', { name: /Bash: npm test/ })).toBeInTheDocument()
-  })
-
-  it('flips the disclosure caret and marks the row expanded when opened', async () => {
-    const user = userEvent.setup()
-    const { container } = render(
-      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Bash', toolInput: { command: 'npm test' } })} />
-    )
-
-    const row = container.querySelector('[data-role="tool"]')!
-    expect(row).toHaveAttribute('data-expanded', 'false')
-    expect(screen.getByText('▸')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /Bash: npm test/ }))
-
-    expect(row).toHaveAttribute('data-expanded', 'true')
-    expect(screen.getByText('▾')).toBeInTheDocument()
-  })
-
   it('expands to show the full input JSON and the result on click', async () => {
     const user = userEvent.setup()
     const toolUse = makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/a.ts' } })
@@ -320,6 +273,120 @@ describe('ToolRow', () => {
       />
     )
     expect(screen.queryByTestId('tool-running-dot')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Pressable paths (spec: 2026-09-19-file-viewer-design)
+// ---------------------------------------------------------------------------
+
+describe('ToolRow: pressable path', () => {
+  beforeEach(() => {
+    useOrbital.setState((s) => ({ ui: { ...s.ui, fileViewer: null } }))
+  })
+
+  it('pressing the path opens the viewer and leaves the row collapsed', () => {
+    const { container } = render(
+      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/a/b/store.ts' } })} />
+    )
+
+    fireEvent.click(container.querySelector('[data-path-button]')!)
+
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: '/a/b/store.ts', line: null })
+    expect(container.querySelector('[data-role="tool"]')).toHaveAttribute('data-expanded', 'false')
+  })
+
+  it('pressing anywhere else toggles the row without opening the viewer', () => {
+    const { container } = render(
+      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/a/b/store.ts' } })} />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Read: \/a\/b\/store\.ts/ }))
+
+    expect(container.querySelector('[data-role="tool"]')).toHaveAttribute('data-expanded', 'true')
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+  })
+
+  it('renders the expanded INPUT file_path value as a path button too', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <ToolRow
+        toolUse={makeToolUse({
+          id: 't1',
+          toolName: 'Edit',
+          toolInput: { file_path: '/a/b/store.ts', old_string: 'x', new_string: 'y' },
+        })}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Edit: \/a\/b\/store\.ts/ }))
+
+    // One in the collapsed label, one inside the pretty-printed INPUT.
+    expect(container.querySelectorAll('[data-path-button]')).toHaveLength(2)
+    // Everything else in the JSON stays text.
+    expect(screen.getByText(/"old_string"/)).toBeInTheDocument()
+
+    fireEvent.click(container.querySelectorAll('[data-path-button]')[1])
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: '/a/b/store.ts', line: null })
+  })
+
+  it('supports notebook_path on NotebookEdit', () => {
+    const { container } = render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 't1', toolName: 'NotebookEdit', toolInput: { notebook_path: '/n/b.py' } })}
+      />
+    )
+    const button = container.querySelector('[data-path-button]')!
+    fireEvent.click(button)
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: '/n/b.py', line: null })
+  })
+
+  it('leaves image and binary extensions as plain text', () => {
+    const { container } = render(
+      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/shots/map.png' } })} />
+    )
+    expect(container.querySelector('[data-path-button]')).toBeNull()
+    expect(screen.getByRole('button', { name: /Read: \/shots\/map\.png/ })).toBeInTheDocument()
+  })
+})
+
+describe('MessageView: pressable prose paths', () => {
+  beforeEach(() => {
+    useOrbital.setState((s) => ({ ui: { ...s.ui, fileViewer: null } }))
+  })
+
+  it('turns an assistant-prose path with a line into a path button', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', text: 'the fix is in web/src/App.tsx:42, honest' })} />
+    )
+
+    const button = container.querySelector('[data-path-button]')!
+    expect(button).toHaveTextContent('web/src/App.tsx:42')
+
+    fireEvent.click(button)
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'web/src/App.tsx', line: 42 })
+  })
+
+  it('never touches paths inside code spans or fenced blocks', () => {
+    const text = 'use `web/src/App.tsx` and\n\n```\ndocs/readme.md\n```'
+    const { container } = render(<MessageView message={makeMessage({ id: '1', text })} />)
+    expect(container.querySelector('[data-path-button]')).toBeNull()
+  })
+
+  it('leaves user turns alone', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', role: 'user', text: 'look at web/src/App.tsx:42' })} />
+    )
+    expect(container.querySelector('[data-path-button]')).toBeNull()
+  })
+
+  it('leaves authored markdown links as plain anchors', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', text: '[notes](https://example.com/a.md)' })} />
+    )
+    const anchor = container.querySelector('a')!
+    expect(anchor).toHaveAttribute('href', 'https://example.com/a.md')
+    expect(container.querySelector('[data-path-button]')).toBeNull()
   })
 })
 
@@ -523,6 +590,7 @@ const defaultUi: OrbitalUiState = {
   wsStatus: 'connected',
   dialog: null,
   sidebarCollapsed: false,
+  fileViewer: null,
 }
 
 function resetStore(

@@ -72,6 +72,7 @@ const initialSnapshot: OrbitalState = {
     sourceFilter: 'all',
     wsStatus: 'connecting',
     dialog: null,
+    fileViewer: null,
     sidebarCollapsed: false,
   },
 }
@@ -506,46 +507,32 @@ describe('the error log', () => {
     expect(useOrbital.getState().errors[0].message).toBe('new')
   })
 
-  it('stamps the ids a seen event names, and every row when it names null', () => {
+  it('drops the ids a seen event names, and every row when it names null', () => {
     useOrbital.setState({
-      errors: [makeError({ id: 2 }), makeError({ id: 1 })],
-      errorsUnseen: 2,
+      errors: [makeError({ id: 3 }), makeError({ id: 2 }), makeError({ id: 1 })],
+      errorsUnseen: 3,
     })
 
-    useOrbital.getState().applyErrorsEvent({ event: 'seen', ids: [2], unseen: 1 })
-    expect(useOrbital.getState().errors.map((e) => e.seenAt === null)).toEqual([false, true])
-    expect(useOrbital.getState().errorsUnseen).toBe(1)
+    useOrbital.getState().applyErrorsEvent({ event: 'seen', ids: [2], unseen: 2 })
+    expect(useOrbital.getState().errors.map((e) => e.id)).toEqual([3, 1])
+    expect(useOrbital.getState().errorsUnseen).toBe(2)
 
     useOrbital.getState().applyErrorsEvent({ event: 'seen', ids: null, unseen: 0 })
-    expect(useOrbital.getState().errors.every((e) => e.seenAt !== null)).toBe(true)
-    expect(useOrbital.getState().errorsUnseen).toBe(0)
-  })
-
-  it('keeps an already-stamped row on its original moment', () => {
-    useOrbital.setState({ errors: [makeError({ id: 1, seenAt: 42 })], errorsUnseen: 0 })
-
-    useOrbital.getState().applyErrorsEvent({ event: 'seen', ids: null, unseen: 0 })
-
-    expect(useOrbital.getState().errors[0].seenAt).toBe(42)
-  })
-
-  it('empties the log on a cleared event', () => {
-    useOrbital.setState({ errors: [makeError({ id: 1 })], errorsUnseen: 3 })
-
-    useOrbital.getState().applyErrorsEvent({ event: 'cleared', unseen: 0 })
-
     expect(useOrbital.getState().errors).toEqual([])
     expect(useOrbital.getState().errorsUnseen).toBe(0)
   })
 
-  it('markErrorsSeen posts the ids and takes the new count from the response', async () => {
+  it('markErrorsSeen posts the ids, drops the rows, and takes the count from the response', async () => {
     vi.mocked(api.markErrorsSeen).mockResolvedValueOnce({ ok: true, unseen: 5 })
-    useOrbital.setState({ errors: [makeError({ id: 7 })], errorsUnseen: 6 })
+    useOrbital.setState({
+      errors: [makeError({ id: 8 }), makeError({ id: 7 })],
+      errorsUnseen: 6,
+    })
 
     await useOrbital.getState().markErrorsSeen([7])
 
     expect(api.markErrorsSeen).toHaveBeenCalledWith([7])
-    expect(useOrbital.getState().errors[0].seenAt).not.toBeNull()
+    expect(useOrbital.getState().errors.map((e) => e.id)).toEqual([8])
     expect(useOrbital.getState().errorsUnseen).toBe(5)
   })
 
@@ -554,13 +541,13 @@ describe('the error log', () => {
     expect(api.markErrorsSeen).not.toHaveBeenCalled()
   })
 
-  it('clearErrorLog empties the slice after the DELETE resolves', async () => {
-    vi.mocked(api.clearErrors).mockResolvedValueOnce({ ok: true, unseen: 0 })
+  it("markErrorsSeen('all') empties the inbox", async () => {
+    vi.mocked(api.markErrorsSeen).mockResolvedValueOnce({ ok: true, unseen: 0 })
     useOrbital.setState({ errors: [makeError({ id: 1 })], errorsUnseen: 1 })
 
-    await useOrbital.getState().clearErrorLog()
+    await useOrbital.getState().markErrorsSeen('all')
 
-    expect(api.clearErrors).toHaveBeenCalled()
+    expect(api.markErrorsSeen).toHaveBeenCalledWith('all')
     expect(useOrbital.getState().errors).toEqual([])
     expect(useOrbital.getState().errorsUnseen).toBe(0)
   })
@@ -582,6 +569,7 @@ describe('filter/search/dialog setters', () => {
       sourceFilter: 'web',
       wsStatus: 'open',
       dialog: 'new',
+      fileViewer: null,
       sidebarCollapsed: true,
     })
   })
@@ -1152,5 +1140,181 @@ describe('parseDetailPanelWidth', () => {
     // The floor wins over the ceiling — a panel narrower than 360 stops
     // fitting its own header grid, per the idea doc.
     expect(parseDetailPanelWidth({ detail_panel_width: '500' }, 500)).toBe(360)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// File viewer UI state (spec: 2026-09-19-file-viewer-design § Wire + state)
+// ---------------------------------------------------------------------------
+
+describe('file viewer state', () => {
+  it('starts closed', () => {
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+  })
+
+  it('openFile stores the path with its line target', () => {
+    useOrbital.getState().openFile('web/src/App.tsx', 42)
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'web/src/App.tsx', line: 42 })
+  })
+
+  it('openFile without a line stores line null', () => {
+    useOrbital.getState().openFile('docs/readme.md')
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'docs/readme.md', line: null })
+  })
+
+  it('closeFile clears it', () => {
+    useOrbital.getState().openFile('docs/readme.md', 3)
+    useOrbital.getState().closeFile()
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+  })
+
+  it('selecting a different session closes the viewer — it belongs to the selected session', async () => {
+    useOrbital.setState({
+      sessions: { a: makeSession({ id: 'a' }), b: makeSession({ id: 'b' }) },
+    })
+    vi.mocked(api.getMessages).mockResolvedValue([])
+
+    await useOrbital.getState().select('a')
+    useOrbital.getState().openFile('web/src/App.tsx')
+    await useOrbital.getState().select('b')
+
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+  })
+
+  it('re-selecting the same session leaves the viewer open', async () => {
+    useOrbital.setState({ sessions: { a: makeSession({ id: 'a' }) } })
+    vi.mocked(api.getMessages).mockResolvedValue([])
+
+    await useOrbital.getState().select('a')
+    useOrbital.getState().openFile('web/src/App.tsx')
+    await useOrbital.getState().select('a')
+
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'web/src/App.tsx', line: null })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Composer attachments (spec: 2026-09-20-composer-design § Store + wire).
+// ---------------------------------------------------------------------------
+
+describe('sendPrompt with attachments', () => {
+  const ENTRY_A = { ref: 'aaa.png', w: 1512, h: 982, bytes: 290_816 }
+  const ENTRY_B = { ref: 'bbb.png', w: 1170, h: 760, bytes: 200_704 }
+
+  const attached = [
+    { entry: ENTRY_A, name: 'Clipboard image', source: 'clipboard' as const },
+    { entry: ENTRY_B, name: 'after-390.png', source: 'file' as const },
+  ]
+
+  it('carries the uploaded entries and their local provenance on the optimistic turn', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
+
+    await useOrbital.getState().sendPrompt('s1', 'both at 390', attached)
+
+    const [message] = useOrbital.getState().transcripts.s1
+    expect(message.images).toEqual([ENTRY_A, ENTRY_B])
+    expect(message.imageProvenance).toEqual({
+      'aaa.png': { name: 'Clipboard image', source: 'clipboard' },
+      'bbb.png': { name: 'after-390.png', source: 'file' },
+    })
+  })
+
+  it('sends the refs, not the entries', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
+    await useOrbital.getState().sendPrompt('s1', 'both at 390', attached)
+    expect(api.sendMessage).toHaveBeenCalledWith('s1', 'both at 390', ['aaa.png', 'bbb.png'])
+  })
+
+  it('sends an image-only turn — empty text is no longer nothing to send', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
+    await useOrbital.getState().sendPrompt('s1', '', [attached[0]])
+
+    const [message] = useOrbital.getState().transcripts.s1
+    expect(message.text).toBe('')
+    expect(message.images).toEqual([ENTRY_A])
+    expect(api.sendMessage).toHaveBeenCalledWith('s1', '', ['aaa.png'])
+  })
+
+  it('leaves a text-only turn exactly as it was — no empty images key', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
+    await useOrbital.getState().sendPrompt('s1', 'plain')
+
+    const [message] = useOrbital.getState().transcripts.s1
+    expect(message.images).toBeUndefined()
+    expect(message.imageProvenance).toBeUndefined()
+    expect(api.sendMessage).toHaveBeenCalledWith('s1', 'plain')
+  })
+
+  it('replaces the optimistic turn with the server echo and KEEPS the local captions', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
+    await useOrbital.getState().sendPrompt('s1', 'both at 390', attached)
+
+    useOrbital.getState().applySessionEvent('s1', {
+      event: 'message',
+      message: {
+        id: 'server-1',
+        role: 'user',
+        text: 'both at 390',
+        images: [ENTRY_A, ENTRY_B],
+      },
+    })
+
+    const transcript = useOrbital.getState().transcripts.s1
+    expect(transcript).toHaveLength(1)
+    expect(transcript[0].id).toBe('server-1')
+    expect(transcript[0].imageProvenance).toEqual({
+      'aaa.png': { name: 'Clipboard image', source: 'clipboard' },
+      'bbb.png': { name: 'after-390.png', source: 'file' },
+    })
+  })
+
+  it('matches the pending turn on its image refs, not on text alone', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValue({ ok: true })
+    // Two image-only turns: identical (empty) text, different bytes. Without
+    // the refs in the match the second echo would replace the first bubble.
+    await useOrbital.getState().sendPrompt('s1', '', [attached[0]])
+    await useOrbital.getState().sendPrompt('s1', '', [attached[1]])
+
+    useOrbital.getState().applySessionEvent('s1', {
+      event: 'message',
+      message: { id: 'server-2', role: 'user', text: '', images: [ENTRY_B] },
+    })
+
+    const transcript = useOrbital.getState().transcripts.s1
+    expect(transcript).toHaveLength(2)
+    expect(transcript[0].id.startsWith('local:')).toBe(true)
+    expect(transcript[1].id).toBe('server-2')
+    expect(transcript[1].imageProvenance).toEqual({
+      'bbb.png': { name: 'after-390.png', source: 'file' },
+    })
+  })
+
+  it('does not match a text-only echo against a pending turn that carried images', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
+    await useOrbital.getState().sendPrompt('s1', 'look', [attached[0]])
+
+    useOrbital.getState().applySessionEvent('s1', {
+      event: 'message',
+      message: { id: 'server-3', role: 'user', text: 'look' },
+    })
+
+    expect(useOrbital.getState().transcripts.s1).toHaveLength(2)
+  })
+})
+
+describe('launchSession with attachments', () => {
+  it('rides the refs along with the first prompt', async () => {
+    vi.mocked(api.createSession).mockImplementation(async (body) => body.sessionId ?? 'new')
+
+    await useOrbital.getState().launchSession({
+      cwd: '/work/web',
+      prompt: 'look at this',
+      permissionMode: 'acceptEdits',
+      attachments: ['aaa.png'],
+    })
+
+    expect(api.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: ['aaa.png'] }),
+    )
   })
 })

@@ -30,6 +30,30 @@ atlas validate    # run this before you commit
 ```
 <!-- atlas:end -->
 
+## Tests
+
+Write tests only where they can catch a real regression, not by reflex.
+A change is complete without a test unless it falls in the first list.
+
+Worth testing:
+
+- parsing, tokenizing and path/URL handling — anything with edge cases
+- server routes, security boundaries, persistence
+- pure logic that is hard to eyeball (layout math, geometry, state
+  transitions)
+
+Not worth testing:
+
+- that React renders its props — labels, classNames, data-attributes
+- exact styling values (px sizes, opacities, animation periods). These
+  freeze the canvas into the suite and break on every design tweak;
+  canvas fidelity is verified against Claude Design during the work
+  itself, not pinned in tests.
+- thin wrappers and glue with no branching
+
+Rule of thumb: a test earns its place only if it can fail for some
+reason other than someone deliberately changing the value it asserts.
+
 ## Visual design
 
 The design lives in Claude Design, not in this repository. Always read it

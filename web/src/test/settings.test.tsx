@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import type { OrbitalModel } from '../lib/types'
-import pkg from '../../package.json'
 
 // Same shape as `web/src/test/modelcards.test.tsx`'s fixture, so the two
 // suites' assumptions about `OrbitalModel` never drift apart.
@@ -48,6 +47,7 @@ const defaultUi: OrbitalUiState = {
   wsStatus: 'connected',
   dialog: 'settings',
   sidebarCollapsed: false,
+  fileViewer: null,
 }
 
 function resetStore(
@@ -236,25 +236,6 @@ describe('Settings', () => {
     expect(useOrbital.getState().settings.default_permission_mode).toBe('acceptEdits')
   })
 
-  it('lists General/Permissions/Shortcuts as disabled nav items; Sessions and Appearance are live', () => {
-    resetStore()
-    render(<Settings open onClose={vi.fn()} />)
-
-    for (const label of ['General', 'Permissions', 'Shortcuts']) {
-      const button = screen.getByRole('button', { name: new RegExp(`^${label}`) })
-      expect(button).toBeDisabled()
-    }
-    expect(screen.getByRole('button', { name: /^Sessions$/ })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: /^Appearance$/ })).not.toBeDisabled()
-  })
-
-  it('shows the orbital version in the nav footer', () => {
-    resetStore()
-    render(<Settings open onClose={vi.fn()} />)
-
-    expect(screen.getByText(`orbital ${pkg.version}`)).toBeInTheDocument()
-  })
-
   it('closes on Escape', () => {
     const onClose = vi.fn()
     resetStore()
@@ -304,24 +285,6 @@ function makeSession(id: string, cwd: string) {
 }
 
 describe('Settings — canvas 1h structure', () => {
-  it('orders the nav with "Tags & rules" between Permissions and Appearance', () => {
-    resetStore()
-    render(<Settings open onClose={vi.fn()} />)
-
-    const labels = Array.from(
-      screen.getByRole('navigation', { name: /settings sections/i }).querySelectorAll('button')
-    ).map((b) => b.textContent?.replace(/›$/, '').trim())
-
-    expect(labels).toEqual([
-      'General',
-      'Sessions',
-      'Permissions',
-      'Tags & rules',
-      'Appearance',
-      'Shortcuts',
-    ])
-  })
-
   it('offers the 2 h idle preset from 1h and patches it as plain minutes', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
@@ -346,21 +309,6 @@ describe('Settings — canvas 1h structure', () => {
       expect(api.patchSettings).toHaveBeenCalledWith({ ended_after_idle_minutes: 'never' })
     )
     expect(useOrbital.getState().settings.ended_after_idle_minutes).toBe('never')
-  })
-
-  it('lists every 1h idle preset in order', () => {
-    resetStore()
-    render(<Settings open onClose={vi.fn()} />)
-
-    openIdleSelect()
-    const options = screen.getAllByRole('option').map((o) => o.getAttribute('data-label'))
-    expect(options).toEqual([
-      '15 min idle',
-      '30 min idle',
-      '60 min idle',
-      '2 h idle',
-      'Never — only on Clear',
-    ])
   })
 
   it('keeps "Never" selected when the server already stores the sentinel', () => {

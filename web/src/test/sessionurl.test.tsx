@@ -6,7 +6,16 @@ vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 import { useOrbital } from '../store/store'
-import { readSessionParam, withSessionParam, useSessionUrl, SESSION_PARAM } from '../lib/sessionUrl'
+import {
+  readSessionParam,
+  withSessionParam,
+  readFileParams,
+  withFileParams,
+  useSessionUrl,
+  SESSION_PARAM,
+  FILE_PARAM,
+  LINE_PARAM,
+} from '../lib/sessionUrl'
 
 function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSession {
   return {
@@ -56,7 +65,7 @@ beforeEach(() => {
     order: [],
     transcripts: {},
     historyLoaded: {},
-    ui: { ...useOrbital.getState().ui, selectedId: null },
+    ui: { ...useOrbital.getState().ui, selectedId: null, fileViewer: null },
   })
   vi.mocked(api.getMessages).mockResolvedValue([])
 })
@@ -83,6 +92,40 @@ describe('session URL helpers', () => {
 
   it('replaces an existing id rather than appending a second one', () => {
     expect(withSessionParam('new', `http://x/?${SESSION_PARAM}=old`)).toBe(`/?${SESSION_PARAM}=new`)
+  })
+})
+
+describe('file URL helpers', () => {
+  it('reads the file and line parameters', () => {
+    expect(readFileParams(`http://x/?file=${encodeURIComponent('web/src/App.tsx')}&line=42`)).toEqual({
+      path: 'web/src/App.tsx',
+      line: 42,
+    })
+  })
+
+  it('reads a file without a line as line null, and no file as null', () => {
+    expect(readFileParams('http://x/?file=docs%2Freadme.md')).toEqual({
+      path: 'docs/readme.md',
+      line: null,
+    })
+    expect(readFileParams('http://x/?session=a')).toBeNull()
+  })
+
+  it('ignores an unparseable line parameter', () => {
+    expect(readFileParams('http://x/?file=a%2Fb.ts&line=forty')).toEqual({ path: 'a/b.ts', line: null })
+  })
+
+  it('sets and clears both parameters, leaving the rest alone', () => {
+    const base = 'http://x/?session=a'
+    expect(withFileParams({ path: 'a/b.ts', line: 7 }, base)).toBe(
+      `/?session=a&${FILE_PARAM}=${encodeURIComponent('a/b.ts')}&${LINE_PARAM}=7`
+    )
+    expect(withFileParams({ path: 'a/b.ts', line: null }, base)).toBe(
+      `/?session=a&${FILE_PARAM}=${encodeURIComponent('a/b.ts')}`
+    )
+    expect(withFileParams(null, `http://x/?session=a&${FILE_PARAM}=a%2Fb.ts&${LINE_PARAM}=7`)).toBe(
+      '/?session=a'
+    )
   })
 })
 
@@ -215,5 +258,116 @@ describe('useSessionUrl', () => {
     })
     await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('a'))
     expect(url()).toBe('?session=a')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// useSessionUrl × file viewer (spec: 2026-09-19-file-viewer-design § Wire + state)
+// ---------------------------------------------------------------------------
+
+describe('useSessionUrl: file viewer', () => {
+  it('pushes the open file and its line into the URL, and clears them on close', async () => {
+    setSessions([makeSession({ id: 'a' })])
+    render(<Probe />)
+    await waitFor(() => expect(url()).toBe(''))
+
+    await act(async () => {
+      await useOrbital.getState().select('a')
+    })
+    act(() => {
+      useOrbital.getState().openFile('web/src/App.tsx', 42)
+    })
+    expect(url()).toBe(`?session=a&file=${encodeURIComponent('web/src/App.tsx')}&line=42`)
+
+    act(() => {
+      useOrbital.getState().closeFile()
+    })
+    expect(url()).toBe('?session=a')
+  })
+
+  it('omits the line parameter for a file opened without one', async () => {
+    setSessions([makeSession({ id: 'a' })])
+    render(<Probe />)
+    await waitFor(() => expect(url()).toBe(''))
+
+    await act(async () => {
+      await useOrbital.getState().select('a')
+    })
+    act(() => {
+      useOrbital.getState().openFile('docs/readme.md')
+    })
+    expect(url()).toBe(`?session=a&file=${encodeURIComponent('docs/readme.md')}`)
+  })
+
+  it('opens the viewer on initial load once sessions settle', async () => {
+    setSessions([makeSession({ id: 'a' })])
+    goTo(`?session=a&file=${encodeURIComponent('web/src/App.tsx')}&line=42`)
+
+    render(<Probe />)
+
+    await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('a'))
+    await waitFor(() =>
+      expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'web/src/App.tsx', line: 42 })
+    )
+    // The restore is the entry the user landed on — nothing pushed.
+    expect(url()).toBe(`?session=a&file=${encodeURIComponent('web/src/App.tsx')}&line=42`)
+  })
+
+  it('drops a file parameter that arrives with no session — the viewer belongs to one', async () => {
+    goTo('?file=web%2Fsrc%2FApp.tsx')
+
+    render(<Probe />)
+
+    await waitFor(() => expect(url()).toBe(''))
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+  })
+
+  it('popstate drives the viewer both ways', async () => {
+    setSessions([makeSession({ id: 'a' })])
+    goTo('?session=a')
+    render(<Probe />)
+    await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('a'))
+
+    act(() => {
+      useOrbital.getState().openFile('web/src/App.tsx', 42)
+    })
+    const withFile = url()
+
+    // Back: the file params disappear -> the viewer closes.
+    await act(async () => {
+      goTo('?session=a')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+    expect(url()).toBe('?session=a')
+
+    // Forward: the params return -> the viewer reopens on the same target.
+    await act(async () => {
+      goTo(withFile)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'web/src/App.tsx', line: 42 })
+    expect(url()).toBe(withFile)
+  })
+
+  it('popstate across sessions lands with the target URL intact', async () => {
+    setSessions([makeSession({ id: 'a' }), makeSession({ id: 'b' })])
+    render(<Probe />)
+    await waitFor(() => expect(url()).toBe(''))
+
+    await act(async () => {
+      await useOrbital.getState().select('b')
+    })
+
+    // Jump straight to a history entry naming another session with a file
+    // open — both must land, and following the URL must not push anew.
+    const target = `?session=a&file=${encodeURIComponent('docs/readme.md')}&line=3`
+    await act(async () => {
+      goTo(target)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('a'))
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'docs/readme.md', line: 3 })
+    expect(url()).toBe(target)
   })
 })

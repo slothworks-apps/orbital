@@ -136,6 +136,17 @@ body {
   animation: orbital-caret 1s steps(1) infinite;
 }
 
+/* File viewer loading skeleton (canvas 8d-A): a highlight layer sweeping
+   across each bar once per 1.4s cycle, staggered 100ms per bar. */
+@keyframes orbital-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 /* Sloth easter egg (SpaceMap): slow wander across the map + a gentle bob. */
 @keyframes orbital-drift {
   0% {
@@ -177,4 +188,125 @@ body {
 
 .orbital-sloth-bob {
   animation: orbital-bob 5s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   Composer image intake (canvas 9c/9d/9e). Keyframes rather than Tailwind
+   transitions because each of these is a named animation the canvas spells out
+   by duration and easing, and two of them run on mount — which a transition
+   utility cannot do at all.
+   --------------------------------------------------------------------------- */
+
+/* The drop marker's pulse — `orb-droppulse` from the canvas verbatim: border
+   .38/.62 and fill .05/.09 over 1.2s (9c-1, 9e drop state). */
+@keyframes orbital-droppulse {
+  0%,
+  100% {
+    border-color: oklch(85% 0.12 205 / 0.38);
+    background-color: oklch(85% 0.12 205 / 0.05);
+  }
+  50% {
+    border-color: oklch(85% 0.12 205 / 0.62);
+    background-color: oklch(85% 0.12 205 / 0.09);
+  }
+}
+
+/* Two animations, one declaration: the marker fades in over .12s as the state
+   arms (9e drop state) and then pulses forever. They touch different properties
+   — opacity versus border/background colour — so they never fight. Written as
+   one `animation` because a second class setting the same property would simply
+   replace this one. */
+.orbital-droppulse {
+  animation:
+    orbital-fade-in 0.12s ease,
+    orbital-droppulse 1.2s ease-in-out infinite;
+}
+
+/* A chip arriving (9e): opacity and a 98%→100% scale, no slide — the well grows
+   in the same frame, so the text below it moves once. */
+@keyframes orbital-chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.orbital-chip-in {
+  animation: orbital-chip-in 0.14s ease;
+}
+
+/* Leaving on × is opacity only, and then the row reflows (9e). `forwards` keeps
+   the chip invisible for the frame between the animation ending and the list
+   dropping it. */
+@keyframes orbital-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.orbital-chip-out {
+  animation: orbital-fade-out 0.1s ease forwards;
+}
+
+/* The refusal line: in .16s, out .2s, replacing the hint line in place (9e). */
+@keyframes orbital-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.orbital-refusal-in {
+  animation: orbital-fade-in 0.16s ease;
+}
+
+.orbital-refusal-out {
+  animation: orbital-fade-out 0.2s ease forwards;
+}
+
+/* ---------------------------------------------------------------------------
+   Sent tokens in the transcript (canvas 9e SENT). The tint holds after the
+   turn is sent — display-only: no hover, no cursor change, no focus ring, and
+   deliberately quieter than the composer's live tint (.08 fill against .13).
+
+   Plain CSS rather than Tailwind utilities because these spans are produced by
+   a rehype plugin, not by JSX, so there is no `className` string for the
+   Tailwind scanner to find.
+   --------------------------------------------------------------------------- */
+/* No negative margin here, unlike the composer's mirror: there is no caret to
+   stay in register with in a sent turn, so the padding is real — which is also
+   how the canvas draws it (9c-3, 9e SENT carry padding and no margin). */
+.orbital-sent-command,
+.orbital-sent-mention {
+  border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* 9e SENT. Quieter than the composer's live tint: .08 fill against its .13. */
+.orbital-sent-command {
+  padding: 1px 5px;
+  background: rgb(150 205 255 / 0.08);
+  color: rgb(220 235 255 / 0.85);
+}
+
+/* 9c-3's sent bubble: the mention keeps its ring and its tighter 4px pad. */
+.orbital-sent-mention {
+  padding: 1px 4px;
+  background: rgb(150 205 255 / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(150 205 255 / 0.18);
+  color: #dfeeff;
+}
+
+.orbital-sent-suffix {
+  color: rgb(160 190 225 / 0.6);
 }

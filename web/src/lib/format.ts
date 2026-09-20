@@ -42,6 +42,19 @@ export function shortenPath(cwd: string): string {
 }
 
 /**
+ * Byte counts as the transcript prints them — "512 B", "214 KB", "1.3 MB".
+ * Moved here from `panels/ImageThumb.tsx` once the file viewer became its
+ * second consumer; a display formatter belongs with the others.
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  // A round megabyte count prints round — the viewer's "10 MB ceiling"
+  // must not read "10.0 MB" (canvas 8d-C names sizes bare).
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB`
+}
+
+/**
  * Context-window sizes as the model pickers print them — "200k", "1M".
  * Distinct from `formatTokens`: this formats a round budget, not a measured
  * count, so it never shows a decimal it does not need.

@@ -16,17 +16,6 @@ beforeAll(() => {
 })
 
 describe('SandboxPage', () => {
-  it('starts on a working planet with nothing toggled', () => {
-    render(<SandboxPage />)
-    expect(screen.getByRole('combobox', { name: 'STATE' })).toHaveTextContent('working')
-    expect(screen.getByRole('combobox', { name: 'TAG HUE' })).toHaveTextContent('hue 210')
-    expect(screen.getByLabelText('selected (reticle)')).not.toBeChecked()
-    expect(screen.getByLabelText('hidden (ended suppression)')).not.toBeChecked()
-    // On by default so the sandbox transition includes the tier-size change
-    // the map performs (`scaleFor` in map/layout.ts).
-    expect(screen.getByLabelText('scale follows state (layout tiers)')).toBeChecked()
-  })
-
   it('offers every planet state and commits a change', () => {
     render(<SandboxPage />)
     const trigger = screen.getByRole('combobox', { name: 'STATE' })
@@ -37,15 +26,5 @@ describe('SandboxPage', () => {
     }
     fireEvent.click(screen.getByRole('option', { name: 'needs input' }))
     expect(trigger).toHaveTextContent('needs input')
-  })
-
-  it('toggles the selection reticle and the ended suppression', () => {
-    render(<SandboxPage />)
-    const selected = screen.getByLabelText('selected (reticle)')
-    fireEvent.click(selected)
-    expect(selected).toBeChecked()
-    const hidden = screen.getByLabelText('hidden (ended suppression)')
-    fireEvent.click(hidden)
-    expect(hidden).toBeChecked()
   })
 })

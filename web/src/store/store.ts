@@ -3,8 +3,10 @@ import { api, ApiError } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import type {
   ApiSession,
+  AttachmentSource,
   ChatMessage,
   ErrorRecord,
+  ImageRefEntry,
   OrbitalModel,
   PermissionMode,
   SessionSource,
@@ -45,7 +47,6 @@ export type SessionEvent =
 export type ErrorsEvent =
   | { event: 'error'; error: ErrorRecord; unseen: number }
   | { event: 'seen'; ids: number[] | null; unseen: number }
-  | { event: 'cleared'; unseen: number }
 
 export interface Toast {
   kind: 'error' | 'info'
@@ -64,6 +65,15 @@ export interface OrbitalUiState {
   sourceFilter: 'all' | SessionSource
   wsStatus: string
   dialog: null | 'new' | 'clear' | 'stop' | 'settings' | 'errors'
+  /**
+   * The file the read-only viewer is showing over the app, or null when it
+   * is closed (spec: 2026-09-19-file-viewer-design). Plain synchronous UI
+   * state like `selectedId` — never persisted; the URL mirror in
+   * `lib/sessionUrl.ts` is what survives a reload. The viewer always
+   * belongs to the selected session, so `select()`ing a different session
+   * closes it.
+   */
+  fileViewer: { path: string; line: number | null } | null
   /** Sidebar collapsed to its narrow rail (Panel's `collapsed` prop). See Sidebar.tsx (task 10). */
   sidebarCollapsed: boolean
   /**
@@ -136,23 +146,36 @@ export interface OrbitalState {
   ui: OrbitalUiState
 }
 
+/**
+ * One uploaded attachment as the send path takes it: the stored entry (which is
+ * all the server needs — `sendPrompt` posts the refs) plus the provenance only
+ * this client knows, which rides along onto the optimistic turn and becomes the
+ * transcript caption (spec: 2026-09-20-composer-design § The transcript side).
+ */
+export interface SentAttachment {
+  entry: ImageRefEntry
+  name: string
+  source: AttachmentSource
+}
+
 export interface OrbitalActions {
   loadInitial(): Promise<void>
   applySessionsEvent(msg: SessionsEvent): void
   applySessionEvent(sessionId: string, msg: SessionEvent): void
   applyErrorsEvent(msg: ErrorsEvent): void
   markErrorsSeen(target: number[] | 'all'): Promise<void>
-  clearErrorLog(): Promise<void>
   launchSession(body: {
     cwd: string
     prompt: string
     permissionMode: PermissionMode
     tagId?: number
     model?: string
+    /** Image refs the dialog's first turn carries (spec: 2026-09-20-composer-design). */
+    attachments?: string[]
   }): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[]>
-  sendPrompt(id: string, text: string): Promise<void>
+  sendPrompt(id: string, text: string, attachments?: readonly SentAttachment[]): Promise<void>
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
@@ -162,6 +185,10 @@ export interface OrbitalActions {
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
   revealHistory(): void
   setDialog(dialog: OrbitalUiState['dialog']): void
+  /** Opens the file viewer over the selected session. `line` is the `:line`
+   * scroll target a path button carried, absent for a bare path. */
+  openFile(path: string, line?: number | null): void
+  closeFile(): void
   setSidebarCollapsed(sidebarCollapsed: boolean): void
   setWsStatus(wsStatus: string): void
   clearToast(): void
@@ -176,6 +203,21 @@ let localMessageCounter = 0
 function nextLocalMessageId(): string {
   localMessageCounter += 1
   return `local:${Date.now()}:${localMessageCounter}`
+}
+
+/**
+ * One message's images as a comparable key — sorted, so the order a turn's
+ * blocks came back in is not part of the match. Empty string for a turn with
+ * no images, which is what makes a text-only echo fail to match a pending turn
+ * that carried one.
+ */
+function imageRefKey(images: readonly ImageRefEntry[] | undefined): string {
+  if (!images || images.length === 0) return ''
+  return images
+    .map((image) => image.ref)
+    .slice()
+    .sort()
+    .join(' ')
 }
 
 /**
@@ -230,14 +272,15 @@ function releaseLaunchSubscription(sessionId: string): void {
  * never rewrites `seen_at` either, so re-opening the log must not make the
  * client disagree with it about when a row was first shown.
  */
-function stampSeen(errors: ErrorRecord[], ids: number[] | null): ErrorRecord[] {
-  const at = Date.now()
-  const wanted = ids === null ? null : new Set(ids)
-  return errors.map((error) =>
-    error.seenAt === null && (wanted === null || wanted.has(error.id))
-      ? { ...error, seenAt: at }
-      : error,
-  )
+/**
+ * The slice mirrors the server's list, which is an unread inbox — so a row
+ * marked seen does not get a stamp here, it leaves. `null` means all of them,
+ * matching the `'seen'` event's whole-table shape.
+ */
+function dropSeen(errors: ErrorRecord[], ids: number[] | null): ErrorRecord[] {
+  if (ids === null) return []
+  const seen = new Set(ids)
+  return errors.filter((error) => !seen.has(error.id))
 }
 
 function sortIdsByLastAtDesc(sessions: Record<string, ApiSession>): string[] {
@@ -253,6 +296,7 @@ const initialUiState: OrbitalUiState = {
   sourceFilter: 'all',
   wsStatus: 'connecting',
   dialog: null,
+  fileViewer: null,
   sidebarCollapsed: false,
 }
 
@@ -381,19 +425,36 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // The server echo of a user message we already appended optimistically
       // (see `sendPrompt`) arrives with its own, server-issued id — dedup by
       // id above can't catch it. Replace the matching pending `local:`
-      // message in place (same trimmed text) instead of appending, so the
-      // transcript doesn't show two copies of the same user bubble.
+      // message in place (same trimmed text AND the same image refs) instead
+      // of appending, so the transcript doesn't show two copies of the same
+      // user bubble.
+      //
+      // The refs are part of the match because text alone stopped being
+      // distinguishing once a turn could be image-only: two pasted screenshots
+      // are two turns with identical (empty) text, and matching on text would
+      // have the second echo overwrite the first bubble. The store is
+      // content-addressed, so same bytes mean the same ref on both sides —
+      // there is nothing to normalise (spec: 2026-09-20-composer-design
+      // § Store + wire).
       if (msg.message.role === 'user') {
         const incomingText = (msg.message.text ?? '').trim()
+        const incomingRefs = imageRefKey(msg.message.images)
         const pendingIdx = existing.findIndex(
           (m) =>
             m.id.startsWith('local:') &&
             m.role === 'user' &&
-            (m.text ?? '').trim() === incomingText,
+            (m.text ?? '').trim() === incomingText &&
+            imageRefKey(m.images) === incomingRefs,
         )
         if (pendingIdx >= 0) {
           const updated = existing.slice()
-          updated[pendingIdx] = msg.message
+          // The echo wins on everything the server owns, but the captions are
+          // local-only: an SDK image block carries no name, so dropping them
+          // here would blank every caption the moment the echo landed.
+          const provenance = existing[pendingIdx].imageProvenance
+          updated[pendingIdx] = provenance
+            ? { ...msg.message, imageProvenance: provenance }
+            : msg.message
           set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
           return
         }
@@ -485,40 +546,27 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
 
     if (msg.event === 'seen') {
-      set({ errors: stampSeen(state.errors, msg.ids), errorsUnseen: msg.unseen })
-      return
-    }
-
-    if (msg.event === 'cleared') {
-      set({ errors: [], errorsUnseen: msg.unseen ?? 0 })
+      set({ errors: dropSeen(state.errors, msg.ids), errorsUnseen: msg.unseen })
     }
   },
 
   /**
-   * Stamps `seen_at` on the rows the log has shown. The only thing that
-   * lowers the unseen count. Silent on failure: a log the user is already
-   * looking at should not raise an error toast about its own bookkeeping,
-   * and reporting it would feed the very list it failed to mark.
+   * Marks rows read, which removes them from the inbox — the user's explicit
+   * act, never something the UI does on their behalf. The rows stay in the
+   * server's table. Silent on failure: a log the user is already looking at
+   * should not raise an error toast about its own bookkeeping, and reporting
+   * it would feed the very list it failed to mark.
    */
   async markErrorsSeen(target) {
     if (target !== 'all' && target.length === 0) return
     try {
       const result = await api.markErrorsSeen(target)
       set((state) => ({
-        errors: stampSeen(state.errors, target === 'all' ? null : target),
+        errors: dropSeen(state.errors, target === 'all' ? null : target),
         errorsUnseen: result?.unseen ?? 0,
       }))
     } catch (err) {
       console.error('orbital: failed to mark errors seen', err)
-    }
-  },
-
-  async clearErrorLog() {
-    try {
-      await api.clearErrors()
-      set({ errors: [], errorsUnseen: 0 })
-    } catch (err) {
-      console.error('orbital: failed to clear the error log', err)
     }
   },
 
@@ -565,7 +613,15 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async select(id) {
-    set((state) => ({ ui: { ...state.ui, selectedId: id } }))
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        selectedId: id,
+        // The viewer belongs to the selected session — moving to another
+        // session closes it; re-selecting the same one leaves it alone.
+        fileViewer: state.ui.selectedId === id ? state.ui.fileViewer : null,
+      },
+    }))
 
     if (get().historyLoaded[id]) return
 
@@ -619,12 +675,24 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
   },
 
-  async sendPrompt(id, text) {
+  async sendPrompt(id, text, attachments) {
+    const images = attachments?.map((a) => a.entry)
     const optimisticMessage: ChatMessage = {
       id: nextLocalMessageId(),
       role: 'user',
       text,
       timestamp: new Date().toISOString(),
+      // Absent, not empty, for a text-only turn: `MessageView` reads
+      // `images.length` to decide whether a turn has a thumbnail row, and an
+      // empty array on every plain message would be noise in every fixture.
+      ...(images && images.length > 0
+        ? {
+            images,
+            imageProvenance: Object.fromEntries(
+              attachments!.map((a) => [a.entry.ref, { name: a.name, source: a.source }]),
+            ),
+          }
+        : {}),
     }
 
     set((state) => ({
@@ -635,7 +703,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }))
 
     try {
-      await api.sendMessage(id, text)
+      // Two-argument call for a text-only turn, deliberately: a trailing
+      // `undefined` is a different call as far as every existing assertion in
+      // the suite is concerned, and a plain turn's wire shape has not changed.
+      if (images && images.length > 0) {
+        await api.sendMessage(id, text, images.map((image) => image.ref))
+      } else {
+        await api.sendMessage(id, text)
+      }
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         set({
@@ -746,6 +821,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   setDialog(dialog) {
     set((state) => ({ ui: { ...state.ui, dialog } }))
+  },
+
+  openFile(path, line) {
+    set((state) => ({ ui: { ...state.ui, fileViewer: { path, line: line ?? null } } }))
+  },
+
+  closeFile() {
+    set((state) => ({ ui: { ...state.ui, fileViewer: null } }))
   },
 
   // Same optimistic shape as `setHideEnded`: the rail collapses now, the

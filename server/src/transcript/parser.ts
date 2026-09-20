@@ -1,5 +1,5 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
-import type { ImageStore } from '../images/store.js';
+import type { ImageWriter } from '../images/store.js';
 
 export interface TranscriptEntry {
   type: string;
@@ -153,7 +153,7 @@ export function extractMeta(entries: TranscriptEntry[]) {
  */
 export function imageRefOf(
   block: Record<string, unknown>,
-  images?: ImageStore,
+  images?: ImageWriter,
 ): ImageRefEntry | null {
   if (!images) return null;
   const source = block.source as Record<string, unknown> | undefined;
@@ -171,7 +171,7 @@ export function imageRefOf(
  */
 export function toolResultParts(
   content: unknown,
-  images?: ImageStore,
+  images?: ImageWriter,
 ): { text: string; images: ImageRefEntry[] } {
   if (typeof content === 'string') return { text: content, images: [] };
   if (!Array.isArray(content)) return { text: JSON.stringify(content), images: [] };
@@ -192,7 +192,7 @@ export function toolResultParts(
   return { text: texts.join('\n'), images: refs };
 }
 
-export function entriesToMessages(entries: TranscriptEntry[], images?: ImageStore): ChatMessage[] {
+export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWriter): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const e of entries) {
     if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || e.isSidechain) continue;

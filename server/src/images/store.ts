@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -18,7 +18,27 @@ export type { ImageRefEntry };
 
 export interface ImageStore {
   put(mediaType: string, base64: string): ImageRefEntry | null;
+  /**
+   * The same store entry from bytes rather than base64 — what a composer
+   * upload arrives as (`POST /api/sessions/:id/attachments`). `put` decodes
+   * and delegates here, so a screenshot pasted into the composer and the same
+   * screenshot read back out of a transcript are one file.
+   */
+  putBytes(mediaType: string, bytes: Buffer): ImageRefEntry | null;
+  /**
+   * Reads a stored image back out for the one hop that needs base64 again:
+   * the SDK user message an attachment rides in on. Null for a ref that names
+   * nothing — a pruned attachment is skipped, never an error.
+   */
+  read(ref: string): { mediaType: string; base64: string } | null;
 }
+
+/**
+ * The half of the store the transcript path needs. Reading a transcript only
+ * ever *puts* images — `read` and `putBytes` belong to the composer's upload
+ * and send hops — so the parser asks for no more than it uses.
+ */
+export type ImageWriter = Pick<ImageStore, 'put'>;
 
 /** Cap in the errors-table spirit: the store must not grow forever. */
 export const IMAGE_STORE_MAX_BYTES = 512 * 1024 * 1024;
@@ -31,6 +51,12 @@ const EXT: Record<string, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
 };
+
+/** `EXT` read the other way, for `read()`: the stored name is all that is left
+ * of what was uploaded, so the extension is what names the media type again. */
+const MEDIA_TYPE: Record<string, string> = Object.fromEntries(
+  Object.entries(EXT).map(([mediaType, ext]) => [ext, mediaType]),
+);
 
 function pngDims(b: Buffer): [number, number] | null {
   if (b.length < 24) return null;
@@ -103,14 +129,10 @@ export function createImageStore(
     }
   }
 
-  return {
-    put(mediaType, base64) {
+  const store: ImageStore = {
+    putBytes(mediaType, bytes) {
       const ext = EXT[mediaType];
       if (!ext) return null;
-      // Buffer.from silently skips invalid characters, so validate first —
-      // '%%%%' must be a rejection, not a zero-byte file.
-      if (!base64 || !/^[A-Za-z0-9+/=\s]+$/.test(base64)) return null;
-      const bytes = Buffer.from(base64, 'base64');
       if (bytes.length === 0) return null;
 
       const ref = `${createHash('sha256').update(bytes).digest('hex')}.${ext}`;
@@ -124,5 +146,28 @@ export function createImageStore(
       const dims = sniffDims(bytes);
       return { ref, w: dims?.[0] ?? null, h: dims?.[1] ?? null, bytes: bytes.length };
     },
+
+    put(mediaType, base64) {
+      // Buffer.from silently skips invalid characters, so validate first —
+      // '%%%%' must be a rejection, not a zero-byte file.
+      if (!base64 || !/^[A-Za-z0-9+/=\s]+$/.test(base64)) return null;
+      return store.putBytes(mediaType, Buffer.from(base64, 'base64'));
+    },
+
+    read(ref) {
+      // The same shape guard `GET /api/images/:ref` applies, for the same
+      // reason: 64 hex chars plus a whitelisted extension can neither
+      // traverse nor name anything this store did not write.
+      const match = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.exec(ref);
+      if (!match) return null;
+      const mediaType = MEDIA_TYPE[match[1]];
+      try {
+        return { mediaType, base64: readFileSync(join(dir, ref)).toString('base64') };
+      } catch {
+        // Pruned — the caller drops the attachment rather than failing a turn.
+        return null;
+      }
+    },
   };
+  return store;
 }

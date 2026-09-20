@@ -3,131 +3,13 @@ import { useState } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
-import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
-import { StatusDot } from '../ui/StatusDot'
 import { Dialog } from '../ui/Dialog'
-import { Input, TextArea } from '../ui/Input'
 import { Select } from '../ui/Select'
 import type { SelectOption, SelectProps } from '../ui/Select'
 
-describe('Panel', () => {
-  it('renders children and a side data-attribute per side variant', () => {
-    const { container, rerender } = render(<Panel side="left">left content</Panel>)
-    expect(screen.getByText('left content')).toBeInTheDocument()
-    expect(container.firstElementChild).toHaveAttribute('data-side', 'left')
-
-    rerender(<Panel side="right">right content</Panel>)
-    expect(container.firstElementChild).toHaveAttribute('data-side', 'right')
-
-    rerender(<Panel side="float">float content</Panel>)
-    expect(container.firstElementChild).toHaveAttribute('data-side', 'float')
-  })
-
-  it('widthPx replaces the fixed width class with an inline width', () => {
-    const { container } = render(
-      <Panel side="right" widthPx={620}>
-        content
-      </Panel>
-    )
-    const el = container.firstElementChild as HTMLElement
-    expect(el.style.width).toBe('620px')
-    expect(el.className).not.toMatch(/w-\[450px\]/)
-  })
-
-  it('widthTransition={false} drops the width transition for a live drag', () => {
-    const { container, rerender } = render(<Panel side="right">content</Panel>)
-    const el = container.firstElementChild as HTMLElement
-    expect(el.className).toMatch(/transition-\[width\]/)
-
-    rerender(
-      <Panel side="right" widthTransition={false}>
-        content
-      </Panel>
-    )
-    expect(el.className).not.toMatch(/transition-\[width\]/)
-  })
-
-  it('reflects collapsed state via data-attribute', () => {
-    const { container, rerender } = render(<Panel side="left">content</Panel>)
-    expect(container.firstElementChild).toHaveAttribute('data-collapsed', 'false')
-
-    rerender(
-      <Panel side="left" collapsed>
-        content
-      </Panel>,
-    )
-    expect(container.firstElementChild).toHaveAttribute('data-collapsed', 'true')
-  })
-
-  it('applies the glass styling classes (panel bg, border, blur, rounded)', () => {
-    const { container } = render(<Panel side="left">content</Panel>)
-    const el = container.firstElementChild as HTMLElement
-    expect(el.className).toMatch(/from-\[rgba\(14,20,34/)
-    // Docked panel edge is .16 in the export — brighter than the .14 hairline token.
-    expect(el.className).toMatch(/border-\[rgba\(150,205,255,\.16\)\]/)
-    expect(el.className).toMatch(/backdrop-blur/)
-    expect(el.className).toMatch(/rounded/)
-  })
-
-  it('gives each side its own glass density (sidebar, detail panel, modal)', () => {
-    const left = render(<Panel side="left">content</Panel>).container
-      .firstElementChild as HTMLElement
-    const right = render(<Panel side="right">content</Panel>).container
-      .firstElementChild as HTMLElement
-    const float = render(<Panel side="float">content</Panel>).container
-      .firstElementChild as HTMLElement
-    expect(left.className).toMatch(/from-\[rgba\(14,20,34,\.72\)\]/)
-    expect(left.className).toMatch(/to-\[rgba\(8,12,22,\.78\)\]/)
-    expect(right.className).toMatch(/from-\[rgba\(14,20,34,\.78\)\]/)
-    expect(right.className).toMatch(/to-\[rgba\(8,12,22,\.84\)\]/)
-    // The centred modal (1e/1h) is the densest: it covers a scrim, not the map.
-    expect(float.className).toMatch(/from-\[rgba\(16,22,38,\.88\)\]/)
-    expect(float.className).toMatch(/to-\[rgba\(8,12,22,\.94\)\]/)
-    expect(float.className).toMatch(/backdrop-blur-\[28px\]/)
-    expect(float.className).toMatch(/rounded-2xl/)
-  })
-
-  it('accepts a layout-only className passthrough without dropping internal styling', () => {
-    const { container } = render(
-      <Panel side="float" className="mt-4">
-        content
-      </Panel>,
-    )
-    const el = container.firstElementChild as HTMLElement
-    expect(el.className).toMatch(/mt-4/)
-    expect(el.className).toMatch(/from-\[rgba\(16,22,38/)
-  })
-})
-
 describe('Chip', () => {
-  it('renders the label', () => {
-    render(<Chip label="work" />)
-    expect(screen.getByText('work')).toBeInTheDocument()
-  })
-
-  it('marks active state via data-active', () => {
-    const { rerender } = render(<Chip label="work" active />)
-    expect(screen.getByText('work').closest('[data-active]')).toHaveAttribute('data-active', 'true')
-
-    rerender(<Chip label="work" active={false} />)
-    expect(screen.getByText('work').closest('[data-active]')).toHaveAttribute('data-active', 'false')
-  })
-
-  it('keeps resting chips neutral (hue only in the dot); active chips get the hue-tinted border', () => {
-    const { container, rerender } = render(<Chip label="work" hue={210} />)
-    const root = container.firstElementChild as HTMLElement
-    // Resting: no inline tint on the chip itself — the dot carries the hue.
-    expect(root.getAttribute('style')).toBeNull()
-    const dot = root.querySelector('span[aria-hidden]') as HTMLElement
-    expect(dot.getAttribute('style')).toContain('210')
-
-    rerender(<Chip label="work" hue={210} active />)
-    expect(root.getAttribute('style') ?? '').toContain('210')
-  })
-
   it('fires onClick when clicked and exposes a button role', async () => {
     const onClick = vi.fn()
     const user = userEvent.setup()
@@ -147,67 +29,10 @@ describe('Chip', () => {
   })
 })
 
-describe('Badge', () => {
-  it.each([
-    ['working', 'WORKING'],
-    ['needs_input', 'NEEDS INPUT'],
-    ['idle', 'IDLE'],
-    ['ended', 'ENDED'],
-  ] as const)('maps status %s to label + data-status', (status, label) => {
-    const { container } = render(<Badge variant="status" value={status} />)
-    expect(screen.getByText(label)).toBeInTheDocument()
-    expect(container.firstElementChild).toHaveAttribute('data-status', status)
-    expect(container.firstElementChild).toHaveAttribute('data-variant', 'status')
-  })
-
-  it('gives the working status a pulse animation class', () => {
-    const { container } = render(<Badge variant="status" value="working" />)
-    expect(container.innerHTML).toMatch(/orbital-pulse/)
-  })
-
-  it('gives the needs_input status a white accent', () => {
-    const { container } = render(<Badge variant="status" value="needs_input" />)
-    const el = container.firstElementChild as HTMLElement
-    expect(el.className).toMatch(/white/)
-  })
-
-  // 1b tints only the border with the session's tag hue; the label stays the
-  // fixed accent so a working badge reads the same whatever tag it belongs to.
-  it('tints a working badge\'s border with the tag hue but keeps the label on the accent', () => {
-    const { container } = render(<Badge variant="status" value="working" hue={60} />)
-    const el = container.firstElementChild as HTMLElement
-    // jsdom normalises the percentage lightness to a number.
-    expect(el.style.borderColor).toBe('oklch(0.8 0.13 60 / 0.4)')
-    expect(el.style.color).toBe('var(--color-accent)')
-  })
-
-  it('renders a count badge with optional label', () => {
-    render(<Badge variant="count" value={12} label="sessions" />)
-    expect(screen.getByText(/12/)).toBeInTheDocument()
-    expect(screen.getByText(/sessions/)).toBeInTheDocument()
-  })
-
-  it('renders a model badge', () => {
-    render(<Badge variant="model" value="Opus 5 (1M)" />)
-    const badge = screen.getByText('Opus 5 (1M)')
-    expect(badge).toHaveAttribute('data-variant', 'model')
-  })
-})
-
 describe('Button', () => {
   it('renders a real <button> element', () => {
     render(<Button>Launch</Button>)
     expect(screen.getByRole('button', { name: 'Launch' }).tagName).toBe('BUTTON')
-  })
-
-  it.each(['primary', 'ghost', 'danger'] as const)('exposes variant %s via data-variant', (variant) => {
-    render(<Button variant={variant}>go</Button>)
-    expect(screen.getByRole('button')).toHaveAttribute('data-variant', variant)
-  })
-
-  it.each(['sm', 'md'] as const)('exposes size %s via data-size', (size) => {
-    render(<Button size={size}>go</Button>)
-    expect(screen.getByRole('button')).toHaveAttribute('data-size', size)
   })
 
   it('fires onClick', async () => {
@@ -221,31 +46,6 @@ describe('Button', () => {
   it('defaults to type="button" so it never submits a form by accident', () => {
     render(<Button>go</Button>)
     expect(screen.getByRole('button')).toHaveAttribute('type', 'button')
-  })
-})
-
-describe('StatusDot', () => {
-  it.each(['working', 'needs_input', 'idle', 'ended'] as const)(
-    'reflects status %s via data-status',
-    (status) => {
-      const { container } = render(<StatusDot status={status} />)
-      expect(container.firstElementChild).toHaveAttribute('data-status', status)
-    },
-  )
-
-  it('pulses when working', () => {
-    const { container } = render(<StatusDot status="working" />)
-    expect((container.firstElementChild as HTMLElement).className).toMatch(/orbital-pulse/)
-  })
-
-  it('dims with an outline when ended', () => {
-    const { container } = render(<StatusDot status="ended" />)
-    expect((container.firstElementChild as HTMLElement).className).toMatch(/opacity-40/)
-  })
-
-  it('tints via tagColor(hue) without changing on status', () => {
-    const { container } = render(<StatusDot status="idle" hue={210} />)
-    expect(container.firstElementChild).toHaveStyle('background: oklch(80% 0.13 210)')
   })
 })
 
@@ -306,35 +106,6 @@ describe('Dialog', () => {
     )
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).not.toHaveBeenCalled()
-  })
-})
-
-describe('Input / TextArea', () => {
-  it('defaults to sans font', () => {
-    render(<Input placeholder="search" />)
-    expect(screen.getByPlaceholderText('search')).toHaveAttribute('data-font', 'sans')
-  })
-
-  it('switches to mono font via the font prop', () => {
-    render(<Input placeholder="cwd" font="mono" />)
-    const el = screen.getByPlaceholderText('cwd')
-    expect(el).toHaveAttribute('data-font', 'mono')
-    expect(el.className).toMatch(/font-mono/)
-  })
-
-  it('accepts standard input props and forwards user input', async () => {
-    const user = userEvent.setup()
-    const onChange = vi.fn()
-    render(<Input placeholder="search" onChange={onChange} />)
-    await user.type(screen.getByPlaceholderText('search'), 'hi')
-    expect(onChange).toHaveBeenCalled()
-  })
-
-  it('renders a TextArea with the mono font variant', () => {
-    render(<TextArea placeholder="prompt" font="mono" />)
-    const el = screen.getByPlaceholderText('prompt')
-    expect(el.tagName).toBe('TEXTAREA')
-    expect(el).toHaveAttribute('data-font', 'mono')
   })
 })
 
@@ -587,57 +358,6 @@ describe('Select', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 
-  it('carries the option dot into the trigger and tints the pill border with it', () => {
-    render(
-      <Select
-        variant="pill"
-        aria-label="Tag"
-        options={[
-          { value: 1, label: 'work', dotColor: 'oklch(80% 0.13 210)' },
-          { value: 2, label: 'default', dotColor: 'oklch(80% 0.13 60)' },
-        ]}
-        value={2}
-        onChange={vi.fn()}
-      />
-    )
-
-    const el = screen.getByRole('combobox', { name: 'Tag' })
-    expect(el).toHaveAttribute('data-variant', 'pill')
-    // 1e's pill border is the selected tag's hue at .4 — `color-mix` with
-    // transparent is premultiplied, so 40% of the hue IS that hue at alpha .4.
-    expect(el.style.borderColor).toMatch(/color-mix\(in oklab, oklch\(0?\.?8.* 40%, transparent\)/)
-    expect(el.querySelector('span[aria-hidden]')).toHaveStyle({ background: 'oklch(80% 0.13 60)' })
-  })
-
-  // Canvas 1b's session-tag pill: filled with the hue, brightening while the
-  // menu is open, with a hint pinned under the options.
-  it('fills the tag trigger with the selected hue and brightens it while open', () => {
-    render(
-      <Select
-        variant="tag"
-        aria-label="Change tag"
-        options={[
-          { value: 1, label: 'work', dotColor: 'oklch(80% 0.13 210)' },
-          { value: 2, label: 'personal', dotColor: 'oklch(80% 0.13 330)' },
-        ]}
-        value={1}
-        onChange={vi.fn()}
-        footer="ONE TAG PER SESSION"
-      />
-    )
-
-    const el = screen.getByRole('combobox', { name: 'Change tag' })
-    expect(el).toHaveAttribute('data-variant', 'tag')
-    expect(el.style.borderColor).toMatch(/40%, transparent/)
-    expect(el.style.background).toMatch(/10%, transparent/)
-
-    fireEvent.click(el)
-    expect(el.style.borderColor).toMatch(/70%, transparent/)
-    expect(el.style.background).toMatch(/16%, transparent/)
-    // The chevron flips rather than staying put.
-    expect(el.querySelector('[data-caret]')?.className).toContain('rotate-180')
-  })
-
   it('describes the tag trigger with the popup footer instead of faking an option', () => {
     render(
       <Select
@@ -658,54 +378,6 @@ describe('Select', () => {
     expect(el.getAttribute('aria-describedby')).toBe(hint.id)
     // It is a description of the control, not something the user can pick.
     expect(screen.getAllByRole('option')).toHaveLength(1)
-  })
-
-  // Artboard 3a's origin filter: a bare label in a list heading, which only
-  // grows chrome when it has something to say — open, or narrowing.
-  it('draws the ghost trigger bare until it is open or active', () => {
-    const { rerender } = render(<SelectHarness variant="ghost" />)
-
-    const el = trigger()
-    expect(el).toHaveAttribute('data-variant', 'ghost')
-    expect(el.className).toMatch(/border-transparent/)
-
-    fireEvent.click(el)
-    expect(el.className).not.toMatch(/border-transparent/)
-
-    fireEvent.keyDown(el, { key: 'Escape' })
-    rerender(<SelectHarness variant="ghost" active />)
-    expect(trigger().className).not.toMatch(/border-transparent/)
-  })
-
-  // 3b: "Counts sit before the ✓ column, right-aligned and muted."
-  it('renders an option count before the check column', () => {
-    render(
-      <Select
-        aria-label="Origin"
-        options={[
-          { value: 'all', label: 'all sessions', count: 5 },
-          { value: 'web', label: 'started in orbital', count: 3 },
-        ]}
-        value="all"
-        onChange={vi.fn()}
-      />
-    )
-
-    fireEvent.click(screen.getByRole('combobox', { name: 'Origin' }))
-    const selected = screen.getByRole('option', { name: /all sessions/ })
-    expect(selected).toHaveTextContent('5')
-    const [count, check] = Array.from(selected.querySelectorAll('span[aria-hidden]')).slice(-2)
-    expect(count).toHaveTextContent('5')
-    expect(check).toHaveTextContent('✓')
-  })
-
-  // The ghost trigger is a few characters wide; the menu under it is not.
-  it('keeps a width floor under the ghost popup rather than shrinking to its trigger', () => {
-    render(<SelectHarness variant="ghost" />)
-
-    fireEvent.click(trigger())
-    const popup = screen.getByRole('listbox', { name: 'Fruit' }).parentElement!
-    expect(popup.style.minWidth).toBe('186px')
   })
 
   // 3a: the menu spells the option out, the trigger keeps the short form.

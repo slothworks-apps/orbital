@@ -52,6 +52,14 @@ export interface ChatMessage {
    * (`GET /api/images/<ref>`), never bytes. Mirrors `server/src/types.ts`.
    * Spec: 2026-09-18-transcript-images-design. */
   images?: ImageRefEntry[];
+  /**
+   * Local-only provenance for the images above, keyed by ref — never on the
+   * wire, never persisted. Set by `sendPrompt` on the optimistic turn and
+   * carried across the WS replacement, which is the whole window in which the
+   * transcript can caption a thumbnail (spec: 2026-09-20-composer-design
+   * § The transcript side).
+   */
+  imageProvenance?: Record<string, ImageProvenance>;
 }
 
 /**
@@ -66,6 +74,40 @@ export interface ImageRefEntry {
   h: number | null;
   bytes: number;
 }
+
+/**
+ * Where an attachment came from — the composer's two intakes (spec:
+ * 2026-09-20-composer-design § Image intake). It decides the chip's name and
+ * the transcript caption's: a paste is honestly `Clipboard image`, never a
+ * made-up filename, while a dropped file wears its own.
+ */
+export type AttachmentSource = 'clipboard' | 'file'
+
+/**
+ * What the client knows about one sent image that the wire does not. An SDK
+ * image block carries no name, so this is LOCAL-ONLY state: it exists on the
+ * optimistic message and on the WS replacement that supersedes it, and is gone
+ * after a reload — which is exactly why a history turn renders captionless
+ * (spec § The transcript side).
+ */
+export interface ImageProvenance {
+  name: string
+  source: AttachmentSource
+}
+
+/**
+ * One attachment upload as the composer consumes it — the client mirror of
+ * `POST /api/sessions/:id/attachments`. Shaped like `FilePreview`: the three
+ * refusals are chip/hint-line states carrying a measured fact, not errors, so
+ * `api.uploadAttachment` reads them out of the 413/415/400 bodies instead of
+ * throwing. Only a status outside the contract is a real failure.
+ */
+export type AttachmentUpload =
+  | { kind: 'ok'; entry: ImageRefEntry }
+  /** `truncated` means the server stopped at its 2× wall — the size is a floor. */
+  | { kind: 'too_large'; size: number; truncated: boolean }
+  | { kind: 'not_image'; mediaType: string }
+  | { kind: 'empty' }
 
 /** One model as every Orbital surface consumes it. Duplicated from the
  * server's `server/src/models/catalog.ts` — this repo has no shared types
@@ -124,6 +166,46 @@ export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`;
  */
 export const isReadOnly = (session: Pick<ApiSession, 'source' | 'status'>): boolean =>
   session.source === 'terminal' && session.status !== 'ended';
+
+/**
+ * One file as the viewer sees it — the client-side mirror of the server's
+ * `PreviewResult` (spec: 2026-09-19-file-viewer-design § Server). The four
+ * non-`ok` kinds are viewer states, never errors: `api.filePreview` reads
+ * them out of the 403/404/413/415 bodies instead of throwing.
+ */
+export type FilePreview =
+  | { kind: 'ok'; content: string; size: number; mtimeMs: number; lines: number }
+  | { kind: 'not_found' }
+  | { kind: 'outside' }
+  | { kind: 'too_large'; size: number }
+  | { kind: 'binary'; size: number; mediaType: string }
+
+/**
+ * Which of the two completion sources a session key resolves against: a live
+ * session id in the detail panel, the chosen directory in the New Session
+ * dialog (spec: 2026-09-20-composer-design § Server). One shape, so
+ * `api.commands` / `api.filesComplete` have one signature and the composer has
+ * one prop.
+ */
+export type CompletionKey = { session: string } | { cwd: string }
+
+/** Where a slash command comes from — the popup's right-hand badge (canvas 9b). */
+export type CommandSource = 'user' | 'project' | 'plugin' | 'built-in'
+
+/** One row of `GET /api/commands`. */
+export interface SlashCommand {
+  /** With or without a leading slash; `commandNameSet` normalises it. */
+  name: string
+  description: string
+  source: CommandSource
+}
+
+/** One row of `GET /api/files/complete`. `size` is absent for directories. */
+export interface FileCompletionEntry {
+  name: string
+  dir: boolean
+  size?: number
+}
 
 /**
  * Where an error was caught. The browser posts its own failures to

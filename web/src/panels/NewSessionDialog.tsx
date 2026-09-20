@@ -7,7 +7,10 @@ import { reportError } from '../lib/errors'
 import { shortenPath } from '../lib/format'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
-import { Input, TextArea } from '../ui/Input'
+import { Input } from '../ui/Input'
+import { Composer } from './Composer'
+import { useAttachments } from './useAttachments'
+import { useImageDrop } from './useImageDrop'
 import { Chip } from '../ui/Chip'
 import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
@@ -67,6 +70,20 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null }>>([])
   const [pending, setPending] = useState(false)
 
+  // Image intake, the same pair the detail panel mounts (spec:
+  // 2026-09-20-composer-design § Image intake; canvas 9d-D). `null` is the
+  // session id: this dialog has none until Launch, so the bytes go through
+  // `POST /api/attachments` instead — the same handler, one route up. The drop
+  // TARGET is the dialog surface rather than the well, for 9c-1's reason ("a
+  // 418 px well is too small a thing to aim at while holding a file"), so the
+  // ref goes to `Dialog`.
+  const attachments = useAttachments(null)
+  const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files) =>
+    attachments.accept(files, 'file'),
+  )
+  /** Stable across renders (`useAttachments` memoises it), so it can be an effect dep. */
+  const resetAttachments = attachments.reset
+
   // Reset + prefill from settings on the false -> true transition only (not
   // on every re-render while already open, which would clobber typing).
   const wasOpenRef = useRef(false)
@@ -89,8 +106,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           // Recent-dirs chips are a convenience; the cwd input still works without them.
         })
     }
+    // Closing drops the chips and aborts whatever was still uploading — a
+    // dialog that was dismissed is not a turn that will be sent. The chips a
+    // LAUNCH took are already gone from the list by then, so a queued launch
+    // waiting on its uploads is untouched by this.
+    if (!open && wasOpenRef.current) resetAttachments()
     wasOpenRef.current = open
-  }, [open, settings.default_project_dir, settings.default_permission_mode])
+  }, [open, settings.default_project_dir, settings.default_permission_mode, resetAttachments])
 
   // Preselection, in the order 4b describes: this project's last model when
   // the toggle allows it, otherwise the Settings default, otherwise the first
@@ -141,6 +163,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     if (!cwd.trim() || pending) return
     setPending(true)
     try {
+      // The queued launch — the dialog's version of the panel's queued send
+      // (spec § Send). The refs have to travel in the launch request itself, so
+      // an upload still in flight is WAITED for rather than dropped:
+      // `takeForSend` empties the well now and resolves with whatever landed. A
+      // failed chip is not in the turn and stays behind, so this is skipped
+      // entirely when nothing is armed.
+      const images = attachments.armed ? await attachments.takeForSend() : []
+      const refs = images.map((image) => image.entry.ref)
       // Through the store, not `api.createSession` directly: the launch has to
       // subscribe to the new session's topic before its request goes out, and
       // the socket is the store's to reach.
@@ -151,6 +181,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         permissionMode,
         tagId: tagId ?? undefined,
         model: model ?? undefined,
+        // Omitted rather than sent empty: absent and `[]` mean the same thing to
+        // the server, and every existing body assertion stays true.
+        ...(refs.length > 0 ? { attachments: refs } : {}),
       })
       onClose()
       await select(sessionId)
@@ -159,7 +192,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, model, pending, onClose, select, launchSession])
+  }, [cwd, prompt, permissionMode, tagId, model, pending, onClose, select, launchSession, attachments])
 
   // ⌘↵ / Ctrl+↵ launches from anywhere in the dialog.
   useEffect(() => {
@@ -179,6 +212,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const selectedTag = tagId != null ? tags.find((t) => t.id === tagId) : undefined
   const fallbackTag = tags.find((t) => t.is_default === 1)
   const footerTagName = (selectedTag ?? fallbackTag)?.name
+  // What the launch would actually carry, which is what the footer promises: a
+  // failed chip is not in the turn (it says so itself, on the chip), and a chip
+  // mid-exit is already gone as far as the summary is concerned.
+  const chipCount = attachments.items.filter((c) => c.state !== 'failed' && !c.exiting).length
 
   return (
     <Dialog
@@ -187,9 +224,19 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       eyebrow="LAUNCH"
       size="lg"
       onClose={onClose}
+      surfaceRef={dropTargetRef}
+      dropArmed={dropArmed}
       footerCaption={
         // canvas 4b: unconditional summary line — `Sonnet 4.5 · acceptEdits · search-indexer`.
+        // 9d-D puts the attachment count in front of it (`1 image · spawns a new
+        // planet in WORK`): the footer is where the session's shape is
+        // summarised, and what it is carrying is part of that shape. The count
+        // leads because it is the part that just changed.
         <>
+          {/* One template string, not JSX text: a trailing space before a
+              newline is stripped by JSX, which would run the count straight
+              into the model name. */}
+          {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
           {modelByValue(model, models)?.shortVersion ?? 'default model'} · {permissionMode}
           {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
         </>
@@ -212,101 +259,130 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     >
       {/* 20px between field groups, 8px inside one (canvas 1d). */}
       <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-2">
-          <FieldLabel htmlFor="new-session-cwd">PROJECT DIRECTORY</FieldLabel>
-          <Input
-            id="new-session-cwd"
-            font="mono"
-            size="lg"
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="/path/to/project"
-          />
-          {projects.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
-              <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
-                RECENT
-              </span>
-              {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
-                  sans tag chips the TAG row uses — kept as plain buttons. */}
-              {projects.slice(0, 4).map(({ cwd: dir }) => (
-                <button
-                  key={dir}
-                  type="button"
-                  title={dir}
-                  data-active={dir === cwd}
-                  onClick={() => setCwd(dir)}
-                  className="rounded-full border border-panel-border px-[9px] py-[3px] font-mono text-[10.5px] text-[rgba(200,220,245,.75)] transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-text-bright"
-                >
-                  {shortenPath(dir)}
-                </button>
+        {/* Everything but FIRST PROMPT steps back to .35 while a drop is armed —
+            9c-1's "the transcript drops to 35 % so nothing competes", read into
+            this mount: the marker is the only lit thing, and the field it
+            replaces is the only group that keeps its brightness. The groups are
+            wrapped rather than dimmed one by one so the 20px rhythm survives. */}
+        <div
+          data-content-dim
+          className={['flex flex-col gap-5', dropArmed ? 'opacity-35' : ''].join(' ')}
+        >
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor="new-session-cwd">PROJECT DIRECTORY</FieldLabel>
+            <Input
+              id="new-session-cwd"
+              font="mono"
+              size="lg"
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder="/path/to/project"
+            />
+            {projects.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
+                <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
+                  RECENT
+                </span>
+                {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
+                    sans tag chips the TAG row uses — kept as plain buttons. */}
+                {projects.slice(0, 4).map(({ cwd: dir }) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    title={dir}
+                    data-active={dir === cwd}
+                    onClick={() => setCwd(dir)}
+                    className="rounded-full border border-panel-border px-[9px] py-[3px] font-mono text-[10.5px] text-[rgba(200,220,245,.75)] transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-text-bright"
+                  >
+                    {shortenPath(dir)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <FieldLabel>
+              MODEL
+              <span aria-hidden className="flex-1" />
+              {rememberPerProject && lastModelRow && (
+                // canvas 4b: right-hand note, .06em tracking. Renders the
+                // matched row's shortVersion (never a raw id) and only when
+                // something actually matched — F1.
+                <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+                  last used here: {lastModelRow.shortVersion}
+                </span>
+              )}
+            </FieldLabel>
+            <ModelCards
+              models={models}
+              value={model}
+              defaultValue={settings.default_model ?? null}
+              onChange={(next) => {
+                setModelOverridden(true)
+                setModel(next)
+              }}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <FieldLabel>PERMISSION MODE</FieldLabel>
+            <ModeCards value={permissionMode} onChange={setPermissionMode} />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <FieldLabel>
+              TAG
+              {showAutoCaption && (
+                <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">
+                  · auto-matched by rule{matchedRule ? ` ${matchedRule.pattern}` : ''}
+                </span>
+              )}
+            </FieldLabel>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
+              {tags.map((tag) => (
+                <Chip
+                  key={tag.id}
+                  label={tag.name}
+                  hue={tag.hue}
+                  active={tagId === tag.id}
+                  onClick={() => handleSelectTag(tag.id)}
+                />
               ))}
             </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <FieldLabel>
-            MODEL
-            <span aria-hidden className="flex-1" />
-            {rememberPerProject && lastModelRow && (
-              // canvas 4b: right-hand note, .06em tracking. Renders the
-              // matched row's shortVersion (never a raw id) and only when
-              // something actually matched — F1.
-              <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">
-                last used here: {lastModelRow.shortVersion}
-              </span>
-            )}
-          </FieldLabel>
-          <ModelCards
-            models={models}
-            value={model}
-            defaultValue={settings.default_model ?? null}
-            onChange={(next) => {
-              setModelOverridden(true)
-              setModel(next)
-            }}
-          />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <FieldLabel>PERMISSION MODE</FieldLabel>
-          <ModeCards value={permissionMode} onChange={setPermissionMode} />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <FieldLabel>
-            TAG
-            {showAutoCaption && (
-              <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">
-                · auto-matched by rule{matchedRule ? ` ${matchedRule.pattern}` : ''}
-              </span>
-            )}
-          </FieldLabel>
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
-            {tags.map((tag) => (
-              <Chip
-                key={tag.id}
-                label={tag.name}
-                hue={tag.hue}
-                active={tagId === tag.id}
-                onClick={() => handleSelectTag(tag.id)}
-              />
-            ))}
           </div>
         </div>
 
         <div className="flex flex-col gap-2">
           <FieldLabel htmlFor="new-session-prompt">FIRST PROMPT</FieldLabel>
-          <TextArea
+          {/* The same control the detail panel mounts (canvas 9d), image intake
+              included (9d-D shows a chip in this very field). Four differences,
+              all props: ⏎ newlines here because a first prompt is written in
+              paragraphs and Start is two inches away; the popup opens BELOW,
+              since this field has room under it; completions resolve against the
+              chosen directory, which is the only thing the dialog has to teach
+              it; and the drop target is the dialog surface, which is why
+              `dropArmed` arrives from a hook mounted up there rather than here.
+              ⌘⏎ still launches from anywhere — the document listener above
+              handles it, and neither the composer nor its popup touches an
+              Enter carrying a modifier.
+
+              The uploads go through `POST /api/attachments`, the sessionless
+              door: this dialog's session does not exist until Launch, and the
+              refs travel in that same launch request. */}
+          <Composer
             id="new-session-prompt"
             aria-label="First prompt"
-            size="lg"
+            sessionKey={{ cwd: cwd.trim() }}
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={setPrompt}
+            enter="newline"
+            placement="below"
+            variant="dialog"
+            hint="⏎ newline · ⌘⏎ start session · ⌘V paste image"
             placeholder="What should this session do?"
-            rows={4}
-            className="min-h-24 resize-y"
+            attachments={attachments}
+            dropArmed={dropArmed}
           />
         </div>
       </div>

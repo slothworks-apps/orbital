@@ -4,7 +4,7 @@ import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
-import type { ImageStore } from '../images/store.js';
+import type { ImageStore, ImageWriter } from '../images/store.js';
 
 /**
  * Sentinel for canvas 1h's "Never — only on Clear": no idle timer at all.
@@ -40,10 +40,10 @@ export function parseIdleTimeoutMs(raw: string | number | null | undefined): num
 }
 
 /**
- * The subset of the SDK's `Query` object Orbital uses. `supportedModels` and
- * `setModel` are optional because a fake in a test may implement only what
- * that test exercises — and because a CLI too old to answer a control
- * request must degrade to "unknown", never to a crash.
+ * The subset of the SDK's `Query` object Orbital uses. `supportedModels`,
+ * `supportedCommands` and `setModel` are optional because a fake in a test may
+ * implement only what that test exercises — and because a CLI too old to
+ * answer a control request must degrade to "unknown", never to a crash.
  */
 export type QueryFn = (args: {
   prompt: AsyncIterable<unknown>;
@@ -52,7 +52,43 @@ export type QueryFn = (args: {
   interrupt?: () => Promise<void>;
   setModel?: (model?: string) => Promise<void>;
   supportedModels?: () => Promise<unknown[]>;
+  supportedCommands?: () => Promise<unknown[]>;
 };
+
+/**
+ * One row of the session's slash-command list, as the composer's popup needs
+ * it — the SDK's `SlashCommand` with the empties dropped, so a command with no
+ * argument hint carries no field rather than an empty string the UI would then
+ * have to test for. `source` is not here: it is the *route* that attributes
+ * one, by matching these names against the filesystem catalog.
+ */
+export interface SessionCommand {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  aliases?: string[];
+}
+
+/**
+ * Keeps what the popup can use and drops what it cannot. Anything without a
+ * name is not a command anyone could type, and the CLI's own `argumentHint`
+ * is frequently `''` — an absent field says "none" more honestly.
+ */
+function shapeCommands(raw: unknown[]): SessionCommand[] {
+  const out: SessionCommand[] = [];
+  for (const entry of raw) {
+    const c = entry as { name?: unknown; description?: unknown; argumentHint?: unknown; aliases?: unknown };
+    if (typeof c?.name !== 'string' || !c.name) continue;
+    const aliases = Array.isArray(c.aliases) ? c.aliases.filter((a): a is string => typeof a === 'string') : [];
+    out.push({
+      name: c.name,
+      description: typeof c.description === 'string' ? c.description : '',
+      ...(typeof c.argumentHint === 'string' && c.argumentHint ? { argumentHint: c.argumentHint } : {}),
+      ...(aliases.length ? { aliases } : {}),
+    });
+  }
+  return out;
+}
 
 /**
  * What the session was started with, kept so a failure can say what it was
@@ -72,11 +108,24 @@ interface ManagedSession {
   status: SessionStatus;
   queue: Array<(msg: unknown | null) => void>;
   pending: Array<unknown | null>;
+  /**
+   * The live query handle — the object `queryFn` returned. It is both the
+   * message stream `pump()` drains and the control channel `interrupt`,
+   * `setModel` and `supportedCommands` travel on, which is why it is kept per
+   * session rather than consumed and forgotten.
+   */
   generator:
-    | (AsyncGenerator<any> & { interrupt?: () => Promise<void>; setModel?: (model?: string) => Promise<void> })
+    | (AsyncGenerator<any> & {
+        interrupt?: () => Promise<void>;
+        setModel?: (model?: string) => Promise<void>;
+        supportedCommands?: () => Promise<unknown[]>;
+      })
     | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
   attempt: SessionAttempt;
+  /** The session's command list once asked for (or pushed), `null` until then.
+   * It lives on the session, so it dies with it — see `finish()`. */
+  commands: SessionCommand[] | null;
 }
 
 /**
@@ -85,7 +134,7 @@ interface ManagedSession {
  * (Runner) bind it to a per-instance counter so ids can't collide when two
  * messages land in the same millisecond with the same block index.
  */
-export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: ImageStore): ChatMessage[] {
+export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: ImageWriter): ChatMessage[] {
   const content = sdkMsg.message?.content;
   if (!Array.isArray(content)) return [];
   const model = typeof sdkMsg.message?.model === 'string' ? sdkMsg.message.model : undefined;
@@ -239,12 +288,37 @@ export class Runner {
     this.onStatus?.(sessionId, status);
   }
 
-  private userMessage(sessionId: string, text: string): unknown {
+  /**
+   * One SDK user message, or `null` when there is nothing to say.
+   *
+   * Images first, then the text — the order the model reads them in, and the
+   * order the composer shows them in (chips above the field). Base64 exists on
+   * exactly this hop: everything Orbital stores or puts on its own wire is a
+   * ref, and only the message handed to the CLI carries bytes.
+   *
+   * A ref the store no longer holds is skipped without a word. The alternative
+   * is failing a turn over a thumbnail the cache pruned, which is a worse
+   * answer than sending the rest of what was typed.
+   */
+  private userMessage(sessionId: string, text: string, attachments?: string[]): unknown | null {
+    const content: unknown[] = [];
+    for (const ref of attachments ?? []) {
+      const image = this.images?.read(ref);
+      if (!image) continue;
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: image.mediaType, data: image.base64 },
+      });
+    }
+    if (text) content.push({ type: 'text', text });
+    // "An empty prompt enqueues nothing" now reads "empty prompt *and* nothing
+    // attached": a turn of only images is a real turn, a turn of neither is not.
+    if (content.length === 0) return null;
     return {
       type: 'user',
       session_id: sessionId,
       parent_tool_use_id: null,
-      message: { role: 'user', content: [{ type: 'text', text }] },
+      message: { role: 'user', content },
     };
   }
 
@@ -301,6 +375,9 @@ export class Runner {
     /** An id the caller has already committed to. Must be a v4 UUID — the only shape the CLI accepts. */
     sessionId?: string;
     model?: string;
+    /** Image store refs to send alongside the first prompt — the New Session
+     * dialog's attachments, and a revived session's. */
+    attachments?: string[];
   }): Promise<string> {
     // A resume keeps the transcript's own id; otherwise the caller's pinned
     // id if it brought one, and a freshly minted one if it did not.
@@ -311,6 +388,7 @@ export class Runner {
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
+      commands: null,
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -346,11 +424,13 @@ export class Runner {
     state.generator = generator;
     void this.pump(sessionId, generator);
 
-    // An empty prompt (e.g. clear+startNew) means "start the session but wait
-    // for the caller's first send()" — enqueueing an empty user turn would
-    // otherwise burn a turn on nothing (I6). Nothing reaches the CLI until
-    // then, so it stays parked on stdin, which is exactly `needs_input`.
-    if (opts.prompt) this.enqueue(sessionId, this.userMessage(sessionId, opts.prompt));
+    // An empty prompt with nothing attached (e.g. clear+startNew) means "start
+    // the session but wait for the caller's first send()" — enqueueing an empty
+    // user turn would otherwise burn a turn on nothing (I6). Nothing reaches
+    // the CLI until then, so it stays parked on stdin, which is exactly
+    // `needs_input`.
+    const first = this.userMessage(sessionId, opts.prompt, opts.attachments);
+    if (first) this.enqueue(sessionId, first);
     else this.setStatus(sessionId, 'needs_input');
 
     return sessionId;
@@ -367,6 +447,15 @@ export class Runner {
         if (msg?.session_id !== sessionId) continue;
         if (msg.type === 'system' && msg.subtype === 'init') {
           this.onInit?.(sessionId, typeof msg.model === 'string' ? msg.model : null);
+          continue;
+        }
+        // A fire-and-forget push of the whole command list after a mid-session
+        // change (a skill discovered as the agent moves into a subdirectory).
+        // The SDK's instruction is to REPLACE the cached list with it, so that
+        // is what this does — a re-ask would return the same thing anyway.
+        if (msg.type === 'system' && msg.subtype === 'commands_changed') {
+          const s = this.sessions.get(sessionId);
+          if (s && Array.isArray(msg.commands)) s.commands = shapeCommands(msg.commands);
           continue;
         }
         if (msg.type === 'assistant' || msg.type === 'user') {
@@ -407,15 +496,53 @@ export class Runner {
     else s.pending.push(msg);
   }
 
-  send(sessionId: string, text: string): void {
+  send(sessionId: string, text: string, attachments?: string[]): void {
     const s = this.sessions.get(sessionId);
     if (!s || s.status === 'ended') throw new Error(`session ${sessionId} is not active`);
+    const msg = this.userMessage(sessionId, text, attachments);
+    // Nothing to say: leave the session exactly as it was. Flipping it to
+    // `working` first would strand it there — no turn is running, so no
+    // `result` is coming to move it back.
+    if (!msg) return;
     // Null the handle, not just clear it — a cleared-but-retained handle is a
     // dangling reference to a timer that can never fire again.
     if (s.idleTimer) clearTimeout(s.idleTimer);
     s.idleTimer = null;
     this.setStatus(sessionId, 'working');
-    this.enqueue(sessionId, this.userMessage(sessionId, text));
+    this.enqueue(sessionId, msg);
+  }
+
+  /**
+   * The slash commands this session's CLI will actually honour, or `null` when
+   * there is no live query to ask (an ended session, or one this process never
+   * ran). The route treats `null` as its cue to answer from the filesystem
+   * catalog alone — see spec 2026-09-20-composer-design § Server.
+   *
+   * Cached per session and thrown away with it. The cache is also *replaced*
+   * whenever the CLI pushes a new list (`system/commands_changed` in
+   * `pump()`), which is what keeps a skill discovered mid-session from needing
+   * a re-ask.
+   */
+  async commands(sessionId: string): Promise<SessionCommand[] | null> {
+    const s = this.sessions.get(sessionId);
+    if (!s) return null;
+    if (s.commands) return s.commands;
+    const generator = s.generator;
+    // A CLI too old to know the control request answers "unknown", not an error.
+    if (!generator?.supportedCommands) return null;
+    let raw: unknown[];
+    try {
+      raw = await generator.supportedCommands();
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(raw)) return null;
+    const shaped = shapeCommands(raw);
+    // A push that landed while this request was in flight is newer than it, so
+    // it keeps the cache; and the session may have ended in the meantime.
+    const still = this.sessions.get(sessionId);
+    if (still && !still.commands) still.commands = shaped;
+    return still?.commands ?? shaped;
   }
 
   async interrupt(sessionId: string): Promise<void> {

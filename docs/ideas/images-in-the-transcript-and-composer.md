@@ -1,7 +1,7 @@
 ---
 id: images-in-the-transcript-and-composer
 title: Show images in the transcript, with a full-size preview, and let the composer take them
-status: backlog
+status: done
 type: idea
 domain: web
 related:
@@ -40,8 +40,11 @@ builds `content: [{ type: 'text', text }]`. There is nowhere for an attachment
 to ride.
 
 > Half 1 (rendering) shipped 2026-09-18 — see
-> [[2026-09-18-transcript-images-design]]. Half 2 (composer intake) is what
-> keeps this idea open.
+> [[2026-09-18-transcript-images-design]]. Half 2 (composer intake)
+> shipped 2026-09-20 with [[2026-09-20-composer-design]]: paste + drop
+> in both fields, multipart attachments routes (session-scoped and
+> sessionless — [[attachments-upload-without-a-session]]), refs on the
+> message, image blocks built server-side.
 
 ## Two halves, and the first stands alone
 

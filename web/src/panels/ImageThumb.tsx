@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ImageRefEntry } from '../lib/types'
+import { formatBytes } from '../lib/format'
 import { Lightbox } from '../ui/Lightbox'
 
 /**
@@ -19,11 +20,6 @@ const THUMB_HEIGHT_PX: Record<ThumbVariant, number> = {
 }
 const THUMB_MAX_WIDTH_PX = 349
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 /**
  * `user-solo` — the thumbnail IS the bubble (image-only turn): bubble

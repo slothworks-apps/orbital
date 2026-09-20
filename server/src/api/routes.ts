@@ -1,10 +1,13 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { expandHome } from '../paths.js';
+import { readFilePreview } from '../files/preview.js';
+import { completeFilePath } from '../files/complete.js';
+import { collectCommands } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
   sessionColumns,
@@ -31,6 +34,9 @@ export interface RouteContext {
   registry: SessionRegistry;
   runner: Runner;
   projectsDir: string;
+  /** `~/.claude` — where the command catalog's user and plugin halves live
+   * (spec: 2026-09-20-composer-design § Command catalog). */
+  claudeDir: string;
   hub: Hub;
   /** Content-addressed transcript image store + the directory it serves
    * from (spec: 2026-09-18-transcript-images-design). */
@@ -66,6 +72,37 @@ const IMAGE_CONTENT_TYPES: Record<string, string> = {
  * which would treat the two spellings as two different sessions.
  */
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/**
+ * An image store ref, the same shape `GET /api/images/:ref` serves: 64
+ * lowercase hex characters and a whitelisted extension. A composer attachment
+ * is named by the client, so it is held to exactly this — nothing else can
+ * traverse, and nothing else could have been written by the store.
+ */
+const IMAGE_REF_RE = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/;
+
+/**
+ * The ceiling on one composer attachment.
+ *
+ * 5 MB rather than the canvas's 10: the Anthropic API caps an image source at
+ * roughly this, so a larger upload would be accepted here and then fail a turn
+ * later inside the SDK, where nothing can explain it. Refusing at intake is the
+ * honest server fact — see the spec's Deviations.
+ */
+export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Whether a body's `attachments` is anything other than a list of refs the
+ * image store could have written. Absent is fine — most turns have none.
+ *
+ * Held to `IMAGE_REF_RE` here rather than trusted and handed on: the refs come
+ * from the client, and the Runner turns each one into a filesystem read.
+ */
+function invalidAttachments(raw: unknown): boolean {
+  if (raw === undefined || raw === null) return false;
+  if (!Array.isArray(raw)) return true;
+  return raw.some((ref) => typeof ref !== 'string' || !IMAGE_REF_RE.test(ref));
+}
 
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
@@ -168,12 +205,182 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return reply.send(bytes);
   });
 
+  // The file viewer's read (spec 2026-09-19-file-viewer-design). The session
+  // row's cwd is the sandbox, and `readFilePreview` owns the whole security
+  // story — realpath before any check, so neither `..` nor a symlink names
+  // anything outside it. The path is taken verbatim: a `:line` suffix never
+  // travels here, the client keeps it for scrolling.
+  app.get('/api/files', (req, reply) => {
+    const q = req.query as Record<string, string>;
+    if (!q.session || !q.path) return reply.code(400).send({ error: 'missing_params' });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, q.session)).get() as
+      | SessionRow
+      | undefined;
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const result = readFilePreview(row.cwd, q.path);
+    switch (result.kind) {
+      case 'ok':
+        return {
+          content: result.content, size: result.size,
+          mtimeMs: result.mtimeMs, lines: result.lines,
+        };
+      case 'not_found':
+        return reply.code(404).send({ error: 'not_found' });
+      case 'outside':
+        return reply.code(403).send({ error: 'outside_cwd' });
+      case 'too_large':
+        return reply.code(413).send({ error: 'too_large', size: result.size });
+      case 'binary':
+        return reply
+          .code(415)
+          .send({ error: 'binary', size: result.size, mediaType: result.mediaType });
+    }
+  });
+
+  /**
+   * The composer's `/` catalog (spec 2026-09-20-composer-design § Server).
+   *
+   * Two sources, and which one is the truth depends on whether anything is
+   * listening: with a live SDK query the CLI's own list is definitive — it is
+   * the only thing that knows about built-ins — and the filesystem scan is
+   * demoted to attributing a `source` badge by name. Without one (an ended
+   * session, or the New Session dialog, which has only a cwd) the scan is the
+   * whole answer, built-ins deliberately absent: offering a command the CLI may
+   * not honour is worse than omitting it.
+   */
+  app.get('/api/commands', async (req, reply) => {
+    const q = req.query as Record<string, string>;
+    let cwd: string;
+    let sessionId: string | null = null;
+    if (q.session) {
+      const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, q.session)).get() as
+        | SessionRow
+        | undefined;
+      if (!row) return reply.code(404).send({ error: 'not_found' });
+      cwd = row.cwd;
+      sessionId = q.session;
+    } else if (q.cwd) {
+      // The one door an unexpanded path comes through here, same as
+      // `POST /api/sessions`: the dialog's directory field is hand-typed.
+      cwd = expandHome(q.cwd);
+    } else {
+      return reply.code(400).send({ error: 'missing_params' });
+    }
+
+    const scanned = collectCommands({ claudeDir: ctx.claudeDir, cwd });
+    const live = sessionId ? await ctx.runner.commands(sessionId) : null;
+    if (!live) return { commands: scanned };
+    const byName = new Map(scanned.map((c) => [c.name, c]));
+    const commands = live
+      .map((c) => {
+        const match = byName.get(c.name);
+        return {
+          name: c.name,
+          // The CLI answers `''` for plenty of commands it knows only by name;
+          // the file it came from usually says more.
+          description: c.description || match?.description || '',
+          source: match?.source ?? 'built-in',
+          ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
+          ...(c.aliases ? { aliases: c.aliases } : {}),
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { commands };
+  });
+
+  /**
+   * The composer's `@` completion. Confined to the session's cwd by the same
+   * helper the file viewer uses, and deliberately incapable of an error:
+   * a popup fed by keystrokes asks about half-typed paths constantly, and
+   * `{ entries: [] }` is the right answer to every one that names nothing.
+   */
+  app.get('/api/files/complete', (req, reply) => {
+    const q = req.query as Record<string, string>;
+    let cwd: string;
+    if (q.session) {
+      const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, q.session)).get() as
+        | SessionRow
+        | undefined;
+      if (!row) return reply.code(404).send({ error: 'not_found' });
+      cwd = row.cwd;
+    } else if (q.cwd) {
+      cwd = expandHome(q.cwd);
+    } else {
+      return reply.code(400).send({ error: 'missing_params' });
+    }
+    return { entries: completeFilePath(cwd, q.prefix ?? '') };
+  });
+
+  /**
+   * One composer attachment, multipart, one file per request — the body of both
+   * attachment routes.
+   *
+   * The bytes go straight into the content-addressed image store, so the
+   * response is an `ImageRefEntry` and nothing on Orbital's own wire ever
+   * carries base64 — the send path reads the ref back out again for the single
+   * hop into the SDK. The whitelist is the store's own (it is what decides
+   * which extension a ref can wear), so a refusal is `putBytes` saying no
+   * rather than a second list here that could drift from it.
+   */
+  async function storeAttachment(req: FastifyRequest, reply: FastifyReply) {
+    // Read past the ceiling but not without limit: the 413 names the size it
+    // measured, which takes reading the whole file, and a wall at twice the
+    // ceiling keeps that from being unbounded memory. `truncated` says so when
+    // even the wall was hit, so the size in the body is never read as exact.
+    const part = await req.file({
+      limits: { fileSize: ATTACHMENT_MAX_BYTES * 2 },
+      throwFileSizeLimit: false,
+    });
+    if (!part) return reply.code(400).send({ error: 'missing_file' });
+    const bytes = await part.toBuffer();
+    if (part.file.truncated || bytes.length > ATTACHMENT_MAX_BYTES) {
+      return reply.code(413).send({
+        error: 'too_large',
+        size: bytes.length,
+        ...(part.file.truncated ? { truncated: true } : {}),
+      });
+    }
+    if (bytes.length === 0) return reply.code(400).send({ error: 'empty_file' });
+    const entry = ctx.images.putBytes(part.mimetype, bytes);
+    if (!entry) return reply.code(415).send({ error: 'not_image', mediaType: part.mimetype });
+    return reply.code(201).send(entry);
+  }
+
+  /**
+   * The same upload, before any session exists — what the New Session dialog
+   * attaches through, since its session is not created until Launch and the
+   * refs have to travel in that very request.
+   *
+   * It is the scoped route minus the session lookup, and the lookup is all it
+   * is minus: the image store is content-addressed and GLOBAL — one directory,
+   * keyed by the bytes' own sha, shared by every session — so a session id
+   * neither scopes the write nor authorises it. The 404 on the route below
+   * rejects nothing a caller could not simply post here instead; it is a
+   * courtesy to a client that named a session that has gone away, not a guard.
+   * What actually gates this port is the API token
+   * ([[api-token-guards-the-local-port]]), the same umbrella that covers
+   * `?cwd=` on `/api/commands` and `/api/files/complete`.
+   */
+  app.post('/api/attachments', storeAttachment);
+
+  app.post('/api/sessions/:id/attachments', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() as
+      | { id: string }
+      | undefined;
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    return storeAttachment(req, reply);
+  });
+
   app.post('/api/sessions', async (req, reply) => {
     const body = req.body as {
       cwd: string; prompt: string; permissionMode: PermissionMode;
       tagId?: number; model?: string; resume?: string; parentId?: string;
-      sessionId?: string;
+      sessionId?: string; attachments?: string[];
     };
+    if (invalidAttachments(body.attachments)) {
+      return reply.code(400).send({ error: 'invalid_attachment' });
+    }
     // The one door an unexpanded path comes through: every other cwd in this
     // file is read back from a row this line already wrote. Expanding before
     // both the runner and the insert keeps the spawn working *and* keeps one
@@ -249,13 +456,16 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   app.post('/api/sessions/:id/messages', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { text } = req.body as { text: string };
+    const { text, attachments } = req.body as { text: string; attachments?: string[] };
+    if (invalidAttachments(attachments)) {
+      return reply.code(400).send({ error: 'invalid_attachment' });
+    }
     // New activity brings a session back to the map, whichever path below
     // delivers the message — a dismissed session someone is typing into is
     // evidently not history any more.
     db.update(sessions).set({ mapDismissedAt: null }).where(eq(sessions.id, id)).run();
     try {
-      ctx.runner.send(id, text);
+      ctx.runner.send(id, text, attachments);
       return { ok: true };
     } catch {
       // Inactive in the runner — revive by resuming, unless it's live in a
@@ -274,6 +484,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         // Without this, reviving silently moved the session onto the CLI's
         // default model.
         model: row.model ?? undefined,
+        // The revive is the same turn the send would have been, images included.
+        attachments,
       });
       const revivedRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
       ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, revivedRow) });
@@ -579,11 +791,6 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       return reply.code(400).send({ error: 'ids must be an array of numbers' });
     }
     return { ok: true, ...ctx.errors.markSeen(body.ids as number[]) };
-  });
-
-  app.delete('/api/errors', () => {
-    ctx.errors.clear();
-    return { ok: true, unseen: 0 };
   });
 
   app.get('/api/settings', () => {

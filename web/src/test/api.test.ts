@@ -473,12 +473,12 @@ describe('Errors API', () => {
   it('omits Content-Type on body-less requests so Fastify does not reject the empty body', async () => {
     // Fastify parses the body of any request that declares a content type, and
     // answers a declared-but-empty JSON body with 400 FST_ERR_CTP_EMPTY_JSON_BODY
-    // — which is exactly what made "Clear all" silently do nothing.
+    // — which is exactly what once made body-less calls silently do nothing.
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true, unseen: 0 }), { status: 200 })
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
     )
 
-    await api.clearErrors()
+    await api.deleteTag(1)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const options = fetchMock.mock.calls[0][1] as RequestInit
@@ -528,6 +528,88 @@ describe('Errors API', () => {
   })
 })
 
+describe('Files API', () => {
+  it('filePreview builds the query URL with session and raw path', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ content: 'x', size: 1, mtimeMs: 2, lines: 1 }), { status: 200 })
+    )
+
+    await api.filePreview('s1', 'web/src/App.tsx')
+
+    const call = fetchMock.mock.calls[0][0] as string
+    expect(call).toContain('/api/files?')
+    expect(call).toContain('session=s1')
+    expect(call).toContain(`path=${encodeURIComponent('web/src/App.tsx')}`)
+  })
+
+  it('filePreview returns kind ok with the file body on 200', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ content: 'hello', size: 5, mtimeMs: 1000, lines: 1 }),
+        { status: 200 }
+      )
+    )
+
+    const result = await api.filePreview('s1', 'a/b.ts')
+    expect(result).toEqual({ kind: 'ok', content: 'hello', size: 5, mtimeMs: 1000, lines: 1 })
+  })
+
+  it('filePreview maps 403 outside_cwd to kind outside instead of throwing', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'outside_cwd' }), { status: 403 })
+    )
+
+    await expect(api.filePreview('s1', '../../etc/passwd')).resolves.toEqual({ kind: 'outside' })
+  })
+
+  it('filePreview maps 404 to kind not_found instead of throwing', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'not_found' }), { status: 404 })
+    )
+
+    await expect(api.filePreview('s1', 'gone.ts')).resolves.toEqual({ kind: 'not_found' })
+  })
+
+  it('filePreview maps 413 to kind too_large, keeping the measured size', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'too_large', size: 12_000_000 }), { status: 413 })
+    )
+
+    await expect(api.filePreview('s1', 'big.log')).resolves.toEqual({
+      kind: 'too_large',
+      size: 12_000_000,
+    })
+  })
+
+  it('filePreview maps 415 to kind binary, keeping size and mediaType', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: 'binary', size: 131_072, mediaType: 'font/woff2' }),
+        { status: 415 }
+      )
+    )
+
+    await expect(api.filePreview('s1', 'a/f.dat')).resolves.toEqual({
+      kind: 'binary',
+      size: 131_072,
+      mediaType: 'font/woff2',
+    })
+  })
+
+  it('filePreview still throws ApiError on an unexpected status', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'missing_params' }), { status: 400 })
+    )
+
+    await expect(api.filePreview('s1', 'a/b.ts')).rejects.toBeInstanceOf(ApiError)
+  })
+
+  it('filePreview lets a network-level failure propagate', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await expect(api.filePreview('s1', 'a/b.ts')).rejects.toThrow('Failed to fetch')
+  })
+})
+
 describe('Projects API', () => {
   it('listProjects should unwrap and return projects array of strings', async () => {
     const projects = ['/home/user/project1', '/home/user/project2']
@@ -568,5 +650,184 @@ describe('Settings API', () => {
       headers: expect.any(Object),
       body: JSON.stringify({ theme: 'dark' }),
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Completion API — the composer's two sources (spec: 2026-09-20-composer-design)
+// ---------------------------------------------------------------------------
+
+describe('Completion API', () => {
+  it('commands takes a session key and unwraps the list', async () => {
+    const commands = [{ name: '/commit', description: 'Commit', source: 'project' as const }]
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ commands }), { status: 200 }))
+
+    await expect(api.commands({ session: 's1' })).resolves.toEqual(commands)
+
+    const call = fetchMock.mock.calls[0][0] as string
+    expect(call).toContain('/api/commands?')
+    expect(call).toContain('session=s1')
+    expect(call).not.toContain('cwd=')
+  })
+
+  it('commands takes a cwd key instead — the dialog has no session yet', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ commands: [] }), { status: 200 }))
+
+    await api.commands({ cwd: '/work/platform/web' })
+
+    const call = fetchMock.mock.calls[0][0] as string
+    expect(call).toContain(`cwd=${encodeURIComponent('/work/platform/web')}`)
+    expect(call).not.toContain('session=')
+  })
+
+  it('filesComplete sends the key and the raw prefix, unwrapping entries', async () => {
+    const entries = [{ name: 'components', dir: true }, { name: 'a.ts', dir: false, size: 12 }]
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ entries }), { status: 200 }))
+
+    await expect(api.filesComplete({ session: 's1' }, 'web/src/co')).resolves.toEqual(entries)
+
+    const call = fetchMock.mock.calls[0][0] as string
+    expect(call).toContain('/api/files/complete?')
+    expect(call).toContain('session=s1')
+    expect(call).toContain(`prefix=${encodeURIComponent('web/src/co')}`)
+  })
+
+  it('filesComplete sends an empty prefix rather than dropping the parameter', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ entries: [] }), { status: 200 }))
+
+    await api.filesComplete({ cwd: '/w' }, '')
+
+    expect(fetchMock.mock.calls[0][0] as string).toContain('prefix=')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Attachments — the composer's upload hop (spec: 2026-09-20-composer-design
+// § Image intake / Store + wire). Deliberately NOT through `request`: the body
+// is multipart and the refusals are states, not errors.
+// ---------------------------------------------------------------------------
+
+describe('Attachments API', () => {
+  const png = () => new File([new Uint8Array([1, 2, 3])], 'capture.png', { type: 'image/png' })
+
+  it('posts one file as multipart FormData and returns the stored entry', async () => {
+    const entry = { ref: 'abc.png', w: 1512, h: 982, bytes: 3 }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(entry), { status: 201 }))
+
+    await expect(api.uploadAttachment('s1', png())).resolves.toEqual({ kind: 'ok', entry })
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/sessions/s1/attachments')
+    expect(init.method).toBe('POST')
+    // No Content-Type of our own — the boundary is the browser's to set.
+    expect(init.headers).toBeUndefined()
+    expect(init.body).toBeInstanceOf(FormData)
+    expect((init.body as FormData).get('file')).toBeInstanceOf(File)
+  })
+
+  it('posts to the sessionless route when there is no session yet (the dialog)', async () => {
+    const entry = { ref: 'abc.png', w: 2048, h: 1152, bytes: 3 }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(entry), { status: 201 }))
+
+    await expect(api.uploadAttachment(null, png())).resolves.toEqual({ kind: 'ok', entry })
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/attachments')
+  })
+
+  it('reads a refusal from the sessionless route the same way', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'not_image', mediaType: 'application/pdf' }), {
+        status: 415,
+      })
+    )
+    await expect(api.uploadAttachment(null, png())).resolves.toEqual({
+      kind: 'not_image',
+      mediaType: 'application/pdf',
+    })
+  })
+
+  it('reads a 413 as a too_large state carrying the measured size', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'too_large', size: 13_000_000 }), { status: 413 })
+    )
+    await expect(api.uploadAttachment('s1', png())).resolves.toEqual({
+      kind: 'too_large',
+      size: 13_000_000,
+      truncated: false,
+    })
+  })
+
+  it('carries the server`s truncated flag so a wall-stopped size is never read as exact', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'too_large', size: 10_485_760, truncated: true }), {
+        status: 413,
+      })
+    )
+    await expect(api.uploadAttachment('s1', png())).resolves.toMatchObject({ truncated: true })
+  })
+
+  it('reads a 415 as not_image, naming the media type the server saw', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'not_image', mediaType: 'application/pdf' }), {
+        status: 415,
+      })
+    )
+    await expect(api.uploadAttachment('s1', png())).resolves.toEqual({
+      kind: 'not_image',
+      mediaType: 'application/pdf',
+    })
+  })
+
+  it('reads a 400 empty_file as its own state', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'empty_file' }), { status: 400 })
+    )
+    await expect(api.uploadAttachment('s1', png())).resolves.toEqual({ kind: 'empty' })
+  })
+
+  it('throws for a status outside the contract — that is a real failure', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('nope', { status: 500 }))
+    await expect(api.uploadAttachment('s1', png())).rejects.toBeInstanceOf(ApiError)
+  })
+
+  it('passes the abort signal through, so a chip`s × cancels its own upload', async () => {
+    const controller = new AbortController()
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ref: 'a.png', w: 1, h: 1, bytes: 1 }), { status: 201 }))
+    await api.uploadAttachment('s1', png(), { signal: controller.signal })
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.signal).toBe(controller.signal)
+  })
+
+  it('sendMessage carries attachment refs only when there are any', async () => {
+    // A fresh Response per call — a Response body may only be read once.
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
+    )
+
+    await api.sendMessage('s1', 'look', ['a.png', 'b.png'])
+    expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBe(
+      JSON.stringify({ text: 'look', attachments: ['a.png', 'b.png'] })
+    )
+
+    fetchMock.mockClear()
+    await api.sendMessage('s1', 'plain')
+    expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBe(JSON.stringify({ text: 'plain' }))
+
+    // An empty list is the same as none — the server's `attachments` is optional.
+    fetchMock.mockClear()
+    await api.sendMessage('s1', 'plain', [])
+    expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBe(JSON.stringify({ text: 'plain' }))
+  })
+
+  it('createSession carries attachments for the dialog`s first turn', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ sessionId: 's9' }), { status: 201 }))
+
+    await api.createSession({
+      cwd: '/home',
+      prompt: 'look',
+      permissionMode: 'plan',
+      attachments: ['a.png'],
+    })
+
+    expect((fetchMock.mock.calls[0][1] as RequestInit).body).toContain('"attachments":["a.png"]')
   })
 })

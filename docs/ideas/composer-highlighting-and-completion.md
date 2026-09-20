@@ -1,7 +1,7 @@
 ---
 id: composer-highlighting-and-completion
 title: The composer should highlight and complete skills, commands and file mentions
-status: backlog
+status: done
 type: idea
 domain: web
 related:
@@ -11,6 +11,11 @@ tags:
   - shortcuts
 ---
 # The composer should highlight and complete skills, commands and file mentions
+
+> Shipped 2026-09-20 — see [[2026-09-20-composer-design]]. Both fields,
+> highlighting, both popups (commands via the SDK's own
+> `supportedCommands()` for live sessions, filesystem catalog
+> otherwise), and image intake landed together.
 
 Typing `/code-review` or `@web/src/App.tsx` into Orbital's composer gets no
 highlight, no suggestion and no confirmation that the thing being named

@@ -39,6 +39,7 @@ const defaultUi: OrbitalUiState = {
   wsStatus: 'connected',
   dialog: 'new',
   sidebarCollapsed: false,
+  fileViewer: null,
 }
 
 function resetStore(
@@ -59,6 +60,12 @@ function resetStore(
     ui: { ...defaultUi, ...overrides.ui },
   })
 }
+
+// jsdom implements neither half of the object-URL pair, and the attachment chips
+// mint a preview per file. Installed for the file rather than per test: RTL's
+// cleanup unmounts AFTER `afterEach`, and the hook revokes on unmount.
+URL.createObjectURL = vi.fn(() => 'blob:preview')
+URL.revokeObjectURL = vi.fn()
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -306,36 +313,6 @@ describe('NewSessionDialog — model group (4b)', () => {
 // ---------------------------------------------------------------------------
 
 describe('NewSessionDialog — canvas 1d structure', () => {
-  it('labels the four field groups with 1d\'s mono kickers', async () => {
-    resetStore()
-    render(<NewSessionDialog open onClose={vi.fn()} />)
-    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
-
-    for (const kicker of ['PROJECT DIRECTORY', 'PERMISSION MODE', 'FIRST PROMPT']) {
-      expect(screen.getByText(kicker)).toBeInTheDocument()
-    }
-    expect(screen.getByText(/^TAG$/)).toBeInTheDocument()
-  })
-
-  it('leaves out 1d\'s "Browse…" button (deferred past v1)', async () => {
-    resetStore()
-    render(<NewSessionDialog open onClose={vi.fn()} />)
-    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
-
-    expect(screen.queryByRole('button', { name: /browse/i })).not.toBeInTheDocument()
-  })
-
-  it('renders recent dirs as mono path pills under the RECENT kicker, not tag chips', async () => {
-    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/a/proj', lastModel: null }])
-    resetStore()
-    render(<NewSessionDialog open onClose={vi.fn()} />)
-
-    await waitFor(() => expect(chip('~/a/proj')).toBeInTheDocument())
-    expect(screen.getByText('RECENT')).toBeInTheDocument()
-    expect(chip('~/a/proj').className).toMatch(/font-mono/)
-    expect(chip('~/a/proj')).toHaveAttribute('title', '/a/proj')
-  })
-
   it('puts the auto-match caption inline in the TAG kicker (1d)', async () => {
     vi.mocked(api.previewRule).mockResolvedValue({ tagId: 1, ruleId: 10 })
     resetStore({
@@ -351,12 +328,297 @@ describe('NewSessionDialog — canvas 1d structure', () => {
     const caption = screen.getByText(/auto-matched by rule ~\/work\/\*\*/)
     expect(caption.parentElement?.textContent).toMatch(/^TAG/)
   })
+})
 
-  it('gives the first-prompt textarea 1d\'s four rows', async () => {
+// ---------------------------------------------------------------------------
+// FIRST PROMPT is the shared Composer (canvas 9d)
+// ---------------------------------------------------------------------------
+
+describe('NewSessionDialog — FIRST PROMPT is the composer', () => {
+  const field = () => screen.getByRole('textbox', { name: /first prompt/i }) as HTMLTextAreaElement
+
+  it('mounts the composer, with its mirror and the dialog`s own hint copy', async () => {
     resetStore()
     render(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
 
-    expect(screen.getByLabelText(/first prompt/i)).toHaveAttribute('rows', '4')
+    expect(document.querySelector('[data-composer-mirror]')).not.toBeNull()
+    expect(
+      screen.getByText('⏎ newline · ⌘⏎ start session · ⌘V paste image')
+    ).toBeInTheDocument()
+    // The kicker still labels it, so the field keeps its id.
+    expect(field()).toHaveAttribute('id', 'new-session-prompt')
+  })
+
+  it('leaves ⏎ as a newline — it never launches', async () => {
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/project directory/i), {
+      target: { value: '/home/tomin/work' },
+    })
+
+    // Not swallowed by the composer: the textarea's own newline happens.
+    expect(fireEvent.keyDown(field(), { key: 'Enter' })).toBe(true)
+    expect(api.createSession).not.toHaveBeenCalled()
+  })
+
+  it('still launches on ⌘⏎ from inside the field, even with the popup open', async () => {
+    vi.mocked(api.createSession).mockResolvedValue('new-session-id')
+    vi.mocked(api.commands).mockResolvedValue([
+      { name: '/commit', description: 'Commit', source: 'project' },
+    ])
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/project directory/i), {
+      target: { value: '/home/tomin/work' },
+    })
+
+    // Open the completion popup, which owns a bare ⏎ but never a chord.
+    fireEvent.change(field(), { target: { value: '/com' } })
+    await screen.findByRole('option', { name: /\/commit/ })
+
+    fireEvent.keyDown(field(), { key: 'Enter', metaKey: true })
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    // The accept did not happen — ⌘⏎ was the dialog's.
+    expect(field()).toHaveValue('/com')
+  })
+
+  it('opens the popup below the field (canvas 9d)', async () => {
+    vi.mocked(api.commands).mockResolvedValue([
+      { name: '/commit', description: 'Commit', source: 'project' },
+    ])
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+
+    fireEvent.change(field(), { target: { value: '/com' } })
+    await screen.findByRole('option', { name: /\/commit/ })
+
+    const well = document.querySelector('[data-composer-well]') as HTMLElement
+    well.getBoundingClientRect = () =>
+      ({ left: 100, right: 518, top: 300, bottom: 320, width: 418, height: 20 }) as DOMRect
+    fireEvent(window, new Event('resize'))
+
+    const shell = document.querySelector('[data-completion-popup]') as HTMLElement
+    expect(shell.dataset.placement).toBe('below')
+  })
+
+  it('completes against the chosen directory, not a session', async () => {
+    vi.mocked(api.commands).mockResolvedValue([])
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/project directory/i), {
+      target: { value: '/home/tomin/work ' },
+    })
+
+    fireEvent.change(field(), { target: { value: '/' } })
+    await waitFor(() =>
+      expect(api.commands).toHaveBeenCalledWith({ cwd: '/home/tomin/work' })
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Image intake in the dialog (canvas 9d-D). The same chips and the same drop
+// state as the panel, with three differences the mount owns: the upload has no
+// session to go through, the drop target is the dialog surface, and the footer
+// counts what is attached.
+// ---------------------------------------------------------------------------
+
+describe('NewSessionDialog — image intake (9d-D)', () => {
+  const REF = `${'a'.repeat(64)}.png`
+
+  const field = () => screen.getByRole('textbox', { name: /first prompt/i })
+  const surface = () => screen.getByRole('dialog')
+  const chips = () => screen.queryAllByTestId('attachment-chip')
+  const marker = () => screen.queryByTestId('drop-marker')
+  const refusal = () => screen.queryByTestId('composer-refusal')
+  const launchButton = () => screen.getByRole('button', { name: /launch session/i })
+
+  function fakeFile(name: string, type: string, size = 421_888): File {
+    const file = new File([new Uint8Array(1)], name, { type })
+    Object.defineProperty(file, 'size', { value: size })
+    return file
+  }
+
+  const png = (name = 'flamegraph.png', size = 421_888) => fakeFile(name, 'image/png', size)
+
+  /** jsdom has no DataTransfer — the same shim `composerintake.test.tsx` uses. */
+  function makeDataTransfer(files: File[]) {
+    return {
+      files,
+      items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+      types: files.length > 0 ? ['Files'] : [],
+      dropEffect: '',
+      effectAllowed: '',
+    } as unknown as DataTransfer
+  }
+
+  function fillCwd(value = '/home/tomin/work') {
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value } })
+  }
+
+  beforeEach(() => {
+    vi.mocked(api.uploadAttachment).mockResolvedValue({
+      kind: 'ok',
+      entry: { ref: REF, w: 2048, h: 1152, bytes: 421_888 },
+    })
+  })
+
+  it('takes a pasted image through the sessionless route and carries the ref into the launch', async () => {
+    vi.mocked(api.createSession).mockResolvedValue('new-1')
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fillCwd()
+
+    fireEvent.paste(field(), { clipboardData: makeDataTransfer([png()]) })
+
+    await waitFor(() => expect(chips()).toHaveLength(1))
+    // `null`, not a session id: the session does not exist until Launch.
+    expect(api.uploadAttachment).toHaveBeenCalledWith(null, expect.any(File), {
+      signal: expect.any(AbortSignal),
+    })
+    // The chip lives in the FIRST PROMPT well, above the text (9d-D).
+    expect(document.querySelector('[data-composer-well] [data-composer-chips]')).not.toBeNull()
+    await waitFor(() => expect(chips()[0]).toHaveAttribute('data-state', 'uploaded'))
+
+    fireEvent.click(launchButton())
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ attachments: [REF] })
+      )
+    )
+    // Text and chips clear together (9c-3).
+    expect(chips()).toHaveLength(0)
+  })
+
+  it('launches without an `attachments` key when nothing is attached', async () => {
+    vi.mocked(api.createSession).mockResolvedValue('new-1')
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fillCwd()
+
+    fireEvent.click(launchButton())
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    expect(vi.mocked(api.createSession).mock.calls[0][0].attachments).toBeUndefined()
+  })
+
+  it('waits for an upload still in flight rather than launching without it', async () => {
+    let settle!: (value: { kind: 'ok'; entry: typeof entryValue }) => void
+    const entryValue = { ref: REF, w: 2048, h: 1152, bytes: 421_888 }
+    vi.mocked(api.uploadAttachment).mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve as typeof settle
+      })
+    )
+    vi.mocked(api.createSession).mockResolvedValue('new-1')
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fillCwd()
+    fireEvent.paste(field(), { clipboardData: makeDataTransfer([png()]) })
+    await waitFor(() => expect(chips()).toHaveLength(1))
+
+    fireEvent.click(launchButton())
+    // The launch is queued behind the upload — nothing has gone out yet.
+    await Promise.resolve()
+    expect(api.createSession).not.toHaveBeenCalled()
+
+    settle({ kind: 'ok', entry: entryValue })
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ attachments: [REF] })
+      )
+    )
+  })
+
+  it('arms the DIALOG on a drag carrying images, and the well becomes the marker', async () => {
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(field(), { target: { value: 'kept under the marker' } })
+
+    fireEvent.dragEnter(surface(), { dataTransfer: makeDataTransfer([png()]) })
+
+    expect(surface()).toHaveAttribute('data-drop-armed', 'true')
+    expect(marker()).toHaveTextContent('DROP TO ATTACH')
+    expect(field()).toHaveValue('kept under the marker')
+  })
+
+  it('is not armed by a drag over the scrim outside the dialog surface', async () => {
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+
+    fireEvent.dragEnter(document.body, { dataTransfer: makeDataTransfer([png()]) })
+    expect(surface()).not.toHaveAttribute('data-drop-armed')
+    expect(marker()).toBeNull()
+  })
+
+  it('chips a dropped image on the dialog surface', async () => {
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    const dt = makeDataTransfer([png('dropped.png')])
+    fireEvent.dragEnter(surface(), { dataTransfer: dt })
+    fireEvent.dragOver(surface(), { dataTransfer: dt })
+    fireEvent.drop(surface(), { dataTransfer: dt })
+
+    await waitFor(() => expect(chips()).toHaveLength(1))
+    expect(chips()[0].querySelector('[data-chip-name]')).toHaveTextContent('dropped.png')
+    expect(surface()).not.toHaveAttribute('data-drop-armed')
+  })
+
+  it('replaces the dialog hint line with the refusal, in place', async () => {
+    resetStore()
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+
+    fireEvent.paste(field(), {
+      clipboardData: makeDataTransfer([fakeFile('spec.pdf', 'application/pdf')]),
+    })
+
+    await waitFor(() => expect(refusal()).not.toBeNull())
+    expect(refusal()).toHaveTextContent('IMAGES ONLY')
+    expect(refusal()).toHaveTextContent('application/pdf')
+    expect(chips()).toHaveLength(0)
+    expect(api.uploadAttachment).not.toHaveBeenCalled()
+    expect(
+      screen.queryByText('⏎ newline · ⌘⏎ start session · ⌘V paste image')
+    ).not.toBeInTheDocument()
+  })
+
+  it('counts the images in the footer summary, ahead of the session`s shape (9d-D)', async () => {
+    vi.mocked(api.previewRule).mockResolvedValue({ tagId: 1, ruleId: 10 })
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fillCwd()
+    await waitFor(() => expect(chip('work')).toHaveAttribute('data-active', 'true'))
+
+    fireEvent.paste(field(), { clipboardData: makeDataTransfer([png()]) })
+    // The whole caption, in order: the count leads, then the session's shape.
+    const caption = () => surface().querySelector('footer')!.textContent
+    await waitFor(() => expect(chips()).toHaveLength(1))
+    expect(caption()).toMatch(/^1 image · Sonnet 5 · acceptEdits · WORK/)
+
+    fireEvent.paste(field(), { clipboardData: makeDataTransfer([png('second.png')]) })
+    await waitFor(() => expect(chips()).toHaveLength(2))
+    expect(caption()).toMatch(/^2 images · Sonnet 5/)
+  })
+
+  it('counts only what the launch would carry — a failed chip is not an image the session gets', async () => {
+    vi.mocked(api.uploadAttachment).mockRejectedValue(new Error('network'))
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+
+    fireEvent.paste(field(), { clipboardData: makeDataTransfer([png()]) })
+    await waitFor(() => expect(chips()[0]).toHaveAttribute('data-state', 'failed'))
+    // The chip is still there, saying so itself; the footer does not promise it.
+    expect(surface().querySelector('footer')!.textContent).toMatch(/^Sonnet 5 · /)
+  })
+
+  it('drops the chips when the dialog closes, so the next open starts empty', async () => {
+    resetStore()
+    const { rerender } = render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.paste(field(), { clipboardData: makeDataTransfer([png()]) })
+    await waitFor(() => expect(chips()).toHaveLength(1))
+
+    rerender(<NewSessionDialog open={false} onClose={vi.fn()} />)
+    rerender(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(chips()).toHaveLength(0))
   })
 })

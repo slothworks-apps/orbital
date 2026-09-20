@@ -1,0 +1,186 @@
+/**
+ * File-path detection for assistant prose and tool inputs (spec:
+ * 2026-09-19-file-viewer-design § The pressable path).
+ *
+ * Prose needs a pattern, not a parser: a run of path characters with at
+ * least one `/` and a known TEXT extension, optionally followed by `:line`
+ * or `:line:col` (line kept, column ignored, both part of the hit area).
+ * False positives are cheap — the viewer refuses politely; false negatives
+ * are the expensive kind (canvas 8b).
+ */
+
+/**
+ * Extensions the viewer can show as text — a whitelist, because "not an
+ * image" is unknowable from a name while "is a text format we know" is a
+ * list. Image and known-binary extensions (`.png`, `.jpg`, `.gif`, `.webp`,
+ * `.woff2`, `.pdf`, `.zip`, …) are deliberately absent so those paths stay
+ * plain text everywhere — image viewing belongs to the transcript-images
+ * feature, not this one. `.svg` is text on disk but an image to the reader,
+ * so it sits with the images (judgement call).
+ */
+const TEXT_EXTENSIONS = new Set([
+  // code
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'svelte',
+  'py', 'rb', 'go', 'rs', 'java', 'kt', 'kts', 'swift', 'c', 'h', 'cc',
+  'cpp', 'hpp', 'cs', 'php', 'pl', 'lua', 'r', 'scala', 'dart', 'ex',
+  'exs', 'erl', 'hs', 'clj', 'edn', 'zig', 'sql', 'prisma', 'graphql',
+  'gql', 'proto', 'sh', 'bash', 'zsh', 'fish', 'ps1',
+  // docs
+  'md', 'markdown', 'txt', 'rst', 'adoc', 'log', 'csv', 'tsv',
+  // config + markup
+  'json', 'jsonc', 'json5', 'yml', 'yaml', 'toml', 'ini', 'cfg', 'conf',
+  'env', 'properties', 'gradle', 'tf', 'html', 'htm', 'xml', 'css',
+  'scss', 'sass', 'less', 'lock', 'editorconfig', 'gitignore',
+])
+
+/** True when the path's basename carries an extension from the TEXT whitelist. */
+export function hasTextExtension(path: string): boolean {
+  const base = path.slice(path.lastIndexOf('/') + 1)
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0) return false
+  return TEXT_EXTENSIONS.has(base.slice(dot + 1).toLowerCase())
+}
+
+export interface PathMatch {
+  /** Offset of the whole hit area (path + any `:line[:col]` suffix) in the input. */
+  index: number
+  /** Length of the whole hit area. */
+  length: number
+  /** The matched text verbatim — what the button shows. */
+  text: string
+  /** The path alone, suffix stripped — what travels to the server. */
+  path: string
+  /** Parsed `:line`, or null when the match carried none. */
+  line: number | null
+}
+
+/** One path segment: word chars plus the punctuation real file names use. */
+const SEGMENT = String.raw`[\w.@+~-]+`
+/** A run with at least one `/` — an optional leading segment then `/segment`s. */
+const PATH_RUN = new RegExp(`(?:${SEGMENT})?(?:/${SEGMENT})+`, 'g')
+/** Optional `:line` or `:line:col` immediately after the path. */
+const LINE_SUFFIX = /^:(\d+)(?::\d+)?/
+
+/** Every path-shaped run in `text` that passes the extension whitelist. */
+export function findPathMatches(text: string): PathMatch[] {
+  const matches: PathMatch[] = []
+  PATH_RUN.lastIndex = 0
+  for (let m = PATH_RUN.exec(text); m !== null; m = PATH_RUN.exec(text)) {
+    // Sentence punctuation: `.` is a path character, so a match at the end
+    // of a sentence swallows the full stop — trim trailing dots before the
+    // extension check so `web/src/App.tsx.` still reads as a `.tsx` hit.
+    const path = m[0].replace(/\.+$/, '')
+    // A candidate preceded by another slash is the tail of a `//` URL run
+    // (`https://…`), not a file path.
+    if (m.index > 0 && text[m.index - 1] === '/') continue
+    if (!hasTextExtension(path)) continue
+
+    const suffix = LINE_SUFFIX.exec(text.slice(m.index + path.length))
+    const hit = suffix ? path + suffix[0] : path
+    matches.push({
+      index: m.index,
+      length: hit.length,
+      text: hit,
+      path,
+      line: suffix ? Number(suffix[1]) : null,
+    })
+    PATH_RUN.lastIndex = m.index + hit.length
+  }
+  return matches
+}
+
+// ---------------------------------------------------------------------------
+// rehype plugin
+// ---------------------------------------------------------------------------
+
+// Minimal structural hast types — enough for the walk below, without adding
+// a dependency on `@types/hast` (react-markdown's own copy is a transitive
+// implementation detail).
+export interface HastText {
+  type: 'text'
+  value: string
+}
+export interface HastElement {
+  type: 'element'
+  tagName: string
+  properties?: Record<string, unknown>
+  children: HastNode[]
+}
+export interface HastParent {
+  type: string
+  children: HastNode[]
+}
+export type HastNode = HastText | HastElement | HastParent
+export interface HastRoot {
+  type: 'root'
+  children: HastNode[]
+}
+
+/** Inside these, a path stays text: code is quoted material, links are taken. */
+const SKIP_TAGS = new Set(['code', 'pre', 'a', 'script', 'style'])
+
+function isParent(node: HastNode): node is HastParent | HastElement {
+  return Array.isArray((node as HastParent).children)
+}
+
+/** The `<a data-path data-line>` element the markdown `a` override recognizes. */
+function pathLinkElement(match: PathMatch): HastElement {
+  return {
+    type: 'element',
+    tagName: 'a',
+    properties: {
+      // hast's camelCase `data*` properties serialize to `data-*`
+      // attributes, which is how `MessageView`'s `a` component override
+      // tells these apart from authored links.
+      dataPath: match.path,
+      ...(match.line !== null ? { dataLine: String(match.line) } : {}),
+    },
+    children: [{ type: 'text', value: match.text }],
+  }
+}
+
+function splitTextNode(node: HastText): HastNode[] | null {
+  const matches = findPathMatches(node.value)
+  if (matches.length === 0) return null
+  const out: HastNode[] = []
+  let cursor = 0
+  for (const match of matches) {
+    if (match.index > cursor) out.push({ type: 'text', value: node.value.slice(cursor, match.index) })
+    out.push(pathLinkElement(match))
+    cursor = match.index + match.length
+  }
+  if (cursor < node.value.length) out.push({ type: 'text', value: node.value.slice(cursor) })
+  return out
+}
+
+function walk(node: HastParent | HastElement): void {
+  const children = node.children
+  for (let i = 0; i < children.length; i += 1) {
+    const child = children[i]
+    if (child.type === 'element') {
+      if (SKIP_TAGS.has((child as HastElement).tagName)) continue
+      walk(child as HastElement)
+      continue
+    }
+    if (child.type === 'text') {
+      const replacement = splitTextNode(child as HastText)
+      if (replacement) {
+        children.splice(i, 1, ...replacement)
+        i += replacement.length - 1
+      }
+      continue
+    }
+    if (isParent(child)) walk(child)
+  }
+}
+
+/**
+ * Rehype plugin wrapping every prose path match in an `<a data-path>` the
+ * markdown `components.a` override renders as a `PathButton`. Text inside
+ * `code`, `pre` and existing `a` elements is never touched.
+ */
+export function rehypePathLinks() {
+  return (tree: HastRoot): void => {
+    walk(tree)
+  }
+}

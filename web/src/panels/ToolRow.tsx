@@ -1,10 +1,34 @@
 import { useState } from 'react'
 import type { ChatMessage } from '../lib/types'
 import { ansiToHtml } from '../lib/highlight'
-import { ImageThumb, formatBytes } from './ImageThumb'
+import { hasTextExtension } from '../lib/pathLinks'
+import { formatBytes } from '../lib/format'
+import { ImageThumb } from './ImageThumb'
+import { PathButton } from './PathButton'
 
 /** Tools whose salient input lives in a `file_path` field. */
 const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
+
+/** Input fields that name a file (spec: 2026-09-19-file-viewer-design §
+ * Where paths come from) — pressable in the collapsed label and in the
+ * expanded INPUT's pretty-print. */
+const PATH_INPUT_FIELDS = new Set(['file_path', 'notebook_path'])
+
+/**
+ * The path a tool row can open in the file viewer, or null: `file_path` of
+ * the `FILE_PATH_TOOLS`, `notebook_path` of NotebookEdit. Image and
+ * known-binary extensions stay plain text — the whitelist in
+ * `hasTextExtension` decides, same as prose matching.
+ */
+export function pressablePathOf(toolName: string | undefined, toolInput: unknown): string | null {
+  if (!toolInput || typeof toolInput !== 'object') return null
+  const input = toolInput as Record<string, unknown>
+  let path: unknown
+  if (toolName && FILE_PATH_TOOLS.has(toolName)) path = input.file_path
+  else if (toolName === 'NotebookEdit') path = input.notebook_path
+  if (typeof path !== 'string' || !hasTextExtension(path)) return null
+  return path
+}
 
 /**
  * Picks the one input value worth showing in a `ToolRow`'s collapsed
@@ -26,6 +50,54 @@ export function salientInput(toolName: string | undefined, toolInput: unknown): 
     if (typeof value === 'string') return value
   }
   return ''
+}
+
+/** One JSON-escaped `"file_path": "…"` (or notebook_path) line of the
+ * pretty-printed input. Captures indentation+key prefix, the escaped value
+ * and the closing quote/comma so the value alone can become a button. */
+const PATH_FIELD_LINE = /^(\s*"(file_path|notebook_path)": ")(.*)(",?)$/
+
+/**
+ * The expanded INPUT block (canvas 8a's INPUT frame): the pretty-printed
+ * JSON with the path fields' values rendered as `PathButton`s — everything
+ * else in the JSON stays text. Line-based on the `JSON.stringify` output,
+ * which is safe because escaping keeps every value on one line; a value
+ * whose unescape fails, or whose extension is not text, stays text too.
+ */
+function InputJson({ input }: { input: unknown }) {
+  // `stringify(undefined)` is undefined, not a string — a tool_use with no
+  // input at all used to render an empty <pre> and still must.
+  const json = JSON.stringify(input, null, 2) ?? ''
+  const lines = json.split('\n')
+  return (
+    <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+      {lines.map((line, index) => {
+        const trailing = index < lines.length - 1 ? '\n' : ''
+        const match = PATH_FIELD_LINE.exec(line)
+        if (match && PATH_INPUT_FIELDS.has(match[2])) {
+          let path: string | null = null
+          try {
+            path = JSON.parse(`"${match[3]}"`) as string
+          } catch {
+            // Malformed capture (shouldn't happen for stringify output) — text.
+          }
+          if (path !== null && hasTextExtension(path)) {
+            return (
+              // eslint-disable-next-line react/no-array-index-key -- static line list
+              <span key={index}>
+                {match[1]}
+                <PathButton path={path} variant="input" />
+                {match[4]}
+                {trailing}
+              </span>
+            )
+          }
+        }
+        // eslint-disable-next-line react/no-array-index-key -- static line list
+        return <span key={index}>{line + trailing}</span>
+      })}
+    </pre>
+  )
 }
 
 /** Micro-label over an expanded row's input/result block — the export's
@@ -59,6 +131,11 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false)
   const running = !toolResult
   const label = salientInput(toolUse.toolName, toolUse.toolInput)
+  // The collapsed label's path span becomes a PathButton only when the
+  // salient input IS the path — for the path-bearing tools that is always
+  // the case, and anything else keeps today's plain bright span.
+  const pathInput = pressablePathOf(toolUse.toolName, toolUse.toolInput)
+  const pressablePath = pathInput !== null && pathInput === label ? pathInput : null
 
   return (
     <div
@@ -72,40 +149,60 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
           : 'border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)]',
       ].join(' ')}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded((e) => !e)}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-2.5 py-[7px] text-left font-mono text-[11.5px] text-[rgba(200,220,245,.8)] hover:bg-white/5"
+      {/* Two sibling interactive elements — a nested <button> inside the
+          expand button would be invalid HTML, so the expand button covers
+          the header as an absolute layer and the visible line sits over it
+          with pointer-events off, except the PathButton, which takes its
+          own presses (spec § Tool rows, canvas 8a). While the path is
+          hovered or focused the row's own hover styling is suppressed, so
+          the two targets never both look armed (8e "press vs. toggle") —
+          the :has() guards below drop the fill while the path is hovered
+          or holds keyboard focus. */}
+      <div
+        data-tool-header
+        className="relative [&:hover:not(:has([data-path-button]:hover)):not(:has([data-path-button]:focus-visible))]:bg-white/5"
       >
-        <span aria-hidden className="text-[rgba(160,190,225,.6)]">
-          {expanded ? '▾' : '▸'}
-        </span>
-        <span aria-hidden className="text-[rgba(160,190,225,.6)]">
-          ⚙
-        </span>
-        <span className="min-w-0 flex-1 truncate">
-          {toolUse.toolName}
-          {label ? ': ' : ''}
-          <span className="text-text-bright">{label}</span>
-        </span>
-        {running && (
-          <span
-            data-testid="tool-running-dot"
-            aria-label="running"
-            aria-hidden
-            className="orbital-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-text-soft"
-          />
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          aria-label={`${toolUse.toolName ?? 'Tool'}${label ? `: ${label}` : ''}`}
+          className="absolute inset-0 h-full w-full"
+        />
+        <div className="pointer-events-none relative flex w-full items-center gap-2 px-2.5 py-[7px] text-left font-mono text-[11.5px] text-[rgba(200,220,245,.8)]">
+          <span aria-hidden className="text-[rgba(160,190,225,.6)]">
+            {expanded ? '▾' : '▸'}
+          </span>
+          <span aria-hidden className="text-[rgba(160,190,225,.6)]">
+            ⚙
+          </span>
+          <span className="min-w-0 flex-1 truncate">
+            {toolUse.toolName}
+            {label ? ': ' : ''}
+            {pressablePath ? (
+              <span className="pointer-events-auto">
+                <PathButton path={pressablePath} variant="row" />
+              </span>
+            ) : (
+              <span className="text-text-bright">{label}</span>
+            )}
+          </span>
+          {running && (
+            <span
+              data-testid="tool-running-dot"
+              aria-label="running"
+              aria-hidden
+              className="orbital-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-text-soft"
+            />
+          )}
+        </div>
+      </div>
 
       {expanded && (
         <div className="flex flex-col gap-2 border-t border-[rgba(150,205,255,.08)] px-3 pb-2.5 pt-2">
           <div>
             <SectionLabel>INPUT</SectionLabel>
-            <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
-              {JSON.stringify(toolUse.toolInput, null, 2)}
-            </pre>
+            <InputJson input={toolUse.toolInput} />
           </div>
           {toolResult && (
             <div>

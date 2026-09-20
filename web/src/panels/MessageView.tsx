@@ -3,8 +3,12 @@ import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../lib/types'
+import { formatBytes } from '../lib/format'
 import { highlightCode } from '../lib/highlight'
+import { rehypePathLinks } from '../lib/pathLinks'
+import { rehypeSentTokens } from '../lib/sentTokens'
 import { ImageThumb } from './ImageThumb'
+import { PathButton } from './PathButton'
 
 /** 7a: two or more images share one wrapping row, each capped narrower. */
 const TWO_UP_WIDTH_PX = 171
@@ -62,7 +66,7 @@ type CodeProps = ComponentPropsWithoutRef<'code'> & { className?: string }
  * component is only reached for standalone `code` nodes that have no `pre`
  * parent, i.e. genuinely inline code.
  */
-function Code({ children, ...rest }: CodeProps) {
+export function Code({ children, ...rest }: CodeProps) {
   return (
     <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em]" {...rest}>
       {children}
@@ -83,7 +87,7 @@ type PreProps = ComponentPropsWithoutRef<'pre'>
  * doesn't invoke `Code` at all, so its inline styling is never applied to
  * a fenced block, with or without a language.
  */
-function Pre({ children, className, ...rest }: PreProps) {
+export function Pre({ children, className, ...rest }: PreProps) {
   const codeEl = Array.isArray(children) ? children[0] : children
   if (codeEl && typeof codeEl === 'object' && 'props' in codeEl) {
     const codeProps = (codeEl as { props: { className?: string; children?: ReactNode } }).props
@@ -106,6 +110,36 @@ function Pre({ children, className, ...rest }: PreProps) {
       {children}
     </pre>
   )
+}
+
+type AnchorProps = ComponentPropsWithoutRef<'a'> & {
+  'data-path'?: string
+  'data-line'?: string
+}
+
+/**
+ * The `a` override for assistant prose. `rehypePathLinks` wraps detected
+ * file paths in `<a data-path data-line>` elements; those render as
+ * `PathButton`s, while every authored markdown link stays a plain anchor
+ * (spec: 2026-09-19-file-viewer-design § Assistant prose).
+ */
+function MarkdownLink({ children, node: _node, ...rest }: AnchorProps & { node?: unknown }) {
+  const path = rest['data-path']
+  if (path) {
+    const rawLine = rest['data-line']
+    // The child text is the full hit area (`web/src/App.tsx:42:7`) — the
+    // suffix past the path is display-only; only the line travels.
+    const text = Array.isArray(children) ? children.join('') : String(children ?? '')
+    return (
+      <PathButton
+        path={path}
+        line={rawLine !== undefined ? Number(rawLine) : null}
+        variant="prose"
+        suffix={text.startsWith(path) ? text.slice(path.length) : undefined}
+      />
+    )
+  }
+  return <a {...rest}>{children}</a>
 }
 
 /** The machine-tag names, for stripping from the chip's line count only —
@@ -174,7 +208,16 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
             : 'max-w-[92%] text-[13px] leading-[1.55] text-[rgba(232,238,248,.92)]',
         ].join(' ')}
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: Code, pre: Pre }}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          // Path detection runs over ASSISTANT prose only — a user turn is
+          // quoted speech, not the agent narrating file work (spec § prose).
+          // The user turn gets the composer's tints instead, holding after the
+          // turn went out (canvas 9e SENT). The two never share a turn: one
+          // makes paths pressable, the other says "this was parsed".
+          rehypePlugins={isUser ? [rehypeSentTokens] : [rehypePathLinks]}
+          components={isUser ? { code: Code, pre: Pre } : { code: Code, pre: Pre, a: MarkdownLink }}
+        >
           {message.text ?? ''}
         </ReactMarkdown>
         {streaming && (
@@ -191,15 +234,40 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
         // 7a: one wrapping row, 6px gap; under a bubble the image sits at
         // the column's own gap, aligned to the bubble's right edge.
         <div className={['flex flex-wrap gap-1.5', isUser ? 'justify-end' : 'justify-start'].join(' ')}>
-          {images.map((image) => (
-            <ImageThumb
-              key={image.ref}
-              image={image}
-              variant={isUser && !hasText && !command ? 'user-solo' : 'user'}
-              source="pasted image"
-              widthCapPx={images.length > 1 ? TWO_UP_WIDTH_PX : undefined}
-            />
-          ))}
+          {images.map((image) => {
+            // Local-only, so it exists on the optimistic turn and on the WS
+            // replacement that supersedes it — and on nothing that came back
+            // from a reload (spec § The transcript side). ImageThumb's geometry
+            // is untouched; only the caption line below is new.
+            const provenance = message.imageProvenance?.[image.ref]
+            const thumb = (
+              <ImageThumb
+                image={image}
+                variant={isUser && !hasText && !command ? 'user-solo' : 'user'}
+                source={provenance?.name ?? 'pasted image'}
+                widthCapPx={images.length > 1 ? TWO_UP_WIDTH_PX : undefined}
+              />
+            )
+            if (!provenance) return <div key={image.ref}>{thumb}</div>
+            return (
+              // 9c-3: caption 4px under the thumb, aligned with its own edge.
+              <div
+                key={image.ref}
+                className={[
+                  'flex flex-col gap-1',
+                  isUser ? 'items-end' : 'items-start',
+                ].join(' ')}
+              >
+                {thumb}
+                <span
+                  data-image-caption
+                  className="font-mono text-[9px] tracking-[0.06em] text-[rgba(160,190,225,.5)]"
+                >
+                  {provenance.name} · {formatBytes(image.bytes)}
+                </span>
+              </div>
+            )
+          })}
         </div>
       )}
       {command && (

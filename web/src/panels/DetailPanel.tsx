@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   useOrbital,
@@ -27,7 +27,11 @@ import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
+import { Composer } from './Composer'
+import { useAttachments } from './useAttachments'
+import { useImageDrop } from './useImageDrop'
 import { Transcript } from './Transcript'
+import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { ModelSwitcher } from './ModelSwitcher'
@@ -141,6 +145,17 @@ export function DetailPanel() {
   const [prompt, setPrompt] = useState('')
   const [lineageCache, setLineageCache] = useState<Record<string, string[]>>({})
 
+  // Image intake (spec: 2026-09-20-composer-design § Image intake). The chips
+  // live here rather than inside `Composer` because the Send button below reads
+  // them — a turn can be images with no text at all — and because the drop
+  // TARGET is the whole panel: "a 418 px well is too small a thing to aim at
+  // while holding a file" (canvas 9c-1). The empty-string key is the render
+  // before a session is selected, on which nothing can be dropped anyway.
+  const attachments = useAttachments(id ?? '')
+  const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files) =>
+    attachments.accept(files, 'file'),
+  )
+
   // Resizable width (docs/ideas/resizable-detail-panel.md). The store value
   // moves LIVE during the drag — the panel and the map's follow inset track
   // the pointer — and the PATCH goes out once, on release. Same optimistic
@@ -202,6 +217,11 @@ export function DetailPanel() {
   useEffect(() => {
     setPrompt('')
     setIsEditingTitle(false)
+    // The chips belong to the draft, so they go with it — and the refs they
+    // would have carried are this session's, not the next one's.
+    attachments.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `reset` is stable;
+    // listing it would only re-run this on a render it has nothing to do with.
   }, [id])
 
   // Title draft reseeds whenever the session (or its title) changes, but
@@ -305,18 +325,31 @@ export function DetailPanel() {
     setDialog('clear')
   }
 
-  function handleSend() {
-    const text = prompt.trim()
-    if (!text || !id) return
+  /**
+   * `Composer` hands over the trimmed text on ⏎; the Send button has none.
+   *
+   * With no chips this is exactly what it always was — one synchronous call, so
+   * a plain turn's timing is untouched. With chips it becomes the queued send
+   * (spec § Send): the field and the chip row clear in this frame, and the turn
+   * goes out when the last upload settles. A chip that failed is left behind and
+   * is not in the turn.
+   */
+  function handleSend(draft: string = prompt) {
+    const text = draft.trim()
+    const sessionId = id
+    if (!sessionId) return
+    if (!text && !attachments.armed) return
     setPrompt('')
-    void sendPrompt(id, text)
-  }
-
-  function handlePromptKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+    if (!attachments.armed) {
+      void sendPrompt(sessionId, text)
+      return
     }
+    void attachments.takeForSend().then((images) => {
+      if (images.length > 0) void sendPrompt(sessionId, text, images)
+      // Every upload failed after the well was cleared: send the text alone
+      // rather than swallowing the turn.
+      else if (text) void sendPrompt(sessionId, text)
+    })
   }
 
   const lineage = lineageCache[id]
@@ -350,11 +383,18 @@ export function DetailPanel() {
     // `transition-[width]`, and a second transition-property utility would
     // resolve by stylesheet order rather than by intent.
     <div
+      ref={dropTargetRef}
       data-state={presence}
+      // The drop target is the panel, not the well (canvas 9c-1). It sits on
+      // this wrapper rather than inside `Panel` because the listeners want the
+      // outermost element the drag can be over, and the accent border + inset
+      // ring below are painted on the same box.
+      data-drop-target
+      data-drop-armed={dropArmed || undefined}
       // Still painted while it slides away, but no longer a live surface.
       inert={presence === 'exiting' || undefined}
       className={[
-        'h-full',
+        'relative h-full',
         PANEL_TRANSITION,
         presence === 'exiting' ? PANEL_EXIT_DURATION : PANEL_ENTER_DURATION,
         presence === 'entered' ? PANEL_OPEN : PANEL_CLOSED,
@@ -391,8 +431,16 @@ export function DetailPanel() {
         style={{ background: `linear-gradient(90deg, transparent, ${accent}, transparent)` }}
       />
 
-      {/* Header — canvas 1b: padding 20px 22px 16px over a hairline rule. */}
-      <div className="border-b border-panel-border px-[22px] pb-4 pt-5">
+      {/* Header — canvas 1b: padding 20px 22px 16px over a hairline rule.
+          9c-1 steps it back to .4 while a drop is armed, a touch brighter than
+          the transcript's .35: it is the session's name, and the marker is the
+          only thing that should be competing. */}
+      <div
+        className={[
+          'border-b border-panel-border px-[22px] pb-4 pt-5',
+          dropArmed ? 'opacity-40' : '',
+        ].join(' ')}
+      >
         <div className="flex items-start gap-2.5">
           <div className="min-w-0 flex-1">
             {/* Title reads as an editable value: dashed underline + pencil (1b). */}
@@ -558,7 +606,12 @@ export function DetailPanel() {
         )}
       </div>
 
-      <div className="min-h-0 flex-1">
+      {/* 9c-1: the transcript drops to .35 for the duration of the drag, so the
+          marker is the only lit thing in the panel. */}
+      <div
+        data-transcript-dim
+        className={['min-h-0 flex-1', dropArmed ? 'opacity-35' : ''].join(' ')}
+      >
         <Transcript sessionId={id} />
       </div>
 
@@ -569,38 +622,56 @@ export function DetailPanel() {
             runs in terminal — read-only
           </div>
         ) : (
-          // One bordered well holding the field and its action row (1b).
-          <div className="rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] px-3 pb-2.5 pt-3">
-            {/* Bare field: the well already draws the border/fill, so this is
-                deliberately not `ui/Input`'s bordered TextArea variant. */}
-            <textarea
-              aria-label="Prompt"
-              rows={2}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handlePromptKeyDown}
-              placeholder={promptPlaceholder}
-              className="block min-h-[36px] w-full resize-none border-0 bg-transparent p-0 font-sans text-[13px] leading-[1.5] text-text-bright placeholder:text-text-muted focus:outline-none"
-            />
-            <div className="mt-1.5 flex items-center gap-2">
-              <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
-                ⏎ send · ⇧⏎ newline
-              </span>
-              <span aria-hidden className="flex-1" />
-              {session?.status === 'working' && (
-                <Button variant="warning-outline" size="sm" onClick={() => setDialog('stop')}>
-                  <span aria-hidden className="h-2 w-2 rounded-[1px] bg-current" />
-                  Stop
+          // The well, its highlight mirror and its completion popup are
+          // `Composer`'s — the same control the New Session dialog mounts
+          // (spec: 2026-09-20-composer-design). The action row stays the
+          // panel's: Stop and Send belong to a live session, not to a field.
+          <Composer
+            sessionKey={{ session: id }}
+            value={prompt}
+            onChange={setPrompt}
+            enter="send"
+            onSend={handleSend}
+            placement="above"
+            variant="panel"
+            hint="⏎ send · ⇧⏎ newline · ⌘V paste image"
+            placeholder={promptPlaceholder}
+            aria-label="Prompt"
+            attachments={attachments}
+            dropArmed={dropArmed}
+            actions={
+              <>
+                {session?.status === 'working' && (
+                  <Button variant="warning-outline" size="sm" onClick={() => setDialog('stop')}>
+                    <span aria-hidden className="h-2 w-2 rounded-[1px] bg-current" />
+                    Stop
+                  </Button>
+                )}
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleSend()}
+                  // Live on text OR on one chip that is uploaded or still
+                  // uploading; a failed chip alone arms nothing (spec § Send).
+                  disabled={!prompt.trim() && !attachments.armed}
+                >
+                  Send ↑
                 </Button>
-              )}
-              <Button variant="primary" size="sm" onClick={handleSend} disabled={!prompt.trim()}>
-                Send ↑
-              </Button>
-            </div>
-          </div>
+              </>
+            }
+          />
         )}
       </div>
 
+      {/* The file viewer mounts HERE, beside the panel's other session-scoped
+          overlays (Stop/Clear), because it always belongs to the selected
+          session — it needs this session's id for the read and its cwd/title
+          for the refusal copy and footer, and `select()` closing it keeps the
+          pairing honest. It portals to document.body like the Lightbox, so
+          the panel's overflow-hidden shell never clips it. Judgement call:
+          the spec only says "over the app"; this is the mount point that
+          gets the session without threading it through the store. */}
+      {session && <FileViewer session={session} />}
       <StopDialog open={dialog === 'stop'} sessionId={id} onClose={() => setDialog(null)} />
       <ClearDialog
         open={dialog === 'clear'}
@@ -609,6 +680,24 @@ export function DetailPanel() {
         onCleared={invalidateLineage}
       />
     </Panel>
+      {/* The armed panel's chrome (canvas 9c-1 / 9e drop state): accent border
+          at .45 over a matching inset ring at .12, arriving over .12s.
+
+          Its own overlay element rather than classes on the wrapper because the
+          wrapper already carries `PANEL_TRANSITION`, and a second
+          transition-property utility on one element resolves by stylesheet
+          order rather than by intent (see web/CLAUDE.md). It matches `Panel`'s
+          own 14px radius and never takes the pointer, so the drag still reaches
+          the wrapper's listeners. */}
+      <div
+        aria-hidden
+        className={[
+          'pointer-events-none absolute inset-0 rounded-[14px] border transition-[border-color,box-shadow] duration-[120ms] ease-in',
+          dropArmed
+            ? 'border-[oklch(85%_.12_205_/_.45)] shadow-[inset_0_0_0_1px_oklch(85%_.12_205_/_.12)]'
+            : 'border-transparent',
+        ].join(' ')}
+      />
     </div>
   )
 }

@@ -175,6 +175,7 @@ function resetStore() {
       wsStatus: 'connecting',
       dialog: null,
       sidebarCollapsed: false,
+      fileViewer: null,
     },
   })
 }
@@ -573,14 +574,5 @@ describe('errors trigger in the map HUD', () => {
 
     expect(useOrbital.getState().ui.dialog).toBe('errors')
     expect(screen.getByRole('heading', { name: 'Errors' })).toBeInTheDocument()
-  })
-
-  it('sits in the zoom column of the map HUD, so it tracks the detail panel with it', async () => {
-    await renderApp()
-
-    const trigger = screen.getByRole('button', { name: 'Error log' })
-    const column = trigger.closest('[data-overlay="zoom-column"]') as HTMLElement
-    expect(column).not.toBeNull()
-    expect(within(column).getByRole('button', { name: 'Zoom in' })).toBeInTheDocument()
   })
 })

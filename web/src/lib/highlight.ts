@@ -64,6 +64,40 @@ export async function highlightCode(code: string, lang: string): Promise<string>
   }
 }
 
+/** One shiki token, reduced to what the file viewer's row renderer needs. */
+export interface CodeToken {
+  content: string
+  color?: string
+}
+
+/**
+ * Tokenizes `code` as `lang` into per-line shiki tokens — the file viewer's
+ * source mode renders its own rows (gutter, line targets) so it needs
+ * tokens, not `highlightCode`'s finished HTML. Same lazy singleton, same
+ * posture on failure: an unknown language, a failed import or any shiki
+ * error resolves to `null` and the caller renders plain text rows instead.
+ */
+export async function tokenizeCode(code: string, lang: string): Promise<CodeToken[][] | null> {
+  try {
+    const highlighter = await getHighlighterInstance()
+
+    if (!highlighter.getLoadedLanguages().includes(lang)) {
+      try {
+        await highlighter.loadLanguage(lang as Parameters<Highlighter['loadLanguage']>[0])
+      } catch {
+        return null
+      }
+    }
+
+    return highlighter.codeToTokensBase(code, {
+      lang: lang as Parameters<Highlighter['codeToTokensBase']>[1]['lang'],
+      theme: THEME,
+    })
+  } catch {
+    return null
+  }
+}
+
 /**
  * ANSI escape codes -> HTML via `anser`. The input is escaped for HTML
  * FIRST (so any `<`/`&`/etc in the raw text, e.g. shell output containing

@@ -941,3 +941,306 @@ describe('Runner error reporting — what the session was trying to run', () => 
     expect(seen[0].attempt.model).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// The composer's two additions: the session's command list, and attachments
+// riding along with a prompt (spec: 2026-09-20-composer-design § Server)
+// ---------------------------------------------------------------------------
+
+/** The two rows the CLI actually answers `supportedCommands()` with. */
+const COMMANDS = [
+  { name: 'clear', description: 'Clear conversation history', argumentHint: '' },
+  { name: 'usage', description: 'Show plan usage', argumentHint: '', aliases: ['cost', 'stats'] },
+];
+
+/**
+ * Fake SDK that answers `supportedCommands()` and counts the asks, so the
+ * per-session cache is observable. Its generator parks rather than ending, the
+ * way a live session's does — a session whose query has finished has no live
+ * query to ask.
+ */
+function fakeQueryFnWithCommands(commands: unknown[] = COMMANDS) {
+  const asks = { count: 0 };
+  const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+    const sid = sessionIdOf(options);
+    async function* gen() {
+      for await (const _msg of prompt) {
+        yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
+      }
+    }
+    const g = gen() as any;
+    g.supportedCommands = async () => {
+      asks.count += 1;
+      return commands;
+    };
+    return g;
+  };
+  return { fn, asks };
+}
+
+describe('Runner commands', () => {
+  it('answers the live query\'s supportedCommands, shaped for the popup', async () => {
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fakeQueryFnWithCommands().fn as any, newSessionId: () => 'web-1',
+    });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+
+    expect(await runner.commands('web-1')).toEqual([
+      { name: 'clear', description: 'Clear conversation history' },
+      { name: 'usage', description: 'Show plan usage', aliases: ['cost', 'stats'] },
+    ]);
+  });
+
+  it('keeps an argument hint when the CLI gives one', async () => {
+    const { fn } = fakeQueryFnWithCommands([
+      { name: 'add-dir', description: 'Add a directory', argumentHint: '<path>' },
+    ]);
+    const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+
+    expect(await runner.commands('web-1')).toEqual([
+      { name: 'add-dir', description: 'Add a directory', argumentHint: '<path>' },
+    ]);
+  });
+
+  it('asks the CLI once and serves the cache after that', async () => {
+    const { fn, asks } = fakeQueryFnWithCommands();
+    const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+
+    await runner.commands('web-1');
+    await runner.commands('web-1');
+    expect(asks.count).toBe(1);
+  });
+
+  it('null for a session it does not run, and for one that has ended', async () => {
+    const { fn } = fakeQueryFnWithCommands();
+    const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
+    expect(await runner.commands('never-heard-of-it')).toBeNull();
+
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+    await runner.end('web-1');
+    expect(await runner.commands('web-1')).toBeNull();
+  });
+
+  it('a fresh session after an end does not inherit the ended one\'s cache', async () => {
+    let commands = [{ name: 'first', description: 'one', argumentHint: '' }];
+    const fn = ({ prompt, options }: any) => {
+      const sid = sessionIdOf(options);
+      async function* gen() { for await (const _m of prompt) yield { type: 'result', session_id: sid, usage: {} }; }
+      const g = gen() as any;
+      g.supportedCommands = async () => commands;
+      return g;
+    };
+    const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+    expect((await runner.commands('web-1'))!.map((c) => c.name)).toEqual(['first']);
+    await runner.end('web-1');
+
+    commands = [{ name: 'second', description: 'two', argumentHint: '' }];
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan', sessionId: 'web-1' });
+    expect((await runner.commands('web-1'))!.map((c) => c.name)).toEqual(['second']);
+  });
+
+  it('null rather than a crash when the CLI cannot answer at all', async () => {
+    // A CLI too old to know the control request, and one whose answer fails:
+    // both are "unknown", which is the route's cue to fall back to the scan.
+    const older = ({ prompt, options }: any) => {
+      const sid = sessionIdOf(options);
+      async function* gen() { for await (const _m of prompt) yield { type: 'result', session_id: sid, usage: {} }; }
+      return gen() as any;
+    };
+    const runner = new Runner({ hub: new Hub(), queryFn: older as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+    expect(await runner.commands('web-1')).toBeNull();
+
+    const failing = ({ prompt, options }: any) => {
+      const sid = sessionIdOf(options);
+      async function* gen() { for await (const _m of prompt) yield { type: 'result', session_id: sid, usage: {} }; }
+      const g = gen() as any;
+      g.supportedCommands = async () => { throw new Error('control request failed'); };
+      return g;
+    };
+    const runner2 = new Runner({ hub: new Hub(), queryFn: failing as any, newSessionId: () => 'web-2' });
+    await runner2.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+    expect(await runner2.commands('web-2')).toBeNull();
+  });
+
+  it('replaces the cache when the CLI pushes a changed list mid-session', async () => {
+    // `system/commands_changed` is a fire-and-forget push the SDK documents as
+    // "REPLACE your cached list with this" — a skill discovered as the agent
+    // moves into a subdirectory shows up without anyone re-asking.
+    let pushed!: () => void;
+    const pushGate = new Promise<void>((resolve) => { pushed = resolve; });
+    const asks = { count: 0 };
+    const fn = ({ prompt, options }: any) => {
+      const sid = sessionIdOf(options);
+      async function* gen() {
+        for await (const _m of prompt) {
+          yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
+          yield {
+            type: 'system', subtype: 'commands_changed', session_id: sid,
+            commands: [{ name: 'brand-new', description: 'just discovered', argumentHint: '' }],
+          };
+          pushed();
+        }
+      }
+      const g = gen() as any;
+      g.supportedCommands = async () => { asks.count += 1; return COMMANDS; };
+      return g;
+    };
+    const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+    await pushGate;
+
+    await vi.waitFor(async () =>
+      expect((await runner.commands('web-1'))!.map((c) => c.name)).toEqual(['brand-new']),
+    );
+    // The push filled the cache, so nothing had to be asked for.
+    expect(asks.count).toBe(0);
+  });
+});
+
+/** Collects the user messages a fake SDK is handed, content arrays included. */
+function capturingQueryFn() {
+  const sent: any[] = [];
+  const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+    const sid = sessionIdOf(options);
+    async function* gen() {
+      for await (const userMsg of prompt) {
+        sent.push(userMsg);
+        yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
+      }
+    }
+    return gen() as any;
+  };
+  return { fn, sent };
+}
+
+/** An image store that answers `read` for the refs it was seeded with. */
+function fakeImages(seed: Record<string, { mediaType: string; base64: string }>) {
+  return {
+    put: () => null,
+    putBytes: () => null,
+    read: (ref: string) => seed[ref] ?? null,
+  } as any;
+}
+
+const REF_PNG = `${'a'.repeat(64)}.png`;
+const REF_JPG = `${'b'.repeat(64)}.jpg`;
+
+describe('Runner attachments', () => {
+  it('puts one image block per ref before the text block', async () => {
+    const { fn, sent } = capturingQueryFn();
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1',
+      images: fakeImages({
+        [REF_PNG]: { mediaType: 'image/png', base64: 'PNGDATA' },
+        [REF_JPG]: { mediaType: 'image/jpeg', base64: 'JPGDATA' },
+      }),
+    });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    runner.send('web-1', 'look at these', [REF_PNG, REF_JPG]);
+
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1].message.content).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'PNGDATA' } },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'JPGDATA' } },
+      { type: 'text', text: 'look at these' },
+    ]);
+  });
+
+  it('a text-only turn is unchanged — one text block, no image blocks', async () => {
+    const { fn, sent } = capturingQueryFn();
+    const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/w', prompt: 'just words', permissionMode: 'plan' });
+
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].message.content).toEqual([{ type: 'text', text: 'just words' }]);
+  });
+
+  it('an image-only turn carries no empty text block', async () => {
+    const { fn, sent } = capturingQueryFn();
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1',
+      images: fakeImages({ [REF_PNG]: { mediaType: 'image/png', base64: 'PNGDATA' } }),
+    });
+    await runner.start({ cwd: '/w', prompt: '', permissionMode: 'plan', attachments: [REF_PNG] });
+
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].message.content).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'PNGDATA' } },
+    ]);
+  });
+
+  it('empty text and no attachments enqueues nothing, and parks in needs_input', async () => {
+    const { fn, sent } = capturingQueryFn();
+    const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/w', prompt: '', permissionMode: 'plan' });
+    expect(runner.status('web-1')).toBe('needs_input');
+    // And the same on the send path — nothing to say, nothing sent, and the
+    // session is not left claiming to be working on it.
+    runner.send('web-1', '');
+    runner.send('web-1', '', []);
+    expect(sent).toEqual([]);
+    expect(runner.status('web-1')).toBe('needs_input');
+  });
+
+  it('skips a pruned ref silently rather than failing the turn', async () => {
+    const { fn, sent } = capturingQueryFn();
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1',
+      images: fakeImages({ [REF_PNG]: { mediaType: 'image/png', base64: 'PNGDATA' } }),
+    });
+    await runner.start({
+      cwd: '/w', prompt: 'both of them', permissionMode: 'plan',
+      attachments: [REF_PNG, `${'c'.repeat(64)}.png`],
+    });
+
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].message.content).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'PNGDATA' } },
+      { type: 'text', text: 'both of them' },
+    ]);
+  });
+
+  it('a turn of nothing but pruned refs enqueues nothing', async () => {
+    const { fn, sent } = capturingQueryFn();
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1',
+      images: fakeImages({}),
+    });
+    await runner.start({ cwd: '/w', prompt: '', permissionMode: 'plan', attachments: [REF_PNG] });
+    expect(sent).toEqual([]);
+    expect(runner.status('web-1')).toBe('needs_input');
+  });
+
+  it('a revive carries its attachments too (start with resume)', async () => {
+    const { fn, sent } = capturingQueryFn();
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fn as any,
+      images: fakeImages({ [REF_PNG]: { mediaType: 'image/png', base64: 'PNGDATA' } }),
+    });
+    await runner.start({
+      cwd: '/w', prompt: 'again', permissionMode: 'plan',
+      resume: 'old-1', attachments: [REF_PNG],
+    });
+
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].session_id).toBe('old-1');
+    expect(sent[0].message.content).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'PNGDATA' } },
+      { type: 'text', text: 'again' },
+    ]);
+  });
+
+  it('drops attachments when there is no image store at all', async () => {
+    const { fn, sent } = capturingQueryFn();
+    const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/w', prompt: 'words', permissionMode: 'plan', attachments: [REF_PNG] });
+
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].message.content).toEqual([{ type: 'text', text: 'words' }]);
+  });
+});

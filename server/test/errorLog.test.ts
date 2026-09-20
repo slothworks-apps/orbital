@@ -99,7 +99,7 @@ describe('ErrorLog', () => {
     expect(page.unseen).toBe(12);
   });
 
-  it('markSeen(ids) stamps only those rows and publishes the new count', () => {
+  it('markSeen(ids) drops those rows from the list but keeps them in the table', () => {
     const ids = ['a', 'b', 'c'].map(
       (m) => log.record({ source: 'web', kind: 'api_request', message: m }).id,
     );
@@ -108,36 +108,39 @@ describe('ErrorLog', () => {
     expect(received).toEqual([
       { topic: 'errors', event: 'seen', ids: [ids[0], ids[2]], unseen: 1 },
     ]);
-    const rows = log.list().errors;
-    expect(rows.find((e) => e.id === ids[1])!.seenAt).toBeNull();
-    expect(rows.find((e) => e.id === ids[0])!.seenAt).toBeTypeOf('number');
+    // The list is an inbox: only unread rows. The stamped ones stay in the db.
+    expect(log.list().errors.map((e) => e.id)).toEqual([ids[1]]);
+    const total = db
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(errorsTable)
+      .get()!.n;
+    expect(Number(total)).toBe(3);
   });
 
-  it("markSeen('all') stamps everything and leaves nothing unseen", () => {
+  it("markSeen('all') empties the list, never the table", () => {
     for (let i = 0; i < 4; i++) {
       log.record({ source: 'web', kind: 'api_request', message: `e${i}` });
     }
     const received = subscribed(hub);
     expect(log.markSeen('all')).toEqual({ unseen: 0 });
     expect(received[0]).toMatchObject({ event: 'seen', ids: null, unseen: 0 });
-    expect(log.list().errors.every((e) => typeof e.seenAt === 'number')).toBe(true);
+    expect(log.list().errors).toEqual([]);
+    const total = db
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(errorsTable)
+      .get()!.n;
+    expect(Number(total)).toBe(4);
   });
 
   it('markSeen() does not rewrite a row that was already seen', () => {
     const id = log.record({ source: 'web', kind: 'api_request', message: 'a' }).id;
     log.markSeen([id]);
-    const first = log.list().errors[0].seenAt;
-    // A second pass must not move the moment the row was first shown.
+    const seenAt = () =>
+      (db.$client.prepare('SELECT seen_at AS at FROM errors WHERE id = ?').get(id) as { at: number }).at;
+    const first = seenAt();
+    // A second pass must not move the moment the row was first read.
     log.markSeen('all');
-    expect(log.list().errors[0].seenAt).toBe(first);
-  });
-
-  it('clear() empties the table and says so', () => {
-    log.record({ source: 'web', kind: 'api_request', message: 'a' });
-    const received = subscribed(hub);
-    log.clear();
-    expect(log.list()).toEqual({ errors: [], unseen: 0 });
-    expect(received[0]).toMatchObject({ topic: 'errors', event: 'cleared' });
+    expect(seenAt()).toBe(first);
   });
 
   it(`prunes on insert so only the newest ${MAX_ROWS} rows survive`, () => {
