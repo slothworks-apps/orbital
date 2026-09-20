@@ -1199,6 +1199,44 @@ describe('setSessionDismissed', () => {
     expect(useOrbital.getState().toast).toBeNull()
   })
 
+  // Manual gesture wins (spec § Rules): the drop unpins as it absorbs, and
+  // the toast says so rather than letting the pin vanish silently.
+  it('absorbing a pinned session clears the pin locally and names it in the toast', async () => {
+    useOrbital.setState({
+      sessions: { sd: { ...session(), status: 'ended', pinnedAt: 1_000 } },
+    })
+
+    await useOrbital.getState().setSessionDismissed('sd', true)
+
+    expect(useOrbital.getState().sessions.sd.pinnedAt).toBeNull()
+    expect(useOrbital.getState().toast?.message).toBe('auth refactor absorbed · pin removed')
+  })
+
+  it('undo restores the pin, and with it the planet, for a session that was pinned', async () => {
+    useOrbital.setState({
+      sessions: { sd: { ...session(), status: 'ended', pinnedAt: 1_000 } },
+    })
+
+    await useOrbital.getState().setSessionDismissed('sd', true)
+    await useOrbital.getState().toast?.action?.run()
+
+    expect(api.setSessionPinned).toHaveBeenCalledWith('sd', true)
+    expect(useOrbital.getState().sessions.sd.pinnedAt).toEqual(expect.any(Number))
+    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toBeNull()
+  })
+
+  it('puts the pin back too when the dismissal fails to save', async () => {
+    useOrbital.setState({
+      sessions: { sd: { ...session(), status: 'ended', pinnedAt: 1_000 } },
+    })
+    vi.mocked(api.setSessionDismissed).mockRejectedValue(new Error('dismissal server down'))
+
+    await useOrbital.getState().setSessionDismissed('sd', true)
+
+    expect(useOrbital.getState().sessions.sd.pinnedAt).toBe(1_000)
+    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toBeNull()
+  })
+
   it('puts the stamp back and reports when the save fails', async () => {
     vi.mocked(api.setSessionDismissed).mockRejectedValue(new Error('dismissal server down'))
 

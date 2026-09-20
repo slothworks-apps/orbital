@@ -903,16 +903,22 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   async setSessionDismissed(id, dismissed) {
     const session = get().sessions[id]
     if (!session) return
-    const previous = session.mapDismissedAt
-    const stamp = (value: number | null) =>
+    const previous = { mapDismissedAt: session.mapDismissedAt, pinnedAt: session.pinnedAt ?? null }
+    const wasPinned = previous.pinnedAt != null
+    const stamp = (fields: { mapDismissedAt: number | null; pinnedAt: number | null }) =>
       set((state) => {
         const current = state.sessions[id]
         if (!current) return {}
-        return {
-          sessions: { ...state.sessions, [id]: { ...current, mapDismissedAt: value } },
-        }
+        return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
       })
-    stamp(dismissed ? Date.now() : null)
+    // The manual gesture wins: the server clears `pinned_at` as it stamps a
+    // dismissal, so the optimistic state has to clear it too or the row
+    // would sit in PINNED while its planet falls (spec § Rules).
+    stamp(
+      dismissed
+        ? { mapDismissedAt: Date.now(), pinnedAt: null }
+        : { mapDismissedAt: null, pinnedAt: previous.pinnedAt }
+    )
     try {
       await api.setSessionDismissed(id, dismissed)
     } catch (err) {
@@ -925,8 +931,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const title = session.title || 'Session'
     const toast: Toast = {
       kind: 'info',
-      message: `${title} absorbed — still in the sidebar's history`,
-      action: { label: 'Undo', run: () => void get().setSessionDismissed(id, false) },
+      message: wasPinned
+        ? `${title} absorbed · pin removed`
+        : `${title} absorbed — still in the sidebar's history`,
+      action: {
+        label: 'Undo',
+        // Re-pinning is the whole undo for a pinned session: the `pinned`
+        // route clears `map_dismissed_at`, so one call brings back both the
+        // pin and the planet (4d `drag.toast`).
+        run: () =>
+          void (wasPinned ? get().setSessionPinned(id, true) : get().setSessionDismissed(id, false)),
+      },
     }
     set({ toast })
     setTimeout(() => {
