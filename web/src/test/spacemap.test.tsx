@@ -2,7 +2,7 @@ import { beforeAll, describe, it, expect } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
-import { buildSceneModel, type SceneModel } from '../map/sceneModel'
+import { buildSceneModel, contextFillFor, type SceneModel } from '../map/sceneModel'
 import { useSceneModel } from '../map/useSceneModel'
 import {
   applyPan,
@@ -366,6 +366,87 @@ describe('buildSceneModel model family', () => {
       })
     )
     expect(model.planets[0].modelFamily).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// context fill arc (spec `context-fill-arc`, canvas 1i)
+// ---------------------------------------------------------------------------
+
+describe('contextFillFor', () => {
+  /** A session whose window MODELS knows: sonnet, 200k. */
+  const gauged = (overrides: Partial<ApiSession> = {}) =>
+    makeSession({ id: 'g', model: 'sonnet', contextUsedTokens: 100_000, ...overrides })
+
+  it('reads the fraction off the session and the model catalog', () => {
+    expect(contextFillFor(gauged(), MODELS, {})).toEqual({ fraction: 0.5, level: 'ok' })
+  })
+
+  it('keeps a fill sitting exactly ON a threshold below it, and steps at the first token past', () => {
+    // Defaults are 50 / 80: 50% is still `ok`, 80% is still `warn`.
+    expect(contextFillFor(gauged({ contextUsedTokens: 100_000 }), MODELS, {})?.level).toBe('ok')
+    expect(contextFillFor(gauged({ contextUsedTokens: 100_001 }), MODELS, {})?.level).toBe('warn')
+    expect(contextFillFor(gauged({ contextUsedTokens: 160_000 }), MODELS, {})?.level).toBe('warn')
+    expect(contextFillFor(gauged({ contextUsedTokens: 160_001 }), MODELS, {})?.level).toBe('critical')
+  })
+
+  it('follows the configured thresholds, not the defaults', () => {
+    const settings = { context_threshold_warn: '20', context_threshold_critical: '40' }
+    expect(contextFillFor(gauged({ contextUsedTokens: 50_000 }), MODELS, settings)?.level).toBe('warn')
+    expect(contextFillFor(gauged({ contextUsedTokens: 30_000 }), MODELS, settings)?.level).toBe('ok')
+    expect(contextFillFor(gauged({ contextUsedTokens: 100_000 }), MODELS, settings)?.level).toBe(
+      'critical'
+    )
+  })
+
+  it('clamps a window learned smaller than the session actually used, and keeps it critical', () => {
+    expect(contextFillFor(gauged({ contextUsedTokens: 500_000 }), MODELS, {})).toEqual({
+      fraction: 1,
+      level: 'critical',
+    })
+  })
+
+  it('draws no gauge for a terminal session, which can never report usage', () => {
+    expect(contextFillFor(gauged({ source: 'terminal' }), MODELS, {})).toBeNull()
+  })
+
+  it('draws no gauge for an ended session (canvas 1i: "ended · no gauge")', () => {
+    expect(contextFillFor(gauged({ status: 'ended' }), MODELS, {})).toBeNull()
+  })
+
+  it('draws no gauge before anything has measured the context', () => {
+    expect(contextFillFor(gauged({ contextUsedTokens: null }), MODELS, {})).toBeNull()
+    expect(contextFillFor(makeSession({ id: 'g', model: 'sonnet' }), MODELS, {})).toBeNull()
+  })
+
+  it('draws no gauge against an unknown window rather than inventing a denominator', () => {
+    expect(
+      contextFillFor(gauged({ model: null, resolvedModel: 'claude-mystery-1' }), MODELS, {})
+    ).toBeNull()
+    expect(contextFillFor(gauged(), [], {})).toBeNull()
+  })
+
+  it('draws no gauge at all while the map toggle is off', () => {
+    expect(contextFillFor(gauged(), MODELS, { map_show_context: 'false' })).toBeNull()
+  })
+})
+
+describe('buildSceneModel context fill', () => {
+  it('carries the fill on each planet', () => {
+    const model = sceneModelAt(
+      withSessions(
+        [makeSession({ id: 's1', model: 'sonnet', contextUsedTokens: 180_000 })],
+        { models: MODELS }
+      )
+    )
+    expect(model.planets[0].contextFill).toEqual({ fraction: 0.9, level: 'critical' })
+  })
+
+  it('leaves it null where there is nothing to draw', () => {
+    const model = sceneModelAt(
+      withSessions([makeSession({ id: 's1', model: 'sonnet' })], { models: MODELS })
+    )
+    expect(model.planets[0].contextFill).toBeNull()
   })
 })
 

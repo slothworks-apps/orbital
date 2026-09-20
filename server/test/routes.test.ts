@@ -393,6 +393,18 @@ describe('REST routes', () => {
     expect(res.json().session).toMatchObject({ model: 'sonnet', resolvedModel: 'claude-sonnet-5' });
   });
 
+  it('exposes contextUsedTokens, null for a session nothing ever measured', async () => {
+    // A terminal session has no usage to read, so its arc is not "0 %" — it
+    // is absent (spec context-fill-arc § Where the number comes from).
+    const { app, db } = makeApp();
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/s2' })).session)
+      .toMatchObject({ contextUsedTokens: null });
+
+    db.update(sessions).set({ contextUsedTokens: 124_400 }).where(eq(sessions.id, 's1')).run();
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/s1' })).session)
+      .toMatchObject({ contextUsedTokens: 124_400 });
+  });
+
   it('POST /sessions/:id/messages revives an ended session via resume', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'wake up' },

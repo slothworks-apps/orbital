@@ -17,6 +17,18 @@ export interface ApiSession {
   resolvedModel: string | null;
   parentId: string | null;
   /**
+   * Context tokens at the end of the session's last turn, or null when it was
+   * never measured — the numerator of the map's context arc (spec
+   * `context-fill-arc`). Only sessions Orbital runs itself ever carry one; a
+   * terminal session's is permanently null, the indexer having no usage to
+   * read. Mirrors `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `pendingDecision`: the server always
+   * sends the field, absent and null mean the same thing to every reader, and
+   * requiring it would rewrite every session fixture in the suite.
+   */
+  contextUsedTokens?: number | null;
+  /**
    * Map-only dismissal stamp (epoch ms), or null — set when the session was
    * dragged into the map's hole, cleared by undo or any new activity. Only
    * the map reads it; the sidebar and search never do (spec

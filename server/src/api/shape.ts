@@ -33,6 +33,14 @@ export interface ApiSession {
   resolvedModel: string | null;
   parentId: string | null;
   /**
+   * Context tokens at the end of the session's last turn, or null when it was
+   * never measured — which every terminal session permanently is, only
+   * Orbital's own sessions having usage to read (spec `context-fill-arc`).
+   * The map's arc divides it by the client-side context window; a null on
+   * either side means no arc, never an invented one.
+   */
+  contextUsedTokens: number | null;
+  /**
    * Map-only dismissal stamp (epoch ms), or null. Set by dragging the body
    * into the hole; the map hides a stamped session, everything else ignores
    * it (spec 2026-09-18-tag-clusters-design § 5).
@@ -74,6 +82,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     permissionMode: row.permission_mode,
     model: row.model, resolvedModel: row.resolved_model,
     parentId: row.parent_id,
+    contextUsedTokens: row.context_used_tokens,
     mapDismissedAt: row.map_dismissed_at,
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),

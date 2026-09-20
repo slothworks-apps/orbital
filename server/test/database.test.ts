@@ -212,6 +212,10 @@ describe('openDb', () => {
       detail_panel_width: '450',
       sidebar_collapsed: 'false',
       auto_title_sessions: 'false',
+      map_show_context: 'true',
+      context_threshold_warn: '50',
+      context_threshold_critical: '80',
+      map_show_compact_badge: 'true',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

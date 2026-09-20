@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import type { ApiSession, SessionStatus } from '../lib/types'
 import { Planet } from '../map/Planet'
+import type { ContextFill } from '../map/sceneModel'
+import { contextLevel } from '../lib/usage'
 import { BODY_RADIUS } from '../map/visuals'
 import { PLANET_STATES } from '../map/transition'
 import { scaleFor } from '../map/layout'
@@ -43,6 +45,24 @@ const HUE_OPTIONS = [210, 30, 140, 280, 350].map((hue) => ({
   dotColor: `oklch(80% .13 ${hue})`,
 }))
 
+/**
+ * Context-arc fills to replay (spec `context-fill-arc`). The four gauged
+ * percentages are artboard 1i's own planets, so the arc, its threshold marks
+ * and the `/compact` pill can be compared against the canvas 1:1 at
+ * `CANVAS_ZOOM`; "none" is a session with no reading at all.
+ */
+const CONTEXT_OPTIONS = [
+  { value: -1, label: 'none (no gauge)' },
+  { value: 0, label: '0 %' },
+  { value: 25, label: '25 %' },
+  { value: 50, label: '50 % (first threshold)' },
+  { value: 72, label: '72 % (amber)' },
+  { value: 88, label: '88 % (red + pulse)' },
+]
+
+/** What the sandbox's thresholds are — the store's defaults, as canvas 1i draws them. */
+const SANDBOX_THRESHOLDS = { warn: 50, critical: 80 }
+
 /** The one fake session the planet is fed; only `status` ever varies. */
 function sandboxSession(status: SessionStatus): ApiSession {
   return {
@@ -73,8 +93,19 @@ export function SandboxPage() {
   // scale to status (`scaleFor`), and that size change is part of the
   // transition being tuned. Off = pure crossfade at full size.
   const [tierScale, setTierScale] = useState(true)
+  const [contextPercent, setContextPercent] = useState(-1)
 
   const session = useMemo(() => sandboxSession(status), [status])
+  const contextFill = useMemo<ContextFill | null>(
+    () =>
+      contextPercent < 0
+        ? null
+        : {
+            fraction: contextPercent / 100,
+            level: contextLevel(contextPercent / 100, SANDBOX_THRESHOLDS),
+          },
+    [contextPercent]
+  )
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-space">
@@ -91,6 +122,9 @@ export function SandboxPage() {
               scale={tierScale ? scaleFor(session) : 1}
               selected={selected}
               hidden={hidden}
+              contextFill={contextFill}
+              contextThresholds={SANDBOX_THRESHOLDS}
+              showCompactBadge
             />
           </Canvas>
         </ErrorBoundary>
@@ -130,6 +164,22 @@ export function SandboxPage() {
               options={HUE_OPTIONS}
               value={hue}
               onChange={setHue}
+              font="mono"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label
+              id="sandbox-context-label"
+              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+            >
+              CONTEXT FILL
+            </label>
+            <Select
+              aria-labelledby="sandbox-context-label"
+              options={CONTEXT_OPTIONS}
+              value={contextPercent}
+              onChange={setContextPercent}
               font="mono"
             />
           </div>

@@ -47,6 +47,16 @@ export const sessions = sqliteTable(
     mapDismissedAt: integer('map_dismissed_at'),
     indexedMtime: integer('indexed_mtime').notNull().default(0),
     indexedSize: integer('indexed_size').notNull().default(0),
+    /**
+     * How many tokens the session's context held at the end of its last turn
+     * — the numerator of the map's context arc (spec `context-fill-arc`).
+     * Written by the Runner from each SDK `result`'s usage and re-set at a
+     * `compact_boundary`. Null means "not measured": every terminal session
+     * (the indexer extracts no usage at all) and every web session before its
+     * first turn ends. Declared last so it sits where `ALTER TABLE ... ADD
+     * COLUMN` actually puts it, keeping `sessionColumns` in physical order.
+     */
+    contextUsedTokens: integer('context_used_tokens'),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );

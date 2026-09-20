@@ -4,10 +4,18 @@ import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent }
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import type { Group, OrthographicCamera } from 'three'
-import { useOrbital, parsePlanetScale, parseDetailPanelWidth } from '../store/store'
+import {
+  useOrbital,
+  parsePlanetScale,
+  parseDetailPanelWidth,
+  parseContextThresholds,
+  showCompactBadge,
+  showContext,
+} from '../store/store'
+import { isReadOnly } from '../lib/types'
 import { labelFontPx } from './visuals'
 import { Button } from '../ui/Button'
-import { Planet } from './Planet'
+import { COMPACT_COMMAND, Planet } from './Planet'
 import { Moon } from './Moon'
 import { Hole } from './Hole'
 import { useSceneModel } from './useSceneModel'
@@ -347,6 +355,19 @@ export function SpaceMap() {
   const planetScale = useOrbital((s) => parsePlanetScale(s.settings))
   const scaleLabels = useOrbital((s) => s.settings.map_scale_labels === 'true')
   const labelFont = labelFontPx(planetScale, scaleLabels)
+  // Context arc settings (spec `context-fill-arc`). The fill itself is
+  // already settings-gated in the scene model; these two are what only the
+  // drawing needs — where the threshold marks sit, and whether the
+  // `/compact` pill may show at all.
+  //
+  // Selected as the whole `settings` object and parsed in a `useMemo`, NOT
+  // as `useOrbital((s) => parseContextThresholds(s.settings))`: that
+  // selector would allocate a fresh object on every call and never settle —
+  // the same trap `useSceneModel` documents at length.
+  const settings = useOrbital((s) => s.settings)
+  const contextThresholds = useMemo(() => parseContextThresholds(settings), [settings])
+  const compactBadgeAllowed = showContext(settings) && showCompactBadge(settings)
+  const sendPrompt = useOrbital((s) => s.sendPrompt)
   // Live panel width for the follow inset and the right-anchored overlays —
   // the drag handle moves it, and while it is held (`resizingPanel`) the
   // overlays drop their transition so they track the pointer with the panel.
@@ -435,6 +456,26 @@ export function SpaceMap() {
       void select(id)
     },
     [select]
+  )
+
+  /**
+   * The `/compact` pill's click: the same path the composer sends a message
+   * on (`sendPrompt`), under the same availability rules — a session live in
+   * a terminal is read-only here (the server's 409 is the real backstop),
+   * and a session sitting on an open question would have the text swallowed
+   * as the ANSWER to it, which is not what a click on this pill means. In
+   * either case the click does nothing rather than throwing; `sendPrompt`
+   * itself reports any failure past that point as a toast.
+   */
+  const handleCompact = useCallback(
+    (id: string) => {
+      const state = useOrbital.getState()
+      const session = state.sessions[id]
+      if (!session || isReadOnly(session)) return
+      if (state.pendingDecisions[id]) return
+      void sendPrompt(id, COMPACT_COMMAND)
+    },
+    [sendPrompt]
   )
 
   const handleBodyPointerDown = useCallback((id: string, e: ThreeEvent<PointerEvent>) => {
@@ -718,6 +759,10 @@ export function SpaceMap() {
             modelFamily={planet.modelFamily}
             labelTitlePx={labelFont.title}
             labelFamilyPx={labelFont.family}
+            contextFill={planet.contextFill}
+            contextThresholds={contextThresholds}
+            showCompactBadge={compactBadgeAllowed}
+            onCompact={handleCompact}
             onClick={handleSelect}
             simBody={simRef.current.bodies.get(planet.session.id)}
             onBodyPointerDown={handleBodyPointerDown}

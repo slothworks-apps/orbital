@@ -43,6 +43,13 @@
       "when": 1789754297399,
       "tag": "0005_blue_titanium_man",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789929448399,
+      "tag": "0006_minor_khan",
+      "breakpoints": true
     }
   ]
 }

@@ -5,8 +5,16 @@ import {
   useOrbital,
   clampDetailPanelWidth,
   parseDetailPanelWidth,
+  parseContextThresholds,
   DETAIL_PANEL_DEFAULT_PX,
 } from '../store/store'
+import {
+  contextLevel,
+  extractUsageTokens,
+  oklchCss,
+  CONTEXT_CRITICAL_OKLCH,
+  CONTEXT_WARN_OKLCH,
+} from '../lib/usage'
 import { api } from '../lib/api'
 import { openQuestion } from '../lib/questionCard'
 import { reportError } from '../lib/errors'
@@ -63,29 +71,6 @@ const ACCENT_HUE = 205
  * never report `turn_result` usage, so the grid renders em dashes rather
  * than vanishing (or, worse, inventing numbers). */
 const NO_VALUE = '—'
-
-interface UsageTokens {
-  input: number
-  output: number
-  cacheRead: number
-  /** Everything billed into the context window, incl. cache creation. */
-  total: number
-}
-
-function extractUsageTokens(usage: unknown): UsageTokens | undefined {
-  if (!usage || typeof usage !== 'object') return undefined
-  const u = usage as Record<string, unknown>
-  const num = (key: string) => (typeof u[key] === 'number' ? (u[key] as number) : 0)
-  const input = num('input_tokens')
-  const output = num('output_tokens')
-  const cacheRead = num('cache_read_input_tokens')
-  return {
-    input,
-    output,
-    cacheRead,
-    total: input + cacheRead + num('cache_creation_input_tokens') + output,
-  }
-}
 
 /**
  * Compact token count in the export's own notation — "142.3k", "28.9k",
@@ -362,10 +347,12 @@ export function DetailPanel() {
   const lineage = lineageCache[id]
   const usageTokens = extractUsageTokens(usage)
   const contextWindow = session ? contextWindowFor(session, models) : null
-  const contextPercent =
+  const contextFraction =
     usageTokens !== undefined && contextWindow !== null
-      ? Math.min(100, Math.round((usageTokens.total / contextWindow) * 100))
+      ? Math.min(1, usageTokens.total / contextWindow)
       : undefined
+  const contextPercent =
+    contextFraction !== undefined ? Math.round(contextFraction * 100) : undefined
   // Only the Runner publishes `turn_result`, so a terminal session's
   // INPUT/OUTPUT/CACHE READ and context bar are permanently unmeasurable —
   // not merely unmeasured yet, the way a fresh web session's are. The owner
@@ -393,6 +380,29 @@ export function DetailPanel() {
   const headerHue = sessionTag?.hue
   const accent = tagColor(headerHue ?? ACCENT_HUE)
   const accentSoft = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.6)`
+
+  /**
+   * The context bar takes the map arc's colours past the same two
+   * thresholds, so "arc colour and sidebar % change at the same values"
+   * (canvas 1i's acceptance) holds: the session's own hue while there is
+   * room, amber past the first, red past the second. Derived from the
+   * UNROUNDED fraction, so a bar reading "50%" and an arc at 50.4 % cannot
+   * end up on opposite sides of the line.
+   */
+  const contextBarLevel =
+    contextFraction === undefined
+      ? undefined
+      : contextLevel(contextFraction, parseContextThresholds(settings))
+  // Below the first threshold the bar keeps the session's own hue, exactly
+  // as it always has — the `ok` level is not a colour of its own.
+  const contextBarOklch =
+    contextBarLevel === 'warn'
+      ? CONTEXT_WARN_OKLCH
+      : contextBarLevel === 'critical'
+        ? CONTEXT_CRITICAL_OKLCH
+        : undefined
+  const contextBarStrong = contextBarOklch ? oklchCss(contextBarOklch) : accent
+  const contextBarSoft = contextBarOklch ? oklchCss(contextBarOklch, 0.6) : accentSoft
 
   return (
     // 1b paints a faint outer bloom in the session's hue around the panel.
@@ -592,10 +602,11 @@ export function DetailPanel() {
                       aria-valuemin={0}
                       aria-valuemax={100}
                       className="block h-full"
+                      data-context-level={contextBarLevel}
                       style={{
                         width: `${contextPercent}%`,
-                        background: `linear-gradient(90deg, ${accentSoft}, ${accent})`,
-                        boxShadow: `0 0 8px ${accentSoft}`,
+                        background: `linear-gradient(90deg, ${contextBarSoft}, ${contextBarStrong})`,
+                        boxShadow: `0 0 8px ${contextBarSoft}`,
                       }}
                     />
                   )}

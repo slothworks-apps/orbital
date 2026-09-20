@@ -62,6 +62,23 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * `map_hide_ended`: a rail that springs back open on every reload makes
    * the collapse feel broken. */
   sidebar_collapsed: 'false',
+  /**
+   * Master switch for the map's context-fill arc (spec `context-fill-arc`,
+   * canvas 1h Sessions → MAP). Off hides the arc, its ticks and the
+   * `/compact` badge; the detail panel's context readout is unaffected.
+   * Default-on convention: read client-side as `!== 'false'`.
+   */
+  map_show_context: 'true',
+  /** First context-fill threshold, percent [1, 99]. Fill above it turns the
+   * arc amber. Parsed and clamped client-side (`store.ts`); a `warn >=
+   * critical` pair falls back to both defaults there. */
+  context_threshold_warn: '50',
+  /** Second context-fill threshold, percent [1, 99]. Fill above it turns the
+   * arc red (with a pulse) and is when the `/compact` badge can appear. */
+  context_threshold_critical: '80',
+  /** Whether the `/compact` badge shows past the second threshold, subject
+   * to `map_show_context` also being on. Default-on convention. */
+  map_show_compact_badge: 'true',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };

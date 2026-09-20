@@ -1,8 +1,15 @@
-import type { ApiSession, SessionStatus, Subagent } from '../lib/types'
-import { matchModel } from '../lib/models'
+import type { ApiSession, OrbitalModel, SessionStatus, Subagent } from '../lib/types'
+import { contextWindowFor, matchModel } from '../lib/models'
+import { contextLevel, type ContextLevel } from '../lib/usage'
 import { moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
-import { absorptionFor, mapSessions, statusCounts } from '../store/store'
+import {
+  absorptionFor,
+  mapSessions,
+  parseContextThresholds,
+  showContext,
+  statusCounts,
+} from '../store/store'
 import {
   clusterAnchors,
   clusterLabelPos,
@@ -65,6 +72,57 @@ export interface ScenePlanet {
    * version: the map shows what kind of thing is running, not which build.
    */
   modelFamily: string | null
+  /**
+   * How full the session's context window is, for the arc around the planet
+   * (spec `context-fill-arc`) — or null when there is nothing honest to
+   * draw, which `contextFillFor` below enumerates. Null is "no gauge at
+   * all", never "an empty one".
+   */
+  contextFill: ContextFill | null
+}
+
+/** A planet's context arc: how far round it goes, and what colour it is. */
+export interface ContextFill {
+  /** 0–1, clamped — see `contextFillFor`. */
+  fraction: number
+  level: ContextLevel
+}
+
+/**
+ * The context arc for one session, or null when it gets none. Null wins for
+ * every one of these, in order:
+ *
+ * - the map's master toggle is off (`map_show_context`);
+ * - the session is one Orbital only WATCHES (`source: 'terminal'`) — the
+ *   indexer reads no usage from a transcript, so there is no numerator and
+ *   never will be. Same ruling as the detail panel's `canShowUsage`;
+ * - the session has ended (canvas 1i: "ended · no gauge");
+ * - nothing has measured its context yet (`contextUsedTokens` null — a fresh
+ *   session, or one whose last compaction did not report its size);
+ * - its context window is unknown, per `docs/decisions/models-come-from-the-sdk.md`:
+ *   a gauge against an invented denominator is worse than no gauge.
+ *
+ * The fraction is clamped to [0, 1]: a window learned smaller than the
+ * session's actual use would otherwise sweep the arc past a full turn, and
+ * "more than full" is still just full (it stays `critical`, since a clamped
+ * 100 % is above any threshold, which tops out at 99).
+ *
+ * Pure and exported so the derivation is unit-testable without a scene.
+ */
+export function contextFillFor(
+  session: ApiSession,
+  models: OrbitalModel[],
+  settings: Record<string, string>
+): ContextFill | null {
+  if (!showContext(settings)) return null
+  if (session.source !== 'web') return null
+  if (session.status === 'ended') return null
+  const used = session.contextUsedTokens
+  if (used == null || !Number.isFinite(used)) return null
+  const window = contextWindowFor(session, models)
+  if (window === null || window <= 0) return null
+  const fraction = Math.min(1, Math.max(0, used / window))
+  return { fraction, level: contextLevel(fraction, parseContextThresholds(settings)) }
 }
 
 export interface SceneMoon {
@@ -201,6 +259,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         footprint,
         released: isReleased(session),
         modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
+        contextFill: contextFillFor(session, state.models, state.settings),
       })
     }
   }

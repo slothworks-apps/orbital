@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useOrbital, parsePlanetScale, PLANET_SCALE_MAX, PLANET_SCALE_MIN } from '../store/store'
+import {
+  useOrbital,
+  parsePlanetScale,
+  PLANET_SCALE_MAX,
+  PLANET_SCALE_MIN,
+  parseContextThresholds,
+  showContext,
+  showCompactBadge,
+  CONTEXT_THRESHOLD_MIN,
+  CONTEXT_THRESHOLD_MAX,
+} from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
@@ -313,6 +323,55 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectDirDraft, open])
 
+  /**
+   * Context thresholds (canvas 1h, spec context-fill-arc): typed number
+   * fields, so they get the project-dir field's draft-then-debounce
+   * treatment rather than PATCHing on every keystroke. An out-of-range or
+   * inverted (`warn >= critical`) pair is never sent — the parser's
+   * fall-back-to-defaults is a last resort for garbage already in the
+   * database, not something the UI should invite by saving one; the old
+   * stored values simply stand until a valid pair is typed.
+   */
+  const [warnDraft, setWarnDraft] = useState(String(parseContextThresholds(settings).warn))
+  const [criticalDraft, setCriticalDraft] = useState(String(parseContextThresholds(settings).critical))
+
+  useEffect(() => {
+    if (!open) return
+    const thresholds = parseContextThresholds(settings)
+    setWarnDraft(String(thresholds.warn))
+    setCriticalDraft(String(thresholds.critical))
+    // Only reseed on open, same reasoning as the project-dir draft above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const warn = Number(warnDraft)
+    const critical = Number(criticalDraft)
+    const valid =
+      Number.isInteger(warn) &&
+      Number.isInteger(critical) &&
+      warn >= CONTEXT_THRESHOLD_MIN &&
+      warn <= CONTEXT_THRESHOLD_MAX &&
+      critical >= CONTEXT_THRESHOLD_MIN &&
+      critical <= CONTEXT_THRESHOLD_MAX &&
+      warn < critical
+    if (!valid) return
+    // Compare against the parsed (already-defaulted) thresholds, not the raw
+    // keys — a settings object with the keys simply absent parses to the
+    // same 50/80 the drafts start at, and must not read as "changed".
+    const current = parseContextThresholds(settings)
+    if (warn === current.warn && critical === current.critical) return
+    const timer = setTimeout(() => {
+      void patchAndSet({
+        context_threshold_warn: String(warn),
+        context_threshold_critical: String(critical),
+      })
+    }, DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warnDraft, criticalDraft, open])
+
   // Closes the dialog. A rule row open inside Tags & rules registers a deeper
   // layer and is peeled first (see `TagsRulesSection`).
   useEscapeLayer(open, onClose)
@@ -336,6 +395,10 @@ export function Settings({ open, onClose }: SettingsProps) {
   const defaultModel = settings.default_model ?? ''
   const rememberModelPerProject = settings.remember_model_per_project !== 'false'
   const mapShowModel = settings.map_show_model !== 'false'
+  // Context-fill arc (canvas 1h, spec context-fill-arc): master switch and
+  // the /compact badge sub-toggle, both default-on.
+  const mapShowContext = showContext(settings)
+  const mapShowCompactBadge = showCompactBadge(settings)
   // Appearance (canvas 5a).
   const planetScale = parsePlanetScale(settings)
   const mapScaleLabels = settings.map_scale_labels === 'true'
@@ -763,7 +826,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                 className="w-[200px]"
               />
             </Row>
-            {/* canvas 4c: MAP section, beside the map row above. */}
+            {/* canvas 4c/1h: MAP section. */}
+            <SectionLabel>MAP</SectionLabel>
             <Row
               title="Model name under planet label"
               desc="Family only (no version)."
@@ -785,6 +849,77 @@ export function Settings({ open, onClose }: SettingsProps) {
                   </span>
                 )}
               </div>
+            </Row>
+            {/* canvas 1h: master switch for the arc, its ticks and the
+                /compact badge (spec context-fill-arc). Not itself in the
+                canvas — 1h's "Planet size: Context/Fixed" radio is the
+                control it replaces, per the scope cut agreed with the
+                owner. */}
+            <Row
+              title="Context usage on planets"
+              desc="A thin arc around each running web session showing how full its context window is. Terminal sessions have no usage data and never show one."
+            >
+              <Toggle
+                aria-label="Context usage on planets"
+                checked={mapShowContext}
+                onChange={(checked) => void patchAndSet({ map_show_context: checked ? 'true' : 'false' })}
+              />
+            </Row>
+            {/* canvas 1h "Context thresholds" row verbatim, minus the
+                Planet-size radio above it (out of scope). Colour dashes use
+                the same three OKLCH literals as the arc itself and the
+                Appearance preview elsewhere in this file: ok-level blue
+                (`PREVIEW_TIERS`'s live tier, oklch(80% .13 210)), the amber
+                of its subagent tier (oklch(80% .13 60)), and the spec's
+                critical red (oklch(72% .17 25)). */}
+            <Row
+              title="Context thresholds"
+              desc="Arc turns amber above the first, red + pulse above the second. Sidebar rows and the /compact badge follow the same values."
+            >
+              <div className="flex items-center gap-3.5">
+                <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(80% .13 210 / .6)' }} />
+                <label className="flex items-center gap-1.5 font-mono text-xs text-[rgba(160,190,225,.7)]">
+                  <Input
+                    id="settings-context-threshold-warn"
+                    aria-label="Warn threshold"
+                    font="mono"
+                    size="sm"
+                    type="number"
+                    min={CONTEXT_THRESHOLD_MIN}
+                    max={CONTEXT_THRESHOLD_MAX}
+                    value={warnDraft}
+                    onChange={(e) => setWarnDraft(e.target.value)}
+                    className="w-[52px] text-center"
+                  />
+                  %
+                </label>
+                <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(80% .13 60)' }} />
+                <label className="flex items-center gap-1.5 font-mono text-xs text-[rgba(160,190,225,.7)]">
+                  <Input
+                    id="settings-context-threshold-critical"
+                    aria-label="Critical threshold"
+                    font="mono"
+                    size="sm"
+                    type="number"
+                    min={CONTEXT_THRESHOLD_MIN}
+                    max={CONTEXT_THRESHOLD_MAX}
+                    value={criticalDraft}
+                    onChange={(e) => setCriticalDraft(e.target.value)}
+                    className="w-[52px] text-center"
+                  />
+                  %
+                </label>
+                {/* canvas 1h: no literal name for this critical dash — the
+                    spec's own colour for fill > T2. */}
+                <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(72% .17 25)' }} />
+              </div>
+              <Checkbox
+                checked={mapShowCompactBadge}
+                onChange={(checked) =>
+                  void patchAndSet({ map_show_compact_badge: checked ? 'true' : 'false' })
+                }
+                label={'Show “/compact” badge above the second threshold'}
+              />
             </Row>
           </div>
           )}

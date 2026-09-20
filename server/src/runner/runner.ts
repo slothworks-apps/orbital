@@ -93,6 +93,53 @@ function shapeCommands(raw: unknown[]): SessionCommand[] {
 }
 
 /**
+ * How many tokens of the context window a turn's `usage` accounts for, or
+ * `null` when the message carries no usage worth reading.
+ *
+ * The same four fields, added the same way, as `extractUsageTokens` in the
+ * web's detail panel: everything that occupies the window, cache reads
+ * included — a cached-in token sits in the context like any other, and the
+ * arc and the panel's read-out must never disagree (spec `context-fill-arc`).
+ *
+ * `null` rather than `0` when nothing numeric is there: a `result` that says
+ * nothing about usage is an unmeasured turn, not a session whose context is
+ * empty, and only the first of those may be allowed to erase a real reading.
+ */
+export function contextUsedFromUsage(usage: unknown): number | null {
+  if (!usage || typeof usage !== 'object') return null;
+  const u = usage as Record<string, unknown>;
+  const keys = [
+    'input_tokens',
+    'cache_read_input_tokens',
+    'cache_creation_input_tokens',
+    'output_tokens',
+  ] as const;
+  let total = 0;
+  let sawOne = false;
+  for (const key of keys) {
+    const value = u[key];
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    sawOne = true;
+    total += value;
+  }
+  return sawOne ? total : null;
+}
+
+/**
+ * The tokens a compaction left behind, as the SDK's
+ * `SDKCompactBoundaryMessage` reports them, or `null` when it does not say.
+ * `post_tokens` is optional in the SDK type, and a compaction whose size is
+ * unknown must clear the stored reading rather than leave the pre-compaction
+ * one standing — the arc would otherwise stay full after a `/compact`.
+ */
+export function contextUsedFromCompactBoundary(msg: unknown): number | null {
+  const meta = (msg as { compact_metadata?: unknown } | null)?.compact_metadata;
+  if (!meta || typeof meta !== 'object') return null;
+  const post = (meta as { post_tokens?: unknown }).post_tokens;
+  return typeof post === 'number' && Number.isFinite(post) ? post : null;
+}
+
+/**
  * What the session was started with, kept so a failure can say what it was
  * trying to run. The sessions row carries the same three, but not always in
  * time: `POST /api/sessions` inserts it only *after* `start()` returns, and a
@@ -226,6 +273,7 @@ export class Runner {
   private idleTimeoutMs: number | null;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
   private onTurnUsage?: (modelUsage: unknown) => void;
+  private onContextUsed?: (sessionId: string, usedTokens: number | null) => void;
   private onInit?: (sessionId: string, model: string | null) => void;
   private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
   private onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
@@ -249,6 +297,18 @@ export class Runner {
     onStatus?: (sessionId: string, status: SessionStatus) => void;
     /** Receives each turn result's `modelUsage`, which is where context-window sizes come from. */
     onTurnUsage?: (modelUsage: unknown) => void;
+    /**
+     * How full this session's context is after a turn, or after a compaction
+     * reset it — the arc's numerator (spec `context-fill-arc`). Separate from
+     * `onTurnUsage`, which is about models rather than sessions and is handed
+     * no session id at all.
+     *
+     * `null` only ever arrives from a `compact_boundary` that did not say how
+     * much survived: a turn whose `result` carries no usage is left silent
+     * rather than reported as null, so an unreadable message cannot erase a
+     * good reading.
+     */
+    onContextUsed?: (sessionId: string, usedTokens: number | null) => void;
     /** Receives the resolved model a session actually started on (`system/init`). */
     onInit?: (sessionId: string, model: string | null) => void;
     /**
@@ -292,6 +352,7 @@ export class Runner {
       deps.idleTimeoutMs === undefined ? DEFAULT_IDLE_MINUTES * 60_000 : deps.idleTimeoutMs;
     this.onStatus = deps.onStatus;
     this.onTurnUsage = deps.onTurnUsage;
+    this.onContextUsed = deps.onContextUsed;
     this.onInit = deps.onInit;
     this.onEntries = deps.onEntries;
     this.onTaskEvent = deps.onTaskEvent;
@@ -531,6 +592,15 @@ export class Runner {
           this.onTaskEvent?.(sessionId, msg as TaskEvent);
           continue;
         }
+        // A compaction just rewrote the context, so the last `result`'s token
+        // count is history — this is what makes the map's arc shrink after a
+        // `/compact` instead of sitting full until the next turn ends
+        // (spec `context-fill-arc`). The SDK's `post_tokens` is optional;
+        // without it the reading is cleared rather than left stale.
+        if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+          this.onContextUsed?.(sessionId, contextUsedFromCompactBoundary(msg));
+          continue;
+        }
         if (msg.type === 'system' && msg.subtype === 'commands_changed') {
           const s = this.sessions.get(sessionId);
           if (s && Array.isArray(msg.commands)) s.commands = shapeCommands(msg.commands);
@@ -544,6 +614,11 @@ export class Runner {
         } else if (msg.type === 'result') {
           this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });
           this.onTurnUsage?.(msg.modelUsage);
+          // The per-turn snapshot of the main agent loop: how full the window
+          // is now. Reported only when the message actually carried numbers —
+          // see `contextUsedFromUsage`.
+          const used = contextUsedFromUsage(msg.usage);
+          if (used !== null) this.onContextUsed?.(sessionId, used);
           this.setStatus(sessionId, 'needs_input');
           this.armIdleTimer(sessionId);
         }

@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `context_used_tokens` integer;

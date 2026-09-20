@@ -32,6 +32,9 @@ export interface SessionRow {
   map_dismissed_at: number | null;
   indexed_mtime: number;
   indexed_size: number;
+  /** Context tokens at the end of the last turn, or null if never measured.
+   * See db/schema.ts. */
+  context_used_tokens: number | null;
 }
 
 /**

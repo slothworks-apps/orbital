@@ -20,6 +20,9 @@ import {
   recordedFailureFor,
   parsePlanetScale,
   parseDetailPanelWidth,
+  parseContextThresholds,
+  showContext,
+  showCompactBadge,
   releaseDelayMs,
   absorptionFor,
   RELEASE_FALL_GRACE_MS,
@@ -1410,6 +1413,57 @@ describe('parseDetailPanelWidth', () => {
     // The floor wins over the ceiling — a panel narrower than 360 stops
     // fitting its own header grid, per the idea doc.
     expect(parseDetailPanelWidth({ detail_panel_width: '500' }, 500)).toBe(360)
+  })
+})
+
+describe('parseContextThresholds', () => {
+  it('parses a valid pair', () => {
+    expect(parseContextThresholds({ context_threshold_warn: '40', context_threshold_critical: '70' })).toEqual({
+      warn: 40,
+      critical: 70,
+    })
+  })
+
+  it('defaults to 50/80 when the keys are missing or not numbers', () => {
+    expect(parseContextThresholds({})).toEqual({ warn: 50, critical: 80 })
+    expect(
+      parseContextThresholds({ context_threshold_warn: 'garbage', context_threshold_critical: '70' })
+    ).toEqual({ warn: 50, critical: 80 })
+  })
+
+  it('clamps each to [1, 99]', () => {
+    expect(
+      parseContextThresholds({ context_threshold_warn: '0', context_threshold_critical: '150' })
+    ).toEqual({ warn: 1, critical: 99 })
+  })
+
+  it('falls back to defaults for BOTH when warn >= critical', () => {
+    expect(
+      parseContextThresholds({ context_threshold_warn: '80', context_threshold_critical: '80' })
+    ).toEqual({ warn: 50, critical: 80 })
+    expect(
+      parseContextThresholds({ context_threshold_warn: '90', context_threshold_critical: '50' })
+    ).toEqual({ warn: 50, critical: 80 })
+  })
+
+  it('falls back to defaults when clamping alone would still invert the pair', () => {
+    // Both clamp to 99 — an inverted pair the clamp step cannot fix on its own.
+    expect(
+      parseContextThresholds({ context_threshold_warn: '500', context_threshold_critical: '200' })
+    ).toEqual({ warn: 50, critical: 80 })
+  })
+})
+
+describe('showContext / showCompactBadge', () => {
+  it('default on when the key is missing', () => {
+    expect(showContext({})).toBe(true)
+    expect(showCompactBadge({})).toBe(true)
+  })
+
+  it('off only when explicitly "false"', () => {
+    expect(showContext({ map_show_context: 'false' })).toBe(false)
+    expect(showCompactBadge({ map_show_compact_badge: 'false' })).toBe(false)
+    expect(showContext({ map_show_context: 'true' })).toBe(true)
   })
 })
 

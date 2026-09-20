@@ -41,6 +41,14 @@ import {
 import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
 import { bodyZoomFactor } from './camera'
 import type { SimBody } from './simulation'
+import type { ContextFill } from './sceneModel'
+import {
+  CONTEXT_CRITICAL_OKLCH,
+  CONTEXT_WARN_OKLCH,
+  oklchCss,
+  type ContextThresholds,
+  type Oklch,
+} from '../lib/usage'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
@@ -231,6 +239,12 @@ const CORE_GLOW_Z = 0.005
 const CORE_Z = 0.01
 const RIPPLE_Z = 0.02
 const RETICLE_Z = 0.02
+/**
+ * The context gauge is outside every other layer radially, so nothing but the
+ * expanding needs-input ripple ever crosses it; sat just behind the ripple so
+ * that sweep passes OVER the arc rather than being cut by it.
+ */
+const CONTEXT_GAUGE_Z = 0.015
 
 /**
  * The three body fills (flat ended / idle gradient / working gradient) are
@@ -245,6 +259,67 @@ const BODY_WORKING_Z = -0.001
 /** Needs-input pill badge: `left: calc(100% + 10px); top: -12px` off the body box (artboard 1f). */
 const BADGE_OFFSET_X = px(60)
 const BADGE_OFFSET_Y = px(62)
+
+/**
+ * Context gauge — artboard 1i, read against 1f's 100px body.
+ *
+ * 1i draws each planet at a size derived from its own context (the part of
+ * that artboard this feature deliberately does NOT implement), so every
+ * `inset:` there has to be normalised by that planet's diameter before it
+ * means anything here. All four gauged planets agree once normalised: the
+ * fill ring's radius reads 90.5 / 90.2 / 89.6 / 89.6 design px across the
+ * 79, 92, 101 and 106px planets, and the tick ring sits 2px outside it
+ * every time.
+ *
+ * The fill ring is the `inset:-Npx` layer masked with
+ * `transparent calc(100% - 3px), #000 calc(100% - 2px)` — a 2px opaque band
+ * inside its radius, which is the "2 px arc" the brief asks for. The tick
+ * layer's mask is 7px/6px, so its marks are 6px long and straddle the fill
+ * ring: 2px outside it, 2px inside.
+ */
+const CONTEXT_FILL_OUTER = px(90)
+const CONTEXT_FILL_INNER = px(88)
+const CONTEXT_TICK_OUTER = px(92)
+const CONTEXT_TICK_INNER = px(86)
+/** Each threshold mark is a 2° slice (`179deg 181deg`, `287deg 289deg`). */
+const CONTEXT_TICK_WIDTH_DEG = 2
+/** Unfilled track `rgba(190,225,255,.1)`, marks `rgba(240,248,255,.8)`. */
+const CONTEXT_TRACK_COLOR = '#bee1ff'
+const CONTEXT_TRACK_OPACITY = 0.1
+const CONTEXT_TICK_COLOR = '#f0f8ff'
+const CONTEXT_TICK_OPACITY = 0.8
+/** Below the first threshold the fill is the tag hue at `/ 0.6`; past it, opaque. */
+const CONTEXT_OK_OPACITY = 0.6
+/**
+ * Past the second threshold the arc pulses on the canvas's own `orb-ring`
+ * keyframe — the same opacity swing as the halo's breath (hence
+ * `HALO_BREATH_MIN`), run at 1.6s instead of 2.4s.
+ */
+const CONTEXT_PULSE_SEC = 1.6
+/**
+ * Arrival/departure of the whole gauge. The canvas never draws one appearing
+ * (its planets just have one), so this is a judgement call: the state
+ * crossfade's duration, so a session that ends dissolves its gauge on the
+ * same beat as everything else about it changes.
+ */
+const CONTEXT_FADE_MS = STATE_TRANSITION_MS
+
+/**
+ * `/compact` pill: `left: calc(100% + 36px); top: -21px` off the body box of
+ * 1i's 106px planet, normalised to a 100px body (the 105px planet carrying
+ * the same badge gives 84.3 / -70). Further out than the needs-input pill
+ * because the gauge ring occupies the space that one sits in.
+ */
+const COMPACT_BADGE_OFFSET_X = px(84)
+const COMPACT_BADGE_OFFSET_Y = px(70)
+/**
+ * The command the badge sends, and the text it shows for it — exported so
+ * the caller that actually sends it cannot drift from the word on the pill.
+ */
+export const COMPACT_COMMAND = '/compact'
+/** The command's own colour inside the pill — 1i's `oklch(80% .15 25)`, a
+ * lighter red than the border's, so the word reads before the percentage. */
+const COMPACT_COMMAND_OKLCH: Oklch = { lightness: 0.8, chroma: 0.15, hue: 25 }
 
 export interface PlanetProps {
   session: ApiSession
@@ -283,6 +358,26 @@ export interface PlanetProps {
    */
   labelTitlePx?: number
   labelFamilyPx?: number
+  /**
+   * How full this session's context window is, or null for no gauge at all
+   * — `contextFillFor` in `sceneModel.ts` decides which, master toggle
+   * included. The arc fades out rather than popping when it becomes null.
+   */
+  contextFill?: ContextFill | null
+  /**
+   * Where the gauge's two threshold marks sit. Absent (the sandbox, tests)
+   * draws the arc without marks rather than inventing a pair here — the
+   * defaults live in the store, with the settings that produce them.
+   */
+  contextThresholds?: ContextThresholds
+  /** `map_show_compact_badge`, already AND-ed with the master toggle by the caller. */
+  showCompactBadge?: boolean
+  /**
+   * Sends `/compact` to the session. The caller owns whether that is
+   * possible at all right now (`SpaceMap`), for the same reason the composer
+   * does: this component knows nothing about the store.
+   */
+  onCompact?: (sessionId: string) => void
   onClick?: (sessionId: string) => void
   /**
    * The planet's body in the tag-cluster simulation. When present, the frame
@@ -442,6 +537,102 @@ export function ArcRing({ material }: { material: THREE.Material }) {
 }
 
 /**
+ * Angle of a point `percent` of the way round the gauge, in three's own
+ * convention (0 = 3 o'clock, counter-clockwise positive).
+ *
+ * The canvas draws the gauge as `conic-gradient(from -90deg, …)`: it starts
+ * at 12 o'clock and runs CLOCKWISE, which is the opposite direction from
+ * everything `ringGeometry` measures — hence the subtraction.
+ */
+function gaugeAngle(percent: number): number {
+  return Math.PI / 2 - (percent / 100) * Math.PI * 2
+}
+
+/**
+ * The context gauge (artboard 1i): a 2px ring split between the filled arc
+ * (clockwise from 12 o'clock) and the unfilled track, with the two threshold
+ * marks 2px further out — which the canvas shows even on a planet at 0 %
+ * fill, so the scale is readable before there is anything on it.
+ *
+ * Geometry, not shader tricks, because the sweep and the marks both change
+ * only when the data does (a turn ends, a threshold is edited), never per
+ * frame. Materials come from the parent for the usual reason: the frame loop
+ * owns their opacity and colour.
+ */
+function ContextGauge({
+  fraction,
+  thresholds,
+  trackMaterial,
+  fillMaterial,
+  tickMaterial,
+}: {
+  fraction: number
+  thresholds?: ContextThresholds
+  trackMaterial: THREE.Material
+  fillMaterial: THREE.Material
+  tickMaterial: THREE.Material
+}) {
+  const sweep = fraction * Math.PI * 2
+  const tickWidth = (CONTEXT_TICK_WIDTH_DEG * Math.PI) / 180
+  // Track and fill divide the ring between them rather than stacking, the
+  // way the canvas's single conic gradient does — two overlapping
+  // transparent layers would tint the filled arc with the track underneath
+  // it, which is visible at the 0.6 alpha the `ok` level is drawn at.
+  const track = Math.PI * 2 - sweep
+  return (
+    <group position={[0, 0, CONTEXT_GAUGE_Z]}>
+      {track > 0 && (
+        <mesh material={trackMaterial}>
+          <ringGeometry
+            args={[
+              CONTEXT_FILL_INNER,
+              CONTEXT_FILL_OUTER,
+              Math.max(1, Math.ceil((track / (Math.PI * 2)) * 96)),
+              1,
+              gaugeAngle(0),
+              track,
+            ]}
+          />
+        </mesh>
+      )}
+      {fraction > 0 && (
+        <mesh material={fillMaterial}>
+          <ringGeometry
+            args={[
+              CONTEXT_FILL_INNER,
+              CONTEXT_FILL_OUTER,
+              Math.max(1, Math.ceil(fraction * 96)),
+              1,
+              // A clockwise arc of `sweep` ending at 12 o'clock is the same
+              // shape as a counter-clockwise one starting `sweep` before it.
+              gaugeAngle(0) - sweep,
+              sweep,
+            ]}
+          />
+        </mesh>
+      )}
+      {thresholds &&
+        // Keyed by position, not by value: editing a threshold should move
+        // its mark, not tear one mesh down and build another.
+        [thresholds.warn, thresholds.critical].map((percent, i) => (
+          <mesh key={i} material={tickMaterial}>
+            <ringGeometry
+              args={[
+                CONTEXT_TICK_INNER,
+                CONTEXT_TICK_OUTER,
+                1,
+                1,
+                gaugeAngle(percent) - tickWidth / 2,
+                tickWidth,
+              ]}
+            />
+          </mesh>
+        ))}
+    </group>
+  )
+}
+
+/**
  * The four corner brackets' polylines. Module-level so the arrays keep a
  * stable reference: a fresh array every render makes drei's `<Line>` tear
  * down and rebuild its live geometry/material, and these points never change.
@@ -542,12 +733,31 @@ function SelectionReticle({
   )
 }
 
-/** "NEEDS INPUT" pill badge — mono, blinking dot, right of the planet (state sheet artboard 1f). */
-function NeedsInputBadge({ innerRef }: { innerRef: RefObject<HTMLSpanElement | null> }) {
+/**
+ * "NEEDS INPUT" pill badge — mono, blinking dot, right of the planet (state
+ * sheet artboard 1f). A planet with a context gauge uses 1i's pill position
+ * instead (`clearsGauge` — the same offsets as the `/compact` pill), because
+ * 1f's sits inside the band the gauge ring occupies.
+ */
+function NeedsInputBadge({
+  innerRef,
+  clearsGauge,
+}: {
+  innerRef: RefObject<HTMLSpanElement | null>
+  clearsGauge: boolean
+}) {
   // zIndexRange keeps map text under the z-10 side panels and z-50 dialogs
   // (drei's default range is in the millions).
   return (
-    <Html position={[BADGE_OFFSET_X, BADGE_OFFSET_Y, CORE_Z]} zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
+    <Html
+      position={
+        clearsGauge
+          ? [COMPACT_BADGE_OFFSET_X, COMPACT_BADGE_OFFSET_Y, CORE_Z]
+          : [BADGE_OFFSET_X, BADGE_OFFSET_Y, CORE_Z]
+      }
+      zIndexRange={[5, 0]}
+      style={{ pointerEvents: 'none' }}
+    >
       <span
         ref={innerRef}
         style={{
@@ -577,10 +787,68 @@ function NeedsInputBadge({ innerRef }: { innerRef: RefObject<HTMLSpanElement | n
   )
 }
 
+/**
+ * `NN% · /compact` pill (artboard 1i), shown past the second threshold. A
+ * real `<button>`: it is the one thing on the map that does something other
+ * than select, so it has to be reachable and pressable like a control.
+ *
+ * The `<Html>` wrapper keeps `pointerEvents: none` so the pill never eats a
+ * drag aimed at the planet behind it; the button itself takes them back.
+ */
+function CompactBadge({
+  percent,
+  innerRef,
+  onClick,
+}: {
+  percent: number
+  innerRef: RefObject<HTMLButtonElement | null>
+  onClick: () => void
+}) {
+  return (
+    <Html
+      position={[COMPACT_BADGE_OFFSET_X, COMPACT_BADGE_OFFSET_Y, CORE_Z]}
+      zIndexRange={[5, 0]}
+      style={{ pointerEvents: 'none' }}
+    >
+      <button
+        ref={innerRef}
+        type="button"
+        title={`Send ${COMPACT_COMMAND} to this session`}
+        onClick={onClick}
+        style={{
+          appearance: 'none',
+          margin: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '3px 8px',
+          borderRadius: 999,
+          background: 'rgba(6,10,20,.9)',
+          border: `1px solid ${oklchCss(CONTEXT_CRITICAL_OKLCH, 0.7)}`,
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          fontSize: 9.5,
+          letterSpacing: '0.08em',
+          color: '#fff',
+          whiteSpace: 'nowrap',
+          cursor: 'pointer',
+          pointerEvents: 'auto',
+          opacity: 0,
+        }}
+      >
+        {percent}% ·{' '}
+        <span style={{ color: oklchCss(COMPACT_COMMAND_OKLCH) }}>{COMPACT_COMMAND}</span>
+      </button>
+    </Html>
+  )
+}
+
 interface PlanetMaterials {
   glow: THREE.MeshBasicMaterial
   halo: THREE.MeshBasicMaterial
   arc: THREE.MeshBasicMaterial
+  contextTrack: THREE.MeshBasicMaterial
+  contextFill: THREE.MeshBasicMaterial
+  contextTicks: THREE.MeshBasicMaterial
   bodyEnded: THREE.MeshBasicMaterial
   bodyIdle: THREE.MeshBasicMaterial
   bodyWorking: THREE.MeshBasicMaterial
@@ -611,10 +879,22 @@ function usePlanetMaterials(): PlanetMaterials {
     }
     const glowMap = glowTexture()
     const core = new THREE.MeshBasicMaterial({ transparent: true })
+    // The gauge starts invisible and is faded in by the frame loop, so it
+    // cannot flash at full strength for the frame before the first
+    // `applyState` — same reasoning as the reticle's zeroing below.
+    const gauge = (color?: THREE.Color | string) => {
+      const material = soft(color)
+      material.opacity = 0
+      material.visible = false
+      return material
+    }
     return {
       glow: soft(undefined, glowMap),
       halo: soft(),
       arc: soft(),
+      contextTrack: gauge(CONTEXT_TRACK_COLOR),
+      contextFill: gauge(),
+      contextTicks: gauge(CONTEXT_TICK_COLOR),
       bodyEnded: soft(BODY_ENDED_COLOR),
       bodyIdle: soft(undefined, bodyIdleTexture()),
       bodyWorking: soft(undefined, bodyTexture()),
@@ -653,6 +933,10 @@ export function Planet({
   modelFamily = null,
   labelTitlePx = 11,
   labelFamilyPx = 9.5,
+  contextFill = null,
+  contextThresholds,
+  showCompactBadge = false,
+  onCompact,
   onClick,
   simBody,
   onBodyPointerDown,
@@ -687,7 +971,27 @@ export function Planet({
   // leaves while the ring is still faintly visible — a pop at the end of the
   // exit, which is the thing the exit exists to avoid.
   const reticleMounted = useLingering(selected, RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS)
-  const badgeMounted = useLingering(session.status === 'needs_input', STATE_TRANSITION_MS)
+  const needsInputMounted = useLingering(session.status === 'needs_input', STATE_TRANSITION_MS)
+
+  /**
+   * The context gauge (artboard 1i). `contextFill` going null — the session
+   * ended, the toggle went off, a compaction erased the reading — has to
+   * fade the arc out rather than yanking it, so the last fill it had is kept
+   * to draw the departure with.
+   */
+  const lastFill = useRef<ContextFill | null>(contextFill)
+  if (contextFill) lastFill.current = contextFill
+  const gaugeMounted = useLingering(contextFill !== null, CONTEXT_FADE_MS)
+  const gaugeFade = useFadeTween(contextFill !== null, CONTEXT_FADE_MS, CONTEXT_FADE_MS)
+  const shownFill = contextFill ?? lastFill.current
+  /**
+   * The `/compact` pill. Never at the same time as the needs-input one —
+   * that pill sits in the same corner and answers a more urgent question, so
+   * it wins outright, including while it is fading away.
+   */
+  const compactDue = showCompactBadge && contextFill?.level === 'critical' && !needsInputMounted
+  const compactMounted = useLingering(compactDue, STATE_TRANSITION_MS)
+  const compactFade = useFadeTween(compactDue, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
   /**
    * A suppressed planet's title has to LEAVE the document, not just turn
    * invisible: `<Html>` portals its content into a plain DOM overlay that the
@@ -733,6 +1037,7 @@ export function Planet({
   const reticleRingRef = useRef<LineHandle | null>(null)
   const bracketRefs = useRef<(LineHandle | null)[]>([])
   const badgeRef = useRef<HTMLSpanElement | null>(null)
+  const compactBadgeRef = useRef<HTMLButtonElement | null>(null)
   const labelRef = useRef<HTMLSpanElement | null>(null)
   const labelGroupRef = useRef<THREE.Group>(null)
   const overlayRef = useRef<HTMLSpanElement | null>(null)
@@ -755,6 +1060,14 @@ export function Planet({
   const blendRef = useRef(blendPlanet(mix.weights, createPlanetBlend()))
   /** False until the settled values have been written once after a transition ends. */
   const settled = useRef(false)
+  /**
+   * The arc crossing a threshold changes a colour without anything else
+   * about the planet moving, and `applyState` is the only place that writes
+   * it — so ask for one more pass of it.
+   */
+  useLayoutEffect(() => {
+    settled.current = false
+  }, [shownFill?.level])
 
   const dimmedLabel = session.status === 'ended'
 
@@ -779,6 +1092,29 @@ export function Planet({
     materials.arc.color.copy(hueC)
     materials.arc.opacity = b.arcOpacity * fade
     materials.arc.visible = b.arcOpacity > 0.001
+
+    // Context gauge colour (1i): the session's own hue below the first
+    // threshold — so a full-enough-to-matter arc is the only one that stops
+    // belonging to its tag — then amber, then red. Written here, with the
+    // hue tween's current value, so a retag carries the arc with it; the
+    // opacities (and the critical pulse) belong to the frame loop below.
+    if (shownFill?.level === 'warn') {
+      setOklchTagColor(
+        materials.contextFill.color,
+        CONTEXT_WARN_OKLCH.hue,
+        CONTEXT_WARN_OKLCH.lightness,
+        CONTEXT_WARN_OKLCH.chroma
+      )
+    } else if (shownFill?.level === 'critical') {
+      setOklchTagColor(
+        materials.contextFill.color,
+        CONTEXT_CRITICAL_OKLCH.hue,
+        CONTEXT_CRITICAL_OKLCH.lightness,
+        CONTEXT_CRITICAL_OKLCH.chroma
+      )
+    } else {
+      materials.contextFill.color.copy(hueC)
+    }
 
     if (hasBodyTextures) {
       // Bottom-to-top: flat ended fill, idle gradient, working gradient.
@@ -844,7 +1180,8 @@ export function Planet({
     // The hide fade multiplies into every opacity `applyState` writes, so a
     // moving fade has to re-run it — otherwise the layers it only touches on
     // a state change would keep their pre-fade alpha.
-    if (mixMoved || hueMoved || hideMoved || !settled.current) applyState()
+    const applied = mixMoved || hueMoved || hideMoved || !settled.current
+    if (applied) applyState()
     settled.current = !(mixMoved || hueMoved || hideMoved)
 
     if (simBody) {
@@ -893,7 +1230,41 @@ export function Planet({
       // paying for a dozen invisible meshes every frame.
       groupRef.current.visible = hide.opacity > 0.001
     }
+    // The `/compact` pill is plain DOM, like the needs-input one: its fade
+    // has to be written before the early return below, or a planet on its
+    // way out would leave the pill hanging at full strength.
+    if (compactMounted) {
+      advanceTween(compactFade, delta)
+      if (compactBadgeRef.current) {
+        compactBadgeRef.current.style.opacity = String(compactFade.value * hide.opacity)
+      }
+    }
+
     if (!(hide.opacity > 0.001)) return
+
+    // Context gauge (1i). Past the second threshold the ring pulses on the
+    // canvas's `orb-ring` keyframe at 1.6s — the same .55 ↔ 1 swing the halo
+    // breathes on, which is why `HALO_BREATH_MIN` is the floor here too. The
+    // pulse carries the track with the fill, because 1i paints both of them
+    // as one conic-gradient element and animates that; the threshold marks
+    // are a separate layer there and hold still here. Skipped entirely on a
+    // settled planet whose arc is not pulsing, so a resting map still does
+    // no per-frame work.
+    const gaugeMoved = advanceTween(gaugeFade, delta)
+    const critical = shownFill?.level === 'critical'
+    if (gaugeMounted && (gaugeMoved || applied || critical)) {
+      const pulse = critical
+        ? HALO_BREATH_MIN + (1 - HALO_BREATH_MIN) * oscillate(state.clock.elapsedTime, CONTEXT_PULSE_SEC)
+        : 1
+      const gauge = gaugeFade.value * hide.opacity
+      materials.contextTrack.opacity = CONTEXT_TRACK_OPACITY * pulse * gauge
+      materials.contextTrack.visible = materials.contextTrack.opacity > 0.001
+      materials.contextTicks.opacity = CONTEXT_TICK_OPACITY * gauge
+      materials.contextTicks.visible = materials.contextTicks.opacity > 0.001
+      materials.contextFill.opacity =
+        (shownFill?.level === 'ok' ? CONTEXT_OK_OPACITY : 1) * pulse * gauge
+      materials.contextFill.visible = materials.contextFill.opacity > 0.001
+    }
 
     if (b.tickSpin !== 0 && tickGroupRef.current) {
       tickGroupRef.current.rotation.z += b.tickSpin * delta
@@ -1068,6 +1439,16 @@ export function Planet({
         <ringGeometry args={[RIPPLE_INNER, RIPPLE_OUTER, 48]} />
       </mesh>
 
+      {gaugeMounted && shownFill && (
+        <ContextGauge
+          fraction={shownFill.fraction}
+          thresholds={contextThresholds}
+          trackMaterial={materials.contextTrack}
+          fillMaterial={materials.contextFill}
+          tickMaterial={materials.contextTicks}
+        />
+      )}
+
       {reticleMounted && (
         <SelectionReticle
           scaleGroupRef={reticleScaleRef}
@@ -1077,7 +1458,17 @@ export function Planet({
         />
       )}
 
-      {badgeMounted && <NeedsInputBadge innerRef={badgeRef} />}
+      {needsInputMounted && (
+        <NeedsInputBadge innerRef={badgeRef} clearsGauge={gaugeMounted && shownFill !== null} />
+      )}
+
+      {compactMounted && shownFill && (
+        <CompactBadge
+          percent={Math.round(shownFill.fraction * 100)}
+          innerRef={compactBadgeRef}
+          onClick={() => onCompact?.(session.id)}
+        />
+      )}
 
       {/* Hover target: ONE invisible disc, not over/out on the group — the
           planet is a stack of overlapping child meshes, and the pointer

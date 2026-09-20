@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { api, ApiError } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
+import type { ContextThresholds } from '../lib/usage'
 import type {
   ApiSession,
   AttachmentSource,
@@ -1196,6 +1197,55 @@ export function parseDetailPanelWidth(
 ): number {
   const raw = Number(settings.detail_panel_width)
   return clampDetailPanelWidth(Number.isFinite(raw) ? raw : DETAIL_PANEL_DEFAULT_PX, viewportWidth)
+}
+
+/** The context-threshold number inputs' range (canvas 1h: `min="1" max="99"`). */
+export const CONTEXT_THRESHOLD_MIN = 1
+export const CONTEXT_THRESHOLD_MAX = 99
+/** Canvas 1h defaults, and what a garbage or inverted pair falls back to. */
+export const DEFAULT_CONTEXT_THRESHOLD_WARN = 50
+export const DEFAULT_CONTEXT_THRESHOLD_CRITICAL = 80
+
+/**
+ * The pair itself is declared in `lib/usage.ts`, beside the level function
+ * that consumes it: the map's `Planet` reads thresholds without wanting the
+ * store, and re-exporting the type here keeps every existing
+ * `import { ... } from '../store/store'` working.
+ */
+export type { ContextThresholds }
+
+/**
+ * `context_threshold_warn`/`context_threshold_critical` as the arc and the
+ * detail panel's context bar consume them (spec `context-fill-arc`): each
+ * clamped to [1, 99], and if the pair comes out inverted (`warn >= critical`)
+ * — including two garbage values that both fell back to the same default —
+ * BOTH fall back to the canvas defaults rather than drawing a threshold order
+ * that makes no sense on the arc.
+ */
+export function parseContextThresholds(settings: Record<string, string>): ContextThresholds {
+  const fallback: ContextThresholds = {
+    warn: DEFAULT_CONTEXT_THRESHOLD_WARN,
+    critical: DEFAULT_CONTEXT_THRESHOLD_CRITICAL,
+  }
+  const rawWarn = Number(settings.context_threshold_warn)
+  const rawCritical = Number(settings.context_threshold_critical)
+  if (!Number.isFinite(rawWarn) || !Number.isFinite(rawCritical)) return fallback
+  const warn = Math.min(CONTEXT_THRESHOLD_MAX, Math.max(CONTEXT_THRESHOLD_MIN, rawWarn))
+  const critical = Math.min(CONTEXT_THRESHOLD_MAX, Math.max(CONTEXT_THRESHOLD_MIN, rawCritical))
+  if (warn >= critical) return fallback
+  return { warn, critical }
+}
+
+/** `map_show_context` — the arc/ticks/badge master switch. Default-on, same
+ * convention as `map_show_model` (`sceneModel.ts`). */
+export function showContext(settings: Record<string, string>): boolean {
+  return settings.map_show_context !== 'false'
+}
+
+/** `map_show_compact_badge` — only effective while `showContext` is also on
+ * (spec `context-fill-arc`); callers gate on both. Default-on convention. */
+export function showCompactBadge(settings: Record<string, string>): boolean {
+  return settings.map_show_compact_badge !== 'false'
 }
 
 /**

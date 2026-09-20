@@ -3,6 +3,8 @@ import { Hub } from '../src/api/hub.js';
 import {
   IDLE_NEVER,
   Runner,
+  contextUsedFromCompactBoundary,
+  contextUsedFromUsage,
   parseIdleTimeoutMs,
   sdkToChatMessages,
 } from '../src/runner/runner.js';
@@ -1510,5 +1512,161 @@ describe('Runner decisions', () => {
     expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-2' });
     await runner.end(id);
     expect(await second).toMatchObject({ behavior: 'deny' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// How full the context is: the arc's numerator (spec: context-fill-arc)
+// ---------------------------------------------------------------------------
+
+describe('contextUsedFromUsage', () => {
+  it('sums every field that occupies the window, cache reads included', () => {
+    // The same four the detail panel's read-out adds, so the arc and the
+    // sidebar percentage can never disagree.
+    expect(
+      contextUsedFromUsage({
+        input_tokens: 1_000,
+        cache_read_input_tokens: 120_000,
+        cache_creation_input_tokens: 3_000,
+        output_tokens: 400,
+      }),
+    ).toBe(124_400);
+  });
+
+  it('counts a missing field as zero rather than giving up on the message', () => {
+    // A turn that read nothing from cache simply has no such key.
+    expect(contextUsedFromUsage({ input_tokens: 10, output_tokens: 5 })).toBe(15);
+    expect(contextUsedFromUsage({ cache_read_input_tokens: 7 })).toBe(7);
+    // Fields Orbital does not add must not sneak into the total.
+    expect(contextUsedFromUsage({ input_tokens: 10, server_tool_use: { web_search_requests: 99 } })).toBe(10);
+  });
+
+  it('is null — not zero — when there is no usage to read', () => {
+    // `0` would draw an empty arc on a session whose size is simply unknown,
+    // and would erase a real reading from the turn before.
+    expect(contextUsedFromUsage(undefined)).toBeNull();
+    expect(contextUsedFromUsage(null)).toBeNull();
+    expect(contextUsedFromUsage({})).toBeNull();
+    expect(contextUsedFromUsage('123')).toBeNull();
+    expect(contextUsedFromUsage({ input_tokens: '1000' })).toBeNull();
+    expect(contextUsedFromUsage({ input_tokens: NaN })).toBeNull();
+  });
+});
+
+describe('contextUsedFromCompactBoundary', () => {
+  it('reads what the compaction left behind', () => {
+    expect(
+      contextUsedFromCompactBoundary({
+        type: 'system', subtype: 'compact_boundary',
+        compact_metadata: { trigger: 'manual', pre_tokens: 180_000, post_tokens: 24_000 },
+      }),
+    ).toBe(24_000);
+  });
+
+  it('is null when the boundary does not say how much survived', () => {
+    // `post_tokens` is optional in the SDK type; the pre-compaction reading
+    // must not be the answer, or the arc stays full after a /compact.
+    expect(
+      contextUsedFromCompactBoundary({
+        type: 'system', subtype: 'compact_boundary',
+        compact_metadata: { trigger: 'auto', pre_tokens: 180_000 },
+      }),
+    ).toBeNull();
+    expect(contextUsedFromCompactBoundary({ type: 'system', subtype: 'compact_boundary' })).toBeNull();
+    expect(contextUsedFromCompactBoundary(null)).toBeNull();
+  });
+});
+
+describe('Runner context reporting', () => {
+  /** Fake SDK that yields exactly the messages it is handed, per turn. */
+  function fakeQueryFnYielding(messages: (sid: string) => any[]) {
+    return ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+      const sid = sessionIdOf(options);
+      async function* gen() {
+        for await (const _m of prompt) {
+          for (const msg of messages(sid)) yield msg;
+        }
+      }
+      return gen() as any;
+    };
+  }
+
+  /** Starts a session on `fn` and collects every `onContextUsed` report. */
+  async function reporting(fn: any) {
+    const seen: Array<[string, number | null]> = [];
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fn, newSessionId: () => 'web-1',
+      onContextUsed: (sessionId, used) => seen.push([sessionId, used]),
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
+    return { runner, id, seen };
+  }
+
+  it('reports the turn result\'s total, with the session it belongs to', async () => {
+    const { id, seen } = await reporting(
+      fakeQueryFnYielding((sid) => [
+        {
+          type: 'result', subtype: 'success', session_id: sid,
+          usage: {
+            input_tokens: 500, cache_read_input_tokens: 40_000,
+            cache_creation_input_tokens: 1_500, output_tokens: 300,
+          },
+        },
+      ]),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual([id, 42_300]);
+  });
+
+  it('reports a compaction\'s post_tokens, which is what shrinks the arc', async () => {
+    const { seen } = await reporting(
+      fakeQueryFnYielding((sid) => [
+        { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 180_000 } },
+        {
+          type: 'system', subtype: 'compact_boundary', session_id: sid,
+          compact_metadata: { trigger: 'manual', pre_tokens: 180_000, post_tokens: 24_000 },
+        },
+      ]),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen.map(([, used]) => used)).toEqual([180_000, 24_000]);
+  });
+
+  it('clears the reading when a compaction does not say how much survived', async () => {
+    const { seen } = await reporting(
+      fakeQueryFnYielding((sid) => [
+        { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 180_000 } },
+        {
+          type: 'system', subtype: 'compact_boundary', session_id: sid,
+          compact_metadata: { trigger: 'auto', pre_tokens: 180_000 },
+        },
+      ]),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1][1]).toBeNull();
+  });
+
+  it('says nothing at all for a result that carries no usage', async () => {
+    // Silence, not null: an unreadable message is not evidence that the
+    // context emptied, so the stored reading must survive it.
+    const { runner, seen } = await reporting(
+      fakeQueryFnYielding((sid) => [{ type: 'result', subtype: 'success', session_id: sid }]),
+    );
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    expect(seen).toEqual([]);
+  });
+
+  it('ignores a compact boundary belonging to another session', async () => {
+    const { seen } = await reporting(
+      fakeQueryFnYielding((sid) => [
+        {
+          type: 'system', subtype: 'compact_boundary', session_id: 'someone-else',
+          compact_metadata: { trigger: 'manual', pre_tokens: 9, post_tokens: 1 },
+        },
+        { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 5 } },
+      ]),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0][1]).toBe(5);
   });
 });

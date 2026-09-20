@@ -243,6 +243,22 @@ export async function buildServer(overrides: {
       hub.publish('sessions', { event: 'status', sessionId, status });
     },
     onTurnUsage: (modelUsage) => models.recordContextWindows(modelUsage),
+    // How full the session's context is, stored on the row and republished on
+    // the `sessions` topic — the map subscribes to `session:<id>` only for the
+    // selected session, so a map-wide indicator has to ride the `ApiSession`
+    // snapshot (spec `context-fill-arc`). Same `republish` path as the
+    // resolved model and the subagents, for the same reason: one publisher.
+    //
+    // An update that lands before `POST /api/sessions` has inserted the row is
+    // a no-op, and `republish` finds nothing to send; the next turn's result
+    // writes the number anyway.
+    onContextUsed: (sessionId, usedTokens) => {
+      db.update(sessions)
+        .set({ contextUsedTokens: usedTokens })
+        .where(eq(sessions.id, sessionId))
+        .run();
+      republish(sessionId);
+    },
     // Records the model the CLI actually started on, then republishes so every
     // surface shows it. Reuses `republish` rather than building the REST shape
     // by hand: the subagent work widened that shape past `{ db, registry, runner }`,
