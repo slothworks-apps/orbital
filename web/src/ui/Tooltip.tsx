@@ -1,4 +1,4 @@
-import { cloneElement, useId, useState } from 'react'
+import { cloneElement, useEffect, useId, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useEscapeLayer } from './escapeLayer'
 
@@ -13,6 +13,12 @@ export interface TooltipProps {
    * bubble off the panel.
    */
   align?: 'left' | 'right'
+  /**
+   * How long the pointer must rest on the trigger before the bubble appears.
+   * Keyboard focus ignores it — focusing a control is already deliberate,
+   * while a pointer crosses controls on its way somewhere else.
+   */
+  delayMs?: number
   /** The trigger. Must accept a ref-less `aria-describedby` prop. */
   children: ReactElement<{ 'aria-describedby'?: string }>
 }
@@ -35,20 +41,45 @@ export interface TooltipProps {
  * the dialog underneath the pointer. A keyboard user, by contrast, has no
  * other way to put it away.
  */
-export function Tooltip({ title, description, align = 'left', children }: TooltipProps) {
+export function Tooltip({
+  title,
+  description,
+  align = 'left',
+  delayMs = 0,
+  children,
+}: TooltipProps) {
   const id = useId()
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const open = (hovered || focused) && !dismissed
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelHover = () => {
+    if (hoverTimer.current === null) return
+    clearTimeout(hoverTimer.current)
+    hoverTimer.current = null
+  }
+
+  // A trigger that unmounts while the timer is still counting must not open a
+  // tooltip on a node that is gone.
+  useEffect(() => cancelHover, [])
 
   useEscapeLayer(open && focused, () => setDismissed(true))
 
   return (
     <span
       className="relative inline-flex"
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={() => {
+        if (delayMs <= 0) {
+          setHovered(true)
+          return
+        }
+        cancelHover()
+        hoverTimer.current = setTimeout(() => setHovered(true), delayMs)
+      }}
       onMouseLeave={() => {
+        cancelHover()
         setHovered(false)
         if (!focused) setDismissed(false)
       }}
@@ -66,6 +97,10 @@ export function Tooltip({ title, description, align = 'left', children }: Toolti
           className={[
             // 2d: 9px radius, flat panel fill, 340px cap, dropped below the
             // trigger with an 8px gap.
+            // 4d: it arrives rather than blinks on — the last few pixels of
+            // travel are what make a delayed bubble read as an answer to the
+            // pointer resting, not as a flicker.
+            'orbital-tooltip-in',
             'absolute top-full z-20 mt-2 w-max max-w-[340px] rounded-[9px] border px-3 py-[9px]',
             'border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] shadow-[0_16px_40px_rgba(0,0,0,.55)]',
             align === 'right' ? 'right-0' : 'left-0',

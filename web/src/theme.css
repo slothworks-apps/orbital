@@ -273,6 +273,24 @@ body {
   animation: orbital-fade-out 0.2s ease forwards;
 }
 
+/* A tooltip arriving (canvas 4d, drawn in 4a): a fade plus the last few
+   pixels of downward travel, so a bubble that waited out its delay reads as
+   settling into place rather than blinking on. */
+@keyframes orbital-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.orbital-tooltip-in {
+  animation: orbital-tooltip-in 0.16s ease;
+}
+
 /* A question card arriving in the transcript (canvas 9d "arrival"). Only the
    fade is ours — the scroll rule is the transcript's existing stick-to-bottom
    logic, which already says "never steal scroll from someone reading". */
