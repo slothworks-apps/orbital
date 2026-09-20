@@ -1,7 +1,7 @@
 ---
 id: 2026-09-20-pinned-sessions-design
 title: Pinned sessions — keep a session on the map
-status: active
+status: done
 type: spec
 domain: sessions
 tags:
