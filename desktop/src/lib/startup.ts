@@ -53,6 +53,31 @@ export function needsCliPrompt(health: HealthInfo, forked: boolean): boolean {
   return health.claudeCli?.source === 'missing';
 }
 
+export type ChildExitAction =
+  | 'ignore' // we killed it, or we are on our way out
+  | 'abort-start' // it died while someone is still waiting for it to come up
+  | 'offer-restart'; // it died under a running app — the designed "server stopped" state
+
+/**
+ * What a forked server's death means, given what the app was doing at the time.
+ *
+ * `awaitingStart` is the load-bearing one: during a fork-and-wait the waiting
+ * code owns the failure, so the death must not also raise the "server stopped"
+ * dialog — otherwise a server that dies before it ever answers stacks that
+ * modal under the start-failure one, and its restart path has no window to
+ * reload (spec § 1 wants one clear error state, not two).
+ */
+export function classifyChildExit(state: {
+  quitting: boolean;
+  current: boolean;
+  awaitingStart: boolean;
+}): ChildExitAction {
+  if (state.quitting) return 'ignore';
+  if (!state.current) return 'ignore'; // already replaced: we killed it deliberately
+  if (state.awaitingStart) return 'abort-start';
+  return 'offer-restart';
+}
+
 /** URLs the window loads: dev → vite (5173), packaged → the server itself. */
 export function windowUrl(dev: boolean, port: number): string {
   // Dev points at vite so HMR keeps working; vite proxies /api and /ws onto

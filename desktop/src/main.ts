@@ -1,7 +1,13 @@
 import { app, BrowserWindow, dialog, utilityProcess, type UtilityProcess } from 'electron';
 import { join } from 'node:path';
 import { probeHealth } from './lib/probe';
-import { decideStartup, needsCliPrompt, windowUrl, type HealthInfo } from './lib/startup';
+import {
+  classifyChildExit,
+  decideStartup,
+  needsCliPrompt,
+  windowUrl,
+  type HealthInfo,
+} from './lib/startup';
 
 const PORT = Number(process.env.ORBITAL_PORT ?? 4737);
 const DEV = process.env.ORBITAL_DESKTOP_DEV === '1';
@@ -30,6 +36,10 @@ let child: UtilityProcess | null = null;
 /** True only when this process forked the server — shutdown kills only that. */
 let forked = false;
 let quitting = false;
+/** True while a fork-and-wait is in flight; that code owns the child's fate. */
+let awaitingStart = false;
+/** Exit code of a child that died during a fork-and-wait, for the one dialog. */
+let startExit: number | null = null;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -52,34 +62,80 @@ function forkServer(): UtilityProcess {
   });
 
   proc.on('exit', (code) => {
-    // `child !== proc` means we replaced this one deliberately (a restart, or
-    // the re-fork after picking a CLI path), so its death is not news.
-    if (quitting || child !== proc) return;
-    child = null;
-    void reportServerDeath(code);
+    switch (classifyChildExit({ quitting, current: child === proc, awaitingStart })) {
+      case 'ignore':
+        return;
+      case 'abort-start':
+        // bringServerUp is waiting on this one; let it report the failure.
+        startExit = code;
+        child = null;
+        return;
+      case 'offer-restart':
+        child = null;
+        void reportServerDeath(code);
+        return;
+    }
   });
 
   return proc;
 }
 
-/** Poll until the server answers as Orbital, or give up. */
+/** Poll until the server answers as Orbital, it dies, or we give up on it. */
 async function waitForHealth(): Promise<HealthInfo | null> {
   const deadline = Date.now() + HEALTH_POLL_TIMEOUT_MS;
   for (;;) {
+    if (startExit !== null) return null; // it died; there is nothing left to answer
     const outcome = await probeHealth(PORT);
     if (outcome.kind === 'orbital') return outcome.health;
-    if (Date.now() >= deadline) return null;
+    if (startExit !== null || Date.now() >= deadline) return null;
     await delay(HEALTH_POLL_INTERVAL_MS);
   }
 }
 
-function serverStartFailed(): void {
-  const fate = child ? 'It is still running but never answered.' : 'It exited before it answered.';
-  dialog.showErrorBox(
-    'Orbital’s server did not start',
-    `${serverEntry}\n\n${fate}\n\nRun \`npm run build -w server\` and try again; the server's output is in this app's console.`,
-  );
-  app.quit();
+/** Kill the current child, if any, and wait for it to actually be gone. */
+async function discardChild(): Promise<void> {
+  const dying = child;
+  child = null; // marks the kill as deliberate for the 'exit' handler
+  if (!dying) return;
+  await new Promise<void>((resolve) => {
+    dying.once('exit', () => resolve());
+    dying.kill();
+  });
+}
+
+/**
+ * Fork the server and wait for it to answer, owning its death in the meantime:
+ * on failure this is the only place that reports, and the user retries or quits.
+ * Returns null when they chose to quit.
+ */
+async function bringServerUp(): Promise<HealthInfo | null> {
+  for (;;) {
+    awaitingStart = true;
+    startExit = null;
+    child = forkServer();
+    const health = await waitForHealth();
+    const exitCode = startExit;
+    awaitingStart = false;
+    startExit = null;
+    if (health) return health;
+
+    // Either it died, or it is alive and silent — in both cases it is no use.
+    await discardChild();
+
+    const detail =
+      exitCode === null
+        ? `It did not answer on 127.0.0.1:${PORT} in time.`
+        : `It exited with code ${exitCode} before it answered.`;
+    const { response } = await dialog.showMessageBox({
+      type: 'error',
+      message: 'Orbital’s server did not start',
+      detail: `${serverEntry}\n\n${detail}\n\nIts own output is in this app's console. \`npm run build -w server\` rebuilds it.`,
+      buttons: ['Try again', 'Quit'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response !== 0) return null;
+  }
 }
 
 /** A dead server is a designed state, never a blank window (spec § 1). */
@@ -98,26 +154,11 @@ async function reportServerDeath(code: number): Promise<void> {
     return;
   }
 
-  child = forkServer();
-  if (!(await waitForHealth())) {
-    serverStartFailed();
+  if (!(await bringServerUp())) {
+    app.quit();
     return;
   }
   void win?.loadURL(windowUrl(DEV, PORT));
-}
-
-/** Kill the current child and start a fresh one, waiting for both halves. */
-async function restartServer(): Promise<boolean> {
-  const old = child;
-  child = null; // marks the kill below as deliberate for the 'exit' handler
-  if (old) {
-    await new Promise<void>((resolve) => {
-      old.once('exit', () => resolve());
-      old.kill();
-    });
-  }
-  child = forkServer();
-  return (await waitForHealth()) !== null;
 }
 
 /**
@@ -159,9 +200,8 @@ async function promptForCli(): Promise<void> {
 
   // The server reads claude_executable_path once, at boot — so the PATCH has to
   // land before the restart, never after.
-  if (!(await restartServer())) {
-    serverStartFailed();
-  }
+  await discardChild();
+  if (!(await bringServerUp())) app.quit();
 }
 
 function openWindow(): void {
@@ -203,11 +243,10 @@ async function start(): Promise<void> {
         app.quit();
         return;
       }
-      child = forkServer();
       forked = true;
-      const up = await waitForHealth();
+      const up = await bringServerUp();
       if (!up) {
-        serverStartFailed();
+        app.quit();
         return;
       }
       health = up;

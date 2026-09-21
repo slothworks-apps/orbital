@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  classifyChildExit,
   classifyProbe,
   decideStartup,
   needsCliPrompt,
@@ -69,6 +70,29 @@ describe('needsCliPrompt', () => {
 
   it('stays quiet when health says nothing about the CLI', () => {
     expect(needsCliPrompt({}, true)).toBe(false);
+  });
+});
+
+describe('classifyChildExit', () => {
+  const state = { quitting: false, current: true, awaitingStart: false };
+
+  it('offers a restart when the server dies under a running app', () => {
+    expect(classifyChildExit(state)).toBe('offer-restart');
+  });
+
+  it('aborts the start instead of offering a restart when nobody is watching yet', () => {
+    // The waiting code owns this failure; a second dialog would stack on it.
+    expect(classifyChildExit({ ...state, awaitingStart: true })).toBe('abort-start');
+  });
+
+  it('ignores the death of a child we already replaced', () => {
+    expect(classifyChildExit({ ...state, current: false })).toBe('ignore');
+    expect(classifyChildExit({ ...state, current: false, awaitingStart: true })).toBe('ignore');
+  });
+
+  it('ignores every death once we are quitting', () => {
+    expect(classifyChildExit({ ...state, quitting: true })).toBe('ignore');
+    expect(classifyChildExit({ quitting: true, current: true, awaitingStart: true })).toBe('ignore');
   });
 });
 
