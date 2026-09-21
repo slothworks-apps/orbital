@@ -216,6 +216,7 @@ describe('openDb', () => {
       context_threshold_warn: '50',
       context_threshold_critical: '80',
       map_show_compact_badge: 'true',
+      claude_executable_path: '',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

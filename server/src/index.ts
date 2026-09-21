@@ -4,7 +4,8 @@ import multipart from '@fastify/multipart';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { eq } from 'drizzle-orm';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
@@ -16,6 +17,7 @@ import { TranscriptTail } from './watcher/tail.js';
 import { Hub } from './api/hub.js';
 import { Runner, parseIdleTimeoutMs, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
+import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable } from './runner/claudeCli.js';
 import { registerRoutes } from './api/routes.js';
 import { toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
@@ -147,21 +149,6 @@ export async function buildServer(overrides: {
       .get()?.value,
   );
 
-  // Resolve the Claude Code version once, at boot, into the settings table —
-  // `/api/settings` already passes arbitrary keys through, so the Settings
-  // panel's `claude-code <v>` line lights up with no new endpoint. When it
-  // can't be resolved the row is *removed* rather than left stale or filled
-  // with a placeholder, so the UI hides the line instead of lying about it.
-  const claudeCodeVersion = resolveClaudeCodeVersion();
-  if (claudeCodeVersion) {
-    db.insert(settingsTable)
-      .values({ key: 'claude_code_version', value: claudeCodeVersion })
-      .onConflictDoUpdate({ target: settingsTable.key, set: { value: claudeCodeVersion } })
-      .run();
-  } else {
-    db.delete(settingsTable).where(eq(settingsTable.key, 'claude_code_version')).run();
-  }
-
   // Single accessor shared by the model catalog (which persists its probed
   // list and learned context windows into settings) and the routes' own
   // GET/PATCH /api/settings — two objects hitting the same table would be a
@@ -174,6 +161,38 @@ export async function buildServer(overrides: {
       void db.insert(settingsTable).values({ key, value })
         .onConflictDoUpdate({ target: settingsTable.key, set: { value } }).run(),
   };
+
+  // Which `claude` this server will spawn, decided once at boot: the runner
+  // gets the path, `GET /api/health` gets the source so the desktop app can
+  // raise its missing-CLI dialog (spec 2026-09-16-electron-wrapper-design §3).
+  const claudeCli = resolveClaudeCli({
+    override: settingsStore.get('claude_executable_path'),
+    bundled: sdkBundledCliAvailable(),
+    pathVar: process.env.PATH,
+    home: homedir(),
+    exists: existsSync,
+  });
+
+  // Resolve the Claude Code version once, at boot, into the settings table —
+  // `/api/settings` already passes arbitrary keys through, so the Settings
+  // panel's `claude-code <v>` line lights up with no new endpoint. When it
+  // can't be resolved the row is *removed* rather than left stale or filled
+  // with a placeholder, so the UI hides the line instead of lying about it.
+  //
+  // The manifest only describes the SDK's own bundled binary, so anything
+  // else has to be asked directly.
+  const claudeCodeVersion =
+    claudeCli.source === 'bundled' ? resolveClaudeCodeVersion()
+    : claudeCli.path ? await claudeCliVersion(claudeCli.path)
+    : null;
+  if (claudeCodeVersion) {
+    db.insert(settingsTable)
+      .values({ key: 'claude_code_version', value: claudeCodeVersion })
+      .onConflictDoUpdate({ target: settingsTable.key, set: { value: claudeCodeVersion } })
+      .run();
+  } else {
+    db.delete(settingsTable).where(eq(settingsTable.key, 'claude_code_version')).run();
+  }
 
   const models = new ModelCatalog({
     settings: settingsStore,

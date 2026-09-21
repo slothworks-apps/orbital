@@ -3,8 +3,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /**
- * Version of the Claude Code CLI the Agent SDK will actually spawn, or `null`
- * when it cannot be determined.
+ * Version of the Claude Code CLI *bundled with the Agent SDK*, or `null` when
+ * it cannot be determined.
+ *
+ * Only an answer while the SDK's bundled binary is the one being spawned —
+ * i.e. in development. The packaged app ships no bundled binary and runs the
+ * user's own `claude`, whose version comes from asking it (`claudeCliVersion`
+ * in `claudeCli.ts`); the manifest would name a version nothing runs.
  *
  * The SDK ships the CLI as a bundled binary and records its version in the
  * package's `manifest.json` (`{"version": "2.1.272", ...}`) — that file *is*

@@ -84,6 +84,12 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   /** Whether the `/compact` badge shows past the second threshold, subject
    * to `map_show_context` also being on. Default-on convention. */
   map_show_compact_badge: 'true',
+  /**
+   * Absolute path to the Claude Code CLI the runner should spawn. Empty means
+   * autodetect: the SDK's bundled binary in dev, the first `claude` on PATH in
+   * the packaged app (spec 2026-09-16-electron-wrapper-design §3).
+   */
+  claude_executable_path: '',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
