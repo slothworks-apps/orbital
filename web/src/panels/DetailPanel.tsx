@@ -10,8 +10,8 @@ import {
   DETAIL_PANEL_DEFAULT_PX,
 } from '../store/store'
 import {
+  contextFractionFor,
   contextLevel,
-  extractUsageTokens,
   oklchCss,
   CONTEXT_CRITICAL_OKLCH,
   CONTEXT_WARN_OKLCH,
@@ -82,14 +82,18 @@ const ACCENT_HUE = 205
  */
 const PIN_TOOLTIP_DELAY_MS = 400
 
-/** Placeholder for a stat the session has no data for. Terminal sessions
- * never report `turn_result` usage, so the grid renders em dashes rather
- * than vanishing (or, worse, inventing numbers). */
+/** Placeholder for a session whose context nothing has measured yet — a
+ * fresh session against a known window reads "— / 200k ctx" rather than
+ * inventing a zero. */
 const NO_VALUE = '—'
+
+/** The unmeasured read-out and its note (canvas 1b-alt): deliberately NOT the
+ * session's hue, so an em dash cannot be mistaken for a reading. */
+const UNMEASURED_INK = 'rgba(150,205,255,.3)'
 
 /**
  * Compact token count in the export's own notation — "142.3k", "28.9k",
- * "116k" (canvas 1b's usage grid and context read-out). Counts under 1k
+ * "116k" (canvas 1b's context read-out). Counts under 1k
  * are shown verbatim; a trailing ".0" is dropped.
  */
 export function formatTokens(n: number): string {
@@ -97,20 +101,9 @@ export function formatTokens(n: number): string {
   return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
 }
 
-/** One cell of the header's INPUT / OUTPUT / CACHE READ grid (canvas 1b:
- * 9.5px mono label tracked out .16em over a 15px mono value). */
-function UsageStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div data-usage-stat={label}>
-      <div className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">{label}</div>
-      <div className="mt-[3px] font-mono text-[15px] text-text-bright">{value}</div>
-    </div>
-  )
-}
-
 /**
  * Right-hand detail panel (artboard 1b): editable header (title, cwd, tag
- * chips, permission/status badges, token usage + context bar, lineage dots),
+ * chips, permission/status badges, context bar, lineage dots),
  * the session's transcript + live subagents strip, and a footer that varies
  * by session kind — a prompt composer for web/ended sessions, or a read-only
  * bar for a session still live in a terminal (which this UI can never take
@@ -131,7 +124,6 @@ export function DetailPanel() {
   const id = selectedId ?? lastId.current
   const session = useOrbital((s) => (id ? s.sessions[id] : undefined))
   const tags = useOrbital(useShallow((s) => s.tags))
-  const usage = useOrbital((s) => (id ? s.usage[id] : undefined))
   // Off the session itself, like the map's moons — the server keeps it current
   // for every session, not just the open one.
   const subagents = useOrbital(useShallow((s) => (id ? (s.sessions[id]?.subagents ?? []) : [])))
@@ -362,22 +354,23 @@ export function DetailPanel() {
   }
 
   const lineage = lineageCache[id]
-  const usageTokens = extractUsageTokens(usage)
   const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
+  const contextUsed = session?.contextUsedTokens ?? null
+  // The SAME number the map's arc is drawn from, through the same function —
+  // a row field the server persists and republishes, not the live-only
+  // `turn_result` event this used to read (adr: context-usage-has-one-source).
   const contextFraction =
-    usageTokens !== undefined && contextWindow !== null
-      ? Math.min(1, usageTokens.total / contextWindow)
-      : undefined
+    (session ? contextFractionFor(session, models, contextWindows) : null) ?? undefined
   const contextPercent =
     contextFraction !== undefined ? Math.round(contextFraction * 100) : undefined
-  // Only the Runner publishes `turn_result`, so a terminal session's
-  // INPUT/OUTPUT/CACHE READ and context bar are permanently unmeasurable —
-  // not merely unmeasured yet, the way a fresh web session's are. The owner
-  // ruled that a number that can never arrive should not sit there as an em
-  // dash either ("pokud terminálové sessions tyhle věci vůbec nevidí, tak
-  // bych to skryl"), which deliberately overrides canvas 1b's "always
-  // rendered" grid — a choice, not a regression.
-  const canShowUsage = session?.source !== 'terminal'
+  // Nothing measures a transcript Orbital only watches, so a terminal
+  // session's context bar is permanently unmeasurable — not merely
+  // unmeasured yet, the way a fresh web session's is. The owner ruled that a
+  // number that can never arrive should not sit there as an em dash either
+  // ("pokud terminálové sessions tyhle věci vůbec nevidí, tak bych to
+  // skryl"). Same ruling as `contextFillFor`'s `source !== 'web'`; unlike the
+  // arc, an ENDED session keeps its last reading here.
+  const canShowContext = session?.source !== 'terminal'
   // Same predicate the sidebar badges a row with — one definition, so the
   // mark on the row and the refusal at the composer cannot drift apart.
   const isTerminalLive = session ? isReadOnly(session) : false
@@ -405,20 +398,20 @@ export function DetailPanel() {
   const sessionTag = session ? primaryTag(session, tags) : undefined
   const headerHue = sessionTag?.hue
   const accent = tagColor(headerHue ?? ACCENT_HUE)
-  const accentSoft = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.6)`
+  /** The context fill's glow below the first threshold (canvas 1b-alt). */
+  const accentSoft55 = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.55)`
 
   /**
-   * The context bar takes the map arc's colours past the same two
+   * The context gauge takes the map arc's colours past the same two
    * thresholds, so "arc colour and sidebar % change at the same values"
    * (canvas 1i's acceptance) holds: the session's own hue while there is
    * room, amber past the first, red past the second. Derived from the
    * UNROUNDED fraction, so a bar reading "50%" and an arc at 50.4 % cannot
    * end up on opposite sides of the line.
    */
+  const contextThresholds = parseContextThresholds(settings)
   const contextBarLevel =
-    contextFraction === undefined
-      ? undefined
-      : contextLevel(contextFraction, parseContextThresholds(settings))
+    contextFraction === undefined ? undefined : contextLevel(contextFraction, contextThresholds)
   // Below the first threshold the bar keeps the session's own hue, exactly
   // as it always has — the `ok` level is not a colour of its own.
   const contextBarOklch =
@@ -427,8 +420,25 @@ export function DetailPanel() {
       : contextBarLevel === 'critical'
         ? CONTEXT_CRITICAL_OKLCH
         : undefined
-  const contextBarStrong = contextBarOklch ? oklchCss(contextBarOklch) : accent
-  const contextBarSoft = contextBarOklch ? oklchCss(contextBarOklch, 0.6) : accentSoft
+  // One ink for the number and the fill (canvas 1b-alt, column A). Unmeasured
+  // is its own washed-out ink rather than the accent at low alpha: an em dash
+  // in the session's hue reads as a value.
+  const contextInk = contextBarOklch ? oklchCss(contextBarOklch) : accent
+  // 1b-alt glows the fill at .55 under the first threshold and .5 past it —
+  // amber and red carry enough on their own.
+  const contextGlow = contextBarOklch ? oklchCss(contextBarOklch, 0.5) : accentSoft55
+  /**
+   * The right-hand note, present only when the read-out alone would mislead
+   * (canvas 1b-alt): a session with no measurement yet, and one measured past
+   * its own window — where the bar is pinned full but the numerator is not.
+   * Every ordinary fill gets no note at all.
+   */
+  const contextNote =
+    contextFraction === undefined
+      ? { text: 'NOT MEASURED YET', ink: UNMEASURED_INK }
+      : contextUsed != null && contextWindow !== null && contextUsed > contextWindow
+        ? { text: 'OVER WINDOW', ink: oklchCss(CONTEXT_CRITICAL_OKLCH) }
+        : undefined
 
   return (
     // 1b paints a faint outer bloom in the session's hue around the panel.
@@ -616,33 +626,50 @@ export function DetailPanel() {
               <Badge variant="status" value={session.status} hue={headerHue} />
             </div>
 
-            {/* Usage grid (1b), rendered for anything that CAN eventually report
-                usage. A web session with no turn_result yet shows em dashes
-                rather than an absent block; a terminal session never gets
-                here at all — see `canShowUsage` above. */}
-            {canShowUsage && (
-              <div
-                data-usage-grid
-                data-empty={usageTokens === undefined}
-                aria-label="Token usage"
-                className="mt-4 grid grid-cols-3 gap-2.5"
-              >
-                <UsageStat label="INPUT" value={usageTokens ? formatTokens(usageTokens.input) : NO_VALUE} />
-                <UsageStat label="OUTPUT" value={usageTokens ? formatTokens(usageTokens.output) : NO_VALUE} />
-                <UsageStat
-                  label="CACHE READ"
-                  value={usageTokens ? formatTokens(usageTokens.cacheRead) : NO_VALUE}
-                />
-              </div>
-            )}
+            {/* The context gauge (canvas 1b, states in 1b-alt column A): a
+                21px read-out over a 6px track notched at the two thresholds.
+                It took over the 16px gap under the badge row when the
+                INPUT/OUTPUT/CACHE READ grid was removed from above it (adr
+                `context-usage-has-one-source`), which is why the header does
+                not shift. Drawn only when the window is actually known — a
+                bar scaled to a made-up denominator is worse than no bar (per
+                docs/decisions/models-come-from-the-sdk.md).
 
-            {/* Context bar + read-out on one line (1b: 3px track, 10px mono).
-                Drawn only when the window is actually known — a bar scaled to
-                a made-up denominator is worse than no bar (per
-                docs/decisions/models-come-from-the-sdk.md). */}
-            {canShowUsage && contextWindow !== null && (
-              <div className="mt-3 flex items-center gap-2.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
-                <span className="h-[3px] flex-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)]">
+                1b draws this as a <button> that cycles the demo states; that
+                is canvas scaffolding for previewing, not a control the
+                product has. */}
+            {canShowContext && contextWindow !== null && (
+              <div className="mt-4">
+                <div
+                  data-context-readout
+                  data-testid="context-readout"
+                  className="flex items-baseline gap-[7px] font-mono"
+                >
+                  <span
+                    className="text-[21px] leading-none tracking-[-0.01em] transition-colors duration-300"
+                    style={{ color: contextUsed != null ? contextInk : UNMEASURED_INK }}
+                  >
+                    {/* The measurement itself, NOT the bar's clamped fraction:
+                        a session past a mis-learned window says so. */}
+                    {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
+                  </span>
+                  <span className="text-[11px] text-[rgba(160,190,225,.6)]">
+                    / {formatContextWindow(contextWindow)} ctx
+                  </span>
+                  {contextNote && (
+                    <>
+                      <span aria-hidden className="flex-1" />
+                      <span
+                        data-context-note
+                        className="text-[9.5px] tracking-[0.16em]"
+                        style={{ color: contextNote.ink }}
+                      >
+                        {contextNote.text}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div className="relative mt-[9px] h-[6px] overflow-hidden rounded-[3px] bg-[rgba(150,205,255,.12)]">
                   {contextPercent !== undefined && (
                     <span
                       role="progressbar"
@@ -650,20 +677,29 @@ export function DetailPanel() {
                       aria-valuenow={contextPercent}
                       aria-valuemin={0}
                       aria-valuemax={100}
-                      className="block h-full"
+                      className="block h-full rounded-[3px]"
                       data-context-level={contextBarLevel}
                       style={{
                         width: `${contextPercent}%`,
-                        background: `linear-gradient(90deg, ${contextBarSoft}, ${contextBarStrong})`,
-                        boxShadow: `0 0 8px ${contextBarSoft}`,
+                        background: contextInk,
+                        boxShadow: `0 0 10px ${contextGlow}`,
+                        transition: 'width .45s ease, background .3s ease',
                       }}
                     />
                   )}
-                </span>
-                <span data-context-readout data-testid="context-readout">
-                  {usageTokens ? formatTokens(usageTokens.total) : NO_VALUE} / {formatContextWindow(contextWindow)}{' '}
-                  ctx
-                </span>
+                  {/* The two notches mark where the ink changes. Positioned
+                      from the SETTINGS, not from 1b's literal 50/80 — those
+                      are the defaults the artboard happens to draw. */}
+                  {[contextThresholds.warn, contextThresholds.critical].map((percent) => (
+                    <span
+                      key={percent}
+                      aria-hidden
+                      data-context-notch={percent}
+                      className="absolute top-0 bottom-0 w-[1.5px] bg-[rgba(4,8,16,.8)]"
+                      style={{ left: `${percent}%` }}
+                    />
+                  ))}
+                </div>
               </div>
             )}
 

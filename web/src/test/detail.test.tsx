@@ -70,7 +70,6 @@ function resetStore(
     settings: {},
     models: [],
     transcripts: {},
-    usage: {},
     historyLoaded: {},
     toast: null,
     ...overrides,
@@ -97,16 +96,13 @@ function resetStore(
 async function renderDetail({
   session,
   models = [],
-  usage,
 }: {
   session: ApiSession
   models?: OrbitalModel[]
-  usage?: Record<string, unknown>
 }) {
   resetStore({
     sessions: { [session.id]: session },
     models,
-    usage: usage ? { [session.id]: usage } : {},
     ui: { selectedId: session.id },
   })
   const result = render(<DetailPanel />)
@@ -261,19 +257,14 @@ describe('DetailPanel header', () => {
     expect(screen.getByText(/WORKING/)).toBeInTheDocument()
   })
 
-  it('renders the INPUT/OUTPUT/CACHE READ grid and a context-usage bar from turn_result usage, including cache creation tokens', async () => {
+  it("draws the context bar from the session's persisted contextUsedTokens, with no turn_result anywhere in the store", async () => {
     resetStore({
-      sessions: { a: makeSession({ id: 'a', model: 'sonnet' }) },
+      // The number the server wrote on the row and republished — the same
+      // field the map's arc reads. Nothing here has seen a `turn_result`,
+      // which is the point: a reloaded tab has none and must still show the
+      // gauge. 100_000 / 200_000 -> 50 %.
+      sessions: { a: makeSession({ id: 'a', model: 'sonnet', contextUsedTokens: 100_000 }) },
       models: MODELS,
-      // 1000 + 500 + 6000 + 2242 = 9742 tokens -> round(9742 / 200_000 * 100) = 5%
-      usage: {
-        a: {
-          input_tokens: 1000,
-          cache_read_input_tokens: 500,
-          cache_creation_input_tokens: 6000,
-          output_tokens: 2242,
-        },
-      },
       ui: { selectedId: 'a' },
     })
 
@@ -281,28 +272,22 @@ describe('DetailPanel header', () => {
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     // Canvas 1b's compact notation ("142.3k"), not raw counts.
-    const grid = container.querySelector('[data-usage-grid]')!
-    expect(grid).toHaveAttribute('data-empty', 'false')
-    expect(within(grid as HTMLElement).getByText('INPUT').nextElementSibling).toHaveTextContent('1k')
-    expect(within(grid as HTMLElement).getByText('OUTPUT').nextElementSibling).toHaveTextContent('2.2k')
-    expect(within(grid as HTMLElement).getByText('CACHE READ').nextElementSibling).toHaveTextContent('500')
-
-    // Cache-creation tokens count towards the context read-out even though
-    // they have no cell of their own.
-    expect(container.querySelector('[data-context-readout]')).toHaveTextContent('9.7k / 200k ctx')
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/100k\s*\/ 200k ctx/)
     const bar = screen.getByRole('progressbar', { name: /context usage/i })
-    expect(bar).toHaveAttribute('aria-valuenow', '5')
+    expect(bar).toHaveAttribute('aria-valuenow', '50')
+    // An ordinary fill gets no note — the read-out is not ambiguous (1b-alt).
+    expect(container.querySelector('[data-context-note]')).not.toBeInTheDocument()
   })
 
-  it('keeps the usage grid in place with em-dash placeholders, and shows the readout against the real denominator, when a web session has no usage yet', async () => {
+  it('shows the readout against the real denominator, dashed, when nothing has measured the context yet', async () => {
     resetStore({
-      // A fresh web session hasn't had a turn_result yet, but it CAN report
-      // usage eventually. Giving it a model that matches a MODELS row (so
-      // contextWindowFor resolves a real number, not null) is the point of
-      // this test: this is the one place Orbital draws a denominator without
-      // having measured anything, so it is the last place a wrong number
-      // could still surface.
-      sessions: { a: makeSession({ id: 'a', source: 'web', model: 'sonnet' }) },
+      // A fresh web session: no turn has ended and no compaction has run, so
+      // `contextUsedTokens` is null. Giving it a model that matches a MODELS
+      // row (so contextWindowFor resolves a real number, not null) is the
+      // point of this test: this is the one place Orbital draws a denominator
+      // without having measured anything, so it is the last place a wrong
+      // number could still surface.
+      sessions: { a: makeSession({ id: 'a', source: 'web', model: 'sonnet', contextUsedTokens: null }) },
       models: MODELS,
       ui: { selectedId: 'a' },
     })
@@ -310,20 +295,52 @@ describe('DetailPanel header', () => {
     const { container } = render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    const grid = container.querySelector('[data-usage-grid]')
-    expect(grid).toBeInTheDocument()
-    expect(grid).toHaveAttribute('data-empty', 'true')
-    for (const label of ['INPUT', 'OUTPUT', 'CACHE READ']) {
-      expect(within(grid as HTMLElement).getByText(label).nextElementSibling).toHaveTextContent('—')
-    }
     // The window IS known (sonnet -> 200k), so the readout renders — honestly
     // unmeasured, not unknown.
-    expect(container.querySelector('[data-context-readout]')).toHaveTextContent('— / 200k ctx')
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/—\s*\/ 200k ctx/)
     // No value to report -> an empty track, not a progressbar claiming 0%.
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    // ...and the note says which of the two em-dash readings this is.
+    expect(container.querySelector('[data-context-note]')).toHaveTextContent('NOT MEASURED YET')
   })
 
-  it('hides the usage grid and context bar entirely for a terminal session, which can never report either (owner\'s ruling: hide, don\'t dash)', async () => {
+  it('clamps a session measured past its own window to a full bar, while the readout still states what was measured', async () => {
+    resetStore({
+      // A window learned smaller than the session's actual use. Same clamp
+      // the arc applies, because it is now literally the same function.
+      sessions: { a: makeSession({ id: 'a', model: 'sonnet', contextUsedTokens: 500_000 }) },
+      models: MODELS,
+      ui: { selectedId: 'a' },
+    })
+
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(screen.getByRole('progressbar', { name: /context usage/i })).toHaveAttribute(
+      'aria-valuenow',
+      '100'
+    )
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/500k\s*\/ 200k ctx/)
+    // The note is what stops a full bar over "500k / 200k" reading as a bug.
+    expect(container.querySelector('[data-context-note]')).toHaveTextContent('OVER WINDOW')
+  })
+
+  it('keeps showing an ended session\'s last known fill, which the map deliberately drops (canvas 1i: "ended · no gauge")', async () => {
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', model: 'sonnet', status: 'ended', contextUsedTokens: 100_000 }),
+      },
+      models: MODELS,
+      ui: { selectedId: 'a' },
+    })
+
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/100k\s*\/ 200k ctx/)
+  })
+
+  it('hides the context bar entirely for a terminal session, which can never report one (owner\'s ruling: hide, don\'t dash)', async () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a', source: 'terminal' }) },
       models: MODELS,
@@ -333,7 +350,6 @@ describe('DetailPanel header', () => {
     const { container } = render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(container.querySelector('[data-usage-grid]')).not.toBeInTheDocument()
     expect(container.querySelector('[data-context-readout]')).not.toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
@@ -596,11 +612,10 @@ describe('DetailPanel model chip', () => {
 
   it('scales the context bar to the session model', async () => {
     await renderDetail({
-      session: { ...webSession, model: 'opus[1m]' },
+      session: { ...webSession, model: 'opus[1m]', contextUsedTokens: 100_000 },
       models: MODELS,
-      usage: { input_tokens: 100_000, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
     })
-    expect(screen.getByTestId('context-readout')).toHaveTextContent('100k / 1M ctx')
+    expect(screen.getByTestId('context-readout')).toHaveTextContent(/100k\s*\/ 1M ctx/)
     expect(screen.getByRole('progressbar', { name: 'Context usage' })).toHaveAttribute('aria-valuenow', '10')
   })
 
@@ -608,9 +623,6 @@ describe('DetailPanel model chip', () => {
     await renderDetail({ session: { ...webSession, model: null, resolvedModel: 'claude-mystery-1' }, models: MODELS })
     expect(screen.queryByTestId('context-readout')).not.toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
-    // The rest of the usage block (a web session, so it CAN report usage)
-    // still holds its place.
-    expect(screen.getByText('INPUT')).toBeInTheDocument()
   })
 })
 

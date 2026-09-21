@@ -33,6 +33,10 @@ export type SessionsEvent =
 export type SessionEvent =
   | { event: 'message'; message: ChatMessage }
   | { event: 'status'; status: SessionStatus }
+  /** A turn ended. The `usage` payload rides along on the wire but nothing
+   * reads it any more — the context gauge is fed by `contextUsedTokens` on
+   * the session row (adr: context-usage-has-one-source). What this event is
+   * still FOR is the crash flag below and `lastTurnResultAt`. */
   | { event: 'turn_result'; usage: unknown }
   /** The session is blocked on a question (spec: 2026-09-20-interactive-decisions-design). */
   | { event: 'decision_pending'; decision: PendingDecision }
@@ -115,7 +119,6 @@ export interface OrbitalState {
   contextWindows: Record<string, number>
   settings: Record<string, string>
   transcripts: Record<string, ChatMessage[]>
-  usage: Record<string, unknown>
   /** Tracks which sessions have had their initial message history fetched, so
    * `select()` only ever fetches once per session regardless of how many
    * live messages have already arrived over the WS for that session. */
@@ -378,7 +381,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   contextWindows: {},
   settings: {},
   transcripts: {},
-  usage: {},
   historyLoaded: {},
   transcriptErrors: {},
   lastTurnResultAt: {},
@@ -614,7 +616,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         ? { ...state.transcriptErrors, [sessionId]: false }
         : state.transcriptErrors
       set({
-        usage: { ...state.usage, [sessionId]: msg.usage },
         transcriptErrors,
         // Same clearing, for the recorded error. The flag above cannot cover
         // it: the record is a database row that outlives this transition, so
@@ -1257,7 +1258,7 @@ export function parsePlanetScale(settings: Record<string, string>): number {
 
 /** The export's detail-panel width (canvas 1b) — the default and the handle's double-click reset. */
 export const DETAIL_PANEL_DEFAULT_PX = 450
-/** Below this the header's three-column usage grid and the composer's action row stop fitting. */
+/** Below this the header's action row and the composer's stop fitting. */
 export const DETAIL_PANEL_MIN_PX = 360
 /** Ceiling as a share of the viewport, so the map stays usable beside the panel. */
 const DETAIL_PANEL_MAX_VIEWPORT_SHARE = 0.6

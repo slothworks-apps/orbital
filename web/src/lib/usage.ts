@@ -1,47 +1,47 @@
 /**
  * Token accounting shared by everything that reads a session's context
- * usage: the detail panel's INPUT/OUTPUT/CACHE READ grid and context bar,
- * and the map's context arc (spec `context-fill-arc`).
+ * usage: the map's context arc (spec `context-fill-arc`) and the detail
+ * panel's context bar.
  *
- * It lives here rather than in `DetailPanel.tsx` — where it grew up —
- * because a second reader now needs the same sum, and two copies of "what
- * counts as context" is exactly how the arc and the panel would start
- * disagreeing. The server computes the same total in
- * `server/src/runner/runner.ts` (`contextUsedFromUsage`); it cannot import
- * this module across the workspace boundary, so the two are kept in step by
- * the comment on each and by the spec.
+ * Both read ONE number, `ApiSession.contextUsedTokens`, which the server
+ * writes on the row from the SDK's `result` and `compact_boundary` messages
+ * (`server/src/runner/runner.ts`) and republishes on the `sessions` topic.
+ * The panel used to derive its own total from the live-only `turn_result`
+ * event instead, which is why it sat at em dashes after every reload while
+ * the arc beside it was drawn — see
+ * `docs/decisions/context-usage-has-one-source.md`.
  */
 
-export interface UsageTokens {
-  input: number
-  output: number
-  cacheRead: number
-  /** Everything billed into the context window, incl. cache creation. */
-  total: number
-}
+import { contextWindowFor } from './models'
+import type { ApiSession, OrbitalModel } from './types'
 
 /**
- * A turn's `usage` payload read into the four numbers the UI shows, or
- * `undefined` when the value is not an object at all. Missing fields count
- * as zero — a turn that reports only `input_tokens` is a real, partially
- * described turn, not an unreadable one.
+ * How full a session's context is, 0–1, or null when there is no honest
+ * answer: nothing has measured it yet (`contextUsedTokens` null — a fresh
+ * session, or one whose last compaction did not report its size), or its
+ * context window is unknown, per `docs/decisions/models-come-from-the-sdk.md`
+ * — a gauge against an invented denominator is worse than no gauge.
  *
- * `total` deliberately includes cache reads and cache creation: a cached-in
- * token occupies the context window like any other.
+ * Clamped to [0, 1]: a window learned smaller than the session's actual use
+ * would otherwise sweep the arc past a full turn, and "more than full" is
+ * still just full. The read-out quotes the UNCLAMPED numerator, because what
+ * was measured is not the bar's business to round off.
+ *
+ * Deliberately free of every question about whether a gauge should be SHOWN
+ * — the map's toggle, terminal sessions, ended sessions. Those differ per
+ * surface (`contextFillFor` for the arc, `canShowContext` in `DetailPanel`);
+ * the fraction does not.
  */
-export function extractUsageTokens(usage: unknown): UsageTokens | undefined {
-  if (!usage || typeof usage !== 'object') return undefined
-  const u = usage as Record<string, unknown>
-  const num = (key: string) => (typeof u[key] === 'number' ? (u[key] as number) : 0)
-  const input = num('input_tokens')
-  const output = num('output_tokens')
-  const cacheRead = num('cache_read_input_tokens')
-  return {
-    input,
-    output,
-    cacheRead,
-    total: input + cacheRead + num('cache_creation_input_tokens') + output,
-  }
+export function contextFractionFor(
+  session: ApiSession,
+  models: OrbitalModel[],
+  contextWindows: Record<string, number> = {}
+): number | null {
+  const used = session.contextUsedTokens
+  if (used == null || !Number.isFinite(used)) return null
+  const window = contextWindowFor(session, models, contextWindows)
+  if (window === null || window <= 0) return null
+  return Math.min(1, Math.max(0, used / window))
 }
 
 /** The two percentages the arc and the context bar step their colour at. */

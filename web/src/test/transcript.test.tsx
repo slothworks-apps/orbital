@@ -649,7 +649,6 @@ function resetStore(
     rules: [],
     settings: {},
     transcripts: {},
-    usage: {},
     historyLoaded: {},
     transcriptErrors: {},
     errors: [],

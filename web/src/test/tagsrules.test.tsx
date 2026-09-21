@@ -123,7 +123,6 @@ function resetStore(
     rules: [rule1, rule2],
     settings: {},
     transcripts: {},
-    usage: {},
     historyLoaded: {},
     toast: null,
     ...overrides,

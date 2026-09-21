@@ -1,6 +1,6 @@
 import type { ApiSession, OrbitalModel, SessionStatus, Subagent } from '../lib/types'
-import { contextWindowFor, matchModel } from '../lib/models'
-import { contextLevel, type ContextLevel } from '../lib/usage'
+import { matchModel } from '../lib/models'
+import { contextFractionFor, contextLevel, type ContextLevel } from '../lib/usage'
 import { CONTEXT_GAUGE_OUTER, moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
 import {
@@ -114,17 +114,14 @@ export interface ContextFill {
  * - the map's master toggle is off (`map_show_context`);
  * - the session is one Orbital only WATCHES (`source: 'terminal'`) — the
  *   indexer reads no usage from a transcript, so there is no numerator and
- *   never will be. Same ruling as the detail panel's `canShowUsage`;
- * - the session has ended (canvas 1i: "ended · no gauge");
- * - nothing has measured its context yet (`contextUsedTokens` null — a fresh
- *   session, or one whose last compaction did not report its size);
- * - its context window is unknown, per `docs/decisions/models-come-from-the-sdk.md`:
- *   a gauge against an invented denominator is worse than no gauge.
- *
- * The fraction is clamped to [0, 1]: a window learned smaller than the
- * session's actual use would otherwise sweep the arc past a full turn, and
- * "more than full" is still just full (it stays `critical`, since a clamped
- * 100 % is above any threshold, which tops out at 99).
+ *   never will be. Same ruling as the detail panel's `canShowContext`;
+ * - the session has ended (canvas 1i: "ended · no gauge"). The detail panel
+ *   deliberately differs here and keeps the last known fill: a crowded map
+ *   is the reason to drop it, and the panel is not crowded;
+ * - `contextFractionFor` has no honest fraction — nothing measured yet, or
+ *   an unknown window. That half is shared with the panel, so the arc and
+ *   the bar cannot read different numbers (clamping included; a clamped
+ *   100 % stays `critical`, being above any threshold, which tops out at 99).
  *
  * Pure and exported so the derivation is unit-testable without a scene.
  */
@@ -137,11 +134,8 @@ export function contextFillFor(
   if (!showContext(settings)) return null
   if (session.source !== 'web') return null
   if (session.status === 'ended') return null
-  const used = session.contextUsedTokens
-  if (used == null || !Number.isFinite(used)) return null
-  const window = contextWindowFor(session, models, contextWindows)
-  if (window === null || window <= 0) return null
-  const fraction = Math.min(1, Math.max(0, used / window))
+  const fraction = contextFractionFor(session, models, contextWindows)
+  if (fraction === null) return null
   return { fraction, level: contextLevel(fraction, parseContextThresholds(settings)) }
 }
 

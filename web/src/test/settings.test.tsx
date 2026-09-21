@@ -69,7 +69,6 @@ function resetStore(
       ended_after_idle_minutes: '30',
     },
     transcripts: {},
-    usage: {},
     historyLoaded: {},
     toast: null,
     ...overrides,

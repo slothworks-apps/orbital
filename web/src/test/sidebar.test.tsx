@@ -64,7 +64,6 @@ function resetStore(
     rules: [],
     settings: {},
     transcripts: {},
-    usage: {},
     historyLoaded: {},
     toast: null,
     ...overrides,

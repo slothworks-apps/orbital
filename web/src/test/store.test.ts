@@ -62,7 +62,6 @@ const initialSnapshot: OrbitalState = {
   contextWindows: {},
   settings: {},
   transcripts: {},
-  usage: {},
   historyLoaded: {},
   transcriptErrors: {},
   lastTurnResultAt: {},
@@ -262,11 +261,6 @@ describe('applySessionEvent', () => {
       event: 'upsert', session: { ...s1, subagents: [] },
     })
     expect(useOrbital.getState().sessions.s1.subagents).toEqual([])
-  })
-
-  it('turn_result stores usage keyed by session id', () => {
-    useOrbital.getState().applySessionEvent('s1', { event: 'turn_result', usage: { inputTokens: 10 } })
-    expect(useOrbital.getState().usage.s1).toEqual({ inputTokens: 10 })
   })
 
   // Task 14 error state: a session that goes `working` -> `ended` without an

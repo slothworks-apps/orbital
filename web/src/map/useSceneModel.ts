@@ -76,7 +76,6 @@ export function useSceneModel(): SceneModel {
           contextWindows,
           settings,
           transcripts: {},
-          usage: {},
           historyLoaded: {},
           transcriptErrors: {},
           lastTurnResultAt: {},

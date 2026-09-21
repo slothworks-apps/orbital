@@ -53,7 +53,6 @@ function resetStore(
     models: [],
     settings: {},
     transcripts: {},
-    usage: {},
     historyLoaded: {},
     toast: null,
     ...overrides,
