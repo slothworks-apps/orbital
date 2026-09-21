@@ -4,6 +4,8 @@ import '@fontsource/jetbrains-mono/latin-400.css'
 import './theme.css'
 import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
+import { initDesktopBridge } from './lib/desktop'
+import { useOrbital } from './store/store'
 import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
 
 // Lazy on BOTH sides of the sandbox branch, because importing `App.tsx` is
@@ -61,6 +63,14 @@ import.meta.hot?.on('vite:afterUpdate', resetErrorBoundaries)
  * loads.
  */
 const sandbox = window.location.pathname === '/sandbox'
+
+/**
+ * Under Electron, clicking a notification asks the map to open that session.
+ * In a browser there is no bridge and this does nothing. The store is a module
+ * singleton, so it is ready here — the listener only ever fires after a user
+ * clicks, long past mount.
+ */
+initDesktopBridge((id) => useOrbital.getState().select(id))
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
