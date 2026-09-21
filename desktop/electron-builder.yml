@@ -10,8 +10,6 @@ files:
   # and npm workspace hoisting puts this in the ROOT node_modules, so the
   # pattern has to match at any depth.
   - "!**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/**"
-asarUnpack:
-  - "**/node_modules/better-sqlite3/**"
 extraResources:
   # The three paths desktop/src/main.ts resolves against `process.resourcesPath`.
   - from: ../server/dist/index.mjs
