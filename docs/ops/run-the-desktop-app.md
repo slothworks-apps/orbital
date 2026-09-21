@@ -24,12 +24,26 @@ npm run dev            # terminal 1: server on 4737 + vite on 5173
 npm run dev:desktop    # terminal 2: builds desktop/dist, then `electron .`
 ```
 
-The window loads `http://127.0.0.1:5173`. The probe finds the dev server and
+The window loads `http://localhost:5173`. The probe finds the dev server and
 attaches: no child is forked, and quitting the app leaves your `npm run dev`
 running.
 
+`localhost`, not `127.0.0.1`: vite's default host binds `::1` only, so the
+literal IPv4 address is refused.
+
 If nothing answers on the port, dev mode does **not** fork a server — it says
 so in a dialog and quits. Start `npm run dev` first.
+
+### Attaching without `ORBITAL_DESKTOP_DEV`
+
+A packaged app — or `npx electron .` without the flag — attaches to a running
+`npm run dev` just the same, and then it must not load the server's own origin:
+a dev server gets no `ORBITAL_STATIC_DIR`, so its `/` is fastify's JSON 404.
+
+`GET /api/health` carries `"static"` for exactly this, and the window follows
+it: `true` → the server's origin, `false` → vite on 5173, and if vite is not
+answering either, the app says so in a dialog and quits rather than opening a
+window onto nothing.
 
 ## Forked mode (what the packaged app does)
 
@@ -51,8 +65,9 @@ moment the server is bundled.
 ### Do not collide with your own dev server
 
 `npx electron .` on the default port attaches to a running `npm run dev`
-instead of forking. To exercise the fork path, give it a port and a scratch
-database:
+instead of forking, and its window then lands on vite — the map is real, but
+the server it talks to is yours, not a forked one. To exercise the fork path,
+give it a port and a scratch database:
 
 ```bash
 cd desktop
@@ -163,7 +178,9 @@ Silent by design:
 
 ## Checks
 
-- `curl -s http://127.0.0.1:<port>/api/health` → `{"app":"orbital",…}`.
+- `curl -s http://127.0.0.1:<port>/api/health` → `{"app":"orbital",…}`. Its
+  `"static"` says whether that server has a web app of its own: `true` for a
+  forked or packaged server, `false` for `npm run dev`.
 - `lsof -nP -i :<port> -sTCP:LISTEN` after quitting: empty if the app forked
   the server, still listening if it attached to yours.
 
@@ -175,6 +192,8 @@ Silent by design:
 | `Can't find meta/_journal.json` in that output | the fork lost `ORBITAL_MIGRATIONS_DIR`. |
 | "Port … is taken" | something that is not Orbital answers there. Stop it or set `ORBITAL_PORT`. |
 | A blank window in forked mode | `web/dist` is missing — run `npm run build -w web`. |
+| `{"message":"Route GET:/ not found"}` in the window | you are on a build from before the `"static"` flag. It attached to a dev server and loaded its origin anyway. Rebuild: the window now goes to vite instead. |
+| "Orbital has no map to show" | attached to a dev server that serves no web app, with no vite on 5173 either. Start `npm run dev` and relaunch, or stop it so Orbital forks its own server. |
 | "The Claude Code CLI was not found" | expected when no CLI is on the resolved PATH. Pick the executable; the app PATCHes `claude_executable_path` and restarts the server, because that setting is read once at boot. |
 | `npm run desktop:dist` fails on a missing Electron binary | `node_modules/electron/dist` was never downloaded — run `node node_modules/electron/install.js`. |
 | No notification ever appears | the window was focused (suppression is correct), or Orbital is not permitted in System Settings → Notifications. |
