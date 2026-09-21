@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { CONFIG } from './config.js';
+import { applyLoginShellPath } from './env/loginPath.js';
 import { openDb, type OrbitalDb } from './db/database.js';
 import { sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
 import { indexProjects } from './indexer/indexer.js';
@@ -119,6 +120,11 @@ export async function buildServer(overrides: {
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
   // it unless the operator explicitly opts into API-key billing.
   if (process.env.ORBITAL_USE_API_KEY !== '1') delete process.env.ANTHROPIC_API_KEY;
+  // The other half of the environment this server depends on: launched from
+  // Finder it inherits `/usr/bin:/bin:/usr/sbin:/sbin`, where neither `claude`
+  // nor the git/npm a session shells out to can be found. Gated, so only the
+  // packaged app pays for the login-shell spawn (spec § 3).
+  await applyLoginShellPath();
 
   const claudeDir = overrides.claudeDir ?? CONFIG.claudeDir;
   const projectsDir = join(claudeDir, 'projects');
