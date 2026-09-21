@@ -9,6 +9,8 @@
 /** The shape of `GET /api/health`, read defensively — it comes off the wire. */
 export type HealthInfo = {
   app?: unknown;
+  /** True when that server has a built web app to serve; false on a dev server. */
+  static?: boolean;
   claudeCli?: { source?: string; path?: string | null; version?: string | null };
 };
 
@@ -78,16 +80,49 @@ export function classifyChildExit(state: {
   return 'offer-restart';
 }
 
-/** URLs the window loads: dev → vite (5173), packaged → the server itself. */
-export function windowUrl(dev: boolean, port: number): string {
-  // Dev points at vite so HMR keeps working; vite proxies /api and /ws onto
-  // the same origin, which is what the web client's origin-relative URLs need.
-  return dev ? 'http://127.0.0.1:5173' : `http://127.0.0.1:${port}`;
+/**
+ * Where vite serves the web app in the dev topology, proxying /api and /ws onto
+ * its own origin — which is what the web client's origin-relative URLs need.
+ *
+ * `localhost`, not `127.0.0.1`: vite's default host binds `::1` only, so the
+ * literal IPv4 address is refused.
+ */
+export const VITE_URL = 'http://localhost:5173';
+
+/** The server's own origin, where it serves the built web app when it has one. */
+export function serverUrl(port: number): string {
+  return `http://127.0.0.1:${port}`;
 }
 
-/** The only origins that are Orbital: both `windowUrl` answers, whatever mode. */
+export type WindowTarget =
+  | { kind: 'vite'; url: string } // HMR in dev, or the web app of a dev server we attached to
+  | { kind: 'server'; url: string } // the server serves the built app same-origin
+  | { kind: 'no-ui' }; // nothing anywhere serves a web app — say so, do not open a window
+
+/**
+ * Where the window goes, once we know what the server on the port actually is.
+ *
+ * The fallback is the whole point: attaching to someone's `npm run dev` gives
+ * us a server with no `ORBITAL_STATIC_DIR`, whose `/` is fastify's JSON 404.
+ * That topology's web app lives on vite, so the window belongs there.
+ */
+export function decideWindowTarget(input: {
+  dev: boolean;
+  port: number;
+  serverServesStatic: boolean;
+  viteReachable: boolean;
+}): WindowTarget {
+  if (input.dev) return { kind: 'vite', url: VITE_URL };
+  if (input.serverServesStatic) return { kind: 'server', url: serverUrl(input.port) };
+  if (input.viteReachable) return { kind: 'vite', url: VITE_URL };
+  return { kind: 'no-ui' };
+}
+
+/** The only origins that are Orbital: every window target, whatever mode. */
 function appOrigins(port: number): string[] {
-  return [windowUrl(true, port), windowUrl(false, port)].map((url) => new URL(url).origin);
+  // Both spellings of loopback for vite: which one it binds is its own config's
+  // business, and either way a dev server on 5173 is ours.
+  return [VITE_URL, 'http://127.0.0.1:5173', serverUrl(port)].map((url) => new URL(url).origin);
 }
 
 export type NavigationDecision =

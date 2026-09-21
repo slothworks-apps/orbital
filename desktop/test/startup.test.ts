@@ -4,8 +4,8 @@ import {
   classifyProbe,
   decideNavigation,
   decideStartup,
+  decideWindowTarget,
   needsCliPrompt,
-  windowUrl,
 } from '../src/lib/startup';
 
 describe('classifyProbe', () => {
@@ -101,7 +101,9 @@ describe('decideNavigation', () => {
   it('lets the window navigate within Orbital’s own origin', () => {
     expect(decideNavigation('http://127.0.0.1:4737/', 4737)).toBe('allow');
     expect(decideNavigation('http://127.0.0.1:4737/sandbox', 4737)).toBe('allow');
-    // Both windowUrl answers are ours, whichever mode this process is in.
+    // Every window target is ours, whichever mode this process is in — and
+    // vite answers to both spellings of loopback.
+    expect(decideNavigation('http://localhost:5173/', 4737)).toBe('allow');
     expect(decideNavigation('http://127.0.0.1:5173/', 4737)).toBe('allow');
   });
 
@@ -129,13 +131,34 @@ describe('decideNavigation', () => {
   });
 });
 
-describe('windowUrl', () => {
-  it('points at vite in development', () => {
-    expect(windowUrl(true, 4737)).toBe('http://127.0.0.1:5173');
+describe('decideWindowTarget', () => {
+  const base = { dev: false, port: 4737, serverServesStatic: true, viteReachable: false };
+
+  it('points at vite in development, whatever the server serves', () => {
+    expect(decideWindowTarget({ ...base, dev: true })).toEqual({
+      kind: 'vite', url: 'http://localhost:5173',
+    });
+    expect(decideWindowTarget({ ...base, dev: true, serverServesStatic: false })).toEqual({
+      kind: 'vite', url: 'http://localhost:5173',
+    });
   });
 
-  it('points at the server itself otherwise', () => {
-    expect(windowUrl(false, 4737)).toBe('http://127.0.0.1:4737');
-    expect(windowUrl(false, 4791)).toBe('http://127.0.0.1:4791');
+  it('points at the server when the server serves the web app itself', () => {
+    expect(decideWindowTarget(base)).toEqual({ kind: 'server', url: 'http://127.0.0.1:4737' });
+    expect(decideWindowTarget({ ...base, port: 4791 })).toEqual({
+      kind: 'server', url: 'http://127.0.0.1:4791',
+    });
+  });
+
+  it('falls back to vite when we attached to a dev server that serves no web app', () => {
+    // The bug: a tsx dev server has no ORBITAL_STATIC_DIR, so its `/` is a
+    // fastify 404 in JSON. In that topology the web app lives on vite.
+    expect(decideWindowTarget({ ...base, serverServesStatic: false, viteReachable: true })).toEqual(
+      { kind: 'vite', url: 'http://localhost:5173' },
+    );
+  });
+
+  it('has nowhere to send the window when neither serves the web app', () => {
+    expect(decideWindowTarget({ ...base, serverServesStatic: false })).toEqual({ kind: 'no-ui' });
   });
 });

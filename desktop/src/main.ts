@@ -9,14 +9,15 @@ import {
 } from 'electron';
 import { join } from 'node:path';
 import { SessionNotifier } from './lib/notifications';
-import { probeHealth } from './lib/probe';
+import { probeHealth, probeVite } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
 import {
   classifyChildExit,
   decideNavigation,
   decideStartup,
+  decideWindowTarget,
   needsCliPrompt,
-  windowUrl,
+  VITE_URL,
   type HealthInfo,
 } from './lib/startup';
 
@@ -50,6 +51,8 @@ const notifier = new SessionNotifier();
 /** True only when this process forked the server — shutdown kills only that. */
 let forked = false;
 let quitting = false;
+/** Where the window was sent at startup; a restarted server reloads the same. */
+let windowTargetUrl = '';
 /** True while a fork-and-wait is in flight; that code owns the child's fate. */
 let awaitingStart = false;
 /** Exit code of a child that died during a fork-and-wait, for the one dialog. */
@@ -172,7 +175,7 @@ async function reportServerDeath(code: number): Promise<void> {
     app.quit();
     return;
   }
-  void win?.loadURL(windowUrl(DEV, PORT));
+  void win?.loadURL(windowTargetUrl);
 }
 
 /**
@@ -223,7 +226,8 @@ async function promptForCli(): Promise<boolean> {
   return false;
 }
 
-function openWindow(): void {
+function openWindow(url: string): void {
+  windowTargetUrl = url;
   win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -249,7 +253,7 @@ function openWindow(): void {
   win.on('closed', () => {
     win = null;
   });
-  void win.loadURL(windowUrl(DEV, PORT));
+  void win.loadURL(url);
 }
 
 /**
@@ -324,7 +328,22 @@ async function start(): Promise<void> {
   // `false` means the CLI prompt ended in a quit — there is nothing to open.
   if (needsCliPrompt(health, forked) && !(await promptForCli())) return;
 
-  openWindow();
+  const target = decideWindowTarget({
+    dev: DEV,
+    port: PORT,
+    serverServesStatic: health.static === true,
+    viteReachable: await probeVite(),
+  });
+  if (target.kind === 'no-ui') {
+    dialog.showErrorBox(
+      'Orbital has no map to show',
+      `The server on 127.0.0.1:${PORT} is a development server: it answers the API but serves no web app, and nothing answers on ${VITE_URL} either.\n\nEither run \`npm run dev\` so vite serves the map and start Orbital again, or stop \`npm run dev\` so Orbital can start its own server.`,
+    );
+    app.quit();
+    return;
+  }
+
+  openWindow(target.url);
   startNotifications();
 }
 
