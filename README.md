@@ -79,7 +79,7 @@ npm run dev -w desktop   # window at http://127.0.0.1:5173, HMR intact
 To build the installable app:
 
 ```bash
-npm run desktop:dist     # → desktop/release/Orbital-<version>-arm64.dmg
+npm run desktop:release     # → desktop/release/Orbital-<version>-arm64.dmg
 ```
 
 Always run that from the repo root: it builds the server and the web app first,

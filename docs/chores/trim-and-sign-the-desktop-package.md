@@ -40,7 +40,7 @@ working rebuilt binary for a stock one that doesn't load under
 appear under the root package), but never emits a replacement `.node` —
 better-sqlite3's own loader (`lib/binding.js`) checks `prebuilds/` before it
 would ever look in `build/Release` — and the prebuild's sha256 was byte-for-byte
-identical (`98e0e8ac…`) before and after a full `desktop:dist` run. The copy
+identical (`98e0e8ac…`) before and after a full `desktop:release` run. The copy
 `extraResources` ships was always, and remains, the stock npm prebuild.
 
 The `dependencies` entries are gone from `desktop/package.json`, and the

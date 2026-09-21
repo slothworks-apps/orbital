@@ -8,7 +8,7 @@
     "dev:server": "npm run dev -w server",
     "dev:web": "npm run dev -w web",
     "dev:desktop": "npm run dev -w desktop",
-    "desktop:dist": "npm run build -w server && npm run build -w web && npm run dist -w desktop",
+    "desktop:release": "npm run build -w server && npm run build -w web && npm run dist -w desktop",
     "test": "npm test -w server && npm run test:run -w web && npm test -w desktop",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web && npm run typecheck -w desktop"
   },

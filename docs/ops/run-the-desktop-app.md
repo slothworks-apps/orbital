@@ -80,7 +80,7 @@ ORBITAL_PORT=4791 \
 ## Package the DMG
 
 ```bash
-npm run desktop:dist        # from the repo root, always
+npm run desktop:release        # from the repo root, always
 ```
 
 The artifact lands in `desktop/release/` as `Orbital-<version>-arm64.dmg`,
@@ -195,6 +195,6 @@ Silent by design:
 | `{"message":"Route GET:/ not found"}` in the window | you are on a build from before the `"static"` flag. It attached to a dev server and loaded its origin anyway. Rebuild: the window now goes to vite instead. |
 | "Orbital has no map to show" | attached to a dev server that serves no web app, with no vite on 5173 either. Start `npm run dev` and relaunch, or stop it so Orbital forks its own server. |
 | "The Claude Code CLI was not found" | expected when no CLI is on the resolved PATH. Pick the executable; the app PATCHes `claude_executable_path` and restarts the server, because that setting is read once at boot. |
-| `npm run desktop:dist` fails on a missing Electron binary | `node_modules/electron/dist` was never downloaded — run `node node_modules/electron/install.js`. |
+| `npm run desktop:release` fails on a missing Electron binary | `node_modules/electron/dist` was never downloaded — run `node node_modules/electron/install.js`. |
 | No notification ever appears | the window was focused (suppression is correct), or Orbital is not permitted in System Settings → Notifications. |
 | A notification for something you did not expect to be news | check the transition, not the status — the rules are the table above. |
