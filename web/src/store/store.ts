@@ -109,6 +109,10 @@ export interface OrbitalState {
   tags: Tag[]
   rules: TagRule[]
   models: OrbitalModel[]
+  /** The server's measured wire-id → context-window map, served beside the
+   * catalog — the exact-id fallback denominator for a session whose resolved
+   * model matches no catalog row (fix: revived-session-shows-no-context-gauge). */
+  contextWindows: Record<string, number>
   settings: Record<string, string>
   transcripts: Record<string, ChatMessage[]>
   usage: Record<string, unknown>
@@ -371,6 +375,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   tags: [],
   rules: [],
   models: [],
+  contextWindows: {},
   settings: {},
   transcripts: {},
   usage: {},
@@ -386,14 +391,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   ui: initialUiState,
 
   async loadInitial() {
-    const [sessions, tags, rules, settings, models, errorPage, sessionsTotal] = await Promise.all([
+    const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] = await Promise.all([
       api.listSessions(),
       api.listTags(),
       api.listTagRules(),
       api.getSettings(),
       // Best-effort: a failed probe with nothing cached yields [], and every
       // surface that reads the catalog has an empty state for exactly that.
-      api.listModels().catch(() => [] as OrbitalModel[]),
+      api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {} })),
       // Also best-effort, and for a sharper reason than the catalog's: this
       // is the error surface. It failing must not be the thing that stops
       // the app from mounting and showing the other errors.
@@ -421,7 +426,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       tags,
       rules,
       settings,
-      models,
+      models: modelsPayload.models,
+      contextWindows: modelsPayload.contextWindows,
       errors: errorPage?.errors ?? [],
       errorsUnseen: errorPage?.unseen ?? 0,
       sessionsTotal,

@@ -64,6 +64,7 @@ function makeApp() {
       { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient', contextWindow: 200_000 },
     ],
     recordContextWindows: () => {},
+    learnedContextWindows: () => ({ 'claude-fable-5': 1_000_000 }),
   };
   const app = Fastify();
   // The attachments route is multipart, so the parser the real server installs
@@ -436,6 +437,23 @@ describe('REST routes', () => {
     expect(upserts[0].session).toMatchObject({ id: 's2', status: 'working' });
   });
 
+  it('revive flips a terminal session to source "web"', async () => {
+    // The contract `web/src/lib/types.ts` documents on `isReadOnly`: continue
+    // resumes an ended terminal session as Orbital's own. Without the flip the
+    // revived session is {source: 'terminal', status: live} — exactly the
+    // shape the composer refuses input on, locking the session read-only.
+    runner.status = (id: string) => (id === 's2' ? 'working' : undefined);
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'wake up' },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.source).toBe('web');
+    const upsert = received.find((r) => r.event === 'upsert' && r.session.id === 's2');
+    expect(upsert.session).toMatchObject({ source: 'web', status: 'working' });
+  });
+
   it('POST /sessions/:id/messages 409s for a live terminal session', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/sessions/s1/messages', payload: { text: 'hi' },
@@ -481,6 +499,14 @@ describe('REST routes', () => {
     const res = await app.inject({ method: 'GET', url: '/api/models' });
     expect(res.statusCode).toBe(200);
     expect(res.json().models[0]).toMatchObject({ value: 'sonnet', family: 'Sonnet', contextWindow: 200_000 });
+  });
+
+  it('GET /api/models serves the learned context windows beside the catalog', async () => {
+    // The client's exact-resolved-id fallback denominator — a session whose
+    // resolved model matches no catalog row would otherwise have no window
+    // at all (fix: revived-session-shows-no-context-gauge).
+    const res = await app.inject({ method: 'GET', url: '/api/models' });
+    expect(res.json().contextWindows).toEqual({ 'claude-fable-5': 1_000_000 });
   });
 
   it('GET and PATCH /api/settings', async () => {

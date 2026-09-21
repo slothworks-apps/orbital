@@ -137,6 +137,7 @@ export function DetailPanel() {
   const subagents = useOrbital(useShallow((s) => (id ? (s.sessions[id]?.subagents ?? []) : [])))
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
+  const contextWindows = useOrbital(useShallow((s) => s.contextWindows))
   const dialog = useOrbital((s) => s.ui.dialog)
   const setDialog = useOrbital((s) => s.setDialog)
   const sendPrompt = useOrbital((s) => s.sendPrompt)
@@ -362,7 +363,7 @@ export function DetailPanel() {
 
   const lineage = lineageCache[id]
   const usageTokens = extractUsageTokens(usage)
-  const contextWindow = session ? contextWindowFor(session, models) : null
+  const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
   const contextFraction =
     usageTokens !== undefined && contextWindow !== null
       ? Math.min(1, usageTokens.total / contextWindow)

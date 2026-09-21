@@ -211,7 +211,7 @@ beforeEach(() => {
   vi.mocked(api.getSettings).mockResolvedValue({})
   vi.mocked(api.getMessages).mockResolvedValue([])
   vi.mocked(api.listProjects).mockResolvedValue([])
-  vi.mocked(api.listModels).mockResolvedValue([])
+  vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
   vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
   vi.mocked(api.getSession).mockResolvedValue({
     session: makeSession({ id: 'unused' }),

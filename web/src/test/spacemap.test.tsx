@@ -86,6 +86,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     tags: [workTag, personalTag, defaultTag],
     rules: [],
     models: [],
+    contextWindows: {},
     settings: { map_release_ended_after_minutes: 'never' },
     transcripts: {},
     usage: {},
@@ -429,6 +430,15 @@ describe('contextFillFor', () => {
   it('draws no gauge at all while the map toggle is off', () => {
     expect(contextFillFor(gauged(), MODELS, { map_show_context: 'false' })).toBeNull()
   })
+
+  it('draws the gauge from the learned window when no catalog row carries the resolved id', () => {
+    // A revived terminal session (fix: revived-session-shows-no-context-gauge).
+    const revived = gauged({ model: null, resolvedModel: 'claude-fable-5', contextUsedTokens: 500_000 })
+    expect(contextFillFor(revived, MODELS, {}, { 'claude-fable-5': 1_000_000 })).toEqual({
+      fraction: 0.5,
+      level: 'ok',
+    })
+  })
 })
 
 describe('buildSceneModel context fill', () => {
@@ -447,6 +457,16 @@ describe('buildSceneModel context fill', () => {
       withSessions([makeSession({ id: 's1', model: 'sonnet' })], { models: MODELS })
     )
     expect(model.planets[0].contextFill).toBeNull()
+  })
+
+  it('threads the learned windows through to the arc', () => {
+    const model = sceneModelAt(
+      withSessions(
+        [makeSession({ id: 's1', model: null, resolvedModel: 'claude-fable-5', contextUsedTokens: 500_000 })],
+        { models: MODELS, contextWindows: { 'claude-fable-5': 1_000_000 } }
+      )
+    )
+    expect(model.planets[0].contextFill).toEqual({ fraction: 0.5, level: 'ok' })
   })
 })
 

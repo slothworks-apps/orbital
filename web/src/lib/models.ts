@@ -2,7 +2,7 @@ import type { ApiSession, OrbitalModel } from './types'
 
 /** Drops a trailing variant suffix: `claude-opus-5[1m]` -> `claude-opus-5`. */
 function stripVariant(id: string): string {
-  return id.replace(/\[[^\]]*\]$/, '')
+  return id.replace(/\[[^\]]*]$/, '')
 }
 
 export function modelByValue(value: string | null | undefined, models: OrbitalModel[]): OrbitalModel | undefined {
@@ -102,10 +102,23 @@ export function isExactModelMatch(session: ApiSession, model: OrbitalModel): boo
  * unknown rather than guessing. When null, the caller draws no bar at all
  * (per `docs/decisions/models-come-from-the-sdk.md`) rather than inventing
  * a number.
+ *
+ * `learned` is the server's measured wire-id → window map, tried by EXACT
+ * resolved id when no catalog row matches. It exists because a session can
+ * resolve to an id no row carries at all — a revived terminal session's
+ * init reports `claude-fable-5` while the catalog's Fable row says
+ * `claude-fable-5-1` — and the measured map is then the only honest
+ * denominator (fix: revived-session-shows-no-context-gauge). Still an
+ * exact match of a measured value, so the ADR's "no invented denominator"
+ * holds.
  */
-export function contextWindowFor(session: ApiSession, models: OrbitalModel[]): number | null {
+export function contextWindowFor(
+  session: ApiSession,
+  models: OrbitalModel[],
+  learned: Record<string, number> = {}
+): number | null {
   const exact =
     modelByValue(session.model, models) ??
     (session.resolvedModel ? models.find((m) => m.resolvedModel === session.resolvedModel) : undefined)
-  return exact?.contextWindow ?? null
+  return exact?.contextWindow ?? (session.resolvedModel ? (learned[session.resolvedModel] ?? null) : null)
 }

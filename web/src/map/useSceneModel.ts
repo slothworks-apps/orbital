@@ -46,6 +46,7 @@ export function useSceneModel(): SceneModel {
   const sourceFilter = useOrbital((s) => s.ui.sourceFilter)
   const settings = useOrbital((s) => s.settings)
   const models = useOrbital((s) => s.models)
+  const contextWindows = useOrbital((s) => s.contextWindows)
   const sessionsTotal = useOrbital((s) => s.sessionsTotal)
 
   // The one impure input, kept in one place. Seeded once on mount and
@@ -72,6 +73,7 @@ export function useSceneModel(): SceneModel {
           tags,
           rules: [],
           models,
+          contextWindows,
           settings,
           transcripts: {},
           usage: {},
@@ -103,6 +105,7 @@ export function useSceneModel(): SceneModel {
       tags,
       settings,
       models,
+      contextWindows,
       sessionsTotal,
       selectedId,
       filterTagId,

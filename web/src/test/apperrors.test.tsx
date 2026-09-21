@@ -52,7 +52,7 @@ beforeEach(() => {
   vi.mocked(api.listTags).mockResolvedValue([])
   vi.mocked(api.listTagRules).mockResolvedValue([])
   vi.mocked(api.getSettings).mockResolvedValue({})
-  vi.mocked(api.listModels).mockResolvedValue([])
+  vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
   vi.mocked(api.listErrors).mockResolvedValue({ errors: [], unseen: 0 })
 })
 

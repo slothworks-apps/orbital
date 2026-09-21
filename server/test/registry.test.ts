@@ -53,6 +53,26 @@ describe('SessionRegistry.scan', () => {
       Object.fromEntries(cases.map(([raw, want]) => [`sess-${raw}`, want])),
     );
   });
+  it('skips entries written by SDK-spawned CLIs (entrypoint sdk-*)', () => {
+    // The CLI Orbital's own runner spawns registers itself in
+    // `~/.claude/sessions` like any other, with `entrypoint: "sdk-ts"`. Listing
+    // it would make Orbital treat its own session as "live in a terminal" —
+    // read-only composer, 409 on the model route. Only interactive terminals
+    // (`entrypoint: "cli"`) belong in the registry.
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-reg4-'));
+    writeFileSync(
+      join(dir, '500.json'),
+      JSON.stringify({
+        pid: 500, sessionId: 'sess-sdk', cwd: '/p', name: 's-500', status: 'idle',
+        kind: 'interactive', entrypoint: 'sdk-ts', startedAt: 1, updatedAt: 2,
+      }),
+    );
+    writeEntry(dir, 501, 'sess-terminal', 'idle'); // no entrypoint field — older CLI, keep it
+    const reg = new SessionRegistry(dir, { isPidAlive: () => true });
+    reg.scan();
+    expect(reg.all().map((s) => s.sessionId)).toEqual(['sess-terminal']);
+  });
+
   it('survives corrupt registry files', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orbital-reg2-'));
     writeFileSync(join(dir, '1.json'), 'not json');

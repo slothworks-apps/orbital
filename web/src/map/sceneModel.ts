@@ -112,14 +112,15 @@ export interface ContextFill {
 export function contextFillFor(
   session: ApiSession,
   models: OrbitalModel[],
-  settings: Record<string, string>
+  settings: Record<string, string>,
+  contextWindows: Record<string, number> = {}
 ): ContextFill | null {
   if (!showContext(settings)) return null
   if (session.source !== 'web') return null
   if (session.status === 'ended') return null
   const used = session.contextUsedTokens
   if (used == null || !Number.isFinite(used)) return null
-  const window = contextWindowFor(session, models)
+  const window = contextWindowFor(session, models, contextWindows)
   if (window === null || window <= 0) return null
   const fraction = Math.min(1, Math.max(0, used / window))
   return { fraction, level: contextLevel(fraction, parseContextThresholds(settings)) }
@@ -259,7 +260,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         footprint,
         released: isReleased(session),
         modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
-        contextFill: contextFillFor(session, state.models, state.settings),
+        contextFill: contextFillFor(session, state.models, state.settings, state.contextWindows),
       })
     }
   }

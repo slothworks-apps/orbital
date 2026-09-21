@@ -56,6 +56,27 @@ describe('contextWindowFor', () => {
   it('is null, not a guess, for a session with no model at all', () => {
     expect(contextWindowFor(session({}), MODELS)).toBeNull()
   })
+
+  it('falls back to the learned map for an exact resolved id no catalog row carries', () => {
+    // A revived terminal session: no requested value, and its init-reported
+    // id matches no catalog row — but a real turn measured its window
+    // (fix: revived-session-shows-no-context-gauge).
+    expect(
+      contextWindowFor(session({ resolvedModel: 'claude-fable-5' }), MODELS, {
+        'claude-fable-5': 1_000_000,
+      })
+    ).toBe(1_000_000)
+  })
+
+  it('never widens through the stripped suffix, even via the learned map', () => {
+    // Same rule as the catalog lookup: `claude-opus-5` must not inherit
+    // `claude-opus-5[1m]`'s window.
+    expect(
+      contextWindowFor(session({ resolvedModel: 'claude-opus-5' }), MODELS, {
+        'claude-opus-5[1m]': 1_000_000,
+      })
+    ).toBeNull()
+  })
 })
 
 describe('modelByValue', () => {

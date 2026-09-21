@@ -59,6 +59,7 @@ const initialSnapshot: OrbitalState = {
   tags: [],
   rules: [],
   models: [],
+  contextWindows: {},
   settings: {},
   transcripts: {},
   usage: {},
@@ -93,7 +94,7 @@ beforeEach(() => {
   vi.mocked(api.listTags).mockResolvedValue([])
   vi.mocked(api.listTagRules).mockResolvedValue([])
   vi.mocked(api.getSettings).mockResolvedValue({})
-  vi.mocked(api.listModels).mockResolvedValue([])
+  vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
   vi.mocked(api.listErrors).mockResolvedValue({ errors: [], unseen: 0 })
   // Every ENDED toggle saves; tests that care about the save assert on it,
   // the rest just need it not to reject.
@@ -142,12 +143,16 @@ describe('loadInitial', () => {
     expect(state.settings).toEqual(settings)
   })
 
-  it('loads the model catalog', async () => {
-    vi.mocked(api.listModels).mockResolvedValue([
-      { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient', contextWindow: 200_000 },
-    ])
+  it('loads the model catalog and the learned context windows', async () => {
+    vi.mocked(api.listModels).mockResolvedValue({
+      models: [
+        { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient', contextWindow: 200_000 },
+      ],
+      contextWindows: { 'claude-fable-5': 1_000_000 },
+    })
     await useOrbital.getState().loadInitial()
     expect(useOrbital.getState().models).toHaveLength(1)
+    expect(useOrbital.getState().contextWindows).toEqual({ 'claude-fable-5': 1_000_000 })
   })
 })
 

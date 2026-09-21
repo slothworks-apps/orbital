@@ -58,7 +58,7 @@ export const PROBE_TIMEOUT_MS = 10_000;
  * 2026-09-16) documents plain API ids, not Orbital's `[1m]`-suffixed ones.
  */
 function stripVariant(id: string): string {
-  return id.replace(/\[[^\]]*\]$/, '');
+  return id.replace(/\[[^\]]*]$/, '');
 }
 
 /**
@@ -134,7 +134,7 @@ export function shapeModels(
     const shortVersion = version.split(' with ')[0].trim() || version;
     // `[1m]` on the CANONICAL id. Fable's `value` carries the suffix while
     // its `resolvedModel` does not, and the resolved id is what serves.
-    const variantMatch = /\[([^\]]+)\]$/.exec(resolvedModel);
+    const variantMatch = /\[([^\]]+)]$/.exec(resolvedModel);
 
     out.push({
       value: info.value,
@@ -206,6 +206,18 @@ export class ModelCatalog {
     }
     await this.refresh();
     return shapeModels(this.storedRaw(), this.contextWindows());
+  }
+
+  /**
+   * The learned map as stored — exact wire id → tokens. Served beside the
+   * catalog because a session can resolve to an id no catalog row carries
+   * (a revived terminal session's init reports `claude-fable-5`; the SDK's
+   * `supportedModels()` spells Fable `claude-fable-5-1`), and the learned
+   * map is then the only honest denominator for it
+   * (fix: revived-session-shows-no-context-gauge).
+   */
+  learnedContextWindows(): Record<string, number> {
+    return this.contextWindows();
   }
 
   /** Merges what a turn reported into the stored model → context-window map. */

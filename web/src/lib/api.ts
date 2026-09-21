@@ -391,9 +391,12 @@ export const api = {
   },
 
   // Models API
-  async listModels(): Promise<OrbitalModel[]> {
-    const data = await request<{ models: OrbitalModel[] }>('GET', '/api/models')
-    return data.models
+  async listModels(): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+    const data = await request<{ models: OrbitalModel[]; contextWindows?: Record<string, number> }>(
+      'GET',
+      '/api/models'
+    )
+    return { models: data.models, contextWindows: data.contextWindows ?? {} }
   },
 
   async setSessionModel(id: string, model: string): Promise<{ ok: boolean }> {

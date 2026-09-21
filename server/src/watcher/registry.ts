@@ -60,7 +60,7 @@ export class SessionRegistry extends EventEmitter {
 
   scan(): void {
     const next = new Map<string, LiveSession>();
-    let files: string[] = [];
+    let files: string[];
     try {
       files = readdirSync(this.sessionsDir).filter((f) => /^\d+\.json$/.test(f));
     } catch {
@@ -71,6 +71,13 @@ export class SessionRegistry extends EventEmitter {
         const raw = JSON.parse(readFileSync(join(this.sessionsDir, file), 'utf8'));
         if (typeof raw.pid !== 'number' || typeof raw.sessionId !== 'string') continue;
         if (!this.isPidAlive(raw.pid)) continue;
+        // CLIs spawned through the Agent SDK (Orbital's own runner included)
+        // register themselves here too, with `entrypoint: "sdk-ts"`. They are
+        // not terminals: listing them makes Orbital treat its own sessions as
+        // "live in a terminal" — read-only composer, 409s (fix:
+        // reviving-a-terminal-session-leaves-it-read-only). Older CLIs write
+        // no entrypoint at all, so only a declared sdk-* is skipped.
+        if (typeof raw.entrypoint === 'string' && raw.entrypoint.startsWith('sdk')) continue;
         next.set(raw.sessionId, {
           sessionId: raw.sessionId,
           pid: raw.pid,

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
@@ -528,6 +528,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         // The revive is the same turn the send would have been, images included.
         attachments,
       });
+      // The session is Orbital's now. Left `terminal`, the row reads as
+      // {source: terminal, status: live} — the exact shape `isReadOnly`
+      // locks the composer on (fix: reviving-a-terminal-session-leaves-it-read-only).
+      db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, id)).run();
       const revivedRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
       ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, revivedRow) });
       return { ok: true, revived: true };
@@ -821,7 +825,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { projects };
   });
 
-  app.get('/api/models', async () => ({ models: await ctx.models.list() }));
+  app.get('/api/models', async () => ({
+    models: await ctx.models.list(),
+    contextWindows: ctx.models.learnedContextWindows(),
+  }));
 
   // The error log. One table, fed from both sides — see
   // `docs/superpowers/specs/2026-09-17-error-surface-design.md`.

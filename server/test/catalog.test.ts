@@ -219,6 +219,26 @@ describe('ModelCatalog', () => {
     expect(models.find((m) => m.value === 'opus[1m]')!.contextWindow).toBe(1_000_000);
   });
 
+  it('serves the learned windows as a map, including ids no catalog row carries', () => {
+    // A revived terminal session's init reports `claude-fable-5`, which no
+    // catalog row resolves to — the map is the only place that id's measured
+    // window lives (fix: revived-session-shows-no-context-gauge).
+    const settings = fakeSettings({
+      [CONTEXT_WINDOWS_KEY]: JSON.stringify({ 'claude-fable-5': 1_000_000 }),
+    });
+    const { fn } = fakeQueryFn();
+    const catalog = new ModelCatalog({ settings, queryFn: fn as never });
+
+    expect(catalog.learnedContextWindows()).toEqual({ 'claude-fable-5': 1_000_000 });
+  });
+
+  it('serves an empty map before anything has been learned', () => {
+    const { fn } = fakeQueryFn();
+    const catalog = new ModelCatalog({ settings: fakeSettings(), queryFn: fn as never });
+
+    expect(catalog.learnedContextWindows()).toEqual({});
+  });
+
   // F3: the probe was spawning a CLI on every `list()` call — every page
   // load, every new tab — because nothing remembered when it last ran.
   describe('the last-probed-at guard', () => {
