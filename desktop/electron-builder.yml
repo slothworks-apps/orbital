@@ -1,0 +1,49 @@
+appId: io.slothworks.orbital
+productName: Orbital
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+  # The SDK's platform package is the 200 MB `claude` binary. Orbital spawns
+  # the user's own CLI instead (spec 2026-09-16-electron-wrapper-design § 2),
+  # and npm workspace hoisting puts this in the ROOT node_modules, so the
+  # pattern has to match at any depth.
+  - "!**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/**"
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+extraResources:
+  # The three paths desktop/src/main.ts resolves against `process.resourcesPath`.
+  - from: ../server/dist/index.mjs
+    to: server/index.mjs
+  - from: ../server/drizzle
+    to: drizzle
+  - from: ../web/dist
+    to: web
+  # The server bundle's two runtime externals. It is forked from
+  # Resources/server/, and Node resolution walks up from there — it never
+  # reaches app.asar/node_modules — so the packages have to sit beside it.
+  - from: ../node_modules/better-sqlite3
+    to: server/node_modules/better-sqlite3
+    filter:
+      # Only the one prebuild this target can load; `deps/` and `src/` are the
+      # sqlite amalgamation, needed to compile the addon and never to run it.
+      - "**/*"
+      - "!deps/**"
+      - "!src/**"
+      - "!build/**"
+      - "!prebuilds/**"
+      - "prebuilds/darwin-arm64.node"
+  - from: ../node_modules/@anthropic-ai/claude-agent-sdk
+    to: server/node_modules/@anthropic-ai/claude-agent-sdk
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+  category: public.app-category.developer-tools
+  # Unsigned, as the spec's step 1 asks (§ 4). Without this electron-builder
+  # picks up whatever Apple Development certificate is in the build machine's
+  # keychain — a certificate that is not valid for distribution, so the other
+  # Mac would reject the app for a reason harder to read than Gatekeeper's
+  # ordinary quarantine prompt. `null` leaves the ad-hoc signature arm64 needs.
+  identity: null

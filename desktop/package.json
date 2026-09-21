@@ -1,16 +1,20 @@
 {
   "name": "@orbital/desktop",
+  "version": "0.1.0",
+  "description": "Orbital as a macOS desktop app: the window, the notifications and the server's lifecycle.",
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {
     "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/main.cjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs",
     "dev": "npm run build && ORBITAL_DESKTOP_DEV=1 electron .",
+    "dist": "npm run build && electron-builder --mac --arm64",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
-    "electron": "^44.4.3",
+    "electron": "44.4.3",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.12",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7"
