@@ -353,6 +353,35 @@ describe('Runner', () => {
     });
   });
 
+  // The packaged app spawns the user's own CLI rather than the SDK's bundled
+  // binary (spec 2026-09-16-electron-wrapper-design § 2); in dev there is no
+  // path to pass and the SDK's default must stay untouched.
+  it('hands the SDK an explicit claude executable when it was given one, and omits the option otherwise', async () => {
+    const capture = () => {
+      let captured: any;
+      const fn = (args: any) => {
+        captured = args.options;
+        return fakeQueryFn().fn(args);
+      };
+      return { fn, options: () => captured };
+    };
+
+    const withPath = capture();
+    const runner = new Runner({
+      hub: new Hub(), queryFn: withPath.fn as any, newSessionId: () => 'web-1',
+      claudeExecutablePath: '/x/claude',
+    });
+    await runner.start({ cwd: '/p', prompt: 'x', permissionMode: 'acceptEdits' });
+    expect(withPath.options().pathToClaudeCodeExecutable).toBe('/x/claude');
+
+    const without = capture();
+    const bundled = new Runner({
+      hub: new Hub(), queryFn: without.fn as any, newSessionId: () => 'web-2',
+    });
+    await bundled.start({ cwd: '/p', prompt: 'x', permissionMode: 'acceptEdits' });
+    expect(without.options()).not.toHaveProperty('pathToClaudeCodeExecutable');
+  });
+
   it('ends the session cleanly when the SDK generator finishes on its own (no end() call)', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFnSelfEnding();

@@ -279,10 +279,13 @@ export class Runner {
   private onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
   private images?: ImageStore;
+  private claudeExecutablePath?: string | null;
 
   constructor(deps: {
     hub: Hub;
     queryFn?: QueryFn;
+    /** Absolute path to the claude CLI to spawn, or null/undefined for the SDK's bundled default. */
+    claudeExecutablePath?: string | null;
     /**
      * Mints the id a fresh session runs under, handed to the CLI as
      * `options.sessionId`. Injectable so tests can pin a readable id; the
@@ -358,6 +361,7 @@ export class Runner {
     this.onTaskEvent = deps.onTaskEvent;
     this.onError = deps.onError;
     this.images = deps.images;
+    this.claudeExecutablePath = deps.claudeExecutablePath;
   }
 
   /**
@@ -551,6 +555,9 @@ export class Runner {
     if (opts.resume) options.resume = opts.resume;
     else options.sessionId = sessionId;
     if (opts.model) options.model = opts.model;
+    // Absent, the SDK spawns its own bundled binary — which is what dev
+    // wants and what the packaged app cannot have (spec § 2).
+    if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
 
     const generator = this.queryFn({ prompt: input(), options });
     state.generator = generator;

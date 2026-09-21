@@ -257,6 +257,7 @@ export async function buildServer(overrides: {
     hub,
     queryFn: overrides.queryFn,
     idleTimeoutMs,
+    claudeExecutablePath: claudeCli.path,
     images,
     onStatus: (sessionId, status) => {
       // An ended session has nothing running in it — and nothing left to
