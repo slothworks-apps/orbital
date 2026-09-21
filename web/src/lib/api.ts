@@ -228,6 +228,18 @@ export const api = {
     return request<{ ok: boolean }>('PATCH', `/api/sessions/${id}`, { title })
   },
 
+  /**
+   * Names the session from its own contents, now. `changed: false` is the
+   * model answering that the name it already has still fits — a result, not
+   * a failure, and the only reason this returns anything the caller reads.
+   *
+   * The new title arrives over the `sessions` topic like any other change, so
+   * there is nothing here to write into the store.
+   */
+  async retitleSession(id: string): Promise<{ title: string; changed: boolean }> {
+    return request<{ title: string; changed: boolean }>('POST', `/api/sessions/${id}/retitle`)
+  },
+
   async setSessionTags(id: string, tagIds: number[]): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/tags`, { tagIds })
   },
@@ -456,6 +468,35 @@ export const api = {
   async patchSettings(partial: Record<string, string>): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('PATCH', '/api/settings', partial)
   },
+
+  /**
+   * Facts about how the server was started, for Settings → General. Not
+   * settings: nothing writes them, and they would be stale the moment the
+   * server restarted with a different environment. Fetched when the section
+   * is opened rather than held in the store, because that is the only place
+   * that reads them.
+   */
+  async getHealth(): Promise<ServerHealth> {
+    return request<ServerHealth>('GET', '/api/health')
+  },
+
+  /**
+   * How many sessions a retention policy would remove, asked before it is
+   * saved. Runs the sweep's own predicate server-side, so the number the
+   * confirmation names is the number the delete will take.
+   */
+  async previewRetention(days: string): Promise<{ count: number }> {
+    return request<{ count: number }>(
+      'GET',
+      `/api/sessions/retention-preview?days=${encodeURIComponent(days)}`,
+    )
+  },
+}
+
+export type ServerHealth = {
+  app?: string
+  billing?: 'subscription' | 'api-key'
+  paths?: { claudeDir?: string; dataDir?: string; dbPath?: string }
 }
 
 // Export types for convenience

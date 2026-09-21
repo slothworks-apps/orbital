@@ -97,6 +97,27 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * the packaged app (spec 2026-09-16-electron-wrapper-design §3).
    */
   claude_executable_path: '',
+  /**
+   * The `~/.claude` tree the watcher and the registry read (Settings →
+   * General, spec 2026-09-21-settings-sections-design § 4). Empty means
+   * `~/.claude`. `ORBITAL_CLAUDE_DIR` still wins over whatever is stored
+   * here — see `resolveClaudeDir` for the full order. Read once at boot,
+   * which is why the row says a change needs a restart.
+   */
+  claude_directory: '',
+  /**
+   * Settings → Notifications (spec 2026-09-21-settings-sections-design § 5).
+   * Seeded 'true' across the board, and that is not a preference: it is what
+   * the desktop app did before the section existed — all three events fired,
+   * the focus check was unconditional, and `silent` was never set. The
+   * desktop side reads them the same way (`!== 'false'`), so a database that
+   * predates these rows behaves identically to one that has them.
+   */
+  notify_needs_input: 'true',
+  notify_session_ended: 'true',
+  notify_session_failed: 'true',
+  notify_only_when_background: 'true',
+  notify_sound: 'true',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };

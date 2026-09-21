@@ -12,8 +12,9 @@ import {
   CONTEXT_THRESHOLD_MIN,
   CONTEXT_THRESHOLD_MAX,
 } from '../store/store'
-import { api } from '../lib/api'
+import { api, type ServerHealth } from '../lib/api'
 import { reportError } from '../lib/errors'
+import { notifyDesktopSettingsChanged } from '../lib/desktop'
 import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import { usePresence } from '../ui/usePresence'
@@ -69,6 +70,19 @@ const IDLE_OPTIONS: Array<{ value: string; label: string }> = [
  * how long an ended session keeps its tag bond on the map before it falls
  * into the corner hole. Stored in minutes; 2h is the canvas 4b default.
  */
+/**
+ * Settings → General → "Delete sessions older than" (spec
+ * 2026-09-21-settings-sections-design § 4). `never` is first and is the
+ * default: this is the one row in the dialog that destroys anything, so the
+ * off position is where it starts and where it can always be put back.
+ */
+const RETENTION_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'never', label: 'Never — keep everything' },
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+  { value: '365', label: '1 year' },
+]
+
 const RELEASE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '30', label: '30 minutes' },
   { value: '120', label: '2 hours' },
@@ -78,15 +92,20 @@ const RELEASE_OPTIONS: Array<{ value: string; label: string }> = [
 ]
 
 /**
- * The nav, in canvas order. Three sections are live: "Sessions" (1h),
- * "Tags & rules" (1e — the same dialog with the 4th row selected, not a
- * screen of its own, which is why it is a section here rather than a link)
- * and "Appearance" (5a, `Feature - Planet size.dc.html`). The rest are drawn
- * but inert until they have something to hold.
+ * The nav, in canvas order plus "Notifications", which the canvas does not
+ * have yet (spec 2026-09-21-settings-sections-design § 1). It is inserted
+ * after Sessions because every event it governs is a session event, and
+ * every other row keeps the position 1h gives it.
+ *
+ * Only "Permissions" and "Shortcuts" are still inert. General is missing its
+ * STARTUP & WINDOW group, which waits on behaviour `desktop/` does not have
+ * yet ([[desktop-startup-window-and-updates]]), and its retention row, which
+ * waits on a design question the indexer raises — see the spec's § 4.
  */
 const NAV_ITEMS = [
-  { key: 'general', label: 'General', disabled: true },
+  { key: 'general', label: 'General', disabled: false },
   { key: 'sessions', label: 'Sessions', disabled: false },
+  { key: 'notifications', label: 'Notifications', disabled: false },
   { key: 'permissions', label: 'Permissions', disabled: true },
   { key: 'tags', label: 'Tags & rules', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
@@ -94,6 +113,24 @@ const NAV_ITEMS = [
 ] as const
 
 type SectionKey = (typeof NAV_ITEMS)[number]['key']
+
+/**
+ * Which section a visit opens on. The dialog used to hard-code "Sessions"
+ * because it was the only live one; with seven nav rows that is no longer a
+ * default, it is a guess, so the last section the user chose is remembered
+ * instead — stored in the settings table alongside `sidebar_collapsed` and
+ * `sidebar_width`, the panel states that already persist that way.
+ *
+ * Anything unrecognised falls back to the nav's first row. That covers a key
+ * from a future build, a hand-edited database, and the case that will
+ * actually happen: a section that was live when it was stored and has since
+ * been disabled, which must not strand the user on an inert page.
+ */
+export function initialSection(settings: Record<string, string | undefined>): SectionKey {
+  const stored = settings.settings_last_section
+  const match = NAV_ITEMS.find((item) => item.key === stored)
+  return match && !match.disabled ? match.key : NAV_ITEMS[0].key
+}
 
 /** Debounce for the free-text fields — the rest of this panel's controls
  * (cards, segmented steps, toggles, selects) are discrete clicks and PATCH
@@ -240,25 +277,47 @@ export function Settings({ open, onClose }: SettingsProps) {
   const sessionCwds = useOrbital(useShallow((s) => Object.values(s.sessions).map((x) => x.cwd)))
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
+  const [claudeDirDraft, setClaudeDirDraft] = useState(settings.claude_directory ?? '')
+  /**
+   * Facts about how the server was started, for General's read-only rows.
+   * Null until the fetch lands and after a failure — those rows simply do not
+   * draw rather than showing a placeholder that could be mistaken for a real
+   * path or a real billing mode.
+   */
+  const [health, setHealth] = useState<ServerHealth | null>(null)
+  const [copiedPath, setCopiedPath] = useState(false)
+  /**
+   * The retention confirmation. Held as the pending value plus the count the
+   * server says it would take, so the prompt can name a real number rather
+   * than "some sessions" — and so nothing is saved until it is answered.
+   */
+  const [retentionPrompt, setRetentionPrompt] = useState<{ value: string; count: number } | null>(
+    null,
+  )
   const [saved, setSaved] = useState(false)
-  const [section, setSection] = useState<SectionKey>('sessions')
+  const [section, setSection] = useState<SectionKey>(() => initialSection(settings))
   // Appearance preview (canvas 5a): open by default, collapse state lives
   // only for the dialog's visit — deliberately not persisted (spec).
   const [previewOpen, setPreviewOpen] = useState(true)
 
   useEffect(() => {
     if (!open) return
-    // Every visit starts on Sessions, and with no stale "saved · just now"
-    // left over from the last one — the dialog is held mounted across `open`.
-    setSection('sessions')
+    // Every visit resumes where the last one left off, and starts with no
+    // stale "saved · just now" — the dialog is held mounted across `open`.
+    setSection(initialSection(useOrbital.getState().settings))
     setSaved(false)
     setPreviewOpen(true)
+    // `settings` deliberately absent: this reseeds per visit, and reading it
+    // through `getState` keeps a PATCH landing mid-visit from yanking the
+    // user out of the section they are looking at.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   useEffect(() => {
     if (!open) return
     setProjectDirDraft(settings.default_project_dir ?? '')
     setCliPathDraft(settings.claude_executable_path ?? '')
+    setClaudeDirDraft(settings.claude_directory ?? '')
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
     // must not fight the user's current typing while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -269,9 +328,55 @@ export function Settings({ open, onClose }: SettingsProps) {
       await api.patchSettings(patch)
       useOrbital.setState((state) => ({ settings: { ...state.settings, ...patch } }))
       setSaved(true)
+      // Only this dialog can change the notification rows, and the main
+      // process cannot see a PATCH — the settings table is not a WebSocket
+      // topic. Told here rather than inside `api.patchSettings` so the
+      // sidebar's own writes do not make it re-read for nothing.
+      notifyDesktopSettingsChanged()
     } catch (err) {
       reportError(err, 'Failed to save settings')
     }
+  }
+
+  /**
+   * Picking a retention policy. Turning it OFF, or picking one that would
+   * take nothing, saves straight away — there is nothing to warn about. Any
+   * other choice asks first, naming the count the server just worked out.
+   *
+   * If the preview cannot be fetched we still ask, with the count unknown:
+   * failing open on a destructive setting would be the wrong way round, and
+   * failing closed would make the row unusable whenever the server is busy.
+   */
+  async function chooseRetention(value: string) {
+    if (value === 'never') {
+      await patchAndSet({ delete_sessions_older_than_days: value })
+      return
+    }
+    const count = await api
+      .previewRetention(value)
+      .then((r) => r?.count ?? -1)
+      .catch(() => -1)
+    if (count === 0) {
+      await patchAndSet({ delete_sessions_older_than_days: value })
+      return
+    }
+    setRetentionPrompt({ value, count })
+  }
+
+  /**
+   * Nav clicks. Deliberately NOT `patchAndSet`: moving between sections is
+   * navigation, and flashing "saved · just now" for it would claim the user
+   * changed a preference they did not touch. The section is shown
+   * immediately and the write is fire-and-forget — a failed one costs the
+   * next visit its starting section and nothing else, which is not worth an
+   * error toast.
+   */
+  function selectSection(key: SectionKey) {
+    setSection(key)
+    useOrbital.setState((state) => ({
+      settings: { ...state.settings, settings_last_section: key },
+    }))
+    void api.patchSettings({ settings_last_section: key }).catch(() => {})
   }
 
   /**
@@ -337,6 +442,41 @@ export function Settings({ open, onClose }: SettingsProps) {
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliPathDraft, open])
+
+  // And the third: General's Claude directory.
+  useEffect(() => {
+    if (!open) return
+    if (claudeDirDraft === (settings.claude_directory ?? '')) return
+    const timer = setTimeout(() => {
+      void patchAndSet({ claude_directory: claudeDirDraft })
+    }, DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claudeDirDraft, open])
+
+  // General's read-only rows. Fetched per visit rather than kept in the store:
+  // nothing else reads them, and a value from before a server restart would
+  // be worse than no value at all. A failure leaves `health` null and the
+  // rows unrendered — see the state's comment.
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    api
+      .getHealth()
+      .then((info) => {
+        // Only a real answer touches state. Setting null on an empty or
+        // failed read would be a state update that changes nothing — the
+        // rows are already unrendered — and React would rightly complain
+        // about it landing after the component went away.
+        if (live && info) setHealth(info)
+      })
+      .catch(() => {
+        /* rows stay unrendered; see the state's comment */
+      })
+    return () => {
+      live = false
+    }
+  }, [open])
 
   /**
    * Context thresholds (canvas 1h, spec context-fill-arc): typed number
@@ -404,6 +544,12 @@ export function Settings({ open, onClose }: SettingsProps) {
   const inheritTags = settings.inherit_tags !== 'false'
   const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
   const endedAfterIdle = settings.ended_after_idle_minutes ?? '30'
+  // Off unless the stored value is one of the offered policies: an absent or
+  // unreadable row must show as "Never", the same way the server parses it.
+  const storedRetention = settings.delete_sessions_older_than_days ?? 'never'
+  const deleteOlderThan = RETENTION_OPTIONS.some((o) => o.value === storedRetention)
+    ? storedRetention
+    : 'never'
   const releaseEndedAfter = settings.map_release_ended_after_minutes ?? '120'
   // `default_model` is a value, not a flag — a missing key means "no
   // preference yet", not "off", so it reads as `null` rather than a default.
@@ -414,6 +560,18 @@ export function Settings({ open, onClose }: SettingsProps) {
   // the /compact badge sub-toggle, both default-on.
   const mapShowContext = showContext(settings)
   const mapShowCompactBadge = showCompactBadge(settings)
+  /**
+   * Notifications (spec 2026-09-21-settings-sections-design § 5). Every one
+   * of these reads default-on, because that is what the desktop app does
+   * today with no settings at all: the three events fire unconditionally,
+   * the focus check in `main.ts` is unconditional, and `silent` is never
+   * set. An absent key must therefore mean "as before", not "off".
+   */
+  const notifyNeedsInput = settings.notify_needs_input !== 'false'
+  const notifySessionEnded = settings.notify_session_ended !== 'false'
+  const notifySessionFailed = settings.notify_session_failed !== 'false'
+  const notifyOnlyWhenBackground = settings.notify_only_when_background !== 'false'
+  const notifySound = settings.notify_sound !== 'false'
   // Appearance (canvas 5a).
   const planetScale = parsePlanetScale(settings)
   const mapScaleLabels = settings.map_scale_labels === 'true'
@@ -528,7 +686,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 disabled={item.disabled}
                 aria-current={item.key === section ? 'true' : undefined}
                 title={item.disabled ? 'coming soon' : undefined}
-                onClick={item.disabled ? undefined : () => setSection(item.key)}
+                onClick={item.disabled ? undefined : () => selectSection(item.key)}
                 className={[
                   NAV_ROW,
                   item.key === section
@@ -547,12 +705,260 @@ export function Settings({ open, onClose }: SettingsProps) {
             </div>
           </nav>
 
+          {/* Tags & rules brings its own two columns; every other section is
+              a list of rows in the one content column below (8/32/20 padding,
+              canvas 1h). Flat `&&` blocks rather than a ternary chain: with
+              five sections a nested conditional stops being readable, and
+              only one of them is ever mounted, so their order here is not the
+              nav's. */}
           {section === 'tags' ? (
             <TagsRulesSection active onSaved={() => setSaved(true)} />
-          ) : section === 'appearance' ? (
-            /* Appearance (canvas 5a): MAP kicker, the planet-size slider, the
-               collapsible preview and the labels toggle. */
-            <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
+          ) : (
+          <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
+            {section === 'general' && (
+              <>
+                <SectionLabel first>RUNTIME</SectionLabel>
+                {/* Spec 2026-09-16-electron-wrapper-design § 3: empty
+                    autodetects, a value overrides. Moved here out of NEW
+                    SESSIONS, where it never belonged — it is an install path
+                    the server reads once at boot, not a session default
+                    (adr settings-sections-split-by-kind). The row must not
+                    imply the change reaches a running session. */}
+                <Row
+                  title="Claude Code executable"
+                  desc="Leave empty to autodetect it from your PATH. A path here overrides the search for sessions started afterwards — the server reads it when it starts, so restart Orbital to apply a change."
+                >
+                  <Input
+                    id="settings-claude-executable-path"
+                    aria-label="Claude Code executable"
+                    font="mono"
+                    size="sm"
+                    value={cliPathDraft}
+                    onChange={(e) => setCliPathDraft(e.target.value)}
+                    placeholder="autodetect"
+                    className="w-full"
+                  />
+                </Row>
+                {/* `ORBITAL_CLAUDE_DIR` already overrode this; the row is what
+                    makes it reachable without a shell. Same restart caveat as
+                    the executable — `resolveClaudeDir` runs once, at boot. */}
+                <Row
+                  title="Claude directory"
+                  desc="Where Orbital watches for the CLI's sessions. Leave empty for ~/.claude. The server reads it when it starts, so restart Orbital to apply a change — and ORBITAL_CLAUDE_DIR, if set, wins over this."
+                >
+                  <Input
+                    id="settings-claude-directory"
+                    aria-label="Claude directory"
+                    font="mono"
+                    size="sm"
+                    value={claudeDirDraft}
+                    onChange={(e) => setClaudeDirDraft(e.target.value)}
+                    placeholder="~/.claude"
+                    className="w-full"
+                  />
+                  {/* What is actually being watched, which is not always what
+                      this field holds: the env var outranks it, and an empty
+                      field means the default. */}
+                  {health?.paths?.claudeDir && (
+                    <span
+                      data-testid="claude-dir-effective"
+                      className="font-mono text-[10px] leading-[1.5] text-[rgba(160,190,225,.55)]"
+                    >
+                      watching {health.paths.claudeDir}
+                    </span>
+                  )}
+                </Row>
+                {/* Read-only on purpose: this is an environment decision made
+                    when the server started, and a toggle for "start charging
+                    my card" is not a toggle. */}
+                {health?.billing && (
+                  <Row
+                    title="Billing"
+                    desc="How the sessions Orbital spawns are paid for. Set by the environment the server starts in, not from here."
+                  >
+                    <span
+                      data-testid="billing-mode"
+                      className="font-mono text-[11.5px] text-text-bright"
+                    >
+                      {health.billing === 'api-key' ? 'API key' : 'Claude subscription'}
+                    </span>
+                    <span className="text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                      {health.billing === 'api-key'
+                        ? 'ORBITAL_USE_API_KEY=1 is set, so ANTHROPIC_API_KEY is left in the server’s environment and usage is billed to that key.'
+                        : 'ANTHROPIC_API_KEY is removed from the server’s environment at startup, so sessions bill your subscription the way the CLI does.'}
+                    </span>
+                  </Row>
+                )}
+
+                {/* The kicker is unconditional — the retention row below it
+                    needs no server facts — but the Database row only draws
+                    once a real path has arrived. */}
+                <SectionLabel>DATA</SectionLabel>
+                {health?.paths?.dbPath && (
+                  <>
+                    <Row
+                      title="Database"
+                      desc="Orbital's own index of your sessions. Your transcripts are not in here — they stay in the Claude directory above, which Orbital only ever reads."
+                    >
+                      <span className="break-all font-mono text-[11px] leading-[1.6] text-[rgba(200,220,245,.8)]">
+                        {health.paths.dbPath}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const path = health.paths?.dbPath
+                          if (!path) return
+                          // Best-effort: `navigator.clipboard` needs a secure
+                          // context, which 127.0.0.1 is, but the desktop
+                          // shell is the likelier home for a real reveal.
+                          void navigator.clipboard
+                            ?.writeText(path)
+                            .then(() => setCopiedPath(true))
+                            .catch(() => {})
+                        }}
+                        className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+                      >
+                        {copiedPath ? 'COPIED' : 'COPY PATH'}
+                      </button>
+                    </Row>
+                  </>
+                )}
+
+                {/* The one row in this dialog that destroys anything. The
+                    description has to carry the distinction the whole design
+                    rests on: index rows go, transcripts do not. */}
+                <Row
+                  title="Delete sessions older than"
+                  desc="Removes them from Orbital's index. Your transcripts stay in the Claude directory — Orbital only ever reads it — but a deleted session leaves the map, the sidebar and search. Pinned sessions are never deleted."
+                >
+                  <Select
+                    id="settings-delete-older-than"
+                    aria-label="Delete sessions older than"
+                    font="sans"
+                    options={RETENTION_OPTIONS}
+                    value={deleteOlderThan}
+                    onChange={(next) => void chooseRetention(next)}
+                    className="w-[220px]"
+                  />
+                  {retentionPrompt && (
+                    <div
+                      data-testid="retention-confirm"
+                      className="flex w-full flex-col gap-2.5 rounded-[10px] border border-[oklch(72%_.17_25_/_.35)] bg-[oklch(72%_.17_25_/_.07)] p-3"
+                    >
+                      <span className="text-[12px] leading-[1.5] text-[rgba(220,235,255,.9)] [text-wrap:pretty]">
+                        {retentionPrompt.count < 0
+                          ? 'Orbital could not count how many sessions this would delete. Saving it runs the sweep anyway.'
+                          : `This deletes ${retentionPrompt.count} session${retentionPrompt.count === 1 ? '' : 's'} from the index now, and keeps deleting as others age past ${RETENTION_OPTIONS.find((o) => o.value === retentionPrompt.value)?.label.toLowerCase()}.`}
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const { value } = retentionPrompt
+                            setRetentionPrompt(null)
+                            void patchAndSet({ delete_sessions_older_than_days: value })
+                          }}
+                          className="rounded-full border border-[oklch(72%_.17_25_/_.5)] bg-[oklch(72%_.17_25_/_.15)] px-3 py-[4px] font-mono text-[10px] tracking-[0.1em] text-[#f3dcdc] transition-colors hover:bg-[oklch(72%_.17_25_/_.25)]"
+                        >
+                          DELETE
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRetentionPrompt(null)}
+                          className="rounded-full border border-[rgba(150,205,255,.14)] px-3 py-[4px] font-mono text-[10px] tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:bg-[rgba(150,205,255,.07)]"
+                        >
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </Row>
+              </>
+            )}
+
+            {section === 'notifications' && (
+              <>
+                {/* Spec 2026-09-21-settings-sections-design § 5. The three
+                    WHEN rows are the three transitions `SessionNotifier`
+                    already folds for; HOW is what `main.ts` does with what it
+                    gets back. All five default on, which is today's
+                    behaviour — see the derived flags above. */}
+                <SectionLabel first>WHEN</SectionLabel>
+                <Row
+                  title="A session needs your input"
+                  desc="A turn finished, a permission prompt is waiting, or the session asked a question."
+                >
+                  <Toggle
+                    aria-label="A session needs your input"
+                    checked={notifyNeedsInput}
+                    onChange={(checked) =>
+                      void patchAndSet({ notify_needs_input: checked ? 'true' : 'false' })
+                    }
+                  />
+                </Row>
+                <Row
+                  title="A session ends"
+                  desc="Only when it was working — a terminal session ageing out on the idle timer is the clock talking, not the session, and never notifies."
+                >
+                  <Toggle
+                    aria-label="A session ends"
+                    checked={notifySessionEnded}
+                    onChange={(checked) =>
+                      void patchAndSet({ notify_session_ended: checked ? 'true' : 'false' })
+                    }
+                  />
+                </Row>
+                <Row
+                  title="A session fails"
+                  desc="The process died or never started. The body stays on the map and the error is kept in the log either way."
+                >
+                  <Toggle
+                    aria-label="A session fails"
+                    checked={notifySessionFailed}
+                    onChange={(checked) =>
+                      void patchAndSet({ notify_session_failed: checked ? 'true' : 'false' })
+                    }
+                  />
+                </Row>
+
+                <SectionLabel>HOW</SectionLabel>
+                <Row
+                  title="Only when Orbital is in the background"
+                  desc="A focused map already shows every one of these states, so interrupting over it is noise. Turn this off to be notified even with the window in front of you."
+                >
+                  <Toggle
+                    aria-label="Only when Orbital is in the background"
+                    checked={notifyOnlyWhenBackground}
+                    onChange={(checked) =>
+                      void patchAndSet({ notify_only_when_background: checked ? 'true' : 'false' })
+                    }
+                  />
+                </Row>
+                <Row
+                  title="Play a sound"
+                  desc="Off delivers them silently — they still appear in Notification Centre."
+                >
+                  <Toggle
+                    aria-label="Play a sound"
+                    checked={notifySound}
+                    onChange={(checked) =>
+                      void patchAndSet({ notify_sound: checked ? 'true' : 'false' })
+                    }
+                  />
+                </Row>
+                {/* The toggles are stored settings either way, so a browser
+                    visit can set them and the desktop app honours them the
+                    next time it reads them. Saying so beats rows that look
+                    broken. */}
+                <p className="pt-3.5 text-[12px] leading-[1.5] text-[rgba(160,190,225,.55)] [text-wrap:pretty]">
+                  Notifications are delivered by the desktop app. These settings are saved from the
+                  browser too — Orbital picks them up when it next runs.
+                </p>
+              </>
+            )}
+
+            {section === 'appearance' && (
+              <>
               <SectionLabel first>MAP</SectionLabel>
               <Row
                 title="Default planet size"
@@ -655,13 +1061,184 @@ export function Settings({ open, onClose }: SettingsProps) {
                   }
                 />
               </Row>
-            </div>
-          ) : (
-          /* Content column: 8/32/20 padding per canvas 1h. Only Sessions can
-             be selected besides Tags & rules and Appearance, so this column
-             is the remaining branch outright. The project-dir draft lives in
-             `Settings`, not here, so swapping the column away costs no state. */
-          <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
+              {/* canvas 4c, moved out of Sessions: what is drawn under a
+                  planet's name is a drawing question. */}
+              <Row title="Model name under planet label" desc="Family only (no version).">
+                <div className="flex items-center gap-3">
+                  <Toggle
+                    aria-label="Model name under planet label"
+                    checked={mapShowModel}
+                    onChange={(checked) => void patchAndSet({ map_show_model: checked ? 'true' : 'false' })}
+                  />
+                  {/* canvas 4c: sample chip beside the toggle, JetBrains Mono
+                      9.5px/.1em tracking, rgba(160,190,225,.7). The "e.g."
+                      is a deviation from the artboard, added because the bare
+                      upper-cased family reads as a status badge rather than as
+                      a preview of the string the map will draw. It carries no
+                      tracking and a dimmer ink so the sample still leads. */}
+                  {mapModelSample && (
+                    <span
+                      data-testid="map-model-sample"
+                      className="font-mono text-[9.5px] text-[rgba(160,190,225,.7)]"
+                    >
+                      <span className="text-[rgba(160,190,225,.45)]">e.g. </span>
+                      <span className="tracking-[0.1em]">{mapModelSample}</span>
+                    </span>
+                  )}
+                </div>
+              </Row>
+              {/* Also moved out of Sessions. It governs how much of a chain
+                  stays drawn and nothing else — the sidebar's history is
+                  unlimited whatever this says. */}
+              <Row
+                title="Lineage depth on the map"
+                desc="How many linked sessions per project stay visible as a chain. Older ones drop off the map — the sidebar history is always unlimited."
+              >
+                <div
+                  role="group"
+                  aria-label="Lineage depth"
+                  className="inline-flex overflow-hidden rounded-lg border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)]"
+                >
+                  {lineageOptions.map((step, i) => (
+                    <button
+                      key={step}
+                      type="button"
+                      aria-pressed={lineageDepth === step}
+                      onClick={() => void patchAndSet({ lineage_depth: step })}
+                      className={[
+                        'min-w-[40px] px-3 py-[7px] text-center font-mono text-xs transition-colors',
+                        i > 0 ? 'border-l border-[rgba(150,205,255,.12)]' : '',
+                        lineageDepth === step
+                          ? 'bg-accent font-bold text-space-deep'
+                          : 'text-[rgba(220,235,255,.85)] hover:bg-white/5',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      {step === 'Infinity' ? '∞' : step}
+                    </button>
+                  ))}
+                </div>
+                {/* Lineage chain illustration (canvas 1h): as many orbs as the
+                    depth keeps on the map, the newest accent-ringed, plus the
+                    live count of sessions the setting pushes into history. */}
+                <div className="mt-0.5 flex items-center" data-testid="lineage-chain">
+                  {chain.map((orb, i) => (
+                    <span key={orb.size} aria-hidden className="flex items-center">
+                      {i > 0 && (
+                        <span
+                          className="mx-1 border-t border-dotted"
+                          style={{
+                            width: chain[i - 1].gap,
+                            borderColor: `rgb(89 228 243 / ${chain[i - 1].gapOpacity})`,
+                          }}
+                        />
+                      )}
+                      <span
+                        data-orb=""
+                        className={[
+                          'relative block rounded-full border',
+                          orb.opacity === 1
+                            ? 'border-accent/45 bg-[#111c28]'
+                            : 'border-[rgba(200,215,235,.35)] bg-[#0b141d]',
+                        ].join(' ')}
+                        style={{ width: orb.size, height: orb.size, opacity: orb.opacity }}
+                      >
+                        {orb.opacity === 1 && (
+                          <span className="absolute left-1/2 top-1/2 h-[3px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/80" />
+                        )}
+                      </span>
+                    </span>
+                  ))}
+                  {droppedFromMap > 0 && (
+                    <span className="ml-3 font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+                      +{droppedFromMap} in history
+                    </span>
+                  )}
+                </div>
+              </Row>
+
+              {/* Its own kicker rather than three more rows under MAP: the
+                  thresholds colour sidebar rows and gate the /compact badge
+                  too, so filing them under a heading that says "map" would
+                  misdescribe them (adr settings-sections-split-by-kind). */}
+              <SectionLabel>CONTEXT USAGE</SectionLabel>
+              {/* canvas 1h: master switch for the arc, its ticks and the
+                  /compact badge (spec context-fill-arc). Not itself in the
+                  canvas — 1h's "Planet size: Context/Fixed" radio is the
+                  control it replaces, per the scope cut agreed with the
+                  owner. */}
+              <Row
+                title="Context usage on planets"
+                desc="A thin arc around each running web session showing how full its context window is. Terminal sessions have no usage data and never show one."
+              >
+                <Toggle
+                  aria-label="Context usage on planets"
+                  checked={mapShowContext}
+                  onChange={(checked) => void patchAndSet({ map_show_context: checked ? 'true' : 'false' })}
+                />
+              </Row>
+              {/* canvas 1h "Context thresholds" row verbatim, minus the
+                  Planet-size radio above it (out of scope). Colour dashes use
+                  the same three OKLCH literals as the arc itself and the
+                  preview above: ok-level blue (`PREVIEW_TIERS`'s live tier,
+                  oklch(80% .13 210)), the amber of its subagent tier
+                  (oklch(80% .13 60)), and the spec's critical red
+                  (oklch(72% .17 25)). */}
+              <Row
+                title="Context thresholds"
+                desc="Arc turns amber above the first, red + pulse above the second. Sidebar rows and the /compact badge follow the same values."
+              >
+                <div className="flex items-center gap-3.5">
+                  <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(80% .13 210 / .6)' }} />
+                  <label className="flex items-center gap-1.5 font-mono text-xs text-[rgba(160,190,225,.7)]">
+                    <Input
+                      id="settings-context-threshold-warn"
+                      aria-label="Warn threshold"
+                      font="mono"
+                      size="sm"
+                      type="number"
+                      min={CONTEXT_THRESHOLD_MIN}
+                      max={CONTEXT_THRESHOLD_MAX}
+                      value={warnDraft}
+                      onChange={(e) => setWarnDraft(e.target.value)}
+                      className="w-[52px] text-center"
+                    />
+                    %
+                  </label>
+                  <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(80% .13 60)' }} />
+                  <label className="flex items-center gap-1.5 font-mono text-xs text-[rgba(160,190,225,.7)]">
+                    <Input
+                      id="settings-context-threshold-critical"
+                      aria-label="Critical threshold"
+                      font="mono"
+                      size="sm"
+                      type="number"
+                      min={CONTEXT_THRESHOLD_MIN}
+                      max={CONTEXT_THRESHOLD_MAX}
+                      value={criticalDraft}
+                      onChange={(e) => setCriticalDraft(e.target.value)}
+                      className="w-[52px] text-center"
+                    />
+                    %
+                  </label>
+                  {/* canvas 1h: no literal name for this critical dash — the
+                      spec's own colour for fill > T2. */}
+                  <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(72% .17 25)' }} />
+                </div>
+                <Checkbox
+                  checked={mapShowCompactBadge}
+                  onChange={(checked) =>
+                    void patchAndSet({ map_show_compact_badge: checked ? 'true' : 'false' })
+                  }
+                  label={'Show “/compact” badge above the second threshold'}
+                />
+              </Row>
+              </>
+            )}
+
+            {section === 'sessions' && (
+              <>
             <SectionLabel first>NEW SESSIONS</SectionLabel>
             <Row
               title="Default model"
@@ -703,93 +1280,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 className="w-full"
               />
             </Row>
-            {/* Spec 2026-09-16-electron-wrapper-design § 3: empty autodetects,
-                a value overrides. The server reads the key once, at boot, so
-                this row must not imply the change reaches a running one. */}
-            <Row
-              title="Claude Code executable"
-              desc="Leave empty to autodetect it from your PATH. A path here overrides the search for sessions started afterwards — the server reads it when it starts, so restart Orbital to apply a change."
-            >
-              <Input
-                id="settings-claude-executable-path"
-                aria-label="Claude Code executable"
-                font="mono"
-                size="sm"
-                value={cliPathDraft}
-                onChange={(e) => setCliPathDraft(e.target.value)}
-                placeholder="autodetect"
-                className="w-full"
-              />
-            </Row>
-
-            <SectionLabel>CLEAR &amp; LINEAGE</SectionLabel>
-            <Row
-              title="Lineage depth on the map"
-              desc="How many linked sessions per project stay visible as a chain. Older ones drop off the map — the sidebar history is always unlimited."
-            >
-              <div
-                role="group"
-                aria-label="Lineage depth"
-                className="inline-flex overflow-hidden rounded-lg border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)]"
-              >
-                {lineageOptions.map((step, i) => (
-                  <button
-                    key={step}
-                    type="button"
-                    aria-pressed={lineageDepth === step}
-                    onClick={() => void patchAndSet({ lineage_depth: step })}
-                    className={[
-                      'min-w-[40px] px-3 py-[7px] text-center font-mono text-xs transition-colors',
-                      i > 0 ? 'border-l border-[rgba(150,205,255,.12)]' : '',
-                      lineageDepth === step
-                        ? 'bg-accent font-bold text-space-deep'
-                        : 'text-[rgba(220,235,255,.85)] hover:bg-white/5',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                  >
-                    {step === 'Infinity' ? '∞' : step}
-                  </button>
-                ))}
-              </div>
-              {/* Lineage chain illustration (canvas 1h): as many orbs as the
-                  depth keeps on the map, the newest accent-ringed, plus the
-                  live count of sessions the setting pushes into history. */}
-              <div className="mt-0.5 flex items-center" data-testid="lineage-chain">
-                {chain.map((orb, i) => (
-                  <span key={orb.size} aria-hidden className="flex items-center">
-                    {i > 0 && (
-                      <span
-                        className="mx-1 border-t border-dotted"
-                        style={{
-                          width: chain[i - 1].gap,
-                          borderColor: `rgb(89 228 243 / ${chain[i - 1].gapOpacity})`,
-                        }}
-                      />
-                    )}
-                    <span
-                      data-orb=""
-                      className={[
-                        'relative block rounded-full border',
-                        orb.opacity === 1
-                          ? 'border-accent/45 bg-[#111c28]'
-                          : 'border-[rgba(200,215,235,.35)] bg-[#0b141d]',
-                      ].join(' ')}
-                      style={{ width: orb.size, height: orb.size, opacity: orb.opacity }}
-                    >
-                      {orb.opacity === 1 && (
-                        <span className="absolute left-1/2 top-1/2 h-[3px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/80" />
-                      )}
-                    </span>
-                  </span>
-                ))}
-                {droppedFromMap > 0 && (
-                  <span className="ml-3 font-mono text-[10px] text-[rgba(160,190,225,.55)]">
-                    +{droppedFromMap} in history
-                  </span>
-                )}
-              </div>
-            </Row>
+            <SectionLabel>CLEAR &amp; LIFECYCLE</SectionLabel>
             <Row
               title="Confirm before Clear"
               desc="Show the confirmation dialog when running /clear or ⌘⇧N."
@@ -862,101 +1353,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                 className="w-[200px]"
               />
             </Row>
-            {/* canvas 4c/1h: MAP section. */}
-            <SectionLabel>MAP</SectionLabel>
-            <Row
-              title="Model name under planet label"
-              desc="Family only (no version)."
-            >
-              <div className="flex items-center gap-3">
-                <Toggle
-                  aria-label="Model name under planet label"
-                  checked={mapShowModel}
-                  onChange={(checked) => void patchAndSet({ map_show_model: checked ? 'true' : 'false' })}
-                />
-                {/* canvas 4c: sample chip beside the toggle, JetBrains Mono
-                    9.5px/.1em tracking, rgba(160,190,225,.7). */}
-                {mapModelSample && (
-                  <span
-                    data-testid="map-model-sample"
-                    className="font-mono text-[9.5px] tracking-[0.1em] text-[rgba(160,190,225,.7)]"
-                  >
-                    {mapModelSample}
-                  </span>
-                )}
-              </div>
-            </Row>
-            {/* canvas 1h: master switch for the arc, its ticks and the
-                /compact badge (spec context-fill-arc). Not itself in the
-                canvas — 1h's "Planet size: Context/Fixed" radio is the
-                control it replaces, per the scope cut agreed with the
-                owner. */}
-            <Row
-              title="Context usage on planets"
-              desc="A thin arc around each running web session showing how full its context window is. Terminal sessions have no usage data and never show one."
-            >
-              <Toggle
-                aria-label="Context usage on planets"
-                checked={mapShowContext}
-                onChange={(checked) => void patchAndSet({ map_show_context: checked ? 'true' : 'false' })}
-              />
-            </Row>
-            {/* canvas 1h "Context thresholds" row verbatim, minus the
-                Planet-size radio above it (out of scope). Colour dashes use
-                the same three OKLCH literals as the arc itself and the
-                Appearance preview elsewhere in this file: ok-level blue
-                (`PREVIEW_TIERS`'s live tier, oklch(80% .13 210)), the amber
-                of its subagent tier (oklch(80% .13 60)), and the spec's
-                critical red (oklch(72% .17 25)). */}
-            <Row
-              title="Context thresholds"
-              desc="Arc turns amber above the first, red + pulse above the second. Sidebar rows and the /compact badge follow the same values."
-            >
-              <div className="flex items-center gap-3.5">
-                <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(80% .13 210 / .6)' }} />
-                <label className="flex items-center gap-1.5 font-mono text-xs text-[rgba(160,190,225,.7)]">
-                  <Input
-                    id="settings-context-threshold-warn"
-                    aria-label="Warn threshold"
-                    font="mono"
-                    size="sm"
-                    type="number"
-                    min={CONTEXT_THRESHOLD_MIN}
-                    max={CONTEXT_THRESHOLD_MAX}
-                    value={warnDraft}
-                    onChange={(e) => setWarnDraft(e.target.value)}
-                    className="w-[52px] text-center"
-                  />
-                  %
-                </label>
-                <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(80% .13 60)' }} />
-                <label className="flex items-center gap-1.5 font-mono text-xs text-[rgba(160,190,225,.7)]">
-                  <Input
-                    id="settings-context-threshold-critical"
-                    aria-label="Critical threshold"
-                    font="mono"
-                    size="sm"
-                    type="number"
-                    min={CONTEXT_THRESHOLD_MIN}
-                    max={CONTEXT_THRESHOLD_MAX}
-                    value={criticalDraft}
-                    onChange={(e) => setCriticalDraft(e.target.value)}
-                    className="w-[52px] text-center"
-                  />
-                  %
-                </label>
-                {/* canvas 1h: no literal name for this critical dash — the
-                    spec's own colour for fill > T2. */}
-                <span aria-hidden className="h-[2px] w-[26px]" style={{ background: 'oklch(72% .17 25)' }} />
-              </div>
-              <Checkbox
-                checked={mapShowCompactBadge}
-                onChange={(checked) =>
-                  void patchAndSet({ map_show_compact_badge: checked ? 'true' : 'false' })
-                }
-                label={'Show “/compact” badge above the second threshold'}
-              />
-            </Row>
+              </>
+            )}
           </div>
           )}
         </div>

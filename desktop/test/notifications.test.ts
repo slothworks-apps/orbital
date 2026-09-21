@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { SessionNotifier } from '../src/lib/notifications';
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  parseNotificationSettings,
+  SessionNotifier,
+} from '../src/lib/notifications';
 
 /** An `upsert` frame as the hub publishes it (the full ApiSession, trimmed). */
 function upsert(session: Record<string, unknown>) {
@@ -207,6 +211,106 @@ describe('SessionNotifier', () => {
       expect(notifier.onEvent(status('s1', 'hibernating'))).toBeNull();
       // and the unknown status did not overwrite what we knew
       expect(notifier.onEvent(status('s1', 'needs_input'))).not.toBeNull();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settings → Notifications (spec 2026-09-21-settings-sections-design § 5)
+// ---------------------------------------------------------------------------
+
+describe('notification settings', () => {
+  const failure = (sessionId: string) => ({
+    topic: 'errors',
+    event: 'error',
+    error: { kind: 'session_failed', sessionId, message: 'boom' },
+  });
+
+  describe('parseNotificationSettings', () => {
+    // The defaults are not a preference — they are what the app did before
+    // this section existed, so an absent key must read as "as before".
+    it('reads every flag as on when the key is absent', () => {
+      expect(parseNotificationSettings({})).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
+      expect(DEFAULT_NOTIFICATION_SETTINGS).toEqual({
+        needsInput: true,
+        sessionEnded: true,
+        sessionFailed: true,
+        onlyWhenBackground: true,
+        sound: true,
+      });
+    });
+
+    it('turns a flag off only for the literal string "false"', () => {
+      expect(parseNotificationSettings({ notify_sound: 'false' }).sound).toBe(false);
+      // Anything else the table could hold is not an off switch.
+      for (const value of ['true', '0', '', 'FALSE', 'no']) {
+        expect(parseNotificationSettings({ notify_sound: value }).sound).toBe(true);
+      }
+    });
+
+    it('survives a payload that is not an object', () => {
+      for (const raw of [null, undefined, 'nope', 42, []]) {
+        expect(parseNotificationSettings(raw)).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
+      }
+    });
+  });
+
+  describe('muting', () => {
+    let notifier: SessionNotifier;
+
+    beforeEach(() => {
+      notifier = new SessionNotifier();
+    });
+
+    function mute(patch: Partial<typeof DEFAULT_NOTIFICATION_SETTINGS>) {
+      notifier.setSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, ...patch });
+    }
+
+    it('silences each event independently', () => {
+      mute({ needsInput: false });
+      notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working' }));
+      expect(notifier.onEvent(status('s1', 'needs_input'))).toBeNull();
+
+      mute({ needsInput: true, sessionEnded: false });
+      notifier.onEvent(upsert({ id: 's2', title: 'Other', status: 'working' }));
+      expect(notifier.onEvent(status('s2', 'ended'))).toBeNull();
+
+      mute({ sessionEnded: true, sessionFailed: false });
+      expect(notifier.onEvent(failure('s1'))).toBeNull();
+    });
+
+    /**
+     * The point of muting AFTER the fold: a silenced transition still moves
+     * `seen`, so turning the row back on reports the NEXT transition rather
+     * than replaying one that happened while it was off.
+     */
+    it('keeps folding a muted transition, so re-enabling does not replay it', () => {
+      mute({ needsInput: false });
+      notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working' }));
+      expect(notifier.onEvent(status('s1', 'needs_input'))).toBeNull();
+
+      mute({ needsInput: true });
+      // Still sitting in needs_input: that is a state, not news.
+      expect(notifier.onEvent(status('s1', 'needs_input'))).toBeNull();
+      // Only a fresh working → needs_input round trip is.
+      expect(notifier.onEvent(status('s1', 'working'))).toBeNull();
+      expect(notifier.onEvent(status('s1', 'needs_input'))).toEqual({
+        title: 'Map',
+        body: 'Needs your input',
+        sessionId: 's1',
+      });
+    });
+
+    it('exposes the two rows main.ts acts on itself', () => {
+      mute({ onlyWhenBackground: false, sound: false });
+      expect(notifier.current.onlyWhenBackground).toBe(false);
+      expect(notifier.current.sound).toBe(false);
+    });
+
+    it('starts as today\'s behaviour before any settings arrive', () => {
+      notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working' }));
+      expect(notifier.onEvent(status('s1', 'needs_input'))).not.toBeNull();
+      expect(notifier.current).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
     });
   });
 });

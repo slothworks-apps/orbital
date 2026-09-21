@@ -1400,3 +1400,40 @@ describe('DetailPanel image intake', () => {
     expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Header: regenerating the name
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel regenerate-name button', () => {
+  it('says so when the model decides the current name still fits', async () => {
+    vi.mocked(api.retitleSession).mockResolvedValue({ title: 'Session title', changed: false })
+    await renderDetail({ session: webSession })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate name' }))
+
+    await waitFor(() => {
+      expect(useOrbital.getState().toast).toMatchObject({ kind: 'info' })
+    })
+  })
+
+  it('stays quiet when the name actually moved — the new one arrives on its own', async () => {
+    vi.mocked(api.retitleSession).mockResolvedValue({ title: 'Space map zoom', changed: true })
+    await renderDetail({ session: webSession })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate name' }))
+
+    await waitFor(() => expect(api.retitleSession).toHaveBeenCalledWith('a'))
+    expect(useOrbital.getState().toast).toBeNull()
+  })
+
+  // The button beside it (Clear) IS gated on `source`. This one must not be:
+  // the server names a session from the transcript on disk, which a terminal
+  // session has exactly like a web one.
+  it('is offered for a terminal session too', async () => {
+    await renderDetail({ session: terminalSession })
+
+    expect(screen.getByRole('button', { name: 'Regenerate name' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument()
+  })
+})

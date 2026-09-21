@@ -14,6 +14,7 @@ import type {
   ErrorSource,
   PermissionMode,
   SessionSource,
+  SessionStatus,
   TagRule,
   TitleSource,
 } from '../types.js';
@@ -50,8 +51,11 @@ export const sessions = sqliteTable(
     /**
      * How many tokens the session's context held at the end of its last turn
      * — the numerator of the map's context arc (spec `context-fill-arc`).
-     * Written by the Runner from each SDK `result`'s usage and re-set at a
-     * `compact_boundary`. Null means "not measured": every terminal session
+     * Written by the Runner at the end of each turn — from the CLI's own
+     * `get_context_usage` answer, or the turn's last main-loop API call when
+     * it cannot answer — and re-set at a `compact_boundary`. Never from a
+     * `result`'s usage, which totals the turn's requests rather than
+     * measuring the window (fix: context-arc-summed-the-whole-turn). Null means "not measured": every terminal session
      * (the indexer extracts no usage at all) and every web session before its
      * first turn ends. Declared last so it sits where `ALTER TABLE ... ADD
      * COLUMN` actually puts it, keeping `sessionColumns` in physical order.
@@ -70,6 +74,27 @@ export const sessions = sqliteTable(
      * and `sessionColumns` has to stay in physical order.
      */
     pinnedAt: integer('pinned_at'),
+    /**
+     * The status the Runner last held for this session, and null when it does
+     * not own it (spec 2026-09-21-session-autoheal-design). The asymmetry is
+     * the point: a graceful end clears it and a killed process cannot, so a
+     * non-null value at boot means the server that wrote it never got to
+     * finish — which is how autoheal tells a session that ended from one that
+     * was cut off. Only Orbital's own sessions ever carry it; a terminal
+     * session is read, never owned.
+     *
+     * Declared last for the same reason as `contextUsedTokens` and
+     * `pinnedAt`: `ALTER TABLE ... ADD COLUMN` appends, and `sessionColumns`
+     * has to stay in physical order.
+     */
+    runnerStatus: text('runner_status').$type<SessionStatus>(),
+    /**
+     * When a restart cut this session off mid-turn (epoch ms), null
+     * otherwise. Set by the boot reconciliation for the sessions it finds at
+     * `working`, and cleared the next time the session actually runs a turn.
+     * On the row rather than only on the wire so the mark survives a reload.
+     */
+    interruptedAt: integer('interrupted_at'),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );
@@ -125,6 +150,31 @@ export const tagRules = sqliteTable(
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+});
+
+/**
+ * Sessions the retention sweep removed, so the indexer does not put them
+ * straight back (spec 2026-09-21-settings-sections-design § 4).
+ *
+ * This table exists because deleting the row is not enough: `indexProjects`
+ * walks every `.jsonl` under `<claudeDir>/projects` and inserts anything the
+ * database lacks, at boot and on every file event, so a swept session whose
+ * transcript is still on disk would reappear within seconds. Orbital only
+ * ever reads `~/.claude` — deleting the transcript is not on the table — so
+ * the alternative is remembering the decision here.
+ *
+ * `sweptAt` is what keeps this from becoming a permanent blocklist. A
+ * transcript whose mtime is NEWER than its tombstone has been written to
+ * since the sweep, which means the session was resumed — the user is using
+ * it again, and it has to come back. The indexer drops the tombstone and
+ * indexes it normally. Only a file that has not moved since the sweep stays
+ * hidden.
+ */
+export const sweptSessions = sqliteTable('swept_sessions', {
+  /** The session id, which is also its transcript's filename stem. */
+  id: text('id').primaryKey(),
+  /** Epoch ms of the sweep that removed it. Compared against file mtime. */
+  sweptAt: integer('swept_at').notNull(),
 });
 
 /**

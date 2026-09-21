@@ -4,8 +4,11 @@
  * panel's context bar.
  *
  * Both read ONE number, `ApiSession.contextUsedTokens`, which the server
- * writes on the row from the SDK's `result` and `compact_boundary` messages
+ * writes on the row at the end of every turn and at every `compact_boundary`
  * (`server/src/runner/runner.ts`) and republishes on the `sessions` topic.
+ * It is what the CLI answers when asked how full the window is, or — when it
+ * cannot answer — the turn's last main-loop API call. Never a turn's summed
+ * usage, which is a billing total (fix: context-arc-summed-the-whole-turn).
  * The panel used to derive its own total from the live-only `turn_result`
  * event instead, which is why it sat at em dashes after every reload while
  * the arc beside it was drawn — see

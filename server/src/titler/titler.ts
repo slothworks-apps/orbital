@@ -307,6 +307,51 @@ export class SessionTitler {
     if (title && title !== session.title) this.deps.applyTitle(sessionId, title);
   }
 
+  /**
+   * Renames a session because someone asked for it, now.
+   *
+   * Every guard `considerTurnEnd` weighs is deliberately absent: the setting,
+   * a manually typed title, the message count, the cooldown and the
+   * vocabulary gate all exist to decide WHETHER to ask, and a click has
+   * already decided that. What is left is what the session should be called.
+   *
+   * The messages come from the caller rather than from `feed`'s buffer, which
+   * is what lets this name a session the titler has never seen: one that has
+   * ended, one the server has restarted since, or a terminal session Orbital
+   * only ever reads.
+   *
+   * `applyTitle` runs even when the model answers KEEP. It is what writes
+   * `auto`, and the click is consent to being renamed again later — so a name
+   * that stays the same still stops being `manual`.
+   *
+   * Throws when the model call fails. `onError` is for the fire-and-forget
+   * path; here someone is waiting on the answer and can be told.
+   */
+  async retitleNow(
+    sessionId: string,
+    messages: ChatMessage[],
+  ): Promise<{ title: string; changed: boolean }> {
+    const session = this.deps.readSession(sessionId);
+    if (!session) throw new Error(`unknown session ${sessionId}`);
+
+    const reply = await this.ask(buildTitlePrompt(session.title, messages));
+
+    // Same reason the automatic path starts its cooldown at the ask: the turn
+    // that ends a moment after the click must not ask all over again. Only an
+    // existing state is touched — a session with none has no automatic path
+    // running against it, and minting one here would leave behind an entry
+    // `forget` is never called for.
+    const state = this.states.get(sessionId);
+    if (state) {
+      state.lastTitledAt = this.deps.now?.() ?? Date.now();
+      state.newUserText = [];
+    }
+
+    const title = parseTitleReply(reply) ?? session.title;
+    this.deps.applyTitle(sessionId, title);
+    return { title, changed: title !== session.title };
+  }
+
   private async ask(prompt: string): Promise<string> {
     const parts: string[] = [];
     for await (const message of this.deps.queryFn({

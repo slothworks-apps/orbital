@@ -43,7 +43,14 @@ function textOf(content: string | Array<Record<string, unknown>>): string {
 // CLI transcripts wrap machine-generated user turns in tags like
 // <local-command-caveat>, <command-message>, <system-reminder>. A closing tag
 // may be missing when the block runs to the end of the message.
-const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents)>[\s\S]*?(<\/\1>|$)/g;
+//
+// `task-notification` is the CLI reporting on a background agent — including,
+// on every resume, the ones a previous process left unfinished. Autoheal
+// resumes a session once per server restart (spec
+// 2026-09-21-session-autoheal-design), so in a dev loop these arrive faster
+// than anything the human types. Folded, not dropped: which agent died is
+// worth keeping one click away.
+const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents|task-notification)>[\s\S]*?(<\/\1>|$)/g;
 
 /**
  * The command-expansion fold (spec: 2026-09-18-transcript-folding-design).

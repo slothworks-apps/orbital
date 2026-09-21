@@ -39,7 +39,15 @@ Only sessions Orbital runs itself have usage data, so the feature applies to
   `msg.usage` — the per-turn snapshot of the main agent loop. Context used =
   `input_tokens + cache_read_input_tokens + cache_creation_input_tokens +
   output_tokens`, the same formula `extractUsageTokens` in `DetailPanel.tsx`
-  uses today. Extract that shared math into `web/src/lib` rather than
+  uses today.
+
+  > **Corrected in build.** `result.usage` is not a snapshot of anything: it
+  > is the turn's total across every API request the turn made, so a turn
+  > with tool round-trips counts the whole conversation once per round-trip.
+  > The formula above is right for ONE request and wrong for a turn. The
+  > runner now asks the CLI (`get_context_usage`) and falls back to the
+  > turn's last main-loop call — see
+  > [[context-arc-summed-the-whole-turn]]. Extract that shared math into `web/src/lib` rather than
   duplicating it; the server computes the same sum in the runner.
   Cache-read tokens count (the canvas left this open): cached-in tokens
   occupy the window like any others, and this keeps the arc consistent with
@@ -167,9 +175,10 @@ Per the repo test rule — logic, not pixels:
 
 - level function: boundaries at T1/T2 (≤ vs >), clamping, null propagation
 - settings parsers: defaults, clamping, garbage, `warn >= critical`
-- server: context-used extraction from `result` usage; `compact_boundary`
-  handling (post_tokens present / absent); `contextUsedTokens` in
-  `toApiSession`; column round-trip
+- server: context-used extraction (the CLI's own answer, and the fallback to
+  the turn's last main-loop call — never the turn's sum);
+  `compact_boundary` handling (post_tokens present / absent);
+  `contextUsedTokens` in `toApiSession`; column round-trip
 - shared token math extracted from DetailPanel keeps its existing tests
   passing
 

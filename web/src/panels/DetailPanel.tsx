@@ -143,6 +143,7 @@ export function DetailPanel() {
 
   const [titleDraft, setTitleDraft] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [retitling, setRetitling] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [lineageCache, setLineageCache] = useState<Record<string, string[]>>({})
 
@@ -287,6 +288,29 @@ export function DetailPanel() {
       setTitleDraft(previousTitle)
       reportError(err, 'Failed to rename session')
     })
+  }
+
+  /**
+   * Names the session from its own contents, now.
+   *
+   * Nothing is written here on success: the server publishes the new title on
+   * the `sessions` topic, and the draft above reseeds from it. What this does
+   * own is the case where the model answers that the current name still fits
+   * — silence there would read as a broken button every time it agrees.
+   */
+  function handleRetitle() {
+    if (!id || retitling) return
+    setRetitling(true)
+    api
+      .retitleSession(id)
+      .then(({ changed }) => {
+        if (changed) return
+        useOrbital.setState({
+          toast: { kind: 'info', message: 'Name kept — it still fits this session.' },
+        })
+      })
+      .catch((err) => reportError(err, 'Failed to regenerate the name'))
+      .finally(() => setRetitling(false))
   }
 
   /**
@@ -552,6 +576,51 @@ export function DetailPanel() {
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-bright" />
             </span>
           )}
+          {/* Regenerate the name. Not on the canvas — it borrows 4b's UNPINNED
+              chrome verbatim so the header reads as one set of controls rather
+              than as a stray button. It is deliberately NOT gated on
+              `source === 'web'` the way Clear beside it is: the server names a
+              session from the transcript on disk, which a terminal session has
+              exactly like a web one. */}
+          {session && (
+            <Tooltip
+              title="Regenerate name"
+              description="Names this session from what it has actually been doing."
+              align="right"
+              delayMs={PIN_TOOLTIP_DELAY_MS}
+            >
+              <button
+                type="button"
+                aria-label="Regenerate name"
+                disabled={retitling}
+                onClick={handleRetitle}
+                className={[
+                  'grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border ease-[ease]',
+                  'transition-[background-color,border-color,color] duration-[180ms]',
+                  'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.7)]',
+                  'hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#dce8f7]',
+                  'focus-visible:border-[rgba(150,205,255,.26)] focus-visible:bg-[rgba(150,205,255,.09)] focus-visible:text-[#dce8f7]',
+                  'disabled:pointer-events-none disabled:opacity-50',
+                ].join(' ')}
+              >
+                <svg
+                  aria-hidden
+                  viewBox="0 0 24 24"
+                  width="13"
+                  height="13"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={retitling ? 'animate-spin' : undefined}
+                >
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1.06 6.67 2.7L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              </button>
+            </Tooltip>
+          )}
           {/* 4b: the pin sits left of Clear and ×, and IS the pinned
               indicator — there is no status chip for it; the footer below
               carries the wording. */}
@@ -623,7 +692,12 @@ export function DetailPanel() {
                 />
               )}
               {session.permissionMode && <ModeReadout mode={session.permissionMode} />}
-              <Badge variant="status" value={session.status} hue={headerHue} />
+              <Badge
+                variant="status"
+                value={session.status}
+                hue={headerHue}
+                interrupted={Boolean(session.interruptedAt)}
+              />
             </div>
 
             {/* The context gauge (canvas 1b, states in 1b-alt column A): a
@@ -727,6 +801,23 @@ export function DetailPanel() {
       >
         <Transcript sessionId={id} />
       </div>
+
+      {/* What a restart cost this session (spec
+          2026-09-21-session-autoheal-design). Directly over the composer,
+          because what it asks for is the next thing typed — and outside the
+          transcript, so it cannot scroll away. Borrows the foot note's box
+          and the INTERRUPTED chip's white ink, the two treatments this panel
+          already uses for "read this" and "a turn stopped". It clears itself
+          the moment the session runs a turn again. */}
+      {session?.interruptedAt != null && (
+        <div
+          data-interrupted-banner
+          className="mx-[22px] mb-3.5 rounded-[10px] border border-white/25 bg-white/[0.06] px-3.5 py-3 font-mono text-[10.5px] leading-[1.7] text-[rgba(220,235,255,.85)] [text-wrap:pretty]"
+        >
+          Turn interrupted by a server restart. The conversation is intact — ask again for
+          whatever did not come back.
+        </div>
+      )}
 
       {/* 4a's foot note: what the pin promises, or how long this session has
           left on the map. Only an ended session has either to say — a live

@@ -745,15 +745,26 @@ function SelectionReticle({
 }
 
 /**
- * "NEEDS INPUT" pill badge — mono, blinking dot, right of the planet (state
- * sheet artboard 1f). A planet with a context gauge uses 1i's pill position
- * instead (`clearsGauge` — the same offsets as the `/compact` pill), because
- * 1f's sits inside the band the gauge ring occupies.
+ * The pill badge right of the planet — mono, one line (state sheet artboard
+ * 1f). A planet with a context gauge uses 1i's pill position instead
+ * (`clearsGauge` — the same offsets as the `/compact` pill), because 1f's
+ * sits inside the band the gauge ring occupies.
+ *
+ * Two labels ride it. `NEEDS INPUT` is 1f's own, blinking dot and all.
+ * `INTERRUPTED` is the same pill with the dot dropped (spec
+ * 2026-09-21-session-autoheal-design): the canvas draws no interrupted state,
+ * and reusing an element it does draw is honest where inventing planet
+ * geometry would not be. A blink would be wrong for it anyway — nothing is
+ * happening, something already stopped.
  */
-function NeedsInputBadge({
+function StatePill({
+  label,
+  pulse,
   innerRef,
   clearsGauge,
 }: {
+  label: string
+  pulse: boolean
   innerRef: RefObject<HTMLSpanElement | null>
   clearsGauge: boolean
 }) {
@@ -787,12 +798,14 @@ function NeedsInputBadge({
           opacity: 0,
         }}
       >
-        <span
-          aria-hidden
-          className="orbital-pulse"
-          style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff' }}
-        />
-        NEEDS INPUT
+        {pulse && (
+          <span
+            aria-hidden
+            className="orbital-pulse"
+            style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff' }}
+          />
+        )}
+        {label}
       </span>
     </Html>
   )
@@ -1470,7 +1483,15 @@ export function Planet({
       )}
 
       {needsInputMounted && (
-        <NeedsInputBadge innerRef={badgeRef} clearsGauge={gaugeMounted && shownFill !== null} />
+        // An interrupted session is also waiting for input, so the two
+        // compete for the one pill. INTERRUPTED wins while the mark is set:
+        // it is the rarer answer and it says why the session is waiting.
+        <StatePill
+          label={session.interruptedAt ? 'INTERRUPTED' : 'NEEDS INPUT'}
+          pulse={!session.interruptedAt}
+          innerRef={badgeRef}
+          clearsGauge={gaugeMounted && shownFill !== null}
+        />
       )}
 
       {compactMounted && shownFill && (

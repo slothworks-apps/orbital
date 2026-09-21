@@ -8,7 +8,14 @@ import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
 import { ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
-import { openDb } from '../src/db/database.js';
+import { openDb, type OrbitalDb } from '../src/db/database.js';
+import {
+  countSweepable,
+  parseRetentionDays,
+  retentionCutoff,
+  sweepSessions,
+  RETENTION_KEY,
+} from '../src/retention.js';
 import { sessionColumns, sessions, sessionTags, settings as settingsTable, tags } from '../src/db/schema.js';
 import { registerRoutes } from '../src/api/routes.js';
 import { buildServer, publishLiveSession } from '../src/index.js';
@@ -19,6 +26,33 @@ import type { SessionRow } from '../src/types.js';
 import { SubagentStore } from '../src/transcript/subagents.js';
 import { createImageStore } from '../src/images/store.js';
 import { ErrorLog } from '../src/errors/log.js';
+
+/**
+ * The retitle route's one dependency. No test in this file asks it to name
+ * anything — `autoTitleEndToEnd.test.ts` drives it against a real titler with
+ * a fake model behind it.
+ */
+const stubTitler = () =>
+  ({ retitleNow: async () => ({ title: '', changed: false }) }) as any;
+
+/**
+ * A real retention context wired to the test's own database, so the route
+ * tests exercise the sweep and its preview rather than a stub that could
+ * agree with a broken implementation.
+ */
+function retentionFor(db: OrbitalDb) {
+  const stored = () =>
+    db.select({ value: settingsTable.value }).from(settingsTable)
+      .where(eq(settingsTable.key, RETENTION_KEY)).get()?.value ?? '';
+  return {
+    sweep: () => {
+      const now = Date.now();
+      return sweepSessions(db, retentionCutoff(parseRetentionDays(stored()), now), now);
+    },
+    preview: (value: string) =>
+      countSweepable(db, retentionCutoff(parseRetentionDays(value), Date.now())),
+  };
+}
 
 function makeApp() {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
@@ -84,6 +118,7 @@ function makeApp() {
     models: modelCatalog as any,
     subagents,
     errors,
+    titler: stubTitler(),
     settings: {
       get: (k: string) =>
         db.select({ value: settingsTable.value }).from(settingsTable)
@@ -95,6 +130,7 @@ function makeApp() {
           .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
           .run(),
     },
+    retention: retentionFor(db),
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, errors,
@@ -732,9 +768,11 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       errors: new ErrorLog({ db, hub }),
+      titler: stubTitler(),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
       claudeDir: '/nonexistent',
       settings: { get: () => '', set: () => {} },
+      retention: retentionFor(db),
     });
     return { app, db, runner, hub, close: () => { runner.dispose(); db.$client.close(); } };
   }
@@ -839,6 +877,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       errors: new ErrorLog({ db, hub }),
+      titler: stubTitler(),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
       claudeDir: '/nonexistent',
       settings: {
@@ -852,6 +891,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
             .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
             .run(),
       },
+      retention: retentionFor(db),
     });
     return { app, db, applied };
   }
@@ -1877,5 +1917,75 @@ describe('the decision endpoint', () => {
     expect(res.statusCode).toBe(400);
     // Nothing half-answered reaches the model.
     expect(answered).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retention (spec 2026-09-21-settings-sections-design § 4)
+// ---------------------------------------------------------------------------
+
+describe('retention', () => {
+  const DAY = 86_400_000;
+
+  function seedAges(db: OrbitalDb) {
+    db.delete(sessions).run();
+    db.insert(sessions)
+      .values([
+        { id: 'ancient', projectDir: 'p', lastAt: Date.now() - 400 * DAY },
+        { id: 'old', projectDir: 'p', lastAt: Date.now() - 100 * DAY },
+        { id: 'fresh', projectDir: 'p', lastAt: Date.now() - DAY },
+        { id: 'kept', projectDir: 'p', lastAt: Date.now() - 100 * DAY, pinnedAt: Date.now() },
+      ])
+      .run();
+  }
+
+  it('previews a policy without applying it', async () => {
+    const { app, db } = makeApp();
+    seedAges(db);
+
+    const res = await app.inject({ url: '/api/sessions/retention-preview?days=30' });
+    expect(res.json()).toEqual({ count: 2 }); // ancient + old; `kept` is pinned
+    // A preview must not be a delete.
+    expect(db.select().from(sessions).all()).toHaveLength(4);
+
+    expect((await app.inject({ url: '/api/sessions/retention-preview?days=365' })).json())
+      .toEqual({ count: 1 });
+    // The off switch previews as nothing, which is what the dialog needs to
+    // know not to ask for confirmation.
+    expect((await app.inject({ url: '/api/sessions/retention-preview?days=never' })).json())
+      .toEqual({ count: 0 });
+    expect((await app.inject({ url: '/api/sessions/retention-preview' })).json())
+      .toEqual({ count: 0 });
+  });
+
+  /**
+   * The dialog confirms "this will drop N sessions" and then saves, so the
+   * save has to be when it happens. Deferring to the next boot would turn
+   * that confirmation into a promise about some later restart.
+   */
+  it('sweeps on the PATCH that sets it', async () => {
+    const { app, db } = makeApp();
+    seedAges(db);
+
+    await app.inject({
+      method: 'PATCH', url: '/api/settings', payload: { delete_sessions_older_than_days: '30' },
+    });
+
+    const left = db.select({ id: sessions.id }).from(sessions).all().map((r) => r.id).sort();
+    expect(left).toEqual(['fresh', 'kept']);
+    // The value is persisted too, so the boot sweep honours it next time.
+    expect(
+      db.select({ value: settingsTable.value }).from(settingsTable)
+        .where(eq(settingsTable.key, 'delete_sessions_older_than_days')).get()?.value,
+    ).toBe('30');
+  });
+
+  it('deletes nothing when the setting is turned off again', async () => {
+    const { app, db } = makeApp();
+    seedAges(db);
+    await app.inject({
+      method: 'PATCH', url: '/api/settings', payload: { delete_sessions_older_than_days: 'never' },
+    });
+    expect(db.select().from(sessions).all()).toHaveLength(4);
   });
 });

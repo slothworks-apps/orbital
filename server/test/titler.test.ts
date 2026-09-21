@@ -273,3 +273,72 @@ describe('SessionTitler', () => {
     expect(options.maxTurns).toBe(1);
   });
 });
+
+/**
+ * The button next to the name in the detail panel. Everything
+ * `considerTurnEnd` weighs is deliberately not weighed here: a click is a
+ * decision, and the only thing left to decide is what the session should be
+ * called (spec 2026-09-18-auto-title-design § Renaming on demand).
+ */
+describe('SessionTitler.retitleNow', () => {
+  it('names a session with every automatic guard shut against it', async () => {
+    const { titler, applyTitle } = makeTitler({
+      titleSource: 'manual',
+      enabled: false,
+      reply: 'Space map counter-zoom',
+    });
+
+    const result = await titler.retitleNow('s1', MOVED_ON);
+
+    expect(applyTitle).toHaveBeenCalledWith('s1', 'Space map counter-zoom');
+    expect(result).toEqual({ title: 'Space map counter-zoom', changed: true });
+  });
+
+  it('describes the session from the messages it is handed, not from the buffer', async () => {
+    const { titler, queryFn } = makeTitler({});
+
+    await titler.retitleNow('never-fed', [userMsg('rewrite the tag rule matcher')]);
+
+    expect(queryFn.mock.calls[0][0].prompt).toContain('rewrite the tag rule matcher');
+  });
+
+  it('hands the title back to the titler even when the model answers KEEP', async () => {
+    const { titler, applyTitle } = makeTitler({ reply: 'KEEP', titleSource: 'manual' });
+
+    const result = await titler.retitleNow('s1', MOVED_ON);
+
+    // The click is consent to being renamed again later, so `manual` has to
+    // fall whether or not the name itself moved: `applyTitle` is what writes
+    // `auto`, and it is called with the name the session already has.
+    expect(applyTitle).toHaveBeenCalledWith('s1', 'Tag rules ordering');
+    expect(result).toEqual({ title: 'Tag rules ordering', changed: false });
+  });
+
+  it('starts the cooldown, so the next turn does not ask all over again', async () => {
+    const { titler, queryFn } = makeTitler({});
+    titler.feed('s1', MOVED_ON);
+
+    await titler.retitleNow('s1', MOVED_ON);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+
+    titler.feed('s1', MOVED_ON);
+    await titler.considerTurnEnd('s1');
+    expect(queryFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws a failed query at its caller — someone is waiting on this one', async () => {
+    const onError = vi.fn();
+    const titler = new SessionTitler({
+      queryFn: () => {
+        throw new Error('spawn ENOENT');
+      },
+      readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' }),
+      applyTitle: vi.fn(),
+      isEnabled: () => true,
+      onError,
+    });
+
+    await expect(titler.retitleNow('s1', MOVED_ON)).rejects.toThrow('spawn ENOENT');
+    expect(onError).not.toHaveBeenCalled();
+  });
+});

@@ -4,10 +4,12 @@
   "type": "module",
   "workspaces": ["server", "web", "desktop"],
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
-    "dev:server": "npm run dev -w server",
-    "dev:web": "npm run dev -w web",
-    "dev:desktop": "npm run dev -w desktop",
+    "dogfood": "npm run build -w server && npm run build -w web && ORBITAL_STATIC_DIR=\"$PWD/web/dist\" ORBITAL_MIGRATIONS_DIR=\"$PWD/server/drizzle\" node server/dist/index.mjs",
+    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:seed": "bash scripts/seed-dev-db.sh",
+    "dev:server": "ORBITAL_PORT=4838 ORBITAL_DATA_DIR=\"$HOME/Library/Application Support/orbital-dev\" npm run dev -w server",
+    "dev:web": "ORBITAL_PORT=4838 npm run dev -w web",
+    "dev:desktop": "ORBITAL_PORT=4838 npm run dev -w desktop",
     "desktop:release": "npm run build -w server && npm run build -w web && npm run dist -w desktop",
     "test": "npm test -w server && npm run test:run -w web && npm test -w desktop",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web && npm run typecheck -w desktop"

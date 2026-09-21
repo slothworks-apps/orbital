@@ -12,9 +12,11 @@ import {
   fitView,
   zoomAt,
   zoomFromWheel,
+  FIT_MARGIN_PX,
   MAX_ZOOM,
   MIN_ZOOM,
   type CameraState,
+  type FitBody,
 } from '../map/camera'
 import { PLANET_BASE_RADIUS } from '../map/layout'
 import { CONTEXT_GAUGE_OUTER, moonVisuals } from '../map/visuals'
@@ -68,6 +70,8 @@ const NOW = 1_800_000_000_000
 const DAY = 86_400_000
 /** Comfortably past the zoom tween's duration, so a click has finished arriving. */
 const ZOOM_STEP_SETTLE_MS = 900
+/** Same, for the fit flight, which runs on the longer `FIT_FLIGHT_MS`. */
+const FIT_SETTLE_MS = 1200
 
 /**
  * `buildSceneModel` at a fixed clock. Most tests here predate the timed
@@ -683,99 +687,204 @@ describe('applyPan', () => {
 })
 
 describe('fitView', () => {
-  it('falls back to origin/default zoom for an empty position list', () => {
+  const VIEWPORT = { width: 1440, height: 900 }
+  /**
+   * The zoom is solved by iterating against its own answer (the bodies
+   * inflate as it zooms out), so an edge lands a fraction of a pixel inside
+   * or outside the margin rather than exactly on it.
+   */
+  const EDGE_SLACK_PX = 0.01
+
+  /** Where a world point lands on screen under a camera — the projection `SpaceMap` applies. */
+  function worldToScreen(cam: CameraState, viewport: typeof VIEWPORT, world: { x: number; y: number }) {
+    return {
+      x: viewport.width / 2 + (world.x - cam.x) * cam.zoom,
+      y: viewport.height / 2 - (world.y - cam.y) * cam.zoom,
+    }
+  }
+
+  /**
+   * Screen-space box the bodies actually cover under `cam`, radii included
+   * and inflated the way the map inflates them (`bodyZoomFactor`) — what fit
+   * has to keep inside the frame.
+   */
+  function drawnBox(cam: CameraState, viewport: typeof VIEWPORT, bodies: FitBody[]) {
+    const factor = bodyZoomFactor(cam.zoom)
+    let left = Infinity
+    let right = -Infinity
+    let top = Infinity
+    let bottom = -Infinity
+    for (const b of bodies) {
+      const px = (b.r ?? 0) * factor * cam.zoom
+      const at = worldToScreen(cam, viewport, b)
+      left = Math.min(left, at.x - px)
+      right = Math.max(right, at.x + px)
+      top = Math.min(top, at.y - px)
+      bottom = Math.max(bottom, at.y + px)
+    }
+    return { left, right, top, bottom }
+  }
+
+  it('falls back to origin/default zoom for an empty body list', () => {
     expect(fitView([], { width: 800, height: 600 })).toEqual({ x: 0, y: 0, zoom: 60 })
   })
 
   it('centers the camera on the bounding box of all positions', () => {
-    const positions = [
+    const bodies = [
       { x: -10, y: 0 },
       { x: 10, y: 4 },
     ]
-    const fit = fitView(positions, { width: 800, height: 600 })
-    expect(fit.x).toBeCloseTo(0)
-    expect(fit.y).toBeCloseTo(2)
+    const fit = fitView(bodies, VIEWPORT)
+    const centre = worldToScreen(fit, VIEWPORT, { x: 0, y: 2 })
+    // The frame's own centre, which the margins pull off the viewport's.
+    expect(centre.x).toBeCloseTo(VIEWPORT.width / 2 + (FIT_MARGIN_PX.left - FIT_MARGIN_PX.right) / 2, 10)
+    expect(centre.y).toBeCloseTo(VIEWPORT.height / 2 + (FIT_MARGIN_PX.top - FIT_MARGIN_PX.bottom) / 2, 10)
   })
 
   it('clamps the computed zoom to the valid range', () => {
     // A single point (zero-size box) would compute an enormous zoom without clamping.
-    const fit = fitView([{ x: 0, y: 0 }], { width: 800, height: 600 })
+    const fit = fitView([{ x: 0, y: 0 }], VIEWPORT)
     expect(fit.zoom).toBeLessThanOrEqual(MAX_ZOOM)
     expect(fit.zoom).toBeGreaterThanOrEqual(MIN_ZOOM)
   })
 
-  it('picks the tighter axis so both width and height fit inside the viewport', () => {
-    const positions = [
+  it('keeps the whole box clear of the margins on every side', () => {
+    const bodies = [
+      { x: -10, y: -4 },
+      { x: 10, y: 4 },
+    ]
+    const box = drawnBox(fitView(bodies, VIEWPORT), VIEWPORT, bodies)
+    expect(box.left).toBeGreaterThanOrEqual(FIT_MARGIN_PX.left - EDGE_SLACK_PX)
+    expect(box.right).toBeLessThanOrEqual(VIEWPORT.width - FIT_MARGIN_PX.right + EDGE_SLACK_PX)
+    expect(box.top).toBeGreaterThanOrEqual(FIT_MARGIN_PX.top - EDGE_SLACK_PX)
+    expect(box.bottom).toBeLessThanOrEqual(VIEWPORT.height - FIT_MARGIN_PX.bottom + EDGE_SLACK_PX)
+  })
+
+  it('picks the tighter axis so both width and height fit inside the frame', () => {
+    // Wide box in a short viewport: height is what binds, and it binds exactly.
+    const bodies = [
       { x: -3, y: -1 },
       { x: 3, y: 1 },
     ]
-    // width = 6 + 2*padding(2) = 10 -> zoomX = 800/10 = 80
-    // height = 2 + 2*padding(2) = 6  -> zoomY = 300/6  = 50 (tighter, neither clamped)
-    const fit = fitView(positions, { width: 800, height: 300 })
-    expect(fit.zoom).toBeCloseTo(50)
+    const viewport = { width: 1440, height: 300 }
+    const fit = fitView(bodies, viewport)
+    expect(fit.zoom).toBeCloseTo(
+      (viewport.height - FIT_MARGIN_PX.top - FIT_MARGIN_PX.bottom) / 2,
+      10
+    )
+    const box = drawnBox(fit, viewport, bodies)
+    expect(box.left).toBeGreaterThanOrEqual(FIT_MARGIN_PX.left - EDGE_SLACK_PX)
+    expect(box.right).toBeLessThanOrEqual(viewport.width - FIT_MARGIN_PX.right + EDGE_SLACK_PX)
   })
 
   it('picks the other axis when IT is the tighter constraint', () => {
-    const positions = [
+    const bodies = [
       { x: -1, y: -3 },
       { x: 1, y: 3 },
     ]
-    // width = 2 + 4 = 6   -> zoomX = 300/6  = 50 (tighter, neither clamped)
-    // height = 6 + 4 = 10 -> zoomY = 800/10 = 80
-    const fit = fitView(positions, { width: 300, height: 800 })
-    expect(fit.zoom).toBeCloseTo(50)
+    const viewport = { width: 400, height: 900 }
+    const fit = fitView(bodies, viewport)
+    expect(fit.zoom).toBeCloseTo((viewport.width - FIT_MARGIN_PX.left - FIT_MARGIN_PX.right) / 2, 10)
+  })
+
+  describe('with body radii', () => {
+    it('frames what a body DRAWS, not the point it stands on', () => {
+      const points = [
+        { x: -10, y: 0 },
+        { x: 10, y: 0 },
+      ]
+      const withRadii = points.map((p) => ({ ...p, r: 3 }))
+      const fit = fitView(withRadii, VIEWPORT)
+      // A body 3 units wide on each end is 6 units more to fit, so the fit
+      // has to pull back from the one that frames the bare points.
+      expect(fit.zoom).toBeLessThan(fitView(points, VIEWPORT).zoom)
+      const box = drawnBox(fit, VIEWPORT, withRadii)
+      expect(box.left).toBeGreaterThanOrEqual(FIT_MARGIN_PX.left - EDGE_SLACK_PX)
+      expect(box.right).toBeLessThanOrEqual(VIEWPORT.width - FIT_MARGIN_PX.right + EDGE_SLACK_PX)
+    })
+
+    it('holds at a zoom low enough for the map to inflate the bodies', () => {
+      // Far enough apart that the fit lands deep in the zoomed-out range,
+      // where `bodyZoomFactor` grows the radii the solve has to allow for —
+      // the hole halo ending under the zoom stack was exactly this miss.
+      const bodies = [
+        { x: -30, y: -20 },
+        { x: 30, y: 20, r: 2.1 },
+      ]
+      const fit = fitView(bodies, VIEWPORT)
+      expect(bodyZoomFactor(fit.zoom)).toBeGreaterThan(1)
+      const box = drawnBox(fit, VIEWPORT, bodies)
+      expect(box.right).toBeLessThanOrEqual(VIEWPORT.width - FIT_MARGIN_PX.right + EDGE_SLACK_PX)
+      expect(box.bottom).toBeLessThanOrEqual(VIEWPORT.height - FIT_MARGIN_PX.bottom + EDGE_SLACK_PX)
+    })
+
+    it('treats a radius-less body as the bare point it was before', () => {
+      const bodies = [
+        { x: -10, y: -4 },
+        { x: 10, y: 4 },
+      ]
+      expect(fitView(bodies, VIEWPORT)).toEqual(
+        fitView(
+          bodies.map((b) => ({ ...b, r: 0 })),
+          VIEWPORT
+        )
+      )
+    })
   })
 
   describe('with panel insets', () => {
-    const VIEWPORT = { width: 1440, height: 900 }
     const INSETS = { left: 340, right: 466 }
 
-    function worldToScreen(cam: CameraState, world: { x: number; y: number }) {
-      return {
-        x: VIEWPORT.width / 2 + (world.x - cam.x) * cam.zoom,
-        y: VIEWPORT.height / 2 - (world.y - cam.y) * cam.zoom,
-      }
-    }
-
-    const positions = [
+    const bodies = [
       { x: -10, y: -4 },
       { x: 10, y: 4 },
     ]
 
     it('fits the box into the strip between the panels, not the whole viewport', () => {
-      const fit = fitView(positions, VIEWPORT, INSETS)
-      const left = worldToScreen(fit, { x: -10, y: 0 })
-      const right = worldToScreen(fit, { x: 10, y: 0 })
-      expect(left.x).toBeGreaterThanOrEqual(INSETS.left)
-      expect(right.x).toBeLessThanOrEqual(VIEWPORT.width - INSETS.right)
+      const fit = fitView(bodies, VIEWPORT, INSETS)
+      const left = worldToScreen(fit, VIEWPORT, { x: -10, y: 0 })
+      const right = worldToScreen(fit, VIEWPORT, { x: 10, y: 0 })
+      expect(left.x).toBeGreaterThanOrEqual(INSETS.left + FIT_MARGIN_PX.left)
+      expect(right.x).toBeLessThanOrEqual(VIEWPORT.width - INSETS.right - FIT_MARGIN_PX.right)
     })
 
     it('centres the box in the strip, so the panels bite equally into the margins', () => {
-      const fit = fitView(positions, VIEWPORT, INSETS)
-      const centre = worldToScreen(fit, { x: 0, y: 0 })
-      expect(centre.x).toBeCloseTo(INSETS.left + (VIEWPORT.width - INSETS.left - INSETS.right) / 2, 10)
-      expect(centre.y).toBeCloseTo(VIEWPORT.height / 2, 10)
+      const fit = fitView(bodies, VIEWPORT, INSETS)
+      const centre = worldToScreen(fit, VIEWPORT, { x: 0, y: 0 })
+      const stripCentre = INSETS.left + (VIEWPORT.width - INSETS.left - INSETS.right) / 2
+      expect(centre.x).toBeCloseTo(stripCentre + (FIT_MARGIN_PX.left - FIT_MARGIN_PX.right) / 2, 10)
+      expect(centre.y).toBeCloseTo(VIEWPORT.height / 2 + (FIT_MARGIN_PX.top - FIT_MARGIN_PX.bottom) / 2, 10)
     })
 
     it('zooms out further than the uninset fit — there is less room to fit into', () => {
-      const inset = fitView(positions, VIEWPORT, INSETS)
-      const full = fitView(positions, VIEWPORT)
+      const inset = fitView(bodies, VIEWPORT, INSETS)
+      const full = fitView(bodies, VIEWPORT)
       expect(inset.zoom).toBeLessThan(full.zoom)
     })
 
     it('behaves exactly like the uninset fit when no panel is covering the map', () => {
-      expect(fitView(positions, VIEWPORT, { left: 0, right: 0 })).toEqual(fitView(positions, VIEWPORT))
+      expect(fitView(bodies, VIEWPORT, { left: 0, right: 0 })).toEqual(fitView(bodies, VIEWPORT))
     })
 
     it('still fits vertically when height, not the narrowed width, is the tighter axis', () => {
-      // Strip = 1440-806 = 634; width 20+4 = 24 -> zoomX ~26.4.
-      // height 8+4 = 12 -> zoomY = 240/12 = 20 (tighter).
-      const fit = fitView(positions, { width: 1440, height: 240 }, INSETS)
-      expect(fit.zoom).toBeCloseTo(20)
+      const viewport = { width: 1440, height: 240 }
+      const fit = fitView(bodies, viewport, INSETS)
+      const top = worldToScreen(fit, viewport, { x: 0, y: 4 })
+      const bottom = worldToScreen(fit, viewport, { x: 0, y: -4 })
+      expect(top.y).toBeGreaterThanOrEqual(FIT_MARGIN_PX.top - EDGE_SLACK_PX)
+      expect(bottom.y).toBeLessThanOrEqual(viewport.height - FIT_MARGIN_PX.bottom + EDGE_SLACK_PX)
     })
 
     it('survives panels wider than the viewport instead of returning a nonsense camera', () => {
-      const fit = fitView(positions, { width: 700, height: 900 }, INSETS)
+      const fit = fitView(bodies, { width: 700, height: 900 }, INSETS)
+      expect(fit.zoom).toBeGreaterThanOrEqual(MIN_ZOOM)
+      expect(fit.zoom).toBeLessThanOrEqual(MAX_ZOOM)
+      expect(Number.isFinite(fit.x)).toBe(true)
+      expect(Number.isFinite(fit.y)).toBe(true)
+    })
+
+    it('survives a viewport the margins alone would swallow', () => {
+      const fit = fitView(bodies, { width: 160, height: 90 }, INSETS)
       expect(fit.zoom).toBeGreaterThanOrEqual(MIN_ZOOM)
       expect(fit.zoom).toBeLessThanOrEqual(MAX_ZOOM)
       expect(Number.isFinite(fit.x)).toBe(true)
@@ -1219,6 +1328,17 @@ describe('SpaceMap fit', () => {
     return Number(readout.textContent?.match(/x (-?\d+)/)?.[1])
   }
 
+  /**
+   * Lets the fit flight finish. Fit eases over `FIT_FLIGHT_MS` of real
+   * animation frames rather than cutting, so the camera it lands on is not
+   * there on the frame the control was pressed.
+   */
+  async function settleFit() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, FIT_SETTLE_MS))
+    })
+  }
+
   it('fits on load instead of opening at the fixed default camera', async () => {
     await renderMap()
     // The load fit and the button's fit are the same operation, so pressing
@@ -1271,6 +1391,29 @@ describe('SpaceMap fit', () => {
     expect(zoomPercent()).toBeGreaterThan(fitted)
 
     fireEvent.keyDown(window, { code: 'KeyF', altKey: true })
+    await settleFit()
+    expect(zoomPercent()).toBe(fitted)
+  })
+
+  it('flies to the fitted frame rather than cutting to it', async () => {
+    await renderMap()
+    const fitted = zoomPercent()
+    fireEvent.wheel(screen.getByTestId('map-surface'), { deltaY: -400 })
+    const zoomed = zoomPercent()
+
+    fireEvent.keyDown(window, { code: 'KeyF', altKey: true })
+    // A few frames in, the camera has left where it was without arriving —
+    // the whole point of the flight, and what a plain `setCamera` cannot do.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120))
+    })
+    const midFlight = zoomPercent()
+    expect(midFlight).toBeLessThan(zoomed)
+    expect(midFlight).toBeGreaterThan(fitted)
+
+    // And it lands exactly, not merely near: every later gesture is computed
+    // from this number.
+    await settleFit()
     expect(zoomPercent()).toBe(fitted)
   })
 
@@ -1279,6 +1422,10 @@ describe('SpaceMap fit', () => {
     const fitted = zoomPercent()
     fireEvent.wheel(screen.getByTestId('map-surface'), { deltaY: -400 })
     const zoomed = zoomPercent()
+    // Without this the assertion below passes even if the wheel did nothing:
+    // ⌥F would have no fit to return to, and "the zoom did not change" would
+    // be true for the wrong reason.
+    expect(zoomed).not.toBe(fitted)
 
     const input = document.createElement('input')
     document.body.appendChild(input)

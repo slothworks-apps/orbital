@@ -38,7 +38,8 @@ This names a session from its recent contents instead, while it runs.
   subscription login it has no credentials at all.
 - **Terminal sessions.** Orbital pays a model only for what it launched
   itself, the same line [[subagents-only-for-orbital-sessions]] draws. A
-  terminal session keeps its first-message title.
+  terminal session keeps its first-message title — *on the automatic path*.
+  Asked directly, it names one like any other; see "Renaming on demand".
 
 ## The gate
 
@@ -163,6 +164,58 @@ Read at the point of use, not at boot — the same lesson
 `ended_after_idle_minutes` already learned (a value read once at startup
 silently ignores the switch until the server restarts).
 
+## Renaming on demand
+
+The gate above is tuned to be quiet: it prefers `KEEP`, it waits out a
+cooldown, and it only fires when the session's own vocabulary has left its
+title behind. In practice that means most sessions never rename themselves,
+which is correct as a background behaviour and useless when you are looking
+at a bad name right now.
+
+So: a `⟳` in the detail header, beside the pin.
+
+```
+POST /api/sessions/:id/retitle   ->  { title, changed }
+```
+
+**Every guard the automatic path weighs is absent here.** The setting, a
+`manual` title, the message count, the cooldown and `shouldRetitle` all exist
+to decide *whether* to ask; a click has decided that. `auto_title_sessions`
+governs whether Orbital spends money on its own, not whether it answers a
+question — and a `manual` title is precisely what someone reaching for this
+button is trying to be rid of.
+
+**It reads the transcript off disk**, through the same `parseTranscript` +
+`entriesToMessages` pair that serves `GET /api/sessions/:id/messages`, rather
+than from the buffer `feed` fills. That is what lets it name a session the
+titler has never seen: one that has ended, one the server has restarted since
+— and a terminal session, which the Runner never owned in the first place. The
+transcript is the transcript; who started it does not change what it says.
+
+**`title_source` falls to `auto` even when the model answers `KEEP`.** The
+click is consent to being renamed again later, so it must land whether or not
+the name itself moved. Otherwise the button half-works on exactly the rows
+someone would use it on.
+
+`changed: false` is a result, not a failure, and the panel says so in a toast
+— a button that silently does nothing every time the model agrees reads as
+broken.
+
+Two refusals, neither of them an error the user caused:
+
+- **404** — no such session.
+- **409** — the session has not written a transcript yet. Nothing to read is
+  not something to ask a model about.
+
+A failed model call is recorded in the error log with `while: 'regenerating a
+session title'` and answered **502**, where the automatic path's equivalent
+goes to `onError` and is swallowed: here someone is waiting on the answer and
+can be told.
+
+One limit worth naming: `buildTitlePrompt` takes the *last* 30 messages. For a
+live session that is the point — what it is doing now. For a long session that
+ended, it names the end of the work rather than the whole of it.
+
 ## Where the code goes
 
 A `SessionTitler` in `server/src/titler/`, holding the gate, the prompt, the
@@ -194,12 +247,24 @@ calls a model.
   that tries to be a paragraph, a reply carrying an injected instruction.
 - The titler with a stubbed `queryFn`: renames once, writes `auto`, skips a
   `manual` row, and respects the setting being off.
+- `retitleNow` with the same stub: names a row the automatic path would have
+  refused outright (`manual`, setting off), describes the session from the
+  messages it is handed rather than from the buffer, applies the title even on
+  `KEEP`, starts the cooldown, and throws a failed query at its caller.
+- The route end to end, against a terminal session written into a temp
+  `~/.claude`: renamed with the setting off and a typed title; `KEEP`
+  reported as `changed: false`; 404 and 409.
+- The button is not gated on `source === 'web'` the way `Clear` beside it is.
 - No test spawns a CLI.
 
 ## Out of scope
 
-- Terminal sessions (above).
+- Terminal sessions, on the automatic path only (above).
 - Any marker in the transcript saying the title changed. The sidebar and the
   map simply show the new name.
-- Re-titling historical sessions in bulk. This names sessions as they run;
-  what is already in the index keeps the name it has.
+- Re-titling historical sessions in bulk. This names sessions as they run, or
+  one at a time when asked; what is already in the index keeps the name it has
+  until someone reaches for the button.
+- Feeding the automatic path from the indexer so terminal sessions rename
+  themselves too. That needs an answer to what "a turn ended" means for a
+  session Orbital does not run, and it is a separate question from this one.

@@ -171,16 +171,32 @@ function IconButton({
   )
 }
 
-/** Mono uppercase status column per canvas 1a: hue-colored while working, muted otherwise. */
-function RowStatus({ status, hue }: { status: ApiSession['status']; hue: number | undefined }) {
+/**
+ * Mono uppercase status column per canvas 1a: hue-colored while working,
+ * muted otherwise.
+ *
+ * `interrupted` displaces the word rather than adding one: a session whose
+ * turn a restart cut short is waiting for input, and INTERRUPTED says that
+ * and why (spec 2026-09-21-session-autoheal-design). It goes unhued, like
+ * the map's pill, so the two surfaces agree.
+ */
+function RowStatus({
+  status,
+  hue,
+  interrupted,
+}: {
+  status: ApiSession['status']
+  hue: number | undefined
+  interrupted?: boolean
+}) {
   const busy = status === 'working' || status === 'needs_input'
-  const color = busy && hue !== undefined ? tagColor(hue) : undefined
+  const color = busy && !interrupted && hue !== undefined ? tagColor(hue) : undefined
   return (
     <span
       className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em]"
       style={{ color: color ?? 'rgba(160,190,225,.6)' }}
     >
-      {status === 'needs_input' ? 'NEEDS INPUT' : status.toUpperCase()}
+      {interrupted ? 'INTERRUPTED' : status === 'needs_input' ? 'NEEDS INPUT' : status.toUpperCase()}
     </span>
   )
 }
@@ -667,7 +683,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
                         {timeAgo(s.lastAt ?? Date.now())}
                       </span>
                     ) : (
-                      <RowStatus status={s.status} hue={rowHue(s, tags)} />
+                      <RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} />
                     )
                   }
                 />
@@ -698,7 +714,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               selected={s.id === selectedId}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
-              right={<RowStatus status={s.status} hue={rowHue(s, tags)} />}
+              right={<RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} />}
             />
           ))}
         </ul>

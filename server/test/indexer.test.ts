@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
-import { sessions, sessionColumns } from '../src/db/schema.js';
+import { sessions, sessionColumns, sweptSessions } from '../src/db/schema.js';
 import { indexProjects } from '../src/indexer/indexer.js';
+import { retentionCutoff, sweepSessions } from '../src/retention.js';
 import type { SessionRow } from '../src/types.js';
 
 function setup() {
@@ -194,5 +195,71 @@ describe('indexProjects and map_dismissed_at', () => {
     indexProjects(db, projects);
     const row = db.select().from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!;
     expect(row.mapDismissedAt).toBe(123);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retention tombstones (spec 2026-09-21-settings-sections-design § 4)
+// ---------------------------------------------------------------------------
+
+describe('indexProjects and swept sessions', () => {
+  /**
+   * The whole reason `swept_sessions` exists. Deleting the row is not enough:
+   * this loop inserts every transcript the database lacks, so without a
+   * tombstone a swept session is back after one scan.
+   */
+  it('does not re-index a session the sweep removed', () => {
+    const { db, projects } = setup();
+    expect(indexProjects(db, projects).indexed).toBe(1);
+
+    const cutoff = retentionCutoff(30, Date.now());
+    // Age it past the cutoff so the sweep is entitled to take it.
+    db.update(sessions).set({ lastAt: Date.now() - 100 * 86_400_000 }).run();
+    expect(sweepSessions(db, cutoff, Date.now())).toEqual(['aaaa-bbbb']);
+    expect(db.select().from(sessions).all()).toHaveLength(0);
+
+    indexProjects(db, projects);
+    expect(db.select().from(sessions).all()).toHaveLength(0);
+  });
+
+  /**
+   * And the reason the tombstone is dated rather than a bare flag. Appending
+   * to the transcript is what resuming the session in the CLI looks like from
+   * here, and a session someone is using again must not stay invisible.
+   */
+  it('brings it back once its transcript is written to again', () => {
+    const { db, projects, transcriptPath } = setup();
+    indexProjects(db, projects);
+    db.update(sessions).set({ lastAt: Date.now() - 100 * 86_400_000 }).run();
+
+    // Both stamps are set explicitly rather than taken from the clock: the
+    // whole rule is an mtime-versus-sweptAt comparison, and letting two
+    // `Date.now()` calls land in the same millisecond would make this test
+    // flaky about the one thing it exists to pin down.
+    const sweptAt = Date.now();
+    sweepSessions(db, retentionCutoff(30, sweptAt), sweptAt);
+
+    // Untouched since the sweep: stays gone.
+    utimesSync(transcriptPath, new Date(sweptAt - 5_000), new Date(sweptAt - 5_000));
+    indexProjects(db, projects);
+    expect(db.select().from(sessions).all()).toHaveLength(0);
+    expect(db.select().from(sweptSessions).all()).toHaveLength(1);
+
+    // The CLI resumes it: the file is written to, so its mtime passes the
+    // sweep's stamp and the session is someone's again.
+    appendFileSync(transcriptPath, '\n');
+    utimesSync(transcriptPath, new Date(sweptAt + 5_000), new Date(sweptAt + 5_000));
+    indexProjects(db, projects);
+
+    expect(db.select().from(sessions).all()).toHaveLength(1);
+    // And the tombstone is gone, so the next scan does not have to re-decide.
+    expect(db.select().from(sweptSessions).all()).toHaveLength(0);
+  });
+
+  it('leaves tombstones for transcripts it did not see alone', () => {
+    const { db, projects } = setupEmpty();
+    db.insert(sweptSessions).values({ id: 'gone', sweptAt: 1 }).run();
+    indexProjects(db, projects);
+    expect(db.select().from(sweptSessions).all()).toHaveLength(1);
   });
 });

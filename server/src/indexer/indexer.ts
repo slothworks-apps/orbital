@@ -1,8 +1,8 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { OrbitalDb } from '../db/database.js';
-import { sessions } from '../db/schema.js';
+import { sessions, sweptSessions } from '../db/schema.js';
 import { parseTranscript, extractMeta } from '../transcript/parser.js';
 import { regenerateRuleTags } from '../tags/rules.js';
 
@@ -30,6 +30,22 @@ export function indexProjects(
   } catch {
     return { scanned: 0, indexed: 0 };
   }
+
+  /**
+   * Sessions the retention sweep removed (spec
+   * 2026-09-21-settings-sections-design § 4). Loaded once per scan rather
+   * than queried per file: the table is small, and a scan touches every
+   * transcript on the machine.
+   *
+   * Without this, retention would not work at all — the loop below inserts
+   * every `.jsonl` the database lacks, so a swept session whose transcript is
+   * still on disk would be back within one scan.
+   */
+  const tombstones = new Map(
+    db.select().from(sweptSessions).all().map((row) => [row.id, row.sweptAt] as const),
+  );
+  /** Tombstones this scan invalidated, dropped together at the end. */
+  const revived: string[] = [];
   for (const dir of dirs) {
     let files: string[] = [];
     try {
@@ -43,6 +59,18 @@ export function indexProjects(
       try {
         const stat = statSync(path);
         const id = file.replace(/\.jsonl$/, '');
+
+        // A swept session stays swept only while its transcript has not moved
+        // since. Writing to it means the user resumed it in the CLI, and a
+        // session someone is using again must not stay invisible — so the
+        // tombstone is dropped and the file indexed like any other. This is
+        // what keeps `swept_sessions` from becoming a permanent blocklist.
+        const sweptAt = tombstones.get(id);
+        if (sweptAt !== undefined) {
+          if (Math.floor(stat.mtimeMs) <= sweptAt) continue;
+          revived.push(id);
+        }
+
         const existing = db
           .select({ indexedMtime: sessions.indexedMtime, indexedSize: sessions.indexedSize })
           .from(sessions)
@@ -97,6 +125,9 @@ export function indexProjects(
         console.warn(`orbital: failed to index ${path}:`, err);
       }
     }
+  }
+  if (revived.length > 0) {
+    db.delete(sweptSessions).where(inArray(sweptSessions.id, revived)).run();
   }
   if (indexed > 0) regenerateRuleTags(db);
   return { scanned, indexed };

@@ -20,14 +20,16 @@ import {
   tags,
 } from '../db/schema.js';
 import { decisionQuestions, parseIdleTimeoutMs, type Runner } from '../runner/runner.js';
+import { RETENTION_KEY } from '../retention.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
 import type { SubagentStore } from '../transcript/subagents.js';
-import type { ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
+import type { ChatMessage, ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
 import type { ImageStore } from '../images/store.js';
+import type { SessionTitler } from '../titler/titler.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -45,7 +47,21 @@ export interface RouteContext {
   models: ModelCatalog;
   subagents: SubagentStore;
   errors: ErrorLog;
+  /** Names a session from its own contents; here, only ever on demand. */
+  titler: SessionTitler;
   settings: { get(key: string): string; set(key: string, value: string): void };
+  /**
+   * The retention sweep (spec 2026-09-21-settings-sections-design § 4).
+   * Injected rather than called directly because the sweep has to publish a
+   * `remove` per deleted session, and `buildServer` is what owns the hub and
+   * the tombstone ordering against the indexer.
+   */
+  retention: {
+    /** Runs the stored policy now, returning the ids it removed. */
+    sweep(): string[];
+    /** What a candidate policy WOULD remove, for the confirmation. */
+    preview(value: string): number;
+  };
 }
 
 /** The only kinds `POST /api/errors` will accept, mirroring `ErrorKind`. */
@@ -162,29 +178,41 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { session: toApiSession(ctx, row), lineage };
   });
 
-  app.get('/api/sessions/:id/messages', (req, reply) => {
-    const { id } = req.params as { id: string };
-    const q = req.query as Record<string, string>;
+  /**
+   * A session's transcript as messages, or `null` when the id itself is
+   * unknown — the one case that is a 404.
+   *
+   * Two different "missing"s, and only one of them is a 404. A row that exists
+   * with no file behind it is the ordinary state of a session Orbital has just
+   * launched: the row goes in with `project_dir: ''` and the CLI writes the
+   * transcript a moment later. A session with nothing written yet has an empty
+   * transcript, not a missing one, so it comes back as no messages rather than
+   * 404ing every launch.
+   *
+   * Reading from disk rather than from anything held in memory is what makes
+   * this work for every session Orbital knows, including the terminal ones it
+   * only ever watches.
+   */
+  function readTranscriptMessages(id: string): ChatMessage[] | null {
     const row = db
       .select({ project_dir: sessions.projectDir })
       .from(sessions)
       .where(eq(sessions.id, id))
       .get() as { project_dir: string } | undefined;
-    if (!row) return reply.code(404).send({ error: 'not found' });
-    let messages;
+    if (!row) return null;
     try {
       const text = readFileSync(join(ctx.projectsDir, row.project_dir, `${id}.jsonl`), 'utf8');
-      messages = entriesToMessages(parseTranscript(text), ctx.images);
+      return entriesToMessages(parseTranscript(text), ctx.images);
     } catch {
-      // Two different "missing"s, and only one of them is a 404. An unknown
-      // id already left above — that session does not exist. Getting here
-      // means the row does exist and only the file is absent, which is the
-      // ordinary state of a session Orbital has just launched: the row goes
-      // in with `project_dir: ''` and the CLI writes the transcript a moment
-      // later. A session with nothing written yet has an empty transcript,
-      // not a missing one, so say so instead of 404ing every launch.
-      return { messages: [] };
+      return [];
     }
+  }
+
+  app.get('/api/sessions/:id/messages', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as Record<string, string>;
+    const messages = readTranscriptMessages(id);
+    if (!messages) return reply.code(404).send({ error: 'not found' });
     const limit = Math.min(Number(q.limit ?? 100), 500);
     const before = q.before ? messages.findIndex((m) => m.id === q.before) : messages.length;
     const end = before === -1 ? messages.length : before;
@@ -424,6 +452,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         id: sessionId, projectDir: '', cwd, source: 'web',
         permissionMode: body.permissionMode, model: body.model ?? null,
         parentId: body.parentId ?? null, lastAt: Date.now(),
+        // The row is born already claimed. `start()` above announced the
+        // claim to a row that did not exist yet, so without this a session
+        // killed during its very first turn would look to the next boot like
+        // one the Runner never owned — the exact window a save-triggered
+        // restart lands in (spec 2026-09-21-session-autoheal-design). Read
+        // now rather than remembered from `start()`, so a turn that has
+        // already finished writes `needs_input` and not a stale `working`.
+        runnerStatus: ctx.runner.status(sessionId) ?? null,
       })
       .onConflictDoNothing()
       .run();
@@ -666,6 +702,44 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
+  /**
+   * Name this session from its contents, now — the ⟳ beside the title.
+   *
+   * The counterpart to the automatic path in `SessionTitler`, and deliberately
+   * free of every guard that one weighs: the `auto_title_sessions` setting
+   * governs whether Orbital renames sessions on its own, not whether it
+   * answers a click, and a `manual` title is exactly what someone reaching for
+   * this button is trying to be rid of.
+   *
+   * Works for a terminal session too. The content comes off disk, so the
+   * Runner's in-memory buffer — which only web sessions ever fill, and only
+   * while they are alive — is not involved.
+   */
+  app.post('/api/sessions/:id/retitle', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const messages = readTranscriptMessages(id);
+    if (!messages) return reply.code(404).send({ error: 'not found' });
+    // Nothing to read is not a failure, and it is not something to ask a model
+    // about either: a session mid-launch has no transcript yet.
+    if (messages.length === 0) {
+      return reply.code(409).send({ error: 'this session has not written anything yet' });
+    }
+    try {
+      return await ctx.titler.retitleNow(id, messages);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId: id,
+        message,
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: 'regenerating a session title' },
+      });
+      return reply.code(502).send({ error: message });
+    }
+  });
+
   app.put('/api/sessions/:id/tags', (req) => {
     const { id } = req.params as { id: string };
     const { tagIds } = req.body as { tagIds: number[] };
@@ -890,7 +964,23 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       if (k === 'ended_after_idle_minutes') {
         ctx.runner.setIdleTimeoutMs(parseIdleTimeoutMs(String(v)));
       }
+      // Same reasoning as the idle timeout above, with more at stake: the
+      // dialog confirms "this will drop N sessions" before saving, so the
+      // sweep has to happen now. Deferring it to the next boot would make
+      // that confirmation a promise about some later restart.
+      if (k === RETENTION_KEY) ctx.retention.sweep();
     }
     return { ok: true };
+  });
+
+  /**
+   * What a retention policy would remove, without removing it. This is what
+   * the confirmation names, so it runs the sweep's own predicate rather than
+   * a second copy of it — a count that disagreed with the delete would be
+   * worse than no count.
+   */
+  app.get('/api/sessions/retention-preview', (req) => {
+    const { days } = req.query as { days?: string };
+    return { count: ctx.retention.preview(String(days ?? '')) };
   });
 }

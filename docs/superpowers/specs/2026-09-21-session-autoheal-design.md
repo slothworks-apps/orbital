@@ -2,7 +2,7 @@
 id: 2026-09-21-session-autoheal-design
 title: Session autoheal after a server restart
 type: spec
-status: draft
+status: done
 domain: sessions
 related:
   - runner-pins-the-session-id
@@ -70,6 +70,15 @@ transition — the exact window a save-triggered restart lands in most often.
 
 `index.ts` owns the write, like every other Runner callback that touches the
 db.
+
+One row is born already claimed rather than waiting for the callback.
+`POST /api/sessions` calls `runner.start()` *before* it inserts the row, so
+the claim that `start()` announces lands on a row that does not exist yet and
+is silently dropped. Left alone, a session killed during its very first turn
+would look to the next boot like one the Runner never owned — the exact
+window a save-triggered restart lands in. The insert therefore reads
+`runner.status(sessionId)` and stores it: read at insert time, so a turn that
+has already finished writes `needs_input` rather than a stale `working`.
 
 Second column, for the mark:
 
@@ -161,8 +170,11 @@ transcription of it; inventing one here would put a body on the map that the
 canvas does not describe. Reusing an element the canvas already draws is the
 honest interim. A proper artboard is a later, separate change.
 
-**Sidebar** — the same chip: `Badge` gains an `interrupted` variant, shown in
-place of the status chip while the flag is set.
+**Sidebar and the detail header** — the same word. `Badge` and the sidebar's
+`RowStatus` take an `interrupted` modifier rather than gaining a status of
+their own: the session really is waiting for input, and `INTERRUPTED`
+displaces the label to say why. It keeps the needs-input treatment, drops the
+blinking dot, and goes unhued, so all three surfaces agree.
 
 **Errors panel** — one `ErrorLog` record per boot that healed anything: how
 many sessions came back, how many were mid-turn, and which ones the cap

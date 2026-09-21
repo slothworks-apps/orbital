@@ -1154,3 +1154,31 @@ describe('MessageView: folded command expansion', () => {
     expect(screen.getByRole('button', { name: /machine context ×2/ })).toBeInTheDocument()
   })
 })
+
+describe('a turn nobody authored sits on the agent side', () => {
+  const machineOnly = {
+    id: '1', role: 'user' as const, text: '',
+    command: { name: null, body: '<task-notification>a</task-notification>', blocks: 1 },
+  }
+
+  it('aligns a machine-context-only turn left, like the agent speaking', () => {
+    // A resumed session's task notifications arrive as user-role turns the
+    // human never typed (spec 2026-09-21-session-autoheal-design). Showing
+    // them right-aligned puts the CLI's words in the user's voice.
+    const { container } = render(<MessageView message={makeMessage(machineOnly)} />)
+    expect(container.firstElementChild?.className).toContain('items-start')
+    expect(container.firstElementChild?.className).not.toContain('items-end')
+  })
+
+  it('keeps a turn the human did type on the right, chip and all', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ ...machineOnly, text: 'carry on' })} />
+    )
+    expect(container.firstElementChild?.className).toContain('items-end')
+  })
+
+  it('still marks it a user turn, only its placement changes', () => {
+    const { container } = render(<MessageView message={makeMessage(machineOnly)} />)
+    expect(container.querySelector('[data-role="user"]')).toBeInTheDocument()
+  })
+})

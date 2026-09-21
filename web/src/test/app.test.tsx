@@ -462,7 +462,8 @@ describe('App: dialog ownership', () => {
     const settingsEntries = screen.getAllByRole('button', { name: /open settings/i })
     expect(settingsEntries).toHaveLength(2)
     fireEvent.click(settingsEntries[settingsEntries.length - 1])
-    expect(screen.getByRole('heading', { name: 'Sessions' })).toBeInTheDocument()
+    // No section remembered yet, so it lands on the nav's first row.
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument()
 
     // Tags & rules is now a section of that same dialog, not a second one.
     fireEvent.click(screen.getByRole('button', { name: 'Tags & rules' }))

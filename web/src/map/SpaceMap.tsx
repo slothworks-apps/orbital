@@ -23,6 +23,7 @@ import { useSceneModel } from './useSceneModel'
 import type { SceneLabel } from './sceneModel'
 import { LABEL_MARGIN } from './layout'
 import {
+  HOLE_DROP_RADIUS,
   createSimulation,
   dragSimBody,
   holeDropState,
@@ -54,6 +55,7 @@ import {
   zoomAt,
   zoomFromWheel,
   type CameraState,
+  type FitBody,
   type Position,
 } from './camera'
 
@@ -76,6 +78,14 @@ const ZOOM_STEP = 20
  * home.
  */
 const ZOOM_STEP_MS = 420
+/**
+ * How long the fit flight takes. Longer than one zoom step and matched to
+ * `BODY_MOVE_MS` instead, for the same reason that constant is what it is:
+ * this move crosses the whole map, and the eye has to be able to follow
+ * where the view went. Unlike a zoom step it is not a button anyone presses
+ * four times in a row — pressing fit again lands on the same frame.
+ */
+const FIT_FLIGHT_MS = BODY_MOVE_MS
 /** Below this many screen px of movement, a pointer down+up is treated as a click, not a drag-pan. */
 const DRAG_THRESHOLD_PX = 3
 
@@ -327,6 +337,98 @@ function useZoomTo(setCamera: (next: (cam: CameraState) => CameraState) => void)
 }
 
 /**
+ * Flies the camera to a complete state — position AND zoom together — for
+ * fit, which is the only control that sets all three at once.
+ *
+ * It used to just `setCamera` the fitted state, and the jump was the problem:
+ * fit reframes the whole map, so the cut gives no clue whether the view moved
+ * left or zoomed out, and the planets you were looking at have to be found
+ * again from scratch. Flown, the same reframe shows its own direction.
+ *
+ * Same `requestAnimationFrame` into `setCamera` shape as `usePanTo` and
+ * `useZoomTo`, for the same reason (the HUD readout and every following
+ * gesture read this state, so the camera must actually BE there when the run
+ * ends), and zoom is interpolated in LOG space for the same reason too: it is
+ * multiplicative, and a linear ramp spends most of the run barely moving.
+ * Both axes and the zoom share one duration and curve, so the flight reads as
+ * a single move rather than a pan racing a zoom.
+ *
+ * `cancel` is the same contract as the other two: a hand on the map abandons
+ * the flight where it stands.
+ */
+function useFlyTo(setCamera: (next: CameraState) => void) {
+  const pos = useRef(createPointTween(0, 0, FIT_FLIGHT_MS))
+  const zoom = useRef(createTween(Math.log(INITIAL_CAMERA.zoom), FIT_FLIGHT_MS))
+  /** Where the flight is headed — the exact state it has to land on. */
+  const target = useRef<CameraState>(INITIAL_CAMERA)
+  const frame = useRef(0)
+  const lastMs = useRef(0)
+
+  const cancel = useCallback(() => {
+    if (frame.current !== 0) cancelAnimationFrame(frame.current)
+    frame.current = 0
+    pos.current.x.active = false
+    pos.current.y.active = false
+    zoom.current.active = false
+  }, [])
+
+  useEffect(() => cancel, [cancel])
+
+  const flyTo = useCallback(
+    (from: CameraState, to: CameraState) => {
+      cancel()
+      target.current = to
+      const pt = pos.current
+      const zt = zoom.current
+      // Seed every tween at the live camera, both ends: `retarget*` reads
+      // `to` to decide whether there is anything to do, so a flight back to
+      // a state this hook flew to before would otherwise be a no-op.
+      pt.x.value = from.x
+      pt.x.to = from.x
+      pt.y.value = from.y
+      pt.y.to = from.y
+      zt.value = Math.log(from.zoom)
+      zt.to = zt.value
+      const reduced = prefersReducedMotion()
+      retargetPointTween(pt, to.x, to.y, reduced)
+      retargetTween(zt, Math.log(to.zoom), FIT_FLIGHT_MS, reduced)
+      // Already there on every axis — nothing to animate, but the camera
+      // still has to be exactly the fitted state.
+      if (!pt.x.active && !pt.y.active && !zt.active) {
+        setCamera(to)
+        return
+      }
+
+      const step = (nowMs: number) => {
+        // Seeded from the first FRAME's own timestamp, not from
+        // `performance.now()` at launch: the two share an origin in a browser
+        // but are not required to, and where they don't (jsdom) a launch-time
+        // seed makes the first delta wildly negative and the flight stalls.
+        const delta = lastMs.current === 0 ? 0 : (nowMs - lastMs.current) / 1000
+        lastMs.current = nowMs
+        advancePointTween(pt, delta)
+        advanceTween(zt, delta)
+        const running = pt.x.active || pt.y.active || zt.active
+        // Exactly the target once the run is over: exp(log(x)) is only x to
+        // within a rounding error, and the HUD reads this number.
+        setCamera(
+          running
+            ? { x: pt.x.value, y: pt.y.value, zoom: Math.exp(zt.value) }
+            : target.current
+        )
+        frame.current = running ? requestAnimationFrame(step) : 0
+      }
+
+      lastMs.current = 0
+      frame.current = requestAnimationFrame(step)
+    },
+    [cancel, setCamera]
+  )
+
+  return { flyTo, cancel }
+}
+
+/**
  * Space backdrop, verbatim from artboard 1a: nebula wash + two star layers
  * as plain DOM behind the transparent WebGL canvas (the design builds them
  * from CSS gradients, so we reuse those exact declarations in theme.css).
@@ -442,11 +544,13 @@ export function SpaceMap() {
 
   const { panTo, cancel: cancelPan } = usePanTo(setCamera)
   const { zoomBy, cancel: cancelZoom } = useZoomTo(setCamera)
-  /** A hand on the map — or any camera move of its own — outranks both runs in flight. */
+  const { flyTo, cancel: cancelFly } = useFlyTo(setCamera)
+  /** A hand on the map — or any camera move of its own — outranks every run in flight. */
   const cancelCameraMotion = useCallback(() => {
     cancelPan()
     cancelZoom()
-  }, [cancelPan, cancelZoom])
+    cancelFly()
+  }, [cancelPan, cancelZoom, cancelFly])
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number; captured: boolean } | null>(null)
   /** Set true once a drag crosses `DRAG_THRESHOLD_PX`; the click handler below checks this to ignore the trailing click a drag-release produces. Reset on the next pointerdown, not on pointerup — the native `click` event fires AFTER pointerup, so it must still see this drag's `true`. */
@@ -653,13 +757,20 @@ export function SpaceMap() {
     zoomBy(-ZOOM_STEP, cameraRef.current.zoom)
   }, [cancelPan, zoomBy])
 
-  const handleFit = useCallback(() => {
-    cancelCameraMotion()
+  /**
+   * The camera that frames the whole map right now.
+   *
+   * Every body carries the radius it DRAWS at (`footprint` already covers a
+   * planet's moon system, `HOLE_DROP_RADIUS` the hole's halo), not just its
+   * centre: a fit that frames centres leaves whatever is drawn around the
+   * outermost ones hanging over the edge, which on the hole is most of it.
+   */
+  const fitCamera = useCallback(() => {
     // The hole is part of the map — fit frames it with the planets, so the
     // history landmark is never fitted out of view.
-    const positions: Position[] = [
-      ...model.planets.map((p) => ({ x: p.x, y: p.y })),
-      { x: model.hole.x, y: model.hole.y },
+    const bodies: FitBody[] = [
+      ...model.planets.map((p) => ({ x: p.x, y: p.y, r: p.footprint })),
+      { x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS },
     ]
     const rect = containerRef.current?.getBoundingClientRect()
     const viewport = {
@@ -669,8 +780,13 @@ export function SpaceMap() {
     // Fit into the strip the panels leave, not the raw viewport: "show me
     // everything" that parks half the sessions under the sidebar or the
     // detail panel has not shown them.
-    setCamera(fitView(positions, viewport, mapInsets))
-  }, [cancelCameraMotion, model.planets, model.hole.x, model.hole.y, mapInsets])
+    return fitView(bodies, viewport, mapInsets)
+  }, [model.planets, model.hole.x, model.hole.y, mapInsets])
+
+  const handleFit = useCallback(() => {
+    cancelCameraMotion()
+    flyTo(cameraRef.current, fitCamera())
+  }, [cancelCameraMotion, flyTo, fitCamera])
 
   /**
    * Fit once per page load, on the first frame that has both sessions to
@@ -687,14 +803,19 @@ export function SpaceMap() {
    * Deliberately once, not on every layout change: the camera is the user's
    * after they have touched it, and a map that re-fits itself under a moving
    * hand is worse than one that does nothing.
+   *
+   * Set, not flown (unlike the control): a flight shows where a view MOVED
+   * from, and on load there is no view to have moved from — the default
+   * camera is an implementation detail nobody has looked at yet, and flying
+   * out of it would only advertise it.
    */
   const urlRestored = useOrbital((s) => s.ui.urlRestored ?? false)
   const fittedOnLoad = useRef(false)
   useEffect(() => {
     if (fittedOnLoad.current || !urlRestored || model.planets.length === 0) return
     fittedOnLoad.current = true
-    handleFit()
-  }, [urlRestored, model.planets.length, handleFit])
+    setCamera(fitCamera())
+  }, [urlRestored, model.planets.length, fitCamera])
 
   // ⌥F / Alt+F fits the map — same key handling as ⌥N below (physical key via
   // e.code, ignored while typing), because on a US layout ⌥F arrives as 'ƒ'.
@@ -742,12 +863,15 @@ export function SpaceMap() {
     if (!previous || previous.id !== followedId) return
     if (Math.hypot(followedX - previous.x, followedY - previous.y) < FOLLOW_MIN_DISTANCE) return
 
+    // A fit still in flight is abandoned rather than raced: both runs write
+    // the whole camera every frame, and the newer intent wins.
+    cancelFly()
     const cam = cameraRef.current
     // Both panel widths are live — a dragged-wider panel must keep the
     // followed planet clear of it.
     const target = centerOn(cam, { x: followedX, y: followedY }, mapInsets)
     panTo({ x: cam.x, y: cam.y }, { x: target.x, y: target.y })
-  }, [followedId, followedX, followedY, panTo, mapInsets])
+  }, [followedId, followedX, followedY, panTo, cancelFly, mapInsets])
 
   // ⌥N / Alt+N opens the new-session dialog, matching the floating
   // button's shortcut hint. Not ⌘N: browsers reserve that for a new window

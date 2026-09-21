@@ -3,8 +3,9 @@ import { Hub } from '../src/api/hub.js';
 import {
   IDLE_NEVER,
   Runner,
+  contextUsedFromAssistantUsage,
   contextUsedFromCompactBoundary,
-  contextUsedFromUsage,
+  contextUsedFromContextUsage,
   parseIdleTimeoutMs,
   sdkToChatMessages,
 } from '../src/runner/runner.js';
@@ -1548,12 +1549,12 @@ describe('Runner decisions', () => {
 // How full the context is: the arc's numerator (spec: context-fill-arc)
 // ---------------------------------------------------------------------------
 
-describe('contextUsedFromUsage', () => {
+describe('contextUsedFromAssistantUsage', () => {
   it('sums every field that occupies the window, cache reads included', () => {
-    // The same four the detail panel's read-out adds, so the arc and the
-    // sidebar percentage can never disagree.
+    // The four fields one API request is billed on: the prompt it carried
+    // (fresh, cache-written and cache-read alike) plus what it wrote back.
     expect(
-      contextUsedFromUsage({
+      contextUsedFromAssistantUsage({
         input_tokens: 1_000,
         cache_read_input_tokens: 120_000,
         cache_creation_input_tokens: 3_000,
@@ -1564,21 +1565,56 @@ describe('contextUsedFromUsage', () => {
 
   it('counts a missing field as zero rather than giving up on the message', () => {
     // A turn that read nothing from cache simply has no such key.
-    expect(contextUsedFromUsage({ input_tokens: 10, output_tokens: 5 })).toBe(15);
-    expect(contextUsedFromUsage({ cache_read_input_tokens: 7 })).toBe(7);
+    expect(contextUsedFromAssistantUsage({ input_tokens: 10, output_tokens: 5 })).toBe(15);
+    expect(contextUsedFromAssistantUsage({ cache_read_input_tokens: 7 })).toBe(7);
     // Fields Orbital does not add must not sneak into the total.
-    expect(contextUsedFromUsage({ input_tokens: 10, server_tool_use: { web_search_requests: 99 } })).toBe(10);
+    expect(
+      contextUsedFromAssistantUsage({ input_tokens: 10, server_tool_use: { web_search_requests: 99 } }),
+    ).toBe(10);
   });
 
   it('is null — not zero — when there is no usage to read', () => {
     // `0` would draw an empty arc on a session whose size is simply unknown,
     // and would erase a real reading from the turn before.
-    expect(contextUsedFromUsage(undefined)).toBeNull();
-    expect(contextUsedFromUsage(null)).toBeNull();
-    expect(contextUsedFromUsage({})).toBeNull();
-    expect(contextUsedFromUsage('123')).toBeNull();
-    expect(contextUsedFromUsage({ input_tokens: '1000' })).toBeNull();
-    expect(contextUsedFromUsage({ input_tokens: NaN })).toBeNull();
+    expect(contextUsedFromAssistantUsage(undefined)).toBeNull();
+    expect(contextUsedFromAssistantUsage(null)).toBeNull();
+    expect(contextUsedFromAssistantUsage({})).toBeNull();
+    expect(contextUsedFromAssistantUsage('123')).toBeNull();
+    expect(contextUsedFromAssistantUsage({ input_tokens: '1000' })).toBeNull();
+    expect(contextUsedFromAssistantUsage({ input_tokens: NaN })).toBeNull();
+  });
+});
+
+describe('contextUsedFromContextUsage', () => {
+  it("reads the CLI's own total, which is the answer whenever it is available", () => {
+    // The shape `getContextUsage()` actually resolves to: flat and
+    // camelCase (`SDKControlGetContextUsageResponse`).
+    expect(
+      contextUsedFromContextUsage({
+        model: 'claude-fable-5', totalTokens: 222_559,
+        maxTokens: 200_000, rawMaxTokens: 200_000, percentage: 111,
+        categories: [{ name: 'Messages', tokens: 180_000, color: '#fff', kind: 'used' }],
+      }),
+    ).toBe(222_559);
+  });
+
+  it('takes the total unclamped, so an over-window session reads as one', () => {
+    // The read-out quotes the measurement — only the bar clamps
+    // (adr: context-usage-has-one-source).
+    expect(contextUsedFromContextUsage({ totalTokens: 260_000, rawMaxTokens: 200_000 })).toBe(260_000);
+  });
+
+  it('is null when the CLI answered with nothing usable', () => {
+    // A CLI too old to answer the control request, or one that answered
+    // without a total: the caller falls back rather than inventing a number.
+    expect(contextUsedFromContextUsage(undefined)).toBeNull();
+    expect(contextUsedFromContextUsage(null)).toBeNull();
+    expect(contextUsedFromContextUsage({})).toBeNull();
+    expect(contextUsedFromContextUsage({ totalTokens: 'lots' })).toBeNull();
+    expect(contextUsedFromContextUsage({ totalTokens: NaN })).toBeNull();
+    // The `/context` result's snake_case twin is a different message and
+    // must not be mistaken for this one.
+    expect(contextUsedFromContextUsage({ context_usage: { total_tokens: 99 } })).toBeNull();
   });
 });
 
@@ -1607,8 +1643,25 @@ describe('contextUsedFromCompactBoundary', () => {
 });
 
 describe('Runner context reporting', () => {
-  /** Fake SDK that yields exactly the messages it is handed, per turn. */
-  function fakeQueryFnYielding(messages: (sid: string) => any[]) {
+  /**
+   * One API call's worth of assistant message, with the usage the API
+   * returned for it. The real CLI emits one of these per completed content
+   * block while a response streams, all sharing `message.id` — hence the
+   * explicit id, so a test can re-emit a call the way the CLI does.
+   */
+  function assistant(sid: string, id: string, usage: Record<string, number>) {
+    return {
+      type: 'assistant', session_id: sid, parent_tool_use_id: null,
+      message: { id, role: 'assistant', content: [{ type: 'text', text: 'x' }], usage },
+    };
+  }
+
+  /** One API call whose prompt was `ctx` tokens and which wrote `out` back. */
+  function call(sid: string, id: string, ctx: number, out: number) {
+    return assistant(sid, id, { input_tokens: 2, cache_read_input_tokens: ctx - out - 2, output_tokens: out });
+  }
+
+  function fakeQueryFnYielding(messages: (sid: string) => any[], contextUsage?: () => Promise<unknown>) {
     return ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
       const sid = sessionIdOf(options);
       async function* gen() {
@@ -1616,9 +1669,14 @@ describe('Runner context reporting', () => {
           for (const msg of messages(sid)) yield msg;
         }
       }
-      return gen() as any;
+      const g = gen() as any;
+      if (contextUsage) g.getContextUsage = contextUsage;
+      return g;
     };
   }
+
+  let calls = 0;
+  beforeEach(() => { calls = 0; });
 
   /** Starts a session on `fn` and collects every `onContextUsed` report. */
   async function reporting(fn: any) {
@@ -1631,25 +1689,116 @@ describe('Runner context reporting', () => {
     return { runner, id, seen };
   }
 
-  it('reports the turn result\'s total, with the session it belongs to', async () => {
+  it("asks the CLI how full the window is, and reports what it says", async () => {
+    const { id, seen } = await reporting(
+      fakeQueryFnYielding(
+        (sid) => [
+          call(sid, 'm1', 40_000, 300),
+          { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 40_000 } },
+        ],
+        async () => ({ totalTokens: 41_200, maxTokens: 200_000, rawMaxTokens: 200_000 }),
+      ),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    // The CLI's own figure, not anything derived from the messages: it
+    // counts what is queued for the next request, which is the question.
+    expect(seen[0]).toEqual([id, 41_200]);
+  });
+
+  it("falls back to the turn's last API call when the CLI cannot answer", async () => {
+    // A CLI too old for the control request, or one that threw on it. The
+    // last call's prompt is still the best evidence of the window's state.
+    const { id, seen } = await reporting(
+      fakeQueryFnYielding(
+        (sid) => [
+          call(sid, 'm1', 40_000, 300),
+          call(sid, 'm2', 41_500, 200),
+          { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 81_500 } },
+        ],
+        async () => { throw new Error('unknown control request'); },
+      ),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual([id, 41_500]);
+  });
+
+  it('does not sum the turn — the regression that read 1.5M into a 200k window', async () => {
+    // Session 056a9b26's final turn, verbatim: seven API calls whose
+    // per-call usages sum to 1_513_619 because every one of them re-counts
+    // the cache read of the whole conversation. The window held 222_559.
     const { id, seen } = await reporting(
       fakeQueryFnYielding((sid) => [
+        assistant(sid, 'a1', { input_tokens: 2, cache_read_input_tokens: 209_292, cache_creation_input_tokens: 958, output_tokens: 795 }),
+        assistant(sid, 'a2', { input_tokens: 2, cache_read_input_tokens: 210_250, cache_creation_input_tokens: 976, output_tokens: 170 }),
+        assistant(sid, 'a3', { input_tokens: 2, cache_read_input_tokens: 211_226, cache_creation_input_tokens: 292, output_tokens: 257 }),
+        assistant(sid, 'a4', { input_tokens: 2, cache_read_input_tokens: 211_518, cache_creation_input_tokens: 288, output_tokens: 2_008 }),
+        assistant(sid, 'a5', { input_tokens: 2, cache_read_input_tokens: 211_806, cache_creation_input_tokens: 6_467, output_tokens: 2_697 }),
+        assistant(sid, 'a6', { input_tokens: 2, cache_read_input_tokens: 218_273, cache_creation_input_tokens: 2_728, output_tokens: 1_047 }),
+        assistant(sid, 'a7', { input_tokens: 2, cache_read_input_tokens: 221_001, cache_creation_input_tokens: 1_165, output_tokens: 391 }),
+        // What the SDK puts on the result: the turn's total, which is a
+        // billing figure and was never a window reading.
         {
           type: 'result', subtype: 'success', session_id: sid,
-          usage: {
-            input_tokens: 500, cache_read_input_tokens: 40_000,
-            cache_creation_input_tokens: 1_500, output_tokens: 300,
-          },
+          usage: { input_tokens: 14, cache_read_input_tokens: 1_493_366, cache_creation_input_tokens: 12_874, output_tokens: 7_365 },
         },
       ]),
     );
     await vi.waitFor(() => expect(seen).toHaveLength(1));
-    expect(seen[0]).toEqual([id, 42_300]);
+    expect(seen[0]).toEqual([id, 222_559]);
+    expect(seen[0][1]).not.toBe(1_513_619);
   });
 
-  it('reports a compaction\'s post_tokens, which is what shrinks the arc', async () => {
+  it('counts one API call once however many blocks the CLI streams it in', async () => {
+    // Consecutive assistant messages sharing a `message.id` are the SAME
+    // request; adding them would double-count its prompt.
+    const { id, seen } = await reporting(
+      fakeQueryFnYielding((sid) => [
+        assistant(sid, 'm1', { cache_read_input_tokens: 90_000, output_tokens: 40 }),
+        assistant(sid, 'm1', { cache_read_input_tokens: 90_000, output_tokens: 900 }),
+        { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 1 } },
+      ]),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    // The last emission of that id wins: its usage is the final one.
+    expect(seen[0]).toEqual([id, 90_900]);
+  });
+
+  it("ignores a subagent's calls, which run in their own window", async () => {
+    // `parent_tool_use_id` non-null means the message came from inside a
+    // Task subagent. Its context is not this session's context.
+    const { id, seen } = await reporting(
+      fakeQueryFnYielding((sid) => [
+        assistant(sid, 'main', { cache_read_input_tokens: 50_000, output_tokens: 100 }),
+        {
+          type: 'assistant', session_id: sid, parent_tool_use_id: 'toolu_1',
+          message: { id: 'sub', role: 'assistant', content: [], usage: { cache_read_input_tokens: 700_000, output_tokens: 9 } },
+        },
+        { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 1 } },
+      ]),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]).toEqual([id, 50_100]);
+  });
+
+  it('measures each turn on its own, rather than accumulating across turns', async () => {
+    // Two turns, the second reading a bigger window than the first. If the
+    // fallback ever added turns together the second would report 100_020.
+    const { runner, seen } = await reporting(
+      fakeQueryFnYielding((sid) => [
+        assistant(sid, 'm' + (++calls), { cache_read_input_tokens: calls * 50_000, output_tokens: 10 }),
+        { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 1 } },
+      ]),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    runner.send('web-1', 'again');
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen.map(([, used]) => used)).toEqual([50_010, 100_010]);
+  });
+
+  it("reports a compaction's post_tokens, which is what shrinks the arc", async () => {
     const { seen } = await reporting(
       fakeQueryFnYielding((sid) => [
+        assistant(sid, 'm1', { cache_read_input_tokens: 180_000, output_tokens: 0 }),
         { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 180_000 } },
         {
           type: 'system', subtype: 'compact_boundary', session_id: sid,
@@ -1664,6 +1813,7 @@ describe('Runner context reporting', () => {
   it('clears the reading when a compaction does not say how much survived', async () => {
     const { seen } = await reporting(
       fakeQueryFnYielding((sid) => [
+        assistant(sid, 'm1', { cache_read_input_tokens: 180_000, output_tokens: 0 }),
         { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 180_000 } },
         {
           type: 'system', subtype: 'compact_boundary', session_id: sid,
@@ -1675,8 +1825,8 @@ describe('Runner context reporting', () => {
     expect(seen[1][1]).toBeNull();
   });
 
-  it('says nothing at all for a result that carries no usage', async () => {
-    // Silence, not null: an unreadable message is not evidence that the
+  it('says nothing at all for a turn nothing could measure', async () => {
+    // Silence, not null: an unreadable turn is not evidence that the
     // context emptied, so the stored reading must survive it.
     const { runner, seen } = await reporting(
       fakeQueryFnYielding((sid) => [{ type: 'result', subtype: 'success', session_id: sid }]),
@@ -1692,10 +1842,71 @@ describe('Runner context reporting', () => {
           type: 'system', subtype: 'compact_boundary', session_id: 'someone-else',
           compact_metadata: { trigger: 'manual', pre_tokens: 9, post_tokens: 1 },
         },
+        assistant(sid, 'm1', { input_tokens: 5 }),
         { type: 'result', subtype: 'success', session_id: sid, usage: { input_tokens: 5 } },
       ]),
     );
     await vi.waitFor(() => expect(seen).toHaveLength(1));
     expect(seen[0][1]).toBe(5);
+  });
+});
+
+describe('Runner ownership reporting', () => {
+  /** Records every `onOwnership` call as `[sessionId, status]`. */
+  function owning() {
+    const seen: Array<[string, string | null]> = [];
+    const { fn } = fakeQueryFn();
+    const hub = new Hub();
+    const runner = new Runner({
+      hub, queryFn: fn as any, newSessionId: () => 'web-1',
+      onOwnership: (id, status) => seen.push([id, status]),
+    });
+    return { runner, seen };
+  }
+
+  it('claims a session the moment start() takes it, before any turn ends', async () => {
+    const { runner, seen } = owning();
+    await runner.start({ cwd: '/p', prompt: 'hello', permissionMode: 'acceptEdits' });
+    // The claim has to land synchronously with start(): a restart most often
+    // lands in exactly this window, and `onStatus` cannot report it — a fresh
+    // session's state is constructed already at 'working', so the guarded
+    // setStatus never fires for the initial transition.
+    expect(seen[0]).toEqual(['web-1', 'working']);
+  });
+
+  it('reports a session started with no prompt as waiting, not working', async () => {
+    const { runner, seen } = owning();
+    await runner.start({ cwd: '/p', prompt: '', permissionMode: 'acceptEdits' });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    expect(seen.at(-1)).toEqual(['web-1', 'needs_input']);
+  });
+
+  it('follows the session through its turns', async () => {
+    const { runner, seen } = owning();
+    await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    runner.send('web-1', 'two');
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    expect(seen.map(([, s]) => s)).toEqual(['working', 'needs_input', 'working', 'needs_input']);
+  });
+
+  it('releases the session when it ends, so a later boot does not heal it', async () => {
+    const { runner, seen } = owning();
+    await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    await runner.end('web-1');
+    expect(seen.at(-1)).toEqual(['web-1', null]);
+  });
+
+  it('releases a session whose SDK generator ends on its own', async () => {
+    const seen: Array<[string, string | null]> = [];
+    const { fn } = fakeQueryFnSelfEnding();
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1',
+      onOwnership: (id, status) => seen.push([id, status]),
+    });
+    await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('ended'));
+    expect(seen.at(-1)).toEqual(['web-1', null]);
   });
 });

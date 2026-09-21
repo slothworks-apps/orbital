@@ -37,7 +37,29 @@ function chooseReleaseDelay(label: string | RegExp): void {
   )
   fireEvent.click(screen.getByRole('option', { name: label }))
 }
-import { Settings } from '../panels/Settings'
+
+/**
+ * Only one section's rows are mounted at a time, and a fresh store has no
+ * remembered section, so every visit here opens on the nav's first row —
+ * General. A test for a row anywhere else has to walk the nav first (spec
+ * 2026-09-21-settings-sections-design § 1). `hidden: true` because the
+ * dialog's scrim is `inert` on the way out and jsdom honours it.
+ *
+ * Note this is a navigation step, not an assertion: no test here should claim
+ * which section a row belongs to. Moving a row between sections is a
+ * deliberate act, and a test that fails for it is one that has to be edited
+ * every time somebody makes that decision on purpose.
+ */
+function openSection(
+  label: 'General' | 'Sessions' | 'Notifications' | 'Appearance' | 'Tags & rules'
+): void {
+  fireEvent.click(screen.getByRole('button', { name: label, hidden: true }))
+  // A nav click persists the section (`settings_last_section`), so without
+  // this every assertion after it would have to account for a PATCH the test
+  // is not about. Navigation is setup here, never the thing under test.
+  vi.mocked(api.patchSettings).mockClear()
+}
+import { Settings, initialSection } from '../panels/Settings'
 
 const defaultUi: OrbitalUiState = {
   selectedId: null,
@@ -100,6 +122,7 @@ describe('Settings', () => {
   it('patches the default permission mode when a mode card is clicked', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     fireEvent.click(screen.getByRole('radio', { name: 'plan' }))
 
@@ -112,6 +135,7 @@ describe('Settings', () => {
   it('debounces the default project directory field before patching', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     const field = screen.getByLabelText(/default project directory/i)
     fireEvent.change(field, { target: { value: '/home/tomin/w' } })
@@ -131,6 +155,7 @@ describe('Settings', () => {
   it('debounces the Claude Code executable field before patching', async () => {
     resetStore({ settings: { claude_executable_path: '/opt/homebrew/bin/claude' } })
     render(<Settings open onClose={vi.fn()} />)
+    openSection('General')
 
     const field = screen.getByLabelText(/claude code executable/i)
     expect(field).toHaveValue('/opt/homebrew/bin/claude')
@@ -149,6 +174,7 @@ describe('Settings', () => {
   it('maps the lineage-depth steps 1-5 to their string values', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Appearance')
 
     fireEvent.click(screen.getByRole('button', { name: '4', hidden: true }))
 
@@ -159,6 +185,7 @@ describe('Settings', () => {
   it('maps the ∞ lineage-depth step to the string "Infinity"', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Appearance')
 
     fireEvent.click(screen.getByRole('group', { name: /lineage depth/i }).querySelector('button:last-child')!)
 
@@ -169,6 +196,7 @@ describe('Settings', () => {
   it('patches confirm-before-clear when the toggle is clicked', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     fireEvent.click(screen.getByRole('switch', { name: /confirm before clear/i }))
 
@@ -181,6 +209,7 @@ describe('Settings', () => {
   it('patches auto-titling when the toggle is clicked, and starts off', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     const toggle = screen.getByRole('switch', { name: /generate session titles from content/i })
     expect(toggle).not.toBeChecked()
@@ -195,6 +224,7 @@ describe('Settings', () => {
   it('patches the inherit-tags and inherit-permission-mode checkboxes independently', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     fireEvent.click(screen.getByRole('checkbox', { name: /^tags$/i }))
     await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ inherit_tags: 'false' }))
@@ -208,6 +238,7 @@ describe('Settings', () => {
   it('patches the ended-after-idle select', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     chooseIdle('60 min idle')
 
@@ -222,6 +253,7 @@ describe('Settings', () => {
   it('patches the Clusters release delay', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     chooseReleaseDelay('8 hours')
 
@@ -234,6 +266,7 @@ describe('Settings', () => {
   it('offers "Never" for the release delay, which keeps ended sessions bonded', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     chooseReleaseDelay(/never/i)
 
@@ -246,6 +279,7 @@ describe('Settings', () => {
     vi.mocked(api.patchSettings).mockRejectedValue(new Error('settings unreachable'))
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     fireEvent.click(screen.getByRole('radio', { name: 'plan' }))
 
@@ -268,6 +302,7 @@ describe('Settings', () => {
     const onClose = vi.fn()
     resetStore()
     render(<Settings open onClose={onClose} />)
+    openSection('Sessions')
 
     const trigger = openIdleSelect()
     fireEvent.keyDown(trigger, { key: 'Escape' })
@@ -307,6 +342,7 @@ describe('Settings — canvas 1h structure', () => {
   it('offers the 2 h idle preset from 1h and patches it as plain minutes', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     chooseIdle('2 h idle')
 
@@ -318,6 +354,7 @@ describe('Settings — canvas 1h structure', () => {
   it('offers 1h\'s "Never — only on Clear" preset and patches the sentinel verbatim', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     // The sentinel must reach the server as the literal string: a numeric
     // stand-in would be read back as a minute count, and `Number('never')`
@@ -333,6 +370,7 @@ describe('Settings — canvas 1h structure', () => {
   it('keeps "Never" selected when the server already stores the sentinel', () => {
     resetStore({ settings: { ended_after_idle_minutes: 'never' } })
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Sessions')
 
     const trigger = openIdleSelect()
     expect(trigger).toHaveAttribute('data-value', 'never')
@@ -366,6 +404,9 @@ describe('Settings — canvas 1h structure', () => {
   it("draws one orb per kept ancestor plus the live session (capped at 1h's four)", () => {
     resetStore({ settings: { lineage_depth: '1' } })
     const { rerender } = render(<Settings open onClose={vi.fn()} />)
+    // Once is enough: `section` is component state and the effect that resets
+    // it is keyed on `open`, so the rerenders below stay on Appearance.
+    openSection('Appearance')
     expect(document.querySelectorAll('[data-testid="lineage-chain"] [data-orb]')).toHaveLength(2)
 
     act(() => resetStore({ settings: { lineage_depth: '3' } }))
@@ -389,6 +430,7 @@ describe('Settings — canvas 1h structure', () => {
       },
     })
     render(<Settings open onClose={vi.fn()} />)
+    openSection('Appearance')
 
     // /p1 has 4 sessions with depth 2 -> 2 drop off; /p2 has 1 -> none.
     expect(screen.getByText('+2 in history')).toBeInTheDocument()
@@ -397,6 +439,10 @@ describe('Settings — canvas 1h structure', () => {
   it('hides the "+N in history" caption when nothing drops off the map', () => {
     resetStore({ settings: { lineage_depth: '5' }, sessions: { a: makeSession('a', '/p1') } })
     render(<Settings open onClose={vi.fn()} />)
+    // Without this the assertion would hold for the wrong reason — the whole
+    // lineage row is unmounted on any section but Appearance.
+    openSection('Appearance')
+    expect(screen.getByTestId('lineage-chain')).toBeInTheDocument()
     expect(screen.queryByText(/in history/)).not.toBeInTheDocument()
   })
 })
@@ -408,6 +454,7 @@ describe('Settings — canvas 1h structure', () => {
 describe('Settings — model preferences (canvas 4c)', () => {
   it('shows the default model and saves a change', async () => {
     renderSettings({ settings: { default_model: 'sonnet' }, models: MODELS })
+    openSection('Sessions')
     expect(screen.getByRole('radio', { name: 'Sonnet' })).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(screen.getByRole('radio', { name: 'Haiku' }))
     await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ default_model: 'haiku' }))
@@ -415,6 +462,7 @@ describe('Settings — model preferences (canvas 4c)', () => {
 
   it('toggles remembering the model per project', async () => {
     renderSettings({ settings: { remember_model_per_project: 'true' }, models: MODELS })
+    openSection('Sessions')
     fireEvent.click(screen.getByLabelText('Remember last model per project'))
     await waitFor(() =>
       expect(api.patchSettings).toHaveBeenCalledWith({ remember_model_per_project: 'false' })
@@ -423,34 +471,219 @@ describe('Settings — model preferences (canvas 4c)', () => {
 
   it('toggles the model name under the planet label', async () => {
     renderSettings({ settings: { map_show_model: 'true' }, models: MODELS })
+    openSection('Appearance')
     fireEvent.click(screen.getByRole('switch', { name: /Model name under planet label/ }))
     await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ map_show_model: 'false' }))
   })
 
   it('says so when the catalog is empty', () => {
     renderSettings({ settings: {}, models: [] })
+    openSection('Sessions')
     expect(screen.getByText(/could not be read/i)).toBeInTheDocument()
   })
 
   it('names the selected default model, upper-cased, in the sample chip beside the map toggle', () => {
     renderSettings({ settings: { default_model: 'sonnet' }, models: MODELS })
+    openSection('Appearance')
     expect(screen.getByTestId('map-model-sample')).toHaveTextContent('SONNET')
   })
 
+  // The two negatives below anchor on the toggle first. Without it they would
+  // also pass with the whole row unmounted, which is exactly what happens on
+  // any section but Appearance — an assertion that cannot fail is not a test.
   it('hides the sample chip when the catalog is empty', () => {
     renderSettings({ settings: { default_model: 'sonnet' }, models: [] })
+    openSection('Appearance')
+    expect(screen.getByRole('switch', { name: /Model name under planet label/ })).toBeInTheDocument()
     expect(screen.queryByTestId('map-model-sample')).not.toBeInTheDocument()
   })
 
   it('hides the sample chip when the default matches no catalog row', () => {
     renderSettings({ settings: { default_model: 'gpt-5' }, models: MODELS })
+    openSection('Appearance')
+    expect(screen.getByRole('switch', { name: /Model name under planet label/ })).toBeInTheDocument()
     expect(screen.queryByTestId('map-model-sample')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Which section a visit opens on (spec 2026-09-21-settings-sections-design § 1)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// General's read-only rows (spec 2026-09-21-settings-sections-design § 4)
+// ---------------------------------------------------------------------------
+
+describe('Settings — General', () => {
+  const HEALTH = {
+    app: 'orbital',
+    billing: 'subscription' as const,
+    paths: { claudeDir: '/Users/x/.claude', dataDir: '/data', dbPath: '/data/index.db' },
+  }
+
+  it('reports the paths and billing the server actually started with', async () => {
+    vi.mocked(api.getHealth).mockResolvedValue(HEALTH)
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+
+    expect(await screen.findByTestId('billing-mode')).toHaveTextContent('Claude subscription')
+    expect(screen.getByTestId('claude-dir-effective')).toHaveTextContent('/Users/x/.claude')
+    expect(screen.getByText('/data/index.db')).toBeInTheDocument()
+  })
+
+  it('names the API key when that is what is paying', async () => {
+    vi.mocked(api.getHealth).mockResolvedValue({ ...HEALTH, billing: 'api-key' })
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+    expect(await screen.findByTestId('billing-mode')).toHaveTextContent('API key')
+  })
+
+  /**
+   * The branch that matters. These rows state where your data lives and who
+   * is being charged; a placeholder shown while the fetch is in flight or
+   * after it failed could be read as a real path or a real billing mode, so
+   * the rows do not draw at all. The editable row above them still must.
+   */
+  it('draws no path or billing row when the server did not answer', async () => {
+    vi.mocked(api.getHealth).mockRejectedValue(new Error('server down'))
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+
+    // The section itself is there and still usable...
+    expect(screen.getByLabelText(/claude directory/i)).toBeInTheDocument()
+    // ...but nothing claims to know a path or a billing mode.
+    await waitFor(() => expect(api.getHealth).toHaveBeenCalled())
+    expect(screen.queryByTestId('billing-mode')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('claude-dir-effective')).not.toBeInTheDocument()
+    expect(screen.queryByText(/index\.db/)).not.toBeInTheDocument()
+  })
+})
+
+describe('Settings — retention', () => {
+  function chooseRetention(label: string | RegExp) {
+    fireEvent.click(screen.getByRole('combobox', { name: /delete sessions older than/i }))
+    fireEvent.click(screen.getByRole('option', { name: label }))
+  }
+
+  /**
+   * The row deletes, so nothing is saved until the count has been shown and
+   * accepted. Saving first and warning after would be the wrong order for
+   * the one destructive control in the dialog.
+   */
+  it('asks before saving, naming the number it would take', async () => {
+    vi.mocked(api.previewRetention).mockResolvedValue({ count: 12 })
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+
+    chooseRetention('30 days')
+
+    const confirm = await screen.findByTestId('retention-confirm')
+    expect(confirm).toHaveTextContent('12 sessions')
+    expect(api.patchSettings).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'DELETE' }))
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ delete_sessions_older_than_days: '30' }),
+    )
+  })
+
+  it('saves nothing when the confirmation is declined', async () => {
+    vi.mocked(api.previewRetention).mockResolvedValue({ count: 12 })
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+
+    chooseRetention('30 days')
+    fireEvent.click(await screen.findByRole('button', { name: 'CANCEL' }))
+
+    expect(screen.queryByTestId('retention-confirm')).not.toBeInTheDocument()
+    expect(api.patchSettings).not.toHaveBeenCalled()
+  })
+
+  // Turning it off destroys nothing, and neither does a policy that would
+  // take nothing — asking in either case is a dialog for its own sake.
+  it('saves straight away when there is nothing to warn about', async () => {
+    vi.mocked(api.previewRetention).mockResolvedValue({ count: 0 })
+    resetStore({ settings: { delete_sessions_older_than_days: '30' } })
+    render(<Settings open onClose={vi.fn()} />)
+
+    chooseRetention(/never/i)
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ delete_sessions_older_than_days: 'never' }),
+    )
+    expect(screen.queryByTestId('retention-confirm')).not.toBeInTheDocument()
+    expect(api.previewRetention).not.toHaveBeenCalled() // 'never' needs no count
+
+    vi.mocked(api.patchSettings).mockClear()
+    chooseRetention('90 days')
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ delete_sessions_older_than_days: '90' }),
+    )
+    expect(screen.queryByTestId('retention-confirm')).not.toBeInTheDocument()
+  })
+
+  /**
+   * Failing open — saving without asking — would be the wrong way round for
+   * a destructive setting, and failing closed would make the row unusable
+   * whenever the server is busy. So it still asks, and says it cannot count.
+   */
+  it('still asks, without a number, when the count cannot be fetched', async () => {
+    vi.mocked(api.previewRetention).mockRejectedValue(new Error('server down'))
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+
+    chooseRetention('30 days')
+
+    expect(await screen.findByTestId('retention-confirm')).toHaveTextContent(/could not count/i)
+    expect(api.patchSettings).not.toHaveBeenCalled()
+  })
+
+  it('shows Never for a stored value it does not offer', () => {
+    resetStore({ settings: { delete_sessions_older_than_days: '7' } })
+    render(<Settings open onClose={vi.fn()} />)
+    expect(screen.getByRole('combobox', { name: /delete sessions older than/i })).toHaveTextContent(
+      /never/i,
+    )
+  })
+})
+
+describe('Settings — remembered section', () => {
+  it('opens on the nav\'s first row when nothing is stored', () => {
+    expect(initialSection({})).toBe('general')
+  })
+
+  it('resumes the stored section', () => {
+    expect(initialSection({ settings_last_section: 'appearance' })).toBe('appearance')
+  })
+
+  // The three cases that must not strand the user on a blank or inert page:
+  // a key from a future build, junk, and a section that was live when it was
+  // stored and has since been disabled.
+  it('falls back for an unknown, empty or disabled stored section', () => {
+    expect(initialSection({ settings_last_section: 'telemetry' })).toBe('general')
+    expect(initialSection({ settings_last_section: '' })).toBe('general')
+    expect(initialSection({ settings_last_section: 'shortcuts' })).toBe('general')
+  })
+
+  it('remembers a section across a close and reopen, without claiming a save', async () => {
+    resetStore()
+    const { rerender } = render(<Settings open onClose={vi.fn()} />)
+    openSection('Appearance')
+    expect(screen.getByLabelText(/default planet size/i)).toBeInTheDocument()
+    // Navigation is not a preference change, so the header must stay quiet.
+    expect(screen.queryByTestId('save-status')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(useOrbital.getState().settings.settings_last_section).toBe('appearance')
+    )
+
+    rerender(<Settings open={false} onClose={vi.fn()} />)
+    rerender(<Settings open onClose={vi.fn()} />)
+    expect(screen.getByLabelText(/default planet size/i)).toBeInTheDocument()
   })
 })
 
 describe('Settings — Appearance (canvas 5a)', () => {
   function openAppearance() {
-    fireEvent.click(screen.getByRole('button', { name: 'Appearance', hidden: true }))
+    openSection('Appearance')
   }
 
   it('is reachable from the nav and shows the planet-size slider with its readout', () => {

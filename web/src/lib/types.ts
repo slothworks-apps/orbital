@@ -47,6 +47,18 @@ export interface ApiSession {
    * reader, and requiring it would rewrite every session fixture in the suite.
    */
   pinnedAt?: number | null;
+  /**
+   * When a server restart cut this session's turn short (epoch ms), null
+   * otherwise (spec 2026-09-21-session-autoheal-design). The session itself
+   * was resumed and holds its whole context; what is missing is the rest of
+   * that one turn. Cleared the next time it runs a turn. Mirrors
+   * `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `pinnedAt`: the server always sends
+   * the field, absent and null mean the same thing to every reader, and
+   * requiring it would rewrite every session fixture in the suite.
+   */
+  interruptedAt?: number | null;
   tagIds: number[];
   status: SessionStatus;
   /** Subagents running in this session right now — the map's moons. */
@@ -293,7 +305,7 @@ export interface FileCompletionEntry {
 export type ErrorSource = 'server' | 'web'
 
 /** What kind of thing failed. A short machine label, not a message. */
-export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash'
+export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash' | 'sessions_healed'
 
 export interface ErrorRecord {
   id: number

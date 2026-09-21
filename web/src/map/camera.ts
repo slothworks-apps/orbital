@@ -41,16 +41,43 @@ export const MIN_ZOOM = 5
 export const MAX_ZOOM = 400
 
 /**
- * Extra world-space padding kept around a fitted bounding box's edges.
- * Also what absorbs `bodyZoomFactor` at fit zoom: fit frames positions only,
- * so a body's drawn radius has to come out of this padding. A big planet is
- * ~0.67 world units before inflation, which stays inside these 2 units at
- * every zoom down to ~7 — and past that bottom sliver it pokes out by under
- * 2 screen pixels, because the padding shrinks with the zoom it is measured
- * in. Not worth widening the padding for, which would cost every fit at
- * every other zoom.
+ * Screen-space room fit keeps clear between the framed bodies and the edges
+ * of the map, per side, in CSS pixels.
+ *
+ * It replaced a flat world-space padding, which could not do this job: the
+ * map's own overlays are fixed-size chrome measured in pixels, while the
+ * padding was measured in world units that shrink with the zoom they are
+ * expressed in — so the tighter the fit, the less it held back. Fit is the
+ * one camera move that deliberately pushes content out to the edges, so it
+ * is the one that has to know where the chrome stands.
+ *
+ * Asymmetric on purpose, because the chrome is: the zoom stack (with the
+ * error trigger above it) sits at the strip's right edge, and the camera
+ * readout runs along the bottom. Left and top carry breathing room only.
+ * The right value is the zoom column's width plus its edge offset — fit used
+ * to leave the hole ending underneath those buttons.
  */
-const FIT_PADDING = 2
+export const FIT_MARGIN_PX = { top: 32, right: 104, bottom: 48, left: 32 }
+
+/**
+ * Floor on what the margins may leave of an axis, as a share of it — the
+ * same guard `MIN_FIT_STRIP_SHARE` below is for the panels, and for the same
+ * reason: on a small window these fixed pixel margins can eat a whole axis,
+ * and a frame of zero (or negative) size yields a camera nobody can use.
+ */
+const MIN_FIT_FRAME_SHARE = 0.25
+
+/**
+ * How many times the zoom solve is re-run against its own answer.
+ *
+ * Fit has to frame what is DRAWN, and a body's drawn radius depends on the
+ * zoom through `bodyZoomFactor` — which is the zoom being solved for. So it
+ * is a fixed point: guess the factor, solve the zoom, take the factor that
+ * zoom implies, repeat. The curve is shallow (`zoom ** -FACTOR_K`, capped)
+ * so the iteration contracts fast; a handful of rounds lands well inside a
+ * pixel, and fit runs on a keystroke rather than on every frame.
+ */
+const FIT_SOLVE_ROUNDS = 6
 
 export function clampZoom(zoom: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
@@ -222,55 +249,92 @@ export function centerOn(cam: CameraState, target: Position, insets: Insets): Ca
 const MIN_FIT_STRIP_SHARE = 0.2
 
 /**
- * Computes a camera state that frames every given position with some
- * padding, for the "fit" zoom control. Falls back to the default camera
- * (origin, zoom 60) when there's nothing to fit.
+ * A body for `fitView` to frame: where it sits, plus how far its drawing
+ * reaches out from there in world units at reference zoom — a planet's
+ * `footprint`, the hole's halo. Omit `r` and it is framed as a bare point.
+ */
+export interface FitBody extends Position {
+  r?: number
+}
+
+/** Bounding box of the bodies, each inflated by its drawn radius. */
+function fitBox(bodies: FitBody[], factor: number) {
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const b of bodies) {
+    const r = (b.r ?? 0) * factor
+    if (b.x - r < minX) minX = b.x - r
+    if (b.x + r > maxX) maxX = b.x + r
+    if (b.y - r < minY) minY = b.y - r
+    if (b.y + r > maxY) maxY = b.y + r
+  }
+  return { minX, maxX, minY, maxY }
+}
+
+/**
+ * Computes a camera state that frames every given body, for the "fit" zoom
+ * control. Falls back to the default camera (origin, zoom 60) when there's
+ * nothing to fit.
  *
  * `insets` are the panels covering the map's edges. Fit frames the box into
  * the strip BETWEEN them — sized to the strip, then centred in it the way
  * `centerOn` does — so "show me everything" does not park half the sessions
  * under the sidebar or the detail panel. Omit them to fit the full viewport.
+ * Inside that strip it keeps `FIT_MARGIN_PX` clear on every side, and it
+ * frames what each body DRAWS rather than the point it stands on.
  */
 export function fitView(
-  positions: Position[],
+  bodies: FitBody[],
   viewport: Viewport,
   insets: Insets = { left: 0, right: 0 }
 ): CameraState {
-  if (positions.length === 0) {
+  if (bodies.length === 0) {
     return { x: 0, y: 0, zoom: 60 }
   }
 
-  let minX = Infinity
-  let maxX = -Infinity
-  let minY = Infinity
-  let maxY = -Infinity
-  for (const p of positions) {
-    if (p.x < minX) minX = p.x
-    if (p.x > maxX) maxX = p.x
-    if (p.y < minY) minY = p.y
-    if (p.y > maxY) maxY = p.y
-  }
-
-  const centerX = (minX + maxX) / 2
-  const centerY = (minY + maxY) / 2
-  const width = maxX - minX + FIT_PADDING * 2
-  const height = maxY - minY + FIT_PADDING * 2
-
-  // Orthographic projection: on-screen pixels = world units * zoom, so the
-  // zoom that makes a world span exactly fill a viewport span is
-  // viewportPx / worldUnits. Pick whichever axis is tighter so both fit.
+  // The rectangle the box has to land inside: the strip the panels leave,
+  // less the margins that keep the bodies off the map's own overlays.
   const strip = Math.max(
     viewport.width - insets.left - insets.right,
     viewport.width * MIN_FIT_STRIP_SHARE
   )
-  const safeWidth = Math.max(width, 1e-6)
-  const safeHeight = Math.max(height, 1e-6)
-  const zoomX = strip / safeWidth
-  const zoomY = viewport.height / safeHeight
-  const zoom = clampZoom(Math.min(zoomX, zoomY))
+  const frameWidth = Math.max(
+    strip - FIT_MARGIN_PX.left - FIT_MARGIN_PX.right,
+    strip * MIN_FIT_FRAME_SHARE
+  )
+  const frameHeight = Math.max(
+    viewport.height - FIT_MARGIN_PX.top - FIT_MARGIN_PX.bottom,
+    viewport.height * MIN_FIT_FRAME_SHARE
+  )
 
-  // Same offset `centerOn` uses: the camera's x is the world point at the
-  // VIEWPORT centre, so putting the box's centre at the STRIP's centre means
-  // shifting by half the inset difference, converted back into world units.
-  return { x: centerX - (insets.left - insets.right) / 2 / zoom, y: centerY, zoom }
+  // Orthographic projection: on-screen pixels = world units * zoom, so the
+  // zoom that makes a world span exactly fill a frame span is framePx /
+  // worldUnits. Pick whichever axis is tighter so both fit — then re-solve
+  // against the body inflation that zoom implies (`FIT_SOLVE_ROUNDS`).
+  let box = fitBox(bodies, 1)
+  let zoom = clampZoom(Math.min(frameWidth, frameHeight))
+  for (let i = 0; i < FIT_SOLVE_ROUNDS; i++) {
+    box = fitBox(bodies, bodyZoomFactor(zoom))
+    const zoomX = frameWidth / Math.max(box.maxX - box.minX, 1e-6)
+    const zoomY = frameHeight / Math.max(box.maxY - box.minY, 1e-6)
+    zoom = clampZoom(Math.min(zoomX, zoomY))
+  }
+
+  const centerX = (box.minX + box.maxX) / 2
+  const centerY = (box.minY + box.maxY) / 2
+
+  // Where the frame's centre sits on screen: the strip's centre, shifted by
+  // half the difference between the side margins. The camera's x/y is the
+  // world point at the VIEWPORT centre, so landing the box's centre on the
+  // frame's centre means offsetting the camera by exactly that screen
+  // distance, converted back into world units — `centerOn`'s move, with the
+  // margins folded in. The vertical pair reads the other way round because
+  // screen y grows downward while world y grows upward: the taller bottom
+  // margin has to push the bodies UP.
+  const offsetX =
+    (insets.left - insets.right) / 2 + (FIT_MARGIN_PX.left - FIT_MARGIN_PX.right) / 2
+  const offsetY = (FIT_MARGIN_PX.bottom - FIT_MARGIN_PX.top) / 2
+  return { x: centerX - offsetX / zoom, y: centerY - offsetY / zoom, zoom }
 }

@@ -21,6 +21,15 @@ import type { ImageStore, ImageWriter } from '../images/store.js';
  */
 export const IDLE_NEVER = 'never';
 
+/**
+ * How long a turn's end waits for the CLI to say how full the window is
+ * before falling back to the turn's last API call. Short on purpose: the
+ * request is answered by an idle CLI in milliseconds, and the thing it is
+ * holding up — every subsequent message of the session — matters more than
+ * the small accuracy it buys.
+ */
+const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
+
 /** Fallback when the stored value is missing or unusable (minutes). */
 const DEFAULT_IDLE_MINUTES = 30;
 
@@ -43,9 +52,10 @@ export function parseIdleTimeoutMs(raw: string | number | null | undefined): num
 
 /**
  * The subset of the SDK's `Query` object Orbital uses. `supportedModels`,
- * `supportedCommands` and `setModel` are optional because a fake in a test may
- * implement only what that test exercises — and because a CLI too old to
- * answer a control request must degrade to "unknown", never to a crash.
+ * `supportedCommands`, `setModel` and `getContextUsage` are optional because a
+ * fake in a test may implement only what that test exercises — and because a
+ * CLI too old to answer a control request must degrade to "unknown", never to
+ * a crash.
  */
 export type QueryFn = (args: {
   prompt: AsyncIterable<unknown>;
@@ -55,6 +65,7 @@ export type QueryFn = (args: {
   setModel?: (model?: string) => Promise<void>;
   supportedModels?: () => Promise<unknown[]>;
   supportedCommands?: () => Promise<unknown[]>;
+  getContextUsage?: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown>;
 };
 
 /**
@@ -93,19 +104,25 @@ function shapeCommands(raw: unknown[]): SessionCommand[] {
 }
 
 /**
- * How many tokens of the context window a turn's `usage` accounts for, or
- * `null` when the message carries no usage worth reading.
+ * How many tokens of the context window ONE API call's `usage` accounts for,
+ * or `null` when it carries no usage worth reading.
  *
- * The same four fields, added the same way, as `extractUsageTokens` in the
- * web's detail panel: everything that occupies the window, cache reads
- * included — a cached-in token sits in the context like any other, and the
- * arc and the panel's read-out must never disagree (spec `context-fill-arc`).
+ * All four fields, cache reads included — a cached-in token sits in the
+ * window like any other — which for a single call is exactly the prompt it
+ * carried plus what it wrote back, and so the size of the conversation at
+ * the moment it ran.
  *
- * `null` rather than `0` when nothing numeric is there: a `result` that says
- * nothing about usage is an unmeasured turn, not a session whose context is
+ * ONE call. This must never be handed the `usage` off a `result` message:
+ * that field is the turn's total across every request the turn made, so a
+ * turn with N tool round-trips counts the whole conversation N times over.
+ * That is how a 222k session came to read 1513.6k — see
+ * `docs/fixes/context-arc-summed-the-whole-turn.md`.
+ *
+ * `null` rather than `0` when nothing numeric is there: a message that says
+ * nothing about usage is an unmeasured call, not a session whose context is
  * empty, and only the first of those may be allowed to erase a real reading.
  */
-export function contextUsedFromUsage(usage: unknown): number | null {
+export function contextUsedFromAssistantUsage(usage: unknown): number | null {
   if (!usage || typeof usage !== 'object') return null;
   const u = usage as Record<string, unknown>;
   const keys = [
@@ -123,6 +140,31 @@ export function contextUsedFromUsage(usage: unknown): number | null {
     total += value;
   }
   return sawOne ? total : null;
+}
+
+/**
+ * What the CLI itself says is in the window right now, from its answer to the
+ * `get_context_usage` control request, or `null` when it did not answer with
+ * a usable total.
+ *
+ * The best available reading, and the only one that is a *measurement* rather
+ * than an inference: `totalTokens` counts what is queued for the next
+ * request — the system prompt, tool schemas, memory files and messages —
+ * which is the question the arc asks. Everything else here reconstructs that
+ * from what the last request happened to be billed.
+ *
+ * The field is `totalTokens` on the flat `SDKControlGetContextUsageResponse`
+ * the method returns — NOT the snake_case `context_usage.total_tokens` that
+ * a `/context` slash-command result carries beside its text. Two shapes for
+ * the same measurement; this is the one on this call's answer.
+ *
+ * Read as the SDK reports it, unclamped: a session past its window reads as
+ * past it, and only the bar clamps (adr: `context-usage-has-one-source`).
+ */
+export function contextUsedFromContextUsage(response: unknown): number | null {
+  if (!response || typeof response !== 'object') return null;
+  const total = (response as { totalTokens?: unknown }).totalTokens;
+  return typeof total === 'number' && Number.isFinite(total) ? total : null;
 }
 
 /**
@@ -214,8 +256,23 @@ interface ManagedSession {
         interrupt?: () => Promise<void>;
         setModel?: (model?: string) => Promise<void>;
         supportedCommands?: () => Promise<unknown[]>;
+        getContextUsage?: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown>;
       })
     | null;
+  /**
+   * The window reading from the most recent main-loop API call of the turn in
+   * flight — the fallback the turn's end uses when the CLI cannot answer
+   * `get_context_usage`.
+   *
+   * The LATEST reading, never a running total: a streaming response arrives
+   * as several assistant messages sharing one `message.id`, each carrying a
+   * later `usage` for the SAME request, and consecutive requests each re-read
+   * the whole conversation from cache. Adding any of that up is the bug this
+   * field exists to avoid. Cleared when a turn ends or a compaction lands, so
+   * a turn that measures nothing reports nothing rather than re-reporting the
+   * turn before it.
+   */
+  lastCall: number | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
   attempt: SessionAttempt;
   /** The session's command list once asked for (or pushed), `null` until then.
@@ -272,6 +329,7 @@ export class Runner {
   private newSessionId: () => string;
   private idleTimeoutMs: number | null;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
+  private onOwnership?: (sessionId: string, status: SessionStatus | null) => void;
   private onTurnUsage?: (modelUsage: unknown) => void;
   private onContextUsed?: (sessionId: string, usedTokens: number | null) => void;
   private onInit?: (sessionId: string, model: string | null) => void;
@@ -298,6 +356,19 @@ export class Runner {
      * (some tests) they drop, which was always the live path's behaviour. */
     images?: ImageStore;
     onStatus?: (sessionId: string, status: SessionStatus) => void;
+    /**
+     * Which sessions this Runner owns, and in what state — `null` when it
+     * lets one go. Whoever persists it can tell, at the next boot, a session
+     * that ended from one whose process was killed: a graceful end reports
+     * `null`, and a kill reports nothing at all, leaving the last live
+     * status standing (spec `2026-09-21-session-autoheal-design`).
+     *
+     * Not a second `onStatus`. That one is guarded on change, and a fresh
+     * session's state is constructed already at `working`, so it never fires
+     * for the initial transition — the window a save-triggered restart lands
+     * in most often.
+     */
+    onOwnership?: (sessionId: string, status: SessionStatus | null) => void;
     /** Receives each turn result's `modelUsage`, which is where context-window sizes come from. */
     onTurnUsage?: (modelUsage: unknown) => void;
     /**
@@ -354,6 +425,7 @@ export class Runner {
     this.idleTimeoutMs =
       deps.idleTimeoutMs === undefined ? DEFAULT_IDLE_MINUTES * 60_000 : deps.idleTimeoutMs;
     this.onStatus = deps.onStatus;
+    this.onOwnership = deps.onOwnership;
     this.onTurnUsage = deps.onTurnUsage;
     this.onContextUsed = deps.onContextUsed;
     this.onInit = deps.onInit;
@@ -413,6 +485,9 @@ export class Runner {
     s.status = status;
     this.hub.publish(`session:${sessionId}`, { event: 'status', status });
     this.onStatus?.(sessionId, status);
+    // `finish()` reports the release itself, as `null` — an owner that reads
+    // `ended` here would have to translate it back into "not owned" anyway.
+    if (status !== 'ended') this.onOwnership?.(sessionId, status);
   }
 
   /**
@@ -470,6 +545,10 @@ export class Runner {
     // outlive its session.
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
     this.setStatus(sessionId, 'ended');
+    // The release. Every path into a finished session comes through here —
+    // the user ending it, the idle timer, a generator that completed or
+    // threw — so this is the one place that can promise "ended on purpose".
+    this.onOwnership?.(sessionId, null);
     this.ended.add(sessionId);
     const s = this.sessions.get(sessionId);
     if (s?.idleTimer) clearTimeout(s.idleTimer);
@@ -518,6 +597,7 @@ export class Runner {
     }
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
+      lastCall: null,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
     };
@@ -525,6 +605,11 @@ export class Runner {
     // for the same id can't both get past the check above.
     this.sessions.set(sessionId, state);
     this.ended.delete(sessionId);
+    // The claim, announced here rather than left to `setStatus`: the state
+    // above is already `working`, so the guarded setter has no transition to
+    // fire on, and a session killed before its first turn ended would look
+    // to the next boot like one that was never running.
+    this.onOwnership?.(sessionId, state.status);
 
     // Input stream: yields queued user messages; null closes it.
     const dequeue = () =>
@@ -605,6 +690,11 @@ export class Runner {
         // (spec `context-fill-arc`). The SDK's `post_tokens` is optional;
         // without it the reading is cleared rather than left stale.
         if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+          // The calls before the boundary measured a conversation that no
+          // longer exists, so they must not outlive it as this turn's
+          // fallback and overwrite `post_tokens` when the turn ends.
+          const s = this.sessions.get(sessionId);
+          if (s) s.lastCall = null;
           this.onContextUsed?.(sessionId, contextUsedFromCompactBoundary(msg));
           continue;
         }
@@ -614,6 +704,15 @@ export class Runner {
           continue;
         }
         if (msg.type === 'assistant' || msg.type === 'user') {
+          // How big the conversation was when this call ran — kept as the
+          // turn's fallback reading. Only the main loop's own calls: a
+          // subagent (`parent_tool_use_id` set) fills a window of its own,
+          // which is not this session's.
+          if (msg.type === 'assistant' && msg.parent_tool_use_id == null) {
+            const used = contextUsedFromAssistantUsage(msg.message?.usage);
+            const s = this.sessions.get(sessionId);
+            if (s && used !== null) s.lastCall = used;
+          }
           this.onEntries?.(sessionId, [msg as TranscriptEntry]);
           for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images)) {
             this.hub.publish(topic, { event: 'message', message: chat });
@@ -621,10 +720,10 @@ export class Runner {
         } else if (msg.type === 'result') {
           this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });
           this.onTurnUsage?.(msg.modelUsage);
-          // The per-turn snapshot of the main agent loop: how full the window
-          // is now. Reported only when the message actually carried numbers —
-          // see `contextUsedFromUsage`.
-          const used = contextUsedFromUsage(msg.usage);
+          // How full the window is now (spec `context-fill-arc`). Deliberately
+          // NOT `msg.usage`, which is the turn's billing total across every
+          // request it made — see `contextUsedFromAssistantUsage`.
+          const used = await this.contextUsed(sessionId);
           if (used !== null) this.onContextUsed?.(sessionId, used);
           this.setStatus(sessionId, 'needs_input');
           this.armIdleTimer(sessionId);
@@ -646,6 +745,49 @@ export class Runner {
     // stream. Harmless after an explicit end() — the session is already gone
     // from the map, so finish() publishes nothing a second time.
     this.finish(sessionId);
+  }
+
+  /**
+   * How full this session's window is at the end of a turn, or `null` when
+   * nothing could measure it.
+   *
+   * Two sources, best first:
+   *
+   * 1. `get_context_usage`, where the CLI counts what it will send next —
+   *    system prompt, tool schemas, memory files, messages — and answers
+   *    with the total. A measurement, and the same number `/context` prints.
+   * 2. The turn's last main-loop API call, reconstructed from its billed
+   *    `usage`. One request behind the truth (it misses whatever the turn's
+   *    final assistant message added), and blind to anything the CLI would
+   *    trim before the next send, but close and always available.
+   *
+   * The control request is bounded rather than simply awaited: it travels the
+   * same stdio channel `pump()` is draining, and a CLI that never answers it
+   * — an old one, a wedged one — would otherwise stall the session's whole
+   * message stream behind a number that is decoration. Past the deadline the
+   * fallback answers and the late reply, if it ever comes, is dropped.
+   *
+   * Consumes `lastCall` either way: each turn measures itself, and a turn
+   * with nothing to measure must stay silent rather than re-report the
+   * previous turn's figure as if it were new.
+   */
+  private async contextUsed(sessionId: string): Promise<number | null> {
+    const s = this.sessions.get(sessionId);
+    const fallback = s?.lastCall ?? null;
+    if (s) s.lastCall = null;
+    const ask = s?.generator?.getContextUsage;
+    if (!ask) return fallback;
+    try {
+      const answer = await Promise.race([
+        ask.call(s!.generator, { detail: 'summary' }),
+        new Promise((resolve) => setTimeout(() => resolve(null), CONTEXT_USAGE_TIMEOUT_MS).unref?.()),
+      ]);
+      return contextUsedFromContextUsage(answer) ?? fallback;
+    } catch {
+      // A CLI too old for the control request answers by refusing it. Not
+      // worth a log line every turn — the fallback is a good number.
+      return fallback;
+    }
   }
 
   private enqueue(sessionId: string, msg: unknown | null): void {

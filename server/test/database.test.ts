@@ -218,6 +218,12 @@ describe('openDb', () => {
       context_threshold_critical: '80',
       map_show_compact_badge: 'true',
       claude_executable_path: '',
+      claude_directory: '',
+      notify_needs_input: 'true',
+      notify_session_ended: 'true',
+      notify_session_failed: 'true',
+      notify_only_when_background: 'true',
+      notify_sound: 'true',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

@@ -7,16 +7,25 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { eq } from 'drizzle-orm';
+import { eq, inArray, isNotNull } from 'drizzle-orm';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
-import { openDb, type OrbitalDb } from './db/database.js';
+import { resolveClaudeDir } from './paths.js';
+import {
+  countSweepable,
+  parseRetentionDays,
+  retentionCutoff,
+  sweepSessions,
+  RETENTION_KEY,
+} from './retention.js';
+import { openDb } from './db/database.js';
 import { sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
 import { indexProjects } from './indexer/indexer.js';
 import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { Hub } from './api/hub.js';
 import { Runner, parseIdleTimeoutMs, type QueryFn } from './runner/runner.js';
+import { runAutoheal, type AutohealRowToHeal } from './runner/autoheal.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
 import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable } from './runner/claudeCli.js';
 import { registerRoutes } from './api/routes.js';
@@ -27,7 +36,7 @@ import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
-import type { SessionRow } from './types.js';
+import type { PermissionMode, SessionRow } from './types.js';
 import chokidar from 'chokidar';
 
 /**
@@ -127,19 +136,52 @@ export async function buildServer(overrides: {
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
   // it unless the operator explicitly opts into API-key billing.
-  if (process.env.ORBITAL_USE_API_KEY !== '1') delete process.env.ANTHROPIC_API_KEY;
+  //
+  // The decision is recorded because Settings → General reports it: where the
+  // money goes is worth stating somewhere the user can find, and it is an
+  // environment decision made once here rather than a preference they can
+  // click — a toggle for "start charging my card" is not a toggle.
+  const billing: 'api-key' | 'subscription' =
+    process.env.ORBITAL_USE_API_KEY === '1' ? 'api-key' : 'subscription';
+  if (billing !== 'api-key') delete process.env.ANTHROPIC_API_KEY;
   // The other half of the environment this server depends on: launched from
   // Finder it inherits `/usr/bin:/bin:/usr/sbin:/sbin`, where neither `claude`
   // nor the git/npm a session shells out to can be found. Gated, so only the
   // packaged app pays for the login-shell spawn (spec § 3).
   await applyLoginShellPath();
 
-  const claudeDir = overrides.claudeDir ?? CONFIG.claudeDir;
-  const projectsDir = join(claudeDir, 'projects');
-  const sessionsDir = join(claudeDir, 'sessions');
+  // The database comes up FIRST, before anything that might be configured
+  // from it. `dbPath` hangs off `dataDir`, which no setting can move, so
+  // there is no cycle here — but `claudeDir` below is now a stored setting,
+  // and it cannot be read before the table it lives in exists.
+  //
   // `ORBITAL_MIGRATIONS_DIR` is how the packaged app points at its unpacked
   // `drizzle/` resources; unset everywhere else, where the default is right.
   const db = openDb(overrides.dbPath ?? CONFIG.dbPath, process.env.ORBITAL_MIGRATIONS_DIR || undefined);
+
+  // Single accessor shared by the model catalog (which persists its probed
+  // list and learned context windows into settings) and the routes' own
+  // GET/PATCH /api/settings — two objects hitting the same table would be a
+  // silent duplicate of one job.
+  const settingsStore = {
+    get: (key: string) =>
+      db.select({ value: settingsTable.value }).from(settingsTable)
+        .where(eq(settingsTable.key, key)).get()?.value ?? '',
+    set: (key: string, value: string) =>
+      void db.insert(settingsTable).values({ key, value })
+        .onConflictDoUpdate({ target: settingsTable.key, set: { value } }).run(),
+  };
+
+  // Settings → General → "Claude directory". Read once, here, which is why
+  // the row says a change needs a restart: the watcher and the registry are
+  // built on these two paths and never rebuilt.
+  const claudeDir = resolveClaudeDir({
+    override: overrides.claudeDir,
+    env: process.env.ORBITAL_CLAUDE_DIR,
+    stored: settingsStore.get('claude_directory'),
+  });
+  const projectsDir = join(claudeDir, 'projects');
+  const sessionsDir = join(claudeDir, 'sessions');
   const hub = new Hub();
   // One log for both sides of the wire; it publishes its own changes on the
   // `errors` topic, so it needs the hub and nothing else.
@@ -154,19 +196,6 @@ export async function buildServer(overrides: {
       .where(eq(settingsTable.key, 'ended_after_idle_minutes'))
       .get()?.value,
   );
-
-  // Single accessor shared by the model catalog (which persists its probed
-  // list and learned context windows into settings) and the routes' own
-  // GET/PATCH /api/settings — two objects hitting the same table would be a
-  // silent duplicate of one job.
-  const settingsStore = {
-    get: (key: string) =>
-      db.select({ value: settingsTable.value }).from(settingsTable)
-        .where(eq(settingsTable.key, key)).get()?.value ?? '',
-    set: (key: string, value: string) =>
-      void db.insert(settingsTable).values({ key, value })
-        .onConflictDoUpdate({ target: settingsTable.key, set: { value } }).run(),
-  };
 
   // Which `claude` this server will spawn, decided once at boot: the runner
   // gets the path, `GET /api/health` gets the source so the desktop app can
@@ -227,9 +256,11 @@ export async function buildServer(overrides: {
   const imagesDir = join(CONFIG.dataDir, 'images');
   const images = createImageStore(imagesDir);
 
-  // Names a session from its own contents while it runs. Only web sessions
-  // reach it, because only they come through the Runner at all — a terminal
-  // session's transcript is read, never owned. See
+  // Names a session from its own contents. On its own it reaches web sessions
+  // only, because the stream that feeds it is the Runner's and only they come
+  // through the Runner at all — a terminal session's transcript is read, never
+  // owned. `POST /api/sessions/:id/retitle` has no such limit: it reads the
+  // transcript off disk and names any session Orbital knows. See
   // `docs/superpowers/specs/2026-09-18-auto-title-design.md`.
   const titler = new SessionTitler({
     queryFn: (overrides.titleQueryFn ?? query) as unknown as TitleQueryFn,
@@ -275,7 +306,22 @@ export async function buildServer(overrides: {
       // (`onTurnUsage` fires alongside it but knows only the usage).
       if (status === 'ended') titler.forget(sessionId);
       else if (status === 'needs_input') void titler.considerTurnEnd(sessionId);
+      // A turn actually starting is what retires the interrupted mark — the
+      // session has moved on from the turn the restart cut short. It has to
+      // hang off `onStatus` rather than `onOwnership`: the latter reports
+      // `working` at the moment autoheal claims the session, which would wipe
+      // the mark before anyone saw it.
+      if (status === 'working') {
+        db.update(sessions).set({ interruptedAt: null }).where(eq(sessions.id, sessionId)).run();
+      }
       hub.publish('sessions', { event: 'status', sessionId, status });
+    },
+    // The claim that survives a kill: written on every change, cleared only
+    // by a graceful end. A `tsx watch` restart never reaches the clear, which
+    // is precisely how the next boot recognises a session it should bring
+    // back (spec 2026-09-21-session-autoheal-design).
+    onOwnership: (sessionId, status) => {
+      db.update(sessions).set({ runnerStatus: status }).where(eq(sessions.id, sessionId)).run();
     },
     onTurnUsage: (modelUsage) => models.recordContextWindows(modelUsage),
     // How full the session's context is, stored on the row and republished on
@@ -364,7 +410,28 @@ export async function buildServer(overrides: {
     return row ? join(projectsDir, row.project_dir, `${id}.jsonl`) : null;
   };
 
+  /**
+   * Settings → General → "Delete sessions older than" (spec
+   * 2026-09-21-settings-sections-design § 4). Runs at boot and again whenever
+   * the setting changes, so the confirmation the dialog shows is honoured
+   * immediately rather than at the next restart.
+   *
+   * Order matters here: the sweep must run BEFORE `indexProjects`, because
+   * the sweep is what writes the tombstones the indexer then obeys. Run the
+   * other way round on a cold start, the scan would index everything first
+   * and the sweep would delete rows it had just created — the same answer,
+   * but after parsing every transcript on the machine for nothing.
+   */
+  function runRetentionSweep(): string[] {
+    const now = Date.now();
+    const cutoff = retentionCutoff(parseRetentionDays(settingsStore.get(RETENTION_KEY)), now);
+    const swept = sweepSessions(db, cutoff, now);
+    for (const id of swept) hub.publish('sessions', { event: 'remove', sessionId: id });
+    return swept;
+  }
+
   // Initial index + re-index on transcript changes (debounced).
+  runRetentionSweep();
   indexProjects(db, projectsDir);
   const projectsWatcher = chokidar.watch(projectsDir, { ignoreInitial: true, depth: 2 });
   let indexTimer: ReturnType<typeof setTimeout> | null = null;
@@ -378,6 +445,59 @@ export async function buildServer(overrides: {
   registry.on('remove', (id) => hub.publish('sessions', { event: 'remove', sessionId: id }));
   registry.scan();
   registry.watch();
+
+  // Bring back what the previous server was still running. Runs after
+  // `indexProjects` (which refreshes `last_at`, the age autoheal judges on)
+  // and after `registry.scan()` (so a session live in a terminal is
+  // recognised and left alone). `start()` resolves without waiting to hear
+  // from the CLI, so this does not hold up `listen()`.
+  await runAutoheal({
+    rows: db
+      .select({
+        id: sessions.id, runnerStatus: sessions.runnerStatus, lastAt: sessions.lastAt,
+        cwd: sessions.cwd, permissionMode: sessions.permissionMode, model: sessions.model,
+      })
+      .from(sessions)
+      .where(isNotNull(sessions.runnerStatus))
+      .all() as AutohealRowToHeal[],
+    now: Date.now(),
+    idleTimeoutMs,
+    isLiveInTerminal: (id) => registry.get(id) !== undefined,
+    cwdExists: existsSync,
+    resume: async (row) => {
+      // Empty prompt: the session comes back parked on stdin, no turn, no
+      // tokens. Its own permission mode, or the default when it never had
+      // one; its own model, so a heal cannot silently move it.
+      await runner.start({
+        cwd: row.cwd,
+        prompt: '',
+        permissionMode: (row.permissionMode ??
+          settingsStore.get('default_permission_mode')) as PermissionMode,
+        model: row.model ?? undefined,
+        resume: row.id,
+      });
+      publishSession(publishCtx(), row.id);
+    },
+    clearClaim: (ids) => {
+      if (ids.length) {
+        db.update(sessions).set({ runnerStatus: null }).where(inArray(sessions.id, ids)).run();
+      }
+    },
+    markInterrupted: (ids, at) => {
+      db.update(sessions).set({ interruptedAt: at }).where(inArray(sessions.id, ids)).run();
+    },
+    report: (summary) =>
+      errors.record({
+        source: 'server',
+        kind: 'sessions_healed',
+        sessionId: null,
+        message:
+          `${summary.healed.length} session(s) resumed after a server restart` +
+          (summary.interrupted.length ? `, ${summary.interrupted.length} cut off mid-turn` : ''),
+        detail: null,
+        context: summary as unknown as Record<string, unknown>,
+      }),
+  });
 
   // On-demand transcript tails per subscribed session topic.
   const tails = new Map<string, TranscriptTail>();
@@ -466,11 +586,21 @@ export async function buildServer(overrides: {
     app: 'orbital',
     static: Boolean(staticDir),
     claudeCli: { source: claudeCli.source, path: claudeCli.path, version: claudeCodeVersion },
+    // Settings → General reads these two: they are facts about how this
+    // server was started, not preferences, so they ride the health payload
+    // rather than becoming settings rows nothing would ever write.
+    billing,
+    paths: { claudeDir, dataDir: CONFIG.dataDir, dbPath: overrides.dbPath ?? CONFIG.dbPath },
   }));
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, errors,
-    images, imagesDir,
+    images, imagesDir, titler,
     settings: settingsStore,
+    retention: {
+      sweep: runRetentionSweep,
+      preview: (value: string) =>
+        countSweepable(db, retentionCutoff(parseRetentionDays(value), Date.now())),
+    },
   });
   app.addHook('onClose', async () => {
     runner.dispose();

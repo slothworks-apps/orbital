@@ -7,4 +7,11 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   onSelectSession(cb: (id: string) => void) {
     ipcRenderer.on('select-session', (_e, id) => cb(String(id)));
   },
+  // The renderer is the only thing that writes settings, so it is also the
+  // only thing that can tell main.ts the notification rows moved. Carries no
+  // payload: main re-reads `GET /api/settings` rather than trust a message
+  // (spec 2026-09-21-settings-sections-design § 5).
+  notifySettingsChanged() {
+    ipcRenderer.send('settings-changed');
+  },
 });

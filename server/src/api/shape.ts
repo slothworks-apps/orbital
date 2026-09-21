@@ -54,6 +54,13 @@ export interface ApiSession {
    * time as `mapDismissedAt`.
    */
   pinnedAt: number | null;
+  /**
+   * When a server restart cut this session's turn short (epoch ms), null
+   * otherwise (spec 2026-09-21-session-autoheal-design). The session itself
+   * is intact and resumed; what is missing is the rest of that one turn.
+   * Cleared the next time the session actually runs a turn.
+   */
+  interruptedAt: number | null;
   tagIds: number[];
   status: SessionStatus;
   /** Subagents running in this session right now; empty for everything else. */
@@ -93,6 +100,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     contextUsedTokens: row.context_used_tokens,
     mapDismissedAt: row.map_dismissed_at,
     pinnedAt: row.pinned_at,
+    interruptedAt: row.interrupted_at,
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
     subagents: ctx.subagents.get(row.id),

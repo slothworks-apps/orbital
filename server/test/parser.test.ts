@@ -392,3 +392,30 @@ describe('entriesToMessages: command split and isError', () => {
     expect(entriesToMessages(entries as any)[0].isError).toBeUndefined();
   });
 });
+
+describe('task notifications fold with the rest of the machine wrapping', () => {
+  const notification =
+    '<task-notification>\n<task-id>a0bf872f53a08fd4d</task-id>\n' +
+    '<status>stopped</status>\n<summary>Background agent didn\'t finish</summary>\n' +
+    '</task-notification>';
+
+  it('folds a resumed session\'s notification out of the visible turn', () => {
+    // Every autoheal resume re-emits one of these (spec
+    // 2026-09-21-session-autoheal-design), so a dev-loop session accumulates
+    // them faster than anything the human typed.
+    const split = splitUserText(`carry on\n${notification}`);
+    expect(split.text).toBe('carry on');
+    expect(split.command?.blocks).toBe(1);
+    expect(split.command?.body).toContain('a0bf872f53a08fd4d');
+  });
+
+  it('keeps a turn that is nothing but a notification out of the title', () => {
+    expect(cleanTitle(notification)).toBe('');
+  });
+
+  it('counts a notification alongside the other machine blocks', () => {
+    const split = splitUserText(`${notification}\n<system-reminder>x</system-reminder>`);
+    expect(split.text).toBe('');
+    expect(split.command?.blocks).toBe(2);
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { homedir } from 'node:os';
-import { expandHome } from '../src/paths.js';
+import { expandHome, resolveClaudeDir } from '../src/paths.js';
 
 const HOME = homedir();
 
@@ -31,5 +31,49 @@ describe('expandHome', () => {
 
   it('passes empty input straight through', () => {
     expect(expandHome('')).toBe('');
+  });
+});
+
+describe('resolveClaudeDir', () => {
+  const HOME_FIXTURE = '/Users/fixture';
+  const resolve = (input: Parameters<typeof resolveClaudeDir>[0]) =>
+    resolveClaudeDir({ home: HOME_FIXTURE, ...input });
+
+  it('falls back to ~/.claude when nothing is configured', () => {
+    expect(resolve({})).toBe('/Users/fixture/.claude');
+    expect(resolve({ env: undefined, stored: undefined })).toBe('/Users/fixture/.claude');
+  });
+
+  it('uses the stored setting when there is no env var', () => {
+    expect(resolve({ stored: '/srv/claude' })).toBe('/srv/claude');
+  });
+
+  /**
+   * The precedence that matters: someone who exported a variable is telling
+   * this process where to look right now, and must not be overruled by a row
+   * clicked into the settings table months ago.
+   */
+  it('lets the env var outrank the stored setting', () => {
+    expect(resolve({ env: '/env/claude', stored: '/stored/claude' })).toBe('/env/claude');
+  });
+
+  it('lets an explicit override outrank both — that is what tests pass', () => {
+    expect(resolve({ override: '/o', env: '/e', stored: '/s' })).toBe('/o');
+  });
+
+  /**
+   * An emptied text field stores '', and that has to read as "back to the
+   * default" rather than "watch the process's working directory".
+   */
+  it('treats empty and whitespace-only as unset at every level', () => {
+    expect(resolve({ stored: '' })).toBe('/Users/fixture/.claude');
+    expect(resolve({ stored: '   ' })).toBe('/Users/fixture/.claude');
+    expect(resolve({ env: '', stored: '/stored/claude' })).toBe('/stored/claude');
+    expect(resolve({ env: '  ', stored: '/stored/claude' })).toBe('/stored/claude');
+  });
+
+  it('expands a typed ~, because nothing downstream is a shell', () => {
+    expect(resolve({ stored: '~/.claude-work' })).toBe('/Users/fixture/.claude-work');
+    expect(resolve({ env: '~' })).toBe('/Users/fixture');
   });
 });

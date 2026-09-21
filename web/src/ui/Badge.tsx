@@ -3,7 +3,20 @@ import { tagColor } from '../lib/types'
 import type { SessionStatus } from '../lib/types'
 
 export type BadgeProps =
-  | { variant: 'status'; value: SessionStatus; /** Tag hue tinting a working badge (canvas 1b). */ hue?: number }
+  | {
+      variant: 'status'
+      value: SessionStatus
+      /** Tag hue tinting a working badge (canvas 1b). */
+      hue?: number
+      /**
+       * A server restart cut this session's turn short (spec
+       * 2026-09-21-session-autoheal-design). A modifier rather than a status
+       * of its own: the session really is waiting for input, and this says
+       * why. It reads `INTERRUPTED`, keeps the needs-input chip's treatment,
+       * and drops the blinking dot — nothing is happening; something stopped.
+       */
+      interrupted?: boolean
+    }
   | { variant: 'count'; value: number; label?: string }
   | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
 
@@ -21,9 +34,12 @@ const baseClass =
 
 export function Badge(props: BadgeProps) {
   if (props.variant === 'status') {
-    const { value, hue } = props
+    const { value, hue, interrupted } = props
     const busy = value === 'working' || value === 'needs_input'
-    const tint = busy && hue !== undefined ? tagColor(hue) : undefined
+    // The interrupted chip keeps needs-input's white treatment (which is what
+    // `tint === undefined` selects below), so the hue tint is dropped along
+    // with the dot.
+    const tint = busy && !interrupted && hue !== undefined ? tagColor(hue) : undefined
     // 1b tints only the BORDER with the session's tag hue, at 40% — the label
     // itself stays the fixed accent, so the badge reads as one family across
     // tags rather than restating the hue twice.
@@ -36,7 +52,7 @@ export function Badge(props: BadgeProps) {
           }
         : undefined
     const stateClass =
-      value === 'needs_input' && !tint
+      interrupted || (value === 'needs_input' && !tint)
         ? 'border-white text-white bg-white/10'
         : value === 'ended'
           ? 'border-panel-border text-text-muted opacity-60'
@@ -45,15 +61,20 @@ export function Badge(props: BadgeProps) {
             : 'border-panel-border text-text-muted'
 
     return (
-      <span data-variant="status" data-status={value} style={style} className={`${baseClass} ${tint ? '' : stateClass}`}>
-        {busy && (
+      <span
+        data-variant="status"
+        data-status={interrupted ? 'interrupted' : value}
+        style={style}
+        className={`${baseClass} ${tint ? '' : stateClass}`}
+      >
+        {busy && !interrupted && (
           <span
             aria-hidden
             className="orbital-pulse h-1.5 w-1.5 rounded-full"
             style={{ background: tint ?? 'currentColor', boxShadow: tint ? `0 0 8px ${tint}` : undefined }}
           />
         )}
-        {statusLabel[value]}
+        {interrupted ? 'INTERRUPTED' : statusLabel[value]}
       </span>
     )
   }

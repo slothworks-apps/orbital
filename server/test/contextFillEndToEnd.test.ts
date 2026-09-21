@@ -16,20 +16,37 @@ import { buildServer } from '../src/index.js';
  * transcript is indexed, and the indexer extracts no usage.
  */
 
-/** Fake SDK that ends a turn with usage, then compacts when released. */
+/**
+ * Fake SDK that ends a turn with usage, then compacts when released.
+ *
+ * The turn is three API calls, as a real turn with two tool round-trips is,
+ * and the `result` carries their sum the way the SDK's does. Only the last
+ * call's 153_500 is a window reading; the 411_500 on the result is a
+ * billing total (fix: context-arc-summed-the-whole-turn).
+ */
 function fakeQueryFnCompacting(postTokens?: number) {
   let release!: () => void;
   const compacted = new Promise<void>((resolve) => { release = resolve; });
   const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
     const sid = options?.sessionId ?? options?.resume;
+    const call = (id: string, ctx: number) => ({
+      type: 'assistant', session_id: sid, parent_tool_use_id: null,
+      message: {
+        id, role: 'assistant', content: [{ type: 'text', text: 'x' }],
+        usage: { input_tokens: 1_000, cache_read_input_tokens: ctx - 3_500, cache_creation_input_tokens: 2_000, output_tokens: 500 },
+      },
+    });
     async function* gen() {
       for await (const _ of prompt) {
         yield { type: 'system', subtype: 'init', session_id: sid };
+        yield call('c1', 128_000);
+        yield call('c2', 130_000);
+        yield call('c3', 153_500);
         yield {
           type: 'result', subtype: 'success', session_id: sid,
           usage: {
-            input_tokens: 1_000, cache_read_input_tokens: 150_000,
-            cache_creation_input_tokens: 2_000, output_tokens: 500,
+            input_tokens: 3_000, cache_read_input_tokens: 401_000,
+            cache_creation_input_tokens: 6_000, output_tokens: 1_500,
           },
         };
         await compacted;

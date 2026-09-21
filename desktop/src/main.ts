@@ -2,13 +2,14 @@ import {
   app,
   BrowserWindow,
   dialog,
+  ipcMain,
   Notification,
   shell,
   utilityProcess,
   type UtilityProcess,
 } from 'electron';
 import { join } from 'node:path';
-import { SessionNotifier } from './lib/notifications';
+import { SessionNotifier, parseNotificationSettings } from './lib/notifications';
 import { probeHealth, probeVite } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
 import {
@@ -104,7 +105,7 @@ async function waitForHealth(): Promise<HealthInfo | null> {
     if (startExit !== null) return null; // it died; there is nothing left to answer
     const outcome = await probeHealth(PORT);
     if (outcome.kind === 'orbital') return outcome.health;
-    if (startExit !== null || Date.now() >= deadline) return null;
+    if (Date.now() >= deadline) return null;
     await delay(HEALTH_POLL_INTERVAL_MS);
   }
 }
@@ -257,25 +258,63 @@ function openWindow(url: string): void {
 }
 
 /**
+ * Pull Settings → Notifications into the notifier.
+ *
+ * The WebSocket publishes `sessions` and `errors` only, so these five
+ * booleans do not arrive on the feed that drives them. Rather than grow a
+ * topic for them, they are fetched here — at startup, on every reconnect, and
+ * whenever the renderer reports a save (spec
+ * 2026-09-21-settings-sections-design § 5). A failed read leaves whatever was
+ * loaded last standing, which on a cold start is "everything on", i.e. what
+ * the app did before the section existed.
+ */
+async function loadNotificationSettings(): Promise<void> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/settings`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!res.ok) return;
+    notifier.setSettings(parseNotificationSettings(await res.json()));
+  } catch {
+    /* server still coming up, or gone: keep the settings we have */
+  }
+}
+
+/**
  * Watch the server's own WebSocket and turn what the notifier reports into
  * native notifications that jump back to the session (spec § 3).
  *
  * The focus check is the reason notifications exist: a visible, focused map
  * already shows every one of these states, so interrupting over it is noise.
+ * It is now the "Only when Orbital is in the background" row rather than an
+ * unconditional rule, but it keeps that default.
  */
 function startNotifications(): void {
   if (!Notification.isSupported()) return;
+  void loadNotificationSettings();
+  // The renderer is the only thing that changes these, so it can say so
+  // exactly. A missed message costs one notification judged by the previous
+  // rule; the next reconnect corrects it.
+  ipcMain.on('settings-changed', () => void loadNotificationSettings());
   feed = startSessionsFeed({
     url: `ws://127.0.0.1:${PORT}/ws`,
     // A new socket means the world is about to replay; what we knew is stale.
-    onReconnect: () => notifier.reset(),
+    onReconnect: () => {
+      notifier.reset();
+      void loadNotificationSettings();
+    },
     onFrame: (frame) => {
       const d = notifier.onEvent(frame);
       if (!d) return;
       const target = win;
-      if (!target || target.isFocused()) return;
+      if (!target) return;
+      if (notifier.current.onlyWhenBackground && target.isFocused()) return;
 
-      const n = new Notification({ title: d.title, body: d.body });
+      const n = new Notification({
+        title: d.title,
+        body: d.body,
+        silent: !notifier.current.sound,
+      });
       n.on('click', () => {
         target.show();
         target.focus();

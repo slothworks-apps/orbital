@@ -154,9 +154,13 @@ describe('Settings › Tags & rules', () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)
 
-    // Sessions is the landing section.
+    // A fresh store remembers no section, so the visit lands on the nav's
+    // first row (spec 2026-09-21-settings-sections-design § 1).
     expect(screen.queryByText('TAGS · 2')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Sessions' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessions' }))
+    expect(screen.getByText('NEW SESSIONS')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Tags & rules' }))
 
@@ -870,8 +874,8 @@ describe('Settings › Tags & rules', () => {
 
     for (const planet of document.querySelectorAll('[data-tag-planet]')) {
       expect(planet.className).toMatch(/(^|\s)(block|inline-block|flex|grid)(\s|$)/)
-      expect(planet.className).toMatch(/h-\[22px\]/)
-      expect(planet.className).toMatch(/w-\[22px\]/)
+      expect(planet.className).toMatch(/h-\[22px]/)
+      expect(planet.className).toMatch(/w-\[22px]/)
     }
   })
 

@@ -19,6 +19,48 @@ import { basename } from 'node:path';
 
 export type DesktopNotification = { title: string; body: string; sessionId: string | null };
 
+/**
+ * The five rows of Settings → Notifications (spec
+ * 2026-09-21-settings-sections-design § 5). The first three gate this fold;
+ * the last two are read by `main.ts`, which is the only place that can see a
+ * window or set `silent` — they are parsed here so there is one place that
+ * knows what the stored strings mean.
+ */
+export type NotificationSettings = {
+  needsInput: boolean;
+  sessionEnded: boolean;
+  sessionFailed: boolean;
+  onlyWhenBackground: boolean;
+  sound: boolean;
+};
+
+/**
+ * Every flag defaults ON, and that is not a preference — it is what the app
+ * did before this section existed: the three events fired unconditionally,
+ * the focus check in `main.ts` was unconditional, and `silent` was never set.
+ * So an absent key has to mean "as before". Only the literal string 'false'
+ * turns one off, matching how the web app reads its own booleans.
+ */
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  needsInput: true,
+  sessionEnded: true,
+  sessionFailed: true,
+  onlyWhenBackground: true,
+  sound: true,
+};
+
+export function parseNotificationSettings(raw: unknown): NotificationSettings {
+  if (!isRecord(raw)) return DEFAULT_NOTIFICATION_SETTINGS;
+  const on = (key: string): boolean => raw[key] !== 'false';
+  return {
+    needsInput: on('notify_needs_input'),
+    sessionEnded: on('notify_session_ended'),
+    sessionFailed: on('notify_session_failed'),
+    onlyWhenBackground: on('notify_only_when_background'),
+    sound: on('notify_sound'),
+  };
+}
+
 /** The statuses the registry produces; anything else off the wire is ignored. */
 const STATUSES = new Set(['working', 'needs_input', 'idle', 'ended']);
 
@@ -53,6 +95,7 @@ function bodyFor(from: string, to: string): string | null {
 
 export class SessionNotifier {
   private seen = new Map<string, Known>();
+  private settings: NotificationSettings = DEFAULT_NOTIFICATION_SETTINGS;
 
   /** Feed one parsed frame; returns a notification to show, or null. */
   onEvent(frame: unknown): DesktopNotification | null {
@@ -65,6 +108,20 @@ export class SessionNotifier {
       default:
         return null;
     }
+  }
+
+  /**
+   * Replace the settings. `main.ts` calls this on startup, on every socket
+   * reconnect and whenever the renderer says they changed — never mid-fold,
+   * so a frame is always judged by one coherent set.
+   */
+  setSettings(settings: NotificationSettings): void {
+    this.settings = settings;
+  }
+
+  /** What `main.ts` needs but cannot parse: the two rows it acts on itself. */
+  get current(): NotificationSettings {
+    return this.settings;
   }
 
   /** Forget everything (called on WS reconnect — the world replays). */
@@ -124,6 +181,11 @@ export class SessionNotifier {
     const body = bodyFor(known.status, status);
     known.status = status;
     if (!body) return null;
+    // Muted AFTER the fold, and gated on the transition rather than on the
+    // body text: `seen` stays true either way, so turning a row back on
+    // reports the next transition instead of replaying a stale one.
+    if (status === 'needs_input' && !this.settings.needsInput) return null;
+    if (status === 'ended' && !this.settings.sessionEnded) return null;
     return { title: known.name ?? FALLBACK_TITLE, body, sessionId: id };
   }
 
@@ -133,6 +195,9 @@ export class SessionNotifier {
     if (!isRecord(error)) return null;
     // A session that dies is not a status; it arrives here (server index.ts).
     if (error.kind !== 'session_failed') return null;
+    // Nothing to fold for a failure — it carries no state this class keeps —
+    // so unlike the transitions above, this one can bail early.
+    if (!this.settings.sessionFailed) return null;
     const message = str(error.message);
     if (!message) return null;
 

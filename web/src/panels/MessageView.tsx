@@ -181,11 +181,24 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
   // thumbnail AS the bubble — no empty markdown bubble above it.
   const images = message.images ?? []
   const hasImages = images.length > 0
+  /**
+   * Whether a person put anything in this turn. A user-role turn carrying
+   * nothing but machine context was written by the CLI, not by them — a
+   * resumed session's task notifications (spec
+   * 2026-09-21-session-autoheal-design), a slash command's expansion with no
+   * prose around it — so it sits on the agent's side of the column. Right
+   * alignment is the transcript's way of saying "you said this", and it must
+   * not be lent to words the user never wrote.
+   *
+   * A turn that has both keeps its right alignment: the human did speak, and
+   * the chip trails what they said.
+   */
+  const authored = hasText || hasImages
 
   return (
     <div
       data-role={message.role}
-      className={['flex flex-col gap-1', isUser ? 'items-end' : 'items-start'].join(' ')}
+      className={['flex flex-col gap-1', isUser && authored ? 'items-end' : 'items-start'].join(' ')}
     >
       {(hasText || (!command && !hasImages)) && (
       <div
@@ -273,8 +286,10 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
       {command && (
         <>
           {/* The expansion chip (canvas 6c): resting chip convention —
-              1px border, no fill, 5/10px padding — right-aligned under the
-              bubble at a 6px gap (the column's 4px gap + 2px). */}
+              1px border, no fill, 5/10px padding — under the bubble at a 6px
+              gap (the column's 4px gap + 2px). It follows the column's
+              alignment, so it trails a typed turn on the right and stands on
+              the left when the machine context IS the whole turn (`authored`). */}
           <button
             type="button"
             aria-expanded={commandOpen}

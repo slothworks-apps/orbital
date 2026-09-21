@@ -37,6 +37,10 @@ export interface SessionRow {
   context_used_tokens: number | null;
   /** When the user pinned this session (epoch ms), or null. See db/schema.ts. */
   pinned_at: number | null;
+  /** The Runner's claim on this session, null when it holds none. See db/schema.ts. */
+  runner_status: SessionStatus | null;
+  /** When a restart cut a turn short (epoch ms), null otherwise. See db/schema.ts. */
+  interrupted_at: number | null;
 }
 
 /**
@@ -99,7 +103,7 @@ export interface TagRule {
 export type ErrorSource = 'server' | 'web';
 
 /** What kind of thing failed. A short machine label, not a message. */
-export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash';
+export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash' | 'sessions_healed';
 
 export interface ErrorRecord {
   id: number;
