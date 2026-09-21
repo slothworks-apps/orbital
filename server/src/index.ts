@@ -123,7 +123,9 @@ export async function buildServer(overrides: {
   const claudeDir = overrides.claudeDir ?? CONFIG.claudeDir;
   const projectsDir = join(claudeDir, 'projects');
   const sessionsDir = join(claudeDir, 'sessions');
-  const db = openDb(overrides.dbPath ?? CONFIG.dbPath);
+  // `ORBITAL_MIGRATIONS_DIR` is how the packaged app points at its unpacked
+  // `drizzle/` resources; unset everywhere else, where the default is right.
+  const db = openDb(overrides.dbPath ?? CONFIG.dbPath, process.env.ORBITAL_MIGRATIONS_DIR || undefined);
   const hub = new Hub();
   // One log for both sides of the wire; it publishes its own changes on the
   // `errors` topic, so it needs the hub and nothing else.

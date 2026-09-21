@@ -8,8 +8,13 @@ import * as schema from './schema.js';
 import { settings, tags } from './schema.js';
 
 // Resolved relative to this module (not process.cwd()) so `openDb` works
-// regardless of where the process is launched from.
-const migrationsFolder = fileURLToPath(new URL('../../drizzle', import.meta.url));
+// regardless of where the process is launched from. Only correct while the
+// server runs from source: a bundled build puts `import.meta.url` somewhere
+// else entirely, so the packaged app passes its own path to `openDb`
+// (spec 2026-09-16-electron-wrapper-design § 2).
+export const DEFAULT_MIGRATIONS_FOLDER = fileURLToPath(
+  new URL('../../drizzle', import.meta.url),
+);
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   default_permission_mode: 'acceptEdits',
@@ -83,11 +88,16 @@ const DEFAULT_SETTINGS: Record<string, string> = {
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
 
-export function openDb(dbPath: string): OrbitalDb {
+export function openDb(
+  dbPath: string,
+  migrationsFolder: string = DEFAULT_MIGRATIONS_FOLDER,
+): OrbitalDb {
   mkdirSync(dirname(dbPath), { recursive: true });
   const sqlite = new Database(dbPath);
   sqlite.pragma('journal_mode = WAL');
   const db = drizzle(sqlite, { schema });
+  // Throws on a missing folder or a failed migration, and must keep throwing:
+  // a database that skipped its migrations is worse than one that won't open.
   migrate(db, { migrationsFolder });
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
     db.insert(settings).values({ key, value }).onConflictDoNothing().run();

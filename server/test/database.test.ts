@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { eq, sql } from 'drizzle-orm';
-import { openDb } from '../src/db/database.js';
+import { DEFAULT_MIGRATIONS_FOLDER, openDb } from '../src/db/database.js';
 import { tags, settings } from '../src/db/schema.js';
 import { effectiveTagIds, regenerateRuleTags } from '../src/tags/rules.js';
 
@@ -240,6 +240,24 @@ describe('openDb', () => {
     expect(migrationCount.c).toBe(migrationsOnDisk());
     expect(reopened.$client.pragma('user_version', { simple: true })).toBe(1);
     reopened.$client.close();
+  });
+});
+
+// The packaged app runs from a bundle where `import.meta.url` no longer sits
+// next to `drizzle/`, so it passes its own unpacked path in (spec
+// 2026-09-16-electron-wrapper-design § 2).
+describe('openDb migrations folder', () => {
+  it('accepts an explicit folder', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-migrations-'));
+    const db = openDb(join(dir, 'index.db'), DEFAULT_MIGRATIONS_FOLDER);
+    const count = db.all<{ c: number }>(sql`SELECT COUNT(*) c FROM __drizzle_migrations`)[0];
+    expect(count.c).toBe(migrationsOnDisk());
+    db.$client.close();
+  });
+
+  it('throws when the folder does not exist, rather than opening an unmigrated database', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-migrations-missing-'));
+    expect(() => openDb(join(dir, 'index.db'), join(dir, 'no-such-drizzle'))).toThrow();
   });
 });
 
