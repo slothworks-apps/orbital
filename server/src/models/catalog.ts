@@ -183,11 +183,19 @@ export class ModelCatalog {
   private lastProbedAt = 0;
   /** Whether the most recent probe to actually run succeeded — gates the warning to one line per outage. */
   private lastProbeOk = true;
+  private claudeExecutablePath?: string | null;
 
-  constructor(deps: { settings: SettingsStore; queryFn: QueryFn; cwd?: string }) {
+  constructor(deps: {
+    settings: SettingsStore;
+    queryFn: QueryFn;
+    cwd?: string;
+    /** Absolute path to the claude CLI to spawn, or null/undefined for the SDK's bundled default. */
+    claudeExecutablePath?: string | null;
+  }) {
     this.settings = deps.settings;
     this.queryFn = deps.queryFn;
     this.cwd = deps.cwd ?? process.cwd();
+    this.claudeExecutablePath = deps.claudeExecutablePath;
   }
 
   async list(): Promise<OrbitalModel[]> {
@@ -272,9 +280,14 @@ export class ModelCatalog {
     async function* silent(): AsyncGenerator<never> {
       await new Promise<never>(() => {});
     }
+    const options: Record<string, unknown> = { cwd: this.cwd, permissionMode: 'plan' };
+    // Absent, the SDK spawns its own bundled binary — which the packaged app
+    // cannot have (spec 2026-09-16-electron-wrapper-design § 2). Mirrors
+    // Runner's `start()`.
+    if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
     const q = this.queryFn({
       prompt: silent(),
-      options: { cwd: this.cwd, permissionMode: 'plan' },
+      options,
     });
     try {
       const models = await withTimeout(

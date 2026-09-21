@@ -329,4 +329,32 @@ describe('ModelCatalog', () => {
   it('exposes the refresh interval as a named constant', () => {
     expect(REFRESH_INTERVAL_MS).toBeGreaterThan(0);
   });
+
+  // The packaged app spawns the user's own CLI rather than the SDK's bundled
+  // binary (spec 2026-09-16-electron-wrapper-design § 2); the probe must
+  // mirror the Runner's own use of `pathToClaudeCodeExecutable` (see
+  // runner.test.ts's "hands the SDK an explicit claude executable..." case)
+  // or the packaged app's probe spawns a binary that was never installed.
+  it('hands the probe an explicit claude executable when it was given one, and omits the option otherwise', async () => {
+    const capture = () => {
+      let captured: any;
+      const fn = (args: any) => {
+        captured = args.options;
+        return fakeQueryFn().fn();
+      };
+      return { fn, options: () => captured };
+    };
+
+    const withPath = capture();
+    const withPathCatalog = new ModelCatalog({
+      settings: fakeSettings(), queryFn: withPath.fn as never, claudeExecutablePath: '/x/claude',
+    });
+    await withPathCatalog.list();
+    expect(withPath.options().pathToClaudeCodeExecutable).toBe('/x/claude');
+
+    const without = capture();
+    const withoutCatalog = new ModelCatalog({ settings: fakeSettings(), queryFn: without.fn as never });
+    await withoutCatalog.list();
+    expect(without.options()).not.toHaveProperty('pathToClaudeCodeExecutable');
+  });
 });

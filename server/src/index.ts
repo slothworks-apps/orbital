@@ -204,6 +204,7 @@ export async function buildServer(overrides: {
     settings: settingsStore,
     queryFn: overrides.queryFn ?? (query as unknown as QueryFn),
     cwd: process.cwd(),
+    claudeExecutablePath: claudeCli.path,
   });
 
   // Running subagents, keyed by session. Read back out through
