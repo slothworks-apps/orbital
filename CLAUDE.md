@@ -8,7 +8,7 @@ needs your input and what has ended, and a session can be opened, continued
 or spawned directly from the browser (through the Claude Agent SDK, billed
 to your subscription the same way the CLI is).
 
-Two npm workspaces:
+Three npm workspaces:
 
 - `server/` — Fastify API + WebSocket. Watches `~/.claude` for the CLI's
   session transcripts (an undocumented, unstable format that can break on
@@ -16,8 +16,13 @@ Two npm workspaces:
   drizzle. Binds to `127.0.0.1` only; there is no authentication.
 - `web/` — React + Vite frontend; the map renders with react-three-fiber,
   state lives in zustand.
+- `desktop/` — Electron shell (macOS arm64): one window and native
+  notifications. The main process is thin — it forks the bundled server or
+  attaches to a running dev server, and every decision lives in pure
+  functions under `desktop/src/lib` that vitest exercises without launching
+  Electron.
 
-`npm run dev` starts both. The README covers run/test commands, billing
+`npm run dev` starts the server and the web app. The README covers run/test commands, billing
 (`ANTHROPIC_API_KEY` is deleted from the server's environment on startup
 unless `ORBITAL_USE_API_KEY=1`) and the `~/.claude` caveats.
 

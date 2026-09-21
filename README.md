@@ -38,7 +38,7 @@ has the measurements.
 npm install
 ```
 
-This is a single npm workspace covering both `server` and `web`.
+This is a single npm workspace covering `server`, `web` and `desktop`.
 
 ## Run
 
@@ -61,12 +61,53 @@ npm run dev:web
 
 Open `http://localhost:5173`.
 
+## Desktop app (macOS)
+
+The `desktop/` workspace wraps the same web app in an Electron shell: one
+window, and native macOS notifications that you can click to jump straight back
+to the session they are about. It never starts `tsx` or `vite` — it either
+attaches to an Orbital server that is already answering on the port, or forks
+the built server bundle itself, so the app and a running `npm run dev` share
+one database and one watcher instead of fighting over them.
+
+In development, with `npm run dev` already running in another terminal:
+
+```bash
+npm run dev -w desktop   # window at http://127.0.0.1:5173, HMR intact
+```
+
+To build the installable app:
+
+```bash
+npm run desktop:dist     # → desktop/release/Orbital-<version>-arm64.dmg
+```
+
+Always run that from the repo root: it builds the server and the web app first,
+where `npm run dist -w desktop` on its own would package whatever stale output
+happens to be lying in `server/dist` and `web/dist`.
+
+macOS arm64 only, and the DMG is unsigned. On first launch the Mac will
+quarantine it, so open it with **right-click → Open** rather than a
+double-click, and enable Orbital under **System Settings → Notifications** if
+macOS never offers the permission prompt by itself.
+
+The packaged app does **not** bundle a Claude Code CLI — it spawns the one
+already installed on the Mac, so that the CLI writing transcripts and the
+Orbital reading them are the same version (and so the app stays ~200 MB
+smaller). It resolves your real `PATH` at startup to find it; if autodetection
+picks the wrong one, the `claude_executable_path` setting overrides it.
+
+[`docs/ops/run-the-desktop-app.md`](docs/ops/run-the-desktop-app.md) has the
+forked-mode recipe, the notification smoke test and the troubleshooting table.
+
 ## Test
 
 ```bash
 npm test -w server        # server test suite (Vitest)
 npm run test:run -w web   # web test suite (Vitest + Testing Library), single run
 npm run test -w web       # web test suite in watch mode
+npm test -w desktop       # desktop test suite (Vitest, no Electron launched)
+npm test                  # all three, in order
 ```
 
 Type checking and the production web build:
