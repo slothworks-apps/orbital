@@ -84,3 +84,37 @@ export function windowUrl(dev: boolean, port: number): string {
   // the same origin, which is what the web client's origin-relative URLs need.
   return dev ? 'http://127.0.0.1:5173' : `http://127.0.0.1:${port}`;
 }
+
+/** The only origins that are Orbital: both `windowUrl` answers, whatever mode. */
+function appOrigins(port: number): string[] {
+  return [windowUrl(true, port), windowUrl(false, port)].map((url) => new URL(url).origin);
+}
+
+export type NavigationDecision =
+  | 'allow' // Orbital's own origin — the window may follow it itself
+  | 'external' // a web page: hand it to the user's browser instead
+  | 'deny'; // neither — swallow it
+
+/**
+ * What the desktop window may do with a URL it is asked to navigate to.
+ *
+ * Assistant prose autolinks bare URLs and the renderer passes them through as
+ * plain anchors, which is right in a browser tab — the user presses Back. This
+ * window has no Back, and the remote page would load with the preload
+ * attached, so anything that is not Orbital's own origin leaves the app.
+ *
+ * Only http(s) is handed to the browser: `shell.openExternal` will launch a
+ * handler application for other schemes, which is the same class of hole this
+ * function exists to close.
+ */
+export function decideNavigation(url: string, port: number): NavigationDecision {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return 'deny';
+  }
+  if (appOrigins(port).includes(parsed.origin)) return 'allow';
+  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return 'external';
+  return 'deny';
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyChildExit,
   classifyProbe,
+  decideNavigation,
   decideStartup,
   needsCliPrompt,
   windowUrl,
@@ -93,6 +94,38 @@ describe('classifyChildExit', () => {
   it('ignores every death once we are quitting', () => {
     expect(classifyChildExit({ ...state, quitting: true })).toBe('ignore');
     expect(classifyChildExit({ quitting: true, current: true, awaitingStart: true })).toBe('ignore');
+  });
+});
+
+describe('decideNavigation', () => {
+  it('lets the window navigate within Orbital’s own origin', () => {
+    expect(decideNavigation('http://127.0.0.1:4737/', 4737)).toBe('allow');
+    expect(decideNavigation('http://127.0.0.1:4737/sandbox', 4737)).toBe('allow');
+    // Both windowUrl answers are ours, whichever mode this process is in.
+    expect(decideNavigation('http://127.0.0.1:5173/', 4737)).toBe('allow');
+  });
+
+  it('sends a link in a transcript to the browser instead of replacing the map', () => {
+    expect(decideNavigation('https://example.com/docs', 4737)).toBe('external');
+    expect(decideNavigation('http://example.com', 4737)).toBe('external');
+  });
+
+  it('treats another service on loopback as external, not as us', () => {
+    // Same host, different port: the preload must not follow it.
+    expect(decideNavigation('http://127.0.0.1:9999/', 4737)).toBe('external');
+    expect(decideNavigation('http://localhost:4737/', 4737)).toBe('external');
+  });
+
+  it('follows the configured port rather than a hard-coded one', () => {
+    expect(decideNavigation('http://127.0.0.1:4791/', 4791)).toBe('allow');
+    expect(decideNavigation('http://127.0.0.1:4737/', 4791)).toBe('external');
+  });
+
+  it('swallows anything that is not http(s) rather than handing it to the OS', () => {
+    // shell.openExternal launches a handler application for these.
+    expect(decideNavigation('file:///etc/passwd', 4737)).toBe('deny');
+    expect(decideNavigation('javascript:alert(1)', 4737)).toBe('deny');
+    expect(decideNavigation('not a url', 4737)).toBe('deny');
   });
 });
 

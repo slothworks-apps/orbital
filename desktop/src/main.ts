@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   Notification,
+  shell,
   utilityProcess,
   type UtilityProcess,
 } from 'electron';
@@ -12,6 +13,7 @@ import { probeHealth } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
 import {
   classifyChildExit,
+  decideNavigation,
   decideStartup,
   needsCliPrompt,
   windowUrl,
@@ -230,6 +232,20 @@ function openWindow(): void {
       contextIsolation: true,
     },
   });
+  // This window is Orbital and nothing else. A link in a transcript opens in
+  // the user's browser instead of replacing the map — there is no Back here,
+  // and a remote page would be loaded with the preload attached.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (decideNavigation(url, PORT) === 'external') void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    const decision = decideNavigation(url, PORT);
+    if (decision === 'allow') return;
+    event.preventDefault();
+    if (decision === 'external') void shell.openExternal(url);
+  });
+
   win.on('closed', () => {
     win = null;
   });
