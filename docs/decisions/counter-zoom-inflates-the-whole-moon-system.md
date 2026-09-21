@@ -8,6 +8,7 @@ related:
   - planets-shrink-slower-than-the-map
   - separation-follows-the-counter-zoom-curve
   - moons-widen-the-body-the-sim-separates
+  - the-zoom-range-is-wide-because-fit-is-the-way-back
 tags:
   - space-map
   - camera
@@ -15,8 +16,11 @@ tags:
 # The counter-zoom factor inflates the whole moon system, not just bodies
 
 `bodyZoomFactor` (camera.ts) makes planets shrink more slowly than the map
-when zooming out: `clamp((60 / zoom) ** 0.5, 1, 1.7)`, identity at and above
-the default zoom. The open question in
+when zooming out: `clamp((60 / zoom) ** 0.5, 1, FACTOR_MAX)`, identity at and
+above the default zoom. `FACTOR_MAX` is the curve's own value at `MIN_ZOOM`
+and moves with it — it was the literal `1.7` while the floor was 20, and is
+~3.46 now the floor is 5 ([[the-zoom-range-is-wide-because-fit-is-the-way-back]]).
+The open question in
 [[planets-shrink-slower-than-the-map]] was whether moons inflate body-only
 or orbit-and-all.
 

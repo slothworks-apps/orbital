@@ -22,15 +22,33 @@ export interface Viewport {
   height: number
 }
 
-/** Camera zoom is clamped to this range (also the map's percent readout range). */
-export const MIN_ZOOM = 20
-export const MAX_ZOOM = 200
+/**
+ * Camera zoom is clamped to this range (also the map's percent readout range).
+ *
+ * The range was [20, 200], and the floor was the binding one: a map of a few
+ * clusters plus the hole, framed into the strip between an open sidebar and
+ * an open detail panel, wants a zoom in the low teens — the clamp caught it
+ * and silently let the fit overflow both panels again, which is the bug fit
+ * insets exist to fix.
+ *
+ * It is wide rather than merely wide enough on purpose. The limits do not
+ * have to keep anyone oriented: fit (the zoom stack's ⌖, ⌥F) reframes the
+ * whole map from wherever the camera has been left, so overshooting in
+ * either direction costs one keystroke. What a tight range costs instead is
+ * a view the map genuinely needs and cannot reach.
+ */
+export const MIN_ZOOM = 5
+export const MAX_ZOOM = 400
 
 /**
  * Extra world-space padding kept around a fitted bounding box's edges.
  * Also what absorbs `bodyZoomFactor` at fit zoom: fit frames positions only,
- * and the largest inflated body radius (~1.14 world units for a big planet
- * at the factor cap) still lands inside these 2 units.
+ * so a body's drawn radius has to come out of this padding. A big planet is
+ * ~0.67 world units before inflation, which stays inside these 2 units at
+ * every zoom down to ~7 — and past that bottom sliver it pokes out by under
+ * 2 screen pixels, because the padding shrinks with the zoom it is measured
+ * in. Not worth widening the padding for, which would cost every fit at
+ * every other zoom.
  */
 const FIT_PADDING = 2
 
@@ -42,8 +60,15 @@ export function clampZoom(zoom: number): number {
 const REFERENCE_ZOOM = 60
 /** Exponent of the counter-zoom curve; 0 would track zoom linearly, 1 would be a fixed-pixel map pin. */
 const FACTOR_K = 0.5
-/** Cap so the very bottom of the zoom range doesn't run the curve away (raw value there is ~1.73). */
-const FACTOR_MAX = 1.7
+/**
+ * Cap on the counter-zoom curve, set to its own raw value at the bottom of
+ * the zoom range (`sqrt(60 / MIN_ZOOM)`) — so the curve runs uninterrupted
+ * across the whole range and the cap only ever catches the arithmetic, never
+ * the design. It moved with `MIN_ZOOM`: left at the old floor's 1.7, bodies
+ * would have started shrinking linearly again over the newly-opened bottom of
+ * the range, which is exactly where they can least afford it.
+ */
+const FACTOR_MAX = (REFERENCE_ZOOM / MIN_ZOOM) ** FACTOR_K
 
 /**
  * How much a planet (and its whole moon system) inflates to stay readable as
@@ -189,11 +214,28 @@ export function centerOn(cam: CameraState, target: Position, insets: Insets): Ca
 }
 
 /**
+ * Smallest strip the panels are allowed to squeeze the fit into, as a share
+ * of the viewport width. Both panels open on a narrow window can otherwise
+ * leave zero (or negative) room, and dividing by that yields a camera nobody
+ * can use. Fitting into a too-small strip at least keeps the map on screen.
+ */
+const MIN_FIT_STRIP_SHARE = 0.2
+
+/**
  * Computes a camera state that frames every given position with some
  * padding, for the "fit" zoom control. Falls back to the default camera
  * (origin, zoom 60) when there's nothing to fit.
+ *
+ * `insets` are the panels covering the map's edges. Fit frames the box into
+ * the strip BETWEEN them — sized to the strip, then centred in it the way
+ * `centerOn` does — so "show me everything" does not park half the sessions
+ * under the sidebar or the detail panel. Omit them to fit the full viewport.
  */
-export function fitView(positions: Position[], viewport: Viewport): CameraState {
+export function fitView(
+  positions: Position[],
+  viewport: Viewport,
+  insets: Insets = { left: 0, right: 0 }
+): CameraState {
   if (positions.length === 0) {
     return { x: 0, y: 0, zoom: 60 }
   }
@@ -217,10 +259,18 @@ export function fitView(positions: Position[], viewport: Viewport): CameraState 
   // Orthographic projection: on-screen pixels = world units * zoom, so the
   // zoom that makes a world span exactly fill a viewport span is
   // viewportPx / worldUnits. Pick whichever axis is tighter so both fit.
+  const strip = Math.max(
+    viewport.width - insets.left - insets.right,
+    viewport.width * MIN_FIT_STRIP_SHARE
+  )
   const safeWidth = Math.max(width, 1e-6)
   const safeHeight = Math.max(height, 1e-6)
-  const zoomX = viewport.width / safeWidth
+  const zoomX = strip / safeWidth
   const zoomY = viewport.height / safeHeight
+  const zoom = clampZoom(Math.min(zoomX, zoomY))
 
-  return { x: centerX, y: centerY, zoom: clampZoom(Math.min(zoomX, zoomY)) }
+  // Same offset `centerOn` uses: the camera's x is the world point at the
+  // VIEWPORT centre, so putting the box's centre at the STRIP's centre means
+  // shifting by half the inset difference, converted back into world units.
+  return { x: centerX - (insets.left - insets.right) / 2 / zoom, y: centerY, zoom }
 }

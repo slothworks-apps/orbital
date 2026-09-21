@@ -20,6 +20,7 @@ import {
   recordedFailureFor,
   parsePlanetScale,
   parseDetailPanelWidth,
+  parseSidebarWidth,
   parseContextThresholds,
   showContext,
   showCompactBadge,
@@ -1529,6 +1530,29 @@ describe('parseDetailPanelWidth', () => {
     // The floor wins over the ceiling — a panel narrower than 360 stops
     // fitting its own header grid, per the idea doc.
     expect(parseDetailPanelWidth({ detail_panel_width: '500' }, 500)).toBe(360)
+  })
+})
+
+describe('parseSidebarWidth', () => {
+  it('parses the stored width', () => {
+    expect(parseSidebarWidth({ sidebar_width: '420' }, 1600)).toBe(420)
+  })
+
+  it('defaults to the export’s 300 when the key is missing or not a number', () => {
+    expect(parseSidebarWidth({}, 1600)).toBe(300)
+    expect(parseSidebarWidth({ sidebar_width: 'wide' }, 1600)).toBe(300)
+  })
+
+  it('clamps to the 280px floor', () => {
+    expect(parseSidebarWidth({ sidebar_width: '100' }, 1600)).toBe(280)
+  })
+
+  it('clamps to 45% of the viewport', () => {
+    expect(parseSidebarWidth({ sidebar_width: '2000' }, 1600)).toBe(720)
+  })
+
+  it('keeps the floor when 45% of a narrow viewport would fall below it', () => {
+    expect(parseSidebarWidth({ sidebar_width: '500' }, 500)).toBe(280)
   })
 })
 

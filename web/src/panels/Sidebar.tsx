@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode, Ref } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useOrbital, visibleSessions } from '../store/store'
+import {
+  SIDEBAR_DEFAULT_PX,
+  clampSidebarWidth,
+  parseSidebarWidth,
+  useOrbital,
+  visibleSessions,
+} from '../store/store'
 import { api } from '../lib/api'
+import { reportError } from '../lib/errors'
 import { isReadOnly, tagColor } from '../lib/types'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
@@ -361,6 +368,58 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const tags = useOrbital(useShallow((s) => s.tags))
   const visible = useOrbital(useShallow(visibleSessions))
 
+  // Resizable width — the mirror of the detail panel's handle, down to the
+  // optimistic save: the store value moves LIVE during the drag (the panel
+  // and the map's fit/follow insets track the pointer) and the PATCH goes out
+  // once, on release.
+  const settings = useOrbital(useShallow((s) => s.settings))
+  const width = parseSidebarWidth(settings, window.innerWidth)
+  const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  // Shared with the detail panel's handle: SpaceMap's overlays drop their
+  // position transition on this flag so they track a drag 1:1.
+  const draggingWidth = useOrbital((s) => s.ui.resizingPanel ?? false)
+  const setDraggingWidth = (resizingPanel: boolean) =>
+    useOrbital.setState((state) => ({ ui: { ...state.ui, resizingPanel } }))
+
+  const setWidthLocal = (next: number) => {
+    const value = String(Math.round(clampSidebarWidth(next, window.innerWidth)))
+    useOrbital.setState((state) => ({ settings: { ...state.settings, sidebar_width: value } }))
+    return value
+  }
+
+  const saveWidth = (value: string) => {
+    api
+      .patchSettings({ sidebar_width: value })
+      .catch((err) => reportError(err, 'Failed to save the sidebar width'))
+  }
+
+  const handleWidthPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    widthDragRef.current = { startX: e.clientX, startWidth: width }
+    setDraggingWidth(true)
+    // Optional-chained: jsdom has no pointer capture.
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  const handleWidthPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = widthDragRef.current
+    if (!drag) return
+    // Left-docked panel: the pointer moving RIGHT widens it.
+    setWidthLocal(drag.startWidth + (e.clientX - drag.startX))
+  }
+
+  const handleWidthPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = widthDragRef.current
+    if (!drag) return
+    widthDragRef.current = null
+    setDraggingWidth(false)
+    saveWidth(setWidthLocal(drag.startWidth + (e.clientX - drag.startX)))
+  }
+
+  const handleWidthReset = () => {
+    saveWidth(setWidthLocal(SIDEBAR_DEFAULT_PX))
+  }
+
   const sentinelRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
   const [exhausted, setExhausted] = useState(false)
@@ -470,7 +529,31 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   // content opacity/shift, rail fading in with a .1s delay). `inert` keeps
   // the hidden layer out of the focus order and accessibility tree.
   return (
-    <Panel side="left" collapsed={collapsed} className="relative h-full overflow-hidden">
+    <Panel
+      side="left"
+      collapsed={collapsed}
+      widthPx={width}
+      widthTransition={!draggingWidth}
+      className="relative h-full overflow-hidden"
+    >
+      {/* Inner-edge drag handle: widen by dragging right, double-click resets
+          to the export's 300. Hidden while collapsed — the rail has one width
+          and the way back is the expand toggle. */}
+      {!collapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          aria-valuenow={width}
+          title="Drag to resize · double-click to reset"
+          onPointerDown={handleWidthPointerDown}
+          onPointerMove={handleWidthPointerMove}
+          onPointerUp={handleWidthPointerUp}
+          onPointerCancel={handleWidthPointerUp}
+          onDoubleClick={handleWidthReset}
+          className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
+        />
+      )}
       {/* Collapsed rail per canvas 1b: logo, expand toggle, divider, one hue
           dot per active session (blinking while working). */}
       <div
@@ -502,8 +585,14 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
 
       <div
         inert={collapsed || undefined}
+        // Inline, not `w-[300px]`: the content layer is absolutely positioned
+        // so it can cross-fade against the rail, which means it does not
+        // inherit the Panel's live width and has to be given it. It keeps that
+        // width while collapsed — the shell clips it, and that clipping IS the
+        // collapse transition.
+        style={{ width }}
         className={[
-          'absolute inset-y-0 left-0 flex w-[300px] flex-col',
+          'absolute inset-y-0 left-0 flex flex-col',
           'transition-[opacity,transform] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
           // Export shifts the fading layer 24px, not 12 — the extra travel is
           // what makes the crossfade read as the panel sliding away.

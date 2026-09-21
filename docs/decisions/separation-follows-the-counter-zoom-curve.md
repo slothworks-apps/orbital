@@ -15,10 +15,15 @@ tags:
 ---
 # Separation follows the counter-zoom curve, the map's anchors do not
 
-`bodyZoomFactor` draws every body up to 1.7x larger than its world radius
-as the camera zooms out, while the distances between them stayed strictly
-linear in zoom. The far view was therefore 1.7x denser than the close-up,
-relative to body size, and inflated moon systems ran through each other.
+`bodyZoomFactor` draws every body up to `FACTOR_MAX` larger than its world
+radius as the camera zooms out, while the distances between them stayed
+strictly linear in zoom. The far view was therefore `FACTOR_MAX` denser than
+the close-up, relative to body size, and inflated moon systems ran through
+each other. (That cap was the literal 1.7 when this was written; it is
+derived from `MIN_ZOOM` now, so the numbers below are the shape of the
+argument rather than current values —
+[[the-zoom-range-is-wide-because-fit-is-the-way-back]]. The rule this ADR
+settles is written in terms of the factor, so it holds whatever the cap is.)
 
 ## Why the obvious version cancels itself out
 
@@ -45,7 +50,7 @@ clearance at every zoom. The canvas's empty clearance (96px same tag,
 190px across) is left alone, so two moonless planets at the default zoom
 rest exactly where they always did. Cluster anchors, the hole's position
 and every camera helper are untouched: the big distances across the map
-hold, so zooming out still shows the field rather than a 1.7x copy of it.
+hold, so zooming out still shows the field rather than a scaled copy of it.
 
 Clusters that would collide push each other out through the same rule,
 with `CROSS_TAG_GAP` — which is what the user asked for: hold the clump

@@ -68,6 +68,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * the collapse feel broken. */
   sidebar_collapsed: 'false',
   /**
+   * Sidebar width in CSS px, dragged via the panel's inner-edge handle — the
+   * mirror of `detail_panel_width`. The export's 300px is the default and the
+   * double-click reset. Clamped client-side ([280, 45% of the viewport]) —
+   * the server just stores it.
+   */
+  sidebar_width: '300',
+  /**
    * Master switch for the map's context-fill arc (spec `context-fill-arc`,
    * canvas 1h Sessions → MAP). Off hides the arc, its ticks and the
    * `/compact` badge; the detail panel's context readout is unaffected.

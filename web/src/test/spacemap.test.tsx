@@ -1,4 +1,4 @@
-import { beforeAll, describe, it, expect } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { PLANET_SCALE_MAX, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
@@ -640,9 +640,17 @@ describe('bodyZoomFactor', () => {
     expect(bodyZoomFactor(30)).toBeCloseTo(Math.SQRT2, 10)
   })
 
-  it('clamps at the cap near MIN_ZOOM, where the raw curve would exceed it', () => {
-    // (60/20)^0.5 ≈ 1.732 — the cap catches the bottom of the range.
-    expect(bodyZoomFactor(MIN_ZOOM)).toBe(1.7)
+  it('runs the curve all the way to the bottom of the zoom range', () => {
+    // The cap is the curve's own value at MIN_ZOOM, so it never cuts the
+    // curve short: bodies keep inflating right down to the furthest-out view,
+    // which is the one that most needs them to stay visible.
+    expect(bodyZoomFactor(MIN_ZOOM)).toBeCloseTo((60 / MIN_ZOOM) ** 0.5, 10)
+  })
+
+  it('never exceeds its value at the bottom of the range', () => {
+    // Zoom is clamped to [MIN_ZOOM, MAX_ZOOM] before it ever gets here, but
+    // the guard has to hold for a caller that has not clamped yet.
+    expect(bodyZoomFactor(1)).toBe(bodyZoomFactor(MIN_ZOOM))
   })
 
   it('is monotonically non-increasing in zoom', () => {
@@ -716,6 +724,67 @@ describe('fitView', () => {
     // height = 6 + 4 = 10 -> zoomY = 800/10 = 80
     const fit = fitView(positions, { width: 300, height: 800 })
     expect(fit.zoom).toBeCloseTo(50)
+  })
+
+  describe('with panel insets', () => {
+    const VIEWPORT = { width: 1440, height: 900 }
+    const INSETS = { left: 340, right: 466 }
+
+    function worldToScreen(cam: CameraState, world: { x: number; y: number }) {
+      return {
+        x: VIEWPORT.width / 2 + (world.x - cam.x) * cam.zoom,
+        y: VIEWPORT.height / 2 - (world.y - cam.y) * cam.zoom,
+      }
+    }
+
+    const positions = [
+      { x: -10, y: -4 },
+      { x: 10, y: 4 },
+    ]
+
+    it('fits the box into the strip between the panels, not the whole viewport', () => {
+      const fit = fitView(positions, VIEWPORT, INSETS)
+      const left = worldToScreen(fit, { x: -10, y: 0 })
+      const right = worldToScreen(fit, { x: 10, y: 0 })
+      expect(left.x).toBeGreaterThanOrEqual(INSETS.left)
+      expect(right.x).toBeLessThanOrEqual(VIEWPORT.width - INSETS.right)
+    })
+
+    it('centres the box in the strip, so the panels bite equally into the margins', () => {
+      const fit = fitView(positions, VIEWPORT, INSETS)
+      const centre = worldToScreen(fit, { x: 0, y: 0 })
+      expect(centre.x).toBeCloseTo(INSETS.left + (VIEWPORT.width - INSETS.left - INSETS.right) / 2, 10)
+      expect(centre.y).toBeCloseTo(VIEWPORT.height / 2, 10)
+    })
+
+    it('zooms out further than the uninset fit — there is less room to fit into', () => {
+      const inset = fitView(positions, VIEWPORT, INSETS)
+      const full = fitView(positions, VIEWPORT)
+      expect(inset.zoom).toBeLessThan(full.zoom)
+    })
+
+    it('behaves exactly like the uninset fit when no panel is covering the map', () => {
+      expect(fitView(positions, VIEWPORT, { left: 0, right: 0 })).toEqual(fitView(positions, VIEWPORT))
+    })
+
+    it('still fits vertically when height, not the narrowed width, is the tighter axis', () => {
+      // Strip = 1440-806 = 634; width 20+4 = 24 -> zoomX ~26.4.
+      // height 8+4 = 12 -> zoomY = 240/12 = 20 (tighter).
+      const fit = fitView(positions, { width: 1440, height: 240 }, INSETS)
+      expect(fit.zoom).toBeCloseTo(20)
+    })
+
+    it('survives panels wider than the viewport instead of returning a nonsense camera', () => {
+      const fit = fitView(positions, { width: 700, height: 900 }, INSETS)
+      expect(fit.zoom).toBeGreaterThanOrEqual(MIN_ZOOM)
+      expect(fit.zoom).toBeLessThanOrEqual(MAX_ZOOM)
+      expect(Number.isFinite(fit.x)).toBe(true)
+      expect(Number.isFinite(fit.y)).toBe(true)
+    })
+
+    it('falls back to the default camera for an empty list, insets or not', () => {
+      expect(fitView([], VIEWPORT, INSETS)).toEqual({ x: 0, y: 0, zoom: 60 })
+    })
   })
 })
 
@@ -1081,5 +1150,140 @@ describe('SpaceMap zoom buttons', () => {
     }
     await settle()
     expect(zoomPercent()).toBe(MIN_ZOOM)
+  })
+})
+
+// Fit is the map's "show me everything": it has to survive a reload, answer
+// to a shortcut, and account for the panels sitting on top of the map.
+describe('SpaceMap fit', () => {
+  beforeAll(() => {
+    class NoopObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    global.ResizeObserver = NoopObserver
+    // jsdom lays nothing out, so the map container measures 0×0 and every fit
+    // would collapse to MIN_ZOOM — which is the same number whatever the
+    // insets are, and so would pass no matter what this code did. Give the
+    // container a real box so the arithmetic is the thing under test.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 1440,
+      bottom: 900,
+      width: 1440,
+      height: 900,
+      toJSON: () => ({}),
+    })
+  })
+
+  afterAll(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function renderMap(
+    overrides: Partial<Omit<OrbitalState, 'ui'>> & { ui?: Partial<OrbitalUiState> } = {},
+  ) {
+    useOrbital.setState({
+      // One session, one cluster: a wider map fits at MIN_ZOOM in jsdom's
+      // 1024×768, and a clamped fit cannot show the insets changing anything.
+      sessions: { a: makeSession({ id: 'a', tagIds: [1], lastAt: Date.now() }) },
+      order: ['a'],
+      tags: [workTag, personalTag, defaultTag],
+      rules: [],
+      settings: {},
+      transcripts: {},
+      historyLoaded: {},
+      toast: null,
+      ...overrides,
+      // `urlRestored` is what the fit-on-load waits for — the real app sets
+      // it once the `?session=` restore settles, so a mounted map that has
+      // finished loading always has it.
+      ui: { ...defaultUi, selectedId: null, urlRestored: true, ...(overrides.ui ?? {}) },
+    })
+    const { SpaceMap } = await import('../map/SpaceMap')
+    return render(<SpaceMap />)
+  }
+
+  function zoomPercent(): number {
+    const readout = screen.getByText(/% · x/)
+    return Number(readout.textContent?.match(/^(\d+)%/)?.[1])
+  }
+
+  /** The `x` of the HUD's `NN% · x … y …` readout. */
+  function cameraX(): number {
+    const readout = screen.getByText(/% · x/)
+    return Number(readout.textContent?.match(/x (-?\d+)/)?.[1])
+  }
+
+  it('fits on load instead of opening at the fixed default camera', async () => {
+    await renderMap()
+    // The load fit and the button's fit are the same operation, so pressing
+    // the button must be a no-op. If the load fit never ran, the map would
+    // still be sitting at the default zoom and the button would move it.
+    const onLoad = zoomPercent()
+    fireEvent.click(screen.getByRole('button', { name: 'Fit view' }))
+    expect(zoomPercent()).toBe(onLoad)
+  })
+
+  it('waits for the ?session= restore before fitting, so the panel it opens is in the arithmetic', async () => {
+    // Fitting the moment planets exist would frame the full viewport and then
+    // let the deep link's detail panel open over the result — the sessions
+    // back under a panel, which is the whole bug.
+    await renderMap({ ui: { urlRestored: false } })
+    expect(zoomPercent()).toBe(60)
+
+    await act(async () => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, urlRestored: true, selectedId: 'a' } }))
+    })
+    expect(zoomPercent()).not.toBe(60)
+  })
+
+  it('fits into the strip left by the panels — an open detail panel zooms out further', async () => {
+    const { unmount } = await renderMap({ ui: { selectedId: null } })
+    const noPanel = zoomPercent()
+    unmount()
+
+    await renderMap({ ui: { selectedId: 'a' } })
+    expect(zoomPercent()).toBeLessThan(noPanel)
+  })
+
+  it('pushes the framed map clear of a sidebar dragged wider', async () => {
+    const { unmount } = await renderMap({ settings: { sidebar_width: '300' } })
+    const narrow = cameraX()
+    unmount()
+
+    // The camera's x is the world point at the VIEWPORT centre, and the fit
+    // centres the map in the strip to the right of the sidebar — so a wider
+    // sidebar moves that world point left.
+    await renderMap({ settings: { sidebar_width: '560' } })
+    expect(cameraX()).toBeLessThan(narrow)
+  })
+
+  it('⌥F fits, from wherever the camera has been left', async () => {
+    await renderMap()
+    const fitted = zoomPercent()
+
+    fireEvent.wheel(screen.getByTestId('map-surface'), { deltaY: -400 })
+    expect(zoomPercent()).toBeGreaterThan(fitted)
+
+    fireEvent.keyDown(window, { code: 'KeyF', altKey: true })
+    expect(zoomPercent()).toBe(fitted)
+  })
+
+  it('ignores ⌥F while the user is typing — it is an f they meant to enter', async () => {
+    await renderMap()
+    const fitted = zoomPercent()
+    fireEvent.wheel(screen.getByTestId('map-surface'), { deltaY: -400 })
+    const zoomed = zoomPercent()
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    fireEvent.keyDown(input, { code: 'KeyF', altKey: true })
+    expect(zoomPercent()).toBe(zoomed)
+    input.remove()
   })
 })

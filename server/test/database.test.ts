@@ -211,6 +211,7 @@ describe('openDb', () => {
       map_scale_labels: 'false',
       detail_panel_width: '450',
       sidebar_collapsed: 'false',
+      sidebar_width: '300',
       auto_title_sessions: 'false',
       map_show_context: 'true',
       context_threshold_warn: '50',

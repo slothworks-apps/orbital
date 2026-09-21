@@ -102,6 +102,15 @@ export interface OrbitalUiState {
    * never revealed.
    */
   historyRevealNonce?: number
+  /**
+   * Set once by `lib/sessionUrl.ts` when the `?session=` restore has settled
+   * (immediately, when the URL names nothing to restore). Until then the page
+   * has not finished deciding what is open, so the map's fit-on-load waits
+   * for it: fitting first and letting the deep link's detail panel open over
+   * the result is how the sessions end up under a panel again. Optional —
+   * absent means the restore is still in flight.
+   */
+  urlRestored?: boolean
 }
 
 /** How many of the newest error rows the log holds at a time. */
@@ -1284,6 +1293,36 @@ export function parseDetailPanelWidth(
 ): number {
   const raw = Number(settings.detail_panel_width)
   return clampDetailPanelWidth(Number.isFinite(raw) ? raw : DETAIL_PANEL_DEFAULT_PX, viewportWidth)
+}
+
+/** The export's sidebar width (canvas 1a) — the default and the handle's double-click reset. */
+export const SIDEBAR_DEFAULT_PX = 300
+/** Below this the session rows' meta line and the footer's pill stop fitting. */
+export const SIDEBAR_MIN_PX = 280
+/** Ceiling as a share of the viewport. Lower than the detail panel's: the
+ * sidebar is a list, not a reading surface, and both can be open at once. */
+const SIDEBAR_MAX_VIEWPORT_SHARE = 0.45
+
+/**
+ * Clamps a candidate sidebar width to [280, 45% of the viewport]. The floor
+ * wins when the two conflict on a very narrow window, exactly as
+ * `clampDetailPanelWidth` resolves the same conflict.
+ */
+export function clampSidebarWidth(width: number, viewportWidth: number): number {
+  const ceiling = viewportWidth * SIDEBAR_MAX_VIEWPORT_SHARE
+  return Math.max(SIDEBAR_MIN_PX, Math.min(ceiling, width))
+}
+
+/**
+ * `sidebar_width` as the layout consumes it: parsed, falling back to the
+ * export's 300 for a missing or unparsable value, then clamped.
+ */
+export function parseSidebarWidth(
+  settings: Record<string, string>,
+  viewportWidth: number
+): number {
+  const raw = Number(settings.sidebar_width)
+  return clampSidebarWidth(Number.isFinite(raw) ? raw : SIDEBAR_DEFAULT_PX, viewportWidth)
 }
 
 /** The context-threshold number inputs' range (canvas 1h: `min="1" max="99"`). */

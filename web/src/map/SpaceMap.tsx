@@ -8,6 +8,7 @@ import {
   useOrbital,
   parsePlanetScale,
   parseDetailPanelWidth,
+  parseSidebarWidth,
   parseContextThresholds,
   showCompactBadge,
   showContext,
@@ -89,13 +90,14 @@ const SLOTH_LEFT_PERCENT = (120 / 1440) * 100
 const SLOTH_TOP_PERCENT = (640 / 900) * 100
 
 /**
- * Map width the panels sit on, in CSS pixels — what `centerOn` keeps the
- * followed planet clear of. The detail panel's width is live (drag handle,
- * `detail_panel_width`) plus its 16px inset (1b); the sidebar is 340px open
- * and 96px collapsed (1a).
+ * Map width the panels sit on, in CSS pixels — what `centerOn` and `fitView`
+ * keep the sessions clear of. Both panels are live now (drag handles,
+ * `detail_panel_width` / `sidebar_width`): the detail panel adds its 16px
+ * edge inset (1b), and the sidebar its 16px inset plus a 24px gutter, which
+ * is where the collapsed rail's 96px (16 + 56 + 24) comes from too (1a).
  */
 const DETAIL_PANEL_GUTTER_PX = 16
-const SIDEBAR_OPEN_PX = 340
+const SIDEBAR_GUTTER_PX = 40
 const SIDEBAR_COLLAPSED_PX = 96
 
 /**
@@ -372,6 +374,7 @@ export function SpaceMap() {
   // the drag handle moves it, and while it is held (`resizingPanel`) the
   // overlays drop their transition so they track the pointer with the panel.
   const detailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, window.innerWidth))
+  const sidebarWidth = useOrbital((s) => parseSidebarWidth(s.settings, window.innerWidth))
   const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
@@ -381,9 +384,22 @@ export function SpaceMap() {
   // inset (right:24px) when nothing is selected. No transition while the
   // drag handle is held — the overlays track the pointer with the panel.
   const overlayRightPx = selectedId ? detailPanelWidth + DETAIL_PANEL_GUTTER_PX + 24 : 24
+  // Screen-space chrome the camera helpers keep the sessions clear of. Both
+  // widths are live, and the right side only counts when a panel is actually
+  // open — nothing is selected, nothing is covering that edge.
+  const mapInsets = useMemo(
+    () => ({
+      left: sidebarCollapsed ? SIDEBAR_COLLAPSED_PX : sidebarWidth + SIDEBAR_GUTTER_PX,
+      right: selectedId ? detailPanelWidth + DETAIL_PANEL_GUTTER_PX : 0,
+    }),
+    [sidebarCollapsed, sidebarWidth, selectedId, detailPanelWidth]
+  )
   const overlayTransition = resizingPanel
     ? ''
     : 'transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]'
+  const overlayLeftTransition = resizingPanel
+    ? ''
+    : 'transition-[left] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]'
   const setSessionDismissed = useOrbital((s) => s.setSessionDismissed)
   const setTagAnchor = useOrbital((s) => s.setTagAnchor)
   const revealHistory = useOrbital((s) => s.revealHistory)
@@ -650,8 +666,48 @@ export function SpaceMap() {
       width: rect?.width ?? window.innerWidth,
       height: rect?.height ?? window.innerHeight,
     }
-    setCamera(fitView(positions, viewport))
-  }, [cancelCameraMotion, model.planets, model.hole.x, model.hole.y])
+    // Fit into the strip the panels leave, not the raw viewport: "show me
+    // everything" that parks half the sessions under the sidebar or the
+    // detail panel has not shown them.
+    setCamera(fitView(positions, viewport, mapInsets))
+  }, [cancelCameraMotion, model.planets, model.hole.x, model.hole.y, mapInsets])
+
+  /**
+   * Fit once per page load, on the first frame that has both sessions to
+   * frame and a settled `?session=` restore. A reload used to land on the
+   * fixed default camera (origin, zoom 60), which on a map that has grown
+   * past that frame means opening to empty space and hunting for your own
+   * sessions.
+   *
+   * Waiting on `urlRestored` is what makes the insets right: the deep link's
+   * detail panel opens an effect or two after the sessions land, so fitting
+   * the moment planets exist would frame the full viewport and then let that
+   * panel open over the result — the very thing fit insets exist to prevent.
+   *
+   * Deliberately once, not on every layout change: the camera is the user's
+   * after they have touched it, and a map that re-fits itself under a moving
+   * hand is worse than one that does nothing.
+   */
+  const urlRestored = useOrbital((s) => s.ui.urlRestored ?? false)
+  const fittedOnLoad = useRef(false)
+  useEffect(() => {
+    if (fittedOnLoad.current || !urlRestored || model.planets.length === 0) return
+    fittedOnLoad.current = true
+    handleFit()
+  }, [urlRestored, model.planets.length, handleFit])
+
+  // ⌥F / Alt+F fits the map — same key handling as ⌥N below (physical key via
+  // e.code, ignored while typing), because on a US layout ⌥F arrives as 'ƒ'.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.code !== 'KeyF') return
+      if (isTypingTarget(e.target)) return
+      e.preventDefault()
+      handleFit()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleFit])
 
   const handleHoleOpen = useCallback(() => {
     // The click a drag-release produces must not also open the sidebar.
@@ -687,15 +743,11 @@ export function SpaceMap() {
     if (Math.hypot(followedX - previous.x, followedY - previous.y) < FOLLOW_MIN_DISTANCE) return
 
     const cam = cameraRef.current
-    const target = centerOn(cam, { x: followedX, y: followedY }, {
-      left: sidebarCollapsed ? SIDEBAR_COLLAPSED_PX : SIDEBAR_OPEN_PX,
-      // The panel is open whenever something is selected, and something is
-      // selected whenever there is a planet to follow. Its width is live —
-      // a dragged-wider panel must keep the followed planet clear of it.
-      right: detailPanelWidth + DETAIL_PANEL_GUTTER_PX,
-    })
+    // Both panel widths are live — a dragged-wider panel must keep the
+    // followed planet clear of it.
+    const target = centerOn(cam, { x: followedX, y: followedY }, mapInsets)
     panTo({ x: cam.x, y: cam.y }, { x: target.x, y: target.y })
-  }, [followedId, followedX, followedY, panTo, sidebarCollapsed, detailPanelWidth])
+  }, [followedId, followedX, followedY, panTo, mapInsets])
 
   // ⌥N / Alt+N opens the new-session dialog, matching the floating
   // button's shortcut hint. Not ⌘N: browsers reserve that for a new window
@@ -739,6 +791,7 @@ export function SpaceMap() {
   return (
     <div
       ref={containerRef}
+      data-testid="map-surface"
       className="relative h-full w-full overflow-hidden bg-space"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -841,15 +894,20 @@ export function SpaceMap() {
           </div>
         </div>
 
-        {/* The camera readout tracks the sidebar rather than the viewport edge:
-            the export animates `left` between 340px (expanded) and 96px
-            (collapsed) on the same 420ms curve as the panel width. */}
+        {/* The camera readout tracks the sidebar rather than the viewport
+            edge: the export animates `left` between the expanded width and
+            96px (collapsed) on the same 420ms curve as the panel width. The
+            expanded value is live now, so it is inline rather than a class,
+            and it drops the transition mid-drag like the right-hand overlays. */}
         <div
+          data-overlay="camera-readout"
+          style={{ left: mapInsets.left }}
           className={[
             'pointer-events-none absolute bottom-6 font-mono text-[10.5px] tracking-[0.08em] text-text-muted/70',
-            'transition-[left] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
-            sidebarCollapsed ? 'left-24' : 'left-[340px]',
-          ].join(' ')}
+            overlayLeftTransition,
+          ]
+            .filter(Boolean)
+            .join(' ')}
         >
           {zoomPercent}% · x {camX} y {camY}
         </div>
@@ -924,6 +982,7 @@ export function SpaceMap() {
             <button
               type="button"
               aria-label="Fit view"
+              title="Fit view · ⌥F"
               onClick={handleFit}
               className="grid h-[34px] w-[34px] place-items-center text-sm text-text-bright hover:bg-white/5"
             >

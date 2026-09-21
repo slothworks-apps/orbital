@@ -136,6 +136,14 @@ export function useSessionUrl(ready: boolean): void {
    */
   const [restored, setRestored] = useState(false)
 
+  // Mirrored into the store for consumers outside this hook — the map's
+  // fit-on-load waits on it so it frames the strip the restored session's
+  // detail panel will actually leave (`ui.urlRestored`).
+  useEffect(() => {
+    if (!restored) return
+    useOrbital.setState((state) => ({ ui: { ...state.ui, urlRestored: true } }))
+  }, [restored])
+
   useEffect(() => {
     if (!ready || restoreStarted.current) return
     restoreStarted.current = true
