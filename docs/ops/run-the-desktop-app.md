@@ -6,6 +6,7 @@ status: in-force
 domain: desktop
 related:
   - 2026-09-16-electron-wrapper-design
+  - trim-and-sign-the-desktop-package
 tags:
   - desktop
   - electron
@@ -61,6 +62,105 @@ ORBITAL_PORT=4791 \
   npx electron .
 ```
 
+## Package the DMG
+
+```bash
+npm run desktop:dist        # from the repo root, always
+```
+
+The artifact lands in `desktop/release/` as `Orbital-<version>-arm64.dmg`,
+beside its `.blockmap` and the unpacked `mac-arm64/Orbital.app`.
+
+**Run it from the root, not from the workspace.** `npm run dist -w desktop`
+builds only the desktop workspace and then packages whatever happens to be
+sitting in `server/dist` and `web/dist` — stale output, or a build that fails
+outright on `extraResources` when those directories do not exist yet. The root
+script exists because it builds the server and the web app first.
+
+### After a `node_modules` wipe: Electron's binary is missing
+
+This machine's npm policy does not run install scripts it has not been told to
+allow, and Electron downloads its own binary in a postinstall. After any
+reinstall, `node_modules/electron/dist` is absent and packaging fails. Run the
+postinstall by hand:
+
+```bash
+node node_modules/electron/install.js
+```
+
+The other skipped install scripts are harmless: `better-sqlite3` ships a
+Node-API prebuild that is what gets packaged anyway, `electron-winstaller` is
+never reached on a `--mac` build, and the esbuild copies that matter were
+installed with the workspaces.
+
+## First launch on another Mac
+
+The DMG is unsigned (spec §4 step 1 — signing and notarization come later), so
+Gatekeeper quarantines it. On the first launch the user must **right-click the
+app → Open** and confirm, rather than double-clicking it. If macOS refuses even
+that, clear the attribute directly:
+
+```bash
+xattr -d com.apple.quarantine /Applications/Orbital.app
+```
+
+Notifications also need permission once. An unsigned app may not produce the
+system prompt, in which case enable Orbital under **System Settings →
+Notifications** before running the smoke test below — with notifications off,
+the app behaves exactly as if nothing were ever newsworthy.
+
+**Smoke-test the packaged app from outside this repo.** Copy the `.app` to
+`/Applications` or a temp directory first. Left inside `desktop/release/`, it
+sits under the repo's own `node_modules`, which still holds the ~208 MB
+`@anthropic-ai/claude-agent-sdk-darwin-arm64` package that packaging
+deliberately excludes — a resolution that walked up to it would make a
+packaging regression look like a success.
+
+## Smoke test: notifications and click-through
+
+Not unit-testable — it needs a human to see a banner and click it.
+
+1. Open the app and move focus elsewhere (another window, or Finder). A focused
+   window suppresses notifications by design.
+2. Drive one session from `working` to `needs_input`. Easiest is to spawn a
+   session from the map and let its turn end; a terminal session hitting a
+   permission prompt does the same.
+3. **Exactly one** macOS notification appears, bodied *"Needs your input"* and
+   titled with the session's name.
+4. Click it. The window raises **and** that session is selected: the detail
+   panel opens and `?session=<id>` appears in the URL.
+5. Let the same session emit the same status again. **No second notification** —
+   a repeat of a state already seen is not news.
+
+## What notifies, and what does not
+
+Decided against the statuses the registry actually produces, and implemented in
+`desktop/src/lib/notifications.ts` as a fold over transitions, never over
+states.
+
+Notifies:
+
+| transition | notification |
+|---|---|
+| `working → needs_input` | "Needs your input" |
+| `working → ended` | "Session ended" |
+| `session_failed` on the `errors` topic | "Session failed: …" |
+
+A turn ending, a permission prompt and an `AskUserQuestion` all arrive as the
+same `working → needs_input` transition, so all three notify and none can be
+distinguished from the others. Terminal sessions are included: the CLI's
+`waiting` state maps to `needs_input`, so their turn ends notify too.
+
+Silent by design:
+
+- **The first sighting of a session**, whatever its status. The server replays
+  nothing on subscribe, but a registry rescan re-emits every live session, so a
+  rule keyed on a state rather than a transition would fire on every reconnect.
+- **A repeat of a status already seen.**
+- **`idle → ended`** — that is the ageing timer, not a session finishing.
+- **Any transition out of `idle`**, including `idle → needs_input`.
+- **`remove`**, which is how terminal sessions leave.
+
 ## Checks
 
 - `curl -s http://127.0.0.1:<port>/api/health` → `{"app":"orbital",…}`.
@@ -76,3 +176,6 @@ ORBITAL_PORT=4791 \
 | "Port … is taken" | something that is not Orbital answers there. Stop it or set `ORBITAL_PORT`. |
 | A blank window in forked mode | `web/dist` is missing — run `npm run build -w web`. |
 | "The Claude Code CLI was not found" | expected when no CLI is on the resolved PATH. Pick the executable; the app PATCHes `claude_executable_path` and restarts the server, because that setting is read once at boot. |
+| `npm run desktop:dist` fails on a missing Electron binary | `node_modules/electron/dist` was never downloaded — run `node node_modules/electron/install.js`. |
+| No notification ever appears | the window was focused (suppression is correct), or Orbital is not permitted in System Settings → Notifications. |
+| A notification for something you did not expect to be news | check the transition, not the status — the rules are the table above. |
