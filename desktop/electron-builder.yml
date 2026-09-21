@@ -37,6 +37,10 @@ extraResources:
   - from: ../node_modules/@anthropic-ai/claude-agent-sdk
     to: server/node_modules/@anthropic-ai/claude-agent-sdk
 mac:
+  # electron-builder's default lookup is build/icon.icns already; set here
+  # anyway so it isn't implicit. Regenerate with build/make-icon.sh if the
+  # favicon artwork changes.
+  icon: build/icon.icns
   target:
     - target: dmg
       arch: [arm64]
