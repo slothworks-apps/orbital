@@ -14,23 +14,44 @@ tags:
 ---
 # Packaging follow-ups for the desktop app
 
-The unsigned arm64 DMG builds, launches and serves. These four jobs were left
+The unsigned arm64 DMG builds, launches and serves. These jobs were left
 out of that work deliberately: none of them blocks shipping to the two users
-the app exists for, and the first one needs a decision rather than a cleanup.
+the app exists for.
 
-## About 30 MB of the app is unreachable
+## ~~About 30 MB of the app is unreachable~~ — done
 
-`desktop/package.json` lists `better-sqlite3` and `@anthropic-ai/claude-agent-sdk`
-as `dependencies`, and that list is what electron-builder packs. So the SDK is
-copied into `app.asar` and better-sqlite3 into `app.asar.unpacked` — all eight
-of its prebuilds, plus `deps/` and `src/` — while nothing ever loads either
-copy: the main process imports neither, and the forked server resolves both
-from `Resources/server/node_modules/`, where `extraResources` puts a filtered
-copy carrying only the one prebuild that runs. Roughly 9% of the app, and the
-same again off the DMG. Removing it also makes the `asarUnpack` line vestigial,
-because that line exists to keep the native binding out of the archive it would
-then no longer be in. Two entangled changes to the shape of the artifact, so
-the call belongs in an `adr` rather than in a quiet commit.
+`desktop/package.json` listed `better-sqlite3` and `@anthropic-ai/claude-agent-sdk`
+as `dependencies`, and that list is what electron-builder packed. So the SDK
+was copied into `app.asar` and better-sqlite3 into `app.asar.unpacked` — all
+eight of its prebuilds, plus `deps/` and `src/` — while nothing ever loaded
+either copy: the main process imports neither, and the forked server resolves
+both from `Resources/server/node_modules/`, where `extraResources` puts a
+filtered copy carrying only the one prebuild that runs.
+
+Before touching anything, the open question was whether electron-builder's
+`install-app-deps` step (it runs `@electron/rebuild` unconditionally) was
+rebuilding the root `node_modules/better-sqlite3` prebuild against Electron's
+ABI — in which case deleting the `dependencies` entry could silently swap a
+working rebuilt binary for a stock one that doesn't load under
+`utilityProcess`. It does not: `better-sqlite3` builds against `NAPI_VERSION`
+10, which is ABI-stable across Node and Electron, so its single
+`prebuilds/darwin-arm64.node` loads unmodified under either runtime.
+`@electron/rebuild` does run every build (`.forge-meta` / `build/Release`
+appear under the root package), but never emits a replacement `.node` —
+better-sqlite3's own loader (`lib/binding.js`) checks `prebuilds/` before it
+would ever look in `build/Release` — and the prebuild's sha256 was byte-for-byte
+identical (`98e0e8ac…`) before and after a full `desktop:dist` run. The copy
+`extraResources` ships was always, and remains, the stock npm prebuild.
+
+The `dependencies` entries are gone from `desktop/package.json`, and the
+`asarUnpack` line in `desktop/electron-builder.yml` went with them — it
+existed only to keep the native binding out of an archive it no longer enters.
+`app.asar` now contains only `dist/` and `package.json`; there is no
+`app.asar.unpacked` at all. Measured: `Orbital.app` 340M → 309M, the DMG
+140M → 128M. Verified by launching the packaged binary headlessly against a
+fresh `ORBITAL_DATA_DIR` (`/api/health` returns 200 after migrations run,
+confirming better-sqlite3 loads and works) and confirming clean shutdown on
+SIGTERM.
 
 ## `electron-builder` still floats on a caret
 
