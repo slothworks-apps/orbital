@@ -3,3 +3,5 @@ node_modules/
 .worktrees/
 .superpowers/
 server/dist/
+desktop/dist/
+desktop/release/
