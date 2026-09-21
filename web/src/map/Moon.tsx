@@ -32,6 +32,7 @@ import {
   advancePointTween,
   useHueTween,
   usePointTween,
+  useScaleTween,
   useStateMix,
 } from './transition'
 import { glowTexture } from './textures'
@@ -203,6 +204,19 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, body
 
   const trailPoints = useMemo(() => circlePoints(orbitRadius, 64), [orbitRadius])
 
+  /**
+   * The radius eases across a change instead of snapping — the tier scale
+   * (via `sceneModel`) and the context gauge's clearance both move it, and
+   * the parent planet's own size is already tweened on this same curve
+   * (docs/fixes/state-change-snaps-the-planet-scale.md, whose "Not covered"
+   * note is exactly this). The trail's points stay memoised on the TARGET
+   * radius; the frame loop scales its group by `value / orbitRadius`, so the
+   * dash pattern is exact at rest and only stretches by the tween's own
+   * fraction while a change is in flight — the same normalisation trick as
+   * the rim above.
+   */
+  const radiusTween = useScaleTween(orbitRadius)
+
   // A moon is positioned from its parent planet, so it has to walk the same
   // path at the same pace — otherwise a retagged session leaves its moons
   // behind and they snap across afterwards.
@@ -219,6 +233,7 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, body
   const shellLineRef = useRef<LineHandle>(null)
   const matRingRef = useRef<LineHandle>(null)
   const trailRef = useRef<LineHandle>(null)
+  const trailGroupRef = useRef<THREE.Group>(null)
   const matElapsed = useRef(0)
   const rippleElapsed = useRef(0)
   /** Integrated rather than read off the clock: the blink's period is itself interpolating. */
@@ -301,9 +316,13 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, body
       parentGroupRef.current.scale.setScalar(bodyZoomFactor(state.camera.zoom))
     }
 
-    angle.current += (ORBIT_ANGULAR_SPEED / Math.max(orbitRadius, 0.01)) * delta
-    const localX = orbitRadius * Math.cos(angle.current)
-    const localY = orbitRadius * Math.sin(angle.current)
+    if (advanceTween(radiusTween, delta) && trailGroupRef.current) {
+      trailGroupRef.current.scale.setScalar(radiusTween.value / orbitRadius)
+    }
+    const radius = radiusTween.value
+    angle.current += (ORBIT_ANGULAR_SPEED / Math.max(radius, 0.01)) * delta
+    const localX = radius * Math.cos(angle.current)
+    const localY = radius * Math.sin(angle.current)
     if (bodyGroupRef.current) {
       bodyGroupRef.current.position.set(localX, localY, 0)
       // Appearance planet-size multiplier, body only — the trail and the
@@ -377,17 +396,21 @@ export function Moon({ subagent, hue, parentX, parentY, orbitRadius, phase, body
       ref={parentGroupRef}
       position={[parentBody?.x ?? parentMove.x.value, parentBody?.y ?? parentMove.y.value, 0]}
     >
-      {/* Dashed orbit ring traced once around the parent planet's position (`1px dashed hue/.22` in 1f). */}
-      <Line
-        ref={trailRef}
-        points={trailPoints}
-        lineWidth={1}
-        dashed
-        dashSize={0.05}
-        gapSize={0.05}
-        transparent
-        opacity={0}
-      />
+      {/* Dashed orbit ring traced once around the parent planet's position
+          (`1px dashed hue/.22` in 1f). The group's scale is the radius
+          tween's current fraction of the target — see `radiusTween`. */}
+      <group ref={trailGroupRef} scale={radiusTween.value / orbitRadius}>
+        <Line
+          ref={trailRef}
+          points={trailPoints}
+          lineWidth={1}
+          dashed
+          dashSize={0.05}
+          gapSize={0.05}
+          transparent
+          opacity={0}
+        />
+      </group>
 
       <group ref={bodyGroupRef}>
         {hasGlowTexture && (

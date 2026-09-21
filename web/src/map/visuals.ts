@@ -28,6 +28,15 @@ const px = (designPx: number) => (designPx / 50) * BODY_RADIUS
 /** CSS `animation: orb-spin <sec>` → radians/sec. Negative = `reverse`. */
 const spin = (seconds: number) => (Math.PI * 2) / seconds
 
+/**
+ * The context gauge's outermost edge — its threshold-tick ring, artboard 1i
+ * (the full transcription note lives with the gauge constants in
+ * `Planet.tsx`). Exported from here rather than from `Planet.tsx` because
+ * `sceneModel.ts` keeps moon orbits clear of the gauge and must stay free
+ * of three.js imports.
+ */
+export const CONTEXT_GAUGE_OUTER = px(92)
+
 // --- Planet ------------------------------------------------------------
 
 export interface PlanetVisuals {

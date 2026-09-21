@@ -7,6 +7,7 @@ domain: sessions
 related:
   - runner-pins-the-session-id
   - spawn-failure-ends-a-session-silently
+  - tag-rule-patterns-are-regexes
 tags:
   - runner
   - paths
@@ -71,9 +72,12 @@ invites.
 ## Consequences
 
 `tags/rules.ts` had grown its own copy of the expansion, for the same reason —
-tag rule globs are typed by hand too — and now calls the shared helper. Its
-behaviour narrows slightly and for the better: `~alice/**` used to become
-`/Users/tominalice/**`, a path nobody has.
+tag rule patterns are typed by hand too — and for a while called the shared
+helper. The shared behaviour narrowed slightly and for the better: `~alice/**`
+used to become `/Users/tominalice/**`, a path nobody has. Since
+[[tag-rule-patterns-are-regexes]] the rules matcher expands the tilde itself
+again — the expanded home directory has to be regex-escaped, which is a
+concern `expandHome` (whose output is a real path) rightly does not have.
 
 Sessions already stored with a literal `~` are not rewritten. There is one,
 it never ran, and migrating a single dead row is not worth a migration.

@@ -27,4 +27,12 @@ describe('SandboxPage', () => {
     fireEvent.click(screen.getByRole('option', { name: 'needs input' }))
     expect(trigger).toHaveTextContent('needs input')
   })
+
+  it('offers moons so orbit clearance is testable without a live session', () => {
+    render(<SandboxPage />)
+    const trigger = screen.getByRole('combobox', { name: 'MOONS' })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('option', { name: '2' }))
+    expect(trigger).toHaveTextContent('2')
+  })
 })

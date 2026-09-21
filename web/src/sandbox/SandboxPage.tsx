@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import type { ApiSession, SessionStatus } from '../lib/types'
+import type { ApiSession, SessionStatus, Subagent } from '../lib/types'
 import { Planet } from '../map/Planet'
-import type { ContextFill } from '../map/sceneModel'
+import { Moon } from '../map/Moon'
+import { moonOrbitRadius, type ContextFill } from '../map/sceneModel'
 import { contextLevel } from '../lib/usage'
 import { BODY_RADIUS } from '../map/visuals'
 import { PLANET_STATES } from '../map/transition'
-import { scaleFor } from '../map/layout'
+import { GOLDEN_ANGLE, scaleFor } from '../map/layout'
 import { Panel } from '../ui/Panel'
 import { Select } from '../ui/Select'
 import { Checkbox } from '../ui/Checkbox'
@@ -15,10 +16,12 @@ import { ErrorBoundary } from '../ui/ErrorBoundary'
 /**
  * `/sandbox` — a dev-only workbench for tuning planet state transitions.
  *
- * One planet, four controls, no server: the page renders `<Planet>` exactly
- * as the map does but drives its props by hand, so a state crossfade, the
- * retag hue tween, the selection reticle and the ended suppression can each
- * be replayed on demand instead of waiting for a live session to do it.
+ * One planet, a handful of controls, no server: the page renders `<Planet>`
+ * (and, on request, orbiting `<Moon>`s) exactly as the map does but drives
+ * the props by hand, so a state crossfade, the retag hue tween, the
+ * selection reticle, the ended suppression and the moon orbits' gauge
+ * clearance can each be replayed on demand instead of waiting for a live
+ * session to do it.
  *
  * Mounted INSTEAD of `<App>` (see `main.tsx`), deliberately: the sandbox
  * must not open a WebSocket or touch the store, so a broken server never
@@ -63,6 +66,21 @@ const CONTEXT_OPTIONS = [
 /** What the sandbox's thresholds are — the store's defaults, as canvas 1i draws them. */
 const SANDBOX_THRESHOLDS = { warn: 50, critical: 80 }
 
+const MOON_COUNT_OPTIONS = [0, 1, 2, 3].map((n) => ({ value: n, label: String(n) }))
+
+/**
+ * Each sandbox moon gets a different state, cycling through the live ones,
+ * so one count change also previews the state variants side by side.
+ */
+const MOON_STATE_CYCLE: Subagent['state'][] = ['working', 'idle', 'needs_input', 'materializing']
+
+const sandboxMoons = (count: number): Subagent[] =>
+  Array.from({ length: count }, (_, i) => ({
+    id: `moon-${i}`,
+    name: `moon ${i + 1}`,
+    state: MOON_STATE_CYCLE[i % MOON_STATE_CYCLE.length],
+  }))
+
 /** The one fake session the planet is fed; only `status` ever varies. */
 function sandboxSession(status: SessionStatus): ApiSession {
   return {
@@ -94,8 +112,10 @@ export function SandboxPage() {
   // transition being tuned. Off = pure crossfade at full size.
   const [tierScale, setTierScale] = useState(true)
   const [contextPercent, setContextPercent] = useState(-1)
+  const [moonCount, setMoonCount] = useState(0)
 
   const session = useMemo(() => sandboxSession(status), [status])
+  const moons = useMemo(() => sandboxMoons(moonCount), [moonCount])
   const contextFill = useMemo<ContextFill | null>(
     () =>
       contextPercent < 0
@@ -126,6 +146,23 @@ export function SandboxPage() {
               contextThresholds={SANDBOX_THRESHOLDS}
               showCompactBadge
             />
+            {/* Same orbit derivation the map uses (`moonOrbitRadius`), so the
+                gauge clearance is checkable here without a live session. */}
+            {moons.map((subagent, i) => (
+              <Moon
+                key={subagent.id}
+                subagent={subagent}
+                hue={hue}
+                parentX={0}
+                parentY={0}
+                orbitRadius={moonOrbitRadius(
+                  tierScale ? scaleFor(session) : 1,
+                  i,
+                  contextFill !== null
+                )}
+                phase={i * GOLDEN_ANGLE}
+              />
+            ))}
           </Canvas>
         </ErrorBoundary>
       </div>
@@ -180,6 +217,22 @@ export function SandboxPage() {
               options={CONTEXT_OPTIONS}
               value={contextPercent}
               onChange={setContextPercent}
+              font="mono"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label
+              id="sandbox-moons-label"
+              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+            >
+              MOONS
+            </label>
+            <Select
+              aria-labelledby="sandbox-moons-label"
+              options={MOON_COUNT_OPTIONS}
+              value={moonCount}
+              onChange={setMoonCount}
               font="mono"
             />
           </div>

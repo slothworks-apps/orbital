@@ -248,7 +248,7 @@ describe('REST routes', () => {
     const tagId = created.json().id;
     const rule = await app.inject({
       method: 'POST', url: '/api/tag-rules',
-      payload: { tagId, condition: 'path_matches', pattern: '/oncall/**' },
+      payload: { tagId, condition: 'path_matches', pattern: '^/oncall/' },
     });
     expect(rule.statusCode).toBe(201);
     const preview = await app.inject({

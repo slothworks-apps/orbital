@@ -9,10 +9,14 @@ import { matchRule, regenerateRuleTags, effectiveTagIds } from '../src/tags/rule
 import type { TagRule } from '../src/types.js';
 
 const rules: TagRule[] = [
-  { id: 1, tag_id: 10, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/**' },
+  { id: 1, tag_id: 10, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/' },
   { id: 2, tag_id: 11, position: 1, enabled: 1, condition: 'title_contains', pattern: 'exp-' },
   { id: 3, tag_id: 12, position: 2, enabled: 0, condition: 'permission_is', pattern: 'bypassPermissions' },
 ];
+
+function pathRule(pattern: string): TagRule {
+  return { id: 4, tag_id: 20, position: 0, enabled: 1, condition: 'path_matches', pattern };
+}
 
 describe('matchRule', () => {
   it('first enabled match wins, in position order', () => {
@@ -27,29 +31,37 @@ describe('matchRule', () => {
     const s = { cwd: '/elsewhere', title: 'EXP-run', permissionMode: null };
     expect(matchRule(rules, s)?.tag_id).toBe(11);
   });
-  it('** glob matches deep paths (multiple segments)', () => {
-    const deepRule: TagRule = { id: 4, tag_id: 20, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/**' };
-    const s = { cwd: join(homedir(), 'work/a/b/c.ts'), title: '', permissionMode: null };
-    expect(matchRule([deepRule], s)?.tag_id).toBe(20);
+  it('pattern is a regex matched anywhere in the path (unanchored)', () => {
+    const s = { cwd: '/Users/x/Projects/slothworks/orbital/web', title: '', permissionMode: null };
+    expect(matchRule([pathRule('slothworks/orbital')], s)?.tag_id).toBe(20);
+    expect(matchRule([pathRule('slothworks/atlas')], s)).toBeNull();
   });
-  it('** glob matches zero segments (directory itself)', () => {
-    const deepRule: TagRule = { id: 4, tag_id: 20, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/**' };
-    const s = { cwd: join(homedir(), 'work/'), title: '', permissionMode: null };
-    expect(matchRule([deepRule], s)?.tag_id).toBe(20);
+  it('regex metacharacters work (alternation, wildcards)', () => {
+    const s = { cwd: '/Users/x/Projects/acme-app/api', title: '', permissionMode: null };
+    expect(matchRule([pathRule('acme.*/api')], s)?.tag_id).toBe(20);
+    expect(matchRule([pathRule('/(orbital|acme)')], s)?.tag_id).toBe(20);
   });
-  it('single * does not cross directory boundaries', () => {
-    const singleRule: TagRule = { id: 5, tag_id: 21, position: 0, enabled: 1, condition: 'path_matches', pattern: '/a/*/b' };
-    const sMatch = { cwd: '/a/x/b', title: '', permissionMode: null };
-    const sNoMatch = { cwd: '/a/x/y/b', title: '', permissionMode: null };
-    expect(matchRule([singleRule], sMatch)?.tag_id).toBe(21);
-    expect(matchRule([singleRule], sNoMatch)).toBeNull();
+  it('explicit anchors constrain the match', () => {
+    const sExact = { cwd: '/a/b', title: '', permissionMode: null };
+    const sDeep = { cwd: '/a/b/c', title: '', permissionMode: null };
+    expect(matchRule([pathRule('^/a/b$')], sExact)?.tag_id).toBe(20);
+    expect(matchRule([pathRule('^/a/b$')], sDeep)).toBeNull();
   });
-  it('dot in pattern is literal, not regex wildcard', () => {
-    const dotRule: TagRule = { id: 6, tag_id: 22, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/*.ts' };
-    const sMatch = { cwd: join(homedir(), 'work/file.ts'), title: '', permissionMode: null };
-    const sNoMatch = { cwd: join(homedir(), 'work/fileXts'), title: '', permissionMode: null };
-    expect(matchRule([dotRule], sMatch)?.tag_id).toBe(22);
-    expect(matchRule([dotRule], sNoMatch)).toBeNull();
+  it('leading ~/ expands to the home directory, also after ^', () => {
+    const s = { cwd: join(homedir(), 'work/platform'), title: '', permissionMode: null };
+    expect(matchRule([pathRule('~/work')], s)?.tag_id).toBe(20);
+    expect(matchRule([pathRule('^~/work')], s)?.tag_id).toBe(20);
+    expect(matchRule([pathRule('^/work')], s)).toBeNull();
+  });
+  it('an invalid regex matches nothing instead of throwing', () => {
+    const s = { cwd: join(homedir(), 'work/platform'), title: '', permissionMode: null };
+    expect(matchRule([pathRule('~/work/**')], s)).toBeNull();
+    expect(matchRule([pathRule('[')], s)).toBeNull();
+  });
+  it('an empty pattern matches nothing', () => {
+    const s = { cwd: '/anything', title: '', permissionMode: null };
+    expect(matchRule([pathRule('')], s)).toBeNull();
+    expect(matchRule([pathRule('  ')], s)).toBeNull();
   });
 });
 

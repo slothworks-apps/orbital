@@ -176,6 +176,25 @@ Per the repo test rule — logic, not pixels:
 Not tested: arc radii, colours, pulse timing — canvas fidelity is checked
 against artboard 1i by hand during the work.
 
+## Clearance around the gauge (owner ruling, 2026-09-21)
+
+The gauge's tick ring is the planet's outermost extent, and two things used
+to collide with it on a gauged planet (1i draws gauged planets only as
+spec-sheet entries, so the canvas never addressed either):
+
+- **Moon orbits.** The innermost trail starts past the gauge instead of the
+  body. Because the planet-size slider scales the render group the gauge
+  lives in while orbit radii never see the slider
+  (spec 2026-09-18-planet-size-design), the clearance is taken against the
+  gauge at `PLANET_SCALE_MAX` — the trail clears the ring at every slider
+  setting. `GAUGED_PLANET_EDGE` in `sceneModel.ts`; covered by
+  "moon orbits around a gauged planet" in `spacemap.test.tsx`.
+- **The session label.** Its rest anchor sat inside the ring band, so the
+  title read through the arc. A gauged planet drops it below the tick ring
+  with the same 34px gap it keeps below the body edge — the same discrete
+  switch as the badges' `clearsGauge` offsets (`LABEL_GAUGED_REST_Y` in
+  `Planet.tsx`, untested as a styling value).
+
 ## Out of scope
 
 - Planet/moon sizing by context (owner ruling; sizes stay as-is)

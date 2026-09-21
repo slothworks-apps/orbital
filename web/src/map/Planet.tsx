@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
 import {
   BODY_RADIUS,
+  CONTEXT_GAUGE_OUTER,
   DIMMED_OPACITY,
   HALO_BREATH_MIN,
   HALO_BREATH_SEC,
@@ -209,6 +210,14 @@ const WHITE_COLOR = new THREE.Color(WHITE)
  * moving the text. See `docs/fixes/selection-reticle-drags-the-label.md`.
  */
 const LABEL_TOP_REST_Y = -(BODY_RADIUS + px(34))
+/**
+ * A gauged planet drops the label below the gauge's tick ring instead of the
+ * body edge, keeping the same 34px gap — at the rest offset the label sits
+ * inside the ring band and the title reads through the arc. Same discrete
+ * switch as the badges' `clearsGauge` offsets (owner ruling, no canvas
+ * value: 1i draws gauged planets with spec-sheet captions, not map labels).
+ */
+const LABEL_GAUGED_REST_Y = -(CONTEXT_GAUGE_OUTER + px(34))
 const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
 const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
 /** Family line under the title (canvas 4a). Subordinate to the name in both states. */
@@ -279,7 +288,9 @@ const BADGE_OFFSET_Y = px(62)
  */
 const CONTEXT_FILL_OUTER = px(90)
 const CONTEXT_FILL_INNER = px(88)
-const CONTEXT_TICK_OUTER = px(92)
+// The tick ring's outer edge is the gauge's outermost extent, so it lives in
+// `visuals.ts` — the scene model keeps moon orbits clear of it.
+const CONTEXT_TICK_OUTER = CONTEXT_GAUGE_OUTER
 const CONTEXT_TICK_INNER = px(86)
 /** Each threshold mark is a 2° slice (`179deg 181deg`, `287deg 289deg`). */
 const CONTEXT_TICK_WIDTH_DEG = 2
@@ -1488,7 +1499,10 @@ export function Planet({
      </group>
 
       {labelMounted && (
-        <group ref={labelGroupRef} position={[0, LABEL_TOP_REST_Y, 0]}>
+        <group
+          ref={labelGroupRef}
+          position={[0, gaugeMounted && shownFill ? LABEL_GAUGED_REST_Y : LABEL_TOP_REST_Y, 0]}
+        >
           <Html zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
             {/* All three of display/width/transform below are load-bearing.
                 `transform` does not apply to an inline box, and the shift is

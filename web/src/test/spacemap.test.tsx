@@ -1,7 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
-import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
+import { PLANET_SCALE_MAX, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import { buildSceneModel, contextFillFor, type SceneModel } from '../map/sceneModel'
 import { useSceneModel } from '../map/useSceneModel'
 import {
@@ -17,7 +17,7 @@ import {
   type CameraState,
 } from '../map/camera'
 import { PLANET_BASE_RADIUS } from '../map/layout'
-import { moonVisuals } from '../map/visuals'
+import { CONTEXT_GAUGE_OUTER, moonVisuals } from '../map/visuals'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -467,6 +467,43 @@ describe('buildSceneModel context fill', () => {
       )
     )
     expect(model.planets[0].contextFill).toEqual({ fraction: 0.5, level: 'ok' })
+  })
+})
+
+describe('moon orbits around a gauged planet', () => {
+  const moonsFor = (overrides: Partial<ApiSession>) => {
+    const model = sceneModelAt(
+      withSessions(
+        [makeSession({ id: 's1', model: 'sonnet', subagents: [makeSubagent({ id: 'a' })], ...overrides })],
+        { models: MODELS }
+      )
+    )
+    return { moon: model.moons[0], planet: model.planets[0] }
+  }
+
+  it('starts the innermost orbit past the gauge ring, at the largest size the slider can draw it', () => {
+    const gauged = moonsFor({ contextUsedTokens: 100_000 })
+    const plain = moonsFor({})
+    expect(gauged.planet.contextFill).not.toBeNull()
+    expect(plain.planet.contextFill).toBeNull()
+    // The gauge lives in the planet's scaled group and the planet-size
+    // slider scales that group, while orbits never see the slider — so the
+    // trail must clear the gauge even at PLANET_SCALE_MAX.
+    expect(gauged.moon.orbitRadius).toBeGreaterThan(
+      CONTEXT_GAUGE_OUTER * PLANET_SCALE_MAX * gauged.planet.scale
+    )
+    expect(gauged.moon.orbitRadius).toBeGreaterThan(plain.moon.orbitRadius)
+  })
+
+  it('keeps the orbit where it was when the gauge is not drawn', () => {
+    const plain = moonsFor({})
+    const toggledOff = sceneModelAt(
+      withSessions(
+        [makeSession({ id: 's1', model: 'sonnet', contextUsedTokens: 100_000, subagents: [makeSubagent({ id: 'a' })] })],
+        { models: MODELS, settings: { map_show_context: 'false', map_release_ended_after_minutes: 'never' } }
+      )
+    )
+    expect(toggledOff.moons[0].orbitRadius).toBe(plain.moon.orbitRadius)
   })
 })
 

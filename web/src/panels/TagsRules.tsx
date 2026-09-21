@@ -89,6 +89,25 @@ function conditionLabel(condition: TagRule['condition']): string {
   return CONDITION_OPTIONS.find((o) => o.value === condition)?.label ?? condition
 }
 
+/**
+ * Compile error for a `path_matches` pattern, or null when it's fine. The
+ * server treats the pattern as a JS regex and silently matches nothing when
+ * it doesn't compile, so this is the only place the user learns why a rule
+ * never fires. Empty is fine (a fresh rule); the leading `~` the server
+ * expands is an ordinary character to the regex engine, so validity of the
+ * raw text is validity of what the server runs.
+ */
+function patternError(pattern: string): string | null {
+  const trimmed = pattern.trim()
+  if (!trimmed) return null
+  try {
+    new RegExp(trimmed)
+    return null
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err)
+  }
+}
+
 /** One-line reading of a rule — shared by the row button's label, the grip's label and the reorder announcement. */
 function describeRule(rule: TagRule, tagName: string, pattern: string): string {
   return `${conditionLabel(rule.condition)} ${pattern || '(no pattern)'} → ${tagName}`
@@ -908,6 +927,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 const editing = editingRuleId === rule.id
                 const enabled = rule.enabled === 1
                 const pattern = patternDrafts[rule.id] ?? rule.pattern
+                const regexError = rule.condition === 'path_matches' ? patternError(pattern) : null
                 /** Selecting a tag card MARKS its rules here — it never hides the others. */
                 const targetsSelected = ruleTag != null && ruleTag.id === effectiveTagId
                 const shift = dragShiftFor(idx)
@@ -1088,6 +1108,9 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                           font="mono"
                           size="sm"
                           aria-label={`Pattern for rule ${idx + 1}`}
+                          invalid={regexError != null}
+                          title={regexError ?? undefined}
+                          placeholder={rule.condition === 'path_matches' ? 'regex, e.g. slothworks/orbital' : undefined}
                           value={pattern}
                           onChange={(e) => handlePatternDraft(rule, e.target.value)}
                           onKeyDown={(e) => {

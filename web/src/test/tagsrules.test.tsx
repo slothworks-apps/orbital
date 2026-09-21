@@ -493,6 +493,20 @@ describe('Settings › Tags & rules', () => {
     ;[10, 20, 30, 40].forEach((id) => expect(row(id).style.transform).toBe(''))
   })
 
+  it('flags a pattern that is not a valid regex, and clears once it compiles', () => {
+    resetStore()
+    renderTags()
+
+    openRow(1)
+    const field = screen.getByLabelText('Pattern for rule 1')
+    // rule1's stored pattern is the pre-regex glob `/work/**` — flagged now.
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    fireEvent.change(field, { target: { value: '/work/.*' } })
+    expect(field).not.toHaveAttribute('aria-invalid', 'true')
+    fireEvent.change(field, { target: { value: '[' } })
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+  })
+
   it('flushes a pending pattern PATCH before a drag reorder lands', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })

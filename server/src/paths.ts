@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
  * Turns a path the user typed into one the operating system can use.
  *
  * Paths reach Orbital through text inputs — the New Session dialog's project
- * directory, the `default_project_dir` setting, a tag rule's glob — and a
+ * directory, the `default_project_dir` setting — and a
  * person typing a path writes `~/Projects/x`. Nothing between that input and
  * `child_process.spawn` is a shell, so the tilde survives as a literal
  * directory name, the spawn fails with ENOENT deep inside the SDK, and the

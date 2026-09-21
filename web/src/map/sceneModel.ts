@@ -1,12 +1,13 @@
 import type { ApiSession, OrbitalModel, SessionStatus, Subagent } from '../lib/types'
 import { contextWindowFor, matchModel } from '../lib/models'
 import { contextLevel, type ContextLevel } from '../lib/usage'
-import { moonVisuals } from './visuals'
+import { CONTEXT_GAUGE_OUTER, moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
 import {
   absorptionFor,
   mapSessions,
   parseContextThresholds,
+  PLANET_SCALE_MAX,
   showContext,
   statusCounts,
 } from '../store/store'
@@ -30,6 +31,24 @@ import {
 
 /** Extra clearance kept between a planet's own edge and its innermost moon orbit. */
 const MOON_ORBIT_MARGIN = 0.35
+/**
+ * The edge moon orbits clear on a planet that draws a context gauge. The
+ * gauge lives inside the planet's render group, which the planet-size
+ * slider scales — while orbit radii deliberately never see the slider
+ * (spec 2026-09-18-planet-size-design). So the clearance is taken against
+ * the gauge at PLANET_SCALE_MAX, the largest the slider can draw it, and
+ * the innermost trail stays outside the ring at every slider setting.
+ */
+const GAUGED_PLANET_EDGE = Math.max(PLANET_BASE_RADIUS, CONTEXT_GAUGE_OUTER * PLANET_SCALE_MAX)
+
+/**
+ * World-space orbit radius of a planet's `index`-th moon. Exported for the
+ * sandbox, which draws moons without a scene model — one formula, no drift.
+ */
+export function moonOrbitRadius(scale: number, index: number, gauged: boolean): number {
+  const edge = gauged ? GAUGED_PLANET_EDGE : PLANET_BASE_RADIUS
+  return scale * edge + MOON_ORBIT_MARGIN + index * MOON_ORBIT_STEP
+}
 /** Radial gap between successive moons orbiting the same planet. */
 const MOON_ORBIT_STEP = 0.28
 /**
@@ -231,9 +250,10 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
 
       // Moons first: the planet's footprint is the outermost shell they
       // reach, and that is what the planet is then placed by.
+      const contextFill = contextFillFor(session, state.models, state.settings, state.contextWindows)
       let footprint = pos.scale * PLANET_BASE_RADIUS
       subagents.forEach((subagent, i) => {
-        const orbitRadius = pos.scale * PLANET_BASE_RADIUS + MOON_ORBIT_MARGIN + i * MOON_ORBIT_STEP
+        const orbitRadius = moonOrbitRadius(pos.scale, i, contextFill !== null)
         moons.push({
           subagent,
           sessionId: session.id,
@@ -260,7 +280,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         footprint,
         released: isReleased(session),
         modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
-        contextFill: contextFillFor(session, state.models, state.settings, state.contextWindows),
+        contextFill,
       })
     }
   }

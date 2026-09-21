@@ -62,7 +62,9 @@ The `/sandbox` workbench gained a "scale follows state (layout tiers)"
 toggle (on by default) that maps the chosen state through `scaleFor`, so
 the full transition — size included — can be replayed on a clean stage.
 
-Not covered: a moon's `orbitRadius` comes from the raw tier scale in
-`sceneModel`, so moon orbits still snap on a tier change. Rarely visible —
-subagents end when their session stops working — but it is the same class
-of bug if it ever shows.
+The moon gap this note used to leave open ("a moon's `orbitRadius` comes
+from the raw tier scale, so moon orbits still snap") closed on 2026-09-21:
+the context gauge's orbit clearance (spec `context-fill-arc` § Clearance)
+made the snap plainly visible, and `Moon` now eases `orbitRadius` through
+the same `useScaleTween`, scaling the trail's group by the tween's
+fraction of the target so the dash pattern stays exact at rest.
