@@ -459,6 +459,21 @@ export function SpaceMap() {
   )
 
   /**
+   * Click on empty space deselects. R3F's `onPointerMissed` fires only for a
+   * click that intersected no object, so a planet click never reaches it — a
+   * DOM `click` handler on the container would, because `Planet`'s
+   * `stopPropagation` stops propagation among R3F objects while the native
+   * event still bubbles, and it would deselect the planet it had just
+   * selected. The `draggedRef` guard keeps a pan released over empty space
+   * from clearing the selection.
+   */
+  const handlePointerMissed = useCallback((e: MouseEvent) => {
+    if (e.button !== 0) return
+    if (draggedRef.current) return
+    useOrbital.setState((s) => (s.ui.selectedId ? { ui: { ...s.ui, selectedId: null } } : s))
+  }, [])
+
+  /**
    * The `/compact` pill's click: the same path the composer sends a message
    * on (`sendPrompt`), under the same availability rules — a session live in
    * a terminal is read-only here (the server's 409 is the real backstop),
@@ -739,7 +754,12 @@ export function SpaceMap() {
           by nothing). See `docs/fixes/aces-tone-mapping-desaturates-the-map.md`.
           Do NOT add `linear` alongside it: that switches the output colour
           space, and the oklch → linear-sRGB path is already correct. */}
-      <Canvas flat orthographic camera={{ zoom: INITIAL_CAMERA.zoom, position: [0, 0, 100] }}>
+      <Canvas
+        flat
+        orthographic
+        camera={{ zoom: INITIAL_CAMERA.zoom, position: [0, 0, 100] }}
+        onPointerMissed={handlePointerMissed}
+      >
         <CameraRig camera={camera} />
         <SimStepper simRef={simRef} flashRef={holeFlashRef} reduced={reduced} />
         <ambientLight intensity={0.6} />

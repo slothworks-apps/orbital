@@ -1,7 +1,7 @@
 ---
 id: click-away-to-deselect
 title: Deselect by clicking empty space
-status: backlog
+status: done
 type: idea
 domain: web
 related:
