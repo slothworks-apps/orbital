@@ -434,6 +434,14 @@ export async function buildServer(overrides: {
     },
     (socket) => hub.handleSocket(socket),
   );
+  // The desktop app's port probe: `app === 'orbital'` is how it tells its own
+  // server from any other service holding 4737, and `claudeCli.source ===
+  // 'missing'` is what raises its missing-CLI dialog (spec §§ 1, 3). Both
+  // field names are a contract with it.
+  app.get('/api/health', () => ({
+    app: 'orbital',
+    claudeCli: { source: claudeCli.source, path: claudeCli.path, version: claudeCodeVersion },
+  }));
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, errors,
     images, imagesDir,
