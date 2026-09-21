@@ -30,6 +30,20 @@ describe('GET /api/health', () => {
       expect(['settings', 'path', 'bundled', 'missing']).toContain(body.claudeCli.source);
       expect(body.claudeCli).toHaveProperty('path');
       expect(body.claudeCli).toHaveProperty('version');
+      // No staticDir: this is a dev server, and its `/` is a JSON 404. The
+      // desktop app reads this to send its window to vite instead.
+      expect(body.static).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('reports that it serves the web app when a staticDir is configured', async () => {
+    const { claudeDir, dbPath } = tempClaudeDir();
+    const staticDir = mkdtempSync(join(tmpdir(), 'orbital-health-dist-'));
+    const app = await buildServer({ claudeDir, dbPath, queryFn: (() => {}) as any, staticDir });
+    try {
+      expect((await app.inject({ method: 'GET', url: '/api/health' })).json().static).toBe(true);
     } finally {
       await app.close();
     }

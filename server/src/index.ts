@@ -458,10 +458,13 @@ export async function buildServer(overrides: {
 
   // The desktop app's port probe: `app === 'orbital'` is how it tells its own
   // server from any other service holding 4737, and `claudeCli.source ===
-  // 'missing'` is what raises its missing-CLI dialog (spec §§ 1, 3). Both
+  // 'missing'` is what raises its missing-CLI dialog (spec §§ 1, 3). `static`
+  // tells it whether this server has a web app to show at all: attached to a
+  // dev server there is none here, and its window belongs on vite. All three
   // field names are a contract with it.
   app.get('/api/health', () => ({
     app: 'orbital',
+    static: Boolean(staticDir),
     claudeCli: { source: claudeCli.source, path: claudeCli.path, version: claudeCodeVersion },
   }));
   registerRoutes(app, {
