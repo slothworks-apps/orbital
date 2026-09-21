@@ -9,8 +9,8 @@
 # system. No npm dependency is added for this.
 set -eu
 
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 SRC_SVG="$REPO_ROOT/web/public/favicon.svg"
 SRC_512="$REPO_ROOT/web/public/favicon-512.png"
 
@@ -45,6 +45,6 @@ sips -z 512 512   "$SRC_512" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
 cp "$SRC_512" "$ICONSET/icon_512x512.png"
 sips -z 1024 1024 "$SRC_1024" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
 
-iconutil -c icns "$ICONSET" -o "$(dirname "$0")/icon.icns"
+iconutil -c icns "$ICONSET" -o "$HERE/icon.icns"
 
-echo "wrote $(dirname "$0")/icon.icns"
+echo "wrote $HERE/icon.icns"
