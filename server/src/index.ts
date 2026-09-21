@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,6 +118,11 @@ export async function buildServer(overrides: {
   queryFn?: QueryFn;
   /** The titler's one-shot call. Its own seam: it sends a whole prompt, not a stream. */
   titleQueryFn?: TitleQueryFn;
+  /**
+   * Built frontend to serve same-origin (`web/dist`). Unset in dev and tests,
+   * where Vite serves it on 5173 and proxies `/api` and `/ws` here.
+   */
+  staticDir?: string;
 } = {}): Promise<FastifyInstance> {
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
@@ -434,6 +440,21 @@ export async function buildServer(overrides: {
     },
     (socket) => hub.handleSocket(socket),
   );
+  // The packaged app's window loads this server's origin, so the frontend has
+  // to come from here too (spec § 1). `wildcard: false` leaves unmatched GETs
+  // to the not-found handler below, which is what makes the SPA's real path
+  // routes (`/sandbox`, and more coming) survive a reload.
+  const staticDir = overrides.staticDir ?? process.env.ORBITAL_STATIC_DIR ?? undefined;
+  if (staticDir) {
+    await app.register(fastifyStatic, { root: staticDir, wildcard: false });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method === 'GET' && !req.raw.url?.startsWith('/api') && !req.raw.url?.startsWith('/ws')) {
+        return reply.sendFile('index.html');
+      }
+      return reply.code(404).send({ error: 'not found' });
+    });
+  }
+
   // The desktop app's port probe: `app === 'orbital'` is how it tells its own
   // server from any other service holding 4737, and `claudeCli.source ===
   // 'missing'` is what raises its missing-CLI dialog (spec §§ 1, 3). Both
