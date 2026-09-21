@@ -257,7 +257,7 @@ function imageRefKey(images: readonly ImageRefEntry[] | undefined): string {
     .map((image) => image.ref)
     .slice()
     .sort()
-    .join(' ')
+    .join('\0')
 }
 
 /**
