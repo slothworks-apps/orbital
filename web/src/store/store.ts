@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { api, ApiError } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
+import { withViewTransition } from '../lib/viewTransition'
 import type { ContextThresholds } from '../lib/usage'
 import type {
   ApiSession,
@@ -905,12 +906,20 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (!session) return
     const previous = { mapDismissedAt: session.mapDismissedAt, pinnedAt: session.pinnedAt ?? null }
     const wasPinned = previous.pinnedAt != null
-    const stamp = (fields: { mapDismissedAt: number | null; pinnedAt: number | null }) =>
-      set((state) => {
-        const current = state.sessions[id]
-        if (!current) return {}
-        return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
-      })
+    const stamp = (fields: { mapDismissedAt: number | null; pinnedAt: number | null }) => {
+      const write = () =>
+        set((state) => {
+          const current = state.sessions[id]
+          if (!current) return {}
+          return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
+        })
+      // A dismissal only moves a sidebar row when it takes a pin with it —
+      // absorbing an unpinned session changes the map, and the row stays
+      // where it is. So the view transition is spent on the case that has
+      // something to animate, and the rest of the map's traffic is untouched.
+      if (wasPinned) withViewTransition(write)
+      else write()
+    }
     // The manual gesture wins: the server clears `pinned_at` as it stamps a
     // dismissal, so the optimistic state has to clear it too or the row
     // would sit in PINNED while its planet falls (spec § Rules).
@@ -961,17 +970,27 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
    * Pinning clears `mapDismissedAt` locally because the server clears it too
    * — that is what pulls an absorbed session back onto the map. No undo
    * toast: unpinning is the same one click that pinned.
+   *
+   * Both stamps go through `withViewTransition` so the sidebar row slides
+   * between PINNED and its old section instead of teleporting. It sits here
+   * rather than in the two buttons because there are three ways in — the
+   * sidebar row's pin, the detail panel's, and the absorption toast's undo —
+   * and a row that animates from one of them and jumps from another would
+   * read as a bug. The rollback is wrapped too: a failed save sends the row
+   * back, which is the same move in reverse.
    */
   async setSessionPinned(id, pinned) {
     const session = get().sessions[id]
     if (!session) return
     const previous = { pinnedAt: session.pinnedAt ?? null, mapDismissedAt: session.mapDismissedAt }
     const stamp = (fields: { pinnedAt: number | null; mapDismissedAt: number | null }) =>
-      set((state) => {
-        const current = state.sessions[id]
-        if (!current) return {}
-        return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
-      })
+      withViewTransition(() =>
+        set((state) => {
+          const current = state.sessions[id]
+          if (!current) return {}
+          return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
+        })
+      )
     stamp(
       pinned
         ? { pinnedAt: Date.now(), mapDismissedAt: null }

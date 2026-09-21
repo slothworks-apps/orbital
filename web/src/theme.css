@@ -299,6 +299,50 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
+   Pinning a session moves its sidebar row between PINNED and ACTIVE/HISTORY
+   (spec 2026-09-20-pinned-sessions-design). The store runs that state change
+   inside a view transition (`lib/viewTransition`), which snapshots every row
+   by its own `view-transition-name` and tweens the old position into the new
+   one — the row travels instead of vanishing from one list and appearing in
+   another.
+
+   Duration and curve are the app's panel motion: `PANEL_ENTER_MS` and the
+   export's `cubic-bezier(.2,.8,.2,1)` from `ui/motion.ts`, duplicated here as
+   literals because CSS cannot read a TS constant. A row crossing the rail
+   covers a comparable distance to a panel arriving, and it is the only other
+   place in the app where something the user is watching travels that far.
+   --------------------------------------------------------------------------- */
+::view-transition-group(*) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Everything that is NOT a named row falls into the root snapshot, and the
+   browser's default is to cross-fade it. Nothing outside the moving rows has
+   changed, so that fade is pure cost — and over the map's WebGL canvas it
+   reads as the whole window blinking. Killed here rather than by opting rows
+   out, because the opt-out is the wrong way round: the rows are the exception.
+   After the wildcard rule above, so it wins on order whatever the two
+   selectors' specificity turns out to be. */
+::view-transition-group(root),
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+/* Belt to the helper's brace: `withViewTransition` already declines to start a
+   transition under this query, so this only matters if some future caller
+   reaches for `startViewTransition` directly. A row sliding the height of the
+   rail is exactly the large positional travel the setting asks us to drop. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Sent tokens in the transcript (canvas 9e SENT). The tint holds after the
    turn is sent — display-only: no hover, no cursor change, no focus ring, and
    deliberately quieter than the composer's live tint (.08 fill against .13).

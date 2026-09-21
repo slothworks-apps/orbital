@@ -10,6 +10,7 @@ import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
+import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 
 /** How many sessions `loadMore` asks for per infinite-scroll page. */
@@ -203,6 +204,11 @@ function SessionRow({
     // the row's own press is an absolute layer under a content line that
     // takes no pointer, except the pin, which takes its own (canvas 4c).
     <li
+      // The row's identity to the view transition that carries it between
+      // PINNED and ACTIVE/HISTORY when the pin flips (`lib/viewTransition`).
+      // A style prop rather than a class: the name is per session, and
+      // Tailwind cannot build a utility from a runtime value.
+      style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
       className={[
         'group/row relative rounded-lg transition-colors hover:bg-white/5',
         // 1a dims ended rows; per-row rather than on the list, because 4c
