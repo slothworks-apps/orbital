@@ -1,6 +1,15 @@
-import { app, BrowserWindow, dialog, utilityProcess, type UtilityProcess } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  Notification,
+  utilityProcess,
+  type UtilityProcess,
+} from 'electron';
 import { join } from 'node:path';
+import { SessionNotifier } from './lib/notifications';
 import { probeHealth } from './lib/probe';
+import { startSessionsFeed } from './lib/sessionsFeed';
 import {
   classifyChildExit,
   decideStartup,
@@ -33,6 +42,9 @@ const migrationsDir = app.isPackaged
 
 let win: BrowserWindow | null = null;
 let child: UtilityProcess | null = null;
+let feed: { close(): void } | null = null;
+/** Every rule about what is worth saying lives in here, not in this file. */
+const notifier = new SessionNotifier();
 /** True only when this process forked the server — shutdown kills only that. */
 let forked = false;
 let quitting = false;
@@ -164,8 +176,11 @@ async function reportServerDeath(code: number): Promise<void> {
 /**
  * A missing CLI is a designed state (spec § 3): say so, offer to point at it,
  * and open the map either way.
+ *
+ * Returns false only when saving the path cost us the server and the user chose
+ * to quit rather than retry — the one path where no window should open.
  */
-async function promptForCli(): Promise<void> {
+async function promptForCli(): Promise<boolean> {
   const { response } = await dialog.showMessageBox({
     type: 'warning',
     message: 'The Claude Code CLI was not found',
@@ -175,13 +190,13 @@ async function promptForCli(): Promise<void> {
     defaultId: 0,
     cancelId: 1,
   });
-  if (response !== 0) return;
+  if (response !== 0) return true;
 
   const picked = await dialog.showOpenDialog({
     title: 'Choose the claude executable',
     properties: ['openFile', 'showHiddenFiles'],
   });
-  if (picked.canceled || picked.filePaths.length === 0) return;
+  if (picked.canceled || picked.filePaths.length === 0) return true;
 
   try {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/settings`, {
@@ -195,13 +210,15 @@ async function promptForCli(): Promise<void> {
       'Could not save the CLI path',
       `${picked.filePaths[0]}\n\n${String(err)}`,
     );
-    return;
+    return true;
   }
 
   // The server reads claude_executable_path once, at boot — so the PATCH has to
   // land before the restart, never after.
   await discardChild();
-  if (!(await bringServerUp())) app.quit();
+  if (await bringServerUp()) return true;
+  app.quit();
+  return false;
 }
 
 function openWindow(): void {
@@ -217,6 +234,36 @@ function openWindow(): void {
     win = null;
   });
   void win.loadURL(windowUrl(DEV, PORT));
+}
+
+/**
+ * Watch the server's own WebSocket and turn what the notifier reports into
+ * native notifications that jump back to the session (spec § 3).
+ *
+ * The focus check is the reason notifications exist: a visible, focused map
+ * already shows every one of these states, so interrupting over it is noise.
+ */
+function startNotifications(): void {
+  if (!Notification.isSupported()) return;
+  feed = startSessionsFeed({
+    url: `ws://127.0.0.1:${PORT}/ws`,
+    // A new socket means the world is about to replay; what we knew is stale.
+    onReconnect: () => notifier.reset(),
+    onFrame: (frame) => {
+      const d = notifier.onEvent(frame);
+      if (!d) return;
+      const target = win;
+      if (!target || target.isFocused()) return;
+
+      const n = new Notification({ title: d.title, body: d.body });
+      n.on('click', () => {
+        target.show();
+        target.focus();
+        if (d.sessionId) target.webContents.send('select-session', d.sessionId);
+      });
+      n.show();
+    },
+  });
 }
 
 async function start(): Promise<void> {
@@ -258,9 +305,11 @@ async function start(): Promise<void> {
       break;
   }
 
-  if (needsCliPrompt(health, forked)) await promptForCli();
+  // `false` means the CLI prompt ended in a quit — there is nothing to open.
+  if (needsCliPrompt(health, forked) && !(await promptForCli())) return;
 
   openWindow();
+  startNotifications();
 }
 
 void app.whenReady().then(start);
@@ -273,6 +322,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   quitting = true;
+  feed?.close();
+  feed = null;
   if (forked && child) {
     child.kill();
     child = null;
