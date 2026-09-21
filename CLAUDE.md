@@ -53,6 +53,11 @@ atlas validate    # run this before you commit
 ```
 <!-- atlas:end -->
 
+A `plan` is not always needed: it exists to carry work across a gap — to
+another session, another person, or a later date. When an agreed spec is
+implemented immediately in the same stretch of work, the spec is the
+requirements document and writing a plan first is overhead; skip it.
+
 ## Tests
 
 Write tests only where they can catch a real regression, not by reflex.
