@@ -127,6 +127,26 @@ describe('Settings', () => {
     expect(useOrbital.getState().settings.default_project_dir).toBe('/home/tomin/work')
   })
 
+  // Spec 2026-09-16-electron-wrapper-design § 3: empty means autodetect, so an
+  // emptied field has to reach the server as '' rather than be skipped.
+  it('debounces the Claude Code executable field before patching', async () => {
+    resetStore({ settings: { claude_executable_path: '/opt/homebrew/bin/claude' } })
+    render(<Settings open onClose={vi.fn()} />)
+
+    const field = screen.getByLabelText(/claude code executable/i)
+    expect(field).toHaveValue('/opt/homebrew/bin/claude')
+    fireEvent.change(field, { target: { value: '/usr/local/bin/cla' } })
+    fireEvent.change(field, { target: { value: '' } })
+
+    expect(api.patchSettings).not.toHaveBeenCalled()
+    await waitFor(
+      () => expect(api.patchSettings).toHaveBeenCalledWith({ claude_executable_path: '' }),
+      { timeout: 1000 }
+    )
+    expect(api.patchSettings).toHaveBeenCalledTimes(1)
+    expect(useOrbital.getState().settings.claude_executable_path).toBe('')
+  })
+
   it('maps the lineage-depth steps 1-5 to their string values', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)

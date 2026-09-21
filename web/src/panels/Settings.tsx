@@ -95,9 +95,9 @@ const NAV_ITEMS = [
 
 type SectionKey = (typeof NAV_ITEMS)[number]['key']
 
-/** Debounce for the free-text project-dir field — the rest of this panel's
- * controls (cards, segmented steps, toggles, selects) are discrete clicks
- * and PATCH immediately. */
+/** Debounce for the free-text fields — the rest of this panel's controls
+ * (cards, segmented steps, toggles, selects) are discrete clicks and PATCH
+ * immediately. */
 const DEBOUNCE_MS = 400
 
 /** Nav row geometry from canvas 1h: 9px/12px padding, 8px radius, 13px. */
@@ -239,6 +239,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const models = useOrbital(useShallow((s) => s.models))
   const sessionCwds = useOrbital(useShallow((s) => Object.values(s.sessions).map((x) => x.cwd)))
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
+  const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
   const [saved, setSaved] = useState(false)
   const [section, setSection] = useState<SectionKey>('sessions')
   // Appearance preview (canvas 5a): open by default, collapse state lives
@@ -255,7 +256,9 @@ export function Settings({ open, onClose }: SettingsProps) {
   }, [open])
 
   useEffect(() => {
-    if (open) setProjectDirDraft(settings.default_project_dir ?? '')
+    if (!open) return
+    setProjectDirDraft(settings.default_project_dir ?? '')
+    setCliPathDraft(settings.claude_executable_path ?? '')
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
     // must not fight the user's current typing while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -322,6 +325,18 @@ export function Settings({ open, onClose }: SettingsProps) {
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectDirDraft, open])
+
+  // Same draft-then-debounce treatment for the CLI override (spec
+  // 2026-09-16-electron-wrapper-design § 3), the panel's other free-text field.
+  useEffect(() => {
+    if (!open) return
+    if (cliPathDraft === (settings.claude_executable_path ?? '')) return
+    const timer = setTimeout(() => {
+      void patchAndSet({ claude_executable_path: cliPathDraft })
+    }, DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cliPathDraft, open])
 
   /**
    * Context thresholds (canvas 1h, spec context-fill-arc): typed number
@@ -685,6 +700,24 @@ export function Settings({ open, onClose }: SettingsProps) {
                 value={projectDirDraft}
                 onChange={(e) => setProjectDirDraft(e.target.value)}
                 placeholder="/path/to/projects"
+                className="w-full"
+              />
+            </Row>
+            {/* Spec 2026-09-16-electron-wrapper-design § 3: empty autodetects,
+                a value overrides. The server reads the key once, at boot, so
+                this row must not imply the change reaches a running one. */}
+            <Row
+              title="Claude Code executable"
+              desc="Leave empty to autodetect it from your PATH. A path here overrides the search for sessions started afterwards — the server reads it when it starts, so restart Orbital to apply a change."
+            >
+              <Input
+                id="settings-claude-executable-path"
+                aria-label="Claude Code executable"
+                font="mono"
+                size="sm"
+                value={cliPathDraft}
+                onChange={(e) => setCliPathDraft(e.target.value)}
+                placeholder="autodetect"
                 className="w-full"
               />
             </Row>
