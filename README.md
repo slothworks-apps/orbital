@@ -23,7 +23,7 @@ has the measurements.
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - The [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) installed
   and logged in. Orbital's web sessions run through the Claude Agent SDK and
   bill your Claude subscription via the CLI's own OAuth session — not an API
