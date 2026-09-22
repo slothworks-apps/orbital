@@ -71,7 +71,11 @@ button — a session with no measured turn has nothing to open. Since the
 numbers leave the header in this mode, the control's name carries them:
 `Session stats — 2h 22m, $167.30`, as both `aria-label` and `title`.
 
-Settings → Appearance → DETAIL PANEL holds the two-position control.
+Settings → Appearance → DETAIL PANEL holds the two-position control, as a
+segmented button. 11c originally drew the two positions stacked, each its
+own pill with a ✓ on the selected one; Tomin called it side by side
+instead, since it is one choice out of two and Lineage depth one row down
+already says so that way. The artboard has been updated to match.
 
 ### 3. `/stats` gains an app-level entry (11d)
 
@@ -101,6 +105,7 @@ this sidebar is never on screen while that route is current.
 | placing them in the header | `web/src/panels/DetailPanel.tsx` |
 | the glyph, at both sizes | `StatsGlyph` in `web/src/ui/UtilityButton.tsx` |
 | the control | Appearance → DETAIL PANEL, `web/src/panels/Settings.tsx` |
+| the segmented control itself | `web/src/ui/Segmented.tsx` |
 | the `/stats` entry | `StatsLink` in `web/src/panels/Sidebar.tsx` |
 
 ## Out of scope

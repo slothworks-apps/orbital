@@ -176,7 +176,9 @@ function StatsLink({ size }: { size: 'footer' | 'rail' }) {
         'grid shrink-0 place-items-center bg-[rgba(150,205,255,.05)] no-underline',
         'text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:text-text-bright',
         // 11d draws the footer icon at the settings pill's own height and
-        // chrome; the rail's is the rail settings button, glyph and all.
+        // chrome; both pin that height with the same class so their edges
+        // line up — the pill's padding alone leaves it a pixel taller than
+        // the icon. The rail's is the rail settings button, glyph and all.
         size === 'footer'
           ? 'h-6 w-[26px] rounded-[7px] border border-panel-border hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)]'
           : 'h-[30px] w-[30px] rounded-lg border border-panel-border hover:bg-[rgba(150,205,255,.13)]',
@@ -793,15 +795,19 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <div ref={sentinelRef} data-testid="sidebar-sentinel" aria-hidden className="h-px" />
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-[rgba(150,205,255,.1)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
         {/* 4a's footer carries the pin count beside the session count, and
             only while there is one to carry. */}
         <span>
           {visible.length} sessions
           {pinned.length > 0 && ` · ${pinned.length} pinned`}
         </span>
-        {/* 11d: /stats sits immediately before Settings — the footer's two
-            app-level destinations, in the order the canvas draws them. */}
+        {/* 11d groups the footer's two app-level destinations at the
+            trailing edge: the count stays left, then a spacer, then stats
+            immediately before SETTINGS, in the order the canvas draws them.
+            The pair has to touch to read as one — `justify-between` spread
+            all three and stranded stats mid-footer. */}
+        <span className="flex-1" />
         <StatsLink size="footer" />
         {/* Settings keeps the word; tags & rules moved inside the dialog as a
             section, so the link that used to sit here would land on the same
@@ -810,7 +816,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           type="button"
           aria-label="Open settings"
           onClick={() => setDialog('settings')}
-          className="flex items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] py-[5px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
+          className="flex h-6 items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
         >
           <SettingsRing size={9} />
           SETTINGS

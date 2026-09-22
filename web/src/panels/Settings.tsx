@@ -37,6 +37,7 @@ import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
 import { Select } from '../ui/Select'
 import { Checkbox, Toggle } from '../ui/Checkbox'
+import { Segmented } from '../ui/Segmented'
 import { modelByValue } from '../lib/models'
 import type { PermissionMode } from '../lib/types'
 import { TagsRulesSection } from './TagsRules'
@@ -980,41 +981,20 @@ export function Settings({ open, onClose }: SettingsProps) {
                 title="Session stats in the header"
                 desc="The bar shows busy time, cost and the four-way split without opening anything. Button only keeps the header quiet — the numbers are one click away."
               >
-                <div className="flex flex-col gap-[7px]">
-                  <div
-                    role="group"
-                    aria-label="Session stats in the header"
-                    className="flex flex-col items-start gap-[7px]"
-                  >
-                    {HEADER_STATS_OPTIONS.map((option) => {
-                      const selected = headerStats === option.value
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          aria-pressed={selected}
-                          onClick={() => void patchAndSet({ header_session_stats: option.value })}
-                          className={[
-                            'flex items-center gap-[7px] rounded-lg border px-[11px] py-1.5 text-xs font-semibold transition-colors duration-[180ms]',
-                            selected
-                              ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
-                              : 'border-panel-border bg-transparent text-[rgba(200,220,245,.7)] hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]',
-                          ].join(' ')}
-                        >
-                          {selected && (
-                            <span aria-hidden className="font-mono text-[10px] text-accent">
-                              ✓
-                            </span>
-                          )}
-                          {option.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <span className="mt-0.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
-                    applies to every panel · no reload
-                  </span>
-                </div>
+                {/* 11c draws the two positions stacked, each its own pill
+                    with a ✓ on the selected one. They ship side by side as a
+                    segmented control instead, at Tomin's call: it is one
+                    choice out of two and the dialog already says so this way
+                    one row down, under Lineage depth. */}
+                <Segmented
+                  label="Session stats in the header"
+                  options={HEADER_STATS_OPTIONS}
+                  value={headerStats}
+                  onChange={(next) => void patchAndSet({ header_session_stats: next })}
+                />
+                <span className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
+                  applies to every panel · no reload
+                </span>
               </Row>
 
               <SectionLabel>MAP</SectionLabel>
@@ -1152,31 +1132,20 @@ export function Settings({ open, onClose }: SettingsProps) {
                 title="Lineage depth on the map"
                 desc="How many linked sessions per project stay visible as a chain. Older ones drop off the map — the sidebar history is always unlimited."
               >
-                <div
-                  role="group"
-                  aria-label="Lineage depth"
-                  className="inline-flex overflow-hidden rounded-lg border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)]"
-                >
-                  {lineageOptions.map((step, i) => (
-                    <button
-                      key={step}
-                      type="button"
-                      aria-pressed={lineageDepth === step}
-                      onClick={() => void patchAndSet({ lineage_depth: step })}
-                      className={[
-                        'min-w-[40px] px-3 py-[7px] text-center font-mono text-xs transition-colors',
-                        i > 0 ? 'border-l border-[rgba(150,205,255,.12)]' : '',
-                        lineageDepth === step
-                          ? 'bg-accent font-bold text-space-deep'
-                          : 'text-[rgba(220,235,255,.85)] hover:bg-white/5',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {step === 'Infinity' ? '∞' : step}
-                    </button>
-                  ))}
-                </div>
+                {/* 40px floor per segment: the labels are single characters,
+                    and without it the steps are as ragged as their glyphs. */}
+                <Segmented
+                  label="Lineage depth"
+                  size="row"
+                  minItemWidth={40}
+                  options={lineageOptions.map((step) => ({
+                    value: step,
+                    label: step === 'Infinity' ? '∞' : step,
+                    ariaLabel: step === 'Infinity' ? 'Unlimited' : step,
+                  }))}
+                  value={lineageDepth}
+                  onChange={(step) => void patchAndSet({ lineage_depth: step })}
+                />
                 {/* Lineage chain illustration (canvas 1h): as many orbs as the
                     depth keeps on the map, the newest accent-ringed, plus the
                     live count of sessions the setting pushes into history. */}

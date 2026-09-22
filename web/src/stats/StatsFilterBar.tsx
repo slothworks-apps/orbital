@@ -1,6 +1,7 @@
 import type { OrbitalModel } from '../lib/types'
 import { modelChipLabel } from '../lib/models'
 import { Select } from '../ui/Select'
+import { Segmented } from '../ui/Segmented'
 import { STATS_WINDOWS, type StatsFilters } from './filters'
 import { projectOptions } from './projects'
 
@@ -53,25 +54,13 @@ export function StatsFilterBar({
 
   return (
     <div className="flex items-center gap-2.5">
-      <div className="inline-flex overflow-hidden rounded-lg border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)]">
-        {STATS_WINDOWS.map((value, index) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={filters.window === value}
-            onClick={() => onChange({ ...filters, window: value })}
-            className={[
-              'cursor-pointer px-3.5 py-[7px] font-mono text-[11.5px]',
-              index === 0 ? '' : 'border-l border-[rgba(150,205,255,.12)]',
-              filters.window === value
-                ? 'bg-accent font-bold text-space-deep'
-                : 'bg-transparent text-[rgba(220,235,255,.8)]',
-            ].join(' ')}
-          >
-            {value}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        label="window"
+        size="filter"
+        options={STATS_WINDOWS.map((value) => ({ value, label: value }))}
+        value={filters.window}
+        onChange={(window) => onChange({ ...filters, window })}
+      />
 
       <Select
         aria-label="project"

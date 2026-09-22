@@ -10,6 +10,7 @@ import {
   TRACK_COLOR,
 } from './constants'
 import { formatPercent, formatStatsDuration, formatTokens, formatToolName } from './format'
+import { Segmented } from '../ui/Segmented'
 import {
   LEADERBOARD_VISIBLE_ROWS,
   leaderboardBars,
@@ -41,35 +42,6 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'mostExpensive', label: 'most expensive' },
 ]
 
-function TabButton({
-  active,
-  first,
-  label,
-  onClick,
-}: {
-  active: boolean
-  first: boolean
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={[
-        'cursor-pointer px-[11px] py-[5px] font-mono text-[10.5px]',
-        first ? '' : 'border-l border-[rgba(150,205,255,.12)]',
-        active
-          ? 'bg-accent font-bold text-space-deep'
-          : 'bg-transparent text-[rgba(220,235,255,.8)]',
-      ].join(' ')}
-    >
-      {label}
-    </button>
-  )
-}
-
 export function ToolLeaderboard({
   leaderboard,
   totals,
@@ -89,17 +61,13 @@ export function ToolLeaderboard({
       <div className="flex items-baseline gap-[14px]">
         <div className={PANEL_LABEL_CLASS}>TOOL LEADERBOARD</div>
         <span className="flex-1" />
-        <div className="inline-flex overflow-hidden rounded-[7px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)]">
-          {TABS.map((entry, index) => (
-            <TabButton
-              key={entry.id}
-              active={tab === entry.id}
-              first={index === 0}
-              label={entry.label}
-              onClick={() => setTab(entry.id)}
-            />
-          ))}
-        </div>
+        <Segmented
+          label="Rank tools by"
+          size="tab"
+          options={TABS.map((entry) => ({ value: entry.id, label: entry.label }))}
+          value={tab}
+          onChange={setTab}
+        />
       </div>
 
       <div
