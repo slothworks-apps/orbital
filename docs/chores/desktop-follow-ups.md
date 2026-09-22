@@ -51,5 +51,10 @@ when their files are next open.
   notification (pinned by test); the click handler has no
   `isDestroyed()`/`isMinimized()` guard; a dead `?? message` fallback in
   `notifications.ts`.
-- **Docs drift**: runbook says `npm run dev:desktop`, README says
-  `npm run dev -w desktop` (same script).
+- ~~**Docs drift**: runbook says `npm run dev:desktop`, README says
+  `npm run dev -w desktop` (same script).~~ — **fixed 2026-09-22, and it had
+  stopped being cosmetic.** Once the dogfood/dev split moved `npm run dev` to
+  4838, `dev:desktop` (which sets `ORBITAL_PORT`) and a bare
+  `npm run dev -w desktop` (which does not) stopped being the same script: the
+  bare form probes 4737 and attaches to the *dogfood* instance. README and the
+  runbook also both still claimed `npm run dev` serves on 4737.

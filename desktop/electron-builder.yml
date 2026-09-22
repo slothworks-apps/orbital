@@ -11,13 +11,20 @@ files:
   # pattern has to match at any depth.
   - "!**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/**"
 extraResources:
-  # The three paths desktop/src/main.ts resolves against `process.resourcesPath`.
+  # The paths desktop/src/main.ts resolves against `process.resourcesPath`.
   - from: ../server/dist/index.mjs
     to: server/index.mjs
   - from: ../server/drizzle
     to: drizzle
   - from: ../web/dist
     to: web
+  # The menu bar's template image, both scales — `nativeImage` looks the @2x
+  # file up beside the 1x one, so it has to land in the same directory.
+  # Regenerate them with build/make-icon.sh if the artwork changes.
+  - from: build/trayTemplate.png
+    to: trayTemplate.png
+  - from: build/trayTemplate@2x.png
+    to: trayTemplate@2x.png
   # The server bundle's two runtime externals. It is forked from
   # Resources/server/, and Node resolution walks up from there — it never
   # reaches app.asar/node_modules — so the packages have to sit beside it.

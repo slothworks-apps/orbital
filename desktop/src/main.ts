@@ -3,12 +3,16 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
+  nativeImage,
   Notification,
   shell,
+  Tray,
   utilityProcess,
   type UtilityProcess,
 } from 'electron';
 import { join } from 'node:path';
+import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import { SessionNotifier, parseNotificationSettings } from './lib/notifications';
 import { probeHealth, probeVite } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
@@ -43,15 +47,27 @@ const staticDir = app.isPackaged
 const migrationsDir = app.isPackaged
   ? join(process.resourcesPath, 'drizzle')
   : join(repoRoot, 'server', 'drizzle');
+// This one is the desktop workspace's own asset, not a sibling's, so
+// unpackaged it sits beside dist/ rather than up in the repo. `nativeImage`
+// finds the @2x file itself, and the `Template` in the name is what marks the
+// image as one macOS may restyle (spec: 2026-09-22-desktop-background-mode-design).
+const trayIcon = app.isPackaged
+  ? join(process.resourcesPath, 'trayTemplate.png')
+  : join(__dirname, '..', 'build', 'trayTemplate.png');
 
 let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
 let child: UtilityProcess | null = null;
 let feed: { close(): void } | null = null;
 /** Every rule about what is worth saying lives in here, not in this file. */
 const notifier = new SessionNotifier();
+/** What a quit would kill, folded off the same feed the notifier reads. */
+const working = new WorkingSessions();
 /** True only when this process forked the server — shutdown kills only that. */
 let forked = false;
 let quitting = false;
+/** Set by the quit dialog, so the `app.quit()` it makes passes the guard. */
+let quitConfirmed = false;
 /** Where the window was sent at startup; a restarted server reloads the same. */
 let windowTargetUrl = '';
 /** True while a fork-and-wait is in flight; that code owns the child's fate. */
@@ -262,10 +278,61 @@ function openWindow(url: string): void {
     if (decision === 'external') void shell.openExternal(url);
   });
 
+  // Closing is hiding: the renderer stays alive, so reopening is instant and
+  // the map is exactly where it was, and the server it would have taken with
+  // it keeps running (spec: 2026-09-22-desktop-background-mode-design).
+  win.on('close', (event) => {
+    if (decideWindowClose({ quitting }) === 'close') return;
+    event.preventDefault();
+    win?.hide();
+  });
   win.on('closed', () => {
     win = null;
   });
   void win.loadURL(url);
+}
+
+/**
+ * Bring the map back: the Dock icon, the tray's Open Orbital and a clicked
+ * notification all land here (spec: 2026-09-22-desktop-background-mode-design).
+ *
+ * A missing window means a real teardown — a crashed renderer — rather than
+ * the ordinary hidden one, so it is rebuilt on the URL startup decided on.
+ */
+function showWindow(): void {
+  if (!win) {
+    // An empty target means startup has not decided a URL yet (a Dock click
+    // while a startup dialog is up lands here) — opening now would make
+    // exactly the blank window the wrapper spec forbids. Startup will open
+    // the window itself once it knows where to point it.
+    if (!windowTargetUrl) return;
+    openWindow(windowTargetUrl);
+    return;
+  }
+  win.show();
+  win.focus();
+}
+
+/**
+ * The menu bar item: a static template icon and two commands, no session state
+ * — notifications already carry that (spec:
+ * 2026-09-22-desktop-background-mode-design § "Tray content").
+ *
+ * `tray` is a module-level binding because it has to be: a Tray held only by a
+ * local is collected, and the icon vanishes from the menu bar with it.
+ */
+function createTray(): void {
+  tray = new Tray(nativeImage.createFromPath(trayIcon));
+  tray.setToolTip('Orbital');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Open Orbital', click: () => showWindow() },
+      { type: 'separator' },
+      // `app.quit()` rather than a teardown of our own, so this meets the same
+      // guard ⌘Q does.
+      { label: 'Quit Orbital', click: () => app.quit() },
+    ]),
+  );
 }
 
 /**
@@ -312,9 +379,13 @@ function startNotifications(): void {
     // A new socket means the world is about to replay; what we knew is stale.
     onReconnect: () => {
       notifier.reset();
+      working.reset();
       void loadNotificationSettings();
     },
     onFrame: (frame) => {
+      // Two folds over one socket: what is worth saying, and what a quit would
+      // cost (spec: 2026-09-22-desktop-background-mode-design § "Quit guard").
+      working.onFrame(frame);
       const d = notifier.onEvent(frame);
       if (!d) return;
       const target = win;
@@ -394,18 +465,55 @@ async function start(): Promise<void> {
   }
 
   openWindow(target.url);
+  // Once, and only once there is a window for it to open. Every path above
+  // this line ends in `app.quit()`, where a menu bar item would be a leak.
+  createTray();
   startNotifications();
 }
 
 void app.whenReady().then(start);
 
-// v1 rule: closing the window quits the app. This separates when the tray
-// item lands (spec § 1 "Closing the window").
-app.on('window-all-closed', () => {
-  app.quit();
-});
+// There is deliberately no `window-all-closed` handler: closing the window no
+// longer quits, so the app lives on in the menu bar until it is told to go.
+// The Dock icon is the other way back in
+// (spec: 2026-09-22-desktop-background-mode-design § "Window lifecycle").
+app.on('activate', () => showWindow());
 
-app.on('before-quit', () => {
+/**
+ * The one thing quitting costs that cannot be undone: the forked server dies,
+ * and every session Orbital is running dies mid-turn with it
+ * (spec: 2026-09-22-desktop-background-mode-design § "Quit guard").
+ */
+/** True while the quit dialog is up — a second ⌘Q must not stack another. */
+let confirmInFlight = false;
+
+async function confirmQuit(): Promise<void> {
+  if (confirmInFlight) return;
+  confirmInFlight = true;
+  const count = working.count;
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    message: `${count} ${count === 1 ? 'session' : 'sessions'} still working — quit anyway?`,
+    detail:
+      'Quitting stops Orbital’s server, and the turns it is running end where they are. Sessions you started in a terminal are not affected.',
+    buttons: ['Quit', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  confirmInFlight = false;
+  if (response !== 0) return; // cancelled: the app carries on exactly as it was
+  quitConfirmed = true;
+  app.quit();
+}
+
+app.on('before-quit', (event) => {
+  if (!quitConfirmed && decideQuit({ forked, workingCount: working.count }) === 'confirm') {
+    // The dialog cannot be answered inside this handler, so the quit is
+    // stopped here and started again from the answer.
+    event.preventDefault();
+    void confirmQuit();
+    return;
+  }
   quitting = true;
   feed?.close();
   feed = null;

@@ -7,6 +7,7 @@ domain: desktop
 related:
   - 2026-09-21-settings-sections-design
   - 2026-09-16-electron-wrapper-design
+  - 2026-09-22-desktop-background-mode-design
 tags:
   - desktop
   - settings
@@ -27,12 +28,12 @@ reflects what macOS actually holds rather than what we last wrote. Worth
 doing first; it is the row most aligned with what Orbital is for, since a
 map of running sessions is only useful if it is already running.
 
-**Closing the window keeps Orbital in the menu bar** is the expensive one.
-It needs a `Tray` with its own menu, `window-all-closed` no longer quitting,
-a real quit path that is not the red button, and a decision about what the
-tray icon says when three sessions need input. That last part is the
-interesting half and overlaps the notifications work — a tray badge and a
-notification answer the same question at different volumes.
+~~**Closing the window keeps Orbital in the menu bar**~~ — **picked up.**
+Specced as [[2026-09-22-desktop-background-mode-design]] (tray, close = hide,
+guarded quit) and in build. The open question this row raised — what the tray
+icon says when three sessions need input — was answered there and ruled out:
+static template icon, no badge, because notifications already carry state
+changes.
 
 **Restore the last view on start** needs the view to be storable at all.
 The selected session already lives in the URL query

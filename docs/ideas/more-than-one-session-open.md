@@ -33,8 +33,13 @@ What is singular is small and specific:
 - `DetailPanel`, which renders that id (and holds `lastId` so the outgoing
   session survives its exit animation).
 - The URL's single `?session=` ([[selected-session-lives-in-the-url-query]]).
-- `SpaceMap`, which follows one planet and reserves a fixed
-  `DETAIL_PANEL_PX = 450 + 16` on the right.
+- `SpaceMap`, which follows one planet.
+
+  (Written when the map reserved a fixed `DETAIL_PANEL_PX` on the right. That
+  constant is gone: `resizable-detail-panel` shipped and
+  `2026-09-21-fit-honours-the-panels-design` made `centerOn`/`fitView` take
+  real `Insets`. So this bullet is no longer part of what stands in the way —
+  see shape 2 below.)
 
 ## Three shapes, in the order worth building
 
@@ -43,9 +48,9 @@ What is singular is small and specific:
    the active planet, so the camera code is untouched. Cheapest, and every
    other option needs this same state change first.
 2. **Two panels side by side.** Probably what the wish actually means — watch
-   one work while typing into another. It costs the map its space, so it only
-   makes sense together with [[resizable-detail-panel]], and the camera insets
-   have to come from the real panel width instead of the constant.
+   one work while typing into another. It costs the map its space, which used
+   to make [[resizable-detail-panel]] and real camera insets a prerequisite —
+   both have since shipped, so this shape is cheaper than it reads here.
 3. **Separate windows.** Only after [[desktop-wrapper-electron]]; each window
    is another renderer with its own socket and store. Most freedom, most cost.
 

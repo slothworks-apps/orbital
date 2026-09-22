@@ -2,7 +2,7 @@
 id: 2026-09-22-desktop-background-mode-design
 title: Desktop background mode — tray, close = hide, guarded quit
 type: spec
-status: active
+status: done
 domain: desktop
 related:
   - 2026-09-16-electron-wrapper-design
@@ -60,6 +60,14 @@ done *looking* should not be the same act as tearing the workers down.
   Terminal CLI sessions never count: the server's death does not touch them.
   `upsert` adds/removes by the session's current source+status, `remove`
   deletes, and the feed's `onReconnect` resets the set (the world replays).
+- `status` frames (`{ event: 'status', sessionId, status }`) also move
+  membership: `working` adds, anything else removes. They carry no `source`,
+  and none is needed — on this topic only the runner publishes them
+  (`onStatus` in `server/src/index.ts`; registry-driven terminal sessions
+  always arrive as upserts), so every `status` frame is an orbital-run
+  session by construction. Without them the guard would go stale between
+  upserts: the runner announces a turn starting and ending *only* this way,
+  and after a feed reconnect an id may never be re-upserted at all.
 - `before-quit`: when the server is forked (`forked === true`) and the set is
   non-empty, `preventDefault()` and ask — "N sessions still working — quit
   anyway?" with Quit / Cancel. Quit sets a flag and calls `app.quit()` again;

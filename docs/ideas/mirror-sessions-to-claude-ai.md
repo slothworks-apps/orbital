@@ -21,7 +21,8 @@ from the sofa, and eventually answered from there.
 
 **Yes, for the sessions Orbital launches itself, and not through a flag on the
 CLI.** The route is the SDK's own bridge export. What follows is what the
-installed SDK (`@anthropic-ai/claude-agent-sdk` 0.3.272) and CLI actually
+installed SDK (`@anthropic-ai/claude-agent-sdk`, read at 0.3.272 — 0.3.278 is
+what is installed today, and `bridge.mjs` is still there) and CLI actually
 offer, read out of them rather than remembered.
 
 ## What does not work

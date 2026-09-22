@@ -20,7 +20,7 @@ forks the built server bundle itself.
 ## Attached mode (development, HMR)
 
 ```bash
-npm run dev            # terminal 1: server on 4737 + vite on 5173
+npm run dev            # terminal 1: server on 4838 + vite on 5173
 npm run dev:desktop    # terminal 2: builds desktop/dist, then `electron .`
 ```
 

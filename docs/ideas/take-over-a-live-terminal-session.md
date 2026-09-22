@@ -20,7 +20,8 @@ transcript, resumed through the SDK. The gap is only the *live* case.
 
 The registry (`server/src/watcher/registry.ts`) reads
 `~/.claude/sessions/<pid>.json`, so Orbital knows the live session's
-pid and its CLI status (`busy` / `idle` / `waiting`). Takeover is then:
+pid and its CLI status (`busy` / `shell` / `idle` / `waiting` — `shell`
+maps to `working` too, see `CLI_STATUS`). Takeover is then:
 
 1. send the CLI process a termination signal,
 2. wait for the registry entry to disappear (dead pid; the watcher
@@ -32,8 +33,8 @@ Scope: one endpoint plus a confirm dialog in the web client. The
 transcript is append-only JSONL written as the session goes, so
 everything already said survives the resume.
 
-Safer variant: allow takeover only while the CLI status is not `busy`
-(`idle` / `waiting`), so no in-flight turn is ever cut.
+Safer variant: allow takeover only while the CLI status is neither `busy`
+nor `shell` (so: `idle` / `waiting`), and no in-flight turn is ever cut.
 
 ## What was ruled out
 

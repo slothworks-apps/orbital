@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="73.5 73.5 365 365" width="365" height="365">
+  <!--
+    The menu bar item's template image: the app icon's silhouette — orbit ring
+    and planet, same geometry as web/public/favicon.svg — with the rounded
+    background dropped and every gradient flattened to black
+    (spec: 2026-09-22-desktop-background-mode-design).
+
+    Pure black on transparent is the whole contract: macOS restyles a template
+    image itself for light and dark menu bars, and reads only the alpha channel.
+    The ring is drawn heavier than the favicon's so it survives at 16px.
+
+    The viewBox is the artwork's bounding box plus a margin, so the glyph fills
+    the menu bar's square without touching its edge.
+  -->
+  <g fill="#000000">
+    <circle cx="256" cy="256" r="150" fill="none" stroke="#000000" stroke-width="34"></circle>
+    <circle cx="370" cy="158" r="42"></circle>
+  </g>
+</svg>

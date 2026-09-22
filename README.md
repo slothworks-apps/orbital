@@ -49,7 +49,7 @@ dev server, which proxies `/api` and `/ws` to the server).
 Start both with one command:
 
 ```bash
-npm run dev             # server (http://127.0.0.1:4737) + web (http://127.0.0.1:5173)
+npm run dev             # server (http://127.0.0.1:4838) + web (http://127.0.0.1:5173)
 ```
 
 Or each in its own terminal:
@@ -73,7 +73,7 @@ one database and one watcher instead of fighting over them.
 In development, with `npm run dev` already running in another terminal:
 
 ```bash
-npm run dev -w desktop   # window at http://127.0.0.1:5173, HMR intact
+npm run dev:desktop      # window at http://localhost:5173, HMR intact
 ```
 
 To build the installable app:

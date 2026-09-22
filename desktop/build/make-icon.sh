@@ -63,3 +63,19 @@ iconutil -c icns "$ICONSET" -o "$HERE/icon.icns"
 
 echo "wrote $PUBLIC/favicon-512.png, favicon-180.png, favicon-32.png"
 echo "wrote $HERE/icon.icns"
+
+# The menu bar's template image (spec 2026-09-22-desktop-background-mode-design).
+# Its own glyph, tray.svg, rather than a silhouette extracted from the favicon:
+# the app icon is a rounded tile whose shape carries none of the mark, and at
+# 16px the ring needs a heavier stroke than the tile's to survive.
+#
+# qlmanage flattens transparency onto white, so what comes out here is a
+# black-on-white render; mask-to-template.mjs turns that into the pure black +
+# alpha macOS restyles for light and dark menu bars. Both scales are written,
+# because nativeImage looks up the @2x file beside the 1x one.
+qlmanage -t -s 512 -o "$WORK" "$HERE/tray.svg" >/dev/null
+TRAY_512="$WORK/tray.svg.png"
+sips -z 32 32 "$TRAY_512" --out "$WORK/tray-32.png" >/dev/null
+sips -z 16 16 "$TRAY_512" --out "$WORK/tray-16.png" >/dev/null
+node "$HERE/mask-to-template.mjs" "$WORK/tray-16.png" "$HERE/trayTemplate.png"
+node "$HERE/mask-to-template.mjs" "$WORK/tray-32.png" "$HERE/trayTemplate@2x.png"
