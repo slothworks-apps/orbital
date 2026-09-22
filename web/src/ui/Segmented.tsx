@@ -96,8 +96,14 @@ export function Segmented<T extends string>({
               // The divider belongs to the segment on its right, so the
               // shell's own border is never doubled at either end.
               index > 0 ? 'border-l border-[rgba(150,205,255,.12)]' : '',
+              // Selection is a tint, an ink and a weight — three channels, so
+              // it survives both colour blindness and the neutral hover
+              // underneath it. NOT the accent as a fill: 1h and 10a draw this
+              // one filled, which made it the single loudest selected state in
+              // the app while every other control that picks one of a few
+              // (ModeCards, ModelCards, Select's rows) tints. See the ADR.
               active
-                ? 'bg-accent font-bold text-space-deep'
+                ? 'bg-accent/10 font-semibold text-accent'
                 : 'bg-transparent text-[rgba(220,235,255,.85)] hover:bg-white/5',
             ]
               .filter(Boolean)

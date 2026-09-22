@@ -57,6 +57,30 @@ that none of these four call sites had, and adopting it silently would
 change keyboard behaviour on three screens this decision is only passing
 through.
 
+**The selected segment is a tint, not a fill.** All three copies drew it as
+the accent at full strength with `#03111a` ink — an inverted chip, and the
+single loudest selected state in the app. Every other control that picks one
+of a few tints instead:
+
+| control | selected |
+|---|---|
+| `ModeCards`, `ModelCards` | `border-accent/70` + `bg-accent/8` |
+| `Select`'s rows | `bg-[rgba(150,205,255,.09)]` + `text-accent` |
+| `Segmented` | `bg-accent/10` + `text-accent` + `font-semibold` |
+
+Three channels move — tint, ink and weight — so the state survives colour
+blindness and stays apart from the neutral `bg-white/5` hover under it. The
+shell has no per-item border to use as a fourth, which is why the weight is
+doing work here that the cards get from their border.
+
+This is a deliberate departure from canvas 1h and 10a, which both draw the
+fill; the artboards were updated to the tint rather than the code to the
+fill, because one loud control among a dozen quiet ones is the kind of
+inconsistency that reads as an unfinished screen. The `Planet size:
+Context/Fixed` stepper in 1h — a control the product replaced with a toggle
+and never shipped — was restyled with them, so the canvas does not keep two
+segmented languages.
+
 **`minItemWidth` is a prop, not a size.** Only the lineage stepper needs it
 — its labels are single characters and the segments are otherwise as ragged
 as the glyphs in them. Baking a 40px floor into the `row` size would push it
