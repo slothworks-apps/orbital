@@ -45,9 +45,17 @@ describe('tokenizeComposer', () => {
     expect(tokenizeComposer('/code-review', KNOWN)[0]).toMatchObject({ kind: 'command' })
   })
 
-  it('leaves a command mid-sentence as prose (9e MID-LINE)', () => {
+  it('marks a command mid-sentence — the CLI picks one up there too', () => {
     expect(tokenizeComposer('run /code-review please', KNOWN)).toEqual([
-      { kind: 'text', text: 'run /code-review please' },
+      { kind: 'text', text: 'run ' },
+      { kind: 'command', text: '/code-review', name: 'code-review' },
+      { kind: 'text', text: ' please' },
+    ])
+  })
+
+  it('leaves a slash inside a word alone — a path or a date is not a slug', () => {
+    expect(tokenizeComposer('see web/code-review now', KNOWN)).toEqual([
+      { kind: 'text', text: 'see web/code-review now' },
     ])
   })
 
@@ -187,8 +195,12 @@ describe('completionContext', () => {
     })
   })
 
-  it('refuses a slash that is not at position 0', () => {
-    expect(completionContext('run /co', 7)).toBeNull()
+  it('reads a command context from a slash that starts a word anywhere', () => {
+    expect(completionContext('run /co', 7)).toEqual({ kind: 'command', start: 4, prefix: 'co' })
+  })
+
+  it('refuses a slash glued to the end of a word', () => {
+    expect(completionContext('and/or', 6)).toBeNull()
   })
 
   it('refuses an absolute path at position 0 — that is not a command', () => {

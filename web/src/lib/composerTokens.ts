@@ -7,11 +7,16 @@
  * dropped a single character would slide every glyph after it out from under
  * the caret.
  *
- * Two token kinds, per canvas 9a/9e: a command slug (only at position 0, only
- * on an exact catalog match) and a mention (`@path` with an optional
- * `:line[:col]`). Everything else is prose, including `/code-review`
- * mid-sentence (9e MID-LINE) and an unrecognised slug (9e UNKNOWN), which
- * stays plain ink and is reported through `unknownCommand` for the hint line.
+ * Two token kinds, per canvas 9a/9e: a command slug (an exact catalog match
+ * wherever a `/` starts a word) and a mention (`@path` with an optional
+ * `:line[:col]`). Everything else is prose, including an unrecognised slug
+ * (9e UNKNOWN), which stays plain ink and is reported through
+ * `unknownCommand` for the hint line.
+ *
+ * Canvas 9e MID-LINE paints a mid-sentence `/code-review` as prose; that no
+ * longer holds, because the CLI does pick a slug up there and the popup now
+ * offers one — see [[command-completion-is-not-anchored-to-position-0]]. The
+ * canvas is the one still to catch up.
  */
 
 import type { SlashCommand } from './types'
@@ -48,6 +53,13 @@ const MENTION = new RegExp(
 /** Optional `:line` or `:line:col` immediately after the path (col ignored, kept). */
 const LINE_SUFFIX = /^:\d+(?::\d+)?/
 
+/**
+ * A command slug. No `/` in the name — a run carrying a second one is a path
+ * (`/Users/tomin/notes.md`), and the CLI's only nesting is `plugin:skill`,
+ * which uses a colon.
+ */
+const COMMAND = /\/([A-Za-z0-9][A-Za-z0-9:._-]*)/g
+
 /** Whitespace test used for both token boundaries and caret runs. */
 const isSpace = (ch: string | undefined) => ch !== undefined && /\s/.test(ch)
 
@@ -71,16 +83,28 @@ export function tokenizeComposer(
   knownCommands: ReadonlySet<string>,
 ): ComposerToken[] {
   if (text === '') return []
-  const tokens: ComposerToken[] = []
-  let cursor = 0
 
-  const slug = positionZeroSlug(text)
-  if (slug !== null && knownCommands.has(slug)) {
-    tokens.push({ kind: 'command', text: `/${slug}`, name: slug })
-    cursor = slug.length + 1
+  /** Every run either kind claims, collected before any is emitted: the two
+   * scans run over the whole field, so their hits arrive interleaved and the
+   * merge below is what puts them back in reading order. */
+  const hits: Array<{ start: number; token: ComposerToken }> = []
+
+  COMMAND.lastIndex = 0
+  for (let m = COMMAND.exec(text); m !== null; m = COMMAND.exec(text)) {
+    const at = m.index
+    // A command starts a word. Inside one the slash is a path separator or a
+    // date (`web/src`, `22/09`), never a slug.
+    if (at > 0 && !isSpace(text[at - 1])) continue
+    // And the run must hold no second slash: `/Users/tomin/notes.md` opens a
+    // word and is still a path. The name stops at the slash, so what follows
+    // the match is what tells them apart.
+    if (text[at + m[0].length] === '/') continue
+    const name = m[1]
+    if (!knownCommands.has(name)) continue
+    hits.push({ start: at, token: { kind: 'command', text: `/${name}`, name } })
   }
 
-  MENTION.lastIndex = cursor
+  MENTION.lastIndex = 0
   for (let m = MENTION.exec(text); m !== null; m = MENTION.exec(text)) {
     const at = m.index
     // A mention starts a word. Glued to the end of one it is an email address
@@ -97,10 +121,22 @@ export function tokenizeComposer(
       continue
     }
     const suffix = LINE_SUFFIX.exec(text.slice(at + 1 + path.length))?.[0] ?? ''
-    if (at > cursor) tokens.push({ kind: 'text', text: text.slice(cursor, at) })
-    tokens.push({ kind: 'mention', text: `@${path}${suffix}`, path, suffix })
-    cursor = at + 1 + path.length + suffix.length
-    MENTION.lastIndex = cursor
+    hits.push({ start: at, token: { kind: 'mention', text: `@${path}${suffix}`, path, suffix } })
+    MENTION.lastIndex = at + 1 + path.length + suffix.length
+  }
+
+  hits.sort((a, b) => a.start - b.start)
+
+  const tokens: ComposerToken[] = []
+  let cursor = 0
+  for (const hit of hits) {
+    // Both scans require a word start, so an overlap needs one run to contain
+    // the other; the earlier one keeps it and the prose between is emitted
+    // verbatim, which is the invariant the mirror rests on.
+    if (hit.start < cursor) continue
+    if (hit.start > cursor) tokens.push({ kind: 'text', text: text.slice(cursor, hit.start) })
+    tokens.push(hit.token)
+    cursor = hit.start + hit.token.text.length
   }
 
   if (cursor < text.length) tokens.push({ kind: 'text', text: text.slice(cursor) })
@@ -115,6 +151,11 @@ export function tokenizeComposer(
  * otherwise the note would flash through `/c`, `/co`, `/cod` on the way to a
  * command that does exist. A space after the slug finishes it, and then even a
  * live prefix is wrong (`/co the diff`).
+ *
+ * This one KEEPS the position-0 rule that the popup and the tint have dropped.
+ * The note is about a whole message that was meant to be a command and will
+ * instead be sent as prose; a stray `/etc` in the middle of a sentence was
+ * never meant as one, and warning about it would be noise on ordinary typing.
  */
 export function unknownCommand(text: string, knownCommands: ReadonlySet<string>): string | null {
   const name = positionZeroSlug(text)
@@ -135,10 +176,15 @@ export interface CompletionContext {
 }
 
 /**
- * What the popup would be completing with the caret where it is: a `/` at
- * position 0, or an `@` starting a word anywhere (spec § Completion popup).
+ * What the popup would be completing with the caret where it is: a `/` or an
+ * `@` starting a word, anywhere in the field (spec § Completion popup).
  * Null once the caret leaves the token — which is also what makes ⌫ past the
  * trigger, and a click elsewhere in the field, close the popup.
+ *
+ * `/` used to be offered at position 0 only, on the assumption that the CLI
+ * expands a command only when the message opens with one. It does not — a
+ * slug later in the prompt is picked up too — so completing one there is a
+ * real offer rather than a decoration.
  */
 export function completionContext(text: string, caret: number): CompletionContext | null {
   const pos = Math.max(0, Math.min(caret, text.length))
@@ -147,11 +193,10 @@ export function completionContext(text: string, caret: number): CompletionContex
   const run = text.slice(start, pos)
 
   if (run.startsWith('/')) {
-    if (start !== 0) return null
     const prefix = run.slice(1)
     // `/Users/tomin` is a path the user is typing, not a command.
     if (prefix.includes('/')) return null
-    return { kind: 'command', start: 0, prefix }
+    return { kind: 'command', start, prefix }
   }
   if (run.startsWith('@')) return { kind: 'file', start, prefix: run.slice(1) }
   return null

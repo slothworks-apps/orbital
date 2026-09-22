@@ -9,6 +9,7 @@ related:
   - images-in-the-transcript-and-composer
   - 2026-09-18-transcript-images-design
   - 2026-09-19-file-viewer-design
+  - command-completion-is-not-anchored-to-position-0
 tags:
   - detail-panel
   - shortcuts
@@ -28,9 +29,13 @@ same behaviour. The composer's accent throughout is `oklch(85% .12 205)`
 
 Out of scope (canvas SCOPE): argument hints inside a command, markdown
 preview, code-block highlighting in the prompt, bash `!` mode,
-fuzzy/subsequence matching (prefix only), recents/usage ranking,
+subsequence ("fuzzy") matching, recents/usage ranking,
 mouse-hover preselect, non-image attachments, capture/cropping/reorder,
 composing from the main view, any setting.
+
+Superseded since: the popup opened on a `/` at position 0 only and
+filtered the catalog by prefix. Both went — see
+[[command-completion-is-not-anchored-to-position-0]].
 
 ## Server
 
@@ -137,18 +142,20 @@ The textarea's text goes transparent (caret keeps the accent colour);
 an `aria-hidden` div behind it renders the same text with token spans,
 both sharing font, size, line-height, padding and wrapping. Tokens
 (9a/9e): command slug — filled `rgba(150,205,255,.13)`, ink `#f2f9ff`,
-only at position 0 of the field; mention — `.06` fill + `inset 0 0 0
+wherever a `/` starts a word; mention — `.06` fill + `inset 0 0 0
 1px rgba(150,205,255,.18)` ring, ink `#dfeeff`, `:line` suffix in
 muted `.6`; both padding `1px 5px` cancelled by `0 -2px` margins,
 radius 4px, applied with **no transition** (0 ms). Neither token takes
 hover, cursor change or focus ring — the tint says "parsed", never
-"press". `/co` mid-sentence is prose. An unrecognised command stays
-plain ink; the hint line carries one muted sentence (`no command
-/comand — sends as typed`) in the NOT IN CACHE voice.
+"press". A `/` inside a word (`either/or`) and a run carrying a second
+one (`/Users/tomin/notes.md`) are not slugs. An unrecognised command
+stays plain ink; the hint line carries one muted sentence (`no command
+/comand — sends as typed`) in the NOT IN CACHE voice, and that note
+alone stays position-0 only.
 
 Tokenizer is a pure exported function (`web/src/lib/composerTokens.ts`)
-over `(text, knownCommands)`. Command tint = exact catalog match at
-position 0. Mention tint is the receipt for a *resolved* name: applied
+over `(text, knownCommands)`. Command tint = exact catalog match.
+Mention tint is the receipt for a *resolved* name: applied
 on popup accept, or once a hand-typed complete path is confirmed via a
 debounced `files/complete` probe.
 
@@ -163,8 +170,10 @@ The portal/flip/reposition mechanics extract from `ui/Select` into a
 shared hook (`usePopupPosition`); Select's behaviour must not change
 (its tests guard it). The popup itself is new (`CompletionPopup`):
 focus stays in the textarea (`aria-activedescendant` wiring, listbox
-rows `role="option"`); opens on `/` at position 0 and `@` anywhere,
-within one frame; prefix-filters as you type (rows swap instantly,
+rows `role="option"`); opens on a `/` or an `@` starting a word
+anywhere, within one frame; filters as you type through
+`commandMatchRank` — name prefix, then the segment after a `:`, then a
+substring, ties holding the catalog order (rows swap instantly,
 selection resets to row 0); ↑↓ move and **wrap at both ends**; ⏎/Tab
 accept — replacing the typed fragment and adding one trailing space;
 Esc closes the popup only (escape layer — a second Esc is the panel's);
@@ -256,8 +265,9 @@ from `api.filesComplete(sessionKey, prefix)` per keystroke, debounced.
   exactly as today. ImageThumb's existing geometry is unchanged — 9c's
   165×107 mock is one sample's aspect fit, not a new cap.
 - **Sent tint holds** (9e SENT): `MessageView` user turns tint a
-  position-0 command (`.08` fill, ink `rgba(220,235,255,.85)`) and
-  mentions (hairline) — display-only, no validation, not pressable.
+  command (`.08` fill, ink `rgba(220,235,255,.85)`) and mentions
+  (hairline) — display-only, no validation, not pressable. Same reach as
+  the composer's: any word-starting `/`, not position 0 only.
 
 ## Deviations from the canvas
 

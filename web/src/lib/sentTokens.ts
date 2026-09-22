@@ -24,7 +24,7 @@ import type { HastElement, HastNode, HastParent, HastRoot, HastText } from './pa
 export type { HastRoot } from './pathLinks'
 
 /**
- * JUDGEMENT CALL: every position-0 slug is tinted in the transcript, because
+ * JUDGEMENT CALL: every slug-shaped run is tinted in the transcript, because
  * there is no catalog to check it against.
  *
  * The composer tints a command only on an exact catalog match, and it can: it
@@ -37,12 +37,16 @@ export type { HastRoot } from './pathLinks'
  * for one line of one old message; the alternative is untinting turns that
  * genuinely were commands, which is the worse of the two.
  *
+ * The reach widened with the composer's: a slug is no longer confined to the
+ * start of the turn (see
+ * [[command-completion-is-not-anchored-to-position-0]]), so the shape is read
+ * everywhere and the same trade is simply taken more often. A bare `/etc` in
+ * prose now reads as a command; an absolute path does not, because
+ * `tokenizeComposer` tests the run for a second slash.
+ *
  * Only `has` is ever called on this — `tokenizeComposer` reads nothing else.
  */
 const EVERY_COMMAND = { has: () => true } as unknown as ReadonlySet<string>
-
-/** For every text node after the first: not position 0, so no command can match. */
-const NO_COMMANDS: ReadonlySet<string> = new Set<string>()
 
 /** Same exclusions as `rehypePathLinks`: code is quoted, links are taken. */
 const SKIP_TAGS = new Set(['code', 'pre', 'a', 'script', 'style'])
@@ -57,11 +61,10 @@ function span(className: string, children: HastNode[]): HastElement {
 
 /**
  * Splits one text node into tinted spans, or null when there is nothing to
- * tint. `atStart` is true only for the document's first text node, which is the
- * only place a command slug can sit (the position-0 rule).
+ * tint.
  */
-function splitTextNode(node: HastText, atStart: boolean): HastNode[] | null {
-  const tokens = tokenizeComposer(node.value, atStart ? EVERY_COMMAND : NO_COMMANDS)
+function splitTextNode(node: HastText): HastNode[] | null {
+  const tokens = tokenizeComposer(node.value, EVERY_COMMAND)
   if (!tokens.some((token) => token.kind !== 'text')) return null
 
   const out: HastNode[] = []
@@ -90,39 +93,31 @@ function splitTextNode(node: HastText, atStart: boolean): HastNode[] | null {
   return out
 }
 
-/**
- * Walks the tree in document order. `state.seenText` is what makes "position 0"
- * mean the start of the MESSAGE rather than the start of every paragraph.
- */
-function walk(node: HastParent | HastElement, state: { seenText: boolean }): void {
+/** Walks the tree in document order, tinting every text node it is allowed into. */
+function walk(node: HastParent | HastElement): void {
   const children = node.children
   for (let i = 0; i < children.length; i += 1) {
     const child = children[i]
     if (child.type === 'element') {
-      if (SKIP_TAGS.has((child as HastElement).tagName)) {
-        state.seenText = true
-        continue
-      }
-      walk(child, state)
+      if (SKIP_TAGS.has((child as HastElement).tagName)) continue
+      walk(child)
       continue
     }
     if (child.type === 'text') {
-      const atStart = !state.seenText
-      state.seenText = true
-      const replacement = splitTextNode(child as HastText, atStart)
+      const replacement = splitTextNode(child as HastText)
       if (replacement) {
         children.splice(i, 1, ...replacement)
         i += replacement.length - 1
       }
       continue
     }
-    if (isParent(child)) walk(child, state)
+    if (isParent(child)) walk(child)
   }
 }
 
 /** Rehype plugin tinting a sent turn's command slug and resolved mentions. */
 export function rehypeSentTokens() {
   return (tree: HastRoot): void => {
-    walk(tree, { seenText: false })
+    walk(tree)
   }
 }

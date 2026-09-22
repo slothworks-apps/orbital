@@ -2,6 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import { createPortal } from 'react-dom'
 import type { KeyboardEvent as ReactKeyboardEvent, Ref, RefObject } from 'react'
 import { api } from '../lib/api'
+import { matchCommands } from '../lib/commandMatch'
 import { formatBytes } from '../lib/format'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { usePopupPosition } from '../ui/usePopupPosition'
@@ -168,18 +169,14 @@ export function CompletionPopup({
   const rows = useMemo<Row[]>(() => {
     if (kind === 'command') {
       if (!commands) return []
-      const wanted = prefix.toLowerCase()
-      return commands
-        .map((c) => (c.name.startsWith('/') ? { ...c, name: c.name.slice(1) } : c))
-        .filter((c) => c.name.toLowerCase().startsWith(wanted))
-        .map((c) => ({
-          kind: 'command' as const,
-          name: c.name,
-          description: c.description,
-          source: c.source,
-          insert: `/${c.name}`,
-          keepOpen: false as const,
-        }))
+      return matchCommands(commands, prefix).map((c) => ({
+        kind: 'command' as const,
+        name: c.name,
+        description: c.description,
+        source: c.source,
+        insert: `/${c.name}`,
+        keepOpen: false as const,
+      }))
     }
     if (!files) return []
     const dir = files.prefix.slice(0, files.prefix.lastIndexOf('/') + 1)

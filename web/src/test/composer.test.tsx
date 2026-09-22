@@ -97,12 +97,13 @@ describe('Composer — the mirrored highlight layer', () => {
     expect(mirror().querySelector('[data-token="command"]')).toHaveTextContent('/code-review')
   })
 
-  it('marks a command only at position 0 — the same slug mid-sentence is prose', async () => {
+  it('marks a command wherever it starts a word, and leaves an unknown slug plain', async () => {
     render(<Harness initial="/commit then run /code-review and /comand" />)
     await waitFor(() =>
-      expect(mirror().querySelectorAll('[data-token="command"]')).toHaveLength(1)
+      expect(mirror().querySelectorAll('[data-token="command"]')).toHaveLength(2)
     )
-    expect(mirror().querySelector('[data-token="command"]')).toHaveTextContent('/commit')
+    const marked = [...mirror().querySelectorAll('[data-token="command"]')].map((n) => n.textContent)
+    expect(marked).toEqual(['/commit', '/code-review'])
     expect(mirror().textContent).toBe('/commit then run /code-review and /comand')
   })
 
@@ -226,11 +227,20 @@ describe('CompletionPopup — commands', () => {
     expect(popup()).toBeInTheDocument()
   })
 
-  it('never opens on a / that is not at position 0', async () => {
+  it('opens on a / that starts a word later in the prompt', async () => {
     const user = userEvent.setup()
     render(<Harness />)
-    await type(user, 'run /')
-    await waitFor(() => expect(popup()).toBeNull())
+    await type(user, 'then run /co')
+    await screen.findByRole('option', { name: /code-review/ })
+  })
+
+  it('inserts a command accepted mid-prompt in place, leaving the prose alone', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await type(user, 'then run /code-r')
+    await screen.findByRole('option', { name: /code-review/ })
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    await waitFor(() => expect(field()).toHaveValue('then run /code-review '))
   })
 
   it('prefix-filters as you type, resetting the selection to the first row', async () => {

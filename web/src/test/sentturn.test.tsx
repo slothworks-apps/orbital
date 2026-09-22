@@ -70,10 +70,26 @@ describe('rehypeSentTokens', () => {
     ])
   })
 
-  it('never tints a slug that is not at position 0', () => {
+  it('tints a slug that is not at position 0 — the tint follows the composer', () => {
     const tree = paragraph('run /code-review on it')
     rehypeSentTokens()(tree)
-    expect(flatten(tree)).toEqual([['p', 'run /code-review on it']])
+    expect(flatten(tree)).toEqual([
+      ['p', 'run '],
+      ['orbital-sent-command', '/code-review'],
+      ['p', ' on it'],
+    ])
+  })
+
+  it('leaves an absolute path alone — a second slash makes it a path', () => {
+    const tree = paragraph('open /Users/tomin/notes.md now')
+    rehypeSentTokens()(tree)
+    expect(flatten(tree)).toEqual([['p', 'open /Users/tomin/notes.md now']])
+  })
+
+  it('leaves a slash inside a word alone', () => {
+    const tree = paragraph('either/or is fine')
+    rehypeSentTokens()(tree)
+    expect(flatten(tree)).toEqual([['p', 'either/or is fine']])
   })
 
   it('tints a mention anywhere, keeping the `:line` in its own muted span', () => {
@@ -94,13 +110,12 @@ describe('rehypeSentTokens', () => {
     expect(flatten(tree).map(([, text]) => text).join('')).toBe(source)
   })
 
-  it('treats only the FIRST text node as position 0', () => {
+  it('tints a slug in a later text node — every node is read, not just the first', () => {
     const tree = paragraph('hello ', '/commit')
     rehypeSentTokens()(tree)
-    expect(token('command')).toHaveLength(0)
     expect(flatten(tree)).toEqual([
       ['p', 'hello '],
-      ['p', '/commit'],
+      ['orbital-sent-command', '/commit'],
     ])
   })
 
