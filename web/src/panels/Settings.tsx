@@ -9,6 +9,8 @@ import {
   parseContextThresholds,
   showContext,
   showCompactBadge,
+  headerSessionStats,
+  type HeaderSessionStats,
   CONTEXT_THRESHOLD_MIN,
   CONTEXT_THRESHOLD_MAX,
 } from '../store/store'
@@ -81,6 +83,16 @@ const RETENTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '30', label: '30 days' },
   { value: '90', label: '90 days' },
   { value: '365', label: '1 year' },
+]
+
+/**
+ * Settings → Appearance → "Session stats in the header" (canvas
+ * `Feature - Header gauges` 11c). Two positions, the bar first because it is
+ * the default and the one the panel is drawn around.
+ */
+const HEADER_STATS_OPTIONS: Array<{ value: HeaderSessionStats; label: string }> = [
+  { value: 'bar', label: 'bar + numbers' },
+  { value: 'button', label: 'button only' },
 ]
 
 const RELEASE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -572,6 +584,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const notifyOnlyWhenBackground = settings.notify_only_when_background !== 'false'
   const notifySound = settings.notify_sound !== 'false'
   // Appearance (canvas 5a).
+  const headerStats = headerSessionStats(settings)
   const planetScale = parsePlanetScale(settings)
   const mapScaleLabels = settings.map_scale_labels === 'true'
   const scaleNote =
@@ -958,7 +971,53 @@ export function Settings({ open, onClose }: SettingsProps) {
 
             {section === 'appearance' && (
               <>
-              <SectionLabel first>MAP</SectionLabel>
+              <SectionLabel first>DETAIL PANEL</SectionLabel>
+              {/* canvas `Feature - Header gauges` 11c. Per install, not per
+                  session: it is a density preference about how a header is
+                  drawn, and both modes keep the same click target and the
+                  same dialog behind it. */}
+              <Row
+                title="Session stats in the header"
+                desc="The bar shows busy time, cost and the four-way split without opening anything. Button only keeps the header quiet — the numbers are one click away."
+              >
+                <div className="flex flex-col gap-[7px]">
+                  <div
+                    role="group"
+                    aria-label="Session stats in the header"
+                    className="flex flex-col items-start gap-[7px]"
+                  >
+                    {HEADER_STATS_OPTIONS.map((option) => {
+                      const selected = headerStats === option.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => void patchAndSet({ header_session_stats: option.value })}
+                          className={[
+                            'flex items-center gap-[7px] rounded-lg border px-[11px] py-1.5 text-xs font-semibold transition-colors duration-[180ms]',
+                            selected
+                              ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+                              : 'border-panel-border bg-transparent text-[rgba(200,220,245,.7)] hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]',
+                          ].join(' ')}
+                        >
+                          {selected && (
+                            <span aria-hidden className="font-mono text-[10px] text-accent">
+                              ✓
+                            </span>
+                          )}
+                          {option.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <span className="mt-0.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
+                    applies to every panel · no reload
+                  </span>
+                </div>
+              </Row>
+
+              <SectionLabel>MAP</SectionLabel>
               <Row
                 title="Default planet size"
                 desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."

@@ -1449,3 +1449,44 @@ describe('DetailPanel regenerate-name button', () => {
     expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Where the header carries session stats
+// (canvas `Feature - Header gauges` 11c, setting `header_session_stats`)
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel session stats placement', () => {
+  async function renderWith(headerSessionStats: string) {
+    resetStore({
+      sessions: { a: webSession },
+      settings: { header_session_stats: headerSessionStats },
+      ui: { selectedId: 'a' },
+    })
+    const view = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+    return view
+  }
+
+  it('draws the strip by default', async () => {
+    const { container } = await renderWith('bar')
+
+    expect(container.querySelector('[data-session-stats-row]')).toBeInTheDocument()
+    expect(container.querySelector('[data-session-stats-button]')).not.toBeInTheDocument()
+  })
+
+  it('drops the strip into the utility row when the setting says button only', async () => {
+    const { container } = await renderWith('button')
+
+    expect(container.querySelector('[data-session-stats-row]')).not.toBeInTheDocument()
+    const icon = container.querySelector('[data-session-stats-button]')
+    expect(icon).toBeInTheDocument()
+    // 11c fixes the order of the strip: stats · pin · clear · close. The pin
+    // and Clear come wrapped in their tooltips, so the buttons are read out
+    // of the strip rather than off its direct children.
+    const strip = icon?.closest('div')
+    const names = [...(strip?.querySelectorAll('[aria-label]') ?? [])].map((el) =>
+      el.getAttribute('aria-label')
+    )
+    expect(names).toEqual(['Session stats', 'Pin session', 'Clear', 'Close panel'])
+  })
+})

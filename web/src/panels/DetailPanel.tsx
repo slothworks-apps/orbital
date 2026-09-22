@@ -6,6 +6,7 @@ import {
   clampDetailPanelWidth,
   parseDetailPanelWidth,
   parseContextThresholds,
+  headerSessionStats,
   releaseDelayMs,
   DETAIL_PANEL_DEFAULT_PX,
 } from '../store/store'
@@ -507,6 +508,9 @@ export function DetailPanel() {
    * UNROUNDED fraction, so a bar reading "50%" and an arc at 50.4 % cannot
    * end up on opposite sides of the line.
    */
+  /** Where the header carries session stats — the strip, or one icon in the
+   * utility row (canvas `Feature - Header gauges` 11c). */
+  const statsVariant = headerSessionStats(settings)
   const contextThresholds = parseContextThresholds(settings)
   const contextBarLevel =
     contextFraction === undefined ? undefined : contextLevel(contextFraction, contextThresholds)
@@ -619,6 +623,12 @@ export function DetailPanel() {
               ))}
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-bright" />
             </span>
+          )}
+          {/* Button-only mode (canvas `Feature - Header gauges` 11c): the
+              stats strip is gone and stats joins the strip as its FIRST icon
+              — stats · pin · clear · close, with close staying last. */}
+          {session && statsVariant === 'button' && (
+            <SessionStatsRow session={session} variant="button" />
           )}
           {/* 4b: the pin sits left of Clear and ×, and IS the pinned
               indicator — there is no status chip for it; the footer below
@@ -880,8 +890,13 @@ export function DetailPanel() {
                 line the artboard draws it under — the real panel has the tag,
                 model and usage rows in between, and splitting them from the
                 title they belong to would cost more than the artboard's
-                literal order buys. */}
-            <SessionStatsRow session={session} className="mt-3.5" />
+                literal order buys.
+
+                `Feature - Header gauges` 11b (variant A) took its chip away
+                so it lines up with the context gauge, and 11c made it
+                optional: button-only drew it into the utility strip above and
+                gives the transcript the 42px back. */}
+            {statsVariant === 'bar' && <SessionStatsRow session={session} className="mt-3.5" />}
 
             {subagents.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Subagents">

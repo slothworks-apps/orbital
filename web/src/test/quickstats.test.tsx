@@ -199,6 +199,54 @@ describe('SessionStatsRow', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Button-only mode (canvas `Feature - Header gauges` 11c)
+// ---------------------------------------------------------------------------
+
+describe('SessionStatsRow — button variant', () => {
+  it('drops the readout and carries the numbers in its name instead', async () => {
+    vi.mocked(api.sessionStats).mockResolvedValue(detail())
+
+    render(<SessionStatsRow session={makeSession()} variant="button" />)
+
+    const button = await screen.findByRole('button', {
+      name: 'Session stats — 12m 00s, $27.60',
+    })
+    // Nothing is read out in the header: the whole point of the mode is the
+    // 42px it gives back to the transcript.
+    expect(button).toHaveTextContent('')
+    expect(screen.queryByText('session stats')).not.toBeInTheDocument()
+  })
+
+  it('opens the same dialog the strip does', async () => {
+    vi.mocked(api.sessionStats).mockResolvedValue(detail())
+
+    render(<SessionStatsRow session={makeSession()} variant="button" />)
+    fireEvent.click(await screen.findByRole('button', { name: /Session stats/ }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('$27.60')
+    // Opening it is what buys the timeline read (ADR
+    // `the-stats-row-reads-when-the-stats-are-written`) — the icon itself
+    // needs no more than the strip did.
+    expect(api.sessionStats).toHaveBeenCalledWith(SESSION_ID, { timeline: false })
+    await waitFor(() =>
+      expect(api.sessionStats).toHaveBeenCalledWith(SESSION_ID, { timeline: true })
+    )
+  })
+
+  it('is not clickable with nothing measured yet (11c, NO DATA)', () => {
+    vi.mocked(api.sessionStats).mockReturnValue(new Promise(() => {}))
+
+    render(<SessionStatsRow session={makeSession()} variant="button" />)
+
+    const button = screen.getByRole('button', { name: 'Session stats' })
+    expect(button).toBeDisabled()
+    fireEvent.click(button)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // The quick dialog (canvas 10f / 10e "detail panel → stats")
 // ---------------------------------------------------------------------------
 

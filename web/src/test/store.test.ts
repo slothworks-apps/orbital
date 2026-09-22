@@ -24,6 +24,7 @@ import {
   parseContextThresholds,
   showContext,
   showCompactBadge,
+  headerSessionStats,
   releaseDelayMs,
   absorptionFor,
   RELEASE_FALL_GRACE_MS,
@@ -1608,6 +1609,17 @@ describe('showContext / showCompactBadge', () => {
     expect(showContext({ map_show_context: 'false' })).toBe(false)
     expect(showCompactBadge({ map_show_compact_badge: 'false' })).toBe(false)
     expect(showContext({ map_show_context: 'true' })).toBe(true)
+  })
+})
+
+describe('headerSessionStats', () => {
+  it('draws the bar unless the setting literally says button', () => {
+    expect(headerSessionStats({})).toBe('bar')
+    expect(headerSessionStats({ header_session_stats: 'bar' })).toBe('bar')
+    expect(headerSessionStats({ header_session_stats: 'button' })).toBe('button')
+    // A value from a future build, or a hand-edited database, must not empty
+    // the header of its only readout.
+    expect(headerSessionStats({ header_session_stats: 'sparkline' })).toBe('bar')
   })
 })
 

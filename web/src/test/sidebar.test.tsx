@@ -482,6 +482,19 @@ describe('Sidebar', () => {
     expect(screen.queryByText(/tags & rules/i)).not.toBeInTheDocument()
   })
 
+  // `Feature - Header gauges` 11d: before this, /stats could only be reached
+  // from an open session. Both layers get the entry, for the same reason the
+  // settings button is in both.
+  it('links to /stats from the footer and from the collapsed rail', () => {
+    resetStore({ sessions: {} })
+
+    render(<Sidebar observerFactory={noopObserverFactory} />)
+
+    const entries = screen.getAllByRole('link', { name: 'Stats — all sessions' })
+    expect(entries).toHaveLength(2)
+    for (const entry of entries) expect(entry).toHaveAttribute('href', '/stats')
+  })
+
   // 1a puts a settings button in both layers — the footer pill and the
   // collapsed rail's icon — so it stays reachable whichever state the
   // sidebar is in.

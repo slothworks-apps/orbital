@@ -59,7 +59,11 @@ export function UtilityButton({
             'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-accent'
           : [
               v.ink,
-              'disabled:opacity-50',
+              // The dim of a button that has nothing to open — canvas
+              // `Feature - Header gauges` 11c draws NO DATA at
+              // rgba(200,220,245,.28), which is the strip's own resting ink
+              // taken to four tenths.
+              'disabled:opacity-40',
               'hover:bg-[rgba(150,205,255,.09)] hover:text-[#dce8f7]',
               'focus-visible:bg-[rgba(150,205,255,.09)] focus-visible:text-[#dce8f7]',
             ].join(' '),
@@ -156,6 +160,40 @@ export function RefreshGlyph({ spinning = false }: { spinning?: boolean }) {
           transform: 'rotate(128deg)',
         }}
       />
+    </span>
+  )
+}
+
+/**
+ * Which of the two sizes the stats glyph is drawn at — the bar table in
+ * canvas `Feature - Header gauges` 11d gives both, and they are not a scale
+ * of one another (the bar widths and gaps are picked per size so the strokes
+ * stay on whole-ish pixels).
+ */
+export type StatsGlyphSize = 'header' | 'footer'
+
+/** 11c's ICON · STATES geometry (`header`) and 11d's footer variant, verbatim. */
+const STATS_BARS = {
+  header: { w: 12, h: 11, bar: 2.6, left: [0, 4.7, 9.4], height: [5, 11, 7.5] },
+  footer: { w: 10, h: 9, bar: 2.2, left: [0, 3.9, 7.8], height: [4, 9, 6] },
+} as const satisfies Record<StatsGlyphSize, unknown>
+
+/**
+ * Stats: three bottom-aligned bars, no axis and no frame (11c). It is the one
+ * glyph here that is not built at a single stroke weight — it is a reading,
+ * not an action, and the three heights ARE the shape.
+ */
+export function StatsGlyph({ size = 'header' }: { size?: StatsGlyphSize }) {
+  const g = STATS_BARS[size]
+  return (
+    <span aria-hidden className="relative block" style={{ width: `${g.w}px`, height: `${g.h}px` }}>
+      {g.height.map((height, i) => (
+        <span
+          key={height}
+          className="absolute bottom-0 block rounded-[1px] bg-current"
+          style={{ left: `${g.left[i]}px`, width: `${g.bar}px`, height: `${height}px` }}
+        />
+      ))}
     </span>
   )
 }

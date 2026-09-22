@@ -6,6 +6,7 @@ import { formatCost, formatStatsDuration } from '../stats/format'
 import { QuickStatsDialog } from '../stats/QuickStatsDialog'
 import { busyMsOf, spanOf } from '../stats/rollup'
 import { useOrbital } from '../store/store'
+import { StatsGlyph, UtilityButton } from '../ui/UtilityButton'
 import { openToolUse } from './Transcript'
 
 /**
@@ -15,7 +16,24 @@ import { openToolUse } from './Transcript'
  *
  * It is a readout FIRST — a row, not a tab, because the detail panel is the
  * transcript and a tab would hide it.
+ *
+ * `Feature - Header gauges` then gave it a second shape and an off switch.
+ * Both live here rather than in two components because everything that is
+ * hard about this — which session the dialog is open for, when the stored
+ * stats are re-read, when the dialog polls — is the same in both, and only
+ * the last twenty lines differ.
  */
+
+/**
+ * Which shape the readout takes, from the `header_session_stats` setting
+ * (canvas `Feature - Header gauges` 11c):
+ *
+ * - `bar` — the strip at the foot of the header, flush with the context
+ *   gauge above it (11b variant A).
+ * - `button` — one 24px icon in the header's utility strip, with no readout
+ *   at all; every number is behind the dialog it opens.
+ */
+export type StatsRowVariant = 'bar' | 'button'
 
 /**
  * How often the dialog re-reads a live session while it is open. The row
@@ -105,9 +123,11 @@ function useSessionStats(
 
 export function SessionStatsRow({
   session,
+  variant = 'bar',
   className,
 }: {
   session: ApiSession
+  variant?: StatsRowVariant
   /** Layout only — where the row sits in the panel. */
   className?: string
 }) {
@@ -215,11 +235,14 @@ export function SessionStatsRow({
     </>
   )
 
-  // 10g's shell: the panel's own chip. Its note says "1px rgba(150,205,255,.14),
-  // no fill" while the chip it is written under is drawn over rgba(4,8,16,.4);
-  // the drawing ships, as it does for the row's height.
-  const shell = `block w-full rounded-[11px] border px-[13px] py-[11px] text-left ${className ?? ''}`
-  const resting = 'border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.4)]'
+  // The shell is `Feature - Header gauges` 11b variant A, which replaced
+  // 10g's chip: the chip's 13px padding and 1px border were what made this
+  // bar 28px narrower than the context gauge directly above it, and two
+  // nearly-equal widths read as a broken grid rather than as two objects. So
+  // the box goes and a hairline takes over the job of separating the strip
+  // from the gauge — both bars now run to the header's own padding.
+  const shell = `block w-full border-t pt-[13px] text-left ${className ?? ''}`
+  const resting = 'border-[rgba(150,205,255,.1)]'
 
   // The dialog keeps the numbers it was opened on until it has finished
   // fading out, the way the panel keeps its outgoing session — otherwise
@@ -235,6 +258,45 @@ export function SessionStatsRow({
       onClose={() => setOpenFor(null)}
     />
   )
+
+  if (variant === 'button') {
+    // 11c: the numbers leave the header, so the name of the control has to
+    // carry them — for the pointer (native `title`, which is what the
+    // artboard asks for) and for a screen reader alike.
+    const label =
+      stats !== null
+        ? `Session stats — ${formatStatsDuration(busyMs)}, ${formatCost(stats.cost.total)}`
+        : 'Session stats'
+    return (
+      <>
+        <UtilityButton
+          data-session-stats-button
+          aria-label={label}
+          title={label}
+          // 11c's DIALOG OPEN state is the strip's own active fill, and
+          // NO DATA is simply a button with nothing to open.
+          active={open}
+          disabled={stats === null}
+          onClick={() => setOpenFor(session.id)}
+          className={`relative ${className ?? ''}`}
+        >
+          <StatsGlyph />
+          {/* 11c's LIVE dot. The artboard draws it 5px, inset 4px, on a 32px
+              state swatch; the strip's button is 24px, so it keeps the
+              proportion rather than the literal — any bigger and it collides
+              with the glyph's tallest bar. */}
+          {inApiCall && (
+            <span
+              aria-hidden
+              className="orbital-pulse absolute top-[3px] right-[3px] block h-1 w-1 rounded-full"
+              style={{ background: TIME_CATEGORIES[0].color }}
+            />
+          )}
+        </UtilityButton>
+        {dialog}
+      </>
+    )
+  }
 
   if (stats === null) {
     return (
@@ -254,13 +316,16 @@ export function SessionStatsRow({
         data-session-stats-row
         onClick={() => setOpenFor(session.id)}
         // Hover and focus are one state (10g: "focus ring = hover border"),
-        // which is also what makes the row legible as one tab stop.
+        // which is also what makes the row legible as one tab stop. With the
+        // chip gone there is no box left to fill, so the press cue is the
+        // hairline lifting, plus the chevron the content already brightens
+        // (11b, A: "hover lifts the hairline + chevron").
         className={[
-          'group cursor-pointer transition-[background-color,border-color,box-shadow] duration-[120ms]',
+          'group cursor-pointer transition-[border-color] duration-[120ms]',
           shell,
           resting,
-          'hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:shadow-[0_0_22px_rgba(89,228,243,.1)]',
-          'focus-visible:border-[rgba(150,205,255,.3)] focus-visible:bg-[rgba(150,205,255,.14)] focus-visible:shadow-[0_0_22px_rgba(89,228,243,.1)] focus-visible:outline-none',
+          'hover:border-[rgba(150,205,255,.22)]',
+          'focus-visible:border-[rgba(150,205,255,.22)] focus-visible:outline-none',
         ].join(' ')}
       >
         {content}

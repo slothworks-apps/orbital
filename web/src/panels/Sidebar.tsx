@@ -17,6 +17,8 @@ import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
+import { StatsGlyph } from '../ui/UtilityButton'
+import { STATS_PATH } from '../stats/route'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 
@@ -147,6 +149,41 @@ function SettingsRing({ size }: { size: 9 | 12 }) {
         size === 9 ? 'h-[9px] w-[9px]' : 'h-3 w-3',
       ].join(' ')}
     />
+  )
+}
+
+/**
+ * The app-level way into `/stats` (canvas `Feature - Header gauges` 11d).
+ *
+ * It belongs in the footer because the footer already IS the app-level strip
+ * — a session count and the only global button — and stats is the second
+ * app-level destination. Icon only: the pair then reads as utilities, and the
+ * word SETTINGS keeps its weight.
+ *
+ * A real `<a>` to a real path, like every other stats link (`stats/route.ts`).
+ * There is deliberately no active state: `/stats` replaces the whole app
+ * (`main.tsx` branches before `App`), so this sidebar is never on screen
+ * while that route is current.
+ */
+function StatsLink({ size }: { size: 'footer' | 'rail' }) {
+  const label = 'Stats — all sessions'
+  return (
+    <a
+      href={STATS_PATH}
+      aria-label={label}
+      title={label}
+      className={[
+        'grid shrink-0 place-items-center bg-[rgba(150,205,255,.05)] no-underline',
+        'text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:text-text-bright',
+        // 11d draws the footer icon at the settings pill's own height and
+        // chrome; the rail's is the rail settings button, glyph and all.
+        size === 'footer'
+          ? 'h-6 w-[26px] rounded-[7px] border border-panel-border hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)]'
+          : 'h-[30px] w-[30px] rounded-lg border border-panel-border hover:bg-[rgba(150,205,255,.13)]',
+      ].join(' ')}
+    >
+      <StatsGlyph size={size === 'footer' ? 'footer' : 'header'} />
+    </a>
   )
 }
 
@@ -590,6 +627,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <Logo />
         <IconButton label="Expand sidebar" glyph="»" onClick={() => setSidebarCollapsed(false)} />
         <span aria-hidden className="h-px w-5 bg-panel-border" />
+        {/* 11d: the same glyph joins the rail's icon column, above the dots. */}
+        <StatsLink size="rail" />
         {active.slice(0, 8).map((s) => (
           <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} />
         ))}
@@ -761,9 +800,12 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           {visible.length} sessions
           {pinned.length > 0 && ` · ${pinned.length} pinned`}
         </span>
-        {/* Settings is the footer's only entry point now — the canvas moved
-            tags & rules inside the dialog as a section, so the link that used
-            to sit here would land on the same screen. */}
+        {/* 11d: /stats sits immediately before Settings — the footer's two
+            app-level destinations, in the order the canvas draws them. */}
+        <StatsLink size="footer" />
+        {/* Settings keeps the word; tags & rules moved inside the dialog as a
+            section, so the link that used to sit here would land on the same
+            screen. */}
         <button
           type="button"
           aria-label="Open settings"

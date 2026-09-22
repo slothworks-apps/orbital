@@ -1400,6 +1400,22 @@ export function showCompactBadge(settings: Record<string, string>): boolean {
 }
 
 /**
+ * How the detail header carries session stats (canvas `Feature - Header
+ * gauges` 11c):
+ *
+ * - `bar` — the strip under the context gauge, busy time and cost on it.
+ * - `button` — no strip; stats joins the header's icon row and every number
+ *   lives in the dialog behind it.
+ */
+export type HeaderSessionStats = 'bar' | 'button'
+
+/** `header_session_stats`. The bar is the default, so only the literal
+ * `button` turns the strip off — an unreadable value draws the readout. */
+export function headerSessionStats(settings: Record<string, string>): HeaderSessionStats {
+  return settings.header_session_stats === 'button' ? 'button' : 'bar'
+}
+
+/**
  * What the space map draws: `visibleSessions` minus the sessions the origin
  * filter excludes, minus everything the hole has absorbed (`absorptionFor`).
  * A session that is `releasing` is still returned — the scene keeps it as a

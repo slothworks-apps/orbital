@@ -92,6 +92,17 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * to `map_show_context` also being on. Default-on convention. */
   map_show_compact_badge: 'true',
   /**
+   * Settings → Appearance → "Session stats in the header" (canvas
+   * `Feature - Header gauges` 11c). `bar` draws the stats strip under the
+   * context gauge; `button` drops the strip and folds stats into the header's
+   * icon row instead, where it opens the same dialog.
+   *
+   * Per install rather than per session: it is a density preference about how
+   * a header is drawn, not a property of any one conversation. Read
+   * client-side as `=== 'button'`, so anything unrecognised draws the bar.
+   */
+  header_session_stats: 'bar',
+  /**
    * Absolute path to the Claude Code CLI the runner should spawn. Empty means
    * autodetect: the SDK's bundled binary in dev, the first `claude` on PATH in
    * the packaged app (spec 2026-09-16-electron-wrapper-design §3).

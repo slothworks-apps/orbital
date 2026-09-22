@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import type { OrbitalModel } from '../lib/types'
 
@@ -169,6 +169,27 @@ describe('Settings', () => {
     )
     expect(api.patchSettings).toHaveBeenCalledTimes(1)
     expect(useOrbital.getState().settings.claude_executable_path).toBe('')
+  })
+
+  // canvas `Feature - Header gauges` 11c. The setting is per install, so it
+  // is stored and read like every other appearance preference.
+  it('patches the header stats mode, with the bar pressed by default', async () => {
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+    openSection('Appearance')
+
+    const group = screen.getByRole('group', { name: 'Session stats in the header' })
+    const [bar, button] = within(group).getAllByRole('button')
+    expect(bar).toHaveAttribute('aria-pressed', 'true')
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(button)
+
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({ header_session_stats: 'button' })
+    )
+    expect(useOrbital.getState().settings.header_session_stats).toBe('button')
+    expect(within(group).getAllByRole('button')[1]).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('maps the lineage-depth steps 1-5 to their string values', async () => {
