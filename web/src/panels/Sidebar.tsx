@@ -10,7 +10,7 @@ import {
 } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
-import { isReadOnly, tagColor } from '../lib/types'
+import { isReadOnly, parkedLabel, tagColor } from '../lib/types'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
@@ -184,10 +184,13 @@ function RowStatus({
   status,
   hue,
   interrupted,
+  parked,
 }: {
   status: ApiSession['status']
   hue: number | undefined
   interrupted?: boolean
+  /** What a `needs_input` row says (`parkedLabel`) — NEEDS INPUT or DONE. */
+  parked?: string
 }) {
   const busy = status === 'working' || status === 'needs_input'
   const color = busy && !interrupted && hue !== undefined ? tagColor(hue) : undefined
@@ -196,7 +199,11 @@ function RowStatus({
       className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em]"
       style={{ color: color ?? 'rgba(160,190,225,.6)' }}
     >
-      {interrupted ? 'INTERRUPTED' : status === 'needs_input' ? 'NEEDS INPUT' : status.toUpperCase()}
+      {interrupted
+        ? 'INTERRUPTED'
+        : status === 'needs_input'
+          ? (parked ?? 'NEEDS INPUT')
+          : status.toUpperCase()}
     </span>
   )
 }
@@ -683,7 +690,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
                         {timeAgo(s.lastAt ?? Date.now())}
                       </span>
                     ) : (
-                      <RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} />
+                      <RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} parked={parkedLabel(s)} />
                     )
                   }
                 />
@@ -714,7 +721,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               selected={s.id === selectedId}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
-              right={<RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} />}
+              right={<RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} parked={parkedLabel(s)} />}
             />
           ))}
         </ul>

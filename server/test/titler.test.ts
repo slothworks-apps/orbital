@@ -272,6 +272,19 @@ describe('SessionTitler', () => {
     expect(options.allowedTools).toEqual([]);
     expect(options.maxTurns).toBe(1);
   });
+
+  // A persisted title query lands in `~/.claude/projects/` as an ordinary
+  // transcript, and the watcher — which cannot tell it from a real session —
+  // indexes it as a planet named after the prompt. See
+  // `docs/decisions/ephemeral-title-queries.md`.
+  it('asks without leaving a transcript behind', async () => {
+    const { titler, queryFn } = makeTitler({});
+    titler.feed('s1', MOVED_ON);
+
+    await titler.considerTurnEnd('s1');
+
+    expect(queryFn.mock.calls[0][0].options.persistSession).toBe(false);
+  });
 });
 
 /**
@@ -340,5 +353,39 @@ describe('SessionTitler.retitleNow', () => {
 
     await expect(titler.retitleNow('s1', MOVED_ON)).rejects.toThrow('spawn ENOENT');
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  // The packaged app ships without the SDK's bundled binary (spec
+  // 2026-09-16-electron-wrapper-design § 2), so a title query that omits the
+  // option fails there with "Native CLI binary for darwin-arm64 not found"
+  // while the rest of the app works. Mirrors the same case in runner.test.ts
+  // and catalog.test.ts.
+  it('hands the title query an explicit claude executable when it was given one, and omits the option otherwise', async () => {
+    const capture = (claudeExecutablePath?: string) => {
+      let captured: Record<string, unknown> | undefined;
+      const queryFn = vi.fn(({ options }: { prompt: string; options: Record<string, unknown> }) => {
+        captured = options;
+        async function* gen() {
+          yield { type: 'result', subtype: 'success' };
+        }
+        return gen();
+      });
+      const titler = new SessionTitler({
+        queryFn: queryFn as never,
+        readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' }),
+        applyTitle: vi.fn(),
+        isEnabled: () => true,
+        claudeExecutablePath,
+      });
+      return { titler, options: () => captured! };
+    };
+
+    const withPath = capture('/x/claude');
+    await withPath.titler.retitleNow('s1', MOVED_ON);
+    expect(withPath.options().pathToClaudeCodeExecutable).toBe('/x/claude');
+
+    const without = capture();
+    await without.titler.retitleNow('s1', MOVED_ON);
+    expect(without.options()).not.toHaveProperty('pathToClaudeCodeExecutable');
   });
 });

@@ -903,14 +903,24 @@ export function SpaceMap() {
    */
   const aggregateLine = useMemo(() => {
     const { working, needs_input: needsInput, idle, ended } = model.counts
+    // The `needs_input` column splits the same way the pills do: only the
+    // planets with a question parked on them are NEEDS INPUT, the rest merely
+    // finished (`parkedLabel`). Counted off the drawn planets rather than
+    // `model.counts`, which knows the status and not the reason — a line
+    // reading "3 NEEDS INPUT" over three planets all saying DONE is the very
+    // mismatch the pills were fixed to stop telling.
+    const asking = model.planets.filter(
+      (p) => p.session.status === 'needs_input' && p.session.pendingDecision
+    ).length
     const segments = [
       `${working} WORKING`,
-      ...(needsInput > 0 ? [`${needsInput} NEEDS INPUT`] : []),
+      ...(asking > 0 ? [`${asking} NEEDS INPUT`] : []),
+      ...(needsInput - asking > 0 ? [`${needsInput - asking} DONE`] : []),
       `${idle} IDLE`,
       `${ended} ENDED`,
     ]
     return segments.join(' · ')
-  }, [model.counts])
+  }, [model.counts, model.planets])
 
   return (
     <div

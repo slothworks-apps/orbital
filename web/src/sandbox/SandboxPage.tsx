@@ -81,8 +81,16 @@ const sandboxMoons = (count: number): Subagent[] =>
     state: MOON_STATE_CYCLE[i % MOON_STATE_CYCLE.length],
   }))
 
-/** The one fake session the planet is fed; only `status` ever varies. */
-function sandboxSession(status: SessionStatus): ApiSession {
+/**
+ * The one fake session the planet is fed. `subagents` is the same list the
+ * moons are drawn from, because the `WAITING FOR AGENT` pill counts them —
+ * so the label and the orbit are checkable against each other here.
+ */
+function sandboxSession(
+  status: SessionStatus,
+  subagents: Subagent[],
+  awaitingSubagents: boolean
+): ApiSession {
   return {
     id: 'sandbox',
     cwd: '/sandbox',
@@ -98,7 +106,8 @@ function sandboxSession(status: SessionStatus): ApiSession {
     mapDismissedAt: null,
     tagIds: [],
     status,
-    subagents: [],
+    awaitingSubagents,
+    subagents,
   }
 }
 
@@ -113,9 +122,13 @@ export function SandboxPage() {
   const [tierScale, setTierScale] = useState(true)
   const [contextPercent, setContextPercent] = useState(-1)
   const [moonCount, setMoonCount] = useState(0)
+  const [awaiting, setAwaiting] = useState(false)
 
-  const session = useMemo(() => sandboxSession(status), [status])
   const moons = useMemo(() => sandboxMoons(moonCount), [moonCount])
+  const session = useMemo(
+    () => sandboxSession(status, moons, awaiting),
+    [status, moons, awaiting]
+  )
   const contextFill = useMemo<ContextFill | null>(
     () =>
       contextPercent < 0
@@ -237,6 +250,13 @@ export function SandboxPage() {
             />
           </div>
 
+          {/* Only bites on a `working` planet with moons in orbit — the
+              state that is busy without being busy here. */}
+          <Checkbox
+            checked={awaiting}
+            onChange={setAwaiting}
+            label="waiting for its agents (pill)"
+          />
           <Checkbox checked={selected} onChange={setSelected} label="selected (reticle)" />
           <Checkbox checked={hidden} onChange={setHidden} label="hidden (ended suppression)" />
           <Checkbox

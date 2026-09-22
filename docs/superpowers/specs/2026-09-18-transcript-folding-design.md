@@ -36,12 +36,27 @@ plus a click is enough).
   `1 failed` (`{n} failed` when more). Auto-open sets the DEFAULT state
   only — a manual toggle always wins, in both directions. Requires
   `isError` — see wire shape below.
+  - **The default is frozen at the group's first render** (amended
+    2026-09-22). Recomputing it meant a call that failed while you were
+    reading threw its run open under your eyes and shoved the rest of the
+    transcript down the page — the largest unasked-for jump in the panel.
+    A run whose failure is already in the history when it first renders
+    (a reload, scrolling back) still opens, which is what this bullet
+    asks for; what stops is the live flip. Nothing is hidden meanwhile:
+    the right slot says `n failed` either way.
 - Expanded = today's 4px stack, unchanged rows. Open header keeps border
   `rgba(150,205,255,.18)` / fill `rgba(150,205,255,.05)`; caret animates
-  `.16s ease` (one `▸` glyph rotated 90°, never swapped in markup). The
-  canvas's `.22s` height ease was dropped in implementation: folded rows
-  leave the DOM (which is what the live-run predicate and the tests key
-  on), so the fold is instant — revisit only if it reads as a pop.
+  `.16s ease` (one `▸` glyph rotated 90°, never swapped in markup).
+  - **The canvas's height ease is back** (amended 2026-09-22) — it did
+    read as a pop, which is the condition this bullet left for revisiting
+    it. It runs at the caret's `.16s` rather than the canvas's `.22s`, so
+    the arrow and the stack finish together instead of reading as two
+    events. The travel is `grid-template-rows: 0fr -> 1fr`, the one way to
+    transition to a height nobody has measured. Folded rows still leave
+    the DOM — `usePresence` holds them for the closing pass and then
+    removes them — so the live-run predicate and the tests still key on
+    absence; a test asserting a fold now awaits it rather than reading it
+    in the same tick.
 - Hover: border `.22`, fill `.07`, right slot swaps to the verb
   (`expand` / `collapse`). Focus: accent ring `oklch(85% .12 205 / .7)`.
   The whole row is the hit area (a real `<button>`).

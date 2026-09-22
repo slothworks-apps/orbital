@@ -232,6 +232,16 @@ describe('DetailPanel pin toggle', () => {
 // Header: title, cwd, tags, badges, usage
 // ---------------------------------------------------------------------------
 
+/**
+ * The title is a two-line clamp at rest and a textarea only while it is being
+ * edited (canvas `Feature - Detail header` 9e), so a rename starts by opening
+ * it. Returns the field.
+ */
+async function openTitle(user: ReturnType<typeof userEvent.setup>, current: string) {
+  await user.click(screen.getByRole('button', { name: current }))
+  return screen.getByRole('textbox', { name: 'Session title' })
+}
+
 describe('DetailPanel header', () => {
   it('renders nothing when no session is selected', () => {
     resetStore()
@@ -248,7 +258,9 @@ describe('DetailPanel header', () => {
     render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(screen.getByDisplayValue('My session')).toBeInTheDocument()
+    // At rest the title is read as text, not as a field (canvas
+    // `Feature - Detail header` 9e): the field appears on click.
+    expect(screen.getByRole('button', { name: 'My session' })).toBeInTheDocument()
     expect(screen.getByText(/orbital/)).toBeInTheDocument() // shortened cwd
     // The mode is a dot in a 24×22 box, not a word — it reaches a reader
     // through the readout's accessible name and its tooltip.
@@ -363,7 +375,7 @@ describe('DetailPanel header', () => {
     })
 
     render(<DetailPanel />)
-    const titleInput = screen.getByDisplayValue('Old title')
+    const titleInput = await openTitle(user, 'Old title')
     await user.clear(titleInput)
     await user.type(titleInput, 'New title{Enter}')
 
@@ -381,7 +393,7 @@ describe('DetailPanel header', () => {
     })
 
     render(<DetailPanel />)
-    const titleInput = screen.getByDisplayValue('Old title')
+    const titleInput = await openTitle(user, 'Old title')
     await user.clear(titleInput)
     await user.type(titleInput, 'Blurred title')
     fireEvent.blur(titleInput)
@@ -399,12 +411,12 @@ describe('DetailPanel header', () => {
     })
 
     render(<DetailPanel />)
-    const titleInput = screen.getByDisplayValue('Old title')
+    const titleInput = await openTitle(user, 'Old title')
     await user.clear(titleInput)
     await user.type(titleInput, 'Rejected title{Enter}')
 
     await waitFor(() => expect(useOrbital.getState().sessions.a.title).toBe('Old title'))
-    expect(screen.getByDisplayValue('Old title')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Old title' })).toBeInTheDocument()
     expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'server exploded' })
   })
 
@@ -420,7 +432,7 @@ describe('DetailPanel header', () => {
     const promptBox = screen.getByRole('textbox', { name: /prompt/i })
     await user.type(promptBox, 'a prompt in progress')
 
-    const titleInput = screen.getByDisplayValue('Old title')
+    const titleInput = await openTitle(user, 'Old title')
     await user.clear(titleInput)
     await user.type(titleInput, 'New title{Enter}')
 

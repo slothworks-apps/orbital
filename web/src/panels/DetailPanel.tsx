@@ -20,6 +20,7 @@ import { api } from '../lib/api'
 import { openQuestion } from '../lib/questionCard'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
+import { useEscapeLayer } from '../ui/escapeLayer'
 import { usePresence } from '../ui/usePresence'
 import {
   PANEL_CLOSED,
@@ -33,12 +34,12 @@ import {
 } from '../ui/motion'
 import { Badge } from '../ui/Badge'
 import { PinButton } from '../ui/PinButton'
+import { ClearGlyph, CloseGlyph, RefreshGlyph, UtilityButton } from '../ui/UtilityButton'
 import { Tooltip } from '../ui/Tooltip'
 import { ModeReadout } from '../ui/ModeDot'
 import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
 import { Button } from '../ui/Button'
-import { Input } from '../ui/Input'
 import { Composer } from './Composer'
 import { useAttachments } from './useAttachments'
 import { useImageDrop } from './useImageDrop'
@@ -54,7 +55,7 @@ import {
   releaseFootnote,
 } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
-import { isReadOnly, tagColor } from '../lib/types'
+import { awaitingSubagentCount, isReadOnly, parkedLabel, tagColor } from '../lib/types'
 import type { ApiSession, Tag } from '../lib/types'
 
 /**
@@ -82,6 +83,28 @@ const ACCENT_HUE = 205
  */
 const PIN_TOOLTIP_DELAY_MS = 400
 
+/**
+ * The title's type, from `Feature - Detail header` 9d's row 2. One object
+ * because the resting clamp and the editing textarea have to render at
+ * identical metrics — a swap that moved the text by a pixel would read as a
+ * jump — and the auto-grow below measures in these same units.
+ */
+const TITLE_FONT_PX = 22
+const TITLE_LINE_HEIGHT = 1.15
+const TITLE_TYPE = {
+  fontSize: `${TITLE_FONT_PX}px`,
+  fontWeight: 700,
+  lineHeight: TITLE_LINE_HEIGHT,
+  letterSpacing: '-0.015em',
+} as const
+
+/** 9e: the field grows to this many lines, and only then truncates. */
+const TITLE_MAX_LINES = 2
+
+/** What the title reads before a session has a name — the resting title is a
+ * button, and a button with no text has no accessible name either. */
+const UNTITLED = 'Untitled session'
+
 /** Placeholder for a session whose context nothing has measured yet — a
  * fresh session against a known window reads "— / 200k ctx" rather than
  * inventing a zero. */
@@ -102,8 +125,9 @@ export function formatTokens(n: number): string {
 }
 
 /**
- * Right-hand detail panel (artboard 1b): editable header (title, cwd, tag
- * chips, permission/status badges, context bar, lineage dots),
+ * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail
+ * header` 9d): the header (path + actions, editable title, tag chips,
+ * permission/status badges, context bar, lineage dots),
  * the session's transcript + live subagents strip, and a footer that varies
  * by session kind — a prompt composer for web/ended sessions, or a read-only
  * bar for a session still live in a terminal (which this UI can never take
@@ -143,6 +167,11 @@ export function DetailPanel() {
 
   const [titleDraft, setTitleDraft] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const titleFieldRef = useRef<HTMLTextAreaElement | null>(null)
+  // Escape must not save: the blur it causes would still be holding the
+  // edited draft. Cleared on the way IN rather than on the way out, so a
+  // cancel that never produced a blur cannot poison the next edit.
+  const titleAbandoned = useRef(false)
   const [retitling, setRetitling] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [lineageCache, setLineageCache] = useState<Record<string, string[]>>({})
@@ -222,8 +251,8 @@ export function DetailPanel() {
     // The chips belong to the draft, so they go with it — and the refs they
     // would have carried are this session's, not the next one's.
     attachments.reset()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `reset` is stable;
-    // listing it would only re-run this on a render it has nothing to do with.
+    // `reset` is deliberately absent: it is stable, and listing it would only
+    // re-run this on a render it has nothing to do with.
   }, [id])
 
   // Title draft reseeds whenever the session (or its title) changes, but
@@ -254,6 +283,32 @@ export function DetailPanel() {
     }
   }, [id, lineageCache])
 
+  // The title field is one line until its own text needs a second, and stops
+  // there (9e). On every keystroke, because the height is a function of the
+  // text rather than of the element: the browser will not shrink a textarea
+  // back on its own, hence the reset to zero before the measurement.
+  useEffect(() => {
+    const el = titleFieldRef.current
+    if (!el) return
+    const line = TITLE_FONT_PX * TITLE_LINE_HEIGHT
+    el.style.height = '0px'
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, line), line * TITLE_MAX_LINES)}px`
+  }, [titleDraft, isEditingTitle])
+
+  // The caret lands at the END of the name: the usual edit is fixing or
+  // extending the tail, not retyping from the front.
+  useEffect(() => {
+    if (!isEditingTitle) return
+    const el = titleFieldRef.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [isEditingTitle])
+
+  // While the title is being edited, Escape belongs to the field — without
+  // this it reaches `App` and closes the whole panel mid-rename.
+  useEscapeLayer(isEditingTitle, () => abandonTitleEdit())
+
   if (!mounted || !id) return null
 
   function invalidateLineage(clearedId: string) {
@@ -265,8 +320,23 @@ export function DetailPanel() {
     })
   }
 
+  /** Opens the field. Named rather than inlined so the abandon flag can only
+   * ever be cleared here. */
+  function beginTitleEdit() {
+    titleAbandoned.current = false
+    setIsEditingTitle(true)
+  }
+
+  /** Escape: put the field away and let the reseed effect above restore the
+   * session's own name. */
+  function abandonTitleEdit() {
+    titleAbandoned.current = true
+    setIsEditingTitle(false)
+  }
+
   function commitTitle() {
     setIsEditingTitle(false)
+    if (titleAbandoned.current) return
     if (!id || !session) return
     const next = titleDraft.trim()
     if (!next || next === session.title) {
@@ -424,6 +494,8 @@ export function DetailPanel() {
   const accent = tagColor(headerHue ?? ACCENT_HUE)
   /** The context fill's glow below the first threshold (canvas 1b-alt). */
   const accentSoft55 = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.55)`
+  /** The title's rule while it is being edited (9e-4). */
+  const accentSoft70 = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.7)`
 
   /**
    * The context gauge takes the map arc's colours past the same two
@@ -518,108 +590,33 @@ export function DetailPanel() {
         style={{ background: `linear-gradient(90deg, transparent, ${accent}, transparent)` }}
       />
 
-      {/* Header — canvas 1b: padding 20px 22px 16px over a hairline rule.
+      {/* Header — `Feature - Detail header` 9d, variant B: a utility strip
+          carrying the path and the session's actions, over a title that owns
+          the whole next line. Padding 12px 22px 16px over a hairline rule.
           9c-1 steps it back to .4 while a drop is armed, a touch brighter than
           the transcript's .35: it is the session's name, and the marker is the
           only thing that should be competing. */}
       <div
         className={[
-          'border-b border-panel-border px-[22px] pb-4 pt-5',
+          'border-b border-panel-border px-[22px] pt-3 pb-4',
           dropArmed ? 'opacity-40' : '',
         ].join(' ')}
       >
-        <div className="flex items-start gap-2.5">
-          <div className="min-w-0 flex-1">
-            {/* Title reads as an editable value: dashed underline + pencil (1b). */}
-            <label className="inline-flex max-w-full items-center gap-2 border-b border-dashed border-[rgba(150,205,255,.35)] pb-0.5">
-              <Input
-                variant="inline"
-                aria-label="Session title"
-                value={titleDraft}
-                onChange={(e) => setTitleDraft(e.target.value)}
-                onFocus={() => setIsEditingTitle(true)}
-                onBlur={commitTitle}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    ;(e.target as HTMLInputElement).blur()
-                  }
-                }}
-                // Export values (1b): 19px/700, tracking -.01em, and a field
-                // sized to its own value (`width:13ch` for "auth-refactor")
-                // so the dashed rule hugs the title instead of running the
-                // width of the panel. Inline because each one overrides the
-                // primitive's own type scale / `w-full`.
-                style={{
-                  fontSize: '19px',
-                  fontWeight: 700,
-                  letterSpacing: '-0.01em',
-                  width: `${Math.min(Math.max(titleDraft.length + 1, 6), 34)}ch`,
-                }}
-                className="min-w-0 truncate"
-              />
-              <span aria-hidden className="shrink-0 text-xs text-text-muted">
-                ✎
-              </span>
-            </label>
-            {session && (
-              <div className="mt-2 truncate font-mono text-[11.5px] text-text-muted">
-                {shortenPath(session.cwd)}
-              </div>
-            )}
-          </div>
+        {/* Row 1 — the utility strip (9d). The path was already the quietest
+            line in the header, so it carries the actions without either of
+            them gaining weight, and the title gets the width back (9c,
+            DECISION). */}
+        <div className="flex h-7 items-center gap-2.5">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted">
+            {session ? shortenPath(session.cwd) : ''}
+          </span>
           {lineage && lineage.length > 0 && (
-            <span aria-label="Lineage" className="mt-1.5 flex shrink-0 items-center gap-1">
+            <span aria-label="Lineage" className="flex shrink-0 items-center gap-1">
               {lineage.map((ancestorId) => (
                 <span key={ancestorId} aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-muted" />
               ))}
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-bright" />
             </span>
-          )}
-          {/* Regenerate the name. Not on the canvas — it borrows 4b's UNPINNED
-              chrome verbatim so the header reads as one set of controls rather
-              than as a stray button. It is deliberately NOT gated on
-              `source === 'web'` the way Clear beside it is: the server names a
-              session from the transcript on disk, which a terminal session has
-              exactly like a web one. */}
-          {session && (
-            <Tooltip
-              title="Regenerate name"
-              description="Names this session from what it has actually been doing."
-              align="right"
-              delayMs={PIN_TOOLTIP_DELAY_MS}
-            >
-              <button
-                type="button"
-                aria-label="Regenerate name"
-                disabled={retitling}
-                onClick={handleRetitle}
-                className={[
-                  'grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border ease-[ease]',
-                  'transition-[background-color,border-color,color] duration-[180ms]',
-                  'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.7)]',
-                  'hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#dce8f7]',
-                  'focus-visible:border-[rgba(150,205,255,.26)] focus-visible:bg-[rgba(150,205,255,.09)] focus-visible:text-[#dce8f7]',
-                  'disabled:pointer-events-none disabled:opacity-50',
-                ].join(' ')}
-              >
-                <svg
-                  aria-hidden
-                  viewBox="0 0 24 24"
-                  width="13"
-                  height="13"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={retitling ? 'animate-spin' : undefined}
-                >
-                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1.06 6.67 2.7L21 8" />
-                  <path d="M21 3v5h-5" />
-                </svg>
-              </button>
-            </Tooltip>
           )}
           {/* 4b: the pin sits left of Clear and ×, and IS the pinned
               indicator — there is no status chip for it; the footer below
@@ -638,26 +635,119 @@ export function DetailPanel() {
               delayMs={PIN_TOOLTIP_DELAY_MS}
             >
               <PinButton
-                size={28}
+                size={24}
                 pinned={pinned}
                 onToggle={() => void setSessionPinned(session.id, !pinned)}
               />
             </Tooltip>
           )}
+          {/* Clear lost its word when it joined the strip (9d draws three
+              icons), so it gains the tooltip the pin already has — an icon
+              that wipes a conversation cannot be a guess. */}
           {session?.source === 'web' && (
-            <Button variant="ghost" size="sm" onClick={handleClearClick}>
-              Clear
-            </Button>
+            <Tooltip
+              title="Clear"
+              description="Drops the conversation and starts this session over."
+              align="right"
+              delayMs={PIN_TOOLTIP_DELAY_MS}
+            >
+              <UtilityButton aria-label="Clear" onClick={handleClearClick}>
+                <ClearGlyph />
+              </UtilityButton>
+            </Tooltip>
           )}
-          <button
-            type="button"
+          <UtilityButton
             aria-label="Close panel"
             onClick={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
-            // 28px square, 7px radius, 14px glyph (1b).
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
           >
-            ×
-          </button>
+            <CloseGlyph />
+          </UtilityButton>
+        </div>
+
+        {/* Row 2 — the title, on a line of its own (9d). At rest it is a
+            two-line clamp that ellipsises; editing swaps in the textarea it
+            grows into, which is the only way to have both (adr
+            `the-title-is-read-as-text-and-edited-as-a-field`). */}
+        <div className="mt-0.5 flex items-start gap-[7px]">
+          <div
+            className="flex min-w-0 flex-1 items-start gap-2 border-b pb-[3px]"
+            // 9e-4: focus trades the dashed rule for a solid one in the
+            // session's own accent, the same signal the caret carries.
+            style={{
+              borderBottomStyle: isEditingTitle ? 'solid' : 'dashed',
+              borderBottomColor: isEditingTitle ? accentSoft70 : 'rgba(150,205,255,.35)',
+            }}
+          >
+            {isEditingTitle ? (
+              <textarea
+                ref={titleFieldRef}
+                aria-label="Session title"
+                rows={1}
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={commitTitle}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.currentTarget.blur()
+                  }
+                }}
+                // Scrolls rather than clips past the second line: the clamp
+                // is how a title is READ, and a caret you cannot see is not a
+                // way to write one.
+                className="min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-text-bright focus:outline-none"
+                style={TITLE_TYPE}
+              />
+            ) : (
+              <button
+                type="button"
+                title="Rename this session"
+                onClick={beginTitleEdit}
+                className="min-w-0 flex-1 cursor-text text-left text-text-bright transition-opacity duration-200"
+                // 9d: the old name stays on screen at 45% while the model
+                // writes the new one, so the row neither empties nor jumps.
+                style={{ ...TITLE_TYPE, opacity: retitling ? 0.45 : 1 }}
+              >
+                {/* The clamp lives on a span, not on the button: Chrome
+                    blockifies a button's `display` to `flow-root` whatever it
+                    is set to, and `-webkit-line-clamp` needs the box it was
+                    given. */}
+                <span className="line-clamp-2 break-words">{titleDraft || UNTITLED}</span>
+              </button>
+            )}
+            <span
+              aria-hidden
+              className="mt-1 shrink-0 text-xs"
+              style={{ color: isEditingTitle ? 'rgba(160,190,225,.35)' : 'rgba(160,190,225,.6)' }}
+            >
+              ✎
+            </span>
+          </div>
+          {/* Regenerate the name. It stays attached to the TITLE rather than
+              to the session actions above (9a's BEHAVIOUR + RULES) — it is
+              the one control that rewrites the thing next to it. Deliberately
+              NOT gated on `source === 'web'` the way Clear is: the server
+              names a session from the transcript on disk, which a terminal
+              session has exactly like a web one. */}
+          {session && (
+            <Tooltip
+              title="Regenerate name"
+              description="Names this session from what it has actually been doing."
+              align="right"
+              delayMs={PIN_TOOLTIP_DELAY_MS}
+            >
+              <UtilityButton
+                variant="title"
+                className="mt-0.5"
+                active={retitling}
+                disabled={retitling}
+                aria-label="Regenerate name"
+                onClick={handleRetitle}
+              >
+                <RefreshGlyph spinning={retitling} />
+              </UtilityButton>
+            </Tooltip>
+          )}
         </div>
 
         {session && (
@@ -697,6 +787,11 @@ export function DetailPanel() {
                 value={session.status}
                 hue={headerHue}
                 interrupted={Boolean(session.interruptedAt)}
+                awaiting={awaitingSubagentCount(session)}
+                // The panel has the live question in the store as well as on
+                // the snapshot, and the store's copy is the fresher of the
+                // two — it hears `decision_pending` directly.
+                parked={parkedLabel({ pendingDecision: pendingDecision ?? session.pendingDecision })}
               />
             </div>
 

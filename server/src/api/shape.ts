@@ -63,6 +63,17 @@ export interface ApiSession {
   interruptedAt: number | null;
   tagIds: number[];
   status: SessionStatus;
+  /**
+   * `working`, but only because of `subagents`: the session's own turn ended
+   * and it is now waiting for what it launched, which the CLI will hand back
+   * without the human touching anything. Always false when `status` is
+   * anything but `working`, and for every session orbital does not run.
+   *
+   * A flag rather than a fifth `SessionStatus`: the map's four states are a
+   * visual vocabulary (size tier, ring, core, counts) and this changes none
+   * of them — it changes the label, the way `interruptedAt` does.
+   */
+  awaitingSubagents: boolean;
   /** Subagents running in this session right now; empty for everything else. */
   subagents: SubagentInfo[];
   /**
@@ -103,6 +114,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     interruptedAt: row.interrupted_at,
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
+    awaitingSubagents: ctx.runner.awaitingSubagents(row.id),
     subagents: ctx.subagents.get(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
   };

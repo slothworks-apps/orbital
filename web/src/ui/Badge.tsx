@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { tagColor } from '../lib/types'
+import { awaitingSubagentLabel, tagColor } from '../lib/types'
 import type { SessionStatus } from '../lib/types'
 
 export type BadgeProps =
@@ -16,6 +16,23 @@ export type BadgeProps =
        * and drops the blinking dot — nothing is happening; something stopped.
        */
       interrupted?: boolean
+      /**
+       * How many subagents this session is waiting on, when that is the only
+       * reason it is working (`awaitingSubagentCount`). A modifier on
+       * `working` for the same reason `interrupted` is one on `needs_input`:
+       * the state is right, and this says what is filling it. It keeps the
+       * working chip's tint and its blinking dot — something IS happening,
+       * just not here.
+       */
+      awaiting?: number
+      /**
+       * What a `needs_input` chip should say (`parkedLabel`): NEEDS INPUT
+       * when something is actually parked on the human, DONE when the turn
+       * merely finished. Ignored for every other status. Absent, the chip
+       * keeps the blunt NEEDS INPUT — the answer for a caller that has no
+       * session to ask, such as a legend.
+       */
+      parked?: string
     }
   | { variant: 'count'; value: number; label?: string }
   | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
@@ -34,7 +51,7 @@ const baseClass =
 
 export function Badge(props: BadgeProps) {
   if (props.variant === 'status') {
-    const { value, hue, interrupted } = props
+    const { value, hue, interrupted, awaiting = 0, parked } = props
     const busy = value === 'working' || value === 'needs_input'
     // The interrupted chip keeps needs-input's white treatment (which is what
     // `tint === undefined` selects below), so the hue tint is dropped along
@@ -63,7 +80,7 @@ export function Badge(props: BadgeProps) {
     return (
       <span
         data-variant="status"
-        data-status={interrupted ? 'interrupted' : value}
+        data-status={interrupted ? 'interrupted' : awaiting > 0 ? 'awaiting_subagents' : value}
         style={style}
         className={`${baseClass} ${tint ? '' : stateClass}`}
       >
@@ -74,7 +91,13 @@ export function Badge(props: BadgeProps) {
             style={{ background: tint ?? 'currentColor', boxShadow: tint ? `0 0 8px ${tint}` : undefined }}
           />
         )}
-        {interrupted ? 'INTERRUPTED' : statusLabel[value]}
+        {interrupted
+          ? 'INTERRUPTED'
+          : awaiting > 0
+            ? awaitingSubagentLabel(awaiting)
+            : value === 'needs_input' && parked
+              ? parked
+              : statusLabel[value]}
       </span>
     )
   }

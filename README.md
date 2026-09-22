@@ -118,6 +118,22 @@ npm run typecheck -w web
 npm run build -w web
 ```
 
+## Lint and format
+
+One flat ESLint config at the root covers all three workspaces; Prettier
+formats and is not wired into ESLint
+([`docs/decisions/eslint-and-prettier-side-by-side.md`](docs/decisions/eslint-and-prettier-side-by-side.md)).
+
+```bash
+npm run lint              # eslint, type-aware, whole repo
+npm run lint:fix          # the autofixable subset
+npm run format            # prettier --write
+npm run format:check      # prettier --check
+```
+
+The repository has not been formatted yet, so `format:check` fails until
+someone runs `npm run format` and commits the result on its own.
+
 ## Billing
 
 A session you spawn or continue from Orbital's web UI runs through the

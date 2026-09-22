@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { recordedFailureFor, useOrbital } from '../store/store'
 import type { ChatMessage } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { Button } from '../ui/Button'
+import { usePresence } from '../ui/usePresence'
+import {
+  compensatePrepend,
+  createScroller,
+  enteringKeys,
+  isNearBottom,
+  type Scroller,
+} from './transcriptMotion'
 import { MessageView } from './MessageView'
 import { QuestionCard } from './QuestionCard'
 import { ToolRow, salientInput } from './ToolRow'
@@ -175,34 +183,6 @@ export function openToolUse(messages: ChatMessage[]): ChatMessage | undefined {
   return undefined
 }
 
-/** Minimal shape `isNearBottom` needs from a scroll container — lets tests
- * inject fixture values, since jsdom never computes real scroll metrics. */
-export interface ScrollMetrics {
-  scrollTop: number
-  scrollHeight: number
-  clientHeight: number
-}
-
-/** True when the bottom of the scrollable content is within `threshold`
- * pixels of the current scroll position. */
-export function isNearBottom(el: ScrollMetrics, threshold = 80): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
-}
-
-/**
- * Scroll offset that keeps the same content anchored under the viewport
- * after older content was prepended above it (which grows `scrollHeight`
- * out from under a `scrollTop` that hasn't moved, visually yanking
- * whatever the user was reading downward). Pure arithmetic, factored out
- * so it's testable without a real DOM: the container grew by
- * `newHeight - prevHeight` pixels, all of it above the old content, so
- * `scrollTop` needs to grow by exactly that much to keep the same pixel
- * under the viewport's top edge.
- */
-export function compensatePrepend(prevHeight: number, newHeight: number, scrollTop: number): number {
-  return scrollTop + (newHeight - prevHeight)
-}
-
 export interface TranscriptProps {
   sessionId: string
 }
@@ -220,31 +200,60 @@ export interface TranscriptProps {
  * `scrollTop` to keep the reader's position visually anchored.
  */
 /**
+ * How long a run takes to fold or unfold. Matches the caret's rotation rather
+ * than `ui/motion.ts`'s shorter-exit pair: the caret and the stack are one
+ * gesture, and a stack that closes faster than the arrow turning above it
+ * reads as two things happening instead of one.
+ */
+const FOLD_MS = 160
+
+/**
  * A folded run of 2+ consecutive tool calls (canvas 6b). Folded is the
  * default; a run containing a failed call defaults OPEN and its right slot
  * says `n failed`; a live run stays folded with only its one unfinished
  * call visible beneath the header — the run's leading edge, not a child.
  * The right slot holds one value at a time: `running`, `n failed`, or (on
  * hover) the verb. `toggled` is the user's explicit choice and always wins.
+ *
+ * The stack travels on `grid-template-rows: 0fr -> 1fr`, which is the one way
+ * to transition to a height nobody has measured. `usePresence` keeps it
+ * mounted for the closing pass and then removes it, so a folded run holds no
+ * rows — neither for a screen reader nor for a `Cmd-F`.
  */
 function ToolRunGroup({
   items,
   toggled,
   onToggle,
+  onHeightSettled,
 }: {
   items: Extract<TranscriptItem, { kind: 'tool' }>[]
   toggled: boolean | undefined
   onToggle: (next: boolean) => void
+  onHeightSettled: () => void
 }) {
   const summary = summarizeToolRun(items)
   const unfinished = items.find((item) => !item.toolResult)
   const failed = items.filter((item) => item.toolResult?.isError).length
-  const open = toggled ?? failed > 0
+
+  // The default is decided once, on this group's first render, and then left
+  // alone. Recomputing it meant a call that failed WHILE you were reading
+  // threw the run open under your eyes and shoved everything below it down
+  // the page — the single largest unasked-for jump in the transcript. A run
+  // whose failure is already in the history when it first renders (a reload,
+  // scrolling back) still opens, which is what the spec asks for; what stops
+  // is the live flip. The failure is not lost meanwhile — the right slot says
+  // `n failed` either way. The group's key is its first message id, so this
+  // ref survives every append to the run.
+  const defaultOpen = useRef<boolean | null>(null)
+  if (defaultOpen.current === null) defaultOpen.current = failed > 0
+
+  const open = toggled ?? defaultOpen.current
+  const stack = usePresence(open, FOLD_MS, FOLD_MS)
   const rightSlot = unfinished ? 'running' : failed > 0 ? `${failed} failed` : ''
   const liveLabel = unfinished ? salientInput(unfinished.toolUse.toolName, unfinished.toolUse.toolInput) : ''
 
   return (
-    <div data-tool-run data-folded={!open} className="flex flex-col gap-1">
+    <div data-tool-run data-folded={!open} className="flex flex-col">
       <button
         type="button"
         onClick={() => onToggle(!open)}
@@ -281,16 +290,40 @@ function ToolRunGroup({
         </span>
       </button>
 
-      {open ? (
-        items.map((item) => (
-          <ToolRow key={item.key} toolUse={item.toolUse} toolResult={item.toolResult} />
-        ))
+      {stack.mounted ? (
+        <div
+          className={[
+            'grid motion-safe:transition-[grid-template-rows] motion-safe:duration-[160ms]',
+            'motion-safe:ease-[cubic-bezier(.2,.8,.2,1)]',
+            stack.state === 'entered' ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+          ].join(' ')}
+          // Only this element's own height settling counts — a `ToolRow`'s
+          // hover transition bubbles up here too and means nothing to the
+          // scroll position.
+          onTransitionEnd={(e) => {
+            if (e.target === e.currentTarget && e.propertyName === 'grid-template-rows') onHeightSettled()
+          }}
+        >
+          {/* `min-h-0` is what lets the 0fr row actually collapse: a grid item
+              floors at its content's min-content height without it. */}
+          <div className="min-h-0 overflow-hidden">
+            {/* The run's 4px stack and its gap below the header both live
+                inside the clip, so a folded run leaves no orphaned gap. */}
+            <div className="flex flex-col gap-1 pt-1">
+              {items.map((item) => (
+                <ToolRow key={item.key} toolUse={item.toolUse} toolResult={item.toolResult} />
+              ))}
+            </div>
+          </div>
+        </div>
       ) : unfinished ? (
         // The live row: a plain trace with its caret slot left EMPTY — it
         // isn't openable yet — and the ⚙ blinking at the WORKING tempo.
+        // Gated on `mounted`, not on `open`, so it doesn't stand alongside a
+        // copy of itself in the stack that is still closing.
         <div
           data-live-tool
-          className="flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono text-[11.5px] text-[rgba(200,220,245,.8)]"
+          className="mt-1 flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono text-[11.5px] text-[rgba(200,220,245,.8)]"
         >
           <span aria-hidden className="w-2" />
           <span aria-hidden className="orbital-pulse text-[rgba(160,190,225,.6)]">⚙</span>
@@ -339,14 +372,20 @@ export function Transcript({ sessionId }: TranscriptProps) {
   // window the paired rows — never the other way around.
   const pairedAll = useMemo(() => pairMessages(messages), [messages])
   const items = useMemo(() => pairedAll.slice(-visibleCount), [pairedAll, visibleCount])
+  const groups = useMemo(() => insertModelDividers(groupToolRuns(items)), [items])
 
   const containerRef = useRef<HTMLDivElement>(null)
+  const scrollerRef = useRef<Scroller | null>(null)
   // Tracks whether the viewport was near the bottom, kept fresh by the
   // scroll listener below. Read (not recomputed) by the auto-scroll effect,
   // since by the time that effect runs the new content has already grown
   // scrollHeight — checking "near bottom" post-append would always read as
   // "not near bottom" for a container that hadn't scrolled yet.
   const stickToBottomRef = useRef(true)
+  // Arriving at a session — and the first paint of any session — lands at the
+  // bottom with no animation. Easing down through a whole backlog would read
+  // as the view running away, and there is nothing along the way to see.
+  const jumpNextRef = useRef(true)
   // Explicit "a prepend is about to land" signal, set by handleLoadOlder
   // right before it awaits loadOlder and consumed (cleared) by the layout
   // effect below. This is deliberately NOT inferred from `items[0]`
@@ -357,25 +396,51 @@ export function Transcript({ sessionId }: TranscriptProps) {
   // viewport) on a bottom append, yanking the view for anyone reading
   // scrollback during a long streaming session.
   const prependPendingRef = useRef(false)
-  // The container's scrollHeight as of the end of the last layout effect
-  // run, used to compute how much a pending prepend grew the content by.
-  const prevHeightRef = useRef(0)
+  // The container's scrollHeight at the moment "Load older" was clicked,
+  // which is what a landing prepend has to be measured against. Captured
+  // there rather than carried forward from the last render, because plenty
+  // changes the height without changing `items` at all — folding a run,
+  // an image finishing its load — and a carried-forward value would have the
+  // compensation below correct by the wrong number of pixels.
+  const heightBeforePrependRef = useRef(0)
+
+  // The previous render's keys, for deciding which rows just arrived — tagged
+  // with the session they belong to, because the comparison happens during
+  // render and a layout effect would clear them a beat too late: the first
+  // render after a switch would diff the new session's backlog against the
+  // old session's keys and light the whole thing up.
+  const seenRef = useRef<{ sessionId: string; keys: string[] } | null>(null)
 
   useLayoutEffect(() => {
     setExhausted(false)
     setVisibleCount(MAX_VISIBLE_MESSAGES)
     prependPendingRef.current = false
-    prevHeightRef.current = 0
+    heightBeforePrependRef.current = 0
+    stickToBottomRef.current = true
+    jumpNextRef.current = true
+    scrollerRef.current?.cancel()
   }, [sessionId])
 
-  useEffect(() => {
+  // A layout effect, and declared above the auto-scroll one, so the scroller
+  // exists before the first paint's scroll-to-bottom needs it.
+  useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) return
+    const scroller = createScroller(el)
+    scrollerRef.current = scroller
     const onScroll = () => {
-      stickToBottomRef.current = isNearBottom(el)
+      // Positions the scroller itself produced say nothing about where the
+      // reader wants to be: mid-flight it is by definition not at the bottom
+      // yet, and believing that would un-stick the container halfway through
+      // its own scroll.
+      if (!scroller.isAnimating()) stickToBottomRef.current = isNearBottom(el)
     }
     el.addEventListener('scroll', onScroll)
-    return () => el.removeEventListener('scroll', onScroll)
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      scroller.destroy()
+      scrollerRef.current = null
+    }
   }, [])
 
   // NOTE: the branching below (prepend-compensation vs stick-to-bottom) is
@@ -389,10 +454,15 @@ export function Transcript({ sessionId }: TranscriptProps) {
     if (!el) return
 
     if (prependPendingRef.current) {
-      el.scrollTop = compensatePrepend(prevHeightRef.current, el.scrollHeight, el.scrollTop)
+      // Anchoring is a correction, not a move: it puts the reader back where
+      // they already were, so it has to be instant. Any scroll still in
+      // flight is cancelled first — it was aiming at a bottom that the
+      // prepend has just moved.
+      scrollerRef.current?.cancel()
+      el.scrollTop = compensatePrepend(heightBeforePrependRef.current, el.scrollHeight, el.scrollTop)
       prependPendingRef.current = false
     } else if (stickToBottomRef.current) {
-      el.scrollTop = el.scrollHeight
+      scrollerRef.current?.toBottom({ instant: jumpNextRef.current })
     }
     // else: an `items` change that's neither a pending prepend nor while
     // stuck to the bottom — e.g. a WS append evicting the window's oldest
@@ -401,12 +471,42 @@ export function Transcript({ sessionId }: TranscriptProps) {
     // applying prepend-style compensation here would be the exact
     // misclassification this ref exists to avoid.
 
-    prevHeightRef.current = el.scrollHeight
+    jumpNextRef.current = false
   }, [items])
+
+  /**
+   * Re-reads whether the reader is at the bottom after something changed the
+   * content's height without moving the scrollbar — folding a run is the one
+   * that matters. Expanding a run at the bottom of the transcript pushes the
+   * bottom away without firing a `scroll` event, so without this the
+   * container still believes it is stuck and the next message yanks the view
+   * down. Called when the fold animation settles, and again on the toggle
+   * itself for the reduced-motion path, where there is no animation to end.
+   */
+  const refreshStick = useCallback(() => {
+    const el = containerRef.current
+    if (el && !scrollerRef.current?.isAnimating()) stickToBottomRef.current = isNearBottom(el)
+  }, [])
+
+  useLayoutEffect(() => {
+    refreshStick()
+  }, [runToggles, refreshStick])
+
+  // Derived in a memo rather than during render so StrictMode's second pass
+  // can't consume the arrivals before the first one has painted them; the
+  // layout effect below is what moves the window forward, once per commit.
+  const entering = useMemo(() => {
+    const prev = seenRef.current?.sessionId === sessionId ? seenRef.current.keys : null
+    return new Set(enteringKeys(prev, groups.map((g) => g.key)))
+  }, [groups, sessionId])
+  useLayoutEffect(() => {
+    seenRef.current = { sessionId, keys: groups.map((g) => g.key) }
+  }, [groups, sessionId])
 
   const handleLoadOlder = useCallback(async () => {
     if (loadingOlder) return
     setLoadingOlder(true)
+    heightBeforePrependRef.current = containerRef.current?.scrollHeight ?? 0
     prependPendingRef.current = true
     try {
       const fetched = await loadOlder(sessionId)
@@ -443,13 +543,27 @@ export function Transcript({ sessionId }: TranscriptProps) {
           </Button>
         </div>
       )}
-      {insertModelDividers(groupToolRuns(items)).map((group, index, groups) =>
-        group.kind === 'model-divider' ? (
+      {groups.map((group, index, all) => (
+        // One wrapper per group, unconditionally — the entrance belongs to
+        // the transcript (it is the transcript that knows what just arrived),
+        // not to four different row components, and a wrapper that came and
+        // went with the animation would remount the row underneath it.
+        //
+        // `shrink-0` because this is now the flex item, and the flex item is
+        // what the column crushes when its content overflows. `QuestionCard`
+        // carries the same class and the comment explaining it (it rendered
+        // 2px tall — its borders — without it); here it covers every row
+        // kind, which is what the container wanted all along. jsdom cannot
+        // catch this; only the browser can.
+        <div
+          key={group.key}
+          className={['shrink-0', entering.has(group.key) ? 'orbital-row-enter' : ''].join(' ')}
+        >
+        {group.kind === 'model-divider' ? (
           // Canvas 4a "Transcript model divider": 9.5px mono, .14em tracking,
           // a hairline on each side, sitting in the transcript's own 14px
           // row rhythm like any other group.
           <div
-            key={group.key}
             data-model-divider
             className="flex items-center gap-2.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]"
           >
@@ -468,7 +582,6 @@ export function Transcript({ sessionId }: TranscriptProps) {
           </div>
         ) : group.kind === 'question' ? (
           <QuestionCard
-            key={group.key}
             sessionId={sessionId}
             toolUse={group.item.toolUse}
             toolResult={group.item.toolResult}
@@ -476,29 +589,29 @@ export function Transcript({ sessionId }: TranscriptProps) {
         ) : group.kind === 'tools' ? (
           group.items.length === 1 ? (
             // A lone call is not a run — no header, today's row (canvas 6b A).
-            <div key={group.key} data-tool-run className="flex flex-col gap-1">
+            <div data-tool-run className="flex flex-col gap-1">
               <ToolRow toolUse={group.items[0].toolUse} toolResult={group.items[0].toolResult} />
             </div>
           ) : (
             <ToolRunGroup
-              key={group.key}
               items={group.items}
               toggled={runToggles[group.key]}
               onToggle={(next) => setRunToggles((t) => ({ ...t, [group.key]: next }))}
+              onHeightSettled={refreshStick}
             />
           )
         ) : (
           <MessageView
-            key={group.key}
             message={group.item.message}
             streaming={
               isWorking &&
-              index === groups.length - 1 &&
+              index === all.length - 1 &&
               group.item.message.role === 'assistant'
             }
           />
-        )
-      )}
+        )}
+        </div>
+      ))}
       {(recorded || hasError) && (
         <div
           role="alert"

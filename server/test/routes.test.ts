@@ -78,6 +78,9 @@ function makeApp() {
   const sendCalls: any[] = [];
   const runner = {
     status: () => undefined, active: () => [],
+    // Nothing is out working for any of these by default — see
+    // `Runner.awaitingSubagents`.
+    awaitingSubagents: (_id: string) => false,
     start: async (body: any) => { startCalls.push(body); return 'web-9'; },
     send: (id: string, text: string, attachments?: string[]): void => {
       sendCalls.push({ id, text, attachments });

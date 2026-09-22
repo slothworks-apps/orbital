@@ -243,7 +243,7 @@ function SourceBody({
                 <span className="whitespace-pre pl-[18px] pr-5 text-[rgba(214,230,248,.9)]">
                   {tokens
                     ? tokens[index].map((token, tokenIndex) => (
-                        // eslint-disable-next-line react/no-array-index-key -- static token list
+                        // A static token list: the index is a stable key.
                         <span key={tokenIndex} style={token.color ? { color: token.color } : undefined}>
                           {token.content}
                         </span>

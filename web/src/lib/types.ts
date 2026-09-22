@@ -61,6 +61,16 @@ export interface ApiSession {
   interruptedAt?: number | null;
   tagIds: number[];
   status: SessionStatus;
+  /**
+   * `working`, but only because of `subagents`: the session's own turn is
+   * over and it is waiting for what it launched, which comes back without the
+   * human doing anything. The readout says `WAITING FOR AGENT` rather than
+   * counting it as a fifth state — see `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `interruptedAt`: absent and false
+   * mean the same thing to every reader.
+   */
+  awaitingSubagents?: boolean;
   /** Subagents running in this session right now — the map's moons. */
   subagents: Subagent[];
   /**
@@ -243,6 +253,50 @@ export interface Subagent {
 }
 
 export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`;
+
+/**
+ * How many of a session's subagents are still out working, when that is the
+ * ONLY reason the session is busy — zero whenever the session is doing
+ * something of its own, or is not working at all.
+ *
+ * `awaitingSubagents` is the server's judgement (it alone can see the main
+ * loop's turn boundaries); the count comes off the moons the map is already
+ * drawing, so the readout and the orbit can never disagree about how many.
+ */
+export function awaitingSubagentCount(
+  session: Pick<ApiSession, 'status' | 'awaitingSubagents' | 'subagents'>
+): number {
+  if (session.status !== 'working' || !session.awaitingSubagents) return 0;
+  return session.subagents.filter((agent) => agent.state !== 'ended').length;
+}
+
+/**
+ * The readout for a session that is only waiting on what it launched. One
+ * wording, shared by the map's pill and the panel's chip — the moons carry
+ * the count, so the label only has to get the grammar right.
+ */
+export const awaitingSubagentLabel = (count: number): string =>
+  count === 1 ? 'WAITING FOR AGENT' : 'WAITING FOR AGENTS';
+
+/**
+ * What a `needs_input` session actually wants, in a word.
+ *
+ * `needs_input` covers two situations the server cannot tell apart with a
+ * status, because the CLI parks on stdin for both: it asked something and is
+ * blocked on the answer (`pendingDecision` — a permission request or an
+ * `AskUserQuestion`), or it simply finished its turn and the next move is
+ * yours. Only the first is anyone being *waited for*, so only the first says
+ * NEEDS INPUT; a session that is merely done says DONE.
+ *
+ * DONE, not ENDED: `ended` already means the session itself is over. This one
+ * is alive and can be written to.
+ *
+ * Reads the snapshot's `pendingDecision`, which the server republishes on both
+ * edges of a park precisely so the map — where nothing is selected and the
+ * `decision_pending` event is never heard — can answer this too.
+ */
+export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision'>): string =>
+  session.pendingDecision ? 'NEEDS INPUT' : 'DONE';
 
 /**
  * True for a session Orbital does not own: one it indexed from another

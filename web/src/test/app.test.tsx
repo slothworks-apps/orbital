@@ -488,7 +488,9 @@ describe('App: session in the URL', () => {
     await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('deep'))
     // The panel opens on it, and the URL is left exactly as it was found —
     // the entry the user landed on, not a step they took.
-    expect(await screen.findByDisplayValue('Deep linked')).toBeInTheDocument()
+    // The panel's own title, not the sidebar row of the same name — at rest
+    // it is a clamp that opens the field (canvas `Feature - Detail header` 9e).
+    expect(await screen.findByTitle('Rename this session')).toHaveTextContent('Deep linked')
     expect(window.location.search).toBe('?session=deep')
   })
 

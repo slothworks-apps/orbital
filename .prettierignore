@@ -1,0 +1,7 @@
+dist/
+node_modules/
+coverage/
+server/drizzle/
+desktop/release/
+design/
+package-lock.json

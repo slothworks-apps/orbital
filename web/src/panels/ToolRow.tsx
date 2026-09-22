@@ -83,7 +83,7 @@ function InputJson({ input }: { input: unknown }) {
           }
           if (path !== null && hasTextExtension(path)) {
             return (
-              // eslint-disable-next-line react/no-array-index-key -- static line list
+              // A static line list: the index is a stable key.
               <span key={index}>
                 {match[1]}
                 <PathButton path={path} variant="input" />
@@ -93,7 +93,7 @@ function InputJson({ input }: { input: unknown }) {
             )
           }
         }
-        // eslint-disable-next-line react/no-array-index-key -- static line list
+        // A static line list: the index is a stable key.
         return <span key={index}>{line + trailing}</span>
       })}
     </pre>
@@ -235,7 +235,7 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
               ) : toolUse.toolName === 'Bash' ? (
                 <pre
                   className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]"
-                  // eslint-disable-next-line react/no-danger -- ansiToHtml escapes its input before colorizing
+                  // `ansiToHtml` escapes its input before colorizing.
                   dangerouslySetInnerHTML={{ __html: ansiToHtml(toolResult.text ?? '') }}
                 />
               ) : (

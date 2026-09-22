@@ -3,6 +3,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
+import { awaitingSubagentCount, awaitingSubagentLabel, parkedLabel } from '../lib/types'
 import {
   BODY_RADIUS,
   CONTEXT_GAUGE_OUTER,
@@ -762,11 +763,14 @@ function StatePill({
   pulse,
   innerRef,
   clearsGauge,
+  initialOpacity,
 }: {
   label: string
   pulse: boolean
   innerRef: RefObject<HTMLSpanElement | null>
   clearsGauge: boolean
+  /** Where the fade stands at mount — see the `opacity` line below. */
+  initialOpacity: number
 }) {
   // zIndexRange keeps map text under the z-10 side panels and z-50 dialogs
   // (drei's default range is in the millions).
@@ -795,7 +799,18 @@ function StatePill({
           letterSpacing: '0.1em',
           color: '#fff',
           whiteSpace: 'nowrap',
-          opacity: 0,
+          // Where the fade stands right now, exactly like the label's own
+          // seed — and for a sharper reason. `applyState` is the only thing
+          // that writes this opacity, and it runs while the state mix is
+          // MOVING plus one settled frame; a planet that mounts already in
+          // `needs_input` therefore gets a single pass at it. `<Html>`
+          // renders its children through a React root of its own
+          // (`ReactDOM.createRoot(...).render()` in a layout effect), which
+          // commits a tick late, so on that one frame `innerRef` is still
+          // null — and a hardcoded 0 here left the pill invisible for the
+          // rest of the session
+          // (fix `needs-input-pill-never-fades-in-on-a-settled-planet`).
+          opacity: initialOpacity,
         }}
       >
         {pulse && (
@@ -995,7 +1010,43 @@ export function Planet({
   // leaves while the ring is still faintly visible — a pop at the end of the
   // exit, which is the thing the exit exists to avoid.
   const reticleMounted = useLingering(selected, RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS)
-  const needsInputMounted = useLingering(session.status === 'needs_input', STATE_TRANSITION_MS)
+
+  /**
+   * The state pill and what it says, or null for a planet that needs none.
+   *
+   * Four answers compete for one pill, most specific first. INTERRUPTED,
+   * NEEDS INPUT and DONE are all a stopped session, told apart by WHY it
+   * stopped (`parkedLabel`); `WAITING FOR AGENT` is the opposite — a
+   * `working` planet whose work is all happening in its moons, labelled so
+   * the map does not read as "something is going on here" when the only thing
+   * going on is out in orbit.
+   */
+  const awaitingAgents = awaitingSubagentCount(session)
+  const pillLabel = session.interruptedAt
+    ? 'INTERRUPTED'
+    : session.status === 'needs_input'
+      ? parkedLabel(session)
+      : awaitingAgents > 0
+        ? awaitingSubagentLabel(awaitingAgents)
+        : null
+  /**
+   * The pill's own fade, rather than a weight read off the state mix.
+   *
+   * It has to be independent of `applyState`, which runs only while the mix
+   * is MOVING (plus one settled frame): a planet that mounts already parked
+   * got exactly one pass at it, and `<Html>` commits its children through a
+   * React root of its own a tick later, so the ref was still null on that
+   * frame and the pill stayed at `opacity: 0` for good
+   * (fix `needs-input-pill-never-fades-in-on-a-settled-planet`). It also
+   * spans two different states now — needs-input and a working planet
+   * waiting on its agents — which no single weight can express.
+   */
+  const pillFade = useFadeTween(pillLabel !== null, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
+  const pillMounted = useLingering(pillLabel !== null, STATE_TRANSITION_MS)
+  /** The last label it had, so a pill on its way out fades with its own word. */
+  const lastPillLabel = useRef(pillLabel)
+  if (pillLabel) lastPillLabel.current = pillLabel
+  const shownPillLabel = pillLabel ?? lastPillLabel.current
 
   /**
    * The context gauge (artboard 1i). `contextFill` going null — the session
@@ -1009,11 +1060,11 @@ export function Planet({
   const gaugeFade = useFadeTween(contextFill !== null, CONTEXT_FADE_MS, CONTEXT_FADE_MS)
   const shownFill = contextFill ?? lastFill.current
   /**
-   * The `/compact` pill. Never at the same time as the needs-input one —
-   * that pill sits in the same corner and answers a more urgent question, so
-   * it wins outright, including while it is fading away.
+   * The `/compact` pill. Never at the same time as the state one — that pill
+   * sits in the same corner and answers a more urgent question, so it wins
+   * outright, including while it is fading away.
    */
-  const compactDue = showCompactBadge && contextFill?.level === 'critical' && !needsInputMounted
+  const compactDue = showCompactBadge && contextFill?.level === 'critical' && !pillMounted
   const compactMounted = useLingering(compactDue, STATE_TRANSITION_MS)
   const compactFade = useFadeTween(compactDue, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
   /**
@@ -1187,7 +1238,6 @@ export function Planet({
     materials.core.color.copy(hueC).lerp(WHITE_COLOR, w.needs_input)
     if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
 
-    if (badgeRef.current) badgeRef.current.style.opacity = String(w.needs_input * fade)
     // The label is plain DOM: `group.visible = false` hides the meshes under
     // it but says nothing about a portalled `<Html>`, so the fade has to be
     // written onto the span itself (and the span unmounted once it is out —
@@ -1254,9 +1304,18 @@ export function Planet({
       // paying for a dozen invisible meshes every frame.
       groupRef.current.visible = hide.opacity > 0.001
     }
-    // The `/compact` pill is plain DOM, like the needs-input one: its fade
-    // has to be written before the early return below, or a planet on its
-    // way out would leave the pill hanging at full strength.
+    // Both pills are plain DOM, and both are written before the early return
+    // below, or a planet on its way out would leave one hanging at full
+    // strength. Written on EVERY frame they are mounted — not from
+    // `applyState`, which stops as soon as the state mix settles and whose
+    // one pass at a freshly mounted planet lands before `<Html>` has
+    // committed the node to write to.
+    if (pillMounted) {
+      advanceTween(pillFade, delta)
+      if (badgeRef.current) {
+        badgeRef.current.style.opacity = String(pillFade.value * hide.opacity)
+      }
+    }
     if (compactMounted) {
       advanceTween(compactFade, delta)
       if (compactBadgeRef.current) {
@@ -1482,15 +1541,16 @@ export function Planet({
         />
       )}
 
-      {needsInputMounted && (
-        // An interrupted session is also waiting for input, so the two
-        // compete for the one pill. INTERRUPTED wins while the mark is set:
-        // it is the rarer answer and it says why the session is waiting.
+      {pillMounted && shownPillLabel && (
         <StatePill
-          label={session.interruptedAt ? 'INTERRUPTED' : 'NEEDS INPUT'}
+          label={shownPillLabel}
+          // Nothing is happening on an interrupted planet — something
+          // stopped. The other two are both live in their own way: one is
+          // asking, one is listening for its agents.
           pulse={!session.interruptedAt}
           innerRef={badgeRef}
           clearsGauge={gaugeMounted && shownFill !== null}
+          initialOpacity={pillFade.value * endedHideTransform(hideFade.value).opacity}
         />
       )}
 

@@ -2,7 +2,11 @@
   "name": "orbital",
   "private": true,
   "type": "module",
-  "workspaces": ["server", "web", "desktop"],
+  "workspaces": [
+    "server",
+    "web",
+    "desktop"
+  ],
   "scripts": {
     "dogfood": "npm run build -w server && npm run build -w web && ORBITAL_STATIC_DIR=\"$PWD/web/dist\" ORBITAL_MIGRATIONS_DIR=\"$PWD/server/drizzle\" node server/dist/index.mjs",
     "dev": "concurrently -n server,web -c blue,magenta \"npm run dev:server\" \"npm run dev:web\"",
@@ -11,10 +15,22 @@
     "dev:web": "ORBITAL_PORT=4838 npm run dev -w web",
     "dev:desktop": "ORBITAL_PORT=4838 npm run dev -w desktop",
     "desktop:release": "npm run build -w server && npm run build -w web && npm run dist -w desktop",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "npm test -w server && npm run test:run -w web && npm test -w desktop",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web && npm run typecheck -w desktop"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.1.0",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.8",
+    "typescript-eslint": "^8.70.1"
   }
 }

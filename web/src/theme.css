@@ -136,6 +136,26 @@ body {
   animation: orbital-caret 1s steps(1) infinite;
 }
 
+/* The detail header's regenerate ring while a name is being written
+   (`Feature - Detail header` 9c/9d, from the export's `orb-spin`). A touch
+   quicker than a generic spinner, because it stands for one model call that
+   is expected back rather than for an open-ended wait. */
+@keyframes orbital-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.orbital-spin {
+  animation: orbital-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-spin {
+    animation: none;
+  }
+}
+
 /* File viewer loading skeleton (canvas 8d-A): a highlight layer sweeping
    across each bar once per 1.4s cycle, staggered 100ms per bar. */
 @keyframes orbital-sweep {
@@ -296,6 +316,39 @@ body {
    logic, which already says "never steal scroll from someone reading". */
 .orbital-card-in {
   animation: orbital-fade-in 0.18s ease;
+}
+
+/* Any transcript row arriving at the bottom. The scroll that follows the new
+   message already carries most of the motion — the reader watches the
+   previous turn rise and the new one come up from the bottom edge — so this
+   is deliberately slight. What it is really for is the case the scroll cannot
+   cover: a transcript shorter than its viewport, where there is no scrolling
+   to do and a message would otherwise simply blink into existence.
+
+   The height is NOT animated, on purpose. A row that grows from nothing
+   reflows its own text while you are reading it, and it moves the bottom that
+   the scroller is easing toward, from both ends at once. Which rows count as
+   arriving is `transcriptMotion.ts`'s `enteringKeys` — not every row that is
+   new to the DOM (a "load older" page is new too, and must not light up). */
+@keyframes orbital-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.orbital-row-enter {
+  animation: orbital-row-enter 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-row-enter {
+    animation: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

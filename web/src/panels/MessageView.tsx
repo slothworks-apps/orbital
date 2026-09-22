@@ -43,7 +43,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     return (
       <div
         className="overflow-x-auto rounded-md text-xs [&_pre]:p-3"
-        // eslint-disable-next-line react/no-danger -- shiki output is trusted-safe HTML
+        // Shiki output is trusted-safe HTML.
         dangerouslySetInnerHTML={{ __html: html }}
       />
     )

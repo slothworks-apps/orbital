@@ -310,7 +310,6 @@ export function Settings({ open, onClose }: SettingsProps) {
     // `settings` deliberately absent: this reseeds per visit, and reading it
     // through `getState` keeps a PATCH landing mid-visit from yanking the
     // user out of the section they are looking at.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   useEffect(() => {

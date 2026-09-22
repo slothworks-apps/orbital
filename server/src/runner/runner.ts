@@ -273,6 +273,14 @@ interface ManagedSession {
    * turn before it.
    */
   lastCall: number | null;
+  /**
+   * Whether the CLI's main loop has finished the turn it was last seen
+   * running — the `result` edge, kept rather than acted on directly because
+   * a finished turn is only *half* of "this session wants you". The other
+   * half is whether anything it launched is still running; `settleStatus()`
+   * is what puts the two together.
+   */
+  turnEnded: boolean;
   idleTimer: ReturnType<typeof setTimeout> | null;
   attempt: SessionAttempt;
   /** The session's command list once asked for (or pushed), `null` until then.
@@ -335,6 +343,9 @@ export class Runner {
   private onInit?: (sessionId: string, model: string | null) => void;
   private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
   private onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
+  private hasLiveSubagents?: (sessionId: string) => boolean;
+  private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
+  private onDecision?: (sessionId: string) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
   private images?: ImageStore;
   private claudeExecutablePath?: string | null;
@@ -401,6 +412,42 @@ export class Runner {
      */
     onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
     /**
+     * Whether anything this session launched is still running — read straight
+     * back out of the store `onTaskEvent` feeds, so the two can never
+     * disagree about the same moment.
+     *
+     * The Runner asks because a finished turn is not the same thing as a
+     * session that wants you: `Agent` runs in the background, so the CLI ends
+     * its turn (and emits `result`) with subagents still working, and wakes
+     * itself up when they report back. Unwired, every session behaves as it
+     * always did — `result` means `needs_input`.
+     */
+    hasLiveSubagents?: (sessionId: string) => boolean;
+    /**
+     * Each edge of the CLI's main loop: `ended` true when a turn's `result`
+     * lands (or the user interrupts), false when a frame shows a turn has
+     * begun — including the turns the CLI starts by ITSELF, which no `send()`
+     * of ours ever announces.
+     *
+     * Separate from `onStatus` because the two stopped meaning the same
+     * thing: a turn that ends with subagents still running leaves the session
+     * `working`, so "a turn just ended" no longer has a status transition to
+     * hang off. Both the auto-titler and `awaitingSubagents` need the edge
+     * itself.
+     */
+    onTurnBoundary?: (sessionId: string, ended: boolean) => void;
+    /**
+     * A question was parked on this session, or the parked one was settled.
+     *
+     * The `decision_pending` / `decision_resolved` events go to
+     * `session:<id>`, which only a client that has this session SELECTED is
+     * listening to — and whether a session is blocked on a question or merely
+     * finished a turn is the difference between NEEDS INPUT and DONE on the
+     * map, where nothing is selected. So the snapshot has to be republished on
+     * both edges; the status alone cannot carry it, both being `needs_input`.
+     */
+    onDecision?: (sessionId: string) => void;
+    /**
      * Whatever the SDK generator threw, with the session it was running.
      * Called from `pump()`'s catch, where the only record of a session dying
      * on its own used to be a line on the server's terminal that nobody was
@@ -431,6 +478,9 @@ export class Runner {
     this.onInit = deps.onInit;
     this.onEntries = deps.onEntries;
     this.onTaskEvent = deps.onTaskEvent;
+    this.hasLiveSubagents = deps.hasLiveSubagents;
+    this.onTurnBoundary = deps.onTurnBoundary;
+    this.onDecision = deps.onDecision;
     this.onError = deps.onError;
     this.images = deps.images;
     this.claudeExecutablePath = deps.claudeExecutablePath;
@@ -488,6 +538,44 @@ export class Runner {
     // `finish()` reports the release itself, as `null` — an owner that reads
     // `ended` here would have to translate it back into "not owned" anyway.
     if (status !== 'ended') this.onOwnership?.(sessionId, status);
+  }
+
+  /**
+   * Re-derives a running session's status from what the CLI is actually
+   * doing, and moves the idle timer with it.
+   *
+   * `needs_input` is orbital's word for "this one wants YOU", so it may only
+   * stand when nothing is going to move on its own. Two things can be moving:
+   * the main loop's turn (between its first frame and its `result`), and the
+   * subagents it launched — `Agent` is backgrounded by default, so the CLI
+   * ends the turn that launched one and then wakes ITSELF up when the agent
+   * reports back (fix `background-agents-retire-their-moon-at-launch`). Both
+   * read `working`; a map that said NEEDS INPUT through either was asking for
+   * an answer nobody owed it.
+   *
+   * A parked decision is the exception that owns the status outright: the
+   * turn has not ended and agents may well be running, but the CLI is
+   * genuinely blocked on the human until `settleDecision` frees it — and
+   * `decide()` deliberately arms no deadline for it.
+   *
+   * Every caller funnels through here rather than calling `setStatus`
+   * directly, so the idle timer can never be left armed under a `working`
+   * session or disarmed under a parked one.
+   */
+  private settleStatus(sessionId: string): void {
+    const s = this.sessions.get(sessionId);
+    if (!s || s.status === 'ended' || s.decision) return;
+    const busy = !s.turnEnded || this.hasLiveSubagents?.(sessionId) === true;
+    const want: SessionStatus = busy ? 'working' : 'needs_input';
+    if (s.status === want) return;
+    this.setStatus(sessionId, want);
+    if (busy) {
+      // Null the handle, not just clear it — same reasoning as `send()`.
+      if (s.idleTimer) clearTimeout(s.idleTimer);
+      s.idleTimer = null;
+    } else {
+      this.armIdleTimer(sessionId);
+    }
   }
 
   /**
@@ -597,7 +685,7 @@ export class Runner {
     }
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
-      lastCall: null,
+      lastCall: null, turnEnded: false,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
     };
@@ -655,7 +743,12 @@ export class Runner {
     // `needs_input`.
     const first = this.userMessage(sessionId, opts.prompt, opts.attachments);
     if (first) this.enqueue(sessionId, first);
-    else this.setStatus(sessionId, 'needs_input');
+    else {
+      // No turn ever ran, so there is none in flight for `settleStatus` to
+      // find — but it must not read the session as mid-turn either.
+      state.turnEnded = true;
+      this.setStatus(sessionId, 'needs_input');
+    }
 
     return sessionId;
   }
@@ -682,6 +775,11 @@ export class Runner {
         // subtype falls through unread, as before.
         if (msg.type === 'system' && TASK_EVENT_SUBTYPES.has(msg.subtype)) {
           this.onTaskEvent?.(sessionId, msg as TaskEvent);
+          // After the forward, never before: `hasLiveSubagents` reads the very
+          // store the line above just fed, and this message may be the one
+          // that empties it — the last background agent reporting back is
+          // what finally makes a turn-ended session `needs_input`.
+          this.settleStatus(sessionId);
           continue;
         }
         // A compaction just rewrote the context, so the last `result`'s token
@@ -704,6 +802,23 @@ export class Runner {
           continue;
         }
         if (msg.type === 'assistant' || msg.type === 'user') {
+          // A main-loop frame means the turn is running, whoever started it.
+          // Orbital used to learn that only from its own `send()`, so every
+          // turn the CLI starts by ITSELF — a background agent reporting
+          // back, a queued message, a hook — streamed a whole answer while
+          // the map still said NEEDS INPUT. Subagent frames
+          // (`parent_tool_use_id` set) are deliberately not this signal;
+          // `hasLiveSubagents` already speaks for them, and only the main
+          // loop's own turn can be said to have ended.
+          if (msg.parent_tool_use_id == null) {
+            const s = this.sessions.get(sessionId);
+            const began = s?.turnEnded === true;
+            if (s) s.turnEnded = false;
+            this.settleStatus(sessionId);
+            // Only on the edge: every later frame of the same turn changes
+            // nothing, and a republish per streamed block is a firehose.
+            if (began) this.onTurnBoundary?.(sessionId, false);
+          }
           // How big the conversation was when this call ran — kept as the
           // turn's fallback reading. Only the main loop's own calls: a
           // subagent (`parent_tool_use_id` set) fills a window of its own,
@@ -725,8 +840,13 @@ export class Runner {
           // request it made — see `contextUsedFromAssistantUsage`.
           const used = await this.contextUsed(sessionId);
           if (used !== null) this.onContextUsed?.(sessionId, used);
-          this.setStatus(sessionId, 'needs_input');
-          this.armIdleTimer(sessionId);
+          // The turn is over — but whether the SESSION is waiting for the
+          // human depends on what it left running behind it, which is
+          // `settleStatus`'s call to make.
+          const s = this.sessions.get(sessionId);
+          if (s) s.turnEnded = true;
+          this.settleStatus(sessionId);
+          this.onTurnBoundary?.(sessionId, true);
         }
       }
     } catch (err) {
@@ -850,6 +970,7 @@ export class Runner {
         },
       };
       this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: pending });
+      this.onDecision?.(sessionId);
       // No idle timer is armed for this: a parked question has no deadline,
       // mirroring the SDK, whose `canUseTool` promise has none either.
       this.setStatus(sessionId, 'needs_input');
@@ -873,6 +994,7 @@ export class Runner {
       event: 'decision_resolved',
       decisionId: parked.pending.id,
     });
+    this.onDecision?.(sessionId);
     return true;
   }
 
@@ -921,6 +1043,9 @@ export class Runner {
         behavior: 'allow',
         updatedInput: { ...parked.pending.input, answers },
       });
+      // The answer resumes the turn the question paused — same mark as
+      // the send below.
+      s.turnEnded = false;
       this.setStatus(sessionId, 'working');
       return;
     }
@@ -933,6 +1058,11 @@ export class Runner {
     // dangling reference to a timer that can never fire again.
     if (s.idleTimer) clearTimeout(s.idleTimer);
     s.idleTimer = null;
+    // A turn is starting, and this is the one place that knows it before the
+    // stream does. Without the mark, a task event landing in the gap before
+    // the CLI's first frame would run `settleStatus` against a session that
+    // still looked finished and snap it back to `needs_input`.
+    s.turnEnded = false;
     this.setStatus(sessionId, 'working');
     this.enqueue(sessionId, msg);
   }
@@ -974,9 +1104,15 @@ export class Runner {
     // Nothing is auto-answered on the user's behalf: an interrupted question
     // is a denied one, and its card locks unanswered.
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The user interrupted.' });
-    await this.sessions.get(sessionId)?.generator?.interrupt?.();
+    const s = this.sessions.get(sessionId);
+    await s?.generator?.interrupt?.();
+    // The turn the user cut short is over whatever the stream says next, so
+    // the mark goes down here rather than waiting for a `result` that an
+    // interrupt may never produce.
+    if (s) s.turnEnded = true;
     this.setStatus(sessionId, 'needs_input');
     this.armIdleTimer(sessionId);
+    if (s) this.onTurnBoundary?.(sessionId, true);
   }
 
   /**
@@ -1006,6 +1142,23 @@ export class Runner {
     const s = this.sessions.get(sessionId);
     if (s) return s.status;
     return this.ended.has(sessionId) ? 'ended' : undefined;
+  }
+
+  /**
+   * True when this session is `working` only because of what it launched:
+   * its own turn is over, and a subagent is still out there.
+   *
+   * The distinction the status alone cannot carry. `working` is the honest
+   * answer either way — nothing here wants the human — but "it is thinking"
+   * and "it is waiting for an agent" are different things to look at on a
+   * map, so the UI gets to say which (`WAITING FOR AGENT`). False for every
+   * session this Runner does not own, terminal ones included: nobody can read
+   * a main loop's turn boundaries off a transcript.
+   */
+  awaitingSubagents(sessionId: string): boolean {
+    const s = this.sessions.get(sessionId);
+    if (!s || s.status !== 'working' || !s.turnEnded) return false;
+    return this.hasLiveSubagents?.(sessionId) === true;
   }
 
   active(): string[] {

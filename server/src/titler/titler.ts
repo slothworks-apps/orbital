@@ -226,6 +226,13 @@ export interface SessionTitlerDeps {
   isEnabled(): boolean;
   now?: () => number;
   model?: string;
+  /**
+   * The `claude` to spawn. Absent, the SDK spawns its own bundled binary —
+   * which is what dev wants and what the packaged app cannot have (spec
+   * 2026-09-16-electron-wrapper-design § 2). Mirrors `Runner.start()` and
+   * `ModelCatalog.probe()`.
+   */
+  claudeExecutablePath?: string | null;
   /** A failed title query is recorded, never thrown at the turn that triggered it. */
   onError?: (sessionId: string, err: unknown) => void;
 }
@@ -354,17 +361,22 @@ export class SessionTitler {
 
   private async ask(prompt: string): Promise<string> {
     const parts: string[] = [];
-    for await (const message of this.deps.queryFn({
-      prompt,
-      options: {
-        model: this.deps.model ?? 'haiku',
-        maxTurns: 1,
-        allowedTools: [],
-        // A classifier must not inherit the repo's instructions.
-        settingSources: [],
-        systemPrompt: TITLE_SYSTEM_PROMPT,
-      },
-    })) {
+    const options: Record<string, unknown> = {
+      model: this.deps.model ?? 'haiku',
+      maxTurns: 1,
+      allowedTools: [],
+      // A classifier must not inherit the repo's instructions.
+      settingSources: [],
+      systemPrompt: TITLE_SYSTEM_PROMPT,
+      // Without this the CLI writes a transcript under `~/.claude/projects/`
+      // like any other session — and the watcher, which cannot tell the two
+      // apart, indexes every title call as a planet named "Current name: …".
+      // See `docs/decisions/ephemeral-title-queries.md`.
+      persistSession: false,
+    };
+    if (this.deps.claudeExecutablePath)
+      options.pathToClaudeCodeExecutable = this.deps.claudeExecutablePath;
+    for await (const message of this.deps.queryFn({ prompt, options })) {
       if (message?.type === 'assistant') {
         const content = message.message?.content;
         if (Array.isArray(content)) {

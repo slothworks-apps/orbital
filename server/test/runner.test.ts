@@ -57,6 +57,53 @@ function fakeQueryFn() {
   return { fn, interrupt };
 }
 
+/**
+ * Fake SDK whose output stream the test writes itself, message by message.
+ *
+ * `fakeQueryFn` answers every input with a canned turn, which is the wrong
+ * shape for anything about *when* a turn begins and ends: the CLI emits
+ * frames the Runner never asked for (a background agent's task events, the
+ * turn it starts by itself when one reports back), and those have to be
+ * placeable exactly where the assertion needs them. `push()` hands the pump
+ * one message — `session_id` is stamped on for you — and the generator waits
+ * on the next one rather than ever finishing.
+ */
+function scriptedQueryFn() {
+  const queue: any[] = [];
+  let notify: (() => void) | null = null;
+  let closed = false;
+  let sid = 'unpinned';
+  const wake = () => {
+    const resume = notify;
+    notify = null;
+    resume?.();
+  };
+  const fn = ({ options }: { prompt: AsyncIterable<any>; options: any }) => {
+    sid = sessionIdOf(options);
+    async function* gen() {
+      for (;;) {
+        while (queue.length) yield { session_id: sid, ...queue.shift() };
+        if (closed) return;
+        await new Promise<void>((resolve) => {
+          notify = resolve;
+        });
+      }
+    }
+    return gen() as any;
+  };
+  return {
+    fn,
+    push(msg: Record<string, unknown>) {
+      queue.push(msg);
+      wake();
+    },
+    close() {
+      closed = true;
+      wake();
+    },
+  };
+}
+
 function subscribed(hub: Hub, topic: string) {
   const received: any[] = [];
   const socket: any = {
@@ -303,6 +350,129 @@ describe('Runner', () => {
     await runner.end('web-1');
     expect(runner.status('web-1')).toBe('ended');
     expect(runner.active()).toEqual([]);
+  });
+
+  it('a turn the CLI starts by itself puts the session back to working', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+
+    // Nobody called send(): this is the CLI waking itself up — a background
+    // agent reporting back, a queued message, a hook. The frame IS the turn
+    // starting, and a map that keeps saying NEEDS INPUT through a whole
+    // streamed answer is asking for something nobody owes it.
+    script.push({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'resumed' }] },
+    });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('working'));
+
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+  });
+
+  it("a subagent's own frames do not restart the main loop's turn", async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+
+    // `parent_tool_use_id` set: this is a subagent talking, not the session's
+    // own loop. Whether such a session is busy is `hasLiveSubagents`'s answer
+    // (unwired here), never a stray frame's.
+    script.push({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_1',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'agent thinking' }] },
+    });
+    // A second `result` behind it, purely as the fence this can wait on: the
+    // frame above must have been drained before the status is read.
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.event === 'turn_result')).toHaveLength(2),
+    );
+    expect(runner.status('web-1')).toBe('needs_input');
+  });
+
+  it('a task event landing between send() and the CLI\'s first frame does not undo the send', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({
+      hub,
+      queryFn: script.fn as any,
+      newSessionId: () => 'web-1',
+      // Answers "nothing running" — the shape that made this a bug: the
+      // session's turn was over, so only `send()`'s own mark stands between
+      // the user's message and a status that says nobody sent one.
+      hasLiveSubagents: () => false,
+    });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+
+    runner.send('web-1', 'next');
+    expect(runner.status('web-1')).toBe('working');
+    script.push({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+    // The fence: a subagent's frame publishes a message and is the one kind
+    // of frame that does NOT mark the turn as running, so waiting on it
+    // proves the task event above has been drained without repairing the
+    // status on the way through.
+    script.push({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_1',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'drained' }] },
+    });
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.event === 'message')).toHaveLength(1),
+    );
+    expect(runner.status('web-1')).toBe('working');
+  });
+
+  it('a turn that ends with a background agent still running stays working until it reports back', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    // Stands in for `SubagentStore`: the runner reads liveness back out of
+    // whatever consumed its task events, so the two see one set.
+    const live = new Set<string>();
+    const runner = new Runner({
+      hub,
+      queryFn: script.fn as any,
+      newSessionId: () => 'web-1',
+      onTaskEvent: (_id, msg: any) => {
+        if (msg.subtype === 'task_started') live.add(msg.task_id);
+        if (msg.subtype === 'task_notification') live.delete(msg.task_id);
+      },
+      hasLiveSubagents: () => live.size > 0,
+    });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({
+      type: 'system', subtype: 'task_started',
+      task_id: 't1', task_type: 'local_agent', description: 'dig',
+      is_backgrounded: true,
+    });
+    // `Agent` is backgrounded, so the turn that launched it ends right away.
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.event === 'turn_result')).toHaveLength(1),
+    );
+    expect(runner.status('web-1')).toBe('working');
+
+    script.push({
+      type: 'system', subtype: 'task_notification',
+      task_id: 't1', status: 'completed',
+    });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
   });
 
   it('interrupt() calls the SDK interrupt', async () => {
@@ -1454,6 +1624,25 @@ describe('Runner decisions', () => {
     });
     expect(runner.pendingDecision(id)).toBeNull();
     expect(runner.status(id)).toBe('working');
+  });
+
+  it('announces both edges of a park to whoever has to republish the snapshot', async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const edges: string[] = [];
+    const runner = new Runner({
+      hub, queryFn: fn as any, newSessionId: () => 'web-1',
+      onDecision: (sessionId) => edges.push(sessionId),
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
+    void ask(ONE_QUESTION);
+    // The `decision_pending` event alone reaches only a client that has this
+    // session SELECTED. The map has nothing selected and still has to tell a
+    // parked question (NEEDS INPUT) from a finished turn (DONE), and the
+    // status is `needs_input` for both — so the snapshot must be resent.
+    expect(edges).toEqual([id]);
+    runner.answerDecision(id, 'tu-1', { 'Which library should we use?': 'luxon' });
+    expect(edges).toEqual([id, id]);
   });
 
   it('rejects an answer that names a decision that is not the parked one', async () => {

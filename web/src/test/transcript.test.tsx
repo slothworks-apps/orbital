@@ -399,32 +399,11 @@ import {
   pairMessages,
   groupToolRuns,
   insertModelDividers,
-  isNearBottom,
-  compensatePrepend,
 } from '../panels/Transcript'
 
-describe('isNearBottom', () => {
-  it('is true when the bottom of the content is within the threshold', () => {
-    expect(isNearBottom({ scrollTop: 900, scrollHeight: 1000, clientHeight: 100 })).toBe(true)
-    expect(isNearBottom({ scrollTop: 850, scrollHeight: 1000, clientHeight: 100 }, 80)).toBe(true)
-  })
-
-  it('is false when scrolled well away from the bottom', () => {
-    expect(isNearBottom({ scrollTop: 0, scrollHeight: 1000, clientHeight: 100 })).toBe(false)
-  })
-})
-
-describe('compensatePrepend', () => {
-  it('grows scrollTop by exactly the amount the container grew, keeping the same content anchored', () => {
-    // Container grew by 300px (older content prepended above); scrollTop
-    // must grow by the same 300px so the pixel that was at the top stays there.
-    expect(compensatePrepend(1000, 1300, 400)).toBe(700)
-  })
-
-  it('is a no-op when the container did not grow', () => {
-    expect(compensatePrepend(1000, 1000, 400)).toBe(400)
-  })
-})
+// `isNearBottom` and `compensatePrepend` moved to `panels/transcriptMotion`
+// with the rest of the scroll logic; they are tested in
+// `transcriptmotion.test.ts`.
 
 describe('pairMessages', () => {
   it('pairs a tool_use with its tool_result by toolUseId and folds them into one item', () => {
@@ -1079,13 +1058,18 @@ describe('Transcript: folded tool runs', () => {
     expect(screen.getByRole('button', { name: /Read: f1/ })).toBeInTheDocument()
   })
 
-  it('clicking the header expands today\'s full stack, clicking again folds it', () => {
+  it('clicking the header expands today\'s full stack, clicking again folds it', async () => {
     renderTranscript(run(3))
     const header = screen.getByRole('button', { name: /3 tool calls/ })
     fireEvent.click(header)
     expect(screen.getByRole('button', { name: /Read: f1/ })).toBeInTheDocument()
     fireEvent.click(header)
-    expect(screen.queryByRole('button', { name: /Read: f1/ })).not.toBeInTheDocument()
+    // Awaited, not immediate: the stack is held mounted while it collapses
+    // (see FOLD_MS) and only then removed. What matters is that a folded run
+    // ends up holding no rows at all — the duration is not asserted.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Read: f1/ })).not.toBeInTheDocument()
+    )
   })
 
   it('a live run stays folded with the one unfinished call visible beneath the header', () => {
@@ -1100,12 +1084,38 @@ describe('Transcript: folded tool runs', () => {
     expect(screen.queryByText('f1')).not.toBeInTheDocument()
   })
 
-  it('a run containing a failed call opens itself and says n failed — but a manual toggle wins', () => {
+  it('a run containing a failed call opens itself and says n failed — but a manual toggle wins', async () => {
     renderTranscript(run(2, { failFirst: true }))
     const header = screen.getByRole('button', { name: /2 tool calls/ })
     expect(header).toHaveTextContent('1 failed')
     expect(screen.getByRole('button', { name: /Read: f1/ })).toBeInTheDocument()
     fireEvent.click(header)
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Read: f1/ })).not.toBeInTheDocument()
+    )
+  })
+
+  it('a call that fails while you watch does not throw the run open', async () => {
+    // The default is frozen at the group's first render. A failure landing
+    // after that says so in the right slot and leaves the fold alone —
+    // otherwise the run pops open under the reader and shoves the rest of
+    // the transcript down the page.
+    const { rerender } = renderTranscript(run(2, { unfinishedLast: true }))
+    expect(screen.getByRole('button', { name: /2 tool calls/ })).toHaveTextContent('running')
+
+    act(() => {
+      useOrbital.setState((s) => ({
+        transcripts: {
+          ...s.transcripts,
+          s1: [...s.transcripts.s1, { id: 'r2', role: 'tool_result', toolUseId: 'tu2', text: 'boom', isError: true }],
+        },
+      }))
+    })
+    rerender(<Transcript sessionId="s1" />)
+
+    const header = screen.getByRole('button', { name: /2 tool calls/ })
+    expect(header).toHaveTextContent('1 failed')
+    expect(header).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('button', { name: /Read: f1/ })).not.toBeInTheDocument()
   })
 })

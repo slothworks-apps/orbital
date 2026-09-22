@@ -264,6 +264,7 @@ export async function buildServer(overrides: {
   // `docs/superpowers/specs/2026-09-18-auto-title-design.md`.
   const titler = new SessionTitler({
     queryFn: (overrides.titleQueryFn ?? query) as unknown as TitleQueryFn,
+    claudeExecutablePath: claudeCli.path,
     readSession: (sessionId) =>
       db
         .select({ title: sessions.title, titleSource: sessions.titleSource })
@@ -301,11 +302,7 @@ export async function buildServer(overrides: {
       // An ended session has nothing running in it — and nothing left to
       // observe the `tool_result` that would otherwise retire its agents.
       if (status === 'ended') subagents.drop(sessionId);
-      // `needs_input` is how `pump()` spells "a turn just ended", and it is
-      // the only hook that carries the session id at that moment
-      // (`onTurnUsage` fires alongside it but knows only the usage).
       if (status === 'ended') titler.forget(sessionId);
-      else if (status === 'needs_input') void titler.considerTurnEnd(sessionId);
       // A turn actually starting is what retires the interrupted mark — the
       // session has moved on from the turn the restart cut short. It has to
       // hang off `onStatus` rather than `onOwnership`: the latter reports
@@ -356,6 +353,22 @@ export async function buildServer(overrides: {
     onTaskEvent: (sessionId, msg) => {
       if (subagents.feedTask(sessionId, msg)) republish(sessionId);
     },
+    // The same store, read back: a session whose turn ended with agents still
+    // running is working, not waiting for the human
+    // (fix: `a-turn-that-launched-an-agent-reads-as-needs-input`).
+    hasLiveSubagents: (sessionId) => subagents.get(sessionId).length > 0,
+    // Both edges of the main loop's turn. The titler used to hang off
+    // `status === 'needs_input'`, which no longer means "a turn just ended"
+    // now that a turn can end into `working`; and the republish is what
+    // carries `awaitingSubagents` to the map, since neither edge necessarily
+    // moves the status at all.
+    onTurnBoundary: (sessionId, ended) => {
+      if (ended) void titler.considerTurnEnd(sessionId);
+      republish(sessionId);
+    },
+    // Both edges of a parked question, for the map: `pendingDecision` rides
+    // the snapshot, and it is what separates NEEDS INPUT from DONE.
+    onDecision: (sessionId) => republish(sessionId),
     // What the session said, for the titler, in the shape the transcript
     // already converts to.
     onEntries: (sessionId, entries) => {

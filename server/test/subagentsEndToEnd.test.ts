@@ -60,8 +60,8 @@ function fakeQueryFnWithSubagent() {
           },
         };
         // Ends the turn while the agent keeps working. The session going
-        // `needs_input` is the test's proof that the launch tool_result above
-        // has already been through the store.
+        // `awaitingSubagents` is the test's proof that the launch tool_result
+        // above has already been through the store.
         yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
         await finished;
         yield {
@@ -105,17 +105,27 @@ describe("a subagent in one of orbital's own sessions, end to end", () => {
       // the agent is still on the planet. Nothing has been selected, nothing
       // tailed.
       await vi.waitFor(async () => {
-        expect((await sessionOf(app, sessionId))?.status).toBe('needs_input');
+        expect((await sessionOf(app, sessionId))?.awaitingSubagents).toBe(true);
       }, { timeout: 3000 });
-      expect((await sessionOf(app, sessionId))?.subagents).toEqual([
+      const waiting = await sessionOf(app, sessionId);
+      expect(waiting?.subagents).toEqual([
         { id: 'k1', name: 'reviewer', state: 'working', toolUseId: 'ag1' },
       ]);
+      // NOT `needs_input`: the turn ended, but the agent it launched will
+      // wake the session back up on its own, so nothing here wants the human
+      // (fix: `a-turn-that-launched-an-agent-reads-as-needs-input`).
+      expect(waiting?.status).toBe('working');
 
       sdk.release();
 
       await vi.waitFor(async () => {
         expect((await sessionOf(app, sessionId))?.subagents).toEqual([]);
       }, { timeout: 3000 });
+      // And only now, with nothing of its own left running, does it ask.
+      await vi.waitFor(async () => {
+        expect((await sessionOf(app, sessionId))?.status).toBe('needs_input');
+      }, { timeout: 3000 });
+      expect((await sessionOf(app, sessionId))?.awaitingSubagents).toBe(false);
     } finally {
       await app.close();
     }
