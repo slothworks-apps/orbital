@@ -670,7 +670,7 @@ describe('DetailPanel footer', () => {
     const sendSpy = vi.spyOn(useOrbital.getState(), 'sendPrompt')
 
     render(<DetailPanel />)
-    const textbox = screen.getByRole('textbox', { name: /prompt/i }) as HTMLTextAreaElement
+    const textbox = screen.getByRole('textbox', { name: /prompt/i })
     await user.type(textbox, 'line one')
     fireEvent.keyDown(textbox, { key: 'Enter', shiftKey: true })
     expect(sendSpy).not.toHaveBeenCalled()

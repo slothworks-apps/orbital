@@ -157,7 +157,7 @@ export function chosenOptions(
   const parts = answer.split(MULTI_SELECT_JOIN)
   if (parts.length < 2) return []
   const matched = parts.map((part) => options.find((o) => o.label === part))
-  return matched.every((o) => o !== undefined) ? (matched as QuestionOption[]) : []
+  return matched.every((o) => o !== undefined) ? (matched) : []
 }
 
 /**

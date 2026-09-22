@@ -334,7 +334,7 @@ describe('NewSessionDialog — canvas 1d structure', () => {
 // ---------------------------------------------------------------------------
 
 describe('NewSessionDialog — FIRST PROMPT is the composer', () => {
-  const field = () => screen.getByRole('textbox', { name: /first prompt/i }) as HTMLTextAreaElement
+  const field = () => screen.getByRole('textbox', { name: /first prompt/i })
 
   it('mounts the composer, with its mirror and the dialog`s own hint copy', async () => {
     resetStore()
@@ -506,7 +506,7 @@ describe('NewSessionDialog — image intake (9d-D)', () => {
     const entryValue = { ref: REF, w: 2048, h: 1152, bytes: 421_888 }
     vi.mocked(api.uploadAttachment).mockReturnValue(
       new Promise((resolve) => {
-        settle = resolve as typeof settle
+        settle = resolve
       })
     )
     vi.mocked(api.createSession).mockResolvedValue('new-1')

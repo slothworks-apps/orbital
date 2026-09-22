@@ -46,7 +46,7 @@ function salientInput(toolInput: unknown): string {
   if (!toolInput || typeof toolInput !== 'object') return '';
   const input = toolInput as Record<string, unknown>;
   for (const key of ['command', 'file_path', 'description', 'pattern', 'prompt']) {
-    if (typeof input[key] === 'string') return input[key] as string;
+    if (typeof input[key] === 'string') return input[key];
   }
   for (const value of Object.values(input)) if (typeof value === 'string') return value;
   return '';

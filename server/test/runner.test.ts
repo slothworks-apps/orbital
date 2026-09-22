@@ -729,7 +729,7 @@ describe('Runner', () => {
     const rejected = results.filter((r) => r.status === 'rejected');
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
-    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/collision/);
+    expect((rejected[0]).reason.message).toMatch(/collision/);
   });
 
   it('sdkToChatMessages: nextSeq is called once per content block, producing distinct ids', () => {
@@ -830,7 +830,7 @@ describe('parseIdleTimeoutMs', () => {
     // The destructive edge: `Number('banana')`/`Number('')` reaching
     // setTimeout would fire on the next tick and end every session at once.
     for (const raw of ['banana', '', '0', '-5', null, undefined, NaN]) {
-      const ms = parseIdleTimeoutMs(raw as any);
+      const ms = parseIdleTimeoutMs(raw);
       expect(ms).toBe(30 * 60_000);
     }
   });

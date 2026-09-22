@@ -159,7 +159,7 @@ function walk(node: HastParent | HastElement): void {
     const child = children[i]
     if (child.type === 'element') {
       if (SKIP_TAGS.has((child as HastElement).tagName)) continue
-      walk(child as HastElement)
+      walk(child)
       continue
     }
     if (child.type === 'text') {

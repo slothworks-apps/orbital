@@ -76,7 +76,7 @@ function forkServer(): UtilityProcess {
       // The bundle's own default migrations path is relative to its source
       // module, so it is wrong by construction once bundled — always pass this.
       ORBITAL_MIGRATIONS_DIR: migrationsDir,
-    } as NodeJS.ProcessEnv,
+    },
   });
 
   proc.on('exit', (code) => {

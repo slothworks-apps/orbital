@@ -108,7 +108,7 @@ function Harness({ placeholder = 'Send a message…' }: { placeholder?: string }
   )
 }
 
-const field = () => screen.getByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement
+const field = () => screen.getByRole('textbox', { name: 'Prompt' })
 const panel = () => screen.getByTestId('panel')
 const chips = () => screen.queryAllByTestId('attachment-chip')
 const chip = (index = 0) => chips()[index]

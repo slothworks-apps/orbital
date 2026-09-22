@@ -103,7 +103,7 @@ function walk(node: HastParent | HastElement, state: { seenText: boolean }): voi
         state.seenText = true
         continue
       }
-      walk(child as HastElement, state)
+      walk(child, state)
       continue
     }
     if (child.type === 'text') {

@@ -104,7 +104,7 @@ describe('indexProjects', () => {
       .values({ id: 'aaaa-bbbb', projectDir: '', cwd: '/some/cwd', source: 'web' })
       .run();
     indexProjects(db, projects);
-    let backfilled = db
+    const backfilled = db
       .select({ projectDir: sessions.projectDir, source: sessions.source })
       .from(sessions)
       .where(eq(sessions.id, 'aaaa-bbbb'))

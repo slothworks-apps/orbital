@@ -27,7 +27,7 @@ function stubStartViewTransition() {
 
 function stubReducedMotion(reduce: boolean) {
   window.matchMedia = ((query: string) =>
-    ({ matches: reduce && query.includes('prefers-reduced-motion'), media: query }) as MediaQueryList) as typeof window.matchMedia
+    ({ matches: reduce && query.includes('prefers-reduced-motion'), media: query }) as MediaQueryList)
 }
 
 describe('withViewTransition', () => {

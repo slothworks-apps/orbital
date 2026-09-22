@@ -94,7 +94,7 @@ describe('entriesToMessages images', () => {
     const entries = [
       { type: 'user', uuid: 'u1', message: { role: 'user', content: [{ type: 'text', text: 'look' }, imageBlock] } },
     ];
-    const msgs = entriesToMessages(entries as any, store);
+    const msgs = entriesToMessages(entries, store);
     expect(msgs).toHaveLength(2);
     expect(msgs[0]).toMatchObject({ role: 'user', text: 'look' });
     expect(msgs[1].role).toBe('user');
@@ -119,7 +119,7 @@ describe('entriesToMessages images', () => {
         },
       },
     ];
-    const msgs = entriesToMessages(entries as any, store);
+    const msgs = entriesToMessages(entries, store);
     expect(msgs).toHaveLength(1);
     expect(msgs[0]).toMatchObject({ role: 'tool_result', text: 'took screenshot' });
     expect(msgs[0].images).toHaveLength(1);
@@ -136,7 +136,7 @@ describe('entriesToMessages images', () => {
         },
       },
     ];
-    const msgs = entriesToMessages(entries as any, fakeImageStore());
+    const msgs = entriesToMessages(entries, fakeImageStore());
     expect(msgs[0].text).toBe(JSON.stringify([{ type: 'document', foo: 1 }]));
   });
 
@@ -154,7 +154,7 @@ describe('entriesToMessages images', () => {
         },
       },
     ];
-    const msgs = entriesToMessages(entries as any);
+    const msgs = entriesToMessages(entries);
     expect(msgs).toHaveLength(1);
     expect(msgs[0]).toMatchObject({ role: 'tool_result', text: 'ok' });
     expect(msgs[0].images).toBeUndefined();
@@ -194,7 +194,7 @@ describe('extractMeta: bare slash commands', () => {
     const meta = extractMeta([
       userTurn('u1', '2026-09-01T10:00:00.000Z', '/clear'),
       userTurn('u2', '2026-09-01T10:00:30.000Z', 'Refactor the billing importer'),
-    ] as any);
+    ]);
     expect(meta.title).toBe('Refactor the billing importer');
     // The skipped turn still counts toward the session's message tally/timestamps.
     expect(meta.messageCount).toBe(2);
@@ -207,7 +207,7 @@ describe('extractMeta: bare slash commands', () => {
       userTurn('u2', '2026-09-01T10:00:10.000Z', '/login'),
       userTurn('u3', '2026-09-01T10:00:20.000Z', '/superpowers:brainstorming'),
       userTurn('u4', '2026-09-01T10:00:30.000Z', 'Design the tag rules panel'),
-    ] as any);
+    ]);
     expect(meta.title).toBe('Design the tag rules panel');
   });
 
@@ -215,12 +215,12 @@ describe('extractMeta: bare slash commands', () => {
     const meta = extractMeta([
       userTurn('u1', '2026-09-01T10:00:00.000Z', '/clickup-branch CU-8180'),
       userTurn('u2', '2026-09-01T10:00:30.000Z', 'now write the migration'),
-    ] as any);
+    ]);
     expect(meta.title).toBe('/clickup-branch CU-8180');
   });
 
   it('falls back to the bare command when the session never says anything else', () => {
-    const meta = extractMeta([userTurn('u1', '2026-09-01T10:00:00.000Z', '/clear')] as any);
+    const meta = extractMeta([userTurn('u1', '2026-09-01T10:00:00.000Z', '/clear')]);
     expect(meta.title).toBe('/clear');
   });
 });
@@ -376,7 +376,7 @@ describe('entriesToMessages: command split and isError', () => {
         },
       },
     ];
-    const msgs = entriesToMessages(entries as any);
+    const msgs = entriesToMessages(entries);
     expect(msgs[0]).toMatchObject({ role: 'user', text: 'ship it' });
     expect(msgs[0].command).toMatchObject({ name: '/commit' });
     expect(msgs[1]).toMatchObject({ role: 'tool_result', isError: true });

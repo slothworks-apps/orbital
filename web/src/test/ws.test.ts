@@ -615,7 +615,7 @@ describe('OrbitalSocket', () => {
 
   describe('C2: default URL', () => {
     it('should use /ws as default URL', async () => {
-      socket = new OrbitalSocket(undefined as any, {
+      socket = new OrbitalSocket(undefined, {
         WebSocketImpl: factory.createTyped(),
         reconnectDelayMs: 1000,
       })

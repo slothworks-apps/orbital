@@ -513,7 +513,7 @@ describe('REST routes', () => {
       sessionId: 's1', pid: 1, cwd: '/w/x', name: 'auth fix',
       status: 'working' as const, kind: 'claude', startedAt: 0, updatedAt: 500,
     };
-    publishLiveSession({ hub, db, registry: registry as any, runner: runner as any, subagents }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: 's1', status: 'working', tagIds: [10] });
@@ -525,7 +525,7 @@ describe('REST routes', () => {
       sessionId: 'term-9', pid: 1, cwd: '/w/z', name: 'untracked',
       status: 'idle' as const, kind: 'claude', startedAt: 0, updatedAt: 700,
     };
-    publishLiveSession({ hub, db, registry: registry as any, runner: runner as any, subagents }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({

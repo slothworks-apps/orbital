@@ -248,7 +248,7 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
           ...base,
         });
       } else if (block.type === 'image') {
-        const entry = imageRefOf(block as Record<string, unknown>, images);
+        const entry = imageRefOf(block, images);
         // The loop's top guard narrowed e.type, but TS loses it in the
         // forEach closure.
         if (entry) out.push({ id, role: e.type as 'user' | 'assistant', images: [entry], ...base });

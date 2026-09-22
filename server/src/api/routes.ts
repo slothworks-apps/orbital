@@ -172,7 +172,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .select({ parent_id: sessions.parentId })
         .from(sessions)
         .where(eq(sessions.id, cursor))
-        .get() as { parent_id: string | null } | undefined;
+        .get();
       cursor = parent?.parent_id ?? null;
     }
     return { session: toApiSession(ctx, row), lineage };
@@ -198,7 +198,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .select({ project_dir: sessions.projectDir })
       .from(sessions)
       .where(eq(sessions.id, id))
-      .get() as { project_dir: string } | undefined;
+      .get();
     if (!row) return null;
     try {
       const text = readFileSync(join(ctx.projectsDir, row.project_dir, `${id}.jsonl`), 'utf8');
@@ -400,9 +400,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   app.post('/api/sessions/:id/attachments', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() as
-      | { id: string }
-      | undefined;
+    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
     if (!row) return reply.code(404).send({ error: 'not_found' });
     return storeAttachment(req, reply);
   });
@@ -810,7 +808,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       if (value !== null && !Number.isFinite(value)) {
         return reply.code(400).send({ error: `${key} must be a finite number or null` });
       }
-      set[column] = value as number | null;
+      set[column] = value;
     }
     if (Object.keys(set).length > 0) {
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();

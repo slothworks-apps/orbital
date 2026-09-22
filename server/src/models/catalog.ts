@@ -312,7 +312,7 @@ export class ModelCatalog {
       // Verified against SDK 0.3.272: the child exits and the event loop
       // is not held open.
       try {
-        await q.return?.(undefined as never);
+        await q.return?.(undefined);
       } catch {
         // The probe process is done with either way.
       }

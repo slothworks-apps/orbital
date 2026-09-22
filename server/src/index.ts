@@ -25,7 +25,7 @@ import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { Hub } from './api/hub.js';
 import { Runner, parseIdleTimeoutMs, type QueryFn } from './runner/runner.js';
-import { runAutoheal, type AutohealRowToHeal } from './runner/autoheal.js';
+import { runAutoheal } from './runner/autoheal.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
 import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable } from './runner/claudeCli.js';
 import { registerRoutes } from './api/routes.js';
@@ -263,7 +263,7 @@ export async function buildServer(overrides: {
   // transcript off disk and names any session Orbital knows. See
   // `docs/superpowers/specs/2026-09-18-auto-title-design.md`.
   const titler = new SessionTitler({
-    queryFn: (overrides.titleQueryFn ?? query) as unknown as TitleQueryFn,
+    queryFn: overrides.titleQueryFn ?? query,
     claudeExecutablePath: claudeCli.path,
     readSession: (sessionId) =>
       db
@@ -419,7 +419,7 @@ export async function buildServer(overrides: {
       .select({ project_dir: sessions.projectDir })
       .from(sessions)
       .where(eq(sessions.id, id))
-      .get() as { project_dir: string } | undefined;
+      .get();
     return row ? join(projectsDir, row.project_dir, `${id}.jsonl`) : null;
   };
 
@@ -472,7 +472,7 @@ export async function buildServer(overrides: {
       })
       .from(sessions)
       .where(isNotNull(sessions.runnerStatus))
-      .all() as AutohealRowToHeal[],
+      .all(),
     now: Date.now(),
     idleTimeoutMs,
     isLiveInTerminal: (id) => registry.get(id) !== undefined,

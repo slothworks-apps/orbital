@@ -702,7 +702,7 @@ export class Runner {
     // Input stream: yields queued user messages; null closes it.
     const dequeue = () =>
       new Promise<unknown | null>((resolve) => {
-        if (state.pending.length) resolve(state.pending.shift()!);
+        if (state.pending.length) resolve(state.pending.shift());
         else state.queue.push(resolve);
       });
     async function* input() {
@@ -899,7 +899,7 @@ export class Runner {
     if (!ask) return fallback;
     try {
       const answer = await Promise.race([
-        ask.call(s!.generator, { detail: 'summary' }),
+        ask.call(s.generator, { detail: 'summary' }),
         new Promise((resolve) => setTimeout(() => resolve(null), CONTEXT_USAGE_TIMEOUT_MS).unref?.()),
       ]);
       return contextUsedFromContextUsage(answer) ?? fallback;

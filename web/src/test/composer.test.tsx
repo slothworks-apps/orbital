@@ -53,7 +53,7 @@ function Harness({
   )
 }
 
-const field = () => screen.getByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement
+const field = () => screen.getByRole('textbox', { name: 'Prompt' })
 const mirror = () => document.querySelector('[data-composer-mirror]') as HTMLElement
 const popup = () => screen.queryByRole('listbox', { name: /completions/i })
 const rows = () => screen.queryAllByRole('option')

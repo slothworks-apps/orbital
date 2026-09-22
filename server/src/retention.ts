@@ -88,7 +88,7 @@ export function countSweepable(db: OrbitalDb, cutoff: number | null): number {
     .select({ total: sql<number>`COUNT(*)` })
     .from(sessions)
     .where(sweepable(cutoff))
-    .get() as { total: number } | undefined;
+    .get();
   return row?.total ?? 0;
 }
 

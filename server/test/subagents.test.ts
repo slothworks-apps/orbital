@@ -206,7 +206,7 @@ describe('SubagentTracker task events', () => {
       is_backgrounded: true,
       session_id: 's1',
       ...over,
-    }) as TaskEvent;
+    });
 
   const notification = (over: Record<string, unknown> = {}): TaskEvent =>
     ({
@@ -218,7 +218,7 @@ describe('SubagentTracker task events', () => {
       summary: 'Agent "reviewer" finished',
       session_id: 's1',
       ...over,
-    }) as TaskEvent;
+    });
 
   const backgroundTasks = (ids: string[]): TaskEvent =>
     ({
@@ -226,7 +226,7 @@ describe('SubagentTracker task events', () => {
       subtype: 'background_tasks_changed',
       tasks: ids.map((task_id) => ({ task_id, task_type: 'local_agent', description: 'x' })),
       session_id: 's1',
-    }) as TaskEvent;
+    });
 
   it('registers a started task as working, keyed by task_id and keeping its tool_use_id', () => {
     const tracker = new SubagentTracker();
@@ -340,7 +340,7 @@ describe('SubagentStore task events', () => {
       task_type: 'local_agent',
       is_backgrounded: true,
       session_id: sessionId,
-    }) as TaskEvent;
+    });
   const finish = (sessionId: string, taskId: string): TaskEvent =>
     ({
       type: 'system',
@@ -350,7 +350,7 @@ describe('SubagentStore task events', () => {
       status: 'completed',
       summary: 'done',
       session_id: sessionId,
-    }) as TaskEvent;
+    });
 
   it('keeps one tracker per session and reports only the still-running agents', () => {
     const store = new SubagentStore();
