@@ -74,6 +74,19 @@ export function Code({ children, ...rest }: CodeProps) {
   )
 }
 
+/**
+ * The text a `ReactNode` reads as. Only strings and numbers carry text, and
+ * a node is often an array of them; anything else (an element, a fragment)
+ * has no text of its own, and `String()` on it would yield `[object Object]`
+ * — which would then be shown as if it were the code, or the link's label.
+ */
+function plainText(node: ReactNode): string {
+  if (typeof node === 'string') return node
+  if (typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(plainText).join('')
+  return ''
+}
+
 type PreProps = ComponentPropsWithoutRef<'pre'>
 
 /**
@@ -92,7 +105,7 @@ export function Pre({ children, className, ...rest }: PreProps) {
   if (codeEl && typeof codeEl === 'object' && 'props' in codeEl) {
     const codeProps = (codeEl as { props: { className?: string; children?: ReactNode } }).props
     const match = LANGUAGE_CLASS.exec(codeProps.className ?? '')
-    const code = String(codeProps.children ?? '').replace(/\n$/, '')
+    const code = plainText(codeProps.children).replace(/\n$/, '')
 
     if (match) {
       return <CodeBlock code={code} lang={match[1]} />
@@ -129,7 +142,7 @@ function MarkdownLink({ children, node: _node, ...rest }: AnchorProps & { node?:
     const rawLine = rest['data-line']
     // The child text is the full hit area (`web/src/App.tsx:42:7`) — the
     // suffix past the path is display-only; only the line travels.
-    const text = Array.isArray(children) ? children.join('') : String(children ?? '')
+    const text = plainText(children)
     return (
       <PathButton
         path={path}

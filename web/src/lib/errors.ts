@@ -12,7 +12,14 @@ function detailOf(err: unknown): string | null {
   if (err instanceof ApiError) return err.message || null
   if (err instanceof Error) return err.stack ?? null
   if (err === undefined || err === null) return null
-  return String(err)
+  if (typeof err === 'string') return err
+  // Something that is not an Error was thrown. `String()` on an object gives
+  // `[object Object]`, which records nothing; JSON at least keeps the fields.
+  try {
+    return JSON.stringify(err) ?? null
+  } catch {
+    return null
+  }
 }
 
 /**

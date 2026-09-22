@@ -327,17 +327,11 @@ export class ModelCatalog {
  * it as an ordinary failed probe (stored list untouched, logged once).
  */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`model probe timed out after ${ms}ms`)), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`model probe timed out after ${ms}ms`)), ms);
   });
+  // A race rather than a hand-rolled executor, so a rejection from `promise`
+  // reaches the caller as its own reason rather than being re-thrown as a new one.
+  return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
 }

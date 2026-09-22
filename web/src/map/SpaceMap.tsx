@@ -521,7 +521,10 @@ export function SpaceMap() {
   if (simRef.current === null) simRef.current = createSimulation()
   const holeFlashRef = useRef(0)
   const reduced = prefersReducedMotion()
-  useMemo(() => {
+  // The reconciled simulation IS the memo's value — it lives in a ref so the
+  // frame loop can mutate it without a render, and returning it here is what
+  // keeps this a memo rather than a side effect hiding in one.
+  const sim = useMemo(() => {
     const input: SimInput = {
       bodies: model.planets.map((p) => ({
         id: p.session.id,
@@ -540,6 +543,7 @@ export function SpaceMap() {
     // deps: a wheel notch must not re-settle the sim, it just changes what
     // the next frame separates by.
     if (reduced) settleSimulation(simRef.current, bodyZoomFactor(cameraRef.current.zoom))
+    return simRef.current
   }, [model, reduced])
 
   const { panTo, cancel: cancelPan } = usePanTo(setCamera)
@@ -971,7 +975,7 @@ export function SpaceMap() {
             showCompactBadge={compactBadgeAllowed}
             onCompact={handleCompact}
             onClick={handleSelect}
-            simBody={simRef.current.bodies.get(planet.session.id)}
+            simBody={sim.bodies.get(planet.session.id)}
             onBodyPointerDown={handleBodyPointerDown}
           />
         ))}
@@ -986,7 +990,7 @@ export function SpaceMap() {
             orbitRadius={moon.orbitRadius}
             phase={moon.phase}
             bodyScale={planetScale}
-            parentBody={simRef.current.bodies.get(moon.sessionId)}
+            parentBody={sim.bodies.get(moon.sessionId)}
           />
         ))}
 

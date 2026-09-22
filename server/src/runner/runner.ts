@@ -231,10 +231,18 @@ export function decisionQuestions(input: Record<string, unknown>): string[] {
     .filter((q): q is string => typeof q === 'string' && q.length > 0);
 }
 
+/**
+ * A message on a session's input stream, or `null` — the sentinel that closes
+ * it. `unknown` already admits `null`, so the alias is where that is said;
+ * spelling it `unknown | null` at each use says nothing the type does not
+ * already allow.
+ */
+type InputMessage = unknown;
+
 interface ManagedSession {
   status: SessionStatus;
-  queue: Array<(msg: unknown | null) => void>;
-  pending: Array<unknown | null>;
+  queue: Array<(msg: InputMessage) => void>;
+  pending: Array<InputMessage>;
   /**
    * The decision this session's CLI is blocked on, with the resolver of the
    * `canUseTool` promise that block *is*. One at a time: the model cannot ask
@@ -590,7 +598,7 @@ export class Runner {
    * is failing a turn over a thumbnail the cache pruned, which is a worse
    * answer than sending the rest of what was typed.
    */
-  private userMessage(sessionId: string, text: string, attachments?: string[]): unknown | null {
+  private userMessage(sessionId: string, text: string, attachments?: string[]): InputMessage {
     const content: unknown[] = [];
     for (const ref of attachments ?? []) {
       const image = this.images?.read(ref);
@@ -665,6 +673,10 @@ export class Runner {
    * a resumed session's id is already fixed by its transcript, and the two
    * are mutually exclusive in the SDK.
    */
+  // The Runner's public methods are uniformly awaited by the routes, so the
+  // `async` here is the published signature rather than an oversight — it
+  // stays even though nothing in the body awaits today.
+  // eslint-disable-next-line @typescript-eslint/require-await
   async start(opts: {
     cwd: string;
     prompt: string;
@@ -701,7 +713,7 @@ export class Runner {
 
     // Input stream: yields queued user messages; null closes it.
     const dequeue = () =>
-      new Promise<unknown | null>((resolve) => {
+      new Promise<InputMessage>((resolve) => {
         if (state.pending.length) resolve(state.pending.shift());
         else state.queue.push(resolve);
       });
@@ -910,7 +922,7 @@ export class Runner {
     }
   }
 
-  private enqueue(sessionId: string, msg: unknown | null): void {
+  private enqueue(sessionId: string, msg: InputMessage): void {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     const waiter = s.queue.shift();
@@ -1126,6 +1138,9 @@ export class Runner {
     await s.generator?.setModel?.(model);
   }
 
+  // Same as `start`: `Promise<void>` is this method's published shape, and the
+  // routes await it alongside `setModel`, which genuinely is asynchronous.
+  // eslint-disable-next-line @typescript-eslint/require-await
   async end(sessionId: string): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s) return;

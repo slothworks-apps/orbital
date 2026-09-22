@@ -31,6 +31,16 @@ export function parseTranscript(text: string): TranscriptEntry[] {
   return entries;
 }
 
+/**
+ * A transcript field read as a name or an id. The format is undocumented and
+ * can change under a CLI update, so a field that is not a string is treated as
+ * absent — `String()` on it would put a literal `[object Object]` into a tool
+ * name, which then travels all the way to the UI as if it were one.
+ */
+function stringField(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 function textOf(content: string | Array<Record<string, unknown>>): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -235,13 +245,13 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
         }
       } else if (block.type === 'tool_use') {
         out.push({
-          id, role: 'tool_use', toolName: String(block.name ?? ''),
-          toolInput: block.input, toolUseId: String(block.id ?? ''), ...base,
+          id, role: 'tool_use', toolName: stringField(block.name),
+          toolInput: block.input, toolUseId: stringField(block.id), ...base,
         });
       } else if (block.type === 'tool_result') {
         const parts = toolResultParts(block.content, images);
         out.push({
-          id, role: 'tool_result', toolUseId: String(block.tool_use_id ?? ''),
+          id, role: 'tool_result', toolUseId: stringField(block.tool_use_id),
           text: parts.text,
           ...(parts.images.length ? { images: parts.images } : {}),
           ...(block.is_error === true ? { isError: true } : {}),

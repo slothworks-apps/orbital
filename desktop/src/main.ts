@@ -59,6 +59,17 @@ let awaitingStart = false;
 /** Exit code of a child that died during a fork-and-wait, for the one dialog. */
 let startExit: number | null = null;
 
+/**
+ * `startExit` read without control-flow narrowing. Every read of it follows a
+ * `startExit = null` in the same function, so TypeScript narrows the variable
+ * to `null` and calls the exit-code branch unreachable — it cannot see the
+ * child's `exit` handler, which is the only thing that ever sets a code.
+ * Reading through a function yields the declared type instead.
+ */
+function readStartExit(): number | null {
+  return startExit;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -132,7 +143,7 @@ async function bringServerUp(): Promise<HealthInfo | null> {
     startExit = null;
     child = forkServer();
     const health = await waitForHealth();
-    const exitCode = startExit;
+    const exitCode = readStartExit();
     awaitingStart = false;
     startExit = null;
     if (health) return health;

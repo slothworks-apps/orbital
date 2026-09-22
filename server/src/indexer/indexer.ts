@@ -22,7 +22,7 @@ export function indexProjects(
     .set({ title: '', indexedMtime: 0 })
     .where(sql`${sessions.title} LIKE '<local-command-%' OR ${sessions.title} LIKE '<command-%' OR ${sessions.title} LIKE '<system-reminder%' OR (${sessions.title} LIKE '/%' AND ${sessions.title} NOT LIKE '% %')`)
     .run();
-  let dirs: string[] = [];
+  let dirs: string[];
   try {
     dirs = readdirSync(projectsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
@@ -47,7 +47,7 @@ export function indexProjects(
   /** Tombstones this scan invalidated, dropped together at the end. */
   const revived: string[] = [];
   for (const dir of dirs) {
-    let files: string[] = [];
+    let files: string[];
     try {
       files = readdirSync(dir).filter((f) => f.endsWith('.jsonl'));
     } catch {

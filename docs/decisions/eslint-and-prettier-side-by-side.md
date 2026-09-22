@@ -69,3 +69,32 @@ defines those rules does not yet support ESLint 10 (`npm i` fails on
 error. The comments were rewritten as plain comments, keeping the reasoning
 and dropping the directive. Adding the plugin later is a small change:
 register it and re-add the two rules.
+
+## The adoption pass ended at zero errors
+
+The first run reported 66 errors after the config was tuned; `--fix` took 45
+of them (all `no-unnecessary-type-assertion`) and the remaining 21 were fixed
+by hand. Two findings were bugs rather than noise:
+
+- `no-base-to-string` on `String(block.name ?? '')` in the transcript parser.
+  A tool name that arrived as an object would have reached the UI as the
+  literal string `[object Object]`; it now reads as absent.
+- `void-use-memo` on the map's simulation reconcile, a `useMemo` that returned
+  nothing and was doing its work for the timing alone.
+
+Three deliberate suppressions remain, each with the reason next to it:
+`require-await` on `Runner.start` and `Runner.end` (`Promise<void>` is their
+published shape, awaited by the routes) and `exhaustive-deps` on
+`DetailPanel`'s draft reset. Note that `eslint-disable-next-line` covers only
+the line immediately below it — a wrapped explanation on the directive's own
+line silently disables nothing, which is how the pre-existing directives in
+this repository had been failing.
+
+## `eslint-plugin-react-refresh` is not installed
+
+It reported eighteen files, all of them a component file that also exports a
+constant or a helper. Tomin's position is that a component file may export
+whatever it needs to as long as the component is what it is for; clearing the
+rule would mean splitting those files, and it buys finer fast refresh and
+nothing else. The plugin ships exactly one rule, so it was removed outright
+rather than declared and switched off.

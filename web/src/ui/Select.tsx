@@ -115,7 +115,9 @@ export function Select<T extends string | number>({
   const baseId = useId()
   const listboxId = `${baseId}-listbox`
   const footerId = `${baseId}-footer`
-  const optionId = (index: number) => `${listboxId}-opt-${index}`
+  // Memoised so the scroll-into-view effect below can depend on it by name
+  // rather than on the `listboxId` it closes over.
+  const optionId = useCallback((index: number) => `${listboxId}-opt-${index}`, [listboxId])
 
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
@@ -183,7 +185,7 @@ export function Select<T extends string | number>({
     if (!open) return
     const el = document.getElementById(optionId(activeIndex))
     el?.scrollIntoView?.({ block: 'nearest' })
-  }, [open, activeIndex, listboxId])
+  }, [open, activeIndex, optionId])
 
   // `pointerdown`, not `click`: closing on click would land after the next
   // control had already been pressed, so the dismissal would fight it.

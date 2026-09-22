@@ -1,9 +1,15 @@
 #!/bin/sh
-# Regenerates desktop/build/icon.icns from the web favicon artwork.
+# Regenerates the whole icon set from web/public/favicon.svg: the three
+# favicon PNGs beside it and desktop/build/icon.icns.
 #
-# icon.icns is a checked-in source asset (like the PNGs it's built from),
-# not a build output, so this script is not part of `desktop:dist` — run it
-# by hand after the favicon artwork changes, then commit the new icns.
+# The canvas ships the app icon and the favicon as byte-identical artwork
+# (adr one-svg-feeds-icon-favicon-and-mark), so that one SVG is the master
+# for every size written here. The sidebar mark is NOT — it is separate
+# artwork, inlined in web/src/ui/Logo.tsx, and this script does not touch it.
+#
+# What it writes are checked-in source assets, not build outputs, so this is
+# not part of `desktop:dist` — run it by hand after the artwork changes, then
+# commit what it wrote.
 #
 # macOS-only: relies on qlmanage, sips and iconutil, all part of the base
 # system. No npm dependency is added for this.
@@ -12,7 +18,8 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 SRC_SVG="$REPO_ROOT/web/public/favicon.svg"
-SRC_512="$REPO_ROOT/web/public/favicon-512.png"
+PUBLIC="$REPO_ROOT/web/public"
+SRC_512="$PUBLIC/favicon-512.png"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -33,6 +40,13 @@ if [ ! -s "$SRC_1024" ]; then
   sips -z 1024 1024 "$SRC_512" --out "$SRC_1024" >/dev/null
 fi
 
+# The favicon rasters index.html and site.webmanifest point at. Written here,
+# after the fallback above has had its chance to read the OLD favicon-512.png,
+# and before the iconset below downscales from the new one.
+sips -z 512 512 "$SRC_1024" --out "$PUBLIC/favicon-512.png" >/dev/null
+sips -z 180 180 "$SRC_1024" --out "$PUBLIC/favicon-180.png" >/dev/null
+sips -z 32 32   "$SRC_1024" --out "$PUBLIC/favicon-32.png"  >/dev/null
+
 # All sizes <=512 downscale from the pre-rendered favicon-512.png.
 sips -z 16 16     "$SRC_512" --out "$ICONSET/icon_16x16.png"      >/dev/null
 sips -z 32 32     "$SRC_512" --out "$ICONSET/icon_16x16@2x.png"   >/dev/null
@@ -47,4 +61,5 @@ sips -z 1024 1024 "$SRC_1024" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
 
 iconutil -c icns "$ICONSET" -o "$HERE/icon.icns"
 
+echo "wrote $PUBLIC/favicon-512.png, favicon-180.png, favicon-32.png"
 echo "wrote $HERE/icon.icns"

@@ -1218,7 +1218,10 @@ describe('setSessionDismissed', () => {
     })
 
     await useOrbital.getState().setSessionDismissed('sd', true)
-    await useOrbital.getState().toast?.action?.run()
+    // `run` is fire-and-forget — it `void`s the promise it starts — so there
+    // is nothing to await on it; the tick is what lets that promise settle.
+    useOrbital.getState().toast?.action?.run()
+    await Promise.resolve()
 
     expect(api.setSessionPinned).toHaveBeenCalledWith('sd', true)
     expect(useOrbital.getState().sessions.sd.pinnedAt).toEqual(expect.any(Number))

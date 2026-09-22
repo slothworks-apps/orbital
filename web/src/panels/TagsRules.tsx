@@ -328,8 +328,11 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
 
   useEffect(() => {
     // Unmount cleanup only — timers are otherwise managed per-call below.
+    // The ref's object is mutated in place and never reassigned, so reading it
+    // here and clearing it at unmount reach the same map.
+    const timers = patternTimers.current
     return () => {
-      Object.values(patternTimers.current).forEach(clearTimeout)
+      Object.values(timers).forEach(clearTimeout)
     }
   }, [])
 

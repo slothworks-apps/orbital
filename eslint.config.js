@@ -1,7 +1,6 @@
 import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
 import prettier from 'eslint-config-prettier/flat'
 import globals from 'globals'
 
@@ -84,7 +83,7 @@ export default tseslint.config(
   {
     files: ['web/**/*.{ts,tsx}'],
     languageOptions: { globals: globals.browser },
-    extends: [reactHooks.configs.flat['recommended-latest'], reactRefresh.configs.vite],
+    extends: [reactHooks.configs.flat['recommended-latest']],
     rules: {
       // The React Compiler rules this plugin now ships assume a pure-render
       // codebase. The map is not one: it initialises refs lazily during render,
@@ -98,14 +97,7 @@ export default tseslint.config(
       // A store action read through a selector (`useOrbital((s) => s.load)`)
       // is not a method that needs its `this` — no store method uses one.
       '@typescript-eslint/unbound-method': 'off',
-      // Losing fast refresh in one file is a papercut, not a defect.
-      'react-refresh/only-export-components': 'warn',
     },
-  },
-  {
-    // The entry point renders the tree; it is not a fast-refresh boundary.
-    files: ['web/src/main.tsx'],
-    rules: { 'react-refresh/only-export-components': 'off' },
   },
   {
     files: ['web/vite.config.ts', 'web/vitest.config.ts', 'server/*.config.ts'],

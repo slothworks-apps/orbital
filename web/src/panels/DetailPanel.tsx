@@ -251,8 +251,9 @@ export function DetailPanel() {
     // The chips belong to the draft, so they go with it — and the refs they
     // would have carried are this session's, not the next one's.
     attachments.reset()
-    // `reset` is deliberately absent: it is stable, and listing it would only
-    // re-run this on a render it has nothing to do with.
+    // `attachments` is deliberately absent: `reset` is stable, and listing the
+    // object would only re-run this on a render it has nothing to do with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   // Title draft reseeds whenever the session (or its title) changes, but
