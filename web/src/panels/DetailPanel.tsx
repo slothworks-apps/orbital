@@ -48,6 +48,7 @@ import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { ModelSwitcher } from './ModelSwitcher'
+import { SessionStatsRow } from './SessionStatsRow'
 import {
   shortenPath,
   formatContextWindow,
@@ -872,6 +873,15 @@ export function DetailPanel() {
                 </div>
               </div>
             )}
+
+            {/* The stats readout (canvas 10g): below the panel's own meta,
+                above the transcript, never a coloured button. It sits at the
+                foot of the header block rather than directly under the path
+                line the artboard draws it under — the real panel has the tag,
+                model and usage rows in between, and splitting them from the
+                title they belong to would cost more than the artboard's
+                literal order buys. */}
+            <SessionStatsRow session={session} className="mt-3.5" />
 
             {subagents.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Subagents">

@@ -18,6 +18,7 @@ import type {
   TagRule,
   TitleSource,
 } from '../types.js';
+import type { Finding, SubagentModelUsage, ToolStat } from '../stats/compute.js';
 
 export const sessions = sqliteTable(
   'sessions',
@@ -98,6 +99,50 @@ export const sessions = sqliteTable(
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );
+
+/**
+ * One rolled-up row per session, written by the indexer and the watcher tail
+ * from `computeStats` (spec `2026-09-20-session-stats-design` § Data model).
+ *
+ * Money is deliberately absent: cost is derived at read time from these token
+ * columns and the pricing table that ships with the build, so a price change
+ * reprices history without a reindex. `statsVersion` records which definition
+ * of these columns produced the row — the indexer recomputes when it is stale,
+ * even for a file whose mtime and size have not moved.
+ */
+export const sessionStats = sqliteTable('session_stats', {
+  sessionId: text('session_id')
+    .primaryKey()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  apiMs: integer('api_ms').notNull().default(0),
+  localToolMs: integer('local_tool_ms').notNull().default(0),
+  mcpMs: integer('mcp_ms').notNull().default(0),
+  subagentMs: integer('subagent_ms').notNull().default(0),
+  turns: integer('turns').notNull().default(0),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+  cacheCreationTokens: integer('cache_creation_tokens').notNull().default(0),
+  cacheCreation5mTokens: integer('cache_creation_5m_tokens').notNull().default(0),
+  cacheCreation1hTokens: integer('cache_creation_1h_tokens').notNull().default(0),
+  thinkingTokens: integer('thinking_tokens').notNull().default(0),
+  /** The flat display sum of sidechain usage; `subagentUsage` is its priceable form. */
+  subagentTokens: integer('subagent_tokens').notNull().default(0),
+  /** Sidechain usage per the subagent's own model id — subagents often run a cheaper one. */
+  subagentUsage: text('subagent_usage', { mode: 'json' })
+    .$type<Record<string, SubagentModelUsage>>()
+    .notNull()
+    .default({}),
+  toolCalls: integer('tool_calls').notNull().default(0),
+  toolErrors: integer('tool_errors').notNull().default(0),
+  toolBreakdown: text('tool_breakdown', { mode: 'json' })
+    .$type<Record<string, ToolStat>>()
+    .notNull()
+    .default({}),
+  /** Per-session rules only; `slow-mcp` and RESOLVED are derived per window at query time. */
+  findings: text('findings', { mode: 'json' }).$type<Finding[]>().notNull().default([]),
+  statsVersion: integer('stats_version').notNull().default(0),
+});
 
 export const tags = sqliteTable('tags', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -249,3 +294,5 @@ export type SettingRow = typeof settings.$inferSelect;
 export type NewSettingRow = typeof settings.$inferInsert;
 export type ErrorRow = typeof errors.$inferSelect;
 export type NewErrorRow = typeof errors.$inferInsert;
+export type SessionStatsRow = typeof sessionStats.$inferSelect;
+export type NewSessionStats = typeof sessionStats.$inferInsert;

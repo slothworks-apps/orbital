@@ -38,6 +38,13 @@ export type SessionEvent =
    * the session row (adr: context-usage-has-one-source). What this event is
    * still FOR is the crash flag below and `lastTurnResultAt`. */
   | { event: 'turn_result'; usage: unknown }
+  /**
+   * The server has rewritten this session's stored stats — whichever of the
+   * three cadences did it (ADR `the-stats-row-reads-when-the-stats-are-written`).
+   * It carries nothing: what changed is a row in the database, and whoever
+   * cares re-reads `GET /api/stats/sessions/:id`.
+   */
+  | { event: 'stats' }
   /** The session is blocked on a question (spec: 2026-09-20-interactive-decisions-design). */
   | { event: 'decision_pending'; decision: PendingDecision }
   /** It was settled — by this tab, another window, an interrupt, or the session ending. */
@@ -148,6 +155,13 @@ export interface OrbitalState {
    * last good turn. Empty after a reload, where `lastAt` takes over.
    */
   lastTurnResultAt: Record<string, number>
+  /**
+   * How many times each session's stored stats have been reported rewritten
+   * since this tab subscribed to it. A counter rather than the numbers
+   * themselves: the `stats` event says only that the row changed, and the
+   * detail panel's stats row re-reads the endpoint when this moves.
+   */
+  statsRevision: Record<string, number>
   /**
    * The newest page of the shared error log, newest first. Only a page —
    * `errorsUnseen` is therefore NOT derivable from it.
@@ -393,6 +407,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   historyLoaded: {},
   transcriptErrors: {},
   lastTurnResultAt: {},
+  statsRevision: {},
   errors: [],
   errorsUnseen: 0,
   pendingDecisions: {},
@@ -589,6 +604,16 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         ...(crashed
           ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } }
           : {}),
+      })
+      return
+    }
+
+    if (msg.event === 'stats') {
+      set({
+        statsRevision: {
+          ...state.statsRevision,
+          [sessionId]: (state.statsRevision[sessionId] ?? 0) + 1,
+        },
       })
       return
     }

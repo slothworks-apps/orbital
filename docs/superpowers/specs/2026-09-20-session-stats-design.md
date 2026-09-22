@@ -1,7 +1,7 @@
 ---
 id: 2026-09-20-session-stats-design
 title: Session stats — where the time and tokens go
-status: draft
+status: done
 type: spec
 domain: stats
 tags:
@@ -39,8 +39,13 @@ Verified against real transcripts in `~/.claude/projects/`:
 - Tool runs are `tool_use` → `tool_result` pairs. MCP calls are
   ordinary tools named `mcp__server__tool`. `tool_result` entries carry
   `toolUseResult` (the payload whose size we measure) and `is_error`.
-- Subagent traffic sits in the same file with `isSidechain: true`. The
-  parent's `Task` tool_result already covers the subagent's wall time.
+- Subagent traffic carries `isSidechain: true`, but on the current CLI it
+  no longer sits in the session's own file — it lives in
+  `<session-id>/subagents/agent-*.jsonl` next to it (see
+  `docs/domains/subagents-in-transcripts.md`). The stats pass reads those
+  files and feeds the concatenated entries to the same computation. The
+  parent's subagent-tool result (`Agent`, formerly `Task`) already covers
+  the subagent's wall time.
 
 ## Metric definitions
 
@@ -132,7 +137,10 @@ and the watcher tail in the same pass that already runs `extractMeta`:
   (busy = the four summed; elapsed comes from `sessions`)
 - tokens: `inputTokens`, `outputTokens`, `cacheReadTokens`,
   `cacheCreationTokens`, `cacheCreation5mTokens`,
-  `cacheCreation1hTokens`, `thinkingTokens`, `subagentTokens`
+  `cacheCreation1hTokens`, `thinkingTokens`, `subagentTokens`, plus
+  `subagentUsage` JSON — the same sidechain tokens keyed by the
+  subagent's own model id, because a subagent often runs a cheaper
+  model than its parent and pricing the flat sum would misprice it
 - tools: `toolCalls`, `toolErrors`, `toolBreakdown` JSON —
   `{name: {calls, errors, ms, resultChars, buckets}}` where `buckets`
   is a log₂ duration histogram (boundaries 250ms → 64s) so the

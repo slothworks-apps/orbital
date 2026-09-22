@@ -103,6 +103,39 @@ body {
   background-size: 900px 900px;
 }
 
+/* The stats screens draw their own sky. Every field is verbatim from the
+   canvas (10a for the dashboard, 10c for the empty state, 10b for the session
+   drilldown) and none is the map's: they are sparser and dimmer, because there
+   is no planet on these pages for a star to sit behind — 10c is sparser still,
+   being mostly empty space around one unlit body. */
+.orbital-stats-stars {
+  background-image:
+    radial-gradient(circle at 6% 9%, rgba(255, 255, 255, 0.6) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 37% 7%, rgba(255, 255, 255, 0.45) 0 0.8px, transparent 1.6px),
+    radial-gradient(circle at 85% 65%, rgba(255, 255, 255, 0.5) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 15% 75%, rgba(255, 255, 255, 0.35) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 62% 92%, rgba(255, 255, 255, 0.4) 0 0.7px, transparent 1.4px);
+  background-size: 460px 460px;
+}
+
+.orbital-stats-stars-empty {
+  background-image:
+    radial-gradient(circle at 10% 12%, rgba(255, 255, 255, 0.45) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 44% 8%, rgba(255, 255, 255, 0.35) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 82% 62%, rgba(255, 255, 255, 0.4) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 24% 84%, rgba(255, 255, 255, 0.3) 0 0.6px, transparent 1.2px);
+  background-size: 440px 440px;
+}
+
+.orbital-stats-stars-session {
+  background-image:
+    radial-gradient(circle at 12% 14%, rgba(255, 255, 255, 0.5) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 48% 6%, rgba(255, 255, 255, 0.4) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 88% 58%, rgba(255, 255, 255, 0.45) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 26% 82%, rgba(255, 255, 255, 0.35) 0 0.6px, transparent 1.2px);
+  background-size: 440px 440px;
+}
+
 /* State is carried by motion, never by hue — working sessions/planets pulse.
    Timing verbatim from the export's `orb-blink` (1.6s, trough at .3), which
    drives every status dot in the sidebar, the rail and the chips. */

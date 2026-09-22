@@ -7,15 +7,17 @@ import { createRoot } from 'react-dom/client'
 import { initDesktopBridge } from './lib/desktop'
 import { useOrbital } from './store/store'
 import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
+import { parseStatsRoute } from './stats/route'
 
-// Lazy on BOTH sides of the sandbox branch, because importing `App.tsx` is
+// Lazy on EVERY side of the route branch, because importing `App.tsx` is
 // not free: it calls `getSocket()` at module scope (its once-per-page-load
 // guarantee — see `lib/socket.ts`), so an eager import here would open the
-// app's WebSocket underneath the server-free sandbox.
+// app's WebSocket underneath the server-free sandbox and the stats page.
 const App = lazy(() => import('./App.tsx'))
 const SandboxPage = lazy(() =>
   import('./sandbox/SandboxPage.tsx').then((m) => ({ default: m.SandboxPage }))
 )
+const StatsPage = lazy(() => import('./stats/StatsPage.tsx').then((m) => ({ default: m.StatsPage })))
 
 /**
  * Desktop half of "pinch belongs to the map" (the mobile half is the viewport
@@ -72,12 +74,22 @@ const sandbox = window.location.pathname === '/sandbox'
  */
 initDesktopBridge((id) => useOrbital.getState().select(id))
 
+/**
+ * `/stats` is the same kind of branch, for the same reasons, and it nests:
+ * `parseStatsRoute` tells the dashboard from the per-session drilldown, so
+ * the second screen is a prop on one page rather than a second branch here
+ * (spec: 2026-09-20-session-stats-design § Web UI).
+ */
+const stats = parseStatsRoute(window.location.pathname)
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {/* Outermost net: App's own body (the WS wiring, the URL sync) throwing
         should still leave something on screen to reload from. */}
     <ErrorBoundary label="Orbital">
-      <Suspense fallback={null}>{sandbox ? <SandboxPage /> : <App />}</Suspense>
+      <Suspense fallback={null}>
+        {sandbox ? <SandboxPage /> : stats ? <StatsPage route={stats} /> : <App />}
+      </Suspense>
     </ErrorBoundary>
   </StrictMode>,
 )

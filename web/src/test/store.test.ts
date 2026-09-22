@@ -66,6 +66,7 @@ const initialSnapshot: OrbitalState = {
   historyLoaded: {},
   transcriptErrors: {},
   lastTurnResultAt: {},
+  statsRevision: {},
   errors: [],
   errorsUnseen: 0,
   pendingDecisions: {},

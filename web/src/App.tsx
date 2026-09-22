@@ -11,7 +11,7 @@ import { ErrorLog } from './panels/ErrorLog'
 import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
-import { useSessionUrl } from './lib/sessionUrl'
+import { readNewSessionParam, useSessionUrl, withoutNewSessionParam } from './lib/sessionUrl'
 
 /**
  * The app's single WebSocket connection, taken at module level so it's created
@@ -62,6 +62,17 @@ export default function App() {
   }, [loadInitial])
 
   useSessionUrl(initialLoadSettled)
+
+  // `/?new=1` — the stats empty state's CTA, which had to cross a page load to
+  // reach this dialog (see `lib/sessionUrl`). The parameter is stripped as the
+  // dialog opens, so closing it and refreshing does not reopen it. Runs before
+  // `useSessionUrl`'s mirror can push a URL, because that mirror waits for the
+  // initial load and this does not.
+  useEffect(() => {
+    if (!readNewSessionParam()) return
+    window.history.replaceState(null, '', withoutNewSessionParam())
+    setDialog('new')
+  }, [setDialog])
 
   // `sessions` topic feeds the sidebar/map for the app's whole lifetime.
   useEffect(() => {

@@ -7,6 +7,7 @@ domain: subagents
 related:
   - 2026-09-16-subagents-everywhere-design
   - 2026-09-15-orbital-design
+  - 2026-09-20-session-stats-design
 ---
 
 # What a transcript says about subagents, and when
@@ -73,6 +74,32 @@ which is what [[background-agents-retire-their-moon-at-launch]] was.
 The notification's own `<note>` says one task may notify more than once: the
 user can resume an agent with `SendMessage`, after which it works and
 notifies again with the same `task-id`.
+
+## Sidechain entries are in their own files, not the session transcript
+
+Measured 2026-09-21 while building `computeStats`, by scanning every `.jsonl`
+under `~/.claude/projects`: **427 session transcripts contain zero
+`"isSidechain":true` lines.** All 97 840 of them sit in 926 files under
+`<project>/<session-id>/subagents/agent-<id>.jsonl`, beside an
+`agent-<id>.meta.json` naming the `agentType`, `description`, `toolUseId`,
+`spawnDepth` and `model`.
+
+A sidechain entry carries the parent's `sessionId` and an extra `agentId`, so
+the two sides can be joined — through the meta file's `toolUseId` for the
+`Agent` `tool_use` it came from.
+
+This contradicts the assumption in `2026-09-20-session-stats-design`
+(§ Source data) that "subagent traffic sits in the same file with
+`isSidechain: true`", which was written from the older layout. Consequences
+for anything reading subagent usage:
+
+- `computeStats` handles sidechain entries wherever they arrive — it keys on
+  `isSidechain`, not on which file a line came from — so feeding it a
+  concatenation of a session and its `subagents/*.jsonl` works unchanged.
+- Feeding it the session transcript alone, which is what the indexer does
+  today, yields `subagentTokens: 0` on every current-CLI session. The
+  subagent's wall time is still counted: it comes from the parent's `Agent`
+  tool run, which is in the main file.
 
 ## Where live subagent state comes from
 

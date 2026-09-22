@@ -37,6 +37,29 @@ export function withSessionParam(id: string | null, href: string = window.locati
   return `${url.pathname}${url.search}${url.hash}`
 }
 
+/**
+ * `/?new=1` — "open the New Session dialog once the map is up".
+ *
+ * The dialog belongs to the map (`App` renders it), and `/stats` is its own
+ * top-level screen with no map underneath, so the stats empty state's CTA
+ * cannot simply set the store's `ui.dialog`: the navigation to `/` is a full
+ * page load that throws that state away. It asks in the URL instead, and
+ * `App` strips the parameter as it opens the dialog so a refresh does not
+ * reopen it.
+ */
+export const NEW_SESSION_PARAM = 'new'
+
+export function readNewSessionParam(href: string = window.location.href): boolean {
+  return new URL(href).searchParams.has(NEW_SESSION_PARAM)
+}
+
+/** The same URL without the request — what replaces it once the dialog is open. */
+export function withoutNewSessionParam(href: string = window.location.href): string {
+  const url = new URL(href)
+  url.searchParams.delete(NEW_SESSION_PARAM)
+  return `${url.pathname}${url.search}${url.hash}`
+}
+
 /** The store's `ui.fileViewer` shape, as the URL carries it. */
 export type FileViewerTarget = { path: string; line: number | null }
 

@@ -13,6 +13,9 @@ import type {
   TagRule,
   PermissionMode,
   OrbitalModel,
+  SessionStatsDetail,
+  StatsOverview,
+  StatsWindow,
 } from './types'
 
 export class ApiError extends Error {
@@ -460,6 +463,39 @@ export const api = {
     )
   },
 
+  // Stats API — the dashboard's one read (spec:
+  // 2026-09-20-session-stats-design § API). Every panel on `/stats` is fed by
+  // this single response, because the filters apply to all of them and two
+  // requests could answer from two different windows.
+  //
+  // `project` and `model` are omitted when they are null: the server reads an
+  // empty string as "no filter" too, but sending one puts a parameter in the
+  // request that names nothing.
+  async statsOverview(params: {
+    window: StatsWindow
+    project?: string | null
+    model?: string | null
+  }): Promise<StatsOverview> {
+    const url = new URL('/api/stats/overview', window.location.origin)
+    url.searchParams.set('window', params.window)
+    if (params.project) url.searchParams.set('project', params.project)
+    if (params.model) url.searchParams.set('model', params.model)
+    return request<StatsOverview>('GET', url.pathname + url.search)
+  },
+
+  /** The stored rollup, the cost split and the findings. The turn timeline is
+   * a full-transcript reparse on the server, so only the surfaces that draw the
+   * waterfall pass `{ timeline: true }`; without it `turns` comes back empty
+   * (ADR `the-stats-row-reads-when-the-stats-are-written`). 404s for a session
+   * the index never saw. */
+  async sessionStats(
+    id: string,
+    opts: { timeline?: boolean } = {}
+  ): Promise<SessionStatsDetail> {
+    const query = opts.timeline ? '?timeline=1' : ''
+    return request<SessionStatsDetail>('GET', `/api/stats/sessions/${encodeURIComponent(id)}${query}`)
+  },
+
   // Settings API
   async getSettings(): Promise<Record<string, string>> {
     return request<Record<string, string>>('GET', '/api/settings')
@@ -523,4 +559,15 @@ export type {
   TagRule,
   Subagent,
   OrbitalModel,
+  FindingSeverity,
+  SessionStatsDetail,
+  StatsCacheRatioDay,
+  StatsDayBusy,
+  StatsFinding,
+  StatsOverview,
+  StatsToolLeaderboard,
+  StatsToolRow,
+  StatsTotals,
+  StatsTurnSegment,
+  StatsWindow,
 } from './types'

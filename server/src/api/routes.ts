@@ -30,6 +30,7 @@ import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
 import type { ImageStore } from '../images/store.js';
 import type { SessionTitler } from '../titler/titler.js';
+import { registerStatsRoutes } from './stats.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -981,4 +982,6 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const { days } = req.query as { days?: string };
     return { count: ctx.retention.preview(String(days ?? '')) };
   });
+
+  registerStatsRoutes(app, ctx);
 }

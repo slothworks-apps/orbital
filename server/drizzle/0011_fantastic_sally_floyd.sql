@@ -1,0 +1,23 @@
+CREATE TABLE `session_stats` (
+	`session_id` text PRIMARY KEY NOT NULL,
+	`api_ms` integer DEFAULT 0 NOT NULL,
+	`local_tool_ms` integer DEFAULT 0 NOT NULL,
+	`mcp_ms` integer DEFAULT 0 NOT NULL,
+	`subagent_ms` integer DEFAULT 0 NOT NULL,
+	`turns` integer DEFAULT 0 NOT NULL,
+	`input_tokens` integer DEFAULT 0 NOT NULL,
+	`output_tokens` integer DEFAULT 0 NOT NULL,
+	`cache_read_tokens` integer DEFAULT 0 NOT NULL,
+	`cache_creation_tokens` integer DEFAULT 0 NOT NULL,
+	`cache_creation_5m_tokens` integer DEFAULT 0 NOT NULL,
+	`cache_creation_1h_tokens` integer DEFAULT 0 NOT NULL,
+	`thinking_tokens` integer DEFAULT 0 NOT NULL,
+	`subagent_tokens` integer DEFAULT 0 NOT NULL,
+	`subagent_usage` text DEFAULT '{}' NOT NULL,
+	`tool_calls` integer DEFAULT 0 NOT NULL,
+	`tool_errors` integer DEFAULT 0 NOT NULL,
+	`tool_breakdown` text DEFAULT '{}' NOT NULL,
+	`findings` text DEFAULT '[]' NOT NULL,
+	`stats_version` integer DEFAULT 0 NOT NULL,
+	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE cascade
+);

@@ -23,6 +23,7 @@ import { sessionColumns, sessions, settings as settingsTable } from './db/schema
 import { indexProjects } from './indexer/indexer.js';
 import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
+import { LiveSessionStats } from './watcher/liveStats.js';
 import { Hub } from './api/hub.js';
 import { Runner, parseIdleTimeoutMs, type QueryFn } from './runner/runner.js';
 import { runAutoheal } from './runner/autoheal.js';
@@ -299,9 +300,15 @@ export async function buildServer(overrides: {
     claudeExecutablePath: claudeCli.path,
     images,
     onStatus: (sessionId, status) => {
-      // An ended session has nothing running in it — and nothing left to
-      // observe the `tool_result` that would otherwise retire its agents.
-      if (status === 'ended') subagents.drop(sessionId);
+      if (status === 'ended') {
+        // An ended session has nothing running in it — and nothing left to
+        // observe the `tool_result` that would otherwise retire its agents.
+        subagents.drop(sessionId);
+        // One of the two moments a session's stats are written (spec
+        // 2026-09-20-session-stats-design § Evaluation cadence). `liveStats`
+        // is declared below, like `runner` in `publishCtx`.
+        liveStats.end(sessionId);
+      }
       if (status === 'ended') titler.forget(sessionId);
       // A turn actually starting is what retires the interrupted mark — the
       // session has moved on from the turn the restart cut short. It has to
@@ -443,19 +450,54 @@ export async function buildServer(overrides: {
     return swept;
   }
 
+  // Every rewrite of a session's rollup is announced on that session's own
+  // topic, whichever cadence wrote it. The payload is the id alone: what
+  // changed is a row in the database, and the client re-reads
+  // `GET /api/stats/sessions/:id` for the numbers (ADR
+  // `the-stats-row-reads-when-the-stats-are-written`).
+  //
+  // `hub.publish` is a no-op for a topic nobody is on, so a session no window
+  // has open costs one map lookup per write.
+  const statsWritten = (sessionId: string) =>
+    hub.publish(`session:${sessionId}`, { event: 'stats', sessionId });
+
+  // Keeps a running session's stored rollup fresh between index passes: it
+  // counts turns off what the tail reads and reparses on the cadence, and
+  // writes a final rollup when a session ends.
+  const liveStats = new LiveSessionStats({ db, transcriptPathOf, onStats: statsWritten });
+
   // Initial index + re-index on transcript changes (debounced).
+  //
+  // The first pass reparses every transcript (+ its subagent files) to backfill
+  // the stats index, which on a large ~/.claude blocks the event loop for tens
+  // of seconds. Deferred to a `setImmediate` so `buildServer` returns and
+  // `app.listen` binds before it starts — otherwise a fresh boot sits silent
+  // and looks hung — and announced so `npm run dev` says what the pause is.
+  // `clearImmediate` on close keeps it from running against a torn-down db when
+  // a test builds the server and closes it before the pass fires.
+  //
+  // The retention sweep still runs synchronously first: it writes the
+  // tombstones the deferred index pass obeys (spec
+  // 2026-09-21-settings-sections-design § 4), so deferring the index cannot let
+  // the scan re-create rows the sweep just removed.
   runRetentionSweep();
-  indexProjects(db, projectsDir);
+  console.log('orbital: backfilling the session-stats index (first pass, may take a while on a large ~/.claude)…');
+  const statsBackfill = setImmediate(() => indexProjects(db, projectsDir, statsWritten));
   const projectsWatcher = chokidar.watch(projectsDir, { ignoreInitial: true, depth: 2 });
   let indexTimer: ReturnType<typeof setTimeout> | null = null;
   projectsWatcher.on('all', () => {
     if (indexTimer) clearTimeout(indexTimer);
-    indexTimer = setTimeout(() => indexProjects(db, projectsDir), 500);
+    indexTimer = setTimeout(() => indexProjects(db, projectsDir, statsWritten), 500);
   });
 
   // Live registry → 'sessions' topic, REST-shaped (final-review ruling).
   registry.on('upsert', (s) => publishLiveSession(publishCtx(), s));
-  registry.on('remove', (id) => hub.publish('sessions', { event: 'remove', sessionId: id }));
+  registry.on('remove', (id) => {
+    // The CLI process is gone, which is the only "ended" a terminal session
+    // announces — its final rollup is written here.
+    liveStats.end(id);
+    hub.publish('sessions', { event: 'remove', sessionId: id });
+  });
   registry.scan();
   registry.watch();
 
@@ -522,6 +564,7 @@ export async function buildServer(overrides: {
     if (!transcriptPath) return;
     const tail = new TranscriptTail(transcriptPath);
     tail.on('entries', (entries) => {
+      liveStats.feed(id, entries);
       for (const msg of entriesToMessages(entries, images)) {
         hub.publish(topic, { event: 'message', message: msg });
       }
@@ -547,6 +590,7 @@ export async function buildServer(overrides: {
   hub.onLastUnsubscriber((topic) => {
     tails.get(topic)?.stop();
     tails.delete(topic);
+    if (topic.startsWith('session:')) liveStats.drop(topic.slice('session:'.length));
   });
 
   const app = Fastify();
@@ -616,6 +660,7 @@ export async function buildServer(overrides: {
     },
   });
   app.addHook('onClose', async () => {
+    clearImmediate(statsBackfill);
     runner.dispose();
     await registry.close();
     await projectsWatcher.close();

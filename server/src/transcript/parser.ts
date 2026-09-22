@@ -1,13 +1,39 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
 
+/**
+ * The CLI's `message.usage`, as the transcripts write it. Every field is
+ * optional: older entries omit the ephemeral split and the thinking detail,
+ * and nothing about this format is contractual.
+ */
+export interface TranscriptUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+  };
+  output_tokens_details?: { thinking_tokens?: number };
+}
+
 export interface TranscriptEntry {
   type: string;
   uuid?: string;
   timestamp?: string;
   cwd?: string;
   isSidechain?: boolean;
-  message?: { role: string; model?: string; content: string | Array<Record<string, unknown>> };
+  /** Set on assistant entries; several entries of one API response share it. */
+  requestId?: string;
+  /** Set on the user entry carrying a tool_result — the payload stats measure. */
+  toolUseResult?: unknown;
+  message?: {
+    role: string;
+    model?: string;
+    content: string | Array<Record<string, unknown>>;
+    usage?: TranscriptUsage;
+  };
 }
 
 export function parseTranscriptLine(line: string): TranscriptEntry | null {

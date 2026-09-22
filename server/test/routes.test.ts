@@ -16,7 +16,10 @@ import {
   sweepSessions,
   RETENTION_KEY,
 } from '../src/retention.js';
-import { sessionColumns, sessions, sessionTags, settings as settingsTable, tags } from '../src/db/schema.js';
+import {
+  sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
+} from '../src/db/schema.js';
+import type { Finding } from '../src/stats/compute.js';
 import { registerRoutes } from '../src/api/routes.js';
 import { buildServer, publishLiveSession } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
@@ -54,7 +57,7 @@ function retentionFor(db: OrbitalDb) {
   };
 }
 
-function makeApp() {
+function makeApp(opts: { projectsDir?: string } = {}) {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
   db.insert(sessions)
@@ -116,7 +119,7 @@ function makeApp() {
   // test that wants commands writes them.
   const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-claude-'));
   registerRoutes(app, {
-    db, registry: registry as any, runner: runner as any, projectsDir: '/nonexistent', hub,
+    db, registry: registry as any, runner: runner as any, projectsDir: opts.projectsDir ?? '/nonexistent', hub,
     images: imageStore, imagesDir, claudeDir,
     models: modelCatalog as any,
     subagents,
@@ -1990,5 +1993,342 @@ describe('retention', () => {
       method: 'PATCH', url: '/api/settings', payload: { delete_sessions_older_than_days: 'never' },
     });
     expect(db.select().from(sessions).all()).toHaveLength(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stats API: GET /api/stats/overview and GET /api/stats/sessions/:id
+// Spec: docs/superpowers/specs/2026-09-20-session-stats-design.md § API
+// ---------------------------------------------------------------------------
+
+function insertStatsSession(db: any, row: { id: string } & Partial<Record<string, unknown>>) {
+  db.insert(sessions)
+    .values({
+      projectDir: 'p', cwd: '/w', title: row.id, source: 'terminal', lastAt: Date.now(),
+      ...row,
+    })
+    .run();
+}
+
+/** A `session_stats` row with every column zeroed except what the test overrides. */
+function insertRollup(db: any, sessionId: string, overrides: Partial<Record<string, unknown>> = {}) {
+  db.insert(sessionStats)
+    .values({
+      sessionId,
+      apiMs: 0, localToolMs: 0, mcpMs: 0, subagentMs: 0, turns: 0,
+      inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+      cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, thinkingTokens: 0, subagentTokens: 0,
+      subagentUsage: {}, toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
+      statsVersion: 1,
+      ...overrides,
+    })
+    .run();
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+describe('GET /api/stats/overview', () => {
+  it('defaults to the 7d window and echoes the applied filters', async () => {
+    const { app, db } = makeApp();
+    insertStatsSession(db, {
+      id: 'a', projectDir: 'proj', resolvedModel: 'claude-sonnet-5', lastAt: Date.now() - 1000,
+    });
+    insertRollup(db, 'a');
+    const res = await app.inject({ method: 'GET', url: '/api/stats/overview' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.filters).toEqual({ window: '7d', project: null, model: null });
+    expect(body.sessionCount).toBe(1);
+    expect(body.totals.sessionCount).toBe(1);
+    // A same-length previous window exists for every window but 'all'.
+    expect(body.previousTotals).not.toBeNull();
+    expect(typeof body.costDeltaPct).toBe('number');
+  });
+
+  it('400s an invalid window value rather than silently defaulting', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'GET', url: '/api/stats/overview?window=9d' });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('filters by window, project and model — each excludes non-matching rows from every panel', async () => {
+    const { app, db } = makeApp();
+    const now = Date.now();
+    insertStatsSession(db, { id: 'in', projectDir: 'proj-a', resolvedModel: 'claude-sonnet-5', lastAt: now - 1000 });
+    insertRollup(db, 'in');
+    // Outside the 7d window.
+    insertStatsSession(db, { id: 'old', projectDir: 'proj-a', resolvedModel: 'claude-sonnet-5', lastAt: now - 8 * DAY_MS });
+    insertRollup(db, 'old');
+    insertStatsSession(db, { id: 'otherProject', projectDir: 'proj-b', resolvedModel: 'claude-sonnet-5', lastAt: now - 1000 });
+    insertRollup(db, 'otherProject');
+    insertStatsSession(db, { id: 'otherModel', projectDir: 'proj-a', resolvedModel: 'claude-haiku-4-5', lastAt: now - 1000 });
+    insertRollup(db, 'otherModel');
+
+    const all = await app.inject({ method: 'GET', url: '/api/stats/overview?window=7d' });
+    expect(all.json().sessionCount).toBe(3); // every session but 'old'
+
+    const byProject = await app.inject({ method: 'GET', url: '/api/stats/overview?window=7d&project=proj-a' });
+    expect(byProject.json().sessionCount).toBe(2); // 'in' and 'otherModel'
+
+    const byModel = await app.inject({ method: 'GET', url: '/api/stats/overview?window=7d&model=claude-sonnet-5' });
+    expect(byModel.json().sessionCount).toBe(2); // 'in' and 'otherProject'
+
+    const byBoth = await app.inject({
+      method: 'GET', url: '/api/stats/overview?window=7d&project=proj-a&model=claude-sonnet-5',
+    });
+    expect(byBoth.json().sessionCount).toBe(1); // 'in' only
+  });
+
+  it('derives cost from the shipped pricing table and computes the prev-window delta; "all" has none', async () => {
+    const { app, db } = makeApp();
+    const now = Date.now();
+    // Current 7d window: two Sonnet sessions, 1,000,000 uncached input tokens
+    // each — SONNET_CURRENT.input is $2/million, so $2.00 apiece.
+    insertStatsSession(db, { id: 'cur1', resolvedModel: 'claude-sonnet-5', lastAt: now - DAY_MS });
+    insertRollup(db, 'cur1', { inputTokens: 1_000_000 });
+    insertStatsSession(db, { id: 'cur2', resolvedModel: 'claude-sonnet-5', lastAt: now - 2 * DAY_MS });
+    insertRollup(db, 'cur2', { inputTokens: 1_000_000 });
+    // Previous 7d window (7-14 days back): one session, 500,000 tokens -> $1.00.
+    insertStatsSession(db, { id: 'prev1', resolvedModel: 'claude-sonnet-5', lastAt: now - 10 * DAY_MS });
+    insertRollup(db, 'prev1', { inputTokens: 500_000 });
+
+    const res = await app.inject({ method: 'GET', url: '/api/stats/overview?window=7d' });
+    const body = res.json();
+    expect(body.totals.costTotal).toBeCloseTo(4.0, 6);
+    expect(body.previousTotals.costTotal).toBeCloseTo(1.0, 6);
+    expect(body.costDeltaPct).toBeCloseTo(300, 6); // (4 - 1) / 1 * 100
+
+    const allRes = await app.inject({ method: 'GET', url: '/api/stats/overview?window=all' });
+    const allBody = allRes.json();
+    expect(allBody.previousTotals).toBeNull();
+    expect(allBody.costDeltaPct).toBeNull();
+    expect(allBody.sessionCount).toBe(3); // every session, regardless of window
+  });
+
+  it('merges per-session findings with derived slow-mcp and RESOLVED entries, newest first', async () => {
+    const { app, db } = makeApp();
+    const now = Date.now();
+
+    // A stored per-session finding: cache-burn, tiny uncached spend -> WARNING.
+    const cacheBurnFinding: Finding = {
+      rule: 'cache-burn',
+      evidence: { hitRatio: 0.1, uncachedInputTokens: 1000, turnsAffected: 3, totalTurns: 10, firstTurnUuid: 'u1' },
+    };
+    insertStatsSession(db, { id: 'burn', title: 'burny', resolvedModel: 'claude-sonnet-5', lastAt: now - 1 * DAY_MS });
+    insertRollup(db, 'burn', { findings: [cacheBurnFinding] });
+
+    // A window-wide slow-mcp finding: one MCP tool, 10 calls (SLOW_MCP_MIN_CALLS),
+    // every call landing in the [16s, 32s) bucket so p50 clears SLOW_MCP_P50_MS.
+    const buckets = new Array(10).fill(0);
+    buckets[7] = 10;
+    insertStatsSession(db, { id: 'slow', resolvedModel: 'claude-sonnet-5', lastAt: now - 2 * DAY_MS });
+    insertRollup(db, 'slow', {
+      mcpMs: 200_000,
+      toolBreakdown: { 'mcp__docs__search': { calls: 10, errors: 0, ms: 200_000, resultChars: 10, buckets } },
+    });
+
+    // A RESOLVED error-loop: fired 6 days ago, then 5 clean sessions after it,
+    // all still inside the 7d window — RESOLVED_CLEAN_SESSIONS is 5.
+    const errorLoopFinding: Finding = {
+      rule: 'error-loop',
+      evidence: { tool: 'Bash', count: 6, firstTurnUuid: 'u2', lastTurnUuid: 'u3' },
+    };
+    insertStatsSession(db, {
+      id: 'fired', title: 'fired-session', resolvedModel: 'claude-sonnet-5', lastAt: now - 6 * DAY_MS,
+    });
+    insertRollup(db, 'fired', { findings: [errorLoopFinding] });
+    for (let i = 0; i < 5; i++) {
+      insertStatsSession(db, {
+        id: `clean-${i}`, resolvedModel: 'claude-sonnet-5', lastAt: now - (5 - i) * DAY_MS,
+      });
+      insertRollup(db, `clean-${i}`);
+    }
+
+    const res = await app.inject({ method: 'GET', url: '/api/stats/overview?window=7d' });
+    const findings = res.json().findings;
+
+    const burn = findings.find((f: any) => f.rule === 'cache-burn');
+    expect(burn).toMatchObject({ severity: 'warning', sessionId: 'burn', title: 'burny' });
+
+    const slow = findings.find((f: any) => f.rule === 'slow-mcp');
+    expect(slow).toMatchObject({ severity: 'info', sessionId: null, title: null });
+    expect(slow.evidence.tool).toBe('mcp__docs__search');
+
+    // Exactly one card for the resolved rule — RESOLVED is a state the
+    // original firing moves into, not a second card next to it.
+    const errorLoopEntries = findings.filter((f: any) => f.rule === 'error-loop');
+    expect(errorLoopEntries).toHaveLength(1);
+    expect(errorLoopEntries[0]).toMatchObject({ severity: 'resolved', sessionId: 'fired', title: 'fired-session' });
+
+    const whens = findings.map((f: any) => f.when);
+    expect(whens).toEqual([...whens].sort((a: number, b: number) => b - a));
+  });
+
+  // Regression: resolvedRules reports only the LAST firing of a rule in the
+  // window. Suppressing every stored finding for that rule (keyed on rule
+  // alone) would silently delete an EARLIER session's real CRITICAL card
+  // along with it. The suppression must be keyed on rule + the resolving
+  // session's own id, so an earlier firing survives as its own card and only
+  // the resolving session's firing is replaced by RESOLVED.
+  it('RESOLVED replaces only the resolving session\'s card — an earlier firing of the same rule survives', async () => {
+    const { app, db } = makeApp();
+    const now = Date.now();
+    const earlyFiring: Finding = {
+      rule: 'error-loop',
+      evidence: { tool: 'Bash', count: 6, firstTurnUuid: 'e1', lastTurnUuid: 'e2' },
+    };
+    const lateFiring: Finding = {
+      rule: 'error-loop',
+      evidence: { tool: 'Write', count: 7, firstTurnUuid: 'l1', lastTurnUuid: 'l2' },
+    };
+    // The rule fires twice: an earlier session, then a later one. Only the
+    // later one has a clean tail long enough (5) to resolve within the 7d
+    // window.
+    insertStatsSession(db, {
+      id: 'fired-early', title: 'early firing', resolvedModel: 'claude-sonnet-5', lastAt: now - 6.5 * DAY_MS,
+    });
+    insertRollup(db, 'fired-early', { findings: [earlyFiring] });
+    insertStatsSession(db, {
+      id: 'fired-late', title: 'late firing', resolvedModel: 'claude-sonnet-5', lastAt: now - 6 * DAY_MS,
+    });
+    insertRollup(db, 'fired-late', { findings: [lateFiring] });
+    for (let i = 0; i < 5; i++) {
+      insertStatsSession(db, {
+        id: `clean2-${i}`, resolvedModel: 'claude-sonnet-5', lastAt: now - (5 - i) * DAY_MS,
+      });
+      insertRollup(db, `clean2-${i}`);
+    }
+
+    const res = await app.inject({ method: 'GET', url: '/api/stats/overview?window=7d' });
+    const findings = res.json().findings;
+    const errorLoopEntries = findings.filter((f: any) => f.rule === 'error-loop');
+
+    // Two cards: the earlier firing stays a live CRITICAL card, the later
+    // (resolving) one becomes the single RESOLVED card.
+    expect(errorLoopEntries).toHaveLength(2);
+    const earlyCard = errorLoopEntries.find((f: any) => f.sessionId === 'fired-early');
+    expect(earlyCard).toMatchObject({ severity: 'critical', sessionId: 'fired-early', title: 'early firing' });
+    const lateCard = errorLoopEntries.find((f: any) => f.sessionId === 'fired-late');
+    expect(lateCard).toMatchObject({ severity: 'resolved', sessionId: 'fired-late', title: 'late firing' });
+  });
+});
+
+describe('GET /api/stats/sessions/:id', () => {
+  it('404s for an unknown session', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'GET', url: '/api/stats/sessions/nope' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('returns the stored rollup, a costOf breakdown, severity-resolved findings and session meta', async () => {
+    const { app, db } = makeApp();
+    const finding: Finding = {
+      rule: 'obese-tool-result',
+      evidence: { tool: 'Read', chars: 200_000, estimatedTokens: 50_000, toolUseId: 't1', turnUuid: 'u1' },
+    };
+    insertStatsSession(db, {
+      id: 'sX', title: 'session x', projectDir: 'proj', cwd: '/w/x',
+      model: 'sonnet', resolvedModel: 'claude-sonnet-5', firstAt: 1000, lastAt: 5000,
+    });
+    insertRollup(db, 'sX', {
+      inputTokens: 1_000_000, turns: 4,
+      subagentUsage: {
+        'claude-haiku-4-5': {
+          input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation5m: 0, cacheCreation1h: 0,
+        },
+      },
+      findings: [finding],
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/stats/sessions/sX' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    expect(body.session).toMatchObject({
+      id: 'sX', title: 'session x', projectDir: 'proj', model: 'sonnet',
+      resolvedModel: 'claude-sonnet-5', firstAt: 1000, lastAt: 5000, turns: 4,
+    });
+    // Sonnet input is $2/million, 1,000,000 uncached input tokens.
+    expect(body.cost.uncachedInput).toBeCloseTo(2.0, 6);
+    expect(body.cost.mainTotal).toBeCloseTo(2.0, 6);
+    // Subagent priced at Haiku's own rate ($1/million), not Sonnet's (Ruling 11).
+    expect(body.cost.subagentTotal).toBeCloseTo(1.0, 6);
+    expect(body.cost.total).toBeCloseTo(3.0, 6);
+
+    expect(body.findings).toEqual([{ rule: 'obese-tool-result', severity: 'warning', evidence: finding.evidence }]);
+    expect(body.rollup.inputTokens).toBe(1_000_000);
+  });
+
+  it('a session with no session_stats row yet answers with an empty rollup, not a 404', async () => {
+    const { app, db } = makeApp();
+    insertStatsSession(db, { id: 'fresh', title: '', projectDir: '', lastAt: Date.now() });
+    const res = await app.inject({ method: 'GET', url: '/api/stats/sessions/fresh' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.rollup.turns).toBe(0);
+    expect(body.findings).toEqual([]);
+    expect(body.cost.total).toBe(0);
+    expect(body.turns).toEqual([]);
+  });
+
+  /** A one-turn transcript on disk for `sY`, so a `?timeline=1` read has something to recompute. */
+  function makeTranscriptApp() {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-stats-projects-'));
+    const pdir = join(dir, 'proj');
+    mkdirSync(pdir, { recursive: true });
+    const sessionId = 'sY';
+    const T0 = Date.parse('2026-09-20T10:00:00.000Z');
+    const lines = [
+      { type: 'user', uuid: 'h1', timestamp: new Date(T0).toISOString(), message: { role: 'user', content: 'go' } },
+      {
+        type: 'assistant', uuid: 'a1', timestamp: new Date(T0 + 500).toISOString(), requestId: 'req-1',
+        message: {
+          role: 'assistant', model: 'claude-sonnet-5',
+          content: [{ type: 'text', text: 'ok' }],
+          usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+      },
+    ];
+    writeFileSync(join(pdir, `${sessionId}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n'));
+
+    const { app, db } = makeApp({ projectsDir: dir });
+    insertStatsSession(db, { id: sessionId, projectDir: 'proj', lastAt: T0 + 500 });
+    insertRollup(db, sessionId, { turns: 1 });
+    return { app, sessionId };
+  }
+
+  it('reads the transcript on demand for the turn waterfall when ?timeline=1 (Ruling 7: main file + subagents)', async () => {
+    const { app, sessionId } = makeTranscriptApp();
+
+    const res = await app.inject({ method: 'GET', url: `/api/stats/sessions/${sessionId}?timeline=1` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.turns).toHaveLength(1);
+    // The uuid is what a finding names its turn by, so it has to survive the
+    // wire, not only the compute (ADR `a-rule-names-its-turn-by-uuid`).
+    expect(body.turns[0]).toMatchObject({ requestId: 'req-1', uuid: 'a1' });
+  });
+
+  it('omits the timeline without the flag, so the readout row never pays for the reparse', async () => {
+    const { app, sessionId } = makeTranscriptApp();
+
+    // The transcript is on disk and would parse to one turn — but the row that
+    // reads on every `stats` event never draws the waterfall, so the default
+    // read must not recompute it (ADR
+    // `the-stats-row-reads-when-the-stats-are-written`, "What remains").
+    const res = await app.inject({ method: 'GET', url: `/api/stats/sessions/${sessionId}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().turns).toEqual([]);
+  });
+
+  it('a session that never got a transcript file answers with an empty timeline, not a 500', async () => {
+    const { app, db } = makeApp();
+    insertStatsSession(db, { id: 'noFile', projectDir: 'proj', lastAt: Date.now() });
+    insertRollup(db, 'noFile');
+    // With the flag on, so the missing file exercises the graceful catch, not
+    // the "row did not ask for a timeline" path.
+    const res = await app.inject({ method: 'GET', url: '/api/stats/sessions/noFile?timeline=1' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().turns).toEqual([]);
   });
 });

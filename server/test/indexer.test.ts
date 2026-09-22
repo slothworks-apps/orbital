@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
-import { sessions, sessionColumns, sweptSessions } from '../src/db/schema.js';
+import { sessions, sessionColumns, sweptSessions, sessionStats } from '../src/db/schema.js';
 import { indexProjects } from '../src/indexer/indexer.js';
 import { retentionCutoff, sweepSessions } from '../src/retention.js';
+import { STATS_VERSION, CHARS_PER_TOKEN, OBESE_RESULT_TOKENS } from '../src/stats/constants.js';
 import type { SessionRow } from '../src/types.js';
 
 function setup() {
@@ -41,6 +42,26 @@ function writeTranscriptFile(
   const pdir = join(projects, projectDir);
   mkdirSync(pdir, { recursive: true });
   writeFileSync(join(pdir, `${sessionId}.jsonl`), entries.map((e) => JSON.stringify(e)).join('\n'));
+}
+
+/**
+ * Writes one subagent transcript where the current CLI puts it — beside the
+ * session file, under `<session-id>/subagents/` (docs/domains/
+ * subagents-in-transcripts.md).
+ */
+function writeSubagentFile(
+  projects: string,
+  projectDir: string,
+  sessionId: string,
+  agentId: string,
+  entries: unknown[],
+) {
+  const dir = join(projects, projectDir, sessionId, 'subagents');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `agent-${agentId}.jsonl`),
+    entries.map((e) => JSON.stringify(e)).join('\n'),
+  );
 }
 
 describe('indexProjects', () => {
@@ -261,5 +282,164 @@ describe('indexProjects and swept sessions', () => {
     db.insert(sweptSessions).values({ id: 'gone', sweptAt: 1 }).run();
     indexProjects(db, projects);
     expect(db.select().from(sweptSessions).all()).toHaveLength(1);
+  });
+});
+
+// Session stats (spec 2026-09-20-session-stats-design § Data model): the same
+// pass that extracts meta rolls the transcript up into `session_stats`.
+describe('indexProjects and session_stats', () => {
+  const USAGE = {
+    input_tokens: 100,
+    output_tokens: 20,
+    cache_read_input_tokens: 50,
+    cache_creation_input_tokens: 10,
+    cache_creation: { ephemeral_5m_input_tokens: 10, ephemeral_1h_input_tokens: 0 },
+    output_tokens_details: { thinking_tokens: 5 },
+  };
+
+  /** One turn: a prompt, an assistant turn that calls Bash, and the result 2s later. */
+  function oneTurnSession(projects: string) {
+    writeTranscriptFile(projects, 'proj', 'sess-stats', [
+      { type: 'user', uuid: 'u1', timestamp: '2026-09-20T10:00:00.000Z', cwd: '/w/x', message: { role: 'user', content: 'go' } },
+      {
+        type: 'assistant', uuid: 'a1', timestamp: '2026-09-20T10:00:05.000Z', requestId: 'r1',
+        message: {
+          role: 'assistant', model: 'claude-opus-5', usage: USAGE,
+          content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }],
+        },
+      },
+      {
+        type: 'user', uuid: 'u2', timestamp: '2026-09-20T10:00:07.000Z',
+        toolUseResult: '3 passing',
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1' }] },
+      },
+    ]);
+  }
+
+  const statsRow = (db: ReturnType<typeof openDb>, id: string) =>
+    db.select().from(sessionStats).where(eq(sessionStats.sessionId, id)).get();
+
+  it('rolls a changed transcript up into a session_stats row', () => {
+    const { db, projects } = setupEmpty();
+    oneTurnSession(projects);
+    indexProjects(db, projects);
+
+    const row = statsRow(db, 'sess-stats')!;
+    expect(row.turns).toBe(1);
+    expect(row.apiMs).toBe(5000);
+    expect(row.localToolMs).toBe(2000);
+    expect(row.mcpMs).toBe(0);
+    expect(row.inputTokens).toBe(100);
+    expect(row.outputTokens).toBe(20);
+    expect(row.cacheReadTokens).toBe(50);
+    expect(row.cacheCreationTokens).toBe(10);
+    expect(row.cacheCreation5mTokens).toBe(10);
+    expect(row.cacheCreation1hTokens).toBe(0);
+    expect(row.thinkingTokens).toBe(5);
+    expect(row.toolCalls).toBe(1);
+    expect(row.toolErrors).toBe(0);
+    expect(row.statsVersion).toBe(STATS_VERSION);
+  });
+
+  it('counts the subagent files beside the transcript, not just the transcript', () => {
+    const { db, projects } = setupEmpty();
+    oneTurnSession(projects);
+    writeSubagentFile(projects, 'proj', 'sess-stats', 'aaa', [
+      {
+        type: 'assistant', uuid: 's1', timestamp: '2026-09-20T10:00:06.000Z', requestId: 'sr1',
+        isSidechain: true,
+        message: {
+          role: 'assistant', model: 'claude-haiku-5',
+          usage: { input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 2, cache_creation_input_tokens: 1 },
+          content: [{ type: 'text', text: 'done' }],
+        },
+      },
+    ]);
+    indexProjects(db, projects);
+
+    const row = statsRow(db, 'sess-stats')!;
+    expect(row.subagentTokens).toBe(13);
+    expect(row.subagentUsage).toEqual({
+      'claude-haiku-5': {
+        input: 7, output: 3, cacheRead: 2, cacheCreation: 1, cacheCreation5m: 0, cacheCreation1h: 0,
+      },
+    });
+    // The sidechain entries stay out of the parent's own lanes and counts.
+    expect(row.turns).toBe(1);
+    expect(row.inputTokens).toBe(100);
+  });
+
+  it('round-trips toolBreakdown and findings through their JSON columns', () => {
+    const { db, projects } = setupEmpty();
+    const fat = 'x'.repeat(OBESE_RESULT_TOKENS * CHARS_PER_TOKEN);
+    writeTranscriptFile(projects, 'proj', 'sess-json', [
+      { type: 'user', uuid: 'u1', timestamp: '2026-09-20T10:00:00.000Z', cwd: '/w/x', message: { role: 'user', content: 'go' } },
+      {
+        type: 'assistant', uuid: 'a1', timestamp: '2026-09-20T10:00:01.000Z', requestId: 'r1',
+        message: {
+          role: 'assistant', model: 'claude-opus-5', usage: USAGE,
+          content: [{ type: 'tool_use', id: 't1', name: 'mcp__docs__search', input: { q: 'x' } }],
+        },
+      },
+      {
+        type: 'user', uuid: 'u2', timestamp: '2026-09-20T10:00:02.000Z',
+        toolUseResult: fat,
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1' }] },
+      },
+    ]);
+    indexProjects(db, projects);
+
+    const row = statsRow(db, 'sess-json')!;
+    expect(row.mcpMs).toBe(1000);
+    expect(row.toolBreakdown['mcp__docs__search']).toMatchObject({
+      calls: 1, errors: 0, ms: 1000, resultChars: fat.length,
+    });
+    expect(row.toolBreakdown['mcp__docs__search'].buckets).toBeInstanceOf(Array);
+    expect(row.findings).toEqual([
+      {
+        rule: 'obese-tool-result',
+        evidence: {
+          tool: 'mcp__docs__search',
+          chars: fat.length,
+          estimatedTokens: OBESE_RESULT_TOKENS,
+          toolUseId: 't1',
+          turnUuid: 'a1',
+        },
+      },
+    ]);
+  });
+
+  it('recomputes an unchanged transcript when the stored statsVersion is stale', () => {
+    const { db, projects } = setupEmpty();
+    oneTurnSession(projects);
+    indexProjects(db, projects);
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0 });
+
+    // What a definition change looks like to an already-indexed session.
+    db.update(sessionStats)
+      .set({ statsVersion: STATS_VERSION - 1, turns: 0 })
+      .where(eq(sessionStats.sessionId, 'sess-stats'))
+      .run();
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
+
+    const row = statsRow(db, 'sess-stats')!;
+    expect(row.statsVersion).toBe(STATS_VERSION);
+    expect(row.turns).toBe(1);
+  });
+
+  // The third of the three write paths that announce themselves (ADR
+  // `the-stats-row-reads-when-the-stats-are-written`); a pass that re-indexes
+  // nothing has nothing to announce.
+  it('announces each session whose rollup the pass rewrote', () => {
+    const { db, projects } = setupEmpty();
+    oneTurnSession(projects);
+    const onStats = vi.fn();
+
+    indexProjects(db, projects, onStats);
+    expect(onStats).toHaveBeenCalledExactlyOnceWith('sess-stats');
+
+    onStats.mockClear();
+    indexProjects(db, projects, onStats);
+    expect(onStats).not.toHaveBeenCalled();
   });
 });

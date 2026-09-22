@@ -2,13 +2,19 @@ import { eq, inArray, sql } from 'drizzle-orm';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { OrbitalDb } from '../db/database.js';
-import { sessions, sweptSessions } from '../db/schema.js';
+import { sessions, sweptSessions, sessionStats } from '../db/schema.js';
 import { parseTranscript, extractMeta } from '../transcript/parser.js';
 import { regenerateRuleTags } from '../tags/rules.js';
+import { computeStats } from '../stats/compute.js';
+import { STATS_VERSION } from '../stats/constants.js';
+import { upsertSessionStats, type SessionStatsWritten } from '../stats/store.js';
+import { readSubagentEntries } from '../stats/transcript.js';
 
 export function indexProjects(
   db: OrbitalDb,
   projectsDir: string,
+  /** Told for each session whose rollup this pass rewrote — see `SessionStatsWritten`. */
+  onStats?: SessionStatsWritten,
 ): { scanned: number; indexed: number } {
   let scanned = 0;
   let indexed = 0;
@@ -72,16 +78,28 @@ export function indexProjects(
         }
 
         const existing = db
-          .select({ indexedMtime: sessions.indexedMtime, indexedSize: sessions.indexedSize })
+          .select({
+            indexedMtime: sessions.indexedMtime,
+            indexedSize: sessions.indexedSize,
+            statsVersion: sessionStats.statsVersion,
+          })
           .from(sessions)
+          .leftJoin(sessionStats, eq(sessionStats.sessionId, sessions.id))
           .where(eq(sessions.id, id))
           .get();
+        // A stale (or missing) statsVersion re-indexes a file that has not
+        // otherwise changed: that is how a definition change reaches history.
         if (
           existing &&
           existing.indexedMtime === Math.floor(stat.mtimeMs) &&
-          existing.indexedSize === stat.size
+          existing.indexedSize === stat.size &&
+          existing.statsVersion === STATS_VERSION
         ) continue;
-        const meta = extractMeta(parseTranscript(readFileSync(path, 'utf8')));
+        const entries = parseTranscript(readFileSync(path, 'utf8'));
+        const meta = extractMeta(entries);
+        // Sidechains live in their own files beside this one, so stats read
+        // both; `extractMeta` above stays on the session's own entries.
+        const { rollup } = computeStats([...entries, ...readSubagentEntries(path)]);
         db.insert(sessions)
           .values({
             id,
@@ -120,6 +138,7 @@ export function indexProjects(
             },
           })
           .run();
+        upsertSessionStats(db, id, rollup, onStats);
         indexed++;
       } catch (err) {
         console.warn(`orbital: failed to index ${path}:`, err);

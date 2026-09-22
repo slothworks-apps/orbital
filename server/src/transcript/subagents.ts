@@ -19,7 +19,7 @@ export interface SubagentInfo {
  * written by them are still on disk. Both are accepted, because a version bump
  * renaming this silently is exactly how this detection broke the first time.
  */
-const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
+export const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
 
 /** `task_type` of a spawned subagent; background shells and workflows wear other values. */
 const SUBAGENT_TASK_TYPE = 'local_agent';

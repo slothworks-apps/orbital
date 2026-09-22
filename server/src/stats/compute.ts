@@ -1,0 +1,473 @@
+import type { TranscriptEntry, TranscriptUsage } from '../transcript/parser.js';
+import { SUBAGENT_TOOLS } from '../transcript/subagents.js';
+import {
+  CACHE_BURN_MIN_HIT_RATIO,
+  CACHE_BURN_MIN_TURNS,
+  CHARS_PER_TOKEN,
+  ERROR_LOOP_MIN_REPEATS,
+  HIST_BUCKET_BOUNDS_MS,
+  HIST_BUCKET_COUNT,
+  MCP_TOOL_PREFIX,
+  OBESE_RESULT_TOKENS,
+} from './constants.js';
+
+export interface SessionStats {
+  rollup: StatsRollup;
+  /** Derived on demand for the waterfall and the slowest-turns list; never stored. */
+  turns: TurnSegment[];
+}
+
+export interface StatsRollup {
+  apiMs: number;
+  localToolMs: number;
+  mcpMs: number;
+  subagentMs: number;
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  cacheCreation5mTokens: number;
+  cacheCreation1hTokens: number;
+  thinkingTokens: number;
+  subagentTokens: number;
+  /**
+   * Sidechain usage, per the subagent's own model id (Ruling 11: subagents
+   * often run a cheaper model than the parent session, so pricing the sum
+   * under the parent's model would misprice it). `subagentTokens` above
+   * stays the flat display sum; this is the priceable breakdown.
+   */
+  subagentUsage: Record<string, SubagentModelUsage>;
+  toolCalls: number;
+  toolErrors: number;
+  toolBreakdown: Record<string, ToolStat>;
+  findings: Finding[];
+}
+
+export interface SubagentModelUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+  cacheCreation5m: number;
+  cacheCreation1h: number;
+}
+
+export interface ToolStat {
+  calls: number;
+  errors: number;
+  ms: number;
+  resultChars: number;
+  /** Duration histogram over HIST_BUCKET_BOUNDS_MS, length HIST_BUCKET_COUNT. */
+  buckets: number[];
+}
+
+export type ToolKind = 'local' | 'mcp' | 'subagent';
+
+export interface TurnSegment {
+  /** Synthetic `turn-<index>` when the entry predates `requestId`. */
+  requestId: string;
+  /**
+   * The uuid of the assistant entry that opened the turn — the same value the
+   * findings below carry in `firstTurnUuid` / `turnUuid`, and the only thing
+   * that lets the drilldown point a finding at a lane (ADR
+   * `a-rule-names-its-turn-by-uuid`). Empty for an entry that has none.
+   */
+  uuid: string;
+  startTs: number;
+  apiMs: number;
+  tokens: { input: number; output: number; cacheRead: number; cacheCreation: number };
+  tools: Array<{
+    name: string;
+    kind: ToolKind;
+    ms: number;
+    isError: boolean;
+    resultChars: number;
+    /** The tool_use block id, so the UI can link into the transcript. */
+    useId: string;
+  }>;
+}
+
+export type FindingRule = 'cache-burn' | 'obese-tool-result' | 'error-loop';
+
+export interface Finding {
+  rule: FindingRule;
+  /**
+   * Measured numbers plus the entry uuids the UI links from. Severity is not
+   * here on purpose: it is derived at read time, because cache-burn's depends
+   * on a pricing table that ships with the build and may change under stored
+   * findings.
+   */
+  evidence: Record<string, number | string | string[]>;
+}
+
+/** A finished tool run, in the order its result arrived — what the rules scan. */
+interface ToolRun {
+  name: string;
+  inputKey: string;
+  isError: boolean;
+  resultChars: number;
+  useId: string;
+  turnUuid: string;
+}
+
+/** A dispatched tool_use still waiting for its result. */
+interface PendingUse {
+  name: string;
+  inputKey: string;
+  ts: number | null;
+  turnIndex: number;
+  turnUuid: string;
+}
+
+function emptyRollup(): StatsRollup {
+  return {
+    apiMs: 0, localToolMs: 0, mcpMs: 0, subagentMs: 0, turns: 0,
+    inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, thinkingTokens: 0, subagentTokens: 0,
+    subagentUsage: {},
+    toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
+  };
+}
+
+function timestampOf(entry: TranscriptEntry): number | null {
+  if (typeof entry.timestamp !== 'string') return null;
+  const t = Date.parse(entry.timestamp);
+  return Number.isNaN(t) ? null : t;
+}
+
+function blocksOf(entry: TranscriptEntry): Array<Record<string, unknown>> {
+  const content = entry.message?.content;
+  if (!Array.isArray(content)) return [];
+  return content.filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null);
+}
+
+function num(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/** Transcripts hold whatever a tool returned; a value that cannot serialize measures 0. */
+function serializedLength(value: unknown): number {
+  if (typeof value === 'string') return value.length;
+  if (value === undefined || value === null) return 0;
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * What "the same call" means to error-loop. Key order is not normalised: the
+ * CLI builds a repeated call's input the same way each time, so two genuinely
+ * identical calls serialize identically.
+ */
+function inputFingerprint(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function toolKind(name: string): ToolKind {
+  // SUBAGENT_TOOLS, not a local copy: the CLI has renamed this tool once
+  // already and both names are on disk.
+  if (SUBAGENT_TOOLS.has(name)) return 'subagent';
+  if (name.startsWith(MCP_TOOL_PREFIX)) return 'mcp';
+  return 'local';
+}
+
+/** Index of the bucket a duration falls in: each bound opens the bucket above it. */
+export function histogramBucket(ms: number): number {
+  let i = 0;
+  while (i < HIST_BUCKET_BOUNDS_MS.length && ms >= HIST_BUCKET_BOUNDS_MS[i]) i++;
+  return i;
+}
+
+function usageTokens(usage: TranscriptUsage | undefined) {
+  const creation = usage?.cache_creation;
+  return {
+    input: num(usage?.input_tokens),
+    output: num(usage?.output_tokens),
+    cacheRead: num(usage?.cache_read_input_tokens),
+    cacheCreation: num(usage?.cache_creation_input_tokens),
+    creation5m: num(creation?.ephemeral_5m_input_tokens),
+    creation1h: num(creation?.ephemeral_1h_input_tokens),
+    thinking: num(usage?.output_tokens_details?.thinking_tokens),
+  };
+}
+
+/**
+ * The whole stats layer in one pass over a parsed transcript: the rollup the
+ * indexer stores and the per-turn timeline the drilldown asks for on demand.
+ * Pure — no DB, no I/O — and it never throws: a transcript half-written or
+ * from an older CLI degrades to partial numbers.
+ *
+ * A turn is the run of consecutive assistant entries sharing one `requestId`
+ * (the CLI writes one entry per content block and repeats the usage on each,
+ * so usage is counted once per request). Sidechain entries belong to a
+ * subagent: their time is already covered by the parent's dispatching tool
+ * run, so they only contribute `subagentTokens` (the flat display sum) and
+ * `subagentUsage` (the same tokens, broken down by the subagent's own model
+ * id, for pricing — Ruling 11).
+ */
+export function computeStats(entries: TranscriptEntry[]): SessionStats {
+  const rollup = emptyRollup();
+  const turns: TurnSegment[] = [];
+  /** Turn uuids kept beside the segments — evidence needs them, the wire does not. */
+  const turnUuids: string[] = [];
+  const toolRuns: ToolRun[] = [];
+  const pending = new Map<string, PendingUse>();
+  const countedRequests = new Set<string>();
+  const countedSidechainRequests = new Set<string>();
+
+  /**
+   * Where the next turn's API wait is measured from: the last main-chain entry
+   * of any kind. A user entry (a human prompt or a tool_result) is when the
+   * request went out; an assistant entry is when the previous response's last
+   * token landed. Both must advance it, or two turns with nothing between them
+   * — every turn on the no-requestId fallback path — measure the same gap
+   * twice and the lanes climb past wall-clock.
+   */
+  let lastAnchorTs: number | null = null;
+  let openTurnKey: string | null = null;
+
+  /**
+   * A tool_result closes the run its tool_use opened. A tool_use with no
+   * result — an aborted turn — is left in `pending` and counts for nothing,
+   * neither as a call nor as time.
+   */
+  const closeToolRun = (
+    entry: TranscriptEntry,
+    block: Record<string, unknown>,
+    endTs: number | null,
+  ) => {
+    const useId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
+    const use = pending.get(useId);
+    if (!use) return;
+    pending.delete(useId);
+
+    // Both ends are needed for a duration. Without them the call still counts,
+    // but it must not enter the histogram: a phantom sub-first-bound sample
+    // would vote "fast" in the p50 the window-level slow-mcp rule reads.
+    const startTs = use.ts;
+    const timed = startTs !== null && endTs !== null;
+    const ms = timed ? Math.max(0, endTs - startTs) : 0;
+    const isError = block.is_error === true;
+    // The payload lives on the entry, not the block — the CLI never puts more
+    // than one tool_result in an entry, so the two line up.
+    const resultChars = serializedLength(entry.toolUseResult);
+    const kind = toolKind(use.name);
+
+    rollup.toolCalls++;
+    if (isError) rollup.toolErrors++;
+    if (kind === 'subagent') rollup.subagentMs += ms;
+    else if (kind === 'mcp') rollup.mcpMs += ms;
+    else rollup.localToolMs += ms;
+
+    const stat = (rollup.toolBreakdown[use.name] ??= {
+      calls: 0, errors: 0, ms: 0, resultChars: 0, buckets: new Array(HIST_BUCKET_COUNT).fill(0),
+    });
+    stat.calls++;
+    if (isError) stat.errors++;
+    stat.ms += ms;
+    stat.resultChars += resultChars;
+    if (timed) stat.buckets[histogramBucket(ms)]++;
+
+    turns[use.turnIndex]?.tools.push({ name: use.name, kind, ms, isError, resultChars, useId });
+    toolRuns.push({
+      name: use.name, inputKey: use.inputKey, isError, resultChars, useId,
+      turnUuid: use.turnUuid,
+    });
+  };
+
+  entries.forEach((entry, index) => {
+    if (entry.isSidechain) {
+      if (entry.type !== 'assistant') return;
+      const key = entry.requestId || `sidechain-${index}`;
+      if (countedSidechainRequests.has(key)) return;
+      countedSidechainRequests.add(key);
+      const u = usageTokens(entry.message?.usage);
+      rollup.subagentTokens += u.input + u.output + u.cacheRead + u.cacheCreation;
+      // Empty string when the entry carries no model — pricing falls back to
+      // DEFAULT_PRICING for that bucket the same way an unrecognised id does.
+      const model = typeof entry.message?.model === 'string' ? entry.message.model : '';
+      const usage = (rollup.subagentUsage[model] ??= {
+        input: 0, output: 0, cacheRead: 0, cacheCreation: 0, cacheCreation5m: 0, cacheCreation1h: 0,
+      });
+      usage.input += u.input;
+      usage.output += u.output;
+      usage.cacheRead += u.cacheRead;
+      usage.cacheCreation += u.cacheCreation;
+      usage.cacheCreation5m += u.creation5m;
+      usage.cacheCreation1h += u.creation1h;
+      return;
+    }
+
+    if (entry.type === 'user') {
+      openTurnKey = null;
+      const ts = timestampOf(entry);
+      if (ts !== null) lastAnchorTs = ts;
+      for (const block of blocksOf(entry)) {
+        if (block.type !== 'tool_result') continue;
+        closeToolRun(entry, block, ts);
+      }
+      return;
+    }
+
+    if (entry.type !== 'assistant') return;
+
+    const ts = timestampOf(entry);
+    const key = entry.requestId || `turn-${index}`;
+    if (key !== openTurnKey) {
+      openTurnKey = key;
+      const apiMs = ts !== null && lastAnchorTs !== null ? Math.max(0, ts - lastAnchorTs) : 0;
+      rollup.apiMs += apiMs;
+      const tokens = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+      // A repeated requestId (never seen in practice) still opens a segment,
+      // but its usage was already banked and must not count twice.
+      if (!countedRequests.has(key)) {
+        countedRequests.add(key);
+        const u = usageTokens(entry.message?.usage);
+        rollup.inputTokens += u.input;
+        rollup.outputTokens += u.output;
+        rollup.cacheReadTokens += u.cacheRead;
+        rollup.cacheCreationTokens += u.cacheCreation;
+        rollup.cacheCreation5mTokens += u.creation5m;
+        rollup.cacheCreation1hTokens += u.creation1h;
+        rollup.thinkingTokens += u.thinking;
+        tokens.input = u.input;
+        tokens.output = u.output;
+        tokens.cacheRead = u.cacheRead;
+        tokens.cacheCreation = u.cacheCreation;
+      }
+      turns.push({ requestId: key, uuid: entry.uuid ?? '', startTs: ts ?? 0, apiMs, tokens, tools: [] });
+      turnUuids.push(entry.uuid ?? '');
+    }
+
+    const turnIndex = turns.length - 1;
+    for (const block of blocksOf(entry)) {
+      if (block.type !== 'tool_use') continue;
+      const id = typeof block.id === 'string' ? block.id : '';
+      const name = typeof block.name === 'string' ? block.name : '';
+      // A block missing either is unusable: no id means no result can ever be
+      // matched to it, and no name means no lane and no leaderboard row.
+      if (!id || !name) continue;
+      pending.set(id, {
+        name,
+        inputKey: inputFingerprint(block.input),
+        ts,
+        turnIndex,
+        turnUuid: turnUuids[turnIndex] ?? '',
+      });
+    }
+
+    if (ts !== null) lastAnchorTs = ts;
+  });
+
+  rollup.turns = turns.length;
+  rollup.findings = sessionFindings(rollup, turns, turnUuids, toolRuns);
+  return { rollup, turns };
+}
+
+/** One finding per rule at most — the worst instance the session offers. */
+function sessionFindings(
+  rollup: StatsRollup,
+  turns: TurnSegment[],
+  turnUuids: string[],
+  toolRuns: ToolRun[],
+): Finding[] {
+  const out: Finding[] = [];
+  const burn = cacheBurn(rollup, turns, turnUuids);
+  if (burn) out.push(burn);
+  const obese = obeseToolResult(toolRuns);
+  if (obese) out.push(obese);
+  const loop = errorLoop(toolRuns);
+  if (loop) out.push(loop);
+  return out;
+}
+
+/** Cache reads over everything the session put in front of the model. */
+function hitRatio(t: { input: number; cacheRead: number; cacheCreation: number }): number | null {
+  const total = t.input + t.cacheRead + t.cacheCreation;
+  return total > 0 ? t.cacheRead / total : null;
+}
+
+function cacheBurn(rollup: StatsRollup, turns: TurnSegment[], turnUuids: string[]): Finding | null {
+  if (turns.length < CACHE_BURN_MIN_TURNS) return null;
+  const ratio = hitRatio({
+    input: rollup.inputTokens,
+    cacheRead: rollup.cacheReadTokens,
+    cacheCreation: rollup.cacheCreationTokens,
+  });
+  if (ratio === null || ratio >= CACHE_BURN_MIN_HIT_RATIO) return null;
+
+  let turnsAffected = 0;
+  let firstAffected = -1;
+  turns.forEach((turn, i) => {
+    const r = hitRatio(turn.tokens);
+    if (r === null || r >= CACHE_BURN_MIN_HIT_RATIO) return;
+    turnsAffected++;
+    if (firstAffected < 0) firstAffected = i;
+  });
+
+  return {
+    rule: 'cache-burn',
+    evidence: {
+      hitRatio: ratio,
+      // Input the session paid full price for: neither read from the cache
+      // nor written to it, which is the side of the bill this rule is about.
+      uncachedInputTokens: rollup.inputTokens,
+      turnsAffected,
+      totalTurns: turns.length,
+      firstTurnUuid: turnUuids[Math.max(firstAffected, 0)] ?? '',
+    },
+  };
+}
+
+function obeseToolResult(toolRuns: ToolRun[]): Finding | null {
+  let worst: ToolRun | null = null;
+  for (const run of toolRuns) {
+    if (run.resultChars / CHARS_PER_TOKEN < OBESE_RESULT_TOKENS) continue;
+    if (!worst || run.resultChars > worst.resultChars) worst = run;
+  }
+  if (!worst) return null;
+  return {
+    rule: 'obese-tool-result',
+    evidence: {
+      tool: worst.name,
+      chars: worst.resultChars,
+      estimatedTokens: Math.round(worst.resultChars / CHARS_PER_TOKEN),
+      toolUseId: worst.useId,
+      turnUuid: worst.turnUuid,
+    },
+  };
+}
+
+/** The longest run of identical failing calls, in the order the results landed. */
+function errorLoop(toolRuns: ToolRun[]): Finding | null {
+  let best: { first: ToolRun; last: ToolRun; count: number } | null = null;
+  let first: ToolRun | null = null;
+  let count = 0;
+  for (const run of toolRuns) {
+    const continues =
+      run.isError && first !== null && first.name === run.name && first.inputKey === run.inputKey;
+    if (continues) count++;
+    else {
+      first = run.isError ? run : null;
+      count = run.isError ? 1 : 0;
+    }
+    if (first && count > (best?.count ?? 0)) best = { first, last: run, count };
+  }
+  if (!best || best.count < ERROR_LOOP_MIN_REPEATS) return null;
+  return {
+    rule: 'error-loop',
+    evidence: {
+      tool: best.first.name,
+      count: best.count,
+      firstTurnUuid: best.first.turnUuid,
+      lastTurnUuid: best.last.turnUuid,
+    },
+  };
+}

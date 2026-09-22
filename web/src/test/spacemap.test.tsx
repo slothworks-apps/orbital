@@ -96,6 +96,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     historyLoaded: {},
     transcriptErrors: {},
     lastTurnResultAt: {},
+    statsRevision: {},
     pendingDecisions: {},
     decisionAnswers: {},
     errors: [],

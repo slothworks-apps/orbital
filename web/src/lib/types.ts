@@ -378,3 +378,188 @@ export interface ErrorRecord {
   /** When the error list showed this row. Null until then. */
   seenAt: number | null
 }
+
+/* ---------------------------------------------------------------------------
+   Stats (spec: 2026-09-20-session-stats-design). Every shape below mirrors
+   what `server/src/api/stats.ts` returns — the two must move together. All
+   numbers are raw: milliseconds, tokens and USD, never pre-formatted, because
+   `stats/format.ts` owns how they read.
+   --------------------------------------------------------------------------- */
+
+/** The windows `GET /api/stats/overview` accepts; anything else is a 400. */
+export type StatsWindow = '24h' | '7d' | '30d' | 'all'
+
+/**
+ * A finding's read-time severity. RESOLVED is not a fourth level but the
+ * state a rule moves into once it stops firing — the canvas (10d) gives it
+ * the same card slot as the three real severities.
+ */
+export type FindingSeverity = 'critical' | 'warning' | 'info' | 'resolved'
+
+export interface StatsTotals {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  /** cacheRead ÷ all priced input; null when the window priced no tokens at all. */
+  cachedRatio: number | null
+  apiMs: number
+  localToolMs: number
+  mcpMs: number
+  subagentMs: number
+  /** The four categories above, summed. Never the wall clock. */
+  busyMs: number
+  wallClockMs: number
+  costTotal: number
+  /** Null for a window with no sessions — there is nothing to average over. */
+  costPerSession: number | null
+  sessionCount: number
+}
+
+/** One column of the BUSY TIME PER DAY chart; `day` is a local `YYYY-MM-DD`. */
+export interface StatsDayBusy {
+  day: string
+  apiMs: number
+  localToolMs: number
+  mcpMs: number
+  subagentMs: number
+  busyMs: number
+}
+
+/** One point of the cache-hit trend; null on a day that priced no input. */
+export interface StatsCacheRatioDay {
+  day: string
+  ratio: number | null
+}
+
+export interface StatsToolRow {
+  tool: string
+  isMcp: boolean
+  calls: number
+  errors: number
+  ms: number
+  /** Estimated from the merged duration histogram; null when the tool never ran. */
+  p50Ms: number | null
+  /** Characters of `toolUseResult` — the leaderboard's "most expensive" ranking. */
+  resultChars: number
+}
+
+export interface StatsToolLeaderboard {
+  slowest: StatsToolRow[]
+  mostExpensive: StatsToolRow[]
+}
+
+/**
+ * One card in the findings feed. `sessionId`/`title`/`projectDir` are null for
+ * `slow-mcp`, which is server-wide rather than a fact about one session.
+ * `evidence` is the rule's own measured numbers — its keys differ per rule,
+ * which is why it is not typed further than this (see `stats/findingCopy.ts`).
+ */
+export interface StatsFinding {
+  rule: string
+  severity: FindingSeverity
+  sessionId: string | null
+  title: string | null
+  projectDir: string | null
+  /** Epoch ms: the session's `lastAt`, or now for the window-level rules. */
+  when: number
+  evidence: Record<string, unknown>
+}
+
+/** `GET /api/stats/overview`. */
+export interface StatsOverview {
+  filters: { window: StatsWindow; project: string | null; model: string | null }
+  sessionCount: number
+  /** Null for `window=all`, which starts at the first session there is. */
+  windowStart: number | null
+  windowEnd: number
+  totals: StatsTotals
+  /** The same-length window before this one; null for `window=all`. */
+  previousTotals: StatsTotals | null
+  /** Already a percentage, not a ratio. Null when there is no baseline to compare against. */
+  costDeltaPct: number | null
+  daySeries: StatsDayBusy[]
+  cacheRatioSeries: StatsCacheRatioDay[]
+  toolLeaderboard: StatsToolLeaderboard
+  findings: StatsFinding[]
+}
+
+export interface StatsRollup {
+  apiMs: number
+  localToolMs: number
+  mcpMs: number
+  subagentMs: number
+  turns: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  cacheCreation5mTokens: number
+  cacheCreation1hTokens: number
+  thinkingTokens: number
+  subagentTokens: number
+  subagentUsage: Record<
+    string,
+    {
+      input: number
+      output: number
+      cacheRead: number
+      cacheCreation: number
+      cacheCreation5m: number
+      cacheCreation1h: number
+    }
+  >
+  toolCalls: number
+  toolErrors: number
+  toolBreakdown: Record<
+    string,
+    { calls: number; errors: number; ms: number; resultChars: number; buckets: number[] }
+  >
+  findings: Array<{ rule: string; evidence: Record<string, unknown> }>
+}
+
+/** One turn of the drilldown waterfall — derived on demand, never stored. */
+export interface StatsTurnSegment {
+  requestId: string
+  /** The turn's transcript entry uuid — what a finding's evidence names (ADR
+   * `a-rule-names-its-turn-by-uuid`). Empty when the entry carried none. */
+  uuid: string
+  startTs: number
+  apiMs: number
+  tokens: { input: number; output: number; cacheRead: number; cacheCreation: number }
+  tools: Array<{
+    name: string
+    kind: 'local' | 'mcp' | 'subagent'
+    ms: number
+    isError: boolean
+    resultChars: number
+    useId: string
+  }>
+}
+
+/** `GET /api/stats/sessions/:id`. */
+export interface SessionStatsDetail {
+  session: {
+    id: string
+    title: string
+    projectDir: string
+    model: string | null
+    resolvedModel: string | null
+    firstAt: number | null
+    lastAt: number | null
+    turns: number
+  }
+  rollup: StatsRollup
+  /** Derived at read time from the shipped pricing table; never persisted as money. */
+  cost: {
+    uncachedInput: number
+    cacheRead: number
+    cacheWrite: number
+    output: number
+    mainTotal: number
+    subagentTotal: number
+    total: number
+  }
+  findings: Array<{ rule: string; severity: FindingSeverity; evidence: Record<string, unknown> }>
+  turns: StatsTurnSegment[]
+}
