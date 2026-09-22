@@ -3,7 +3,16 @@ export type WsStatus = 'connecting' | 'open' | 'closed'
 export interface OrbitalSocketOptions {
   WebSocketImpl?: typeof WebSocket | ((url: string) => WebSocket)
   reconnectDelayMs?: number
+  heartbeatTimeoutMs?: number
 }
+
+/**
+ * How long the socket tolerates silence before assuming the connection is
+ * dead. Several times the server's heartbeat interval, so one lost frame
+ * doesn't kill a healthy connection
+ * (spec: 2026-09-22-ws-reconnect-resync-design).
+ */
+export const HEARTBEAT_TIMEOUT_MS = 45_000
 
 /**
  * Resolves a WebSocket path to a full URL with correct scheme (ws: or wss:)
@@ -22,6 +31,7 @@ export class OrbitalSocket {
   private opts: {
     WebSocketImpl: typeof WebSocket | ((url: string) => WebSocket)
     reconnectDelayMs: number
+    heartbeatTimeoutMs: number
   }
   private ws: WebSocket | null = null
   private _status: WsStatus = 'connecting'
@@ -32,6 +42,7 @@ export class OrbitalSocket {
   private handlers: Map<string, Set<(msg: any) => void>> = new Map()
   private messageQueue: any[] = []
   private reconnectTimeout: number | null = null
+  private watchdogTimeout: number | null = null
   private isClosed = false
 
   constructor(url: string = '/ws', opts?: OrbitalSocketOptions) {
@@ -39,6 +50,7 @@ export class OrbitalSocket {
     this.opts = {
       WebSocketImpl: opts?.WebSocketImpl || WebSocket,
       reconnectDelayMs: opts?.reconnectDelayMs ?? 3000,
+      heartbeatTimeoutMs: opts?.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS,
     }
     this.createSocket()
   }
@@ -60,6 +72,7 @@ export class OrbitalSocket {
     this.ws.onopen = () => {
       this._status = 'open'
       this.notifyStatusChange('open')
+      this.armWatchdog()
 
       // Clear all queued control frames (subscribe/unsubscribe) to avoid stale frames
       this.messageQueue = this.messageQueue.filter(
@@ -75,6 +88,10 @@ export class OrbitalSocket {
     }
 
     this.ws.onmessage = (event: MessageEvent) => {
+      // Any frame proves the connection is alive, the server's topic-less
+      // heartbeat included — it is dropped by the routing below and exists
+      // only for this line.
+      this.armWatchdog()
       try {
         const msg = JSON.parse(event.data)
         const topic = msg.topic
@@ -96,6 +113,7 @@ export class OrbitalSocket {
     }
 
     this.ws.onclose = () => {
+      this.clearWatchdog()
       this._status = 'closed'
       this.notifyStatusChange('closed')
       this.ws = null
@@ -106,6 +124,27 @@ export class OrbitalSocket {
           this.createSocket()
         }, this.opts.reconnectDelayMs)
       }
+    }
+  }
+
+  /**
+   * (Re)starts the silence countdown. A connection can die without ever
+   * firing `onclose` — a slept laptop, a suspended renderer — and then
+   * nothing reconnects and no banner appears. Closing the socket ourselves
+   * puts that case back on the normal `onclose` -> reconnect path.
+   */
+  private armWatchdog(): void {
+    this.clearWatchdog()
+    this.watchdogTimeout = window.setTimeout(() => {
+      this.watchdogTimeout = null
+      this.ws?.close()
+    }, this.opts.heartbeatTimeoutMs)
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdogTimeout !== null) {
+      clearTimeout(this.watchdogTimeout)
+      this.watchdogTimeout = null
     }
   }
 
@@ -231,6 +270,9 @@ export class OrbitalSocket {
    */
   close(): void {
     this.isClosed = true
+    // Not left to `onclose`: a real socket fires it asynchronously, or never
+    // once the page is going away, and the watchdog must not outlive us.
+    this.clearWatchdog()
     if (this.reconnectTimeout !== null) {
       clearTimeout(this.reconnectTimeout)
       this.reconnectTimeout = null

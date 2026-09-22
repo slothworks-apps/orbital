@@ -3,10 +3,28 @@ type Socket = {
   on(ev: string, cb: (...args: any[]) => void): void;
 };
 
+export type HubOptions = {
+  heartbeatIntervalMs?: number;
+};
+
+/**
+ * How often every connected socket is sent a heartbeat frame. It has to be an
+ * application-level frame rather than a WS protocol ping: browsers answer
+ * protocol pings inside the implementation and page JavaScript never sees
+ * them, so only a real frame can feed the client's watchdog
+ * (spec: 2026-09-22-ws-reconnect-resync-design).
+ */
+export const WS_HEARTBEAT_INTERVAL_MS = 15_000;
+
 export class Hub {
   private topics = new Map<string, Set<Socket>>();
   private firstCb: ((topic: string) => void) | null = null;
   private lastCb: ((topic: string) => void) | null = null;
+  private heartbeatIntervalMs: number;
+
+  constructor(opts: HubOptions = {}) {
+    this.heartbeatIntervalMs = opts.heartbeatIntervalMs ?? WS_HEARTBEAT_INTERVAL_MS;
+  }
 
   onFirstSubscriber(cb: (topic: string) => void): void {
     this.firstCb = cb;
@@ -53,7 +71,17 @@ export class Hub {
         /* ignore malformed */
       }
     });
+    // The frame carries no `topic`, so the client's router drops it and only
+    // the watchdog sees it — which is the whole job.
+    const heartbeat = setInterval(() => {
+      try {
+        socket.send(JSON.stringify({ type: 'heartbeat' }));
+      } catch {
+        /* dead socket; close handler will clean up */
+      }
+    }, this.heartbeatIntervalMs);
     socket.on('close', () => {
+      clearInterval(heartbeat);
       for (const topic of mine) this.unsubscribe(socket, topic);
     });
   }

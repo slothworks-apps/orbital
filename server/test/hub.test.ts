@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { Hub } from '../src/api/hub.js';
 
@@ -41,5 +41,38 @@ describe('Hub', () => {
     const a = fakeSocket();
     hub.handleSocket(a);
     expect(() => a.emit('message', 'not json')).not.toThrow();
+  });
+});
+
+describe('Hub heartbeat', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends a heartbeat frame to a connected socket on every interval', () => {
+    vi.useFakeTimers();
+    const hub = new Hub({ heartbeatIntervalMs: 1000 });
+    const a = fakeSocket();
+    hub.handleSocket(a);
+
+    vi.advanceTimersByTime(2000);
+
+    const heartbeats = a.send.mock.calls.filter(
+      ([data]: [string]) => JSON.parse(data).type === 'heartbeat',
+    );
+    expect(heartbeats).toHaveLength(2);
+  });
+
+  it('stops sending heartbeats once the socket closes', () => {
+    vi.useFakeTimers();
+    const hub = new Hub({ heartbeatIntervalMs: 1000 });
+    const a = fakeSocket();
+    hub.handleSocket(a);
+
+    vi.advanceTimersByTime(1000);
+    a.emit('close');
+    vi.advanceTimersByTime(5000);
+
+    expect(a.send).toHaveBeenCalledTimes(1);
   });
 });

@@ -839,4 +839,61 @@ describe('OrbitalSocket', () => {
       expect(callback).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('heartbeat watchdog', () => {
+    it('closes and reconnects when no frame arrives within the timeout', async () => {
+      socket = new OrbitalSocket('ws://localhost/ws', {
+        WebSocketImpl: factory.createTyped(),
+        reconnectDelayMs: 1000,
+        heartbeatTimeoutMs: 10000,
+      })
+
+      await vi.runAllTimersAsync()
+      factory.instances[0].simulateOpen()
+
+      // Silence for the whole timeout: the socket kills itself.
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(socket.status).toBe('closed')
+
+      // And the usual onclose -> reconnect path takes over from there.
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(factory.instances).toHaveLength(2)
+    })
+
+    it('restarts the countdown on every received frame', async () => {
+      socket = new OrbitalSocket('ws://localhost/ws', {
+        WebSocketImpl: factory.createTyped(),
+        reconnectDelayMs: 1000,
+        heartbeatTimeoutMs: 10000,
+      })
+
+      await vi.runAllTimersAsync()
+      factory.instances[0].simulateOpen()
+
+      await vi.advanceTimersByTimeAsync(9000)
+      factory.instances[0].simulateMessage({ type: 'heartbeat' })
+
+      // Nine seconds of silence again — but only nine since the last frame.
+      await vi.advanceTimersByTimeAsync(9000)
+      expect(socket.status).toBe('open')
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(socket.status).toBe('closed')
+    })
+
+    it('leaves no watchdog timer pending after close()', async () => {
+      socket = new OrbitalSocket('ws://localhost/ws', {
+        WebSocketImpl: factory.createTyped(),
+        reconnectDelayMs: 1000,
+        heartbeatTimeoutMs: 10000,
+      })
+
+      await vi.runAllTimersAsync()
+      factory.instances[0].simulateOpen()
+
+      socket.close()
+
+      expect(vi.getTimerCount()).toBe(0)
+    })
+  })
 })

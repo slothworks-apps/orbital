@@ -115,3 +115,14 @@ Two things that will otherwise waste your time:
 `get_file` returns a JSON envelope whose `content` is escaped; unescape `\n`
 before reading it, and grep for the artboard id rather than paging the whole
 file — the canvas is ~240 KB.
+
+**`get_file` truncates at 256 KiB, silently.** Before writing a canvas file
+back, check that what you read ends in `</html>`. If it does not, or if it is
+exactly 262144 bytes, you have half a file — writing it back destroys
+everything past the cut, and there is no version history in Claude Design to
+undo it with. `Orbital.dc.html` sits on that limit, so it cannot be
+round-tripped through `write_files` at all. This happened: 2026-09-22, the
+tail of artboard 1e and whatever followed it.
+
+Verifying a substitution by reversing it proves nothing about truncation —
+both sides are already cut. Verify against the closing tag.

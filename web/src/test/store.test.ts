@@ -1798,3 +1798,83 @@ describe('launchSession with attachments', () => {
     )
   })
 })
+
+describe('resyncAfterReconnect', () => {
+  it('reloads the snapshot and rebuilds the caches around the selected session', async () => {
+    const sessions = [makeSession({ id: 's1' }), makeSession({ id: 's2' })]
+    vi.mocked(api.listSessions).mockResolvedValueOnce(sessions)
+    const fresh: ChatMessage[] = [
+      { id: 'm1', role: 'user', text: 'first' },
+      { id: 'm2', role: 'assistant', text: 'second' },
+    ]
+    vi.mocked(api.getMessages).mockResolvedValueOnce(fresh)
+
+    useOrbital.setState((state) => ({
+      transcripts: { s1: [{ id: 'stale', role: 'user', text: 'stale' }], s2: [] },
+      historyLoaded: { s1: true, s2: true },
+      ui: { ...state.ui, selectedId: 's1' },
+    }))
+
+    await useOrbital.getState().resyncAfterReconnect()
+
+    const state = useOrbital.getState()
+    expect(state.sessions.s2).toEqual(sessions[1])
+    // Only the selected session survives, refetched — s2's stale cache is gone
+    // so the next select() of it goes back to the API.
+    expect(state.transcripts).toEqual({ s1: fresh })
+    expect(state.historyLoaded).toEqual({ s1: true })
+  })
+
+  it('drops every cache when nothing is selected', async () => {
+    useOrbital.setState({
+      transcripts: { s1: [{ id: 'stale', role: 'user', text: 'stale' }] },
+      historyLoaded: { s1: true },
+    })
+
+    await useOrbital.getState().resyncAfterReconnect()
+
+    expect(api.getMessages).not.toHaveBeenCalled()
+    expect(useOrbital.getState().transcripts).toEqual({})
+    expect(useOrbital.getState().historyLoaded).toEqual({})
+  })
+
+  it('leaves the caches alone when the refetch fails', async () => {
+    const stale: ChatMessage[] = [{ id: 'stale', role: 'user', text: 'stale' }]
+    useOrbital.setState((state) => ({
+      transcripts: { s1: stale },
+      historyLoaded: { s1: true },
+      ui: { ...state.ui, selectedId: 's1' },
+    }))
+    vi.mocked(api.getMessages).mockRejectedValueOnce(new Error('network error'))
+
+    await expect(useOrbital.getState().resyncAfterReconnect()).resolves.toBeUndefined()
+
+    expect(useOrbital.getState().transcripts).toEqual({ s1: stale })
+    expect(useOrbital.getState().historyLoaded).toEqual({ s1: true })
+  })
+})
+
+describe('setWsStatus', () => {
+  it('resyncs when the socket comes back after a close', async () => {
+    useOrbital.getState().setWsStatus('closed')
+    useOrbital.getState().setWsStatus('open')
+
+    expect(api.listSessions).toHaveBeenCalled()
+    await vi.waitFor(() => expect(useOrbital.getState().ui.wsStatus).toBe('open'))
+  })
+
+  it('does not resync on the first connection', async () => {
+    useOrbital.getState().setWsStatus('connecting')
+    useOrbital.getState().setWsStatus('open')
+
+    expect(api.listSessions).not.toHaveBeenCalled()
+  })
+
+  it('resyncs once per outage, not on every later open', async () => {
+    useOrbital.getState().setWsStatus('closed')
+    useOrbital.getState().setWsStatus('open')
+    useOrbital.getState().setWsStatus('open')
+
+    expect(api.listSessions).toHaveBeenCalledTimes(1)
+  })
+})

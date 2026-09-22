@@ -220,6 +220,12 @@ export interface SentAttachment {
 
 export interface OrbitalActions {
   loadInitial(): Promise<void>
+  /**
+   * The catch-up after the socket was away (spec:
+   * 2026-09-22-ws-reconnect-resync-design). Nothing is replayed over the WS,
+   * so every event published during the outage is only recoverable over REST.
+   */
+  resyncAfterReconnect(): Promise<void>
   applySessionsEvent(msg: SessionsEvent): void
   applySessionEvent(sessionId: string, msg: SessionEvent): void
   applyErrorsEvent(msg: ErrorsEvent): void
@@ -267,6 +273,13 @@ export interface OrbitalActions {
 export type OrbitalStore = OrbitalState & OrbitalActions
 
 let localMessageCounter = 0
+
+/**
+ * Whether the socket has been seen `closed` since it was last `open`. It is
+ * what tells a reconnect apart from the first connection: the page's opening
+ * `connecting -> open` is not an outage and must not trigger the catch-up.
+ */
+let sawClosedSocket = false
 
 /** Generates a client-side id for optimistic messages. Prefixed so it can
  * never collide with a server-issued message id. */
@@ -464,6 +477,32 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         sidebarCollapsed: settings.sidebar_collapsed === 'true',
       },
     }))
+  },
+
+  async resyncAfterReconnect() {
+    try {
+      // The full snapshot already covers everything the `sessions` and
+      // `errors` topics carried while the socket was down.
+      await get().loadInitial()
+
+      // The transcript caches are REPLACED, not merged: `select`'s merge
+      // prepends the messages it has not seen, which is exactly the wrong
+      // place for a tail missed during the outage. A cache rebuilt from REST
+      // cannot be mis-ordered. Pages pulled in by `loadOlder` are lost with
+      // it, at the cost of one click.
+      const selectedId = get().ui.selectedId
+      // Fetched before the swap, so the open transcript never flashes empty.
+      const fetched = selectedId ? await api.getMessages(selectedId) : null
+
+      set(
+        selectedId && fetched
+          ? { transcripts: { [selectedId]: fetched }, historyLoaded: { [selectedId]: true } }
+          : { transcripts: {}, historyLoaded: {} },
+      )
+    } catch {
+      // A failed catch-up leaves the caches as they were; the next reconnect,
+      // or a manual reload, tries again.
+    }
   },
 
   applySessionsEvent(msg) {
@@ -1115,6 +1154,16 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   setWsStatus(wsStatus) {
     set((state) => ({ ui: { ...state.ui, wsStatus } }))
+    if (wsStatus === 'closed') {
+      sawClosedSocket = true
+      return
+    }
+    if (wsStatus === 'open' && sawClosedSocket) {
+      sawClosedSocket = false
+      // Deliberately not awaited: the banner goes away with the status above,
+      // and the catch-up lands whenever the fetches do.
+      void get().resyncAfterReconnect()
+    }
   },
 
   clearToast() {
