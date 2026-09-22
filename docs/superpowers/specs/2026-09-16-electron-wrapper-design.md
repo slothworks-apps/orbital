@@ -97,6 +97,8 @@ In the first version, closing the window quits the app. When the tray item
 lands, closing becomes hiding — that is the point at which "close" and "quit"
 have to separate, and it is deliberately deferred.
 
+That point came: see `2026-09-22-desktop-background-mode-design`.
+
 ## 2. Build and packaging
 
 ### A new `desktop/` workspace
