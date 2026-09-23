@@ -86,6 +86,7 @@ export function useSceneModel(): SceneModel {
           decisionAnswers: {},
           decisionVerdicts: {},
           ideDismissed: {},
+          detachedIds: [],
           sessionsTotal,
           toast: null,
           subagentPanel: null,

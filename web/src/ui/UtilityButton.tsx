@@ -65,7 +65,13 @@ export function UtilityButton({
               // taken to four tenths.
               'disabled:opacity-40',
               'hover:bg-[rgba(150,205,255,.09)] hover:text-[#dce8f7]',
+              // Focus is the hover look plus a hairline ring in the accent,
+              // drawn on the box's own transparent border so nothing shifts;
+              // a press deepens the fill (canvas `Feature - Detached window`
+              // 22a, STATES).
               'focus-visible:bg-[rgba(150,205,255,.09)] focus-visible:text-[#dce8f7]',
+              'focus-visible:border-[oklch(85%_.12_205_/_.7)]',
+              'active:bg-[rgba(150,205,255,.14)]',
             ].join(' '),
         className ?? '',
       ]
@@ -112,6 +118,21 @@ export function ClearGlyph() {
   )
 }
 
+/** Walkthrough: three bars stepping up — the staircase is the walkthrough's mark everywhere (canvas 21f). */
+export function WalkthroughGlyph() {
+  return (
+    <span aria-hidden className="relative block" style={{ width: '11.5px', height: '11.5px' }}>
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="absolute block rounded-[1px] bg-current"
+          style={{ width: '5px', height: STROKE, left: `${i * 3.25}px`, bottom: `${i * 3.5}px` }}
+        />
+      ))}
+    </span>
+  )
+}
+
 /** Close: two crossed bars, not the `×` glyph — 9d's ICON SET rules glyphs out. */
 export function CloseGlyph() {
   return (
@@ -123,6 +144,54 @@ export function CloseGlyph() {
           style={{ width: STROKE, marginLeft: '-0.7px', transform: `rotate(${deg}deg)` }}
         />
       ))}
+    </span>
+  )
+}
+
+/**
+ * Detach: a frame with an arrow leaving its top-right corner (canvas
+ * `Feature - Detached window` 22a, GLYPH). One glyph in three places — the
+ * strip's control, the planet's badge and the sidebar row's mark (22e) — so
+ * "this session is in a window" reads the same wherever it is seen.
+ *
+ * The frame is masked open around that corner so the arrow reads as leaving
+ * it rather than sitting on its edge.
+ */
+export function DetachGlyph() {
+  const opening = 'radial-gradient(circle at 100% 0%, transparent 0 4.2px, #000 4.8px)'
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '12px' }}>
+      <span
+        className="absolute bottom-0 left-0 box-border block rounded-[2px]"
+        style={{
+          width: '9px',
+          height: '9px',
+          border: `${STROKE} solid currentColor`,
+          mask: opening,
+          WebkitMask: opening,
+        }}
+      />
+      {/* Shaft: a vertical bar turned 45°, out of the frame to the corner. */}
+      <span
+        className="absolute block rounded-[1px] bg-current"
+        style={{
+          left: '6.8px',
+          top: '.6px',
+          width: STROKE,
+          height: '8px',
+          transform: 'rotate(45deg)',
+        }}
+      />
+      {/* Head: the top and right edges of a small box, meeting at the corner. */}
+      <span
+        className="absolute top-0 right-0 box-border block rounded-tr-[1px]"
+        style={{
+          width: '5px',
+          height: '5px',
+          borderTop: `${STROKE} solid currentColor`,
+          borderRight: `${STROKE} solid currentColor`,
+        }}
+      />
     </span>
   )
 }

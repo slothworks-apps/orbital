@@ -17,6 +17,14 @@ interface TooltipBase {
    * while a pointer crosses controls on its way somewhere else.
    */
   delayMs?: number
+  /**
+   * What the bubble hangs from. `trigger` is the trigger itself; `group` is
+   * the nearest positioned ancestor, for a trigger that belongs to a group the
+   * canvas aligns the bubble to — the detach control's tooltip sits under the
+   * detach · close pair, flush with its right edge (canvas `Feature - Detached
+   * window` 22a). The caller makes that ancestor `relative`.
+   */
+  anchor?: 'trigger' | 'group'
   /** The trigger. Must accept a ref-less `aria-describedby` prop. */
   children: ReactElement<{ 'aria-describedby'?: string }>
 }
@@ -63,6 +71,7 @@ export function Tooltip({
   variant = 'card',
   align = 'left',
   delayMs = 0,
+  anchor = 'trigger',
   children,
 }: TooltipProps) {
   const id = useId()
@@ -86,7 +95,7 @@ export function Tooltip({
 
   return (
     <span
-      className="relative inline-flex"
+      className={anchor === 'trigger' ? 'relative inline-flex' : 'inline-flex'}
       onMouseEnter={() => {
         if (delayMs <= 0) {
           setHovered(true)

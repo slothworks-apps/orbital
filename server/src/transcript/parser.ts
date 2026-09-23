@@ -1,6 +1,9 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
 import { messageFromLocalCommandEntry } from './notices.js';
+import { parseWalkthroughTag, walkthroughChipName, WALKTHROUGH_TAG } from '../walkthrough/tag.js';
+
+export type { ImageWriter };
 
 /**
  * The CLI's `message.usage`, as the transcripts write it. Every field is
@@ -91,7 +94,7 @@ function textOf(content: string | Array<Record<string, unknown>>): string {
 // 2026-09-21-session-autoheal-design), so in a dev loop these arrive faster
 // than anything the human types. Folded, not dropped: which agent died is
 // worth keeping one click away.
-const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents|task-notification)>[\s\S]*?(<\/\1>|$)/g;
+const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents|task-notification|orbital-walkthrough)(?:\s[^>]*)?>[\s\S]*?(<\/\1>|$)/g;
 
 /**
  * The command-expansion fold (spec: 2026-09-18-transcript-folding-design).
@@ -104,16 +107,27 @@ const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-s
  */
 export function splitUserText(text: string): {
   text: string;
-  command?: { name: string | null; body: string; blocks: number };
+  command?: NonNullable<ChatMessage['command']>;
 } {
   const matches = [...text.matchAll(NOISE_BLOCK)];
   if (matches.length === 0) return { text };
   const name = /<command-name>([^<\n]+)<\/command-name>/.exec(text)?.[1]?.trim() ?? null;
+  // Only a top-level block is the turn's own tag. One quoted inside a
+  // reminder or a command's contents (a pasted spec, a test file) was
+  // swallowed whole by its enclosing match and is not found here.
+  const own = matches.find((m) => m[1] === WALKTHROUGH_TAG);
+  const tag = own ? parseWalkthroughTag(own[0]) : null;
+  const chipName = name ?? (tag ? walkthroughChipName(tag) : null);
   return {
     // Plain removal + trim, NOT the title path's whitespace collapse — a
     // human paragraph with a reminder appended must keep its newlines.
     text: text.replace(NOISE_BLOCK, '').trim(),
-    command: { name, body: matches.map((m) => m[0]).join('\n'), blocks: matches.length },
+    command: {
+      name: chipName,
+      body: matches.map((m) => m[0]).join('\n'),
+      blocks: matches.length,
+      ...(tag ? { walkthrough: tag } : {}),
+    },
   };
 }
 

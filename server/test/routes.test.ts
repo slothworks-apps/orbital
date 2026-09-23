@@ -28,7 +28,7 @@ import { GitStore } from '../src/git/store.js';
 import { IdeStore } from '../src/ide/store.js';
 import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
-import type { SessionRow } from '../src/types.js';
+import type { SessionRow, SessionStatus } from '../src/types.js';
 import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.js';
 import { createImageStore } from '../src/images/store.js';
 import { ErrorLog } from '../src/errors/log.js';
@@ -98,7 +98,8 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
   const startCalls: any[] = [];
   const sendCalls: any[] = [];
   const runner = {
-    status: () => undefined, active: () => [],
+    // Idle by default; the walkthrough tests reassign it to a mid-turn status.
+    status: (_id: string): SessionStatus | undefined => undefined, active: () => [],
     // Nothing is out working for any of these by default — see
     // `Runner.awaitingSubagents`.
     awaitingSubagents: (_id: string) => false,
@@ -2713,5 +2714,120 @@ describe('GET /api/sessions/:id/ide/open-files', () => {
       (await withIde.inject({ method: 'GET', url: '/api/sessions/nope/ide/diagnostics' }))
         .statusCode,
     ).toBe(404);
+  });
+});
+
+describe('walkthrough routes', () => {
+  const line = (o: unknown) => JSON.stringify(o) + '\n';
+  const transcript =
+    line({ type: 'user', uuid: 'u1', timestamp: '2026-09-09T14:00:00.000Z', message: { role: 'user', content: 'add margin' } }) +
+    line({ type: 'assistant', uuid: 'a1', timestamp: '2026-09-09T14:00:05.000Z', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'Adding a margin.' }, { type: 'tool_use', id: 'toolu_E1', name: 'Edit', input: { file_path: 'src/a.ts', old_string: 'x', new_string: 'y' } }] } }) +
+    line({ type: 'user', uuid: 'u2', timestamp: '2026-09-09T14:00:06.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_E1', content: 'ok' }] } });
+
+  function appWithTranscript(source: 'web' | 'terminal' = 'web') {
+    const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-wt-routes-'));
+    mkdirSync(join(projectsDir, 'p'), { recursive: true });
+    writeFileSync(join(projectsDir, 'p', 'w1.jsonl'), transcript);
+    const made = makeApp({ projectsDir });
+    made.db.insert(sessions).values({ id: 'w1', projectDir: 'p', cwd: '/w/z', title: 'wt', lastAt: 300, source, permissionMode: 'acceptEdits' }).run();
+    return made;
+  }
+
+  it('GET /walkthrough returns the spine with the session', async () => {
+    const { app } = appWithTranscript();
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/w1/walkthrough' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.session.id).toBe('w1');
+    expect(body.walkthrough.steps).toHaveLength(1);
+    expect(body.walkthrough.steps[0]).toMatchObject({ id: 'toolu_E1', narration: 'Adding a margin.' });
+  });
+
+  it('GET /walkthrough 404s an unknown session and is empty for a row without a file', async () => {
+    const { app } = makeApp();
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/nope/walkthrough' })).statusCode).toBe(404);
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/walkthrough' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().walkthrough.steps).toEqual([]);
+  });
+
+  it('GET /walkthrough/summary counts', async () => {
+    const { app } = appWithTranscript();
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/w1/walkthrough/summary' });
+    expect(res.json()).toEqual({ steps: 1, files: 1, blindAlleys: 0, subagents: 0 });
+  });
+
+  it('POST narrate sends a tagged turn through the messages path', async () => {
+    const { app, sendCalls, startCalls } = appWithTranscript();
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
+    expect(res.statusCode).toBe(200);
+    // The stub runner's send() throws "not active", so the route revives.
+    expect(res.json()).toEqual({ ok: true, revived: true });
+    expect(sendCalls[0].text).toContain('<orbital-walkthrough kind="narrate">');
+    expect(sendCalls[0].text).toContain('toolu_E1');
+    expect(startCalls[0]).toMatchObject({ resume: 'w1', cwd: '/w/z' });
+  });
+
+  it('POST narrate refuses a terminal session and a session with no steps', async () => {
+    const { app } = appWithTranscript('terminal');
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'terminal_session' });
+
+    const { app: bare, db } = makeApp();
+    db.insert(sessions).values({ id: 'w2', projectDir: 'p', cwd: '/w/z', title: 'empty', lastAt: 1, source: 'web', permissionMode: 'acceptEdits' }).run();
+    const none = await bare.inject({ method: 'POST', url: '/api/sessions/w2/walkthrough/narrate' });
+    expect(none.statusCode).toBe(400);
+    expect(none.json()).toEqual({ error: 'no_steps' });
+  });
+
+  it('POST ask validates, then sends the question with the step context', async () => {
+    const { app, sendCalls } = appWithTranscript();
+    const missing = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'toolu_E1' } });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json()).toEqual({ error: 'missing_question' });
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'nope', question: 'q' } })).json()).toEqual({ error: 'unknown_step' });
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'toolu_E1', question: 'Why the margin?' } });
+    expect(res.statusCode).toBe(200);
+    expect(sendCalls.at(-1).text.startsWith('Why the margin?')).toBe(true);
+    expect(sendCalls.at(-1).text).toContain('kind="ask" step="toolu_E1" n="1"');
+    expect(sendCalls.at(-1).text).toContain('"old_string": "x"');
+  });
+
+  it('POST ask refuses while the session is working', async () => {
+    const { app, runner } = appWithTranscript();
+    runner.status = () => 'working';
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'toolu_E1', question: 'q' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'busy' });
+  });
+
+  it('POST narrate refuses while the session is working', async () => {
+    const { app, runner } = appWithTranscript();
+    runner.status = () => 'working';
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'busy' });
+  });
+
+  it('a session between turns is not busy; one parked on a decision is', async () => {
+    // `needs_input` is every live Orbital session once its turn ends.
+    const { app, runner } = appWithTranscript();
+    runner.status = () => 'needs_input';
+    const idle = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
+    expect(idle.statusCode).toBe(200);
+
+    runner.pendingDecision = () => ({ id: 'd1', kind: 'question' });
+    const parked = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'toolu_E1', question: 'q' } });
+    expect(parked.statusCode).toBe(409);
+    expect(parked.json()).toEqual({ error: 'busy' });
+  });
+
+  it('POST narrate refuses a web row the registry reports live in a terminal', async () => {
+    const { app, registry } = appWithTranscript();
+    registry.get = (id: string) => (id === 'w1' ? { sessionId: 'w1', status: 'working' } : undefined);
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'terminal_session' });
   });
 });

@@ -1,7 +1,7 @@
 ---
 id: walk-me-through-what-the-agent-did
 title: Walk me through what the agent did
-status: active
+status: done
 type: idea
 domain: sessions
 related:

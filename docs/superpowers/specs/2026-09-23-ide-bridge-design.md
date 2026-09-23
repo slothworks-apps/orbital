@@ -194,8 +194,8 @@ and the distinction it draws is the right one:
   leaves on its own.
 
 So the editor gets its own **slot on the composer well's edge**, not a chip in
-the well. It slides up from behind the edge when an editor connects and back
-down when one goes, as an overlay — nothing reflows.
+the well. It slides up from behind the edge when there is something to read and
+back down when there is not, as an overlay — nothing reflows.
 
 - **Cursor only** (`text` is null): a read-out line, no border, no ×. It names
   the file and line and attaches nothing.
@@ -203,6 +203,15 @@ down when one goes, as an overlay — nothing reflows.
   count and the file, with a × that drops it.
 - **No editor, or an editor on another project**: nothing. The panel is
   shipped 1b exactly.
+- **An editor that has not said where the caret is**: also nothing. The canvas
+  ties the slot to the connection (20f: "editor connects / goes"), and that is
+  one state short: `selection_changed` does not fire until the caret moves, so
+  between connecting and the first click in the editor there is no reading at
+  all. Tied to the connection, the slot stands there holding a caret glyph, a
+  blank where the file name goes and the editor's name on the right — a row
+  that says nothing and cannot be dismissed. It is therefore tied to having a
+  reading instead, which is also what makes the slide mean something: it
+  arrives when the editor first has something to say.
 
 A lip and an attachment chip never share a row — the chip stays in the well,
 the lip sits on its edge.

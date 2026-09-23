@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type {
   ApiSession,
   ChatMessage,
@@ -83,6 +83,7 @@ const initialSnapshot: OrbitalState = {
   decisionAnswers: {},
   decisionVerdicts: {},
   ideDismissed: {},
+  detachedIds: [],
   sessionsTotal: 0,
   toast: null,
   subagentPanel: null,
@@ -373,6 +374,78 @@ describe('select', () => {
     await useOrbital.getState().select('s1')
     await useOrbital.getState().select('s1')
     expect(api.getMessages).toHaveBeenCalledTimes(1)
+  })
+})
+
+// spec: 2026-09-23-detached-session-windows-design
+describe('detached sessions', () => {
+  const focusSession = vi.fn()
+
+  beforeEach(() => {
+    ;(window as { orbitalDesktop?: unknown }).orbitalDesktop = { focusSession }
+  })
+
+  afterEach(() => {
+    delete (window as { orbitalDesktop?: unknown }).orbitalDesktop
+  })
+
+  it('select on a detached session focuses its window and selects nothing', async () => {
+    useOrbital.getState().setDetached(['s1'])
+
+    await useOrbital.getState().select('s1')
+
+    expect(focusSession).toHaveBeenCalledWith('s1')
+    expect(useOrbital.getState().ui.selectedId).toBeNull()
+    expect(api.getMessages).not.toHaveBeenCalled()
+  })
+
+  it('select on a detached session leaves the current selection where it was', async () => {
+    await useOrbital.getState().select('s2')
+    useOrbital.getState().setDetached(['s1'])
+
+    await useOrbital.getState().select('s1')
+
+    expect(useOrbital.getState().ui.selectedId).toBe('s2')
+  })
+
+  it('select on a session that is not detached selects it as always', async () => {
+    useOrbital.getState().setDetached(['s1'])
+
+    await useOrbital.getState().select('s2')
+
+    expect(focusSession).not.toHaveBeenCalled()
+    expect(useOrbital.getState().ui.selectedId).toBe('s2')
+  })
+
+  it('a session whose window closed is selectable again', async () => {
+    useOrbital.getState().setDetached(['s1'])
+    useOrbital.getState().setDetached([])
+
+    await useOrbital.getState().select('s1')
+
+    expect(focusSession).not.toHaveBeenCalled()
+    expect(useOrbital.getState().ui.selectedId).toBe('s1')
+  })
+
+  it('setDetached clears a selection that just became detached, viewer included', async () => {
+    await useOrbital.getState().select('s1')
+    useOrbital.getState().openFile('src/a.ts', 3)
+
+    useOrbital.getState().setDetached(['s1'])
+
+    expect(useOrbital.getState().detachedIds).toEqual(['s1'])
+    expect(useOrbital.getState().ui.selectedId).toBeNull()
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+  })
+
+  it('setDetached leaves a selection that is not in the list alone', async () => {
+    await useOrbital.getState().select('s2')
+    useOrbital.getState().openFile('src/a.ts', 3)
+
+    useOrbital.getState().setDetached(['s1'])
+
+    expect(useOrbital.getState().ui.selectedId).toBe('s2')
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'src/a.ts', line: 3 })
   })
 })
 

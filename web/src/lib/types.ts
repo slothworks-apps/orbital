@@ -270,9 +270,16 @@ export interface ChatMessage {
    * A user turn's machine wrapping (slash-command expansion, system
    * reminders), split off server-side so `text` is only what the human
    * typed. Folded behind a chip in `MessageView` (spec:
-   * 2026-09-18-transcript-folding-design).
+   * 2026-09-18-transcript-folding-design). `walkthrough` is the turn's own
+   * walkthrough tag, read from a top-level block only. Mirrors
+   * `server/src/types.ts`.
    */
-  command?: { name: string | null; body: string; blocks: number }
+  command?: {
+    name: string | null
+    body: string
+    blocks: number
+    walkthrough?: WalkthroughTag
+  }
   /** tool_result only: the block carried `is_error: true`. */
   isError?: boolean
   /**
@@ -293,6 +300,117 @@ export interface ChatMessage {
    * § The transcript side).
    */
   imageProvenance?: Record<string, ImageProvenance>
+}
+
+/** Walkthrough wire shape — mirrors server/src/walkthrough/types.ts (spec: 2026-09-23-walkthrough-design). */
+
+/** A walkthrough turn's tag, as the parser reads it (spec § The wire format). Mirrors `server/src/walkthrough/tag.ts`. */
+export type WalkthroughTag =
+  | { kind: 'narrate' }
+  | { kind: 'ask'; step: string; n: number | null }
+
+/** How a later step treated an earlier step's work (spec § Blind alleys). */
+export type FateKind = 'revised' | 'reverted'
+
+/** A writing call as the transcript carries it, joined to its result; the browser builds the diff. */
+export interface StepCall {
+  call: ChatMessage
+  result: ChatMessage | null
+}
+
+/** A later step that revised or reverted this step's work on `path`. */
+export interface StepFate {
+  kind: FateKind
+  byStep: string
+  path: string
+}
+
+/** A question asked about a step and its answer (spec § Asking). */
+export interface StepQuestion {
+  question: string
+  answer: string | null
+  messageId: string
+}
+
+/**
+ * A run's direct writing calls, or one writing dispatch in it. `id` is the
+ * `toolUseId` of its first writing call (falling back to that message's id),
+ * stable while the transcript grows.
+ */
+export interface WalkthroughStep {
+  id: string
+  ordinal: number
+  narration: string
+  calls: StepCall[]
+  folded: Record<string, number>
+  subagent: { name: string; prompt: string; steps: WalkthroughStep[] } | null
+  fate: StepFate[]
+  questions: StepQuestion[]
+  durationMs: number | null
+}
+
+/** Everything between two steps: tool calls folded per tool, subagents that changed nothing, and what the agent said. */
+export interface Gap {
+  kind: 'gap'
+  durationMs: number | null
+  folded: Record<string, number>
+  subagents: string[]
+  said: string
+}
+
+/** Steps and gaps interleaved, in transcript order. */
+export type TimelineEntry = { kind: 'step'; id: string } | Gap
+
+/**
+ * One path the session wrote: the steps that wrote it, whether it was
+ * created, its last fate, and whether a call on it failed with no later
+ * successful writing call on the same path (a retried failure is not open).
+ */
+export interface FileSummary {
+  path: string
+  steps: string[]
+  created: boolean
+  fate: FateKind | null
+  notApplied: boolean
+}
+
+/** One intent the narration grouped steps under (spec § Narration). */
+export interface NarrationIntent {
+  title: string
+  summary: string
+  steps: string[]
+  considered: string[]
+  abandoned: boolean
+}
+
+/** The narration turn's answer, read back from the transcript. */
+export interface Narration {
+  intents: NarrationIntent[]
+  /** Steps added after the narrate turn. */
+  staleSteps: number
+}
+
+/**
+ * What the walkthrough page is built from. Nothing is stored; it is rebuilt
+ * from the transcript on every request. `narration` is the last *answered*
+ * narrate turn's; `narrationPending` says a newer narrate turn has no answer yet.
+ */
+export interface Walkthrough {
+  steps: WalkthroughStep[]
+  timeline: TimelineEntry[]
+  files: FileSummary[]
+  narration: Narration | null
+  narrationFailed: boolean
+  narrationPending: boolean
+  lastMessageId: string | null
+}
+
+/** `GET /api/sessions/:id/walkthrough/summary` — the header's entry control asks this; it is the same parse, smaller answer. */
+export interface WalkthroughSummary {
+  steps: number
+  files: number
+  blindAlleys: number
+  subagents: number
 }
 
 /**

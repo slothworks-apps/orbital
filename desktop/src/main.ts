@@ -10,12 +10,19 @@ import {
   Tray,
   utilityProcess,
   type UtilityProcess,
+  type WebContents,
 } from 'electron';
 import { join } from 'node:path';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import { SessionNotifier, parseNotificationSettings } from './lib/notifications';
 import { probeHealth, probeVite } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
+import {
+  decideDetach,
+  decideNotificationClick,
+  isSessionId,
+  sessionWindowUrl,
+} from './lib/sessionWindows';
 import {
   classifyChildExit,
   decideNavigation,
@@ -33,6 +40,20 @@ const HEALTH_POLL_INTERVAL_MS = 200;
 // The server resolves the login shell's PATH and probes the CLI's version
 // before it listens, which can take seconds on a cold machine.
 const HEALTH_POLL_TIMEOUT_MS = 15_000;
+
+// A detached window holds one detail panel, not the map beside it: it opens
+// at the docked panel's own width, never shrinks below it, and has no maximum
+// (canvas `Feature - Detached window` 22b; spec:
+// 2026-09-23-detached-session-windows-design).
+const SESSION_WINDOW_WIDTH = 450;
+const SESSION_WINDOW_HEIGHT = 820;
+const SESSION_WINDOW_MIN_HEIGHT = 520;
+// The panel's own top stop, painted before the page loads so the window does
+// not flash on open (22b).
+const SESSION_WINDOW_BACKGROUND = '#0f1524';
+// Row 1 of the panel doubles as the title bar (22b): the lights sit centred on
+// that row, and the row's left padding is sized to clear them.
+const SESSION_WINDOW_TRAFFIC_LIGHTS = { x: 14, y: 20 };
 
 // Packaged, the three things the forked server needs sit beside the app's
 // resources; unpackaged (running `electron .` in the repo) they sit in the
@@ -56,6 +77,12 @@ const trayIcon = app.isPackaged
   : join(__dirname, '..', 'build', 'trayTemplate.png');
 
 let win: BrowserWindow | null = null;
+/**
+ * Detached session windows, by session id. Main is the only thing that knows
+ * this list (ADR: the-main-process-owns-the-detached-windows); the main
+ * window hears it through `detached-changed`.
+ */
+const sessionWindows = new Map<string, BrowserWindow>();
 let tray: Tray | null = null;
 let child: UtilityProcess | null = null;
 let feed: { close(): void } | null = null;
@@ -254,29 +281,38 @@ async function promptForCli(): Promise<boolean> {
   return false;
 }
 
-function openWindow(url: string): void {
-  windowTargetUrl = url;
-  win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    webPreferences: {
-      preload: join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-    },
-  });
-  // This window is Orbital and nothing else. A link in a transcript opens in
-  // the user's browser instead of replacing the map — there is no Back here,
-  // and a remote page would be loaded with the preload attached.
-  win.webContents.setWindowOpenHandler(({ url }) => {
+/** The main window and every detached one run the same renderer and bridge. */
+const webPreferences = {
+  preload: join(__dirname, 'preload.cjs'),
+  contextIsolation: true,
+};
+
+/**
+ * Every Orbital window is Orbital and nothing else. A link in a transcript
+ * opens in the user's browser instead of replacing the page — there is no
+ * Back here, and a remote page would be loaded with the preload attached.
+ */
+function confineToOrbital(contents: WebContents): void {
+  contents.setWindowOpenHandler(({ url }) => {
     if (decideNavigation(url, PORT) === 'external') void shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.webContents.on('will-navigate', (event, url) => {
+  contents.on('will-navigate', (event, url) => {
     const decision = decideNavigation(url, PORT);
     if (decision === 'allow') return;
     event.preventDefault();
     if (decision === 'external') void shell.openExternal(url);
   });
+}
+
+function openWindow(url: string): void {
+  windowTargetUrl = url;
+  win = new BrowserWindow({ width: 1440, height: 900, webPreferences });
+  confineToOrbital(win.webContents);
+  // A renderer rebuilt after a crash starts with an empty list, and one that
+  // reloaded has lost its own — so every finished load hears it again
+  // (spec: 2026-09-23-detached-session-windows-design § "Edge cases").
+  win.webContents.on('did-finish-load', () => sendDetachedChanged());
 
   // Closing is hiding: the renderer stays alive, so reopening is instant and
   // the map is exactly where it was, and the server it would have taken with
@@ -290,6 +326,63 @@ function openWindow(url: string): void {
     win = null;
   });
   void win.loadURL(url);
+}
+
+/**
+ * Tell the main window which sessions are detached, so its `select` focuses
+ * their windows instead of opening the docked panel. Never sent to a detached
+ * window: its own `select` must not be redirected to focusing itself
+ * (spec: 2026-09-23-detached-session-windows-design).
+ */
+function sendDetachedChanged(): void {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send('detached-changed', [...sessionWindows.keys()]);
+}
+
+function focusSessionWindow(sessionId: string): void {
+  const detached = sessionWindows.get(sessionId);
+  if (!detached) return;
+  detached.show();
+  detached.focus();
+}
+
+/**
+ * Detach a session's detail panel into its own window, or bring forward the
+ * one it already has — at most one window per session.
+ *
+ * Unlike the main window, closing this one is a real close: that is how the
+ * session comes back to the docked panel, and nothing about it is kept.
+ */
+function openSessionWindow(sessionId: string): void {
+  if (decideDetach(sessionId, sessionWindows) === 'focus') {
+    focusSessionWindow(sessionId);
+    return;
+  }
+  // Nothing to put the route on until startup has chosen an origin.
+  if (!windowTargetUrl) return;
+  // No `title`: Electron follows the page's, which the renderer keeps set to
+  // the session's, so the Dock and Mission Control name the session. No menu
+  // of our own either — Electron's default one carries Close Window on ⌘W,
+  // which with the red light is how this window closes (22c draws no × of
+  // ours).
+  const detached = new BrowserWindow({
+    width: SESSION_WINDOW_WIDTH,
+    height: SESSION_WINDOW_HEIGHT,
+    minWidth: SESSION_WINDOW_WIDTH,
+    minHeight: SESSION_WINDOW_MIN_HEIGHT,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: SESSION_WINDOW_TRAFFIC_LIGHTS,
+    backgroundColor: SESSION_WINDOW_BACKGROUND,
+    webPreferences,
+  });
+  confineToOrbital(detached.webContents);
+  sessionWindows.set(sessionId, detached);
+  detached.on('closed', () => {
+    sessionWindows.delete(sessionId);
+    sendDetachedChanged();
+  });
+  sendDetachedChanged();
+  void detached.loadURL(sessionWindowUrl(windowTargetUrl, sessionId));
 }
 
 /**
@@ -390,7 +483,10 @@ function startNotifications(): void {
       if (!d) return;
       const target = win;
       if (!target) return;
-      if (notifier.current.onlyWhenBackground && target.isFocused()) return;
+      // "In the background" means no Orbital window has focus: a focused
+      // detached window already shows its session's state, as the map would
+      // (spec: 2026-09-23-detached-session-windows-design § "Edge cases").
+      if (notifier.current.onlyWhenBackground && BrowserWindow.getFocusedWindow()) return;
 
       const n = new Notification({
         title: d.title,
@@ -398,9 +494,16 @@ function startNotifications(): void {
         silent: !notifier.current.sound,
       });
       n.on('click', () => {
+        // Decided here, not by the renderer's `select`: a detached session's
+        // window comes forward without a round trip through the map.
+        const click = decideNotificationClick(d.sessionId, sessionWindows);
+        if (click.kind === 'session-window') {
+          focusSessionWindow(click.sessionId);
+          return;
+        }
         target.show();
         target.focus();
-        if (d.sessionId) target.webContents.send('select-session', d.sessionId);
+        if (click.select) target.webContents.send('select-session', click.select);
       });
       n.show();
     },
@@ -472,6 +575,16 @@ async function start(): Promise<void> {
 }
 
 void app.whenReady().then(start);
+
+// The detail panel's detach control, and the renderer's `select` landing on a
+// detached session (spec: 2026-09-23-detached-session-windows-design). The
+// ids come from a renderer, so anything that is not one is dropped here.
+ipcMain.on('detach-session', (_event, id: unknown) => {
+  if (isSessionId(id)) openSessionWindow(id);
+});
+ipcMain.on('focus-session', (_event, id: unknown) => {
+  if (isSessionId(id)) focusSessionWindow(id);
+});
 
 // There is deliberately no `window-all-closed` handler: closing the window no
 // longer quits, so the app lives on in the menu bar until it is told to go.

@@ -17,7 +17,7 @@ import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
-import { StatsGlyph } from '../ui/UtilityButton'
+import { DetachGlyph, StatsGlyph } from '../ui/UtilityButton'
 import { STATS_PATH } from '../stats/route'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
@@ -255,10 +255,13 @@ function SessionRow({
   onTogglePin,
   right,
   history = false,
+  detached = false,
 }: {
   session: ApiSession
   tags: Tag[]
   selected: boolean
+  /** Open in a detached window (spec: 2026-09-23-detached-session-windows-design). */
+  detached?: boolean
   onSelect: (id: string) => void
   onTogglePin: (id: string, pinned: boolean) => void
   right: ReactNode
@@ -316,6 +319,13 @@ function SessionRow({
             >
               {session.title}
             </span>
+            {/* 22e: the planet's badge glyph, bare — the row's way of saying
+                the session is in a window of its own. Static, neutral ink. */}
+            {detached && (
+              <span className="flex shrink-0 text-[rgba(160,190,225,.6)]">
+                <DetachGlyph />
+              </span>
+            )}
             {!history && isReadOnly(session) && <ReadOnlyBadge />}
           </span>
           <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
@@ -417,6 +427,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const search = useOrbital((s) => s.ui.search)
   const sourceFilter = useOrbital((s) => s.ui.sourceFilter)
   const selectedId = useOrbital((s) => s.ui.selectedId)
+  const detachedIds = useOrbital((s) => s.detachedIds)
 
   const setFilterTag = useOrbital((s) => s.setFilterTag)
   const setSearch = useOrbital((s) => s.setSearch)
@@ -722,6 +733,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
                   session={s}
                   tags={tags}
                   selected={s.id === selectedId}
+                  detached={detachedIds.includes(s.id)}
                   onSelect={handleSelect}
                   onTogglePin={handleTogglePin}
                   history={s.status === 'ended'}
@@ -760,6 +772,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               session={s}
               tags={tags}
               selected={s.id === selectedId}
+              detached={detachedIds.includes(s.id)}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
               right={<RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} parked={parkedLabel(s)} />}
@@ -780,6 +793,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               session={s}
               tags={tags}
               selected={s.id === selectedId}
+              detached={detachedIds.includes(s.id)}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
               history

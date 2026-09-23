@@ -38,7 +38,16 @@ import {
 } from '../ui/motion'
 import { Badge } from '../ui/Badge'
 import { PinButton } from '../ui/PinButton'
-import { ClearGlyph, CloseGlyph, RefreshGlyph, UtilityButton } from '../ui/UtilityButton'
+import {
+  ClearGlyph,
+  CloseGlyph,
+  DetachGlyph,
+  RefreshGlyph,
+  UtilityButton,
+  WalkthroughGlyph,
+} from '../ui/UtilityButton'
+import { walkthroughPath } from '../walkthrough/route'
+import { detachSession, hasDesktopBridge } from '../lib/desktop'
 import { Tooltip } from '../ui/Tooltip'
 import { ModeReadout } from '../ui/ModeDot'
 import { Chip } from '../ui/Chip'
@@ -62,7 +71,7 @@ import {
 } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
 import { awaitingSubagentCount, isReadOnly, parkedLabel, tagColor } from '../lib/types'
-import type { ApiSession, Tag } from '../lib/types'
+import type { ApiSession, Tag, WalkthroughSummary } from '../lib/types'
 
 /**
  * The one tag the session wears — first resolvable id, falling back to the
@@ -88,6 +97,21 @@ const ACCENT_HUE = 205
  * never raises it.
  */
 const PIN_TOOLTIP_DELAY_MS = 400
+
+/**
+ * The glint's opacity while a detached window sits behind another (canvas
+ * `Feature - Detached window` 22d). Only the glint answers to focus — the
+ * ink, the status blink and the gauges stay as they are, because a window in
+ * the background is still a session worth reading.
+ */
+const INACTIVE_GLINT_OPACITY = 0.45
+
+/**
+ * Row 1's left inset in a detached window, where the row doubles as the
+ * title bar: wide enough to clear the traffic lights main places on it
+ * (22b). Rows below keep the header's own padding.
+ */
+const WINDOW_STRIP_INSET_PX = 80
 
 /**
  * The title's type, from `Feature - Detail header` 9d's row 2. One object
@@ -131,6 +155,43 @@ export function formatTokens(n: number): string {
 }
 
 /**
+ * The window's width, tracked only while `enabled` — what a standalone panel
+ * is as wide as, and what the path line budgets its characters against in
+ * place of the docked panel's stored width.
+ */
+function useWindowWidth(enabled: boolean): number {
+  const [width, setWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    if (!enabled) return
+    const onResize = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [enabled])
+  return width
+}
+
+/**
+ * Whether the window has focus, tracked only while `enabled` — a detached
+ * window dims its glint while it sits behind another (canvas `Feature -
+ * Detached window` 22d). Always true when not tracked.
+ */
+function useWindowFocused(enabled: boolean): boolean {
+  const [focused, setFocused] = useState(() => !enabled || document.hasFocus())
+  useEffect(() => {
+    if (!enabled) return
+    const onFocus = () => setFocused(true)
+    const onBlur = () => setFocused(false)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [enabled])
+  return focused
+}
+
+/**
  * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail
  * header` 9d): the header (path + actions, editable title, tag chips,
  * permission/status badges, context bar, lineage dots),
@@ -138,20 +199,34 @@ export function formatTokens(n: number): string {
  * by session kind — a prompt composer for web/ended sessions, or a read-only
  * bar for a session still live in a terminal (which this UI can never take
  * over; the server's 409 on `POST .../messages` is the real backstop).
+ *
+ * `standalone` is the panel alone in a detached desktop window (spec:
+ * 2026-09-23-detached-session-windows-design; canvas `Feature - Detached
+ * window` 22b–22d): it fills the window in the window's own chrome, has no
+ * resize handle and no slide-in (the window's own opening is the entrance),
+ * its row 1 is the title bar, and it has no close control — the window's is
+ * the only one.
  */
-export function DetailPanel() {
+export function DetailPanel({ standalone = false }: { standalone?: boolean } = {}) {
   const selectedId = useOrbital((s) => s.ui.selectedId)
-  const { mounted, state: presence } = usePresence(
-    selectedId != null,
-    PANEL_ENTER_MS,
-    PANEL_EXIT_MS
-  )
+  const windowWidth = useWindowWidth(standalone)
+  const windowFocused = useWindowFocused(standalone)
   // The panel keeps rendering the OUTGOING session while it slides away —
   // deselecting clears `selectedId` immediately, and without holding the last
   // one the panel would empty itself and then animate an empty shell out.
   const lastId = useRef<string | null>(selectedId)
   if (selectedId) lastId.current = selectedId
   const id = selectedId ?? lastId.current
+  // A session that left for a window of its own did not close — it moved —
+  // so the docked panel goes in the same frame, with no exit (canvas
+  // `Feature - Detached window` 22a, DETACHING). An ordinary close still
+  // slides away.
+  const movedToWindow = useOrbital((s) => id != null && s.detachedIds.includes(id))
+  const { mounted, state: presence } = usePresence(
+    selectedId != null,
+    PANEL_ENTER_MS,
+    movedToWindow ? 0 : PANEL_EXIT_MS
+  )
   const session = useOrbital((s) => (id ? s.sessions[id] : undefined))
   const tags = useOrbital(useShallow((s) => s.tags))
   // Off the session itself, like the map's moons — the server keeps it current
@@ -308,6 +383,32 @@ export function DetailPanel() {
     }
   }, [id, lineageCache])
 
+  // The walkthrough's entry (spec 2026-09-23-walkthrough-design § The page,
+  // canvas 21f): present only for Orbital's own sessions with at least one
+  // file change — absent, not disabled. The count comes from the server's
+  // summary because the loaded transcript is paged and cannot say whether an
+  // older turn wrote. Re-asked when the session settles, so a session that
+  // makes its first edit while selected gains the control. "Settled" is
+  // status !== 'working' rather than idle/ended: a live Orbital session sits
+  // in needs_input between turns (the spec's "Where it is offered"), and
+  // that is exactly when a just-finished edit should be picked up. The
+  // answer is kept against the session it is for, so a re-ask on settling
+  // leaves the control in place instead of blinking it out and back.
+  const [walkthroughSummary, setWalkthroughSummary] = useState<{ key: string; summary: WalkthroughSummary } | null>(null)
+  const sessionId = session?.id
+  const sessionSource = session?.source
+  const sessionSettled = session?.status !== 'working'
+  const summaryKey = `${sessionId}:${sessionSource}`
+  useEffect(() => {
+    if (!sessionId || sessionSource !== 'web') return
+    let cancelled = false
+    api.walkthroughSummary(sessionId)
+      .then((s) => { if (!cancelled) setWalkthroughSummary({ key: `${sessionId}:${sessionSource}`, summary: s }) })
+      .catch(() => { /* absent is the honest state when the server cannot say */ })
+    return () => { cancelled = true }
+  }, [sessionId, sessionSource, sessionSettled])
+  const walkthroughEntry = walkthroughSummary?.key === summaryKey ? walkthroughSummary.summary : null
+
   // The title field is one line until its own text needs a second, and stops
   // there (9e). On every keystroke, because the height is a function of the
   // text rather than of the element: the browser will not shrink a textarea
@@ -334,7 +435,9 @@ export function DetailPanel() {
   // this it reaches `App` and closes the whole panel mid-rename.
   useEscapeLayer(isEditingTitle, () => abandonTitleEdit())
 
-  if (!mounted || !id) return null
+  // Standalone has nothing to slide away to: it shows whenever its session is
+  // selected, which is from the moment the window seats it.
+  if ((standalone ? !selectedId : !mounted) || !id) return null
 
   function invalidateLineage(clearedId: string) {
     setLineageCache((cache) => {
@@ -581,7 +684,7 @@ export function DetailPanel() {
     // resolve by stylesheet order rather than by intent.
     <div
       ref={dropTargetRef}
-      data-state={presence}
+      data-state={standalone ? 'entered' : presence}
       // The drop target is the panel, not the well (canvas 9c-1). It sits on
       // this wrapper rather than inside `Panel` because the listeners want the
       // outermost element the drag can be over, and the accent border + inset
@@ -589,25 +692,32 @@ export function DetailPanel() {
       data-drop-target
       data-drop-armed={dropArmed || undefined}
       // Still painted while it slides away, but no longer a live surface.
-      inert={presence === 'exiting' || undefined}
-      className={[
-        'relative h-full',
-        PANEL_TRANSITION,
-        presence === 'exiting' ? PANEL_EXIT_DURATION : PANEL_ENTER_DURATION,
-        presence === 'entered' ? PANEL_OPEN : PANEL_CLOSED,
-        presence === 'exiting' ? EXITING : '',
-      ].join(' ')}
+      inert={(!standalone && presence === 'exiting') || undefined}
+      className={
+        standalone
+          ? 'relative h-full'
+          : [
+              'relative h-full',
+              PANEL_TRANSITION,
+              presence === 'exiting' ? PANEL_EXIT_DURATION : PANEL_ENTER_DURATION,
+              presence === 'entered' ? PANEL_OPEN : PANEL_CLOSED,
+              presence === 'exiting' ? EXITING : '',
+            ].join(' ')
+      }
     >
     <Panel
       side="right"
       glowHue={headerHue ?? ACCENT_HUE}
       widthPx={renderedDetailWidth}
       widthTransition={!draggingWidth}
+      fill={standalone}
       className="relative flex h-full flex-col overflow-hidden"
     >
       {/* Inner-edge drag handle: widen by dragging left, double-click resets
           to the export's 450. Sits above the panel content (z) but inside
-          the overflow-hidden shell. */}
+          the overflow-hidden shell. A detached window is resized by its own
+          frame instead. */}
+      {!standalone && (
       <div
         role="separator"
         aria-orientation="vertical"
@@ -621,11 +731,16 @@ export function DetailPanel() {
         onDoubleClick={handleWidthReset}
         className="absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
       />
-      {/* Top hairline glint in the session's tag hue (canvas 1b). */}
+      )}
+      {/* Top hairline glint in the session's tag hue (canvas 1b). A detached
+          window keeps it and dims it while unfocused (22d). */}
       <div
         aria-hidden
         className="absolute inset-x-0 top-0 h-px"
-        style={{ background: `linear-gradient(90deg, transparent, ${accent}, transparent)` }}
+        style={{
+          background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
+          opacity: windowFocused ? 1 : INACTIVE_GLINT_OPACITY,
+        }}
       />
 
       {/* Header — `Feature - Detail header` 9d, variant B: a utility strip
@@ -644,7 +759,17 @@ export function DetailPanel() {
             line in the header, so it carries the actions without either of
             them gaining weight, and the title gets the width back (9c,
             DECISION). */}
-        <div className="flex h-7 items-center gap-2.5">
+        {/* In a detached window the row is also the title bar (22b): it
+            reaches out over the header's top and side padding so the whole
+            band drags the window, and its left inset clears the traffic
+            lights. Its controls stay clickable (`orbital-drag-region`). */}
+        <div
+          className={[
+            'flex items-center gap-2.5',
+            standalone ? 'orbital-drag-region -mx-[22px] -mt-3 h-10 pt-3 pr-[22px]' : 'h-7',
+          ].join(' ')}
+          style={standalone ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
+        >
           {/* The path, plus where that directory sits in git — one reading,
               one element (canvas `Feature - Git worktree` 1f). The git half
               is simply absent outside a repository. */}
@@ -653,7 +778,7 @@ export function DetailPanel() {
             fullPath={session?.cwd ?? ''}
             git={session?.git ?? null}
             sessionId={session?.id ?? null}
-            panelWidthPx={detailWidth}
+            panelWidthPx={standalone ? windowWidth : detailWidth}
           />
           {lineage && lineage.length > 0 && (
             <span aria-label="Lineage" className="flex shrink-0 items-center gap-1">
@@ -663,9 +788,27 @@ export function DetailPanel() {
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-bright" />
             </span>
           )}
+          {/* The walkthrough's entry (canvas 21f): the first icon of the
+              strip — before stats when stats is a button, before the pin
+              otherwise — present only once there is something to walk
+              through. Not in a detached window: the page replaces whatever
+              window it opens in, and a detached one holds only this panel. */}
+          {session && !standalone && session.source === 'web' && walkthroughEntry && walkthroughEntry.steps > 0 && (
+            <Tooltip
+              title="Walkthrough"
+              description={`${walkthroughEntry.steps} steps · ${walkthroughEntry.files} files`}
+              align="right"
+              delayMs={PIN_TOOLTIP_DELAY_MS}
+            >
+              <UtilityButton aria-label="Walkthrough" onClick={() => window.location.assign(walkthroughPath(session.id))}>
+                <WalkthroughGlyph />
+              </UtilityButton>
+            </Tooltip>
+          )}
           {/* Button-only mode (canvas `Feature - Header gauges` 11c): the
-              stats strip is gone and stats joins the strip as its FIRST icon
-              — stats · pin · clear · close, with close staying last. */}
+              stats strip is gone and stats joins the strip as an icon —
+              stats · pin · clear · close, with close staying last (and the
+              walkthrough, when offered, ahead of them all). */}
           {session && statsVariant === 'button' && (
             <SessionStatsRow session={session} variant="button" />
           )}
@@ -707,12 +850,40 @@ export function DetailPanel() {
               </UtilityButton>
             </Tooltip>
           )}
-          <UtilityButton
-            aria-label="Close panel"
-            onClick={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
-          >
-            <CloseGlyph />
-          </UtilityButton>
+          {/* Detach and × are a pair of their own, set tighter than the
+              session trio before them: both are about where the panel is,
+              not about the session (canvas `Feature - Detached window` 22a).
+              Detach is desktop only — a browser cannot focus or close the
+              window it would open — so there the pair is × alone.
+
+              A detached window has neither (22c): the red light and ⌘W close
+              it, and closing it is the whole of "dock back". */}
+          {!standalone && (
+            <span className="relative flex h-full flex-none items-center gap-1.5">
+              {session && hasDesktopBridge() && (
+                <Tooltip
+                  variant="name"
+                  title="Open in new window"
+                  align="right"
+                  anchor="group"
+                  delayMs={PIN_TOOLTIP_DELAY_MS}
+                >
+                  <UtilityButton
+                    aria-label="Open in new window"
+                    onClick={() => detachSession(session.id)}
+                  >
+                    <DetachGlyph />
+                  </UtilityButton>
+                </Tooltip>
+              )}
+              <UtilityButton
+                aria-label="Close panel"
+                onClick={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
+              >
+                <CloseGlyph />
+              </UtilityButton>
+            </span>
+          )}
         </div>
 
         {/* Row 2 — the title, on a line of its own (9d). At rest it is a
@@ -1088,7 +1259,9 @@ export function DetailPanel() {
       <div
         aria-hidden
         className={[
-          'pointer-events-none absolute inset-0 rounded-[14px] border transition-[border-color,box-shadow] duration-[120ms] ease-in',
+          'pointer-events-none absolute inset-0 border transition-[border-color,box-shadow] duration-[120ms] ease-in',
+          // Square in a detached window, where the panel has no radius (22b).
+          standalone ? '' : 'rounded-[14px]',
           dropArmed
             ? 'border-[oklch(85%_.12_205_/_.45)] shadow-[inset_0_0_0_1px_oklch(85%_.12_205_/_.12)]'
             : 'border-transparent',

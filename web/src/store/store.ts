@@ -4,6 +4,7 @@ import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
 import { isAttachable, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
+import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
 import type { ContextThresholds } from '../lib/usage'
 import type {
@@ -269,6 +270,13 @@ export interface OrbitalState {
    */
   ideDismissed: Record<string, string>
   /**
+   * Sessions whose detail panel lives in its own desktop window right now
+   * (spec: 2026-09-23-detached-session-windows-design). The desktop main
+   * process owns the list and pushes it whole; only the main window ever
+   * receives it, so a detached window's own list stays empty.
+   */
+  detachedIds: string[]
+  /**
    * How many sessions the whole index holds — the hole's label subtracts
    * the drawn planets from this (spec 2026-09-18-tag-clusters-design § 4).
    * Seeded by `GET /api/sessions/count` at load, then tracked off the
@@ -348,6 +356,11 @@ export interface OrbitalActions {
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
   revealHistory(): void
   setDialog(dialog: OrbitalUiState['dialog']): void
+  /**
+   * Takes the detached list the desktop app pushed. A selected session that
+   * is now in it leaves the docked panel — one place per session.
+   */
+  setDetached(ids: string[]): void
   /** Opens the file viewer over the selected session. `line` is the `:line`
    * scroll target a path button carried, absent for a bare path. */
   openFile(path: string, line?: number | null): void
@@ -573,6 +586,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   decisionAnswers: {},
   decisionVerdicts: {},
   ideDismissed: {},
+  detachedIds: [],
   sessionsTotal: 0,
   toast: null,
   ui: initialUiState,
@@ -972,6 +986,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async select(id) {
+    // Every selection lands here — map, sidebar, ⌘K, a notification click and
+    // the `?session=` restore — so this is the one place a detached session
+    // is sent to its own window instead of the docked panel (spec:
+    // 2026-09-23-detached-session-windows-design § Selecting a detached
+    // session). A detached window's own list is always empty, so it never
+    // redirects to itself.
+    if (get().detachedIds.includes(id)) {
+      focusSession(id)
+      return
+    }
+
     // Selecting a session is the other moment its snapshot is consulted: a
     // tab that loaded before the question was asked, or that never had this
     // session's topic open, learns about it from the row itself.
@@ -1382,6 +1407,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   setDialog(dialog) {
     set((state) => ({ ui: { ...state.ui, dialog } }))
+  },
+
+  setDetached(ids) {
+    set((state) => {
+      const selectedId = state.ui.selectedId
+      if (!selectedId || !ids.includes(selectedId)) return { detachedIds: ids }
+      // Detaching closes the docked panel (spec:
+      // 2026-09-23-detached-session-windows-design § Detaching). The viewer
+      // goes with it — it belongs to the session that just left.
+      return { detachedIds: ids, ui: { ...state.ui, selectedId: null, fileViewer: null } }
+    })
   },
 
   openFile(path, line) {

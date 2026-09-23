@@ -19,6 +19,8 @@ import type {
   SessionStatsDetail,
   StatsOverview,
   StatsWindow,
+  Walkthrough,
+  WalkthroughSummary,
 } from './types'
 
 export class ApiError extends Error {
@@ -116,6 +118,26 @@ export const api = {
 
     const data = await request<{ messages: ChatMessage[] }>('GET', url.pathname + url.search)
     return data.messages
+  },
+
+  async getWalkthrough(id: string): Promise<{ session: ApiSession; walkthrough: Walkthrough }> {
+    return request('GET', `/api/sessions/${id}/walkthrough`)
+  },
+
+  async walkthroughSummary(id: string): Promise<WalkthroughSummary> {
+    return request('GET', `/api/sessions/${id}/walkthrough/summary`)
+  },
+
+  async narrateWalkthrough(id: string): Promise<{ ok: boolean; revived?: boolean }> {
+    return request('POST', `/api/sessions/${id}/walkthrough/narrate`, {})
+  },
+
+  async askWalkthrough(
+    id: string,
+    step: string,
+    question: string
+  ): Promise<{ ok: boolean; revived?: boolean }> {
+    return request('POST', `/api/sessions/${id}/walkthrough/ask`, { step, question })
   },
 
   /**

@@ -8,6 +8,7 @@ import {
 } from '../lib/ideSelection'
 import { usePresence } from '../ui/usePresence'
 import type { IdeReadout } from '../lib/useIdeReadout'
+import type { IdeSelection } from '../lib/types'
 
 /**
  * The editor slot on the composer well's edge (spec:
@@ -24,8 +25,11 @@ import type { IdeReadout } from '../lib/useIdeReadout'
  * So it is an overlay: nothing reflows when it comes or goes, and mid-typing
  * the text and the caret are untouched (20b-5). Three states:
  *
- * - no editor, or an editor on another project — nothing at all, and the panel
- *   is shipped 9a exactly (20b-1);
+ * - no editor, an editor on another project, or an editor that has not yet said
+ *   where the caret is — nothing at all, and the panel is shipped 9a exactly
+ *   (20b-1). The canvas ties the slot to the connection; it is tied here to
+ *   having a reading, because `selection_changed` does not fire until the caret
+ *   moves and a slot with no file name in it is a row that says nothing;
  * - cursor only — a read-out line, no border, no fill, no × (20b-2);
  * - a selection — the cursor line GROWS a tab shape rather than a new row
  *   appearing, carrying the count, the file and a × that drops it (20b-3).
@@ -74,19 +78,32 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
   const [hovered, setHovered] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const { mounted, state } = usePresence(ideName !== null, SLIDE_MS, SLIDE_MS)
+  // An editor being open is not by itself something to say. `selection_changed`
+  // only fires when the caret moves, so between connecting and the first click
+  // in the editor there is no reading at all — and a slot holding a caret
+  // glyph, a blank where the file name goes and the editor's name on the right
+  // is a row that has nothing to tell you. The slot therefore rides on having a
+  // reading, not on the connection: it slides up when the editor first says
+  // where the caret is, and back down when the editor goes.
+  const { mounted, state } = usePresence(ideName !== null && cursor !== null, SLIDE_MS, SLIDE_MS)
 
   // The editor that quit is still on screen for the length of the sink, so the
-  // last name is held — reading `ideName` alone would unmount the node in the
-  // same frame and the slot would blink out instead of going back down.
-  const last = useRef<string | null>(ideName)
-  if (ideName) last.current = ideName
-  const shownName = ideName ?? last.current
+  // last name and the last reading are both held — reading the live values
+  // alone would empty the row in the same frame and the slot would blink out,
+  // or sink as an empty box, instead of going back down with what it said.
+  const last = useRef<{ name: string | null; cursor: IdeSelection | null }>({
+    name: ideName,
+    cursor,
+  })
+  if (ideName) last.current.name = ideName
+  if (cursor) last.current.cursor = cursor
+  const shownName = ideName ?? last.current.name
+  const shownCursor = cursor ?? last.current.cursor
 
-  if (!mounted || !shownName) return null
+  if (!mounted || !shownName || !shownCursor) return null
 
   const hidden = state !== 'entered'
-  const reading = standing && lip ? lip : cursor
+  const reading = standing && lip ? lip : shownCursor
   const tooltip = reading ? selectionTooltip(reading) : null
 
   const armTooltip = () => {
@@ -161,14 +178,12 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
             aria-hidden
             className="block h-[11px] w-[1.4px] flex-none rounded-[1px] bg-[rgba(160,190,225,.55)]"
           />
-          {cursor && (
-            <>
-              <span className="text-[rgba(200,220,245,.75)]">
-                {elideFileName(fileNameOf(cursor.filePath))}
-              </span>
-              <span>:{cursor.lineStart}</span>
-            </>
-          )}
+          {/* `shownCursor`, not `cursor`: the row has to keep saying what it
+              said while it sinks back out of view. */}
+          <span className="text-[rgba(200,220,245,.75)]">
+            {elideFileName(fileNameOf(shownCursor.filePath))}
+          </span>
+          <span>:{shownCursor.lineStart}</span>
           <span aria-hidden className="flex-1" />
           <span className="text-[rgba(160,190,225,.45)]">{shownName}</span>
         </div>

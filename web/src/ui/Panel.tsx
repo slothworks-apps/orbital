@@ -36,6 +36,13 @@ export interface PanelProps {
    */
   widthTransition?: boolean
   /**
+   * The panel IS the window — the detail panel alone in a detached window
+   * (spec: 2026-09-23-detached-session-windows-design). It takes the whole
+   * width and wears `windowChrome` in place of the side's glass. Wins over
+   * `widthPx` and `glowHue`.
+   */
+  fill?: boolean
+  /**
    * Layout-only passthrough (margin, grid-area, absolute positioning offsets).
    * Never use this to override internal panel styling (bg/border/blur) — variants are props-driven.
    */
@@ -99,6 +106,15 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
   ].join(' '),
 }
 
+/**
+ * A panel that fills a window of its own (canvas `Feature - Detached window`
+ * 22b): none of the glass. macOS draws the corners, the hairline and the
+ * shadow, and there is nothing behind the panel to blur, so the fill is the
+ * detail panel's own two stops taken to full opacity. No radius, no border,
+ * no blur, no bloom.
+ */
+const windowChrome = 'bg-gradient-to-b from-[#0f1524] to-[#080c16]'
+
 /** Drop shadow list for `sideChrome[side]`, re-stated so the hue bloom can extend it. */
 const sideShadow: Record<NonNullable<PanelProps['side']>, string> = {
   left: '0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06)',
@@ -117,19 +133,29 @@ export function Panel({
   glowHue,
   widthPx,
   widthTransition = true,
+  fill = false,
   className,
   children,
 }: PanelProps) {
-  const useLiveWidth = !collapsed && side !== 'float' && widthPx !== undefined
-  const width = collapsed ? (side === 'float' ? '' : 'w-14') : useLiveWidth ? '' : sideWidth[side]
+  const useLiveWidth = !fill && !collapsed && side !== 'float' && widthPx !== undefined
+  const width = fill
+    ? 'w-full'
+    : collapsed
+      ? side === 'float'
+        ? ''
+        : 'w-14'
+      : useLiveWidth
+        ? ''
+        : sideWidth[side]
 
   // The bloom is hue-dependent, so it can't live in a static class — it
   // replaces the whole shadow list when present (1b). The live width joins
   // it for the same reason: a dragged number can't be a class.
+  const bloom = !fill && glowHue !== undefined
   const style: CSSProperties | undefined =
-    glowHue !== undefined || useLiveWidth
+    bloom || useLiveWidth
       ? {
-          ...(glowHue !== undefined
+          ...(bloom
             ? { boxShadow: `${sideShadow[side]}, 0 0 40px oklch(80% 0.13 ${glowHue} / 0.08)` }
             : undefined),
           ...(useLiveWidth ? { width: widthPx } : undefined),
@@ -142,8 +168,7 @@ export function Panel({
       data-collapsed={collapsed}
       style={style}
       className={[
-        sideChrome[side],
-        sideRounding[side],
+        fill ? windowChrome : `${sideChrome[side]} ${sideRounding[side]}`,
         width,
         // Collapse/expand timing verbatim from the canvas export; dropped
         // during a drag so the width tracks the pointer (see widthTransition).

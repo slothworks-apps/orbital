@@ -173,8 +173,10 @@ export function WhereLine({
 
   // The mark and the branch are one reading, so they are one hover target —
   // which also puts the bubble's left edge on the mark, where 1f aligns it.
+  // `data-no-drag`: in a detached window this row is the title bar, and a
+  // drag region would swallow the hover that raises the bubble.
   const reading = Mark ? (
-    <span data-testid="git-reading" className="flex flex-none items-center" style={{ gap: MARK_GAP_PX }}>
+    <span data-testid="git-reading" data-no-drag className="flex flex-none items-center" style={{ gap: MARK_GAP_PX }}>
       <Mark />
       <span style={{ color: BRANCH_INK, opacity, transition: `opacity ${BRANCH_FADE_MS}ms ease` }}>
         {fit.branch}

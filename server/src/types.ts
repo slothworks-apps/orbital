@@ -1,3 +1,5 @@
+import type { WalkthroughTag } from './walkthrough/tag.js';
+
 export type SessionSource = 'terminal' | 'web';
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended';
 /** Ordered by escalating autonomy. Mirrored in `web/src/lib/types.ts` — this
@@ -95,8 +97,11 @@ export interface ChatMessage {
    * human typed. `name` verbatim from `<command-name>` incl. the slash,
    * `body` the raw tag blocks, `blocks` how many. The web folds this
    * behind a chip (spec: 2026-09-18-transcript-folding-design).
+   * `walkthrough` is the turn's own walkthrough tag, read only from a
+   * top-level block — one quoted inside another block is not the turn's
+   * (spec: 2026-09-23-walkthrough-design § The wire format).
    */
-  command?: { name: string | null; body: string; blocks: number };
+  command?: { name: string | null; body: string; blocks: number; walkthrough?: WalkthroughTag };
   /** tool_result only: the block carried `is_error: true`. */
   isError?: boolean;
   /**

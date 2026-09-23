@@ -519,6 +519,9 @@ export function SpaceMap() {
   const sidebarWidth = useOrbital((s) => parseSidebarWidth(s.settings, window.innerWidth))
   const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
   const selectedId = useOrbital((s) => s.ui.selectedId)
+  // Replaced wholesale by every push from main, so the reference is stable
+  // between pushes and needs no shallow compare.
+  const detachedIds = useOrbital((s) => s.detachedIds)
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
   const errorsUnseen = useOrbital((s) => s.errorsUnseen)
   const errorLogOpen = useOrbital((s) => s.ui.dialog === 'errors')
@@ -1039,6 +1042,7 @@ export function SpaceMap() {
             showCompactBadge={compactBadgeAllowed}
             onCompact={handleCompact}
             onClick={handleSelect}
+            detached={detachedIds.includes(planet.session.id)}
             simBody={sim.bodies.get(planet.session.id)}
             onBodyPointerDown={handleBodyPointerDown}
           />

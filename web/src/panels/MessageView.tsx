@@ -185,7 +185,7 @@ function MarkdownLink({ children, node: _node, ...rest }: AnchorProps & { node?:
 /** The machine-tag names, for stripping from the chip's line count only —
  * the expanded <pre> always shows the body verbatim, tags included. */
 const COMMAND_TAG =
-  /<\/?(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents)>/g
+  /<\/?(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents|orbital-walkthrough(?:\s[^>]*)?)>/g
 
 /** Chip line count (canvas 6d): body lines after tag stripping, trailing blanks dropped. */
 export function commandLineCount(body: string): number {

@@ -47,13 +47,21 @@ several).
 ### Detaching
 
 1. The detach control in the detail panel's header calls the bridge's
-   `detachSession(id)`. Its placement and look come from Claude Design.
+   `detachSession(id)`. Look and placement: canvas `Feature - Detached
+   window` 22a. It sits in the utility strip beside ×, and the two form a
+   pair of their own (stats · pin · clear ‖ detach · close), set tighter than
+   the session trio before them. A borderless strip button with the strip's
+   states, the tooltip "Open in new window" on hover and on focus, and no
+   keyboard shortcut. In a browser the pair is × alone and the strip is
+   unchanged.
 2. Main opens a window on `/session/<id>`, unless that session already has
    one, in which case it focuses that window instead. At most one window per
    session.
 3. Main sends the main window the new list of detached session ids.
 4. The main window's store receives the list. The selected session is in
-   it, so the selection clears and the docked panel closes.
+   it, so the selection clears and the docked panel closes — at once, with
+   no exit animation: the session moved, it did not close (22a). An ordinary
+   close keeps the panel's exit.
 
 ### Selecting a detached session
 
@@ -75,10 +83,39 @@ selects the session as today.
   subscribes to `sessions` and `session:<id>`, and selects `<id>`.
 - It never receives the detached list, so its own `select` is never
   redirected to focusing itself.
-- The panel's close control closes the window.
+- It opens at the docked panel's width and a fixed height (constants in
+  `desktop/src/main.ts`). It has a minimum width and height and no maximum.
+  When it is wider than the docked panel, the transcript reflows.
+- Window chrome (22b–22d): a hidden inset title bar. The traffic lights sit
+  on the header's row 1, which doubles as the title bar: it drags the window
+  (its controls stay clickable), and its left inset clears the lights. The
+  panel draws none of its own glass there, so no radius, border, blur,
+  bloom or outer inset. The fill is the docked panel's gradient at full
+  opacity, and the window's background colour matches it so nothing flashes
+  on open.
+- The tag-hue glint along the top edge stays, dimmed while the window is
+  not focused. Nothing else changes with focus.
+- The strip ends at clear: there is no × and no detach control in the
+  window. The red traffic light closes it, and so does ⌘W (Electron's
+  default menu).
 - The window title is the session's title and follows renames.
 - A session deleted while its window is open shows the panel's existing
   empty state.
+
+### The session on the map while it is detached
+
+Canvas `Feature - Detached window` 22e.
+
+- The planet stays as it is (live, rings, moons) and gets one badge at the
+  body's top-right, outside the rings: the detach glyph on a small dark tile,
+  in neutral ink, never the tag hue. The badge keeps a fixed screen size,
+  and its offset follows the planet's size.
+- Clicking the planet focuses the window, and the badge flashes once.
+- When the window closes, the badge fades out and nothing else moves.
+- An ended session whose window is still open keeps the badge until the
+  window closes.
+- The session's sidebar row shows the same glyph after its title, in
+  muted, static ink.
 
 ### Edge cases
 
@@ -120,8 +157,11 @@ selects the session as today.
   alongside `parseStatsRoute`. `main.tsx` branches on it.
 - `src/SessionWindow.tsx` (new): the data lifecycle above and
   `DetailPanel` in its standalone mode.
-- `DetailPanel`: a standalone mode (fills the window, no resize handle,
-  close = `window.close()`), and the detach control.
+- `DetailPanel`: a standalone mode (fills the window in window chrome, no
+  resize handle, no close control, row 1 is the drag region), and the
+  detach control. `Panel`'s `fill` carries the window chrome.
+- `Planet` (`detached` prop, fed by `SpaceMap`) and `Sidebar`: the badge
+  and the row glyph.
 
 ## Tests
 

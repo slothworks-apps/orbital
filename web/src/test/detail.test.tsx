@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor, act, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import {
@@ -577,6 +577,42 @@ describe('DetailPanel header', () => {
 
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     expect(screen.queryByLabelText(/lineage/i)).not.toBeInTheDocument()
+  })
+
+  it('offers the walkthrough only for an Orbital session with file changes', async () => {
+    vi.mocked(api.walkthroughSummary).mockResolvedValue({ steps: 3, files: 2, blindAlleys: 0, subagents: 0 })
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(await screen.findByRole('button', { name: 'Walkthrough' })).toBeInTheDocument()
+  })
+
+  it('hides the walkthrough control for a terminal session and for a session without changes', async () => {
+    vi.mocked(api.walkthroughSummary).mockResolvedValue({ steps: 0, files: 0, blindAlleys: 0, subagents: 0 })
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.walkthroughSummary).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: 'Walkthrough' })).toBeNull()
+
+    cleanup()
+    resetStore({
+      sessions: { b: makeSession({ id: 'b', source: 'terminal' }) },
+      ui: { selectedId: 'b' },
+    })
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(screen.queryByRole('button', { name: 'Walkthrough' })).toBeNull()
+    expect(api.walkthroughSummary).toHaveBeenCalledTimes(1) // not asked for a terminal session
   })
 })
 

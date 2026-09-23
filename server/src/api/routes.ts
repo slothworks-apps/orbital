@@ -39,6 +39,10 @@ import type { ErrorLog } from '../errors/log.js';
 import type { ImageStore } from '../images/store.js';
 import type { SessionTitler } from '../titler/titler.js';
 import { registerStatsRoutes } from './stats.js';
+import { buildWalkthrough } from '../walkthrough/spine.js';
+import { readSubagentMessages } from '../walkthrough/subagents.js';
+import { buildAskText, buildNarrateText } from '../walkthrough/tag.js';
+import type { Step, StepCall, Walkthrough } from '../walkthrough/types.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -720,29 +724,30 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
-  app.post('/api/sessions/:id/messages', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const { text, attachments } = req.body as { text: string; attachments?: string[] };
-    if (invalidAttachments(attachments)) {
-      return reply.code(400).send({ error: 'invalid_attachment' });
-    }
+  /**
+   * One delivery path for anything Orbital says INTO a session: the composer's
+   * text, and the walkthrough's narrate and ask turns. Sends if the runner
+   * holds the session; otherwise revives it by resuming — unless a terminal
+   * owns it, which cannot be taken over.
+   */
+  async function deliverToSession(
+    id: string, text: string, attachments?: string[],
+  ): Promise<'sent' | 'revived' | 'not_found' | 'terminal'> {
     // New activity brings a session back to the map, whichever path below
     // delivers the message — a dismissed session someone is typing into is
     // evidently not history any more.
     db.update(sessions).set({ mapDismissedAt: null }).where(eq(sessions.id, id)).run();
     try {
       ctx.runner.send(id, text, attachments);
-      return { ok: true };
+      return 'sent';
     } catch {
       // Inactive in the runner — revive by resuming, unless it's live in a
       // terminal (which owns the SDK process and can't be taken over).
       const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
         | SessionRow
         | undefined;
-      if (!row) return reply.code(404).send({ error: 'not found' });
-      if (ctx.registry.get(id)) {
-        return reply.code(409).send({ error: 'session is live in a terminal' });
-      }
+      if (!row) return 'not_found';
+      if (ctx.registry.get(id)) return 'terminal';
       const permissionMode = (row.permission_mode ??
         ctx.settings.get('default_permission_mode')) as PermissionMode;
       await ctx.runner.start({
@@ -759,8 +764,123 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, id)).run();
       const revivedRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
       ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, revivedRow) });
-      return { ok: true, revived: true };
+      return 'revived';
     }
+  }
+
+  app.post('/api/sessions/:id/messages', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { text, attachments } = req.body as { text: string; attachments?: string[] };
+    if (invalidAttachments(attachments)) {
+      return reply.code(400).send({ error: 'invalid_attachment' });
+    }
+    const outcome = await deliverToSession(id, text, attachments);
+    if (outcome === 'not_found') return reply.code(404).send({ error: 'not found' });
+    if (outcome === 'terminal') return reply.code(409).send({ error: 'session is live in a terminal' });
+    return outcome === 'revived' ? { ok: true, revived: true } : { ok: true };
+  });
+
+  // ---- Walkthrough (spec: 2026-09-23-walkthrough-design) ----------------
+
+  function walkthroughFor(id: string): { row: SessionRow; walkthrough: Walkthrough } | null {
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
+    if (!row) return null;
+    const messages = readTranscriptMessages(id) ?? [];
+    const transcriptPath = join(ctx.projectsDir, row.project_dir, `${id}.jsonl`);
+    const subagents = readSubagentMessages(transcriptPath, ctx.images);
+    return { row, walkthrough: buildWalkthrough(messages, subagents) };
+  }
+
+  /** A step's writing calls, a subagent step's sub-steps included. */
+  function stepCalls(step: Step): StepCall[] {
+    return step.subagent ? step.subagent.steps.flatMap(stepCalls) : step.calls;
+  }
+  function stepPaths(step: Step): string[] {
+    return stepCalls(step)
+      .map((c) => {
+        const input = c.call.toolInput as Record<string, unknown> | null;
+        const p = input?.file_path ?? input?.notebook_path;
+        return typeof p === 'string' ? p : null;
+      })
+      .filter((p): p is string => p !== null);
+  }
+
+  app.get('/api/sessions/:id/walkthrough', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const found = walkthroughFor(id);
+    if (!found) return reply.code(404).send({ error: 'not found' });
+    return { session: toApiSession(ctx, found.row), walkthrough: found.walkthrough };
+  });
+
+  /** The header's entry control asks this; it is the same parse, smaller answer. */
+  app.get('/api/sessions/:id/walkthrough/summary', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const found = walkthroughFor(id);
+    if (!found) return reply.code(404).send({ error: 'not found' });
+    const w = found.walkthrough;
+    return {
+      steps: w.steps.length,
+      files: w.files.length,
+      blindAlleys: w.steps.filter((s) => s.fate.some((f) => f.kind === 'reverted')).length,
+      subagents: w.steps.filter((s) => s.subagent !== null).length,
+    };
+  });
+
+  /**
+   * Both turn-sending routes refuse the same two things: a session Orbital did
+   * not run (a terminal owns it, or the row says so), and a session mid-turn —
+   * a question injected into a running turn is not the question it appears to
+   * be (spec § Asking). Mid-turn is working, or parked on a decision; the
+   * runner's `needs_input` alone is every live session between turns, which
+   * is exactly when a walkthrough is opened, so it does not refuse.
+   */
+  function refuseTurn(row: SessionRow, id: string): { code: number; error: string } | null {
+    if (row.source === 'terminal' || ctx.registry.get(id)) return { code: 409, error: 'terminal_session' };
+    if (ctx.runner.status(id) === 'working' || ctx.runner.pendingDecision(id) !== null) {
+      return { code: 409, error: 'busy' };
+    }
+    return null;
+  }
+
+  async function sendTurn(id: string, text: string, reply: FastifyReply) {
+    const outcome = await deliverToSession(id, text);
+    if (outcome === 'not_found') return reply.code(404).send({ error: 'not found' });
+    if (outcome === 'terminal') return reply.code(409).send({ error: 'terminal_session' });
+    return outcome === 'revived' ? { ok: true, revived: true } : { ok: true };
+  }
+
+  app.post('/api/sessions/:id/walkthrough/narrate', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const found = walkthroughFor(id);
+    if (!found) return reply.code(404).send({ error: 'not found' });
+    const refused = refuseTurn(found.row, id);
+    if (refused) return reply.code(refused.code).send({ error: refused.error });
+    if (found.walkthrough.steps.length === 0) return reply.code(400).send({ error: 'no_steps' });
+    const text = buildNarrateText(found.walkthrough.steps.map((s) => ({
+      id: s.id, ordinal: s.ordinal,
+      paths: [...new Set(stepPaths(s))],
+      firstLine: s.narration.split('\n')[0] ?? '',
+    })));
+    return sendTurn(id, text, reply);
+  });
+
+  app.post('/api/sessions/:id/walkthrough/ask', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { step?: unknown; question?: unknown };
+    if (typeof body.question !== 'string' || !body.question.trim()) {
+      return reply.code(400).send({ error: 'missing_question' });
+    }
+    const found = walkthroughFor(id);
+    if (!found) return reply.code(404).send({ error: 'not found' });
+    const step = found.walkthrough.steps.find((s) => s.id === body.step);
+    if (!step) return reply.code(400).send({ error: 'unknown_step' });
+    const refused = refuseTurn(found.row, id);
+    if (refused) return reply.code(refused.code).send({ error: refused.error });
+    const text = buildAskText(body.question, {
+      step: step.id, ordinal: step.ordinal, paths: [...new Set(stepPaths(step))],
+      calls: stepCalls(step).map((c) => ({ tool: c.call.toolName ?? '', input: c.call.toolInput })),
+    });
+    return sendTurn(id, text, reply);
   });
 
   /**

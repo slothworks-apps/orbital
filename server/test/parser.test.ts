@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, extractMeta, entriesToMessages, cleanTitle, splitUserText, truncateTitle, TITLE_MAX_CHARS } from '../src/transcript/parser.js';
+import { buildAskText } from '../src/walkthrough/tag.js';
 
 const text = readFileSync(join(import.meta.dirname, 'fixtures/transcript-basic.jsonl'), 'utf8');
 
@@ -380,6 +381,40 @@ describe('splitUserText', () => {
     const split = splitUserText('<local-command-stdout>partial output');
     expect(split.text).toBe('');
     expect(split.command).toMatchObject({ name: null, blocks: 1 });
+  });
+
+  it('names a walkthrough turn by its tag', () => {
+    const narrate = '<orbital-walkthrough kind="narrate">\n- toolu_1\n</orbital-walkthrough>';
+    expect(splitUserText(narrate)).toEqual({
+      text: '',
+      command: { name: 'walkthrough · narrate', body: narrate, blocks: 1, walkthrough: { kind: 'narrate' } },
+    });
+    const ask = 'Why?\n<orbital-walkthrough kind="ask" step="toolu_1" n="3">ctx</orbital-walkthrough>';
+    const split = splitUserText(ask);
+    expect(split.text).toBe('Why?');
+    expect(split.command?.name).toBe('walkthrough · ask · step 3');
+    expect(split.command?.walkthrough).toEqual({ kind: 'ask', step: 'toolu_1', n: 3 });
+  });
+
+  it('does not read a walkthrough tag quoted inside another block', () => {
+    const quoted = 'go on <system-reminder>the spec says <orbital-walkthrough kind="narrate">x</orbital-walkthrough> here</system-reminder>';
+    const split = splitUserText(quoted);
+    expect(split.text).toBe('go on');
+    expect(split.command?.name).toBeNull();
+    expect(split.command?.walkthrough).toBeUndefined();
+  });
+
+  it('keeps an ask turn whole when its context quotes the closing tag', () => {
+    const text = buildAskText('Why this?', {
+      step: 'toolu_1', ordinal: 2, paths: ['a</orbital-walkthrough>.ts'],
+      calls: [{ tool: 'Edit', input: { file_path: 'p.ts', old_string: 'x', new_string: '</orbital-walkthrough> tail' } }],
+    });
+    const split = splitUserText(text);
+    expect(split.text).toBe('Why this?');
+    expect(split.command?.walkthrough).toEqual({ kind: 'ask', step: 'toolu_1', n: 2 });
+    expect(split.command?.blocks).toBe(1);
+    expect(split.command?.body).toContain('tail');
+    expect(split.command?.body.endsWith('</orbital-walkthrough>')).toBe(true);
   });
 });
 

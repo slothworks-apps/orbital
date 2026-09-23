@@ -465,3 +465,17 @@ body {
 .orbital-sent-suffix {
   color: rgb(160 190 225 / 0.6);
 }
+
+/* A band of a detached window that drags the window (canvas `Feature -
+   Detached window` 22b: the detail header's row 1 is the title bar). Electron
+   swallows every pointer event over a drag region — no hover, no click — so
+   whatever inside it is interactive opts back out, and the tooltips hanging
+   off it with them. Double-click zooms: macOS does that for a hiddenInset
+   title bar on its own. */
+.orbital-drag-region {
+  -webkit-app-region: drag;
+}
+
+.orbital-drag-region :is(button, a, input, textarea, [tabindex], [data-no-drag], [role='tooltip']) {
+  -webkit-app-region: no-drag;
+}

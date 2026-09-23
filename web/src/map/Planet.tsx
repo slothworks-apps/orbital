@@ -44,6 +44,7 @@ import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
 import { bodyZoomFactor } from './camera'
 import type { SimBody } from './simulation'
 import type { ContextFill } from './sceneModel'
+import { DetachGlyph } from '../ui/UtilityButton'
 import {
   CONTEXT_CRITICAL_OKLCH,
   CONTEXT_WARN_OKLCH,
@@ -271,6 +272,25 @@ const BADGE_OFFSET_X = px(60)
 const BADGE_OFFSET_Y = px(62)
 
 /**
+ * The "in its own window" badge (canvas `Feature - Detached window` 22e):
+ * `right: -22px; top: -22px` off the body box of the mock's 96px planet,
+ * normalised to a 100px body. That is the badge's top-RIGHT corner, so the
+ * badge hangs left and down from it. Anchored to the body, outside the
+ * rings; the scene scale carries the offset with the planet's size while the
+ * badge itself stays a fixed number of screen px.
+ */
+const DETACH_BADGE_CORNER = px((48 + 22) * (50 / 48))
+/** The badge's box and its ink, verbatim from 22e. Neutral, never the tag hue. */
+const DETACH_BADGE_PX = 20
+const DETACH_BADGE_BG = 'rgba(5,7,13,.85)'
+const DETACH_BADGE_INK = 'rgba(230,245,255,.7)'
+/** A click on the planet focuses the window; the badge answers with one flash (22e). */
+const DETACH_BADGE_FLASH_INK = '#e8eef8'
+const DETACH_BADGE_FLASH_MS = 160
+/** The window closed: the badge goes, and nothing else moves (22e). */
+const DETACH_BADGE_EXIT_MS = 200
+
+/**
  * Context gauge — artboard 1i, read against 1f's 100px body.
  *
  * 1i draws each planet at a size derived from its own context (the part of
@@ -391,6 +411,12 @@ export interface PlanetProps {
    */
   onCompact?: (sessionId: string) => void
   onClick?: (sessionId: string) => void
+  /**
+   * The session is open in a detached window (spec:
+   * 2026-09-23-detached-session-windows-design) — the planet wears the badge
+   * that says so, and a click flashes it on its way to focusing the window.
+   */
+  detached?: boolean
   /**
    * The planet's body in the tag-cluster simulation. When present, the frame
    * loop reads the LIVE position (and the fall transform) off it every frame
@@ -881,6 +907,51 @@ function CompactBadge({
   )
 }
 
+/**
+ * The one mark a planet wears while its session sits in a window of its own
+ * (canvas `Feature - Detached window` 22e): the detach glyph on a small dark
+ * tile at the body's top-right. Static — the window is a place, not an
+ * activity — and never clickable: a click on the planet already goes to the
+ * window.
+ */
+function DetachedBadge({
+  innerRef,
+  flashing,
+  initialOpacity,
+}: {
+  innerRef: RefObject<HTMLSpanElement | null>
+  flashing: boolean
+  /** Where the fade stands at mount — the same one-frame-late `<Html>` root as the pill's. */
+  initialOpacity: number
+}) {
+  return (
+    <Html
+      position={[DETACH_BADGE_CORNER, DETACH_BADGE_CORNER, CORE_Z]}
+      zIndexRange={[5, 0]}
+      style={{ pointerEvents: 'none' }}
+    >
+      <span
+        ref={innerRef}
+        aria-hidden
+        style={{
+          display: 'grid',
+          placeItems: 'center',
+          width: DETACH_BADGE_PX,
+          height: DETACH_BADGE_PX,
+          // The anchor is the badge's top-right corner (see DETACH_BADGE_CORNER).
+          transform: 'translateX(-100%)',
+          borderRadius: 5,
+          background: DETACH_BADGE_BG,
+          color: flashing ? DETACH_BADGE_FLASH_INK : DETACH_BADGE_INK,
+          opacity: initialOpacity,
+        }}
+      >
+        <DetachGlyph />
+      </span>
+    </Html>
+  )
+}
+
 interface PlanetMaterials {
   glow: THREE.MeshBasicMaterial
   halo: THREE.MeshBasicMaterial
@@ -977,6 +1048,7 @@ export function Planet({
   showCompactBadge = false,
   onCompact,
   onClick,
+  detached = false,
   simBody,
   onBodyPointerDown,
 }: PlanetProps) {
@@ -1075,6 +1147,20 @@ export function Planet({
    * the text goes with the planet rather than vanishing a beat early.
    */
   const labelMounted = useLingering(!hidden, ENDED_HIDE_MS)
+  /**
+   * The detached badge (22e). It arrives at once — detaching already moved
+   * the panel off screen, and the badge is where the session went — and
+   * leaves over `DETACH_BADGE_EXIT_MS` when the window closes. An ended
+   * session keeps it for as long as its window stays open.
+   */
+  const detachedMounted = useLingering(detached, DETACH_BADGE_EXIT_MS)
+  const detachedFade = useFadeTween(detached, 0, DETACH_BADGE_EXIT_MS)
+  const [detachFlash, setDetachFlash] = useState(false)
+  useEffect(() => {
+    if (!detachFlash) return
+    const timer = setTimeout(() => setDetachFlash(false), DETACH_BADGE_FLASH_MS)
+    return () => clearTimeout(timer)
+  }, [detachFlash])
   const reduced = prefersReducedMotion()
 
   /**
@@ -1112,6 +1198,7 @@ export function Planet({
   const reticleRingRef = useRef<LineHandle | null>(null)
   const bracketRefs = useRef<(LineHandle | null)[]>([])
   const badgeRef = useRef<HTMLSpanElement | null>(null)
+  const detachedBadgeRef = useRef<HTMLSpanElement | null>(null)
   const compactBadgeRef = useRef<HTMLButtonElement | null>(null)
   const labelRef = useRef<HTMLSpanElement | null>(null)
   const labelGroupRef = useRef<THREE.Group>(null)
@@ -1322,6 +1409,12 @@ export function Planet({
         compactBadgeRef.current.style.opacity = String(compactFade.value * hide.opacity)
       }
     }
+    if (detachedMounted) {
+      advanceTween(detachedFade, delta)
+      if (detachedBadgeRef.current) {
+        detachedBadgeRef.current.style.opacity = String(detachedFade.value * hide.opacity)
+      }
+    }
 
     if (!(hide.opacity > 0.001)) return
 
@@ -1428,6 +1521,7 @@ export function Planet({
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation()
+    if (detached) setDetachFlash(true)
     onClick?.(session.id)
   }
 
@@ -1551,6 +1645,14 @@ export function Planet({
           innerRef={badgeRef}
           clearsGauge={gaugeMounted && shownFill !== null}
           initialOpacity={pillFade.value * endedHideTransform(hideFade.value).opacity}
+        />
+      )}
+
+      {detachedMounted && (
+        <DetachedBadge
+          innerRef={detachedBadgeRef}
+          flashing={detachFlash}
+          initialOpacity={detachedFade.value * endedHideTransform(hideFade.value).opacity}
         />
       )}
 

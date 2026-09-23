@@ -66,6 +66,15 @@ describe('the editor slot', () => {
     expect(slot()).toBeNull()
   })
 
+  it('draws nothing while the editor is open but has not said where the caret is', () => {
+    // `selection_changed` only fires when the caret moves, so between
+    // connecting and the first click in the editor there is no reading. The
+    // slot rides on having one, not on the connection — otherwise it stands
+    // there holding a caret glyph, a blank and the editor's name.
+    render(<Harness ide={ide({ selection: null })} />)
+    expect(slot()).toBeNull()
+  })
+
   it('reads out the caret with nothing to drop, when nothing is selected', () => {
     render(<Harness ide={ide({ selection: { ...SELECTION, text: null } })} />)
     expect(slot()?.dataset.state).toBe('cursor')
