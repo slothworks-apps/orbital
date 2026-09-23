@@ -1,21 +1,21 @@
-export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended';
-export type SessionSource = 'terminal' | 'web';
+export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
+export type SessionSource = 'terminal' | 'web'
 /** Ordered by escalating autonomy; `lib/permissionModes.ts` carries the copy
  * and the dot colour for each. Mirrored in `server/src/types.ts`. */
-export type PermissionMode = 'plan' | 'acceptEdits' | 'auto' | 'bypassPermissions';
+export type PermissionMode = 'plan' | 'acceptEdits' | 'auto' | 'bypassPermissions'
 
 export interface ApiSession {
-  id: string;
-  cwd: string;
-  title: string;
-  firstAt: number | null;
-  lastAt: number | null;
-  messageCount: number;
-  source: SessionSource;
-  permissionMode: PermissionMode | null;
-  model: string | null;
-  resolvedModel: string | null;
-  parentId: string | null;
+  id: string
+  cwd: string
+  title: string
+  firstAt: number | null
+  lastAt: number | null
+  messageCount: number
+  source: SessionSource
+  permissionMode: PermissionMode | null
+  model: string | null
+  resolvedModel: string | null
+  parentId: string | null
   /**
    * Context tokens at the end of the session's last turn, or null when it was
    * never measured — the numerator of the map's context arc (spec
@@ -27,14 +27,14 @@ export interface ApiSession {
    * sends the field, absent and null mean the same thing to every reader, and
    * requiring it would rewrite every session fixture in the suite.
    */
-  contextUsedTokens?: number | null;
+  contextUsedTokens?: number | null
   /**
    * Map-only dismissal stamp (epoch ms), or null — set when the session was
    * dragged into the map's hole, cleared by undo or any new activity. Only
    * the map reads it; the sidebar and search never do (spec
    * 2026-09-18-tag-clusters-design § 5). Mirrors `server/src/api/shape.ts`.
    */
-  mapDismissedAt: number | null;
+  mapDismissedAt: number | null
   /**
    * When the user pinned this session (epoch ms), or null — the manual
    * exemption from the map's release timer (spec
@@ -46,7 +46,7 @@ export interface ApiSession {
    * always sends the field, absent and null mean the same thing to every
    * reader, and requiring it would rewrite every session fixture in the suite.
    */
-  pinnedAt?: number | null;
+  pinnedAt?: number | null
   /**
    * When a server restart cut this session's turn short (epoch ms), null
    * otherwise (spec 2026-09-21-session-autoheal-design). The session itself
@@ -58,9 +58,9 @@ export interface ApiSession {
    * the field, absent and null mean the same thing to every reader, and
    * requiring it would rewrite every session fixture in the suite.
    */
-  interruptedAt?: number | null;
-  tagIds: number[];
-  status: SessionStatus;
+  interruptedAt?: number | null
+  tagIds: number[]
+  status: SessionStatus
   /**
    * `working`, but only because of `subagents`: the session's own turn is
    * over and it is waiting for what it launched, which comes back without the
@@ -70,9 +70,9 @@ export interface ApiSession {
    * Optional here for the same reason as `interruptedAt`: absent and false
    * mean the same thing to every reader.
    */
-  awaitingSubagents?: boolean;
+  awaitingSubagents?: boolean
   /** Subagents running in this session right now — the map's moons. */
-  subagents: Subagent[];
+  subagents: Subagent[]
   /**
    * The question this session is blocked on, or null. Part of the session
    * snapshot precisely so a reload does not lose it (spec:
@@ -84,7 +84,7 @@ export interface ApiSession {
    * but absent and null mean the same thing to every reader, and requiring
    * it would rewrite every session fixture in the suite for no signal.
    */
-  pendingDecision?: PendingDecision | null;
+  pendingDecision?: PendingDecision | null
   /**
    * Where this session's `cwd` sits in git right now, or null when it is not
    * inside a repository (spec 2026-09-22-git-location-indicator-design). The
@@ -96,35 +96,34 @@ export interface ApiSession {
    * Optional here for the same reason as `pendingDecision`: the server always
    * sends the field, and absent and null mean the same thing to every reader.
    */
-  git?: GitLocation | null;
+  git?: GitLocation | null
   /**
-   * The editor open on this session's workspace right now, or null when none
-   * is (spec 2026-09-23-ide-bridge-design § What reaches the browser). Live
-   * state of a directory, with the same standing `git` has — two sessions in
-   * one workspace always show the same editor. Mirrors
-   * `server/src/api/shape.ts`.
-   *
-   * Optional here for the same reason as `git`: the server always sends the
-   * field, and absent and null mean the same thing to every reader.
+   * The editor open on this session's workspace right now, or null when there
+   * is none (spec 2026-09-23-ide-bridge-design). Live state of a directory
+   * rather than a fact about the session, exactly as `git` is — two sessions in
+   * one workspace always read the same selection (adr
+   * `orbital-speaks-to-the-ide-itself`). Mirrors `server/src/api/shape.ts`.
    */
-  ide?: IdeContext | null;
+  ide?: IdeContext | null
 }
 
-/**
- * A selection in the editor, as the browser reads it. `lineStart` is 1-based
- * — it matches the gutter the person is looking at — and `text` is null when
- * the caret merely moved. Mirrors `server/src/ide/protocol.ts`.
- */
+/** Where the caret is, and what is selected under it. */
 export interface IdeSelection {
+  /** Absolute, as the extension reports it. */
   filePath: string
+  /** 1-based, so it matches what the editor's gutter shows. */
   lineStart: number
   lineCount: number
+  /** null when the caret moved and nothing is selected. */
   text: string | null
 }
 
-/** The editor covering a session's workspace. Mirrors the server's shape. */
+/**
+ * The editor covering a session's workspace. Mirrors
+ * `server/src/ide/protocol.ts` — the two must move together.
+ */
 export interface IdeContext {
-  /** As the lock reports it — the product (`WebStorm`), not the vendor. */
+  /** As the lock reports it: the product (`WebStorm`), not the vendor. */
   ideName: string
   workspaceRoot: string
   selection: IdeSelection | null
@@ -154,11 +153,11 @@ export interface IdeDiagnostic {
  */
 export interface GitLocation {
   /** Branch name, or the abbreviated sha when `detached`. */
-  ref: string;
-  detached: boolean;
-  worktree: boolean;
+  ref: string
+  detached: boolean
+  worktree: boolean
   /** Always false for a worktree or a detached HEAD, which draw their own mark. */
-  defaultBranch: boolean;
+  defaultBranch: boolean
 }
 
 /**
@@ -167,23 +166,23 @@ export interface GitLocation {
  * Mirrors the SDK's `AskUserQuestionInput`.
  */
 export interface QuestionOption {
-  label: string;
-  description: string;
-  preview?: string;
+  label: string
+  description: string
+  preview?: string
 }
 
 /** One question of an `AskUserQuestion` call: 2–4 options, single or multi. */
 export interface QuestionSpec {
-  question: string;
+  question: string
   /** The chip over the question — capped and uppercased by the card. */
-  header: string;
-  options: QuestionOption[];
-  multiSelect: boolean;
+  header: string
+  options: QuestionOption[]
+  multiSelect: boolean
 }
 
 /** The tool call's input as the SDK delivers it: 1–4 questions. */
 export interface AskUserQuestionInput {
-  questions: QuestionSpec[];
+  questions: QuestionSpec[]
 }
 
 /**
@@ -191,7 +190,7 @@ export interface AskUserQuestionInput {
  * `server/src/runner/runner.ts` — this repo has no shared types package, so
  * the two must move together.
  */
-export type DecisionKind = 'question' | 'permission' | 'plan';
+export type DecisionKind = 'question' | 'permission' | 'plan'
 
 /**
  * A decision the session is blocked on — the CLI is inside a `canUseTool`
@@ -208,77 +207,77 @@ export type DecisionKind = 'question' | 'permission' | 'plan';
  * server would mean merging an `answers` key into a shell command
  * (spec 2026-09-23-permission-and-plan-decisions-design).
  */
-export type PendingDecision = PendingQuestionDecision | PendingVerdictDecision;
+export type PendingDecision = PendingQuestionDecision | PendingVerdictDecision
 
 export interface PendingQuestionDecision {
-  id: string;
-  kind: 'question';
-  input: AskUserQuestionInput;
-  createdAt: number;
+  id: string
+  kind: 'question'
+  input: AskUserQuestionInput
+  createdAt: number
 }
 
 /** A permission prompt or a plan approval: answered yes/no, not in words. */
 export interface PendingVerdictDecision {
-  id: string;
-  kind: 'permission' | 'plan';
+  id: string
+  kind: 'permission' | 'plan'
   /** The tool's own input, verbatim — `{plan}` for a plan approval. */
-  input: Record<string, unknown>;
-  createdAt: number;
+  input: Record<string, unknown>
+  createdAt: number
   /** The tool being asked about. */
-  toolName?: string;
+  toolName?: string
   /**
    * The CLI bridge's own prompt copy, when it sent any. Preferred over
    * anything reconstructed here: the bridge writes the sentence the terminal
    * shows, and two hosts wording the same ask differently is how they come to
    * disagree about what a tool is about to do.
    */
-  title?: string;
-  displayName?: string;
-  description?: string;
+  title?: string
+  displayName?: string
+  description?: string
   /** The CLI flagged this ask as one no stray keystroke may approve. */
-  defaultToNo?: boolean;
+  defaultToNo?: boolean
 }
 
 /**
  * How loudly a notice row speaks — the SDK's own vocabulary. Mirrors
  * `server/src/types.ts`.
  */
-export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning';
+export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning'
 
 export interface ChatMessage {
-  id: string;
+  id: string
   /**
    * `notice` is the CLI speaking for itself rather than through the model —
    * a locally-answered slash command's output (`/context`, `/usage`, `/mcp`),
    * a hook's feedback. Rendered by `NoticeRow`, never by `MessageView`.
    */
-  role: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'notice';
-  text?: string;
-  toolName?: string;
-  toolInput?: unknown;
-  toolUseId?: string;
-  timestamp?: string;
+  role: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'notice'
+  text?: string
+  toolName?: string
+  toolInput?: unknown
+  toolUseId?: string
+  timestamp?: string
   /** Resolved model that produced this assistant message. */
-  model?: string;
+  model?: string
   /**
    * A user turn's machine wrapping (slash-command expansion, system
    * reminders), split off server-side so `text` is only what the human
    * typed. Folded behind a chip in `MessageView` (spec:
    * 2026-09-18-transcript-folding-design).
    */
-  command?: { name: string | null; body: string; blocks: number };
+  command?: { name: string | null; body: string; blocks: number }
   /** tool_result only: the block carried `is_error: true`. */
-  isError?: boolean;
+  isError?: boolean
   /**
    * `notice` rows only. `command` is the slash command whose output this is
    * (`/context`), absent when the CLI did not name one. Mirrors
    * `server/src/types.ts`.
    */
-  notice?: { level: NoticeLevel; command?: string };
+  notice?: { level: NoticeLevel; command?: string }
   /** Images this message carries — refs into the server's image store
    * (`GET /api/images/<ref>`), never bytes. Mirrors `server/src/types.ts`.
    * Spec: 2026-09-18-transcript-images-design. */
-  images?: ImageRefEntry[];
+  images?: ImageRefEntry[]
   /**
    * Local-only provenance for the images above, keyed by ref — never on the
    * wire, never persisted. Set by `sendPrompt` on the optimistic turn and
@@ -286,7 +285,7 @@ export interface ChatMessage {
    * transcript can caption a thumbnail (spec: 2026-09-20-composer-design
    * § The transcript side).
    */
-  imageProvenance?: Record<string, ImageProvenance>;
+  imageProvenance?: Record<string, ImageProvenance>
 }
 
 /**
@@ -296,10 +295,10 @@ export interface ChatMessage {
  * them.
  */
 export interface ImageRefEntry {
-  ref: string;
-  w: number | null;
-  h: number | null;
-  bytes: number;
+  ref: string
+  w: number | null
+  h: number | null
+  bytes: number
 }
 
 /**
@@ -340,14 +339,14 @@ export type AttachmentUpload =
  * server's `server/src/models/catalog.ts` — this repo has no shared types
  * package, so the two declarations must be kept field-for-field in sync. */
 export interface OrbitalModel {
-  value: string;
-  resolvedModel: string;
-  family: string;
-  version: string;
-  shortVersion: string;
-  variant: string | null;
-  blurb: string;
-  contextWindow: number | null;
+  value: string
+  resolvedModel: string
+  family: string
+  version: string
+  shortVersion: string
+  variant: string | null
+  blurb: string
+  contextWindow: number | null
 }
 
 /**
@@ -356,39 +355,39 @@ export interface OrbitalModel {
  */
 export type ModelValidation =
   | { ok: true; model: string; resolvedModel: string | null; contextWindow: number | null }
-  | { ok: false; model: string; reason: string };
+  | { ok: false; model: string; reason: string }
 
 export interface Tag {
-  id: number;
-  name: string;
-  hue: number;
-  is_default: 0 | 1;
+  id: number
+  name: string
+  hue: number
+  is_default: 0 | 1
   /**
    * The clump's stored home spot on the map, in world units — written when
    * the user drops a dragged body somewhere new; null (or absent, in old
    * fixtures) means the automatic circle layout places the tag. Both set or
    * both null; a half-set pair falls back to the automatic layout.
    */
-  anchor_x?: number | null;
-  anchor_y?: number | null;
+  anchor_x?: number | null
+  anchor_y?: number | null
 }
 
 export interface TagRule {
-  id: number;
-  tag_id: number;
-  position: number;
-  enabled: 0 | 1;
-  condition: 'path_matches' | 'title_contains' | 'permission_is';
-  pattern: string;
+  id: number
+  tag_id: number
+  position: number
+  enabled: 0 | 1
+  condition: 'path_matches' | 'title_contains' | 'permission_is'
+  pattern: string
 }
 
 export interface Subagent {
-  id: string;
-  name: string;
-  state: 'materializing' | 'working' | 'idle' | 'needs_input' | 'ended';
+  id: string
+  name: string
+  state: 'materializing' | 'working' | 'idle' | 'needs_input' | 'ended'
 }
 
-export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`;
+export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`
 
 /**
  * How many of a session's subagents are still out working, when that is the
@@ -400,10 +399,10 @@ export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`;
  * drawing, so the readout and the orbit can never disagree about how many.
  */
 export function awaitingSubagentCount(
-  session: Pick<ApiSession, 'status' | 'awaitingSubagents' | 'subagents'>
+  session: Pick<ApiSession, 'status' | 'awaitingSubagents' | 'subagents'>,
 ): number {
-  if (session.status !== 'working' || !session.awaitingSubagents) return 0;
-  return session.subagents.filter((agent) => agent.state !== 'ended').length;
+  if (session.status !== 'working' || !session.awaitingSubagents) return 0
+  return session.subagents.filter((agent) => agent.state !== 'ended').length
 }
 
 /**
@@ -412,7 +411,7 @@ export function awaitingSubagentCount(
  * the count, so the label only has to get the grammar right.
  */
 export const awaitingSubagentLabel = (count: number): string =>
-  count === 1 ? 'WAITING FOR AGENT' : 'WAITING FOR AGENTS';
+  count === 1 ? 'WAITING FOR AGENT' : 'WAITING FOR AGENTS'
 
 /**
  * What a `needs_input` session actually wants, in a word.
@@ -432,7 +431,7 @@ export const awaitingSubagentLabel = (count: number): string =>
  * `decision_pending` event is never heard — can answer this too.
  */
 export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision'>): string =>
-  session.pendingDecision ? 'NEEDS INPUT' : 'DONE';
+  session.pendingDecision ? 'NEEDS INPUT' : 'DONE'
 
 /**
  * True for a session Orbital does not own: one it indexed from another
@@ -444,7 +443,7 @@ export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision'>): strin
  * new `source: web` session — which is why status is part of the test.
  */
 export const isReadOnly = (session: Pick<ApiSession, 'source' | 'status'>): boolean =>
-  session.source === 'terminal' && session.status !== 'ended';
+  session.source === 'terminal' && session.status !== 'ended'
 
 /**
  * One file as the viewer sees it — the client-side mirror of the server's
@@ -484,6 +483,21 @@ export interface FileCompletionEntry {
   name: string
   dir: boolean
   size?: number
+  /**
+   * The row's path relative to the session's cwd, sent ONLY when the row does
+   * not live in the directory the typed prefix names — an open editor tab
+   * reached by its base name from somewhere else in the tree (spec
+   * 2026-09-23-ide-bridge-design § Open files). Absent means the old rule: the
+   * prefix's directory part plus `name`.
+   */
+  path?: string
+  /** The file is open in the editor right now. Absent means not. */
+  open?: boolean
+  /** It is the tab the caret is in — it wears the editor slot's caret bar
+   * (canvas `Feature - IDE bridge` 20c). */
+  active?: boolean
+  /** The caret's line in the active tab, which its mark slot reads (20c). */
+  line?: number
 }
 
 /**

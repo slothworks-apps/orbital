@@ -77,6 +77,7 @@ const initialSnapshot: OrbitalState = {
   pendingDecisions: {},
   decisionAnswers: {},
   decisionVerdicts: {},
+  ideDismissed: {},
   sessionsTotal: 0,
   toast: null,
   ui: {

@@ -85,6 +85,7 @@ export function useSceneModel(): SceneModel {
           pendingDecisions: {},
           decisionAnswers: {},
           decisionVerdicts: {},
+          ideDismissed: {},
           sessionsTotal,
           toast: null,
           ui: {

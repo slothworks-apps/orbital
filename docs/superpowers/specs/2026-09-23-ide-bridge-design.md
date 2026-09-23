@@ -15,6 +15,7 @@ related:
   - a-hand-edited-diff-comes-back-as-the-tools-own-input
   - the-editors-findings-go-where-a-file-is-already-open
   - tilde-expands-at-the-api-boundary
+  - an-ide-selection-rides-as-a-quoted-block
 tags:
   - ide
   - composer
@@ -474,9 +475,47 @@ The three outbound tools, and the browser half they needed, as of 2026-09-23:
   the store's `openInIde`, the ⌥ gesture on `PathButton` (canvas 20d), and the
   file viewer's header link, ⌥⏎ shortcut and diagnostics readout.
 
-Still to build: the composer's slot and lip with the per-session dismissal
-(20a/20b/20e), and the `@` completion's ranking in
-`server/src/files/complete.ts`. Nothing above assumes either.
+The browser half and the `@` ranking, as of 2026-09-23:
+
+- `web/src/lib/ideSelection.ts` — the slot's wording and arithmetic, the
+  dismissal id (file + range + a hash of the text, so the key stays a key), and
+  the block that rides with a prompt plus the reader that takes it back out
+  (adr [[an-ide-selection-rides-as-a-quoted-block]]). All pure.
+- `web/src/lib/useIdeReadout.ts` — the two rates. `IDE_CURSOR_THROTTLE_HZ` and
+  `IDE_SELECTION_DEBOUNCE_MS` are the canvas's (20f); the debounce has the same
+  shape as the server's coalescer, starting on the first change of a burst and
+  not extended by the rest.
+- `web/src/panels/IdeSlot.tsx` — the slot, presentational: the cursor line, the
+  lip that rises over it, the ×, the slide from behind the well's edge. The clip
+  that makes the slide read that way lives inside this component, never on the
+  well, because the completion popup hangs off the same well.
+- `web/src/panels/Composer.tsx` — owns the readout (one stream, two consumers),
+  draws the slot inside the well, names what ⏎ will carry in the hint line, and
+  lifts the completion popup clear of the slot with `anchorInsetPx` (20c: "the
+  slot belongs to the well, so the popup clears both").
+- `web/src/panels/CompletionPopup.tsx` — open tabs first, then directories, then
+  files, a stable sort so the server's order survives inside each group; the
+  filled-square mark, the active tab's caret bar, `OPEN` in place of the size,
+  and `N OPEN ·` in the head (20c).
+- `web/src/panels/MessageView.tsx` — the sent turn shows the typed words, with
+  the range as a pressable caption under the bubble (20a).
+- `ideDismissed` and `dismissIdeSelection` on the store, keyed by session; the
+  attach in `sendPrompt`.
+- `server/src/files/complete.ts` — the ranking, and `server/src/files/openTabs.ts`
+  — one reader with a short TTL, so the burst of requests one `@` produces is
+  one round trip over the editor's socket.
+
+Two things the canvas draws that are deliberately NOT built, because this spec
+does not decide them and they are more than appearance:
+
+- **`20c`'s bare-`@` rule** — "open tabs only, up to 6". The ranking above is
+  what is built, so a bare `@` lists the open tabs first and then the working
+  tree. Suppressing the tree walk entirely is a product decision about whether
+  `@` can still browse the root while an editor is open.
+- **`20b-6`, the slot in the New Session dialog.** The dialog matches against
+  the chosen directory, which needs an editor lookup by `cwd` — and `ide`
+  reaches the browser only on `ApiSession`. A route would have to be added, and
+  the per-session dismissal has no session to belong to yet.
 
 ## Out of scope
 
