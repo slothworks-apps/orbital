@@ -32,6 +32,13 @@ export interface TranscriptEntry {
   timestamp?: string;
   cwd?: string;
   isSidechain?: boolean;
+  /**
+   * The harness speaking in the user's role, not the human: a skill's body,
+   * `<local-command-caveat>`, "Continue from where you left off.", a
+   * cross-session notice, the `[Image: …]` notes a Read of an image or a
+   * pasted image leaves behind. See `outsideConversation`.
+   */
+  isMeta?: boolean;
   /** Set on assistant entries; several entries of one API response share it. */
   requestId?: string;
   /** Set on the user entry carrying a tool_result — the payload stats measure. */
@@ -42,6 +49,17 @@ export interface TranscriptEntry {
     content: string | Array<Record<string, unknown>>;
     usage?: TranscriptUsage;
   };
+}
+
+/**
+ * An entry that is not part of the conversation this session shows: a
+ * subagent's (`isSidechain`) or the harness's own (`isMeta`). Both are left
+ * out of the transcript and out of the metadata the index derives, so a
+ * skill's body never becomes a session's title (domain
+ * `what-the-transcript-parser-skips`).
+ */
+export function outsideConversation(e: TranscriptEntry): boolean {
+  return e.isSidechain === true || e.isMeta === true;
 }
 
 export function parseTranscriptLine(line: string): TranscriptEntry | null {
@@ -182,7 +200,7 @@ export function extractMeta(entries: TranscriptEntry[]) {
   for (const e of entries) {
     if (!cwd && typeof e.cwd === 'string') cwd = e.cwd;
     if (e.type !== 'user' && e.type !== 'assistant') continue;
-    if (e.isSidechain) continue;
+    if (outsideConversation(e)) continue;
     if (e.type === 'assistant' && typeof e.message?.model === 'string' && e.message.model) {
       model = e.message.model;
     }
@@ -267,7 +285,7 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
       if (row) out.push(row);
       continue;
     }
-    if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || e.isSidechain) continue;
+    if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || outsideConversation(e)) continue;
     const base =
       e.type === 'assistant' && typeof e.message.model === 'string' && e.message.model
         ? { timestamp: e.timestamp, model: e.message.model }

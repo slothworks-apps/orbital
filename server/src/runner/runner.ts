@@ -400,6 +400,14 @@ interface ManagedSession {
  * messages land in the same millisecond with the same block index.
  */
 export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: ImageWriter): ChatMessage[] {
+  // `isSynthetic` is how the SDK stream carries the transcript's `isMeta`:
+  // the CLI stamps it on a user frame that is `isMeta`,
+  // `isVisibleInTranscriptOnly` or `isCompactSummary` — the harness speaking,
+  // not the human. Dropped here for the same reason `entriesToMessages`
+  // drops `isMeta` entries, so a Read of an image does not leave an
+  // `[Image: original …]` bubble on either path. The compact summary is a
+  // string body, which this function never rendered anyway.
+  if (sdkMsg.type === 'user' && sdkMsg.isSynthetic === true) return [];
   const content = sdkMsg.message?.content;
   if (!Array.isArray(content)) return [];
   const model = typeof sdkMsg.message?.model === 'string' ? sdkMsg.message.model : undefined;
@@ -1044,7 +1052,13 @@ export class Runner {
           // `2026-09-22-subagent-transcript-panel-design.md` § "The bug this
           // uncovers" and § 2).
           if (msg.parent_tool_use_id == null) {
-            this.onEntries?.(sessionId, [msg as TranscriptEntry]);
+            // The SDK's `isSynthetic` is the transcript's `isMeta` under
+            // another name; restoring it keeps a skill body or an image
+            // note out of whatever reads these as transcript entries.
+            const entry = (msg.type === 'user' && (msg as { isSynthetic?: boolean }).isSynthetic === true
+              ? { ...msg, isMeta: true }
+              : msg) as TranscriptEntry;
+            this.onEntries?.(sessionId, [entry]);
             for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images)) {
               this.hub.publish(topic, { event: 'message', message: chat });
             }
