@@ -183,23 +183,31 @@ posting question answers at it.
 
 ## Web UI
 
-There is **no Claude Design artboard for these two cards**. The
-question card's own vocabulary is reused instead: every class constant
+The two cards were built before their design existed. The question
+card's own vocabulary was reused instead: every class constant
 transcribed from canvas 9b/9d moved out of `QuestionCard.tsx` into
-`panels/decisionCardStyles.ts`, and both cards import from it. A design
-pass is pending; when an artboard lands, that one file is where its
-values go.
+`panels/decisionCardStyles.ts`, and both cards import from it.
+
+**The design pass has since happened** (2026-09-23) against canvas
+`Feature - Transcript blocks` — artboard **20b** "PERMISSION CARD —
+STATES AT PANEL WIDTH" for the states, **20a** for the spacing between
+blocks in the panel. Both canvases agree on everything the two cards
+share (shell gradients, chip, status typography, button metrics), so
+`decisionCardStyles.ts` kept its 9b/9d half unchanged and grew a second
+half for the permission card alone. What the pass changed and what it
+deliberately did not is recorded in § The design pass below.
 
 - **`PermissionCard`** (`panels/PermissionCard.tsx`) draws both kinds:
   chip (`PERMISSION` / `PLAN`) + tool name, the headline, the bridge's
   subtitle when there is one, then the input — a one-line summary for a
   tool that carries a command/path/URL, the plan's markdown for a plan,
   and pretty-printed JSON for everything else.
-- **Two buttons**: *Decline* / *Allow once*, or *Keep planning* /
-  *Approve plan*. Decline comes first in the DOM so ⇥ lands on the
-  refusal, and there is no one-key approve shortcut — nothing on this
-  card may be authorised by a stray keystroke, which is what
-  `defaultToNo` asks for and costs nothing to apply everywhere.
+- **Two buttons**: *Deny* / *Approve*, or *Keep planning* /
+  *Approve plan*. Deny comes first in the DOM so ⇥ lands on the
+  refusal — 20b puts it first visually for the same reason — and there
+  is no one-key approve shortcut: nothing on this card may be authorised
+  by a stray keystroke, which is what `defaultToNo` asks for and costs
+  nothing to apply everywhere.
 - **Declining expands a reason field inline**, the way the question
   card's Other… row does; esc collapses it through the app's escape
   stack. Declining with the field closed sends no message and the server
@@ -223,6 +231,73 @@ values go.
   form on the click, not on the round trip — and because the refusal's
   reason has nowhere else to live: the `tool_result` the client reads
   back carries only the error flag.
+
+## The design pass
+
+Done 2026-09-23 against `Feature - Transcript blocks` 20b and 20a, on
+`PermissionCard.tsx` and the permission-card half of
+`decisionCardStyles.ts`. `QuestionCard` imports only the 9b/9d half and
+is untouched.
+
+What moved to the canvas's values:
+
+- **Spacing.** 20b sets 9px above the headline, 3px from it to the
+  subtitle and 10px from either to the first block; the borrowed card
+  used a flat 11px everywhere. The answer row sits 12px under what it
+  follows at an 8px gap.
+- **The subtitle.** 12 / 1.45 at `rgba(160,190,225,.7)`, its own token
+  rather than the option row's `DESCRIPTION_INK` — 9d gives that one
+  `.62` for a different element, and `QuestionCard` still wears it.
+- **Radii.** The input box is r7 (20b A/B/C) and the plan box r8
+  (20b D); both were r8.
+- **Buttons.** Approve takes 20b's `accent/.55` border and its
+  `accent/.18` ring; Deny takes `rgba(150,205,255,.22)` with
+  `rgba(220,232,248,.9)` ink and a `.4` hover. Labels become 20b's
+  words: *Deny* / *Approve*.
+- **Status words and ink.** `WAITING ON YOU` / `WAITING · IN TERMINAL` /
+  `LOCKED` / `APPROVED` / `DENIED`, and the ink is neutral on every
+  settled card. The old red `DECLINED` was the one hue in a feature
+  whose stated colour rule is that there is none.
+- **The settled card gains 20b F's verdict row** — ✓ *Approved* on the
+  accent, ✕ *Denied* neutral with the reason quoted under it. It
+  replaces the "YOUR REASON" eyebrow, and it is built from `ROW_BASE`
+  because 9d already gave that token 20b F's 9px/11px/r9/gap-9.
+- **The locked card gains 20b G's dashed note**, and the terminal card's
+  own note moves inside the card's padding so its gap is 20b H's 10px
+  rather than the shell's 13px. A terminal card's input box takes 20b
+  H's quieter frame.
+- **The guarded card** (`defaultToNo`) gains 20b C's neutral treatment:
+  a `rgba(232,238,248,.42)` border and a `rgba(232,238,248,.05)` ring.
+
+What the canvas asks for that the code does not do, and why:
+
+- **Hold-to-approve (900 ms) or a two-step confirm** on a guarded
+  request, with 20b C's ▲ "Needs a deliberate yes" line. That changes
+  how a tool gets approved, which this spec settles rather than the
+  canvas. The guard's chrome is drawn; the line is not, because a line
+  promising a gesture that does nothing is worse than no line.
+- **`Y · N` key hints and an `Approve ⏎` suffix.** Same reason in
+  reverse: there are deliberately no one-key answers here.
+- **The chip as tool kind** (`SHELL · WRITE · EDIT · MCP · PLAN`).
+  `decisionChipLabel` names the decision, not the tool, so the tool name
+  stays in its own header slot — which 20b does not have because its
+  chip already carries it.
+- **A settled card folded to chip + summary + verdict**, with the
+  summary in the header and the time on the right, reopening on click
+  (20b F); and the pending card's **expandable** summary → detail row
+  (20b A). Both are folds, not values.
+- **The plan as rendered markdown**, clipped with a fade and opened in
+  20b E's full-panel reader. Without the reader, dropping the scroller
+  would make a long plan unreadable; it stays a mono block that scrolls
+  and gains 20b D's line-count line under it.
+- **Deny-with-reason from the composer**, and its relabelling of the
+  Deny button. `Composer.tsx` is where that lives.
+
+One cross-file conflict, left as it stands: 9a gives the pending card's
+drop shadow an inner `0 0 0 1px rgba(0,0,0,.2)` hairline and 20a does
+not. `CARD_SHADOW` is shared with the implemented question card, so 9a
+wins. 20b H's dashed-note ink is `.65` where 9b C's is `.6`; each card
+follows its own artboard.
 
 ## Testing
 

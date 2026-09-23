@@ -19,6 +19,8 @@ import {
   BUTTON_BASE,
   BUTTON_QUIET,
   CARD_ANSWERED,
+  CARD_GUARDED,
+  CARD_GUARDED_SHADOW,
   CARD_PAD_X,
   CARD_PENDING,
   CARD_READONLY,
@@ -27,19 +29,29 @@ import {
   CHIP_BASE,
   CHIP_PENDING,
   CHIP_QUIET,
-  DESCRIPTION_INK,
   HEADLINE,
+  LABEL,
+  META_LINE,
   MONO_BLOCK,
   MONO_EYEBROW,
   MONO_FRAME,
+  MONO_FRAME_QUIET,
+  NOTE_DASHED,
+  PLAN_FRAME,
+  ROW_BASE,
+  ROW_CHOSEN,
   ROW_OTHER_OPEN,
+  ROW_VERDICT_DENIED,
   STATUS_BASE,
+  SUBTITLE,
 } from './decisionCardStyles'
 
 /**
  * A permission prompt or a plan approval, rendered as the thing it is: a tool
  * call the session is stopped on (spec:
- * 2026-09-23-permission-and-plan-decisions-design).
+ * 2026-09-23-permission-and-plan-decisions-design; canvas
+ * `Feature - Transcript blocks` 20b for the states, 20a for the spacing
+ * between them in the panel).
  *
  * The question card's sibling, and deliberately its twin — same shell, same
  * chip, same accent, same quiet-when-settled border, all of them imported
@@ -56,12 +68,20 @@ import {
  *   form from its own `tool_result`, which is what makes an old plan readable
  *   in a reloaded transcript.
  * - `locked` — pending with nobody able to answer it here (a session that
- *   ended while parked): `UNANSWERED`, nothing clickable.
+ *   ended while parked): `LOCKED`, nothing clickable, and 20b G's dashed note
+ *   in place of the buttons.
  *
  * Ordinary permission asks leave no trace of having been asked — the CLI
  * records the tool call, not the prompt — so once one settles this card gives
  * way to the transcript's normal tool row. Only `ExitPlanMode` is always a
  * card, because its input IS the plan and a plan is worth reading back.
+ *
+ * What 20b asks for and this card does not do: approving a guarded request by
+ * holding Approve for 900 ms (or confirming twice). The card wears the guard's
+ * chrome, but the interaction would change how a tool gets approved, which the
+ * spec settles rather than the canvas — so the guard reads as emphasis here
+ * and the ▲ "hold Approve" line is left undrawn rather than promising a
+ * gesture that does nothing.
  */
 
 export interface PermissionCardProps {
@@ -112,20 +132,29 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
   // Approved unless something says otherwise: this tab's own verdict first,
   // then the result's error flag, which is how a refusal comes back.
   const approved = sentVerdict?.approved ?? toolResult?.isError !== true
+  // Canvas 20b writes each state's own words: a card that is stopped on you
+  // says so ("WAITING ON YOU"), and one that is stopped on someone else names
+  // where.
   const status =
     mode === 'interactive'
-      ? decision.defaultToNo
-        ? 'PENDING · CONFIRM'
-        : 'PENDING'
+      ? 'WAITING ON YOU'
       : mode === 'terminal'
-        ? 'PENDING · IN TERMINAL'
+        ? 'WAITING · IN TERMINAL'
         : mode === 'locked'
-          ? 'UNANSWERED'
+          ? 'LOCKED'
           : approved
-            ? decision.kind === 'plan'
-              ? 'APPROVED'
-              : 'ALLOWED'
-            : 'DECLINED'
+            ? 'APPROVED'
+            : 'DENIED'
+  // Canvas 20b F/G/H: the status ink is neutral on every settled card. A red
+  // "DENIED" would be the one hue in a feature whose whole colour rule is
+  // that there is none (20c F) — and it would read as a failure, which a
+  // refusal you chose is not.
+  const statusInk =
+    mode === 'interactive'
+      ? 'text-accent/85'
+      : mode === 'settled'
+        ? 'text-[rgba(160,190,225,.45)]'
+        : 'text-[rgba(160,190,225,.5)]'
 
   const plan = planText(decision.input)
   // An edit you are being asked to approve is shown as the diff it will make,
@@ -144,6 +173,14 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
   const summary = change ? null : inputSummary(decision.input)
   const detail = plan || change ? null : inputDetail(decision.input)
   const live = mode === 'interactive'
+  // Canvas 20b C: the bridge asked us to default to "no" on this one. The
+  // guard is neutral, not hue — a brighter ink border and one double hairline
+  // ring. It is appearance only; see the module comment on why the card grows
+  // no hold-to-approve to go with it.
+  const guarded = live && decision.defaultToNo === true
+  // A card nobody can answer here reads its input at the quieter weight the
+  // rest of its chrome already uses (canvas 20b H).
+  const frame = mode === 'terminal' ? MONO_FRAME_QUIET : MONO_FRAME
 
   return (
     <div
@@ -155,7 +192,8 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
       className={[
         CARD_SHELL,
         live ? CARD_PENDING : mode === 'terminal' ? CARD_READONLY : CARD_ANSWERED,
-        live ? CARD_SHADOW : '',
+        guarded ? CARD_GUARDED : '',
+        live ? (guarded ? CARD_GUARDED_SHADOW : CARD_SHADOW) : '',
       ].join(' ')}
     >
       <div className={`${CARD_PAD_X} pb-[13px] pt-[11px]`}>
@@ -163,44 +201,35 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
           <span className={`${CHIP_BASE} ${live ? CHIP_PENDING : CHIP_QUIET}`}>
             {decisionChipLabel(decision.kind)}
           </span>
+          {/* 20b's own chip carries the tool kind (SHELL · WRITE · EDIT · MCP)
+              and so needs no second slot for it. `decisionChipLabel` names the
+              decision instead, which leaves the tool unsaid — so the name
+              stays, at the header's quiet mono weight. */}
           {decision.toolName && (
             <span className="min-w-0 truncate font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
               {decision.toolName}
             </span>
           )}
           <span aria-hidden className="flex-1" />
-          <span
-            className={[
-              STATUS_BASE,
-              live
-                ? 'text-accent/85'
-                : approved || mode !== 'settled'
-                  ? 'text-[rgba(160,190,225,.45)]'
-                  : 'text-[rgba(235,160,160,.65)]',
-            ].join(' ')}
-          >
-            {status}
-          </span>
+          <span className={`${STATUS_BASE} ${statusInk}`}>{status}</span>
         </div>
 
+        {/* Canvas 20b: 9px above the headline, 3px from it to the subtitle,
+            10px from either to the first block. */}
         <div
           className={[
             HEADLINE,
-            'pb-[11px] pt-[9px]',
-            live ? 'text-[#e8eef8]' : 'text-[rgba(232,238,248,.85)]',
+            'pt-[9px]',
+            live ? 'text-[#e8eef8]' : 'text-[rgba(232,238,248,.82)]',
           ].join(' ')}
         >
           {decisionHeadline(decision)}
         </div>
 
-        {decision.description && (
-          <div className={`pb-[11px] text-[11.5px] leading-[1.4] ${DESCRIPTION_INK}`}>
-            {decision.description}
-          </div>
-        )}
+        {decision.description && <div className={`pt-[3px] ${SUBTITLE}`}>{decision.description}</div>}
 
         {change && (
-          <div className={`mb-[11px] ${MONO_FRAME}`}>
+          <div className={`mt-[10px] ${frame}`}>
             <div className={MONO_EYEBROW}>{changeSectionLabel(change, false)}</div>
             {/* Shown whole rather than as the transcript's preview: this is
                 the one moment the change has to be read before it happens.
@@ -212,23 +241,27 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
         )}
 
         {summary && !plan && (
-          <div className={`mb-[11px] ${MONO_FRAME}`}>
+          <div className={`mt-[10px] ${frame}`}>
             <pre className={`${MONO_BLOCK} max-h-[64px] p-2.5`}>{summary}</pre>
           </div>
         )}
 
         {plan && (
-          <div className={`mb-[11px] ${MONO_FRAME}`}>
-            <div className={MONO_EYEBROW}>PLAN</div>
-            {/* The plan is the one input worth reading in full, so it gets
-                more room than an ordinary tool's detail block before it
-                starts scrolling inside itself. */}
-            <pre className={`${MONO_BLOCK} max-h-[320px] p-2.5`}>{plan}</pre>
-          </div>
+          <>
+            <div className={`mt-[10px] ${PLAN_FRAME}`}>
+              <div className={MONO_EYEBROW}>PLAN</div>
+              {/* The plan is the one input worth reading in full, so it gets
+                  more room than an ordinary tool's detail block before it
+                  starts scrolling inside itself. */}
+              <pre className={`${MONO_BLOCK} max-h-[320px] p-2.5`}>{plan}</pre>
+            </div>
+            {/* Canvas 20b D: the box says how much of the plan it is holding. */}
+            <div className={`mt-[6px] ${META_LINE}`}>{planLines(plan)}</div>
+          </>
         )}
 
         {detail && !summary && (
-          <div className={`mb-[11px] ${MONO_FRAME}`}>
+          <div className={`mt-[10px] ${frame}`}>
             <div className={MONO_EYEBROW}>INPUT</div>
             <pre className={`${MONO_BLOCK} max-h-[160px] p-2.5`}>{detail}</pre>
           </div>
@@ -241,39 +274,90 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
           />
         )}
 
-        {mode === 'settled' && !approved && sentVerdict?.message && (
-          <>
-            <div className="mb-1 font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">
-              YOUR REASON
-            </div>
-            <div className="text-[13px] leading-[1.45] text-pretty text-[#e8eef8]">
-              {sentVerdict.message}
-            </div>
-          </>
+        {mode === 'settled' && (
+          // Canvas 20b F: a settled card ends on the verdict, said in words
+          // rather than only in the header's status. The approval keeps the
+          // accent — the control did something — and the refusal stays
+          // neutral and carries the exact reason that was sent.
+          <div
+            // `ROW_BASE` already carries 20b F's metrics — 9px/11px, r9, gap 9
+            // — because 9d gave the question card's option rows the same ones.
+            // Its `items-start` is 20a's choice for both verdicts; 20b's
+            // centred approval is not layered on top, because two
+            // `align-items` utilities on one element resolve by stylesheet
+            // order rather than by intent (web/CLAUDE.md).
+            className={[
+              'mt-[10px]',
+              ROW_BASE,
+              approved ? ROW_CHOSEN : ROW_VERDICT_DENIED,
+            ].join(' ')}
+          >
+            <span
+              aria-hidden
+              className={`shrink-0 text-[11px] leading-[1.5] ${
+                approved ? 'text-accent' : 'text-[rgba(200,220,245,.8)]'
+              }`}
+            >
+              {approved ? '✓' : '✕'}
+            </span>
+            <span className="flex min-w-0 flex-col gap-[3px]">
+              <span className={`${LABEL} text-[#e8eef8]`}>{verdictLabel(decision.kind, approved)}</span>
+              {!approved && sentVerdict?.message && (
+                <span className="text-[12px] leading-[1.45] text-pretty text-[rgba(200,220,245,.85)]">
+                  {`“${sentVerdict.message}”`}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+
+        {mode === 'terminal' && (
+          // The same affordance the question card offers a watched session: it
+          // says where the answer has to be typed, not here (canvas 20b H).
+          <div className={`mt-[10px] ${NOTE_DASHED} tracking-[0.06em] text-[rgba(160,190,225,.65)]`}>
+            <span aria-hidden className="text-[rgba(190,215,240,.75)]">
+              ▸
+            </span>
+            answer in the terminal
+          </div>
+        )}
+
+        {mode === 'locked' && (
+          // Canvas 20b G: the session ended while parked on this, so the ask
+          // is over without an answer this transcript can show. Only the lock
+          // is known, which is the wording 20b G gives that case.
+          <div className={`mt-[10px] ${NOTE_DASHED} tracking-[0.04em] text-[rgba(200,220,245,.8)]`}>
+            <span aria-hidden>⊘</span>
+            Answered in another window
+          </div>
         )}
       </div>
-
-      {mode === 'terminal' && (
-        // The same affordance the question card offers a watched session: it
-        // says where the answer has to be typed, not here (canvas 9b C).
-        <div className="mx-[13px] mb-[13px] flex items-center gap-2 rounded-[8px] border border-dashed border-[rgba(150,205,255,.18)] bg-[rgba(3,6,12,.5)] px-2.5 py-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
-          <span aria-hidden className="text-[rgba(190,215,240,.75)]">
-            ▸
-          </span>
-          answer in the terminal
-        </div>
-      )}
     </div>
   )
+}
+
+/** Canvas 20b F: what the settled row calls the verdict, per kind. */
+function verdictLabel(kind: 'permission' | 'plan', approved: boolean): string {
+  if (kind === 'plan') return approved ? 'Plan approved' : 'Kept planning'
+  return approved ? 'Approved' : 'Denied'
+}
+
+/** Canvas 20b D's meta line, minus the step count nothing here can derive. */
+function planLines(plan: string): string {
+  const n = plan.split('\n').length
+  return `${n} ${n === 1 ? 'line' : 'lines'}`
 }
 
 /**
  * The two buttons and the reason field behind one of them.
  *
- * Decline comes FIRST in the DOM, so ⇥ lands on the refusal rather than on
- * the approval — the SDK's `defaultToNo` asks for exactly that, and applying
- * it to every ask costs nothing. There is no one-key approve shortcut for the
- * same reason: nothing on this card may be authorised by a stray keystroke.
+ * Deny comes FIRST in the DOM, so ⇥ lands on the refusal rather than on the
+ * approval — the SDK's `defaultToNo` asks for exactly that, canvas 20b puts
+ * Deny first visually for the same reason, and applying it to every ask costs
+ * nothing. There is no one-key approve shortcut: nothing on this card may be
+ * authorised by a stray keystroke, which is also why 20b's `Y · N` hint and
+ * its `Approve ⏎` suffix are not drawn — a hint for a key that does nothing
+ * is worse than no hint.
  */
 function Verdict({
   kind,
@@ -295,11 +379,16 @@ function Verdict({
     declineRef.current?.focus()
   })
 
-  const declineLabel = kind === 'plan' ? 'Keep planning' : 'Decline'
-  const approveLabel = kind === 'plan' ? 'Approve plan' : 'Allow once'
+  // Canvas 20b's words. Its third label, `Deny with reason`, belongs to the
+  // composer path — there the reason is typed away from the card and the
+  // button is the only thing that can send it. Here the open field has its
+  // own two ways out (⏎ sends the reason, the button sends without one), so
+  // relabelling the button would contradict the line beside it.
+  const declineLabel = kind === 'plan' ? 'Keep planning' : 'Deny'
+  const approveLabel = kind === 'plan' ? 'Approve plan' : 'Approve'
 
   return (
-    <div>
+    <div className="pt-[12px]">
       {reasonOpen && (
         // The field expands inline, the way the question card's Other… row
         // does — the card never grows a second composer.
@@ -328,7 +417,9 @@ function Verdict({
           </div>
         </div>
       )}
-      <div className="flex items-center gap-2.5">
+      {/* Canvas 20b: the answer row is 8px-gapped, 12px under whatever it
+          follows, and always reads Deny · Approve left to right. */}
+      <div className="flex items-center gap-2">
         <button
           ref={declineRef}
           type="button"

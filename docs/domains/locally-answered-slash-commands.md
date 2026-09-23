@@ -132,14 +132,46 @@ call it. The parser path covers three surfaces at once: the REST history, the
 reaches the browser), and the auto-titler — which ignores unknown roles, so a
 page of `/context` output cannot become a session title.
 
+## How the row is drawn
+
+`NoticeRow` was built before its design existed, borrowing every value from a
+row that did have one. **The design pass happened on 2026-09-23** against
+canvas `Feature - Transcript blocks` artboard **20c** "NOTICE ROWS — THE CLI'S
+OWN VOICE", with **20a** for where the row sits between messages.
+
+- **Not a box.** 20c drops the bordered, filled `<pre>` for dashed rules above
+  and below at full transcript width — a printout between messages rather than
+  a panel. Only `warning` leaves the printout for a solid box.
+- **No hue.** The old loud variant borrowed the transcript's error-alert reds.
+  20c's rule is that amber and red belong to the tags and the mode dots, so the
+  four levels separate by glyph and ink weight alone: `·` INFO, `○` NOTICE,
+  `◇` SUGGESTION in the accent, `▲` WARNING at full white in its box. The
+  artboard's own acceptance test is that a greyscale screenshot still tells
+  them apart.
+- **Two headers, and `command` chooses.** A notice that names a command is that
+  command's output and wears 20c A's `CLI` + command chip + time; one that
+  names none is a run message and wears 20c F's glyph + level label. This is
+  the one discriminator the data actually carries (see the table above), and it
+  keeps 20c E's rule either way — the chip is absent, never guessed.
+- **Folded, not capped.** 20c B renders up to 8 lines in full and clips longer
+  output with a fade and one `show all n lines` link that grows the row in
+  place. That replaced the bounded scroller this row used to own, which the
+  feature's acceptance list forbids: the transcript scrolls, the row never
+  does.
+- **Box drawing joins.** Output carrying box-drawing characters or raw ANSI is
+  set at 20c D's tighter 1.3 leading without reflow and scrolls sideways in its
+  own line box; prose keeps 1.55 and wraps.
+
 ## What is still open
 
-- **No artboard covers a notice row.** `NoticeRow` borrows every value from a
-  row that does have one (6b's run header, 6c's command chip and expansion
-  `<pre>`, the transcript's error alert). A design pass is pending.
+- **Markdown is still not rendered.** 20c C sets `/context`'s pipe table as a
+  three-column grid in the notice's own mono type, numerics right-aligned,
+  headers as mono eyebrows. The row still prints it verbatim — which is better
+  than a markdown renderer reflowing it, but worse than 20c C.
 - **Nothing renders the structured twins.** A `/context` card drawn from
   `context_usage` rather than from a markdown table is a real improvement and
-  the data is already on the wire.
-- **The notice body is capped, not folded.** `/context` runs to dozens of lines
-  and scrolls inside a bounded box. If notices turn out to dominate a busy
-  transcript, folding them the way tool runs fold is the next move.
+  the data is already on the wire — and it is what would let 20c C's grid be
+  drawn from data rather than parsed back out of a table.
+- **20c F's trailing action is undrawn.** A suggestion row in the artboard ends
+  in the command that answers it (`/compact →`). Nothing on the wire says what
+  that command is.
