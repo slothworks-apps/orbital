@@ -4,7 +4,6 @@ title: Subagent transcript panel
 type: spec
 status: draft
 domain: subagents
-design: "Feature - Subagent panel.dc.html (canvases 11a–11e)"
 related:
   - 2026-09-16-subagents-everywhere-design
   - subagents-in-transcripts
@@ -14,6 +13,10 @@ related:
 ---
 
 # Subagent transcript panel
+
+Design: `Feature - Subagent panel.dc.html`, artboards 11a–11e. (This lived in
+the frontmatter as a `design:` key, which atlas does not recognise and which
+failed `atlas validate`; the pointer is worth keeping, the key was not.)
 
 ## The problem
 
