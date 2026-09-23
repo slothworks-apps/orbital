@@ -508,14 +508,21 @@ The browser half and the `@` ranking, as of 2026-09-23:
 Two things the canvas draws that are deliberately NOT built, because this spec
 does not decide them and they are more than appearance:
 
-- **`20c`'s bare-`@` rule** — "open tabs only, up to 6". The ranking above is
-  what is built, so a bare `@` lists the open tabs first and then the working
-  tree. Suppressing the tree walk entirely is a product decision about whether
-  `@` can still browse the root while an editor is open.
-- **`20b-6`, the slot in the New Session dialog.** The dialog matches against
-  the chosen directory, which needs an editor lookup by `cwd` — and `ide`
-  reaches the browser only on `ApiSession`. A route would have to be added, and
-  the per-session dismissal has no session to belong to yet.
+Both of the questions this section used to hold are now answered.
+
+**`20c`'s bare-`@` rule is taken** — a bare `@` answers with the open tabs
+alone, capped at `BARE_AT_TAB_MAX`. A bare `@` asks "what can I point at", and
+with an editor open the honest answer is what you are looking at; the project
+root in alphabetical order mostly answers with build directories. The tree is
+one keystroke away, and that keystroke is the one you were going to type
+anyway, so nothing is spent on an affordance saying so. With no editor open the
+bare `@` is untouched.
+
+**`20b-6`, the slot in the New Session dialog, is not built and is not
+wanted** — see [[the-new-session-dialog-loses-its-first-prompt]]. The dialog's
+own composer is expected to go away, and with it the thing a second slot would
+have attached to. Building the slot there would be building on a surface
+already marked for deletion.
 
 ## Out of scope
 
