@@ -405,7 +405,12 @@ function setMainWindowButtons(visible: boolean): void {
   mainWindowButtonsVisible = visible;
   if (!win || win.isDestroyed()) return;
   const apply = decideWindowButtons(visible, win.isFullScreen());
-  if (apply !== null) win.setWindowButtonVisibility(apply);
+  if (apply === null) return;
+  win.setWindowButtonVisibility(apply);
+  // Showing the lights again puts them back at macOS's default corner and
+  // forgets `trafficLightPosition`, so they have to be moved onto row 1
+  // again every time.
+  if (apply) win.setWindowButtonPosition(MAIN_WINDOW_TRAFFIC_LIGHTS);
 }
 
 /**
