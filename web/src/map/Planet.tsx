@@ -289,10 +289,11 @@ const BODY_WORKING_Z = -0.001
 
 /**
  * The "in its own window" badge (canvas `Feature - Detached window` 22e):
- * `right: -22px; top: -22px` off the body box of the mock's 96px planet,
- * normalised to a 100px body. That is the badge's top-RIGHT corner, so the
- * badge hangs left and down from it. Anchored to the body, outside the
- * rings; the scene scale carries the offset with the planet's size while the
+ * 22e's `right: -22px; top: -22px` off the body box of the mock's 96px
+ * planet, normalised to a 100px body — but mirrored to the bottom-right
+ * corner, where it stays clear of the state pill (Tomin, 2026-09-24). That
+ * is the badge's bottom-RIGHT corner, so the badge hangs left and up from
+ * it, above the label. Anchored to the body, outside the rings; the scene scale carries the offset with the planet's size while the
  * badge itself stays a fixed number of screen px.
  */
 const DETACH_BADGE_CORNER = px((48 + 22) * (50 / 48))
@@ -946,7 +947,7 @@ function DetachedBadge({
 }) {
   return (
     <Html
-      position={[DETACH_BADGE_CORNER, DETACH_BADGE_CORNER, CORE_Z]}
+      position={[DETACH_BADGE_CORNER, -DETACH_BADGE_CORNER, CORE_Z]}
       zIndexRange={[5, 0]}
       style={{ pointerEvents: 'none' }}
     >
@@ -958,8 +959,8 @@ function DetachedBadge({
           placeItems: 'center',
           width: DETACH_BADGE_PX,
           height: DETACH_BADGE_PX,
-          // The anchor is the badge's top-right corner (see DETACH_BADGE_CORNER).
-          transform: 'translateX(-100%)',
+          // The anchor is the badge's bottom-right corner (see DETACH_BADGE_CORNER).
+          transform: 'translate(-100%, -100%)',
           borderRadius: 5,
           background: DETACH_BADGE_BG,
           color: flashing ? DETACH_BADGE_FLASH_INK : DETACH_BADGE_INK,

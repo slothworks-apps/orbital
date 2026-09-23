@@ -153,8 +153,10 @@ window, and a second open while grown keeps the first.
 Canvas `Feature - Detached window` 22e.
 
 - The planet stays as it is (live, rings, moons) and gets one badge at the
-  body's top-right, outside the rings: the detach glyph on a small dark tile,
-  in neutral ink, never the tag hue. The badge keeps a fixed screen size,
+  body's bottom-right, outside the rings: the detach glyph on a small dark
+  tile, in neutral ink, never the tag hue. 22e draws it at the top-right;
+  it moved to the bottom-right to stay clear of the state pill (Tomin,
+  2026-09-24). The badge keeps a fixed screen size,
   and its offset follows the planet's size.
 - Clicking the planet focuses the window, and the badge flashes once.
 - When the window closes, the badge fades out and nothing else moves.
