@@ -26,6 +26,7 @@ import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
 import type { SubagentStore } from '../transcript/subagents.js';
 import type { GitStore } from '../git/store.js';
+import type { IdeStore } from '../ide/store.js';
 import type { ChatMessage, ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
@@ -51,6 +52,10 @@ export interface RouteContext {
   /** Git readings per working tree, cached and watched (spec
    * 2026-09-22-git-location-indicator-design). Read through `toApiSession`. */
   git: GitStore;
+  /** The editors open on this machine, per workspace (spec
+   * 2026-09-23-ide-bridge-design). Read through `toApiSession`, and directly
+   * by the open-files route. */
+  ide: IdeStore;
   errors: ErrorLog;
   /** Names a session from its own contents; here, only ever on demand. */
   titler: SessionTitler;
@@ -356,6 +361,31 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       return reply.code(400).send({ error: 'missing_params' });
     }
     return { entries: completeFilePath(cwd, q.prefix ?? '') };
+  });
+
+  /**
+   * The tabs open in the editor covering this session's workspace, in the
+   * editor's own order (spec 2026-09-23-ide-bridge-design § Open files).
+   *
+   * Pulled on demand rather than pushed on the session shape: there can be
+   * dozens, they change constantly, and only the `@` popup wants them.
+   *
+   * `404` is the answer to every kind of "no editor" there is — no lock, a
+   * lock covering another project, a connection that never came up, an
+   * extension without the tool. The caller has one thing to handle, and it is
+   * the thing Orbital did before this feature existed.
+   */
+  app.get('/api/sessions/:id/ide/open-files', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db
+      .select({ cwd: sessions.cwd })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const files = await ctx.ide.openFiles(row.cwd);
+    if (!files) return reply.code(404).send({ error: 'no_ide' });
+    return { files };
   });
 
   /**

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
+import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -24,6 +25,7 @@ import { registerRoutes } from '../src/api/routes.js';
 import { buildServer, publishLiveSession } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
 import { GitStore } from '../src/git/store.js';
+import { IdeStore } from '../src/ide/store.js';
 import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 import type { SessionRow } from '../src/types.js';
@@ -47,6 +49,14 @@ const stubTitler = () =>
 const gitStore = new GitStore({ watch: false });
 
 /**
+ * One IDE store for the whole suite, never started: no lock is read, nothing
+ * connects, and `locate` answers null for every cwd — which is the state of
+ * every machine with no editor running, and what these tests are about.
+ * `ideStore.test.ts` drives a started one against locks it writes itself.
+ */
+const ideStore = new IdeStore({ claudeDir: '/nonexistent', watch: false });
+
+/**
  * A real retention context wired to the test's own database, so the route
  * tests exercise the sweep and its preview rather than a stub that could
  * agree with a broken implementation.
@@ -65,7 +75,7 @@ function retentionFor(db: OrbitalDb) {
   };
 }
 
-function makeApp(opts: { projectsDir?: string } = {}) {
+function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
   db.insert(sessions)
@@ -135,6 +145,7 @@ function makeApp(opts: { projectsDir?: string } = {}) {
     models: modelCatalog as any,
     subagents,
     git: gitStore,
+    ide: opts.ide ?? ideStore,
     errors,
     titler: stubTitler(),
     settings: {
@@ -528,7 +539,7 @@ describe('REST routes', () => {
       sessionId: 's1', pid: 1, cwd: '/w/x', name: 'auth fix',
       status: 'working' as const, kind: 'claude', startedAt: 0, updatedAt: 500,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, git: gitStore }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, git: gitStore, ide: ideStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: 's1', status: 'working', tagIds: [10] });
@@ -540,7 +551,7 @@ describe('REST routes', () => {
       sessionId: 'term-9', pid: 1, cwd: '/w/z', name: 'untracked',
       status: 'idle' as const, kind: 'claude', startedAt: 0, updatedAt: 700,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, git: gitStore }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, git: gitStore, ide: ideStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({
@@ -815,6 +826,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       git: gitStore,
+      ide: ideStore,
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
@@ -925,6 +937,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       git: gitStore,
+      ide: ideStore,
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
@@ -2373,5 +2386,56 @@ describe('GET /api/stats/sessions/:id', () => {
     const res = await app.inject({ method: 'GET', url: '/api/stats/sessions/noFile?timeline=1' });
     expect(res.statusCode).toBe(200);
     expect(res.json().turns).toEqual([]);
+  });
+});
+
+describe('GET /api/sessions/:id/ide/open-files', () => {
+  /**
+   * An editor open on one directory. The socket is the one part of the bridge
+   * a test cannot own, so it is injected; `ideStore.test.ts` covers the store
+   * itself, and these tests cover what the route does with its answers.
+   */
+  function ideOn(workspace: string, answer: string | null) {
+    const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-ide-route-'));
+    mkdirSync(join(claudeDir, 'ide'), { recursive: true });
+    writeFileSync(
+      join(claudeDir, 'ide', '60108.lock'),
+      JSON.stringify({ workspaceFolders: [workspace], ideName: 'WebStorm', authToken: 't' }),
+    );
+    const connection = Object.assign(new EventEmitter(), {
+      hasTool: () => answer !== null,
+      callTool: async () => answer,
+      close: () => {},
+    });
+    const ide = new IdeStore({ claudeDir, watch: false, connect: () => connection });
+    ide.start();
+    connection.emit('ready', []);
+    return ide;
+  }
+
+  it('lists the editor tabs that lie inside the session cwd', async () => {
+    const { app } = makeApp({ ide: ideOn('/w/x', '/w/x/src/a.ts\n/w/y/b.ts\n') });
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/ide/open-files' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().files).toEqual(['/w/x/src/a.ts']);
+  });
+
+  it('404s for a session the editor does not have open, and for an unknown id', async () => {
+    const { app } = makeApp({ ide: ideOn('/w/x', '/w/x/src/a.ts') });
+    // s2 sits in /w/y, which this editor does not have open.
+    const other = await app.inject({ method: 'GET', url: '/api/sessions/s2/ide/open-files' });
+    expect(other.statusCode).toBe(404);
+    const unknown = await app.inject({ method: 'GET', url: '/api/sessions/nope/ide/open-files' });
+    expect(unknown.statusCode).toBe(404);
+  });
+
+  it('404s when the editor has no such tool, and when there is no editor at all', async () => {
+    const { app: noTool } = makeApp({ ide: ideOn('/w/x', null) });
+    expect(
+      (await noTool.inject({ method: 'GET', url: '/api/sessions/s1/ide/open-files' })).statusCode,
+    ).toBe(404);
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/ide/open-files' });
+    expect(res.statusCode).toBe(404);
   });
 });
