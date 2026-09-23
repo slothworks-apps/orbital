@@ -3,14 +3,30 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { asksForHuman, awaitingSubagentCount, awaitingSubagentLabel, parkedLabel } from '../lib/types'
+import { asksForHuman, statePill } from '../lib/types'
 import {
+  BADGE_OFFSET_X,
+  BADGE_OFFSET_Y,
   BODY_RADIUS,
+  BRACKET_INSET,
+  COMPACT_BADGE_OFFSET_X,
+  COMPACT_BADGE_OFFSET_Y,
   CONTEXT_GAUGE_OUTER,
   DIMMED_OPACITY,
   HALO_BREATH_MIN,
   HALO_BREATH_SEC,
+  LABEL_FAMILY_GAP_PX,
+  LABEL_FAMILY_TRACKING_EM,
+  LABEL_GAUGED_REST_Y,
   LABEL_TITLE_TRACKING_EM,
+  LABEL_TOP_REST_Y,
+  STATE_PILL_BORDER_PX,
+  STATE_PILL_DOT_PX,
+  STATE_PILL_FONT_PX,
+  STATE_PILL_GAP_PX,
+  STATE_PILL_PAD_X_PX,
+  STATE_PILL_PAD_Y_PX,
+  STATE_PILL_TRACKING_EM,
   easeOut,
   oscillate,
   truncateLabel,
@@ -174,7 +190,7 @@ const RETICLE_DASH_SIZE = 0.08
 const RETICLE_DASH_GAP = 0.06
 const RETICLE_COLOR = '#e6f5ff'
 const RETICLE_OPACITY = 0.7
-const BRACKET_INSET = px(100)
+// BRACKET_INSET (the `±50px` corner spans) is in `visuals.ts`: the simulation measures it.
 const BRACKET_LENGTH = px(10)
 
 /** Ended grey — `rgba(200,215,235)` in the canvas export. */
@@ -213,7 +229,7 @@ const WHITE_COLOR = new THREE.Color(WHITE)
  * bottom bracket while a label is under it, or shorten it — rather than
  * moving the text. See `docs/fixes/selection-reticle-drags-the-label.md`.
  */
-const LABEL_TOP_REST_Y = -(BODY_RADIUS + px(34))
+// LABEL_TOP_REST_Y itself is in `visuals.ts`: the simulation measures the label from it.
 /**
  * A gauged planet drops the label below the gauge's tick ring instead of the
  * body edge, keeping the same 34px gap — at the rest offset the label sits
@@ -221,7 +237,7 @@ const LABEL_TOP_REST_Y = -(BODY_RADIUS + px(34))
  * switch as the badges' `clearsGauge` offsets (owner ruling, no canvas
  * value: 1i draws gauged planets with spec-sheet captions, not map labels).
  */
-const LABEL_GAUGED_REST_Y = -(CONTEXT_GAUGE_OUTER + px(34))
+// LABEL_GAUGED_REST_Y is in `visuals.ts` with LABEL_TOP_REST_Y.
 const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
 const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
 /** Family line under the title (canvas 4a). Subordinate to the name in both states. */
@@ -269,9 +285,7 @@ const BODY_ENDED_Z = -0.003
 const BODY_IDLE_Z = -0.002
 const BODY_WORKING_Z = -0.001
 
-/** Needs-input pill badge: `left: calc(100% + 10px); top: -12px` off the body box (artboard 1f). */
-const BADGE_OFFSET_X = px(60)
-const BADGE_OFFSET_Y = px(62)
+// BADGE_OFFSET_X / BADGE_OFFSET_Y are in `visuals.ts`: the simulation measures the pill from them.
 
 /**
  * The "in its own window" badge (canvas `Feature - Detached window` 22e):
@@ -338,14 +352,12 @@ const CONTEXT_PULSE_SEC = 1.6
  */
 const CONTEXT_FADE_MS = STATE_TRANSITION_MS
 
-/**
- * `/compact` pill: `left: calc(100% + 36px); top: -21px` off the body box of
- * 1i's 106px planet, normalised to a 100px body (the 105px planet carrying
- * the same badge gives 84.3 / -70). Further out than the needs-input pill
- * because the gauge ring occupies the space that one sits in.
- */
-const COMPACT_BADGE_OFFSET_X = px(84)
-const COMPACT_BADGE_OFFSET_Y = px(70)
+// `/compact` pill: `left: calc(100% + 36px); top: -21px` off the body box of
+// 1i's 106px planet, normalised to a 100px body (the 105px planet carrying
+// the same badge gives 84.3 / -70). Further out than the needs-input pill
+// because the gauge ring occupies the space that one sits in. The offsets,
+// COMPACT_BADGE_OFFSET_X / _Y, are in `visuals.ts` next to BADGE_OFFSET_X.
+
 /**
  * The command the badge sends, and the text it shows for it — exported so
  * the caller that actually sends it cannot drift from the word on the pill.
@@ -823,14 +835,14 @@ function StatePill({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
-          padding: '3px 8px',
+          gap: STATE_PILL_GAP_PX,
+          padding: `${STATE_PILL_PAD_Y_PX}px ${STATE_PILL_PAD_X_PX}px`,
           borderRadius: 999,
           background: 'rgba(6,10,20,.85)',
-          border: '1px solid rgba(240,248,255,.6)',
+          border: `${STATE_PILL_BORDER_PX}px solid rgba(240,248,255,.6)`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-          fontSize: 9.5,
-          letterSpacing: '0.1em',
+          fontSize: STATE_PILL_FONT_PX,
+          letterSpacing: `${STATE_PILL_TRACKING_EM}em`,
           color: '#fff',
           whiteSpace: 'nowrap',
           // Where the fade stands right now, exactly like the label's own
@@ -851,7 +863,7 @@ function StatePill({
           <span
             aria-hidden
             className="orbital-pulse"
-            style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff' }}
+            style={{ width: STATE_PILL_DOT_PX, height: STATE_PILL_DOT_PX, borderRadius: '50%', background: '#fff' }}
           />
         )}
         {label}
@@ -1095,24 +1107,8 @@ export function Planet({
   // exit, which is the thing the exit exists to avoid.
   const reticleMounted = useLingering(selected, RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS)
 
-  /**
-   * The state pill and what it says, or null for a planet that needs none.
-   *
-   * Four answers compete for one pill, most specific first. INTERRUPTED,
-   * NEEDS INPUT and DONE are all a stopped session, told apart by WHY it
-   * stopped (`parkedLabel`); `WAITING FOR AGENT` is the opposite — a
-   * `working` planet whose work is all happening in its moons, labelled so
-   * the map does not read as "something is going on here" when the only thing
-   * going on is out in orbit.
-   */
-  const awaitingAgents = awaitingSubagentCount(session)
-  const pillLabel = session.interruptedAt
-    ? 'INTERRUPTED'
-    : session.status === 'needs_input'
-      ? parkedLabel(session)
-      : awaitingAgents > 0
-        ? awaitingSubagentLabel(awaitingAgents)
-        : null
+  /** The state pill's word, or null for a planet that needs none (`statePill`). */
+  const pillLabel = statePill(session)?.label ?? null
   /**
    * The pill's own fade, rather than a weight read off the state mix.
    *
@@ -1128,9 +1124,8 @@ export function Planet({
   const pillFade = useFadeTween(pillLabel !== null, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
   const pillMounted = useLingering(pillLabel !== null, STATE_TRANSITION_MS)
   /**
-   * The pill's dot pulses only while something is live: a question parked on
-   * the human, or a working planet listening for its agents. INTERRUPTED and
-   * DONE both mean "something stopped, nothing is happening" — steady dot.
+   * Whether the pill's dot pulses — `statePill`'s rule, read off the session
+   * directly so a pill on its way out keeps deciding it while it fades.
    */
   const pillPulses =
     !session.interruptedAt && (session.status !== 'needs_input' || asksForHuman(session))
@@ -1793,11 +1788,11 @@ export function Planet({
                 <span
                   style={{
                     display: 'block',
-                    marginTop: 5,
+                    marginTop: LABEL_FAMILY_GAP_PX,
                     textAlign: 'center',
                     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                     fontSize: labelFamilyPx,
-                    letterSpacing: '0.1em',
+                    letterSpacing: `${LABEL_FAMILY_TRACKING_EM}em`,
                     // The canvas value while live; falls to the same dimmed
                     // value as the title once ended, so the family line stops
                     // competing rather than out-shining the name above it.

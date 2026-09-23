@@ -37,6 +37,26 @@ const spin = (seconds: number) => (Math.PI * 2) / seconds
  */
 export const CONTEXT_GAUGE_OUTER = px(92)
 
+// --- What hangs off a planet ------------------------------------------------
+// Offsets `Planet` draws its label, pill and reticle brackets at, in local
+// units before the planet's scale. They live here, not in `Planet.tsx`, for
+// the same reason as CONTEXT_GAUGE_OUTER: the simulation keeps neighbours
+// clear of them and must stay free of three.js. The transcription notes
+// stay with the drawing code in `Planet.tsx`.
+
+/** Selection reticle's corner brackets (1f: `±50px` spans on a 100px body, i.e. `inset:-50px`). */
+export const BRACKET_INSET = px(100)
+/** Top edge of the resting label: `top: calc(100% + 34px)` under the body box. */
+export const LABEL_TOP_REST_Y = -(BODY_RADIUS + px(34))
+/** …and under a context gauge's tick ring instead, with the same 34px gap. */
+export const LABEL_GAUGED_REST_Y = -(CONTEXT_GAUGE_OUTER + px(34))
+/** State pill's top-left corner (1f: `left: calc(100% + 10px); top: -12px` off the body box). */
+export const BADGE_OFFSET_X = px(60)
+export const BADGE_OFFSET_Y = px(62)
+/** …and on a gauged planet, 1i's `/compact` position (`left: calc(100% + 36px); top: -21px`). */
+export const COMPACT_BADGE_OFFSET_X = px(84)
+export const COMPACT_BADGE_OFFSET_Y = px(70)
+
 // --- Planet ------------------------------------------------------------
 
 export interface PlanetVisuals {
@@ -423,19 +443,65 @@ const LABEL_FAMILY_FLOOR_PX = 9.5
 
 /** The title line's `letter-spacing` in `Planet`'s label, in em. */
 export const LABEL_TITLE_TRACKING_EM = 0.06
+/** The family line's `letter-spacing`, in em (canvas 4a: `.1em`). */
+export const LABEL_FAMILY_TRACKING_EM = 0.1
+/** Gap between the title and the family line, CSS px (canvas 4a: 5px below the title). */
+export const LABEL_FAMILY_GAP_PX = 5
 /** JetBrains Mono is monospaced: every glyph advances 600/1000 of an em. */
 const MONO_ADVANCE_EM = 0.6
 /**
- * The widest a resting planet label can be, in CSS px: LABEL_MAX_CHARS
- * glyphs of the title at LABEL_TITLE_PX, each one advance plus the tracking.
- * The title is the wider of the two lines (the family line is a single
- * short word), so this is the label's width at the default Appearance
- * settings; with "Scale labels with bodies" on, the title can grow past it.
- * Read by the simulation, which keeps neighbours far enough apart for two
- * of these to sit side by side (`LABEL_HALF_SPAN` in `simulation.ts`).
+ * JetBrains Mono's `line-height: normal`, in em: its ascender plus
+ * descender (1020 + 300 per 1000 units, no line gap). Every line of map
+ * text is laid out at this height, since none of them sets its own.
  */
-export const LABEL_MAX_WIDTH_PX =
-  LABEL_MAX_CHARS * LABEL_TITLE_PX * (MONO_ADVANCE_EM + LABEL_TITLE_TRACKING_EM)
+const MONO_LINE_HEIGHT_EM = 1.32
+
+/** CSS px of one line of mono text: `chars` glyphs, each an advance plus the tracking. */
+function monoWidthPx(chars: number, fontPx: number, trackingEm: number): number {
+  return chars * fontPx * (MONO_ADVANCE_EM + trackingEm)
+}
+
+
+/**
+ * The box a planet's resting label occupies, in CSS px: the truncated title
+ * over the family line, laid out as `Planet` lays them out. The simulation
+ * keeps neighbours clear of it (`planetOutline` in `simulation.ts`), so a
+ * change to the label's type has to be made through the constants above for
+ * the spacing to follow.
+ */
+export function restingLabelSizePx(
+  title: string,
+  family: string | null,
+  font: { title: number; family: number }
+): { width: number; height: number } {
+  const titleWidth = monoWidthPx(truncateLabel(title).length, font.title, LABEL_TITLE_TRACKING_EM)
+  const titleHeight = font.title * MONO_LINE_HEIGHT_EM
+  if (!family) return { width: titleWidth, height: titleHeight }
+  return {
+    width: Math.max(titleWidth, monoWidthPx(family.length, font.family, LABEL_FAMILY_TRACKING_EM)),
+    height: titleHeight + LABEL_FAMILY_GAP_PX + font.family * MONO_LINE_HEIGHT_EM,
+  }
+}
+
+/** The state pill's type and box, CSS px (artboard 1f): mono 9.5px / .1em, `padding: 3px 8px`, 1px border. */
+export const STATE_PILL_FONT_PX = 9.5
+export const STATE_PILL_TRACKING_EM = 0.1
+export const STATE_PILL_PAD_X_PX = 8
+export const STATE_PILL_PAD_Y_PX = 3
+export const STATE_PILL_BORDER_PX = 1
+/** The pulsing dot in front of the word, and the flex gap after it (1f: 5px dot, `gap: 6px`). */
+export const STATE_PILL_DOT_PX = 5
+export const STATE_PILL_GAP_PX = 6
+
+/** The state pill's box, CSS px, for a given word, with or without its dot. */
+export function statePillSizePx(label: string, dot: boolean): { width: number; height: number } {
+  const text = monoWidthPx(label.length, STATE_PILL_FONT_PX, STATE_PILL_TRACKING_EM)
+  const chrome = 2 * (STATE_PILL_PAD_X_PX + STATE_PILL_BORDER_PX)
+  return {
+    width: text + chrome + (dot ? STATE_PILL_DOT_PX + STATE_PILL_GAP_PX : 0),
+    height: STATE_PILL_FONT_PX * MONO_LINE_HEIGHT_EM + 2 * (STATE_PILL_PAD_Y_PX + STATE_PILL_BORDER_PX),
+  }
+}
 
 /**
  * Label font sizes under the Appearance settings (canvas 5a): with "Scale

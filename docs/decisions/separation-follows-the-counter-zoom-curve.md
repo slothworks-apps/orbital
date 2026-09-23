@@ -61,3 +61,12 @@ The zoom reaches the simulation as an argument to `stepSimulation`, not
 as a prop: the determinism contract holds (same state, same dt, same
 factor, bit-identical result) and camera state still never reaches React.
 `SimStepper` reads it off the three camera in its own frame loop.
+
+## Amended 2026-09-23
+
+[[separation-rests-at-the-outline]] changes this for labels and pills.
+They are fixed screen px, so separation now measures them at their true
+world size below the reference zoom, not along the counter-zoom curve.
+Bodies and moon systems still follow `bodyZoomFactor` as described above.
+`stepSimulation` now takes the camera zoom itself instead of the factor,
+and the determinism contract holds the same way.

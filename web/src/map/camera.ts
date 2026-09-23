@@ -342,7 +342,35 @@ export function fitView(
   if (bodies.length === 0) {
     return { x: 0, y: 0, zoom: 60 }
   }
+  return fitMeasured((zoom) => fitBox(bodies, bodyZoomFactor(zoom)), viewport, insets)
+}
 
+/**
+ * `fitView` for bodies that are not where they stand now: `bodiesAt(zoom)`
+ * says where they WILL stand, and how far their drawing reaches (`r`, in
+ * world units at that zoom — no counter-zoom is applied on top), once the
+ * camera is at `zoom`.
+ *
+ * The space map needs this because its simulation spaces planets by what
+ * they draw at the current zoom, labels included, so a clump rests wider
+ * the further out the camera is. Framing the bodies where they stand would
+ * frame the clumps at the zoom fit is leaving, and they would spill out of
+ * the frame as they settled at the new one. The same fixed-point solve as
+ * `fitView`, with this as its measure.
+ */
+export function fitViewTo(
+  bodiesAt: (zoom: number) => FitBody[],
+  viewport: Viewport,
+  insets: Insets = { left: 0, right: 0 }
+): CameraState {
+  return fitMeasured((zoom) => fitBox(bodiesAt(zoom), 1), viewport, insets)
+}
+
+function fitMeasured(
+  boxAt: (zoom: number) => ReturnType<typeof fitBox>,
+  viewport: Viewport,
+  insets: Insets
+): CameraState {
   // The rectangle the box has to land inside: the strip the panels leave,
   // less the margins that keep the bodies off the map's own overlays.
   const strip = Math.max(
@@ -366,10 +394,12 @@ export function fitView(
   // zoom that makes a world span exactly fill a frame span is framePx /
   // worldUnits. Pick whichever axis is tighter so both fit — then re-solve
   // against the body inflation that zoom implies (`FIT_SOLVE_ROUNDS`).
-  let box = fitBox(bodies, 1)
   let zoom = clampZoom(Math.min(frameWidth, frameHeight))
+  let box = boxAt(zoom)
+  // Nothing to frame (`fitViewTo` with no bodies): the default camera.
+  if (box.minX > box.maxX) return { x: 0, y: 0, zoom: 60 }
   for (let i = 0; i < FIT_SOLVE_ROUNDS; i++) {
-    box = fitBox(bodies, bodyZoomFactor(zoom))
+    if (i > 0) box = boxAt(zoom)
     const zoomX = frameWidth / Math.max(box.maxX - box.minX, 1e-6)
     const zoomY = frameHeight / Math.max(box.maxY - box.minY, 1e-6)
     zoom = clampZoom(Math.min(zoomX, zoomY))

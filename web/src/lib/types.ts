@@ -634,6 +634,32 @@ export function asksForHuman(session: Pick<ApiSession, 'pendingDecision'>): bool
 }
 
 /**
+ * The map's state pill for a session: its word and whether its dot pulses,
+ * or null when the planet wears none. One function for the pill `Planet`
+ * draws and the room the simulation keeps around it.
+ *
+ * Four answers compete for one pill, most specific first. INTERRUPTED,
+ * NEEDS INPUT and DONE are all a stopped session, told apart by WHY it
+ * stopped (`parkedLabel`); `WAITING FOR AGENT` is the opposite — a `working`
+ * planet whose work is all happening in its moons, labelled so the map does
+ * not read as "something is going on here" when the only thing going on is
+ * out in orbit.
+ *
+ * The dot pulses only while something is live: a question parked on the
+ * human, or a working planet listening for its agents. INTERRUPTED and DONE
+ * both mean "something stopped, nothing is happening" — steady, no dot.
+ */
+export function statePill(
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents'>,
+): { label: string; pulse: boolean } | null {
+  const pulse = !session.interruptedAt && (session.status !== 'needs_input' || asksForHuman(session))
+  if (session.interruptedAt) return { label: 'INTERRUPTED', pulse }
+  if (session.status === 'needs_input') return { label: parkedLabel(session), pulse }
+  const awaiting = awaitingSubagentCount(session)
+  return awaiting > 0 ? { label: awaitingSubagentLabel(awaiting), pulse } : null
+}
+
+/**
  * True for a session Orbital does not own: one it indexed from another
  * terminal and that is still running there. The composer refuses input on
  * these and the sidebar badges them; the server's 409 on
