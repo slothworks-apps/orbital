@@ -9,8 +9,14 @@ import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { formatBytes, timeAgo } from '../lib/format'
 import { tokenizeCode, type CodeToken } from '../lib/highlight'
-import type { ApiSession, FilePreview } from '../lib/types'
+import type {
+  ApiSession,
+  FilePreview,
+  IdeDiagnostic,
+  IdeDiagnosticSeverity,
+} from '../lib/types'
 import { Code, Pre } from './MessageView'
+import { IDE_MODIFIER_LABEL } from './PathButton'
 
 /**
  * The read-only file viewer over the app (spec: 2026-09-19-file-viewer-design
@@ -40,6 +46,55 @@ const VIEWER_EXIT_MS = 140
 
 /** Target-line accent (canvas 8e "target number"): oklch(88% .1 205). */
 const TARGET_ACCENT = 'oklch(88% .1 205)'
+
+/**
+ * The shortcut drawn beside the header's "open in <editor>" link (canvas 20d
+ * panel 2). It is the teaching device: seeing ⌥ next to the one worded link
+ * is what tells someone that ⌥ over any path means the same thing.
+ */
+const IDE_VIEWER_SHORTCUT_LABEL = `${IDE_MODIFIER_LABEL}⏎`
+
+/**
+ * The editor's findings, marked on the gutter number (spec
+ * 2026-09-23-ide-bridge-design § Talking back to the editor).
+ *
+ * `--color-warning` is the export's amber caution hue and the red is the
+ * error ink the toast surface already uses; neither is a new value. There is
+ * no artboard for this — it has no canvas of its own, and the two severities
+ * worth marking borrow the two the app already has.
+ */
+const DIAGNOSTIC_INK: Record<IdeDiagnosticSeverity, string> = {
+  error: '#ff9b9b',
+  warning: 'var(--color-warning)',
+  info: 'rgba(160,190,225,.7)',
+  hint: 'rgba(160,190,225,.7)',
+}
+
+/** Worst first — what the gutter number takes its colour from. */
+const SEVERITY_ORDER: IdeDiagnosticSeverity[] = ['error', 'warning', 'info', 'hint']
+
+function worstSeverity(found: IdeDiagnostic[]): IdeDiagnosticSeverity {
+  for (const severity of SEVERITY_ORDER) {
+    if (found.some((d) => d.severity === severity)) return severity
+  }
+  return 'info'
+}
+
+/** One finding as a line of the gutter number's hover text. */
+function describeDiagnostic(d: IdeDiagnostic): string {
+  return d.source ? `${d.severity}: ${d.message} (${d.source})` : `${d.severity}: ${d.message}`
+}
+
+/** "2 errors · 1 warning", or null when the editor found nothing to say. */
+function diagnosticsSummary(found: IdeDiagnostic[]): string | null {
+  const counts = new Map<IdeDiagnosticSeverity, number>()
+  for (const d of found) counts.set(d.severity, (counts.get(d.severity) ?? 0) + 1)
+  const parts = SEVERITY_ORDER.filter((s) => counts.has(s)).map((s) => {
+    const n = counts.get(s) as number
+    return `${n} ${s}${n === 1 ? '' : 's'}`
+  })
+  return parts.length === 0 ? null : parts.join(' · ')
+}
 
 /** Extension → shiki language id + the meta line's label, where the two
  * differ from the extension itself. Anything absent falls back to the
@@ -170,10 +225,12 @@ function SourceBody({
   content,
   path,
   targetLine,
+  diagnostics,
 }: {
   content: string
   path: string
   targetLine: number | null
+  diagnostics: Map<number, IdeDiagnostic[]>
 }) {
   const lines = useMemo(() => content.replace(/\n$/, '').split('\n'), [content])
   const [tokens, setTokens] = useState<CodeToken[][] | null>(null)
@@ -217,11 +274,18 @@ function SourceBody({
           {lines.map((text, index) => {
             const lineNumber = index + 1
             const isTarget = lineNumber === targetLine
+            // The editor's own findings on this line, when an editor is
+            // there to have any. They mark the NUMBER rather than the row:
+            // the target line already owns the row's wash and rail, and two
+            // meanings on one surface is how both stop being readable.
+            const found = diagnostics.get(lineNumber)
+            const severity = found ? worstSeverity(found) : null
             return (
               <div
                 key={lineNumber}
                 data-line={lineNumber}
                 data-target-line={isTarget || undefined}
+                data-diagnostic={severity ?? undefined}
                 ref={isTarget ? targetRowRef : undefined}
                 className="flex"
                 style={
@@ -236,7 +300,14 @@ function SourceBody({
               >
                 <span
                   className="w-14 shrink-0 pr-3 text-right text-[11.5px] text-[rgba(160,190,225,.32)]"
-                  style={isTarget ? { color: TARGET_ACCENT } : undefined}
+                  style={
+                    isTarget
+                      ? { color: TARGET_ACCENT }
+                      : severity
+                        ? { color: DIAGNOSTIC_INK[severity] }
+                        : undefined
+                  }
+                  title={found ? found.map(describeDiagnostic).join('\n') : undefined}
                 >
                   {lineNumber}
                 </span>
@@ -272,6 +343,7 @@ export interface FileViewerProps {
 export function FileViewer({ session }: FileViewerProps) {
   const target = useOrbital((s) => s.ui.fileViewer)
   const closeFile = useOrbital((s) => s.closeFile)
+  const openInIde = useOrbital((s) => s.openInIde)
   const open = target !== null
 
   useEscapeLayer(open, closeFile)
@@ -312,6 +384,45 @@ export function FileViewer({ session }: FileViewerProps) {
     }
   }, [session.id, openPath])
 
+  // What the editor thinks is wrong with this file — inspections no test run
+  // reports, which is the whole reason they are worth asking for (spec
+  // 2026-09-23-ide-bridge-design § Talking back to the editor).
+  //
+  // Asked for once, at open, alongside the snapshot the viewer already is:
+  // the file's bytes do not reload either, so a readout that kept refreshing
+  // would be describing a file the reader is no longer looking at.
+  //
+  // `ideName` rather than the whole `ide` object in the dependency list: the
+  // session republishes on every selection change, and re-fetching a file's
+  // diagnostics because a caret moved is a call per keystroke.
+  const ideName = session.ide?.ideName ?? null
+  const [diagnostics, setDiagnostics] = useState<IdeDiagnostic[] | null>(null)
+  useEffect(() => {
+    setDiagnostics(null)
+    if (openPath === null || ideName === null) return
+    let cancelled = false
+    void api.ideDiagnostics(session.id, openPath).then((found) => {
+      if (!cancelled) setDiagnostics(found)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [session.id, openPath, ideName])
+
+  const byLine = useMemo(() => {
+    const map = new Map<number, IdeDiagnostic[]>()
+    for (const d of diagnostics ?? []) {
+      // The editor answers for a file it may know by a different spelling
+      // than the one the viewer was opened on; only findings about THIS file
+      // may mark this file's gutter.
+      if (openPath !== null && d.filePath !== openPath) continue
+      const at = map.get(d.line)
+      if (at) at.push(d)
+      else map.set(d.line, [d])
+    }
+    return map
+  }, [diagnostics, openPath])
+
   // Focus returns to the path that opened the viewer (8e "focus return"):
   // captured at open, restored by the effect's cleanup at close.
   useEffect(() => {
@@ -326,6 +437,21 @@ export function FileViewer({ session }: FileViewerProps) {
       openerRef.current = null
     }
   }, [open])
+
+  // ⌥⏎ — the shortcut the header's link advertises (canvas 20d panel 2).
+  // Wired here rather than on the link so the keystroke works wherever focus
+  // sits inside the viewer, which is what an advertised shortcut has to do;
+  // esc is left alone, since the escape stack already owns it.
+  useEffect(() => {
+    if (!open || ideName === null || openPath === null) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || !event.altKey) return
+      event.preventDefault()
+      void openInIde(openPath, target?.line ?? null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, ideName, openPath, target?.line, openInIde])
 
   // The skeleton appears only after LOADING_SKELETON_DELAY_MS (8d-A).
   const loading = open && preview === null
@@ -361,6 +487,10 @@ export function FileViewer({ session }: FileViewerProps) {
             modifiedLabel(preview.mtimeMs),
             languageFor(path).label || null,
             line !== null ? `line ${line} of ${preview.lines}` : null,
+            // What the editor found, beside what the file is. Absent when
+            // there is no editor, and absent when it found nothing — a
+            // clean file says nothing rather than saying "0 errors".
+            diagnostics ? diagnosticsSummary(diagnostics) : null,
           ]
             .filter(Boolean)
             .join(' · ')
@@ -417,6 +547,31 @@ export function FileViewer({ session }: FileViewerProps) {
                 {meta}
               </div>
             </div>
+            {/* The one place the modifier gesture is taught (spec
+                2026-09-23-ide-bridge-design § Talking back to the editor;
+                canvas `Feature - IDE bridge.dc.html` 20d panel 2). A text
+                link with the shortcut beside it, "the same shape as the rest
+                of that header, no button" — the shortcut is what teaches the
+                gesture, so someone who uses this twice starts ⌥-clicking the
+                path directly and never comes back here.
+
+                20d: link `rgba(160,190,225,.6)` under a dashed
+                `rgba(150,205,255,.25)`, tracking .04em against the row's own
+                .1em; the shortcut behind it at `.4`. Absent with no editor,
+                which is also how the gesture says it is unavailable. */}
+            {ideName && (
+              <button
+                type="button"
+                data-ide-open-link
+                onClick={() => void openInIde(path, line)}
+                className="shrink-0 font-mono text-[10.5px] tracking-[0.04em] text-[rgba(160,190,225,.6)] underline decoration-dashed decoration-[rgba(150,205,255,.25)] underline-offset-[3px] transition-colors hover:text-[#f2f9ff]"
+              >
+                open in {ideName}
+                <span className="pl-2 tracking-[0.04em] text-[rgba(160,190,225,.4)] no-underline">
+                  {IDE_VIEWER_SHORTCUT_LABEL}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               aria-label="Close"
@@ -486,7 +641,12 @@ export function FileViewer({ session }: FileViewerProps) {
           ) : isMarkdown ? (
             <MarkdownBody content={preview.content} />
           ) : (
-            <SourceBody content={preview.content} path={path} targetLine={line} />
+            <SourceBody
+              content={preview.content}
+              path={path}
+              targetLine={line}
+              diagnostics={byLine}
+            />
           )}
 
           {/* Footer (8b/8c): pad 10 18. The spec's `opened from <source>`

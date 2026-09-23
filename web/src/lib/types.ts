@@ -97,6 +97,52 @@ export interface ApiSession {
    * sends the field, and absent and null mean the same thing to every reader.
    */
   git?: GitLocation | null;
+  /**
+   * The editor open on this session's workspace right now, or null when none
+   * is (spec 2026-09-23-ide-bridge-design § What reaches the browser). Live
+   * state of a directory, with the same standing `git` has — two sessions in
+   * one workspace always show the same editor. Mirrors
+   * `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `git`: the server always sends the
+   * field, and absent and null mean the same thing to every reader.
+   */
+  ide?: IdeContext | null;
+}
+
+/**
+ * A selection in the editor, as the browser reads it. `lineStart` is 1-based
+ * — it matches the gutter the person is looking at — and `text` is null when
+ * the caret merely moved. Mirrors `server/src/ide/protocol.ts`.
+ */
+export interface IdeSelection {
+  filePath: string
+  lineStart: number
+  lineCount: number
+  text: string | null
+}
+
+/** The editor covering a session's workspace. Mirrors the server's shape. */
+export interface IdeContext {
+  /** As the lock reports it — the product (`WebStorm`), not the vendor. */
+  ideName: string
+  workspaceRoot: string
+  selection: IdeSelection | null
+}
+
+/** How severe the editor thinks one of its findings is. */
+export type IdeDiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint'
+
+/**
+ * One of the editor's own findings — an inspection no test run reports
+ * (spec § Talking back to the editor). `line` is 1-based, like a selection's.
+ */
+export interface IdeDiagnostic {
+  filePath: string
+  line: number
+  severity: IdeDiagnosticSeverity
+  message: string
+  source: string | null
 }
 
 /**

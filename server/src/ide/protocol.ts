@@ -230,3 +230,170 @@ export function insideCwd(cwd: string, path: string): boolean {
   const target = normaliseRoot(path);
   return target === root || target.startsWith(root + sep);
 }
+
+// ---------------------------------------------------------------------------
+// Talking back to the editor
+// ---------------------------------------------------------------------------
+
+/*
+ * The tools Orbital calls rather than listens to (spec
+ * 2026-09-23-ide-bridge-design § Talking back to the editor). Every one of
+ * them is checked against `tools/list` before it is called: these are the
+ * JetBrains names, and a VS Code build offers a different set
+ * (adr `orbital-speaks-to-the-ide-itself`).
+ */
+
+/** Reveals a path in the editor. Takes `filePath`, plus an optional range. */
+export const OPEN_FILE_TOOL = 'openFile';
+
+/** The editor's own inspections — for one file, or for the whole workspace. */
+export const DIAGNOSTICS_TOOL = 'getDiagnostics';
+
+/** Opens a review tab and does not answer until the human acts on it. */
+export const OPEN_DIFF_TOOL = 'openDiff';
+
+/** Drops a tab `openDiff` opened, by the `tab_name` it was opened under. */
+export const CLOSE_TAB_TOOL = 'close_tab';
+
+/** How severe the editor thinks one of its findings is. */
+export type IdeDiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
+
+/** One finding, flattened out of the editor's per-file grouping. */
+export interface IdeDiagnostic {
+  filePath: string;
+  /** 1-based, so it matches the gutter — the same correction a selection gets. */
+  line: number;
+  severity: IdeDiagnosticSeverity;
+  message: string;
+  /** The inspection that raised it, when the editor names one. */
+  source: string | null;
+}
+
+/**
+ * The LSP severity numbers, which the editor may send instead of the words.
+ * An unrecognised value becomes `info` rather than a dropped finding — one
+ * Orbital cannot rank is still one worth showing.
+ */
+const SEVERITY_BY_NUMBER: Record<number, IdeDiagnosticSeverity> = {
+  1: 'error',
+  2: 'warning',
+  3: 'info',
+  4: 'hint',
+};
+
+function severityOf(raw: unknown): IdeDiagnosticSeverity {
+  if (typeof raw === 'number') return SEVERITY_BY_NUMBER[raw] ?? 'info';
+  if (typeof raw !== 'string') return 'info';
+  const word = raw.toLowerCase();
+  if (word.startsWith('err')) return 'error';
+  if (word.startsWith('warn')) return 'warning';
+  if (word.startsWith('hint')) return 'hint';
+  return 'info';
+}
+
+/**
+ * An absolute path out of a `file://` URI, or the string itself when it is
+ * already one. The extension was measured answering with URIs; taking a bare
+ * path as well costs nothing and is what a different build may send.
+ */
+export function pathFromFileUri(raw: string): string | null {
+  if (raw === '') return null;
+  if (!raw.startsWith('file://')) return isAbsolute(raw) ? raw : null;
+  try {
+    const path = decodeURIComponent(new URL(raw).pathname);
+    // `file://` on its own parses to a pathname of `/`, which is absolute and
+    // names nothing. Everything here is a file, so the root is not one.
+    return isAbsolute(path) && path !== '/' ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `getDiagnostics`' answer as a flat list. The tool answers with one text
+ * block holding JSON: an array of `{uri, diagnostics}` groups, each finding
+ * carrying an LSP-shaped `range`.
+ *
+ * Total and forgiving, like every other parse here — unreadable JSON, a
+ * group without a path, a finding without a message all drop out silently
+ * rather than throwing. The alternative is a panel that fails because a
+ * plugin release renamed a field.
+ */
+export function parseDiagnostics(text: string): IdeDiagnostic[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const groups = Array.isArray(raw) ? raw : [raw];
+  const out: IdeDiagnostic[] = [];
+  for (const group of groups) {
+    if (!isRecord(group)) continue;
+    const uri = group.uri ?? group.filePath ?? group.file;
+    const filePath = typeof uri === 'string' ? pathFromFileUri(uri) : null;
+    if (filePath === null) continue;
+    const findings = Array.isArray(group.diagnostics) ? group.diagnostics : [];
+    for (const finding of findings) {
+      if (!isRecord(finding)) continue;
+      const message = finding.message;
+      if (typeof message !== 'string' || message === '') continue;
+      const range = isRecord(finding.range) ? finding.range : null;
+      // Zero-based on the wire, like a selection's. A finding whose range is
+      // missing is still worth showing, so it lands on the first line rather
+      // than nowhere at all.
+      const line = lineOf(range?.start);
+      const source = finding.source;
+      out.push({
+        filePath,
+        line: (line ?? 0) + 1,
+        severity: severityOf(finding.severity),
+        message,
+        source: typeof source === 'string' && source !== '' ? source : null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * What the human did to a diff tab. `openDiff` does not answer until one of
+ * these happens, which is why it is the only call here without a timeout.
+ *
+ * `closed` is deliberately NOT a verdict: closing the tab says "not here",
+ * neither yes nor no, so the decision stays parked and the browser card goes
+ * on owning it (adr `the-editor-is-a-second-route-to-one-verdict`).
+ */
+export type IdeDiffOutcome =
+  | { kind: 'saved'; contents: string | null }
+  | { kind: 'rejected' }
+  | { kind: 'closed' };
+
+/** The measured first-element markers of `openDiff`'s answer. */
+const DIFF_SAVED = 'FILE_SAVED';
+const DIFF_REJECTED = 'DIFF_REJECTED';
+const DIFF_TAB_CLOSED = 'TAB_CLOSED';
+
+/** The text of one MCP content block, or null when it carries none. */
+function blockText(block: unknown): string | null {
+  if (!isRecord(block)) return null;
+  const text = block.text;
+  return typeof text === 'string' ? text : null;
+}
+
+/**
+ * `openDiff`'s content array as an outcome, or null when it says nothing
+ * this build understands — which counts as no verdict rather than being
+ * guessed at, because guessing wrong here approves an edit nobody approved.
+ *
+ * Element one is the marker; on `FILE_SAVED`, element two carries the file
+ * as the human left it, which need not be what Orbital proposed.
+ */
+export function readDiffOutcome(content: unknown): IdeDiffOutcome | null {
+  if (!Array.isArray(content) || content.length === 0) return null;
+  const marker = blockText(content[0])?.trim();
+  if (marker === DIFF_REJECTED) return { kind: 'rejected' };
+  if (marker === DIFF_TAB_CLOSED) return { kind: 'closed' };
+  if (marker === DIFF_SAVED) return { kind: 'saved', contents: blockText(content[1]) };
+  return null;
+}

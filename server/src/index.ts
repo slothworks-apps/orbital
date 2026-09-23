@@ -31,6 +31,7 @@ import { resolveClaudeCodeVersion } from './runner/version.js';
 import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable } from './runner/claudeCli.js';
 import { GitStore } from './git/store.js';
 import { IdeStore } from './ide/store.js';
+import { ideApprovals } from './ide/approvals.js';
 import { registerRoutes } from './api/routes.js';
 import { toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
@@ -327,6 +328,11 @@ export async function buildServer(overrides: {
     idleTimeoutMs,
     claudeExecutablePath: claudeCli.path,
     images,
+    // A second route to a parked permission's verdict, never the only one:
+    // with no editor running every decision is still answered from the
+    // browser (spec 2026-09-23-ide-bridge-design § Talking back to the
+    // editor).
+    ide: ideApprovals(ide),
     onStatus: (sessionId, status) => {
       if (status === 'ended') {
         // An ended session has nothing running in it — and nothing left to

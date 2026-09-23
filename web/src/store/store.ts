@@ -280,6 +280,16 @@ export interface OrbitalActions {
    * scroll target a path button carried, absent for a bare path. */
   openFile(path: string, line?: number | null): void
   closeFile(): void
+  /**
+   * Opens a path in the editor covering the selected session's workspace —
+   * the modifier's meaning, not the click's (spec
+   * 2026-09-23-ide-bridge-design § Talking back to the editor).
+   *
+   * Answers whether the editor took it, so the pressed control can show its
+   * receipt. Never throws and never raises a toast: with no editor there is
+   * nothing to report, only nothing to show.
+   */
+  openInIde(path: string, line?: number | null): Promise<boolean>
   setSidebarCollapsed(sidebarCollapsed: boolean): void
   setWsStatus(wsStatus: string): void
   clearToast(): void
@@ -1194,6 +1204,20 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   closeFile() {
     set((state) => ({ ui: { ...state.ui, fileViewer: null } }))
+  },
+
+  async openInIde(path, line) {
+    const id = get().ui.selectedId
+    if (!id) return false
+    try {
+      return await api.ideOpenFile(id, path, line ?? null)
+    } catch {
+      // Silence is the contract for everything IDE (adr
+      // `orbital-speaks-to-the-ide-itself`). The gesture only ever appears
+      // when a session reports an editor, so a failure here means the editor
+      // went away between the hover and the press — which is not news.
+      return false
+    }
   },
 
   // Same optimistic shape as `setHideEnded`: the rail collapses now, the

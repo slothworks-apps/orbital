@@ -10,6 +10,10 @@ related:
   - feature-parity-with-the-claude-code-cli
   - 2026-09-20-composer-design
   - 2026-09-19-file-viewer-design
+  - 2026-09-23-permission-and-plan-decisions-design
+  - the-editor-is-a-second-route-to-one-verdict
+  - a-hand-edited-diff-comes-back-as-the-tools-own-input
+  - the-editors-findings-go-where-a-file-is-already-open
   - tilde-expands-at-the-api-boundary
 tags:
   - ide
@@ -272,40 +276,103 @@ Tabs outside the session's `cwd` are not listed; the sandbox rule wins.
 
 ## Talking back to the editor
 
-The extension's tools make three more things possible. They are listed in the
-order they should be built, because the third has a dependency the first two do
-not.
+The extension's tools make three more things possible. All three are built, in
+the order given here, because the third had a dependency the first two did not
+— a permission flow to hang on, which
+[[2026-09-23-permission-and-plan-decisions-design]] since supplied.
 
-**`openFile` — a path in Orbital opens in the editor.** A file path in the
-transcript already opens the file viewer, and that stays the primary meaning;
-opening in the editor is the secondary one, so it hangs off a held modifier
-rather than competing for the same click or adding a control to every row. The
-file viewer's header carries the one worded link that teaches the gesture,
-because that is where someone has already shown interest in a particular file.
-Canvas artboard 20d draws all of this — the hover treatment, the destination
-suffix, the receipt after the click.
+Everything here obeys the same rule as everything above it: a missing editor, a
+missing tool or a dropped socket costs the feature and nothing else.
 
-**`getDiagnostics` — the editor's own errors.** The editor already knows what is
-broken, from inspections no test run reports. Surfaced on the session, this
-answers "did that edit break anything" without a build.
+### `openFile` — a path in Orbital opens in the editor
 
-**`openDiff` — the editor becomes the approval surface for edits.** The tool
-takes `{old_file_path, new_file_path, new_file_contents, tab_name}` and does not
-return until the human acts, answering with content whose first element is
-`FILE_SAVED` (accepted, and element two carries the possibly hand-edited
-result), `DIFF_REJECTED`, or `TAB_CLOSED`. `close_tab` cleans up.
+A file path in the transcript already opens the file viewer, and that stays the
+primary meaning; opening in the editor is the secondary one, so it hangs off a
+held modifier rather than competing for the same click or adding a control to
+every row. The file viewer's header carries the one worded link that teaches
+the gesture, because that is where someone has already shown interest in a
+particular file.
 
-That is an approval flow already built, and Orbital would only have to route to
-it. **But it presumes Orbital has somewhere to ask permission from, and today it
-does not**: `canUseTool` parks `AskUserQuestion` and denies every other tool
-outright (`server/src/runner/runner.ts`, and
-[[feature-parity-with-the-claude-code-cli]]). `openDiff` is not a way around
-that gap — it is a surface to hang on the permission flow once that flow exists,
-and it must not be built before it. When it is built, the IDE is one route among
-others and never the only one; an edit must stay approvable with no editor
-running.
+Canvas artboard 20d draws it, and the build follows it:
 
-`reformat_file` and `close_tab` are available and nothing currently wants them.
+- **rest** is exactly 8e. Nothing is added;
+- **⌥ + hover** *drops* the hover fill — it is not the viewer any more — and
+  leaves the solid accent underline over bright ink, with the destination
+  written after it (`↗ WebStorm`, mono 10 at `.55`, 8px out);
+- **after ⌥-click** the span reads at rest again and the suffix becomes
+  `opened in WebStorm` for 1.6s. The pointer is usually still on the path, so
+  the hover emphasis is suppressed rather than merely not applied;
+- ⌥ **does nothing and shows nothing** unless the path is inside the editor's
+  workspace. A relative path is one the session wrote about its own `cwd`, so
+  only an absolute one is checked;
+- the line travels: `:88` is part of the hit area and is passed on.
+
+Why ⌥ and not ⌘ is 20d's own reasoning: ⌘-click already means "new window" to
+hands trained by browsers, and ⌥ is JetBrains' own alternate key.
+
+The header link is a text link with the shortcut beside it — "the same shape as
+the rest of that header, no button" — and the shortcut is what teaches the
+gesture. **⌥⏎ is wired**, so the advertised key works wherever focus sits
+inside the viewer.
+
+`POST /api/sessions/:id/ide/open-file` takes `{path, line?}` and answers `204`.
+A path outside the session's `cwd` is refused: Orbital will not *read* one for
+a session, so it does not ask an editor to open one on that session's behalf.
+Every kind of "no editor" is the same `404` the open-files route uses.
+
+### `getDiagnostics` — the editor's own errors
+
+`GET /api/sessions/:id/ide/diagnostics`, optionally `?path=`, answering
+`{diagnostics: IdeDiagnostic[]}` filtered to the session's `cwd`. The tool
+answers with JSON: `{uri, diagnostics}` groups holding LSP-shaped ranges and a
+severity that arrives as a word on one build and a number on another. Lines are
+zero-based on the wire and 1-based here, like a selection's.
+
+It is surfaced **in the file viewer** — a count in the header's meta line and
+the affected gutter numbers tinted, with the messages on their hover text.
+Which surface it belongs on was the open question, and the answer is
+[[the-editors-findings-go-where-a-file-is-already-open]]: the viewer is the only
+place Orbital renders a file's lines, and a diagnostic is a per-line fact about
+a file.
+
+The **workspace-wide roll-up is deliberately not built**. It would need a
+session-level surface that does not exist and has no artboard; the route already
+answers for the whole workspace, so that half needs a surface and nothing else.
+
+### `openDiff` — the editor as a second route to a verdict
+
+`openDiff({old_file_path, new_file_path, new_file_contents, tab_name})` blocks
+until the human acts and answers with a content array whose first element is
+`FILE_SAVED` (accepted — element two carries the possibly hand-edited result),
+`DIFF_REJECTED`, or `TAB_CLOSED`. `close_tab({tab_name})` cleans up.
+
+**The browser card owns the decision; the editor is shown the same one.**
+`Runner.decide()` parks, publishes and sets `needs_input` first, and only then
+offers the review. Whichever answers first wins, `settleDecision` stays the
+single settle, and it now also aborts the review — which drops the tab. The
+whole routing argument, the id guard that makes two routes safe, and the four
+failure modes are [[the-editor-is-a-second-route-to-one-verdict]].
+
+`TAB_CLOSED` is **not** a verdict. It says "not here", so it resolves to no
+answer and the decision stays parked — the same value an editor that quit
+produces, and the same one an abandoned review produces.
+
+Offered only for `permission` asks on `Write`, `Edit` and `MultiEdit`: the
+three tools whose input both determines the resulting file and can be rewritten
+to produce any other one. That second property is what lets a hand-edit in the
+diff tab come back as the tool's own input rather than being discarded — see
+[[a-hand-edited-diff-comes-back-as-the-tools-own-input]]. `close_tab` is
+required alongside `openDiff`, because an abandoned review that cannot drop its
+tab is worse than no review at all.
+
+`reformat_file` is available and nothing wants it.
+
+### Still to verify against a live editor
+
+Whether the extension writes the file itself when the human saves a diff tab.
+Both answers are safe — if it did, the rewritten input no longer matches and
+the tool errors with the file already correct; if it did not, the tool writes
+it — so the file ends up right either way, but the measurement is worth taking.
 
 ## When there is no editor
 
@@ -338,8 +405,29 @@ Worth testing, per the repository's rule:
 - the debounce: many inputs in, one output, identical payloads suppressed;
 - the open-files route: `404` without an editor, paths with one.
 
-Not worth testing: that the chip renders its props, and anything that would
-require a live editor to assert against.
+For *Talking back to the editor*, the state machine rather than the pixels:
+
+- **the settle-exactly-once property, under every failure mode there is** —
+  the browser answering while a diff is open, the editor quitting mid-diff, a
+  tab closed without a decision, the request aborting, the session ending, a
+  review that never answers, and a review that throws. Each must leave exactly
+  one verdict and no orphaned tab. The sharpest of them is a late verdict
+  naming a decision that is no longer the parked one, which must settle
+  nothing at all;
+- the edit arithmetic both ways, including a patch that does not apply and a
+  hand-edit that round-trips back to the bytes the human saved;
+- `parseDiagnostics` — both severity spellings, the line correction, and every
+  malformed shape answering with nothing rather than throwing;
+- `readDiffOutcome` — the three markers, the second element kept separate from
+  the first, and an unrecognised marker reading as no verdict rather than a
+  guess;
+- the sandbox refusals on `openFile` and `diagnostics`, and that an abandoned
+  `openDiff` still drops its tab;
+- the two routes: `404` for every kind of no editor, `400` for a path-less
+  open request.
+
+Not worth testing: that the chip renders its props, the gesture's styling
+values, and anything that would require a live editor to assert against.
 
 ## What is built
 
@@ -359,10 +447,36 @@ Measured working against the live WebStorm on this machine, through the source
 and through an `esbuild` bundle of it — the DMG ships the bundle, and `ws`
 carries optional native dependencies that a bundler has to get past.
 
-Still to build: everything in the browser (the slot, the lip, the per-session
-dismissal), the `@` completion's ranking in `server/src/files/complete.ts`,
-and the three tools in *Talking back to the editor*, in the order given there.
-Nothing above assumes any of them.
+The three outbound tools, and the browser half they needed, as of 2026-09-23:
+
+- `protocol.ts` also holds the outbound tool names, `parseDiagnostics`,
+  `pathFromFileUri` and `readDiffOutcome`. Still all pure.
+- `client.ts` gains `callToolContent`, which answers with the result's raw
+  content blocks rather than their text joined — `openDiff`'s verdict is the
+  first block and the human's file is the second, a distinction joining
+  destroys. `request()` now takes a per-call deadline (`NO_TIMEOUT` for
+  `openDiff` alone) and an `AbortSignal`; an abandoned request sends
+  `notifications/cancelled` and answers null.
+- `server/src/ide/edits.ts` — the arithmetic both directions of a diff need:
+  which tools are diffable, the file a tool would produce, and the input that
+  reproduces a hand-edited one. Pure, and the piece most worth its tests.
+- `server/src/ide/approvals.ts` — `IdeApprovals`, the narrow interface the
+  Runner asks through, and its live implementation over the store. An
+  interface so the Runner's tests can race both routes without an editor.
+- `store.ts` gains `supports`, `openFile`, `diagnostics`, `openDiff` and
+  `closeTab`.
+- `runner.ts`: `decide()` offers the review after parking; `settleDecision`
+  aborts it; `answerFromEditor` is the second route in, with the id guard that
+  keeps two routes from ever settling one decision wrongly.
+- `POST /api/sessions/:id/ide/open-file` and
+  `GET /api/sessions/:id/ide/diagnostics`.
+- Browser: `ide` on `ApiSession`, `api.ideOpenFile` / `api.ideDiagnostics`,
+  the store's `openInIde`, the ⌥ gesture on `PathButton` (canvas 20d), and the
+  file viewer's header link, ⌥⏎ shortcut and diagnostics readout.
+
+Still to build: the composer's slot and lip with the per-session dismissal
+(20a/20b/20e), and the `@` completion's ranking in
+`server/src/files/complete.ts`. Nothing above assumes either.
 
 ## Out of scope
 

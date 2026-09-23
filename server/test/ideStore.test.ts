@@ -4,7 +4,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, unlinkSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IdeStore, IDE_SELECTION_COALESCE_MS } from '../src/ide/store.js';
-import { OPEN_FILES_TOOL, type IdeLock } from '../src/ide/protocol.js';
+import {
+  CLOSE_TAB_TOOL,
+  DIAGNOSTICS_TOOL,
+  OPEN_DIFF_TOOL,
+  OPEN_FILES_TOOL,
+  OPEN_FILE_TOOL,
+  type IdeLock,
+} from '../src/ide/protocol.js';
 import type { IdeConnection } from '../src/ide/client.js';
 
 /**
@@ -20,12 +27,37 @@ class FakeConnection extends EventEmitter implements IdeConnection {
   tools = new Set<string>([OPEN_FILES_TOOL]);
   answer: string | null = '';
   closed = false;
+  /** Every `tools/call` this connection was asked for, in order. */
+  calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  /** Per-tool text answers, falling back to `answer`. */
+  answers = new Map<string, string | null>();
+  /** What `callToolContent` answers with, per tool. */
+  content = new Map<string, unknown[] | null>();
+  /** Resolves the next `callToolContent` by hand — the blocking `openDiff`. */
+  blockContent: ((value: unknown[] | null) => void) | null = null;
 
   hasTool(name: string): boolean {
     return this.tools.has(name);
   }
-  async callTool(name: string): Promise<string | null> {
-    return this.hasTool(name) ? this.answer : null;
+  async callTool(name: string, args: Record<string, unknown> = {}): Promise<string | null> {
+    this.calls.push({ name, args });
+    if (!this.hasTool(name)) return null;
+    return this.answers.has(name) ? (this.answers.get(name) ?? null) : this.answer;
+  }
+  async callToolContent(
+    name: string,
+    args: Record<string, unknown> = {},
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<unknown[] | null> {
+    this.calls.push({ name, args });
+    if (!this.hasTool(name)) return null;
+    if (this.content.has(name)) return this.content.get(name) ?? null;
+    // The measured `openDiff`: nothing comes back until a human acts, or
+    // until the wait is abandoned.
+    return new Promise((resolve) => {
+      this.blockContent = resolve;
+      opts.signal?.addEventListener('abort', () => resolve(null), { once: true });
+    });
   }
   close(): void {
     this.closed = true;
@@ -270,5 +302,152 @@ describe('IdeStore: open files', () => {
     const connection = connect(60108, ['/w/a']);
     connection.tools.clear();
     expect(await store.openFiles('/w/a')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Talking back to the editor (spec § Talking back to the editor)
+// ---------------------------------------------------------------------------
+
+/** An editor with every outbound tool listed, covering `/w/a`. */
+function connectSpeaking(folders = ['/w/a']): FakeConnection {
+  const connection = connect(60108, folders);
+  for (const tool of [OPEN_FILE_TOOL, DIAGNOSTICS_TOOL, OPEN_DIFF_TOOL, CLOSE_TAB_TOOL]) {
+    connection.tools.add(tool);
+  }
+  return connection;
+}
+
+describe('IdeStore: opening a file in the editor', () => {
+  it('sends the path, and the line as the gutter numbers it', async () => {
+    const connection = connectSpeaking();
+    expect(await store.openFile('/w/a', '/w/a/src/x.ts', 88)).toBe(true);
+    expect(connection.calls.at(-1)).toMatchObject({
+      name: OPEN_FILE_TOOL,
+      args: { filePath: '/w/a/src/x.ts', startLine: 88, endLine: 88 },
+    });
+  });
+
+  it('asks for no line when there is none to ask for', async () => {
+    const connection = connectSpeaking();
+    await store.openFile('/w/a', '/w/a/src/x.ts');
+    expect(connection.calls.at(-1)?.args).toEqual({ filePath: '/w/a/src/x.ts' });
+    // A line that is not a line is the same as none at all.
+    await store.openFile('/w/a', '/w/a/src/x.ts', 0);
+    expect(connection.calls.at(-1)?.args).toEqual({ filePath: '/w/a/src/x.ts' });
+  });
+
+  it('refuses a path outside the session sandbox without calling the editor', async () => {
+    const connection = connectSpeaking();
+    const before = connection.calls.length;
+    // Orbital will not READ this path for the session, so it does not ask an
+    // editor to open it on the session's behalf either.
+    expect(await store.openFile('/w/a', '/w/b/secret.ts')).toBe(false);
+    expect(connection.calls).toHaveLength(before);
+  });
+
+  it('answers false with no editor, and with an editor that lacks the tool', async () => {
+    const connection = connectSpeaking();
+    expect(await store.openFile('/w/b', '/w/b/x.ts')).toBe(false);
+    connection.tools.delete(OPEN_FILE_TOOL);
+    expect(await store.openFile('/w/a', '/w/a/x.ts')).toBe(false);
+  });
+});
+
+describe('IdeStore: the editor’s own findings', () => {
+  const ANSWER = JSON.stringify([
+    { uri: 'file:///w/a/src/x.ts', diagnostics: [{ message: 'boom', severity: 'Error' }] },
+    { uri: 'file:///w/b/other.ts', diagnostics: [{ message: 'not ours', severity: 'Error' }] },
+  ]);
+
+  it('drops findings outside the session sandbox', async () => {
+    const connection = connectSpeaking();
+    connection.answers.set(DIAGNOSTICS_TOOL, ANSWER);
+    const found = await store.diagnostics('/w/a');
+    expect(found?.map((d) => d.filePath)).toEqual(['/w/a/src/x.ts']);
+  });
+
+  it('asks about one file when given one, as a URI', async () => {
+    const connection = connectSpeaking();
+    connection.answers.set(DIAGNOSTICS_TOOL, ANSWER);
+    await store.diagnostics('/w/a', '/w/a/src/x.ts');
+    expect(connection.calls.at(-1)).toMatchObject({
+      name: DIAGNOSTICS_TOOL,
+      args: { uri: 'file:///w/a/src/x.ts' },
+    });
+  });
+
+  it('answers null for no editor, a path outside the sandbox, and a missing tool', async () => {
+    const connection = connectSpeaking();
+    connection.answers.set(DIAGNOSTICS_TOOL, ANSWER);
+    expect(await store.diagnostics('/w/b')).toBeNull();
+    expect(await store.diagnostics('/w/a', '/w/b/other.ts')).toBeNull();
+    connection.tools.delete(DIAGNOSTICS_TOOL);
+    expect(await store.diagnostics('/w/a')).toBeNull();
+  });
+});
+
+describe('IdeStore: the diff tab', () => {
+  const ARGS = {
+    oldPath: '/w/a/src/x.ts',
+    newPath: '/w/a/src/x.ts',
+    contents: 'next',
+    tabName: 'x.ts · Orbital (abc123)',
+  };
+
+  it('names both sides of the file and the tab, and reads the verdict back', async () => {
+    const connection = connectSpeaking();
+    connection.content.set(OPEN_DIFF_TOOL, [
+      { type: 'text', text: 'FILE_SAVED' },
+      { type: 'text', text: 'hand edited' },
+    ]);
+    const outcome = await store.openDiff('/w/a', ARGS, new AbortController().signal);
+    expect(outcome).toEqual({ kind: 'saved', contents: 'hand edited' });
+    expect(connection.calls.find((c) => c.name === OPEN_DIFF_TOOL)?.args).toEqual({
+      old_file_path: ARGS.oldPath,
+      new_file_path: ARGS.newPath,
+      new_file_contents: 'next',
+      tab_name: ARGS.tabName,
+    });
+  });
+
+  it('drops the tab whatever happened, so no review outlives its decision', async () => {
+    const connection = connectSpeaking();
+    connection.content.set(OPEN_DIFF_TOOL, [{ type: 'text', text: 'DIFF_REJECTED' }]);
+    await store.openDiff('/w/a', ARGS, new AbortController().signal);
+    expect(connection.calls.at(-1)).toEqual({
+      name: CLOSE_TAB_TOOL,
+      args: { tab_name: ARGS.tabName },
+    });
+  });
+
+  it('abandons the wait when the verdict came from somewhere else, and still drops the tab', async () => {
+    const connection = connectSpeaking();
+    // No scripted answer: the call blocks, exactly as the real one does.
+    const controller = new AbortController();
+    const pending = store.openDiff('/w/a', ARGS, controller.signal);
+    controller.abort();
+    expect(await pending).toBeNull();
+    expect(connection.calls.at(-1)?.name).toBe(CLOSE_TAB_TOOL);
+  });
+
+  it('answers null with no editor, a path outside the sandbox, or no such tool', async () => {
+    const connection = connectSpeaking();
+    connection.content.set(OPEN_DIFF_TOOL, [{ type: 'text', text: 'DIFF_REJECTED' }]);
+    const signal = new AbortController().signal;
+    expect(await store.openDiff('/w/b', ARGS, signal)).toBeNull();
+    expect(
+      await store.openDiff('/w/a', { ...ARGS, oldPath: '/w/b/x.ts' }, signal),
+    ).toBeNull();
+    connection.tools.delete(OPEN_DIFF_TOOL);
+    expect(await store.openDiff('/w/a', ARGS, signal)).toBeNull();
+  });
+
+  it('reports which tools the editor listed, so a feature can simply not appear', () => {
+    const connection = connectSpeaking();
+    expect(store.supports('/w/a', OPEN_DIFF_TOOL)).toBe(true);
+    expect(store.supports('/w/b', OPEN_DIFF_TOOL)).toBe(false);
+    connection.tools.delete(OPEN_DIFF_TOOL);
+    expect(store.supports('/w/a', OPEN_DIFF_TOOL)).toBe(false);
   });
 });
