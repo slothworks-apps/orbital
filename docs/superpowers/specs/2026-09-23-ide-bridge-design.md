@@ -106,11 +106,12 @@ The editor fires on every tick of a drag. One ordinary selection of five lines
 produced **92 notifications inside a single second**, several of them byte-for-byte
 identical.
 
-The store keeps only the latest and publishes at most once per
-`IDE_SELECTION_PUBLISH_MS`, dropping a payload equal to the one before it.
+The store keeps only the latest and drops a payload equal to the one before it.
 Nothing about a selection is worth delivering promptly enough to justify
 flooding the browser socket; the trailing edge is what matters, and it is what
-gets sent.
+gets sent. The two rates the canvas asks for — the cursor line's throttle and
+the lip's debounce — are applied in the browser, on one publish stream, rather
+than by publishing twice.
 
 ## What reaches the browser
 
@@ -125,7 +126,11 @@ gets sent.
 ide: IdeContext | null;
 
 interface IdeContext {
-  /** As the lock reports it: "WebStorm", "Visual Studio Code". */
+  /**
+   * As the lock reports it. Measured: the JetBrains extension names the
+   * product, not the vendor — this machine's lock says `WebStorm`, so the
+   * slot can say it too rather than falling back to a family name.
+   */
   ideName: string;
   workspaceRoot: string;
   selection: IdeSelection | null;
@@ -139,37 +144,85 @@ they are fetched on demand instead (below).
 Two sessions in the same workspace always show the same selection, for the same
 reason two sessions in one checkout always show the same branch.
 
-## The chip and the prompt
+## The slot and the lip
 
-When `selection.text` is non-null, the composer shows a chip naming the file and
-the line count, in the CLI's own words: *Selected 5 lines from CLAUDE.md*. The
-chip is dismissible, and dismissing it drops that selection until the next one
-arrives.
+Canvas `Feature - IDE bridge.dc.html`, artboards 20a/20b, with placement C of
+20e as the build. The design supersedes the "chip" this spec first proposed,
+and the distinction it draws is the right one:
 
-**The selection attaches to the next message automatically.** Sending with a
-live chip prepends the selected text, its path and its line range to the
-message before the typed text, and clears the chip. This is the terminal's
-behaviour and the point is not having to learn a different one.
+- **a chip is something you put there** — an attachment you chose, which
+  uploads and can fail;
+- **a lip is something the world put there** — ambient state that arrives and
+  leaves on its own.
 
-The chip is not an `AttachmentChip`. Attachments upload to the server and carry
-retry and refusal states (`useAttachments`); a selection is ambient state that
-is already on the client and can vanish on its own. It reuses the visual
-language and none of the machinery.
+So the editor gets its own **slot on the composer well's edge**, not a chip in
+the well. It slides up from behind the edge when an editor connects and back
+down when one goes, as an overlay — nothing reflows.
 
-A caret-only selection — `text` is null — shows no chip and attaches nothing.
-It still updates `filePath`, which is what the next section uses.
+- **Cursor only** (`text` is null): a read-out line, no border, no ×. It names
+  the file and line and attaches nothing.
+- **Selection**: a lip rises out of the well over the cursor line, carrying the
+  count and the file, with a × that drops it.
+- **No editor, or an editor on another project**: nothing. The panel is
+  shipped 1b exactly.
+
+A lip and an attachment chip never share a row — the chip stays in the well,
+the lip sits on its edge.
+
+### Two things the design settles that this spec had left open
+
+**Dismissal is per session, not per workspace.** The selection itself is shared
+by every session in the workspace, but pressing × must not clear it for the
+others. Dismissed selection ids are kept per session; the lip sinks back to the
+cursor line until the selection changes.
+
+**Timing is split in two.** The cursor line rewrites in place, throttled to
+`IDE_CURSOR_THROTTLE_HZ`, so arrowing through a file does not strobe. The lip
+is debounced by `IDE_SELECTION_DEBOUNCE_MS` after the first change, so a
+drag-select does not flash "1 line" first. These are different numbers for
+different reasons and the earlier single publish interval is replaced by both.
+
+### The one question the design opens and this spec cannot close
+
+The design proposes the selection is **sent once** and then waits for a change,
+where the CLI re-attaches an unchanged selection to every prompt. Both are
+defensible and the choice is the user's, not the implementer's. What the
+protocol allows is settled, though: a selection can be keyed by
+**file + range + text**, which is enough to notice that it changed. There is
+**no editor revision** in the payload — so an edit that leaves the same range
+selected with the same text is indistinguishable from no change at all, and
+send-once would skip it. Decide with that in hand.
 
 ## Open files, for `@` completion
 
 `GET /api/sessions/:id/ide/open-files` calls `get_all_opened_file_paths` on the
 connection covering that session and returns absolute paths, or `404` when
 there is no editor. The composer's `@` completion
-(`server/src/files/complete.ts`) ranks open tabs above other matches, with the
-file holding the caret first.
+(`server/src/files/complete.ts`) ranks them above other matches. Canvas
+artboard 20c: no section header, no divider, no second list — open tabs are
+just ranked higher, and "open" is said in the row's existing mark slot.
 
 This is the whole justification for the pull direction: an editor's open tabs
 are a far better guess at what you mean by `@Det` than an alphabetical walk of
 the working tree.
+
+**The ranking's second step has to change.** The canvas asks for "other open
+tabs, in the editor's recency order", and **the protocol does not expose
+recency**. Measured on 2026-09-23: two calls to `get_all_opened_file_paths` an
+hour apart, across several tab switches by the user in between, returned
+byte-identical order, with files the user had just visited still sitting in
+their original positions. The order is stable — tab order, not use order.
+
+Tab order is the better fallback anyway, and better than the alphabetical one
+the canvas names: it is the order the person can see in their own tab bar, so
+ranking by it matches what they are looking at. The ranking becomes:
+
+1. the active tab, if it matches the prefix — known from `selection_changed`'s
+   `filePath`, which arrives on a bare cursor move and needs no selection;
+2. other open tabs, **in the order the extension lists them**;
+3. `9b` as shipped: directories, then files, alphabetical.
+
+Tabs outside the session's `cwd` are not listed; the sandbox rule wins.
 
 ## Talking back to the editor
 
@@ -177,9 +230,13 @@ The extension's tools make three more things possible. They are listed in the
 order they should be built, because the third has a dependency the first two do
 not.
 
-**`openFile` — a path in Orbital opens in the editor.** Clicking a file in the
-transcript, the file viewer or a tool row jumps WebStorm to that file and line.
-Cheap, self-contained, and it makes Orbital a place you navigate *from*.
+**`openFile` — a path in Orbital opens in the editor.** Canvas artboard 20d
+settles the shape: **a modifier, not a button.** The path is already the file
+viewer's door, so holding a modifier over it drops the viewer's hover fill and
+writes the destination after that one path; the click turns the suffix into a
+short receipt while the editor takes focus at the line. Nothing is added at
+rest, and nothing is added to every row. The viewer's header carries the one
+worded link that teaches the gesture.
 
 **`getDiagnostics` — the editor's own errors.** The editor already knows what is
 broken, from inspections no test run reports. Surfaced on the session, this
