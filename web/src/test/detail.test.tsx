@@ -1541,10 +1541,12 @@ describe('DetailPanel session stats placement', () => {
     // of the strip rather than off its direct children.
     // Buttons only: the row's first element is the path and its git reading,
     // which carries an `aria-label` of its own and is not part of the strip.
+    // The folded form's ⋯ keeps a hidden seat in the expanded strip, so
+    // only buttons outside an `aria-hidden` seat count.
     const strip = icon?.closest('div')
-    const names = [...(strip?.querySelectorAll('button[aria-label]') ?? [])].map((el) =>
-      el.getAttribute('aria-label')
-    )
+    const names = [...(strip?.querySelectorAll('button[aria-label]') ?? [])]
+      .filter((el) => !el.closest('[aria-hidden="true"]'))
+      .map((el) => el.getAttribute('aria-label'))
     expect(names).toEqual(['Session stats', 'Pin session', 'Clear', 'End session', 'Collapse panel'])
   })
 })

@@ -14,7 +14,9 @@ import {
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
 import { Badge } from '../ui/Badge'
-import { CloseGlyph, UtilityButton } from '../ui/UtilityButton'
+import { CollapseGlyph, UtilityButton } from '../ui/UtilityButton'
+import { Tooltip } from '../ui/Tooltip'
+import { PIN_TOOLTIP_DELAY_MS } from './UtilityStrip'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { TranscriptView } from './TranscriptView'
 
@@ -275,7 +277,7 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
       <div className="border-b border-[rgba(150,205,255,.1)] px-[18px] pb-4 pt-4">
         {/* In a detached window the row carries on the detail panel's title
             bar (22b): it reaches out over the header's top and side padding
-            so the whole top band drags the window, and × stays clickable
+            so the whole top band drags the window, and collapse stays clickable
             (`orbital-drag-region`). */}
         <div
           className={[
@@ -287,9 +289,16 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
             SUBAGENT · READ-ONLY
           </span>
           <span aria-hidden className="flex-1" />
-          <UtilityButton aria-label="Close the subagent panel" onClick={closeSubagent}>
-            <CloseGlyph />
-          </UtilityButton>
+          {/* The detail header's collapse chevron (canvas `Feature - Header
+              actions` 23b), so both panels say "slide away" the same way
+              rather than one of them "close something". Its own name for a
+              screen reader: with both panels open, two "Collapse panel"
+              buttons would not say which is which. */}
+          <Tooltip variant="name" title="Collapse panel" align="right" delayMs={PIN_TOOLTIP_DELAY_MS}>
+            <UtilityButton aria-label="Collapse the subagent panel" onClick={closeSubagent}>
+              <CollapseGlyph />
+            </UtilityButton>
+          </Tooltip>
         </div>
 
         {/* The parent session's name (task 7 brief's own anatomy list) —

@@ -7,6 +7,7 @@ domain: sessions
 related:
   - what-a-session-waits-for-is-a-label
   - fold-the-header-strip-when-the-branch-joins
+  - the-header-strip-folds-on-the-path-width
 tags:
   - web
   - server
@@ -21,8 +22,8 @@ for the canvas to change.
 **Design:** Claude Design, `Feature - Header actions.dc.html`, artboards
 **23a** (the header strip, the End session tooltip and the End session
 dialog) and **23b** (the Clear, End session and Collapse glyphs, their
-tooltips and states). 23c/23d, the adaptive fold behind `⋯`, are not built:
-see [[fold-the-header-strip-when-the-branch-joins]].
+tooltips and states). 23c/23d, the adaptive fold behind `⋯`, came later:
+see [[the-header-strip-folds-on-the-path-width]].
 
 **Built** on 2026-09-23. Where it differs from the text below, the canvas
 won on copy: the End tooltip reads "Stops the agent and moves the session
@@ -32,6 +33,12 @@ transcript stays readable there.", and Clear's tooltip became the one-line
 drops "or just clear and decide later", and the "Don't ask again" path
 now clears and starts new too (it used to clear only), so nothing in the
 web app sends `startNew: false`.
+
+The adaptive fold (23c form 5, motion 23d) is built too, later the same
+day: when the path and branch run out of room the strip folds to pin · end
+· ⋯ ‖ collapse, with stats, clear and detach in the ⋯ menu
+([[the-header-strip-folds-on-the-path-width]]). The subagent panel's ×
+became the same collapse chevron.
 
 ## The problem
 

@@ -38,18 +38,7 @@ import {
   EXITING,
 } from '../ui/motion'
 import { Badge } from '../ui/Badge'
-import { PinButton } from '../ui/PinButton'
-import {
-  ClearGlyph,
-  CollapseGlyph,
-  DetachGlyph,
-  EndGlyph,
-  RefreshGlyph,
-  UtilityButton,
-  WalkthroughGlyph,
-} from '../ui/UtilityButton'
-import { walkthroughPath } from '../walkthrough/route'
-import { detachSession, hasDesktopBridge } from '../lib/desktop'
+import { RefreshGlyph, UtilityButton } from '../ui/UtilityButton'
 import { Tooltip } from '../ui/Tooltip'
 import { ModeReadout } from '../ui/ModeDot'
 import { Chip } from '../ui/Chip'
@@ -65,13 +54,8 @@ import { ClearDialog } from './ClearDialog'
 import { EndDialog } from './EndDialog'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
-import { WhereLine } from './WhereLine'
-import {
-  shortenPath,
-  formatContextWindow,
-  formatDuration,
-  releaseFootnote,
-} from '../lib/format'
+import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
+import { formatContextWindow, releaseFootnote } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
 import { awaitingSubagentCount, isReadOnly, parkedLabel, tagColor } from '../lib/types'
 import type { ApiSession, Tag, WalkthroughSummary } from '../lib/types'
@@ -93,13 +77,6 @@ function primaryTag(session: ApiSession, tags: Tag[]): Tag | undefined {
 /** Hue the panel's accents fall back to when the session has no tag — the
  * export's own `oklch(85% .12 205)` accent (canvas 1b). */
 const ACCENT_HUE = 205
-
-/**
- * How long the pointer rests on the pin before its tooltip appears (canvas
- * 4d). Long enough that crossing the header's action group on the way to ×
- * never raises it.
- */
-const PIN_TOOLTIP_DELAY_MS = 400
 
 /**
  * The glint's opacity while a detached window sits behind another (canvas
@@ -781,153 +758,29 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
             lights. Its controls stay clickable (`orbital-drag-region`). */}
         <div
           className={[
-            'flex items-center gap-2.5',
+            'flex items-center',
             standalone ? 'orbital-drag-region -mx-[22px] -mt-3 h-10 pt-3 pr-[22px]' : 'h-7',
           ].join(' ')}
           style={standalone ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
         >
-          {/* The path, plus where that directory sits in git — one reading,
-              one element (canvas `Feature - Git worktree` 1f). The git half
-              is simply absent outside a repository. */}
-          <WhereLine
-            path={session ? shortenPath(session.cwd) : ''}
-            fullPath={session?.cwd ?? ''}
-            git={session?.git ?? null}
-            sessionId={session?.id ?? null}
-            panelWidthPx={standalone ? standaloneWidth : detailWidth}
+          {/* No `gap` on the row: the strip spaces its own buttons, because
+              it animates those spaces when it folds (23d). */}
+          <UtilityStrip
+            session={session}
+            standalone={standalone}
+            statsVariant={statsVariant}
+            pinned={pinned}
+            releaseAfterMs={releaseAfterMs}
+            onTogglePin={() => {
+              if (session) void setSessionPinned(session.id, !pinned)
+            }}
+            onClear={handleClearClick}
+            onEnd={() => setDialog('end')}
+            onCollapse={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
+            lineage={lineage}
+            walkthroughEntry={walkthroughEntry}
+            pathBudgetPx={standalone ? standaloneWidth : detailWidth}
           />
-          {lineage && lineage.length > 0 && (
-            <span aria-label="Lineage" className="flex shrink-0 items-center gap-1">
-              {lineage.map((ancestorId) => (
-                <span key={ancestorId} aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-muted" />
-              ))}
-              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-bright" />
-            </span>
-          )}
-          {/* The walkthrough's entry (canvas 21f): the first icon of the
-              strip — before stats when stats is a button, before the pin
-              otherwise — present only once there is something to walk
-              through. Not in a detached window: the page replaces whatever
-              window it opens in, and a detached one holds only this panel. */}
-          {session && !standalone && session.source === 'web' && walkthroughEntry && walkthroughEntry.steps > 0 && (
-            <Tooltip
-              title="Walkthrough"
-              description={`${walkthroughEntry.steps} steps · ${walkthroughEntry.files} files`}
-              align="right"
-              delayMs={PIN_TOOLTIP_DELAY_MS}
-            >
-              <UtilityButton aria-label="Walkthrough" onClick={() => window.location.assign(walkthroughPath(session.id))}>
-                <WalkthroughGlyph />
-              </UtilityButton>
-            </Tooltip>
-          )}
-          {/* Button-only mode (canvas `Feature - Header gauges` 11c): the
-              stats strip is gone and stats joins the strip as an icon —
-              stats · pin · clear · end ‖ detach · collapse, with collapse
-              staying last (23a; and the walkthrough, when offered, ahead of
-              them all). */}
-          {session && statsVariant === 'button' && (
-            <SessionStatsRow session={session} variant="button" />
-          )}
-          {/* 4b: the pin sits left of Clear and ×, and IS the pinned
-              indicator — there is no status chip for it; the footer below
-              carries the wording. */}
-          {session && (
-            <Tooltip
-              title={pinned ? 'Unpin' : 'Pin'}
-              description={
-                pinned
-                  ? releaseAfterMs == null
-                    ? 'The release timer is off.'
-                    : `Releases into history ${formatDuration(releaseAfterMs)} after it ended.`
-                  : 'Keeps the session on the map — it is never released into history.'
-              }
-              align="right"
-              delayMs={PIN_TOOLTIP_DELAY_MS}
-            >
-              <PinButton
-                size={24}
-                pinned={pinned}
-                onToggle={() => void setSessionPinned(session.id, !pinned)}
-              />
-            </Tooltip>
-          )}
-          {/* Clear lost its word when it joined the strip (9d draws three
-              icons), so it carries a tooltip — an icon that wipes a
-              conversation cannot be a guess. One line is enough for it
-              (canvas `Feature - Header actions` 23b). */}
-          {session?.source === 'web' && (
-            <Tooltip
-              variant="name"
-              title="Clear and start over"
-              align="right"
-              delayMs={PIN_TOOLTIP_DELAY_MS}
-            >
-              <UtilityButton aria-label="Clear" onClick={handleClearClick}>
-                <ClearGlyph />
-              </UtilityButton>
-            </Tooltip>
-          )}
-          {/* End session sits with the session actions, after Clear (23a).
-              Orbital sessions only — Orbital does not own a terminal's
-              process — and gone once the session has ended. Unlike the
-              panel pair below it stays in a detached window: it is about the
-              session, not the panel. Never one click: it opens a confirm. */}
-          {session?.source === 'web' && session.status !== 'ended' && (
-            <Tooltip
-              title="End session"
-              description="Stops the agent and moves the session to history."
-              align="right"
-              delayMs={PIN_TOOLTIP_DELAY_MS}
-            >
-              <UtilityButton aria-label="End session" onClick={() => setDialog('end')}>
-                <EndGlyph />
-              </UtilityButton>
-            </Tooltip>
-          )}
-          {/* Detach and collapse are a pair of their own, set tighter than
-              the session actions before them: both are about where the panel
-              is, not about the session (canvas `Feature - Detached window`
-              22a). Detach is desktop only — a browser cannot focus or close
-              the window it would open — so there the pair is collapse alone.
-              Collapse deselects, as the × it replaced did (23a).
-
-              A detached window has neither (22c): the red light and ⌘W close
-              it, and closing it is the whole of "dock back". */}
-          {!standalone && (
-            <span className="relative flex h-full flex-none items-center gap-1.5">
-              {session && hasDesktopBridge() && (
-                <Tooltip
-                  variant="name"
-                  title="Open in new window"
-                  align="right"
-                  anchor="group"
-                  delayMs={PIN_TOOLTIP_DELAY_MS}
-                >
-                  <UtilityButton
-                    aria-label="Open in new window"
-                    onClick={() => detachSession(session.id)}
-                  >
-                    <DetachGlyph />
-                  </UtilityButton>
-                </Tooltip>
-              )}
-              <Tooltip
-                variant="name"
-                title="Collapse panel"
-                align="right"
-                anchor="group"
-                delayMs={PIN_TOOLTIP_DELAY_MS}
-              >
-                <UtilityButton
-                  aria-label="Collapse panel"
-                  onClick={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
-                >
-                  <CollapseGlyph />
-                </UtilityButton>
-              </Tooltip>
-            </span>
-          )}
         </div>
 
         {/* Row 2 — the title, on a line of its own (9d). At rest it is a
