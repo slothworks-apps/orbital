@@ -6,7 +6,10 @@ status: done
 domain: web
 related:
   - the-line-diff-is-ours
+  - the-diff-separates-on-luminance
   - diff-hues-are-content-not-state
+  - one-syntax-palette-for-all-code
+  - file-viewer-owns-a-second-language-table
   - 2026-09-19-file-viewer-design
   - the-transcript-scrolls-on-its-own-raf-loop
 tags:
@@ -130,26 +133,141 @@ line break moves no row and would otherwise render as "no change". When
 the two sides disagree the diff says so, the way `\ No newline at end of
 file` does in a unified diff.
 
+## Syntax highlighting
+
+Added 2026-09-23. Diff rows are highlighted with shiki, in the same
+`github-dark-default` theme and through the same lazy loader the file
+viewer already uses — [[one-syntax-palette-for-all-code]] is why that
+theme and not the canvas's proposed token palette, and what the knowingly
+accepted red/`bypassPermissions` hue collision costs.
+
+**A row cannot be tokenized on its own.** A grammar carries state across
+lines, so a line lifted out of a template literal or a block comment
+tokenizes as something it is not. So the rows on screen are reassembled
+into the two texts they came from — removals and context into *before*,
+additions and context into *after* — each side is tokenized in one call,
+and every row keeps a coordinate (`side`, `line`) back into its side's
+grid. `diffSideTexts` is that split; it carries the line counts explicitly,
+because one blank line and no lines both join to the empty string.
+
+**It is still a fragment.** The hunking drops unchanged lines between
+hunks, and an `Edit`'s replaced region rarely starts at a construct
+boundary, so the grammar starts in its root state and can be wrong about a
+region that opened before the fragment did. That is the honest limit of
+highlighting something Orbital only ever sees a piece of, and every diff
+viewer has it.
+
+**The language comes from the path**, via `languageFromPath` in
+`lib/highlight.ts` — the file viewer's table, lifted into the shared module
+(and duplicated for now: [[file-viewer-owns-a-second-language-table]]). A
+path with no extension resolves to the empty language, which short-circuits
+before shiki is imported at all. A notebook resolves to `ipynb`, which
+shiki does not know, so `NotebookEdit` cell sources stay plain — the cell's
+type is not on the wire, so guessing python would be a guess.
+
+**Nothing blocks a render.** Tokenizing is async behind a dynamic import;
+plain text paints on the first frame and the colours swap in, the same
+posture as the file viewer and the transcript's code blocks. Resolved
+fragments are held in a bounded module cache keyed on language and text, so
+the transcript re-rendering on every websocket message — and a row being
+closed and reopened — does not re-tokenize, and concurrent asks for one
+fragment share a single call.
+
+**Every failure degrades to today's plain text, never to an empty block:**
+no extension, a language shiki does not know, a failed dynamic import, any
+shiki error, or a token grid whose line count disagrees with the rows it
+would line up with. The last one matters most — an off-by-one grid would
+colour each line with its neighbour's tokens, which is worse than no
+colour.
+
+**What highlighting is not allowed to touch:** the `+`/`−` sign column
+(its own flex child, never inside the highlighted span), `whitespace-pre`,
+and the frame's horizontal scroll. Only opacity is ever applied to a token
+colour — added lines at full strength, removed and context lines dimmed, so
+the add/remove separation stays a luminance separation.
+
 ## Files
 
 - `web/src/lib/diff.ts` — `diffLines`, the hunking, the ceilings. Pure.
 - `web/src/lib/fileEdit.ts` — tool call → `FileChange`, `writeOutcome`,
   `changeCounts`, the diff cache.
+- `web/src/lib/highlight.ts` — shiki, and `languageFromPath`.
+- `web/src/lib/codeTokens.ts` — `diffSideTexts`, `tokenizeFragment`, the
+  fragment cache.
 - `web/src/panels/DiffView.tsx` — `ChangeView`, `changeSectionLabel`.
 - `web/src/panels/ToolRow.tsx` — picks the change body over the INPUT JSON.
 
 ## Design status
 
-**No canvas artboard covers diffs or edit tool rows.** `Orbital.dc.html`'s
-`Feature - *` set has no diff file, and the `DesignSync` MCP was not
-connected in the session that built this, so the canvas could not be read
-at all. Every value in `DiffView.tsx` is therefore a transcript token
-already in use — the result `<pre>`'s 10.5px mono at 1.6 leading, the tool
-row's hairline border, `SectionLabel`'s muted ink — except the two change
-hues, which [[diff-hues-are-content-not-state]] argues for.
+**Reconciled, 2026-09-23, against artboard `20d` of `Feature - Transcript
+blocks.dc.html`** — "EDIT DIFFS — WHAT WE KNOW, SHOWN HONESTLY", whose
+values table sits under "H · DIFF COLOUR — WHY LUMINANCE". (Artboard ids
+are per-file: `Feature - IDE bridge.dc.html` also has a `20d`, and it is a
+different drawing. Always name the file.)
 
-**A design pass is pending.** When an artboard lands, `DiffView.tsx` is the
-one file to reconcile against it.
+Two decisions came out of the pass:
+
+- [[the-diff-separates-on-luminance]] — the diff body takes 20d's
+  luminance system and **supersedes** [[diff-hues-are-content-not-state]],
+  whose six hues were drafted before any artboard existed. Green and red
+  survive in one place only, the `+n −m` skim, at 20d-G's values.
+- [[one-syntax-palette-for-all-code]] — the five *syntax token* values in
+  20d's table are deliberately not adopted; shiki's
+  `github-dark-default` stays, and the red/`bypassPermissions` hue
+  collision is knowingly accepted. This was decided by the owner ahead of
+  the artboard and the pass did not reopen it.
+
+### What 20d prescribes that this spec still answers differently
+
+The canvas draws a diff; it does not decide what Orbital knows. Where the
+two disagree, the disagreement is about data, and it is settled here.
+
+- **Line numbers.** 20d-A draws an old and a new number gutter, and 20d-C
+  hatches the number column to say a side is unknown. Orbital has neither
+  number: an `Edit` carries `old_string` and `new_string` and no offset,
+  so the diff is of a *replaced region* and the spec refuses to invent a
+  position for it (§ What each case renders). No gutter is drawn, and the
+  hatch the artboard puts on the gutter is used on the "unknown" banner
+  instead, where it says the same thing about the same missing data.
+- **Hunk headers naming the enclosing symbol** (`@@ 41 · refreshToken()`).
+  Needs the file offset and a parse of the enclosing scope. Neither is
+  available for the same reason. The gap marker keeps 20d's band and ink
+  and states the count of dropped lines instead.
+- **`next hunk` paging.** 20d-F opens on the first hunk at 14 lines, then
+  appends one hunk at a time to 40 lines total, then sends the reader to
+  the file viewer. `DIFF_PREVIEW_LINES` matches 20d's 14 exactly, but the
+  progressive middle step does not exist: a row opens fully, and
+  `DIFF_MAX_RENDERED_LINES` is the only other ceiling. Adding the paging
+  is a real feature, not a fidelity fix.
+- **Long lines wrap with a hanging indent** (`white-space:pre-wrap;
+  word-break:break-word`). The implementation keeps `whitespace-pre` and
+  scrolls the block sideways, because a wrapped line without a built
+  hanging indent breaks the column the signs stand in — the one thing a
+  diff cannot afford — and 20d specifies the wrapping without specifying
+  the indent. **Open question for the owner**, not a silent decision.
+- **`NEW` / `REPLACED` / `PROPOSED` / `NOT APPLIED` badges on the folded
+  row** (20d-G). `ToolRow` shows the counts and the path; the badges are
+  not implemented. They are row chrome rather than diff body, and 20d-G's
+  own rule — "counts only for applied edits and new files" — is already
+  what `changeCounts` does.
+- **A running call's dimmed, dashed frame** (20d-D). The dashed `proposed`
+  frame is implemented for a *failed* call (20d-E), which is what
+  `isError` carries into `ChangeView`. A still-running edit is not
+  distinguished, because whether the call is running is not threaded into
+  the change view.
+
+### What the pass changed
+
+Bands, inks and signs for all three row kinds; the context ink; the gap
+marker's band and ink; the note ink; the frame's radius, border and
+background, plus the dashed `proposed` variant; the sign column's width
+and centring and the text cell's insets; the removed-token opacity rule
+(20d dims removed tokens only — added and context stay at full strength);
+the "unknown" hatch banner; and the `+n −m` skim in `ToolRow.tsx`.
+
+One conflict inside the artboard itself, reported rather than resolved:
+its table says removed-line tokens sit at **opacity .55**, and its
+prototype script sets **.6**. The table is taken as the specification.
 
 ## Testing
 
@@ -167,6 +285,20 @@ overwrite.
 `transcript.test.tsx` adds only the branch — an `Edit` row opens on its
 diff, every other tool still opens on its JSON. Styling values are not
 pinned, per the repo's testing rule.
+
+`web/src/test/codetokens.test.ts` covers the highlighting's two pieces of
+real logic: `languageFromPath` (mapped and unmapped extensions, the last
+segment only, the last dot of several, case, no extension, a dotfile name
+versus a dotfile with a real extension, the label) and `diffSideTexts`
+(reassembly, per-row coordinates, a context row addressed on the *after*
+side, pure insertion and pure deletion, a blank line counted rather than
+inferred from the joined text, the coarse all-removed-then-all-added
+shape, and a property check that every coordinate really addresses its own
+row's text). `tokenizeFragment`'s degrade paths are covered with
+`tokenizeCode` stubbed: no language and no rows never reach shiki, a null
+result and a line-count mismatch both resolve to plain text, and the cache
+tokenizes one fragment once — refusals included — while sharing an
+in-flight call. Colours and opacities are not pinned.
 
 ## How a row arrives
 

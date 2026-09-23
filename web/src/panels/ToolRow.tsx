@@ -227,15 +227,22 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
           {/* The skim line: how much this call changed, without opening it.
               Each side appears only when it is non-zero — a new file has
               nothing removed, and `−0` would read as a claim about a side
-              Orbital does not have. */}
+              Orbital does not have.
+
+              Canvas `Feature - Transcript blocks` 20d-G. The counts are the
+              one place the diff keeps green and red: they are numbers on the
+              row, never on a band, so they cannot be confused with the body's
+              luminance system. 20d-G picks these two values specifically to
+              clear the experiments tag's green, which the previous `+n`
+              sat on top of. */}
           {counts && (counts.added > 0 || counts.removed > 0) && (
             <span data-diff-stat className="shrink-0 tabular-nums">
               {counts.added > 0 && (
-                <span className="text-[oklch(78%_.13_145)]">+{counts.added}</span>
+                <span className="text-[oklch(82%_.14_145)]">+{counts.added}</span>
               )}
               {counts.added > 0 && counts.removed > 0 && ' '}
               {counts.removed > 0 && (
-                <span className="text-[oklch(74%_.14_22)]">−{counts.removed}</span>
+                <span className="text-[oklch(72%_.15_22)]">−{counts.removed}</span>
               )}
             </span>
           )}
