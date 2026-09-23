@@ -40,3 +40,13 @@ lowering to buy spacing back.
 
 Orbit pace is unchanged: the angular speed reads the unscaled
 `orbitRadius`, so zooming out never speeds a moon up.
+
+**It does not make a body's screen size constant, and has been read that way
+at least once.** The curve is one-sided: at and above the default zoom it is
+exactly 1, so a body's on-screen size grows linearly with `zoom` from there.
+Anything drawn in DOM on top of a body — an `<Html>` overlay is measured in
+CSS px and inherits no world scale — must convert through
+`bodyDesignPxToScreenPx` (`camera.ts`), which is this factor times `zoom`
+over 100. The moon's interactive affordance was sized in fixed CSS px on the
+opposite assumption and was wrong at every zoom but one; see
+[[moon-button-is-a-plain-dom-child-for-testability]].

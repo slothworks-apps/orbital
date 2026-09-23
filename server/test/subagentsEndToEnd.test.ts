@@ -90,7 +90,7 @@ async function sessionOf(app: any, id: string) {
 }
 
 describe("a subagent in one of orbital's own sessions, end to end", () => {
-  it('survives its own launch tool_result and is gone once its notification arrives', async () => {
+  it('survives its own launch tool_result, and its moon stays on the map — ended, not gone — once its notification arrives', async () => {
     const { claudeDir, dbPath } = tempClaudeDir();
     const sdk = fakeQueryFnWithSubagent();
     const app = await buildServer({ claudeDir, dbPath, queryFn: sdk.fn as any });
@@ -109,7 +109,7 @@ describe("a subagent in one of orbital's own sessions, end to end", () => {
       }, { timeout: 3000 });
       const waiting = await sessionOf(app, sessionId);
       expect(waiting?.subagents).toEqual([
-        { id: 'k1', name: 'reviewer', state: 'working', toolUseId: 'ag1' },
+        { id: 'k1', name: 'reviewer', state: 'working', toolUseId: 'ag1', startedAt: expect.any(Number) },
       ]);
       // NOT `needs_input`: the turn ended, but the agent it launched will
       // wake the session back up on its own, so nothing here wants the human
@@ -118,8 +118,16 @@ describe("a subagent in one of orbital's own sessions, end to end", () => {
 
       sdk.release();
 
+      // The session stops waiting on the agent — that reads off
+      // `running()`, which the notification empties — but the moon itself
+      // does not vanish: `all()` (what the REST shape reports) keeps the
+      // agent, now ended with the notification's own status, until the user
+      // dismisses it (spec § "Moons outlive their agents"; task-3 brief).
       await vi.waitFor(async () => {
-        expect((await sessionOf(app, sessionId))?.subagents).toEqual([]);
+        const session = await sessionOf(app, sessionId);
+        expect(session?.subagents).toEqual([
+          { id: 'k1', name: 'reviewer', state: 'ended', status: 'completed', toolUseId: 'ag1', startedAt: expect.any(Number) },
+        ]);
       }, { timeout: 3000 });
       // And only now, with nothing of its own left running, does it ask.
       await vi.waitFor(async () => {

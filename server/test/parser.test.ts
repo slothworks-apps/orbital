@@ -179,6 +179,31 @@ describe('entriesToMessages', () => {
     expect(() => entriesToMessages(malformed as any)).not.toThrow();
     expect(entriesToMessages(malformed as any)).toEqual([]);
   });
+
+  it('emits a thinking message from a thinking block', () => {
+    const entries = [
+      {
+        type: 'assistant', uuid: 'a1', timestamp: '2026-09-01T10:00:00.000Z',
+        message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'thinking', thinking: 'let me consider this' }] },
+      },
+    ];
+    const msgs = entriesToMessages(entries);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({
+      role: 'thinking', text: 'let me consider this',
+      model: 'claude-opus-5', timestamp: '2026-09-01T10:00:00.000Z',
+    });
+  });
+
+  it('skips a thinking block whose thinking text is empty (signature-only)', () => {
+    const entries = [
+      {
+        type: 'assistant', uuid: 'a2', timestamp: '2026-09-01T10:00:00.000Z',
+        message: { role: 'assistant', content: [{ type: 'thinking', thinking: '', signature: 'sig' }] },
+      },
+    ];
+    expect(entriesToMessages(entries)).toEqual([]);
+  });
 });
 
 describe('extractMeta: bare slash commands', () => {

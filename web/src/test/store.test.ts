@@ -31,7 +31,12 @@ import {
   headerSessionStats,
   releaseDelayMs,
   absorptionFor,
+  resolvePanelPairWidths,
   RELEASE_FALL_GRACE_MS,
+  DETAIL_PANEL_MIN_PX,
+  PANEL_GUTTER_PX,
+  SUBAGENT_PANEL_DEFAULT_PX,
+  SUBAGENT_PANEL_MIN_PX,
   type OrbitalState,
 } from '../store/store'
 
@@ -80,6 +85,7 @@ const initialSnapshot: OrbitalState = {
   ideDismissed: {},
   sessionsTotal: 0,
   toast: null,
+  subagentPanel: null,
   ui: {
     selectedId: null,
     filterTagId: 'all',
@@ -253,14 +259,14 @@ describe('applySessionEvent', () => {
   })
 
   it('carries running subagents on the session itself, for any session and without selecting it', () => {
-    const sub1: Subagent = { id: 'a1', name: 'sub-a', state: 'working' }
+    const sub1: Subagent = { id: 'a1', name: 'sub-a', state: 'working', startedAt: 0 }
     const s1 = makeSession({ id: 's1', subagents: [sub1] })
     useOrbital.getState().applySessionsEvent({ event: 'upsert', session: s1 })
     expect(useOrbital.getState().sessions.s1.subagents).toEqual([sub1])
 
     // The server republishes the whole session when its set changes, so the
     // store never merges subagent-by-subagent — the newest upsert is the truth.
-    const sub2: Subagent = { id: 'a2', name: 'sub-b', state: 'working' }
+    const sub2: Subagent = { id: 'a2', name: 'sub-b', state: 'working', startedAt: 0 }
     useOrbital.getState().applySessionsEvent({
       event: 'upsert', session: { ...s1, subagents: [sub2] },
     })
@@ -1688,6 +1694,118 @@ describe('parseDetailPanelWidth', () => {
     // The floor wins over the ceiling — a panel narrower than 360 stops
     // fitting its own header grid, per the idea doc.
     expect(parseDetailPanelWidth({ detail_panel_width: '500' }, 500)).toBe(360)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolvePanelPairWidths — task 8's pairing math (spec § 8 "Layout"): the
+// two docked panels together, once the subagent panel is open, capped at
+// 75% of the viewport with the detail panel yielding first. Requirement 1
+// (the single-panel case is UNCHANGED, 60% share included) is guarded
+// elsewhere rather than here: `clampDetailPanelWidth`/`parseDetailPanelWidth`
+// above are untouched by this task, and `DetailPanel — the subagent pairing`
+// in `detail.test.tsx` asserts end to end that this function is never even
+// reached while no subagent panel is open.
+// ---------------------------------------------------------------------------
+describe('resolvePanelPairWidths', () => {
+  it('both panels fit under the ceiling at a wide viewport: keeps their stored widths', () => {
+    // 450 + 16 (gutter) + 380 = 846; ceiling at 1600 is 1200 — comfortably clear.
+    expect(resolvePanelPairWidths(450, SUBAGENT_PANEL_DEFAULT_PX, 1600)).toEqual({
+      detailWidthPx: 450,
+      subagentWidthPx: SUBAGENT_PANEL_DEFAULT_PX,
+    })
+  })
+
+  it('the export defaults fit at the export viewport (canvas 11b: "846px = 59% of 1440")', () => {
+    // The canvas's own worked example: 450 + 380 + 16 (gutter) = 846, and it
+    // calls that whole sum "59% of 1440" — the gutter is INSIDE the 846,
+    // which is the reading `resolvePanelPairWidths` follows (fix round 1;
+    // see the ADR `panel-pair-ceiling-includes-the-gutter`).
+    expect(resolvePanelPairWidths(450, SUBAGENT_PANEL_DEFAULT_PX, 1440)).toEqual({
+      detailWidthPx: 450,
+      subagentWidthPx: SUBAGENT_PANEL_DEFAULT_PX,
+    })
+  })
+
+  it('the ceiling bites: the detail panel shrinks first, the subagent panel keeps its width', () => {
+    // Ceiling at 1100px viewport = 825. 450 + 16 + 380 = 846 > 825, so the
+    // detail panel gives way to exactly what is left: 825 - 16 - 380 = 429
+    // — still above its own 360 floor, so nothing else has to move.
+    expect(resolvePanelPairWidths(450, SUBAGENT_PANEL_DEFAULT_PX, 1100)).toEqual({
+      detailWidthPx: 429,
+      subagentWidthPx: SUBAGENT_PANEL_DEFAULT_PX,
+    })
+  })
+
+  it('the ceiling bites harder: detail pins at 360 and the subagent panel starts shrinking (short of its own floor)', () => {
+    // Ceiling at 960px viewport = 720. Even the detail panel's 360 floor
+    // plus the 16px gutter plus 380 (756) overshoots it, so the detail
+    // panel pins at 360 and the subagent panel gives up the rest:
+    // 720 - 16 - 360 = 344 — narrower than its 380 default, but still short
+    // of its own 320 floor.
+    expect(resolvePanelPairWidths(450, SUBAGENT_PANEL_DEFAULT_PX, 960)).toEqual({
+      detailWidthPx: DETAIL_PANEL_MIN_PX,
+      subagentWidthPx: 344,
+    })
+  })
+
+  it('fix round 1: locks the gutter-inclusive reading in at V=1000, where it disagrees with the (wrong) exclusive one', () => {
+    // This is the exact viewport the review that produced fix round 1 used
+    // to show the two readings disagree — already rendered elsewhere in
+    // this suite (`detail.test.tsx`, `spacemap.test.tsx`), so a regression
+    // back to the exclusive formula would have to break a visible test, not
+    // just this pure one.
+    //
+    // Ceiling at 1000px viewport = 750.
+    //   exclusive (WRONG — the brief's original, uncorrected formula):
+    //     450 + 380 = 830 > 750 -> D' = 750 - 380 = 370, S stays 380
+    //     => { detailWidthPx: 370, subagentWidthPx: 380 }
+    //   inclusive (correct — what this function implements):
+    //     450 + 16 + 380 = 846 > 750 -> D' = max(360, 750-16-380=354) = 360
+    //     360 + 16 + 380 = 756 > 750, so S also shrinks:
+    //     S' = max(320, 750-16-360) = 374
+    //     => { detailWidthPx: 360, subagentWidthPx: 374 }
+    expect(resolvePanelPairWidths(450, SUBAGENT_PANEL_DEFAULT_PX, 1000)).toEqual({
+      detailWidthPx: DETAIL_PANEL_MIN_PX,
+      subagentWidthPx: 374,
+    })
+  })
+
+  it('below ~1010px viewport, both panels sit at their minimums and are allowed to exceed 75% (deferred: canvas 11d)', () => {
+    // Ceiling at 700px viewport = 525. Both floors together, gutter
+    // included (360 + 16 + 320 = 696), already overshoot it — per the brief
+    // this is accepted as is rather than triggering the sub-1010px layout
+    // mode this branch does not build.
+    const result = resolvePanelPairWidths(450, SUBAGENT_PANEL_DEFAULT_PX, 700)
+    expect(result).toEqual({
+      detailWidthPx: DETAIL_PANEL_MIN_PX,
+      subagentWidthPx: SUBAGENT_PANEL_MIN_PX,
+    })
+    expect(result.detailWidthPx + PANEL_GUTTER_PX + result.subagentWidthPx).toBeGreaterThan(700 * 0.75)
+  })
+
+  it('floors a subagent width under 320 before checking the ceiling', () => {
+    // A hypothetically-dragged subagent width of 250 is floored to 320
+    // first — the pairing math never sees anything smaller than that, so a
+    // wide viewport leaves the detail panel untouched.
+    expect(resolvePanelPairWidths(450, 250, 1600)).toEqual({
+      detailWidthPx: 450,
+      subagentWidthPx: SUBAGENT_PANEL_MIN_PX,
+    })
+  })
+
+  it('dragging the detail panel wider cannot push the pair past the ceiling', () => {
+    // A drag requesting 900px of detail panel at a 1200px viewport (ceiling
+    // 900) would alone be a legal `clampDetailPanelWidth` result — but
+    // paired with the subagent panel's 380 (plus the 16px gutter) it blows
+    // straight through the pair's own ceiling, so the detail panel is
+    // pulled back in: 900 - 16 - 380 = 504.
+    const result = resolvePanelPairWidths(900, SUBAGENT_PANEL_DEFAULT_PX, 1200)
+    expect(result.detailWidthPx + PANEL_GUTTER_PX + result.subagentWidthPx).toBeLessThanOrEqual(
+      1200 * 0.75
+    )
+    expect(result.detailWidthPx).toBeLessThan(900)
+    expect(result.subagentWidthPx).toBe(SUBAGENT_PANEL_DEFAULT_PX)
   })
 })
 

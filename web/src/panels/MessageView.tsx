@@ -15,6 +15,31 @@ import { useOrbital } from '../store/store'
 /** 7a: two or more images share one wrapping row, each capped narrower. */
 const TWO_UP_WIDTH_PX = 171
 
+/**
+ * The clock reading under a bubble — the house format, identical to the
+ * model divider's (`TranscriptView.tsx`), `QuestionCard`'s answered-at line
+ * and `FileViewer`'s footer. A fourth matching copy rather than a shared
+ * helper, the same way `primaryTag` is a fifth: three lines with no
+ * branching, and this repo has no formatting module they all already import.
+ *
+ * `ChatMessage.timestamp` is an ISO string, and it used to be interpolated
+ * RAW — `2026-09-22T10:00:00.000Z`, all 24 characters, under every bubble.
+ * That was invisible for most of its life, because only the reload path
+ * (`entriesToMessages`) stamped a timestamp at all; task 1 of the subagent
+ * branch started stamping the LIVE path too (for tool-row durations), which
+ * widened it to every message in every transcript and cost a full extra
+ * line per bubble in a 380 px panel
+ * (fix: messageview-renders-a-raw-iso-timestamp).
+ *
+ * `undefined` for anything `Date` cannot parse, so a malformed stamp shows
+ * nothing rather than the words "Invalid Date".
+ */
+function clockTime(timestamp: string): string | undefined {
+  const at = new Date(timestamp)
+  if (Number.isNaN(at.getTime())) return undefined
+  return at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
 /** Matches remark/rehype's `language-xxx` class, which is only ever applied
  * to fenced code blocks (never to inline `code`) — the standard way to tell
  * the two apart from inside a react-markdown `code` component override. */
@@ -381,8 +406,10 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
           )}
         </>
       )}
-      {message.timestamp && (
-        <span className="font-mono text-[10px] text-text-muted">{message.timestamp}</span>
+      {message.timestamp && clockTime(message.timestamp) && (
+        <span className="font-mono text-[10px] text-text-muted">
+          {clockTime(message.timestamp)}
+        </span>
       )}
     </div>
   )

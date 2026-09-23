@@ -247,11 +247,18 @@ export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning'
 export interface ChatMessage {
   id: string
   /**
+   * `thinking` is Claude's reasoning block, published ahead of any prose or
+   * tool call for the turn. Its own role rather than a flag on `assistant`
+   * or a side array, because the transcript renders it as a distinct block
+   * interleaved in publish order with everything else. Mirrors
+   * `server/src/types.ts`. See
+   * `docs/superpowers/specs/2026-09-22-subagent-transcript-panel-design.md` § 7.
+   *
    * `notice` is the CLI speaking for itself rather than through the model —
    * a locally-answered slash command's output (`/context`, `/usage`, `/mcp`),
    * a hook's feedback. Rendered by `NoticeRow`, never by `MessageView`.
    */
-  role: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'notice'
+  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice'
   text?: string
   toolName?: string
   toolInput?: unknown
@@ -381,11 +388,74 @@ export interface TagRule {
   pattern: string
 }
 
+/**
+ * Mirrors `SubagentInfo` in `server/src/transcript/subagents.ts` —
+ * the two must move together.
+ */
 export interface Subagent {
   id: string
   name: string
   state: 'materializing' | 'working' | 'idle' | 'needs_input' | 'ended'
+  /**
+   * The `Agent` tool_use this agent was launched from, when the SDK's
+   * `task_started` carried one — `task_started.tool_use_id` is optional, so
+   * this can be absent even for a real, running agent. It is what joins a
+   * moon (or the parent transcript's own `Agent` row) back to its buffer:
+   * `subagentMessages(sessionId, toolUseId)` and the
+   * `subagent:<sessionId>:<toolUseId>` WS topic both key on it. A moon whose
+   * `SubagentInfo` has none of this cannot be opened at all (spec
+   * 2026-09-22-subagent-transcript-panel-design.md § 5) — it is decoration,
+   * not a broken control.
+   */
+  toolUseId?: string
+  /** Epoch ms when this agent was first seen. */
+  startedAt: number
+  /**
+   * How the agent ended, from the SDK's own `task_notification` — absent
+   * while it runs, and still absent if a `background_tasks_changed`
+   * retirement closed it out with no notification to read a status from.
+   */
+  status?: 'completed' | 'failed' | 'stopped'
+  /**
+   * The user dismissed this agent's moon. Mirrors `SubagentInfo.dismissed`
+   * (`server/src/transcript/subagents.ts`), which marks a dismissed agent
+   * instead of withholding it.
+   *
+   * **`map/sceneModel.ts` is the only reader.** Dismissal removes the MOON
+   * and nothing else: the parent transcript's `Agent` row keeps its `OPEN →`
+   * control and the buffer keeps answering 200, because the record is
+   * permanent and the map is not (spec
+   * 2026-09-22-subagent-transcript-panel-design.md §§ 5, 8). Anything else
+   * filtering on this is reintroducing the bug.
+   */
+  dismissed?: boolean
 }
+
+/**
+ * The body of `GET /api/sessions/:id/subagents/:toolUseId/messages` — mirrors
+ * `SubagentTranscript` in `server/src/transcript/subagents.ts`. `messages` is
+ * in publish order; `droppedCount` is how many earlier ones the server's ring
+ * buffer evicted to make room, for the panel's TRUNCATED chip (spec
+ * `2026-09-22-subagent-transcript-panel-design.md` §§ 3, 9).
+ */
+export interface SubagentTranscript {
+  messages: ChatMessage[]
+  droppedCount: number
+}
+
+/**
+ * The client's cap on an open panel's message list, evicted from the front —
+ * the same number and the same rule as the server's ring buffer
+ * (`MAX_SUBAGENT_MESSAGES` in `server/src/transcript/subagents.ts`, spec
+ * § 3). Restated here rather than fetched because the two workspaces share
+ * no runtime code; it is deliberately a copy that must move together, not a
+ * client-side policy of its own.
+ *
+ * Without it the panel's list grew without bound off the WS while the
+ * server's stayed at 2 000 — so a long run could render TRUNCATED's "buffer
+ * 3,412 steps", a figure the buffer it is reporting on cannot produce.
+ */
+export const MAX_SUBAGENT_MESSAGES = 2000
 
 export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`
 

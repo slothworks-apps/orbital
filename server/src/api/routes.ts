@@ -30,9 +30,9 @@ import { RETENTION_KEY } from '../retention.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
-import type { SubagentStore } from '../transcript/subagents.js';
 import type { GitStore } from '../git/store.js';
 import type { IdeStore } from '../ide/store.js';
+import type { SubagentStore, SubagentTranscripts } from '../transcript/subagents.js';
 import type { ChatMessage, ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
@@ -62,6 +62,10 @@ export interface RouteContext {
    * 2026-09-23-ide-bridge-design). Read through `toApiSession`, and directly
    * by the open-files route. */
   ide: IdeStore;
+  /** Every subagent's own transcript, keyed the same way `subagents` is — see
+   * `SubagentTranscripts` (spec `2026-09-22-subagent-transcript-panel-design.md`
+   * § 3). The panel's one read model. */
+  subagentTranscripts: SubagentTranscripts;
   errors: ErrorLog;
   /** Names a session from its own contents; here, only ever on demand. */
   titler: SessionTitler;
@@ -246,6 +250,75 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const before = q.before ? messages.findIndex((m) => m.id === q.before) : messages.length;
     const end = before === -1 ? messages.length : before;
     return { messages: messages.slice(Math.max(0, end - limit), end) };
+  });
+
+  /**
+   * A subagent's own transcript — the panel's read (spec
+   * `2026-09-22-subagent-transcript-panel-design.md` § 9). Keyed by
+   * `toolUseId`, not `SubagentInfo.id`: that is the same key
+   * `SubagentTranscripts` buffers under (see its class comment), and the
+   * only key an `Agent` tool_use in the parent transcript could ever join
+   * back to. An agent whose `toolUseId` is absent — `feed()`'s
+   * transcript-only path never learns one — can never be named by this
+   * route, which is fine: such an agent has no live buffer to show anyway.
+   *
+   * Three answers, not two, and the middle one is the one worth getting
+   * wrong:
+   *
+   * 1. `toolUseId` names no agent `SubagentStore` knows for this session →
+   *    404, STREAM LOST. This is the server-restarted case: `SubagentStore`
+   *    and `SubagentTranscripts` are both in-memory and die together, so a
+   *    session that used to have this agent but no longer does really has
+   *    lost the stream. A DISMISSED agent is not that case and never was —
+   *    `all()` marks it rather than dropping it precisely so this check
+   *    keeps answering "known" for it (spec § 5: still reachable "after the
+   *    moon has been dismissed"; the buffer was never touched by dismissal).
+   * 2. The agent IS known but has never been appended to — it started and
+   *    has not produced a message yet — → 200, `{ messages: [],
+   *    droppedCount: 0 }`. This is deliberately NOT the same as case 1: a
+   *    buffer is created lazily, on first append (see
+   *    `SubagentTranscripts.append`), so "no buffer yet" is the ordinary
+   *    state of a panel opened moments after the agent launched, and
+   *    404-ing it would tell an honest, running agent's panel that its
+   *    transcript was lost.
+   * 3. The agent is known and has a buffer → 200 with its messages and
+   *    `droppedCount`.
+   */
+  app.get('/api/sessions/:id/subagents/:toolUseId/messages', (req, reply) => {
+    const { id, toolUseId } = req.params as { id: string; toolUseId: string };
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get();
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    const known = ctx.subagents.all(id).some((a) => a.toolUseId === toolUseId);
+    if (!known) return reply.code(404).send({ error: 'not found' });
+    const transcript = ctx.subagentTranscripts.get(id, toolUseId);
+    if (!transcript) return { messages: [], droppedCount: 0 };
+    return { messages: transcript.messages, droppedCount: transcript.droppedCount };
+  });
+
+  /**
+   * Dismisses one moon (spec `2026-09-22-subagent-transcript-panel-design.md`
+   * § 9, task-3 brief §4). Keyed by `SubagentInfo.id` — the task id, which
+   * always exists — not `toolUseId`, which the SDK only sets on task events
+   * and which the route above uses instead.
+   *
+   * Always 204, even for an id `SubagentStore` has never seen or has already
+   * dismissed: dismissal means "I do not want to see this", and an agent
+   * already invisible has already met that intent — no client error, and
+   * nothing to retry.
+   *
+   * Republishes the session only when `dismiss()` reports an actual change,
+   * the same before/after diff every other subagent mutation goes through —
+   * a no-op dismissal must not send the map an upsert for nothing.
+   */
+  app.post('/api/sessions/:id/subagents/:agentId/dismiss', (req, reply) => {
+    const { id, agentId } = req.params as { id: string; agentId: string };
+    if (ctx.subagents.dismiss(id, agentId)) {
+      const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+        | SessionRow
+        | undefined;
+      if (row) ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+    }
+    return reply.code(204).send();
   });
 
   // Transcript images, served straight from the content-addressed store.

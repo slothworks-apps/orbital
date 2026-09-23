@@ -122,6 +122,17 @@ describe('request helper', () => {
     expect(call).toContain('limit=10')
     expect(call).toContain('offset=5')
   })
+
+  // dismissSubagent's route (POST .../dismiss) is the one endpoint that
+  // answers 204 with no body at all — every other body-less route in this
+  // app answers 200 { ok: true }. request() used to call response.json()
+  // unconditionally, which throws SyntaxError on an empty 204 body; this
+  // pins the guard that carves 204 out before that call.
+  it('resolves a 204 response with no body, rather than throwing on an empty JSON parse', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await expect(api.dismissSubagent('session1', 'agent1')).resolves.toBeUndefined()
+  })
 })
 
 describe('Sessions API', () => {

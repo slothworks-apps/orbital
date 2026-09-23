@@ -10,6 +10,7 @@ import type {
   FilePreview,
   IdeDiagnostic,
   SlashCommand,
+  SubagentTranscript,
   Tag,
   TagRule,
   PermissionMode,
@@ -66,6 +67,11 @@ async function request<T>(
     throw new ApiError(text || response.statusText, response.status, url)
   }
 
+  // 204 (the dismiss route's only answer) carries no body at all —
+  // `response.json()` throws on it rather than returning anything a caller
+  // could await past.
+  if (response.status === 204) return undefined as T
+
   const data = await response.json()
   return data as T
 }
@@ -110,6 +116,29 @@ export const api = {
 
     const data = await request<{ messages: ChatMessage[] }>('GET', url.pathname + url.search)
     return data.messages
+  },
+
+  /**
+   * A subagent's own transcript — the panel's read (spec:
+   * 2026-09-22-subagent-transcript-panel-design.md § 9). 404s when
+   * `toolUseId` names no agent the server's `SubagentStore` knows for this
+   * session (STREAM LOST — a server restart, most likely); a known agent
+   * with nothing buffered yet still 200s with an empty list, because it is
+   * simply running with nothing to show yet, not lost.
+   */
+  async subagentMessages(id: string, toolUseId: string): Promise<SubagentTranscript> {
+    return request<SubagentTranscript>('GET', `/api/sessions/${id}/subagents/${toolUseId}/messages`)
+  },
+
+  /**
+   * Dismisses one moon (spec: 2026-09-22-subagent-transcript-panel-design.md
+   * § 9). Keyed by `Subagent.id`, not `toolUseId` — the task id always
+   * exists, unlike the tool_use id, which only task events carry at all.
+   * Always resolves; the server treats dismissing an unknown or
+   * already-dismissed agent as success, not an error.
+   */
+  async dismissSubagent(id: string, agentId: string): Promise<void> {
+    await request<void>('POST', `/api/sessions/${id}/subagents/${agentId}/dismiss`)
   },
 
   async createSession(body: {
@@ -623,6 +652,7 @@ export type {
   Tag,
   TagRule,
   Subagent,
+  SubagentTranscript,
   OrbitalModel,
   FindingSeverity,
   SessionStatsDetail,

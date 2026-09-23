@@ -35,7 +35,7 @@ import { ideApprovals } from './ide/approvals.js';
 import { registerRoutes } from './api/routes.js';
 import { toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
-import { SubagentStore } from './transcript/subagents.js';
+import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
@@ -66,7 +66,7 @@ export function publishLiveSession(ctx: PublishContext, live: LiveSession): void
         id: live.sessionId, cwd: live.cwd, title: live.name, firstAt: null,
         lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
         permissionMode: null, parentId: null, tagIds: [], status: live.status,
-        subagents: ctx.subagents.get(live.sessionId),
+        subagents: ctx.subagents.all(live.sessionId),
       };
   ctx.hub.publish('sessions', { event: 'upsert', session });
 }
@@ -76,10 +76,16 @@ export type PublishContext = ShapeContext & { hub: Hub };
 
 /**
  * Republishes one session because something about it changed that lives
- * outside its DB row — today, its set of running subagents. Subagents ride
- * along in the session shape rather than on a topic of their own, so the map
- * sees them for every session (not only the selected one) and a page reload
- * gets them from `GET /api/sessions` like everything else.
+ * outside its DB row — today, its subagents. Not just the RUNNING ones,
+ * which is what this said while `SubagentStore` had a single `get()`:
+ * `toApiSession` carries `all()` now (ended agents included, dismissed ones
+ * marked), so an agent FINISHING is itself one of the changes this exists to
+ * publish — the moon has to go grey rather than disappear (spec § 4, adr:
+ * subagentstore-splits-into-all-and-running).
+ *
+ * Subagents ride along in the session shape rather than on a topic of their
+ * own, so the map sees them for every session (not only the selected one)
+ * and a page reload gets them from `GET /api/sessions` like everything else.
  */
 export function publishSession(ctx: PublishContext, sessionId: string): void {
   const live = ctx.registry.get(sessionId);
@@ -240,8 +246,9 @@ export async function buildServer(overrides: {
     claudeExecutablePath: claudeCli.path,
   });
 
-  // Running subagents, keyed by session. Read back out through
-  // `toApiSession`, so a change means "republish the session".
+  // Every session's subagents, keyed by session — running, ended and
+  // dismissed alike, since a moon outlives its agent (spec § 4). Read back
+  // out through `toApiSession`, so a change means "republish the session".
   //
   // Only the runner ever feeds this, from the SDK's task events, i.e. only
   // orbital's own sessions have subagents. Neither a transcript nor the tool
@@ -250,6 +257,17 @@ export async function buildServer(overrides: {
   // `docs/domains/subagents-in-transcripts.md` and
   // `docs/decisions/subagent-liveness-from-sdk-task-events.md`.
   const subagents = new SubagentStore();
+  // Every subagent's own transcript, buffered off the frames `pump()` routes
+  // by `parent_tool_use_id` instead of onto `session:<id>` — the panel's
+  // read model, catch-up for one opened mid-run, and freeze target once the
+  // agent ends. Deliberately its own store rather than living inside
+  // `subagents` above: a tracker's entry is about an agent's LIFECYCLE and
+  // this buffer's whole point is to be indifferent to it — nothing here
+  // reads `working`/`ended` at all, so nothing can clear a transcript
+  // because its agent finished (spec
+  // `2026-09-22-subagent-transcript-panel-design.md` § 3, adr:
+  // subagent-buffer-outlives-the-agent).
+  const subagentTranscripts = new SubagentTranscripts();
   // Built on call, not up front: the runner it names is constructed below and
   // is itself one of the things that asks for a republish.
   // Where each session's `cwd` sits in git, cached per working tree and kept
@@ -333,11 +351,28 @@ export async function buildServer(overrides: {
     // browser (spec 2026-09-23-ide-bridge-design § Talking back to the
     // editor).
     ide: ideApprovals(ide),
+    subagentTranscripts,
     onStatus: (sessionId, status) => {
       if (status === 'ended') {
         // An ended session has nothing running in it — and nothing left to
         // observe the `tool_result` that would otherwise retire its agents.
         subagents.drop(sessionId);
+        // Same moment, same reasoning: nothing can join a new frame to this
+        // session's buffers once it is gone, so hanging onto them would only
+        // be a leak.
+        //
+        // This says nothing about what any client is showing, and an earlier
+        // version of this comment claimed it did ("no panel can still be
+        // open on a session the map no longer shows"). It could: a browser
+        // holds `subagentPanel` in its own store, and neither an `ended`
+        // status nor the `remove` that may follow it necessarily moves
+        // `ui.selectedId`, which is what the panel's close guard watches.
+        // Closing it is the client's job and the client now does it
+        // (`applySessionsEvent`'s `remove` branch in `web/src/store/store.ts`);
+        // a panel that outlives this drop refetches into a 404 and renders
+        // STREAM LOST, which is the honest reading — the buffer really is
+        // gone by then.
+        subagentTranscripts.drop(sessionId);
         // One of the two moments a session's stats are written (spec
         // 2026-09-20-session-stats-design § Evaluation cadence). `liveStats`
         // is declared below, like `runner` in `publishCtx`.
@@ -397,7 +432,7 @@ export async function buildServer(overrides: {
     // The same store, read back: a session whose turn ended with agents still
     // running is working, not waiting for the human
     // (fix: `a-turn-that-launched-an-agent-reads-as-needs-input`).
-    hasLiveSubagents: (sessionId) => subagents.get(sessionId).length > 0,
+    hasLiveSubagents: (sessionId) => subagents.running(sessionId).length > 0,
     // Both edges of the main loop's turn. The titler used to hang off
     // `status === 'needs_input'`, which no longer means "a turn just ended"
     // now that a turn can end into `working`; and the republish is what
@@ -692,7 +727,7 @@ export async function buildServer(overrides: {
     paths: { claudeDir, dataDir: CONFIG.dataDir, dbPath: overrides.dbPath ?? CONFIG.dbPath },
   }));
   registerRoutes(app, {
-    db, registry, runner, projectsDir, claudeDir, hub, models, subagents, errors,
+    db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, errors,
     images, imagesDir, titler, git, ide,
     settings: settingsStore,
     retention: {

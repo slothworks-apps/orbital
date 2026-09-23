@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatDuration, releaseFootnote } from '../lib/format'
+import { formatDuration, formatToolDuration, releaseFootnote } from '../lib/format'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -26,6 +26,29 @@ describe('formatDuration', () => {
   it('drops a second unit that would read zero', () => {
     expect(formatDuration(2 * DAY, 2)).toBe('2d')
     expect(formatDuration(3 * HOUR, 2)).toBe('3h')
+  })
+})
+
+describe('formatToolDuration', () => {
+  it('formats under 10s with one decimal (canvas 11b: "0.3s")', () => {
+    expect(formatToolDuration(300)).toBe('0.3s')
+    expect(formatToolDuration(6_200)).toBe('6.2s')
+  })
+
+  it('formats 10s up to a minute as whole seconds', () => {
+    expect(formatToolDuration(10_000)).toBe('10s')
+    expect(formatToolDuration(42_000)).toBe('42s')
+    expect(formatToolDuration(59_600)).toBe('60s')
+  })
+
+  it('formats a minute and over as "Nm Ns"', () => {
+    expect(formatToolDuration(60_000)).toBe('1m 0s')
+    expect(formatToolDuration(64_000)).toBe('1m 4s')
+    expect(formatToolDuration(3 * MINUTE + 5_000)).toBe('3m 5s')
+  })
+
+  it('renders no duration at all for a missing value — never "0s" or "—"', () => {
+    expect(formatToolDuration(undefined)).toBeUndefined()
   })
 })
 

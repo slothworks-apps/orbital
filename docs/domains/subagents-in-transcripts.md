@@ -8,6 +8,7 @@ related:
   - 2026-09-16-subagents-everywhere-design
   - 2026-09-15-orbital-design
   - 2026-09-20-session-stats-design
+  - 2026-09-22-subagent-transcript-panel-design
 ---
 
 # What a transcript says about subagents, and when
@@ -122,3 +123,71 @@ backgrounded agent whose notification never comes. The tool blocks are not
 consulted for liveness at all ([[subagent-liveness-from-sdk-task-events]]).
 Tested 2026-09-20 against a fake stream in the real message order; the first
 real web session with three agents is what found the bug.
+
+## A subagent's own conversation is a separate stream, opt-in and pre-joined
+
+Everything above is about the parent's own transcript. A subagent's prose and
+thinking — what it said, not just which tools it called — travel on a
+different channel, and only if asked for.
+
+`forwardSubagentText` (`@anthropic-ai/claude-agent-sdk`'s own `query()`
+options, `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`) is built for
+exactly this. Its own doc comment: *"When true, the full subagent
+conversation is forwarded so consumers can render a nested transcript."*
+Without it, only `tool_use`/`tool_result` blocks from a subagent ever cross
+the stream at all — no text, no thinking. Orbital turns it on in
+`Runner.start()` (`server/src/runner/runner.ts`).
+
+Once it is on, a subagent's frames need to be told apart from the parent's
+own — otherwise the whole nested conversation floods `session:<id>`, not the
+one summary line a `tool_result` used to carry. The field that tells them
+apart is `parent_tool_use_id`, set on every frame that came from inside an
+`Agent` call to that call's own `tool_use` id — the same id
+`SubagentInfo.toolUseId` already carries, from `task_started.tool_use_id`.
+The join between "which agent's transcript is this" and "which moon does
+this agent have" needs no new key: `pump()` routes on
+`msg.parent_tool_use_id` directly (`runner.ts`, the `assistant`/`user` frame
+handling), and the value it routes on is already the value the moon-to-panel
+join uses everywhere else.
+
+**A nested agent — one spawned by another agent, not by the parent — carries
+the INNER `Agent` tool_use id**, i.e. the id of the call that spawned it, not
+the outer agent's own id. This falls out of the definition above with no
+extra handling: an agent's `parent_tool_use_id` is always the `tool_use` id
+of whatever `Agent` call started it, however many levels down that call
+itself was. So a depth-2 agent's frames land in a buffer keyed by the
+depth-2 `Agent` call's own id, never mixed into its parent agent's buffer,
+and the outer agent's own buffer sees only the ordinary `tool_use`/
+`tool_result` pair for the nested `Agent` call — nothing about routing needs
+to know it is looking at depth 2 versus depth 1.
+
+## The on-disk fallback nobody reads yet
+
+Every subagent's own conversation is also written to disk, incrementally, at
+`<session-id>/subagents/agent-<agentId>.jsonl`, independently of whether
+anything is watching the live stream. This branch does not read these files
+— the live stream (above) gives the same content with no watcher and no
+meta-file join — but it is the fallback if `forwardSubagentText` ever stops
+being honoured by a future CLI, the same way `Task`-vs-`Agent` detection
+above already needed a fallback once.
+
+Measured 2026-09-22, directly against the files rather than taken on faith:
+one session directory
+(`~/.claude/projects/-Users-tomin-Projects-acme-acme-mobile-app/83e11349-9a79-47c2-9333-14f819646ee1/subagents/`)
+holds exactly 15 agent files. Across all 15, the file's birthtime matches its
+first entry's `timestamp` and its mtime matches its last entry's `timestamp`
+(within seconds, both ways, on every file) — confirming the file is created
+when the agent **starts** and appended to as it works, not written once at
+the end. The entry-to-entry spread (last minus first) ranges from 5.3s to
+114.3s across the 15 files, with `agent-a3c5e4359509cbe31.jsonl` the widest
+at 114.3s. A second, wider pass over every `agent-*.jsonl` under this
+machine's whole `~/.claude/projects` tree (**1 000** files) confirms the same
+birthtime/mtime pattern generally, not just in that one session: mtime
+matches the last entry's timestamp in all 1 000, birthtime matches the first
+entry's timestamp in 995 of 1 000 (the 5 exceptions not investigated
+further — a file touched by something other than normal append, or one
+whose first line was itself written late, would each produce this). Spreads
+go far wider than the 15-file sample's 114.3s ceiling — the single widest
+file in the full tree spans roughly 26.5 hours between its first and last
+entry. The 15-file, one-session sample above is the convenient, fully-
+enumerable slice; the full-tree pass is what confirms it generalises.

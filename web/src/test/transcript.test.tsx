@@ -121,6 +121,35 @@ describe('MessageView', () => {
     })
   })
 
+  /**
+   * I4. The timestamp under a bubble was interpolated raw — all 24
+   * characters of `2026-09-22T10:00:00.000Z`, a full extra line per message
+   * in a 380 px panel. Invisible for most of its life, because only the
+   * reload path stamped a timestamp at all; task 1 of this branch started
+   * stamping the live path too and it became every message everywhere.
+   *
+   * Asserting the ABSENCE of the ISO string rather than the presence of a
+   * particular clock format: the format is the locale's, so pinning it would
+   * pin the test runner's locale, but "is not the machine string" can only
+   * fail by regression.
+   */
+  it('renders a timestamp as a clock reading, never as the raw ISO string', () => {
+    const timestamp = '2026-09-22T10:00:00.000Z'
+    render(<MessageView message={makeMessage({ id: '1', text: 'hi', timestamp })} />)
+
+    expect(screen.queryByText(timestamp)).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        new Date(timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('renders nothing at all for a timestamp Date cannot parse — never "Invalid Date"', () => {
+    render(<MessageView message={makeMessage({ id: '1', text: 'hi', timestamp: 'not-a-date' })} />)
+    expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument()
+    expect(screen.queryByText('not-a-date')).not.toBeInTheDocument()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -170,10 +199,62 @@ describe('MessageView images', () => {
 })
 
 // ---------------------------------------------------------------------------
+// ThinkingBlock (spec § 7 "Thinking blocks and tool durations")
+// ---------------------------------------------------------------------------
+
+import { ThinkingBlock } from '../panels/ThinkingBlock'
+
+function makeThinking(overrides: Partial<ChatMessage> & { id: string }): ChatMessage {
+  return { role: 'thinking', text: 'weighing the two approaches', ...overrides }
+}
+
+describe('ThinkingBlock', () => {
+  it('renders the boxed variant, collapsed by default — the parent transcript', () => {
+    const { container } = render(<ThinkingBlock message={makeThinking({ id: 't1' })} />)
+    const root = container.querySelector('[data-role="thinking"]')
+    expect(root).toHaveAttribute('data-thinking-variant', 'boxed')
+    expect(screen.getByRole('button', { name: /thinking/i })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('weighing the two approaches')).not.toBeInTheDocument()
+  })
+
+  it('renders the hairline variant, expanded by default — the compact/subagent-panel treatment', () => {
+    const { container } = render(<ThinkingBlock message={makeThinking({ id: 't1' })} compact />)
+    const root = container.querySelector('[data-role="thinking"]')
+    expect(root).toHaveAttribute('data-thinking-variant', 'compact')
+    expect(screen.getByRole('button', { name: /thinking/i })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('weighing the two approaches')).toBeInTheDocument()
+  })
+
+  it('toggles the fold in the boxed (default) variant', async () => {
+    const user = userEvent.setup()
+    render(<ThinkingBlock message={makeThinking({ id: 't1' })} />)
+    const button = screen.getByRole('button', { name: /thinking/i })
+    await user.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('weighing the two approaches')).toBeInTheDocument()
+    await user.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('weighing the two approaches')).not.toBeInTheDocument()
+  })
+
+  it('toggles the fold in the compact variant', async () => {
+    const user = userEvent.setup()
+    render(<ThinkingBlock message={makeThinking({ id: 't1' })} compact />)
+    const button = screen.getByRole('button', { name: /thinking/i })
+    await user.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('weighing the two approaches')).not.toBeInTheDocument()
+    await user.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('weighing the two approaches')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // ToolRow
 // ---------------------------------------------------------------------------
 
-import { ToolRow, salientInput } from '../panels/ToolRow'
+import { ToolRow, salientInput, toolDurationMs } from '../panels/ToolRow'
 
 function makeToolUse(overrides: Partial<ChatMessage> & { id: string }): ChatMessage {
   return {
@@ -203,6 +284,10 @@ describe('salientInput', () => {
 
   it('extracts `description` for Task', () => {
     expect(salientInput('Task', { description: 'do the thing', prompt: 'long...' })).toBe('do the thing')
+  })
+
+  it('extracts `description` for Agent too — the current CLI\'s name for the same tool (task 9)', () => {
+    expect(salientInput('Agent', { description: 'do the thing', prompt: 'long...' })).toBe('do the thing')
   })
 
   it('falls back to the first string value for unknown tools', () => {
@@ -319,6 +404,77 @@ describe('ToolRow', () => {
     )
     expect(screen.queryByTestId('tool-running-dot')).not.toBeInTheDocument()
   })
+
+  // -------------------------------------------------------------------------
+  // Tool durations (spec § 7 "Thinking blocks and tool durations")
+  // -------------------------------------------------------------------------
+
+  it('shows the gap between the tool_use and tool_result timestamps (canvas 11b: "· 0.3s")', () => {
+    render(
+      <ToolRow
+        toolUse={makeToolUse({
+          id: 't1', toolName: 'Read', toolInput: { file_path: 'eslint.config.js' },
+          timestamp: '2026-09-22T10:00:00.000Z',
+        })}
+        toolResult={makeToolResult({
+          id: 'r1', toolUseId: 't1', text: 'ok',
+          timestamp: '2026-09-22T10:00:00.300Z',
+        })}
+      />
+    )
+    expect(screen.getByText('· 0.3s')).toBeInTheDocument()
+  })
+
+  it('renders no duration at all — not "0s" — when either side has no timestamp', () => {
+    render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 't1', toolName: 'Bash', toolInput: { command: 'x' } })}
+        toolResult={makeToolResult({ id: 'r1', toolUseId: 't1', text: 'ok', timestamp: '2026-09-22T10:00:00.300Z' })}
+      />
+    )
+    expect(screen.queryByText(/·\s*0s/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^·\s/)).not.toBeInTheDocument()
+  })
+
+  it('shows no duration for a tool_use that has not finished yet, even with its own timestamp', () => {
+    render(
+      <ToolRow
+        toolUse={makeToolUse({
+          id: 't1', toolName: 'Bash', toolInput: { command: 'x' },
+          timestamp: '2026-09-22T10:00:00.000Z',
+        })}
+      />
+    )
+    expect(screen.getByTestId('tool-running-dot')).toBeInTheDocument()
+    expect(screen.queryByText(/^·\s/)).not.toBeInTheDocument()
+  })
+
+  it('treats a reversed pair (tool_result timestamped before its tool_use) as unknown, not a negative-turned-zero duration', () => {
+    // A clock adjustment or NTP correction mid-session can land the result's
+    // publish timestamp before the call's — this is not a fast call, it is
+    // the clock lying, and `Math.max(0, ...)` would have quietly turned that
+    // lie into exactly the fabricated 0s the brief forbids.
+    expect(
+      toolDurationMs(
+        makeToolUse({ id: 't1', timestamp: '2026-09-22T10:00:05.000Z' }),
+        makeToolResult({ id: 'r1', toolUseId: 't1', timestamp: '2026-09-22T10:00:00.000Z' }),
+      )
+    ).toBeUndefined()
+
+    render(
+      <ToolRow
+        toolUse={makeToolUse({
+          id: 't2', toolName: 'Bash', toolInput: { command: 'x' },
+          timestamp: '2026-09-22T10:00:05.000Z',
+        })}
+        toolResult={makeToolResult({
+          id: 'r2', toolUseId: 't2', text: 'ok',
+          timestamp: '2026-09-22T10:00:00.000Z',
+        })}
+      />
+    )
+    expect(screen.queryByText(/^·\s/)).not.toBeInTheDocument()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -431,6 +587,111 @@ describe('ToolRow: pressable path', () => {
     )
     expect(container.querySelector('[data-path-button]')).toBeNull()
     expect(screen.getByRole('button', { name: /Read: \/shots\/map\.png/ })).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// `OPEN →` (spec 2026-09-22-subagent-transcript-panel-design.md § 5,
+// canvas 11a — task 9)
+// ---------------------------------------------------------------------------
+
+import type { Subagent } from '../lib/types'
+
+function makeSubagentFixture(overrides: Partial<Subagent> & { id: string }): Subagent {
+  return { name: 'sub', state: 'working', startedAt: 0, ...overrides }
+}
+
+describe('ToolRow: OPEN → subagent control', () => {
+  it('renders OPEN → for an Agent row joined to a live subagent by toolUseId, and clicking it opens that subagent', async () => {
+    const user = userEvent.setup()
+    const onOpenSubagent = vi.fn()
+    const subagent = makeSubagentFixture({ id: 'agent-1', toolUseId: 'tool-1', name: 'run tests' })
+    render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 'tool-1', toolName: 'Agent', toolInput: { description: 'run tests' } })}
+        subagents={[subagent]}
+        onOpenSubagent={onOpenSubagent}
+      />
+    )
+
+    const open = screen.getByRole('button', { name: /Open subagent transcript: run tests/ })
+    await user.click(open)
+    expect(onOpenSubagent).toHaveBeenCalledTimes(1)
+    expect(onOpenSubagent).toHaveBeenCalledWith(subagent)
+  })
+
+  it('a Task-named row (an older CLI transcript) gets the same control', () => {
+    const subagent = makeSubagentFixture({ id: 'agent-1', toolUseId: 'tool-1' })
+    render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 'tool-1', toolName: 'Task', toolInput: { description: 'run tests' } })}
+        subagents={[subagent]}
+        onOpenSubagent={vi.fn()}
+      />
+    )
+    expect(screen.getByText('OPEN →')).toBeInTheDocument()
+  })
+
+  /**
+   * C2. Dismissal takes the MOON and nothing else: "unlike the moon this is
+   * part of the record forever … still reachable after scrolling back
+   * through a long session — and after the moon has been dismissed" (spec
+   * § 5), "Moon dismissed | That moon leaves the map; the row's `OPEN →`
+   * still works" (§ 8). The server used to subtract a dismissed agent from
+   * the list this joins against, which broke both — and 404'd the messages
+   * route on top, so the row, had it rendered, would have shown STREAM LOST
+   * about a buffer still sitting in memory.
+   */
+  it('still renders OPEN → for a DISMISSED agent — dismissal takes the moon, not the record', async () => {
+    const user = userEvent.setup()
+    const onOpenSubagent = vi.fn()
+    const dismissed = makeSubagentFixture({
+      id: 'agent-1',
+      toolUseId: 'tool-1',
+      name: 'run tests',
+      state: 'ended',
+      status: 'completed',
+      dismissed: true,
+    })
+    render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 'tool-1', toolName: 'Agent', toolInput: { description: 'run tests' } })}
+        subagents={[dismissed]}
+        onOpenSubagent={onOpenSubagent}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Open subagent transcript: run tests/ }))
+    expect(onOpenSubagent).toHaveBeenCalledWith(dismissed)
+  })
+
+  it('renders no control when no live agent matches the row\'s toolUseId — a depth-2 call, or a server that has forgotten the agent', () => {
+    render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 'tool-1', toolName: 'Agent', toolInput: { description: 'run tests' } })}
+        subagents={[makeSubagentFixture({ id: 'agent-1', toolUseId: 'some-other-tool-use' })]}
+        onOpenSubagent={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('OPEN →')).not.toBeInTheDocument()
+  })
+
+  it('renders no control when `subagents` is never passed — the subagent panel\'s own transcript, depth-2 calls', () => {
+    render(
+      <ToolRow toolUse={makeToolUse({ id: 'tool-1', toolName: 'Agent', toolInput: { description: 'run tests' } })} />
+    )
+    expect(screen.queryByText('OPEN →')).not.toBeInTheDocument()
+  })
+
+  it('renders no control for a non-Agent/Task tool even if its toolUseId happens to match a subagent', () => {
+    render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 'tool-1', toolName: 'Bash', toolInput: { command: 'echo hi' } })}
+        subagents={[makeSubagentFixture({ id: 'agent-1', toolUseId: 'tool-1' })]}
+        onOpenSubagent={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('OPEN →')).not.toBeInTheDocument()
   })
 })
 
@@ -1162,6 +1423,36 @@ describe('Transcript', () => {
     expect(screen.getByRole('button', { name: /2 tool calls/ })).toBeInTheDocument()
     expect(runs[0].querySelector('[data-live-tool]')).toBeInTheDocument()
   })
+
+  it('renders a `thinking` message through the thinking path, never as an assistant bubble (the live defect § 7 closes)', () => {
+    resetStore({
+      transcripts: {
+        s1: [
+          { id: '1', role: 'user', text: 'go' },
+          { id: '2', role: 'thinking', text: 'weighing the two approaches' },
+          { id: '3', role: 'assistant', text: 'done' },
+        ],
+      },
+    })
+
+    const { container } = render(<Transcript sessionId="s1" />)
+
+    // The text is present either way — that is exactly why the bug was
+    // invisible — so the assertion can't just be "a data-role=\"thinking\"
+    // element exists": `MessageView` sets `data-role={message.role}`
+    // UNCONDITIONALLY (line ~213), so under the OLD bug a thinking message
+    // routed through `MessageView` would still have carried
+    // `data-role="thinking"` on its wrapper — the bug was in the STYLING
+    // (an assistant markdown bubble), not that attribute. The genuine
+    // difference is what `MessageView` alone would have produced: a
+    // `.message-markdown` bubble (its markdown-rendering path) containing
+    // this text. `ThinkingBlock` never uses that class, and it alone
+    // renders the THINKING label and the boxed/hairline container.
+    const markdownBubbles = Array.from(container.querySelectorAll('.message-markdown'))
+    expect(markdownBubbles.some((el) => el.textContent?.includes('weighing the two approaches'))).toBe(false)
+    expect(container.querySelector('[data-thinking-variant="boxed"]')).toBeInTheDocument()
+    expect(screen.getByText('THINKING')).toBeInTheDocument()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1193,6 +1484,42 @@ describe('summarizeToolRun', () => {
       use('5', 'Edit'), use('6', 'Write'), use('7', 'Grep'),
     ])
     expect(s.breakdown).toBe('Read ×2, Bash ×2, Edit +2 more')
+  })
+
+  // `use()` above builds items with no timestamp at all, so `durationMs` is
+  // `undefined` for every case already covered — this section is the
+  // duration-specific behaviour, built on its own timestamped items.
+  const timed = (id: string, name: string, startMs: number, endMs?: number) => ({
+    kind: 'tool' as const,
+    key: id,
+    toolUse: makeToolUse({ id, toolName: name, timestamp: new Date(startMs).toISOString() }),
+    toolResult: endMs === undefined
+      ? undefined
+      : makeToolResult({ id: `${id}r`, toolUseId: id, timestamp: new Date(endMs).toISOString() }),
+  })
+
+  it("sums every item's duration into the run total (canvas 11b: appended as \"· 6.2s\")", () => {
+    const s = summarizeToolRun([
+      timed('1', 'Read', 0, 300),
+      timed('2', 'Bash', 300, 6_200),
+    ])
+    expect(s.durationMs).toBe(6_200)
+  })
+
+  it('reports no run duration when any one item is missing a timestamp — a partial sum would understate an unknown total', () => {
+    const s = summarizeToolRun([
+      timed('1', 'Read', 0, 300),
+      use('2', 'Bash'), // no timestamps at all
+    ])
+    expect(s.durationMs).toBeUndefined()
+  })
+
+  it('reports no run duration while one item is still running', () => {
+    const s = summarizeToolRun([
+      timed('1', 'Read', 0, 300),
+      timed('2', 'Bash', 300), // no end timestamp — still running
+    ])
+    expect(s.durationMs).toBeUndefined()
   })
 })
 

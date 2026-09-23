@@ -195,3 +195,27 @@ export function formatContextWindow(tokens: number): string {
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`
   return String(tokens)
 }
+
+/**
+ * A tool call's duration, in the transcript's own units — deliberately not
+ * `formatDuration` above, whose minute/hour/day scale bottoms out at "1m"
+ * and would show every sub-minute tool call as the same value. Canvas 11b:
+ * `0.3s` (one decimal) under ten seconds, where the decimal is the only
+ * thing distinguishing a near-instant call from a merely fast one; `42s`
+ * (whole seconds — a decimal nobody reads at that scale) from ten seconds up;
+ * `1m 4s` from a minute up.
+ *
+ * `ms === undefined` (the caller's own missing-timestamp or still-running
+ * check) formats to `undefined` — no duration renders — rather than to `0s`
+ * or `—`. `ToolRow` and `summarizeToolRun` (`panels/TranscriptView.tsx`) both
+ * hand this the same optional value for exactly that reason: a fabricated
+ * `0s` would claim a duration for a call that may have taken a minute (spec
+ * `2026-09-22-subagent-transcript-panel-design.md` § 7).
+ */
+export function formatToolDuration(ms: number | undefined): string | undefined {
+  if (ms === undefined) return undefined
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
+  const totalSeconds = Math.round(ms / 1000)
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`
+}

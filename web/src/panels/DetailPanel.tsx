@@ -8,7 +8,9 @@ import {
   parseContextThresholds,
   headerSessionStats,
   releaseDelayMs,
+  resolvePanelPairWidths,
   DETAIL_PANEL_DEFAULT_PX,
+  SUBAGENT_PANEL_DEFAULT_PX,
 } from '../store/store'
 import {
   contextFractionFor,
@@ -201,7 +203,20 @@ export function DetailPanel() {
   // the pointer — and the PATCH goes out once, on release. Same optimistic
   // shape as the Appearance slider; a failed save is recorded and the value
   // stands until reload.
+  //
+  // `detailWidth` stays the single-panel-clamped NOMINAL width — the value
+  // the drag handle's own math starts from and the value that gets PATCHed
+  // — unchanged by whether the subagent panel is open (task 8 brief,
+  // requirement 1: this clamp must not regress). `renderedDetailWidth` is
+  // what the panel is actually drawn at: with the subagent panel open, the
+  // pair's 75% ceiling can pull it narrower than `detailWidth` says, which
+  // is exactly what keeps a drag that requests more room than the ceiling
+  // allows from ever widening the panel past it (spec § 8 "Layout").
   const detailWidth = parseDetailPanelWidth(settings, window.innerWidth)
+  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  const renderedDetailWidth = subagentPanelOpen
+    ? resolvePanelPairWidths(detailWidth, SUBAGENT_PANEL_DEFAULT_PX, window.innerWidth).detailWidthPx
+    : detailWidth
   const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
   // In the store, not local state: SpaceMap's right-anchored overlays (the
   // aggregate readout, the zoom stack) drop their `right` transition on the
@@ -586,7 +601,7 @@ export function DetailPanel() {
     <Panel
       side="right"
       glowHue={headerHue ?? ACCENT_HUE}
-      widthPx={detailWidth}
+      widthPx={renderedDetailWidth}
       widthTransition={!draggingWidth}
       className="relative flex h-full flex-col overflow-hidden"
     >

@@ -208,10 +208,28 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
 
 /**
  * Builds the render model for the space map: visible sessions laid out into
- * clusters, their moons (only for LIVE subagents — an `ended` subagent is
- * dropped from the model entirely; its `Moon` fade-out is a
- * component-level nicety this v1 scene model doesn't attempt), cluster
- * labels (`NAME · count`, uppercase), and status counts.
+ * clusters, their moons, cluster labels (`NAME · count`, uppercase), and
+ * status counts.
+ *
+ * Moons are drawn for EVERY subagent the session carries, ended ones
+ * included (spec 2026-09-22-subagent-transcript-panel-design.md § 4:
+ * "moons outlive their agents") — except the dismissed ones, which this
+ * function drops and NOTHING ELSE DOES. The server marks them
+ * (`SubagentInfo.dismissed`) rather than withholding them, because the same
+ * list also feeds the parent transcript's `OPEN →` control and the messages
+ * route's own "do I know this agent" check, and dismissal must reach
+ * neither: spec § 8's lifecycle row is "Moon dismissed | That moon leaves
+ * the map; the row's `OPEN →` still works". This filter is therefore the
+ * whole of what dismissal means (adr:
+ * dismissal-marks-the-agent-only-the-map-reads-it).
+ *
+ * There is no `state !== 'ended'` filter here. That one used to exist and
+ * meant a moon vanished the instant its agent reported back, taking the
+ * only way into its transcript with it; `awaitingSubagentCount`
+ * (`lib/types.ts`) keeps its OWN `state !== 'ended'` filter regardless —
+ * it answers "is the parent still waiting", which an ended agent does not
+ * affect, and removing that one would strand a session reading WORKING
+ * forever.
  *
  * Pure: same `state` and `nowMs` in, same model out, every time — no
  * Date.now, no Math.random, no mutation of `state`. The clock arrives as
@@ -240,7 +258,9 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
 
       // Straight off the session: the server keeps this current for every
       // live session, so a moon no longer depends on the session being open.
-      const subagents = session.subagents.filter((a) => a.state !== 'ended')
+      // The dismissal filter is the map's alone and no `state !== 'ended'`
+      // filter belongs here at all — see this function's own doc.
+      const subagents = session.subagents.filter((a) => !a.dismissed)
 
       // Moons first: the planet's footprint is the outermost shell they
       // reach, and that is what the planet is then placed by.

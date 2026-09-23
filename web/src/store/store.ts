@@ -4,6 +4,7 @@ import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
 import { isAttachable, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
+import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
 import type { ContextThresholds } from '../lib/usage'
 import type {
   ApiSession,
@@ -16,6 +17,7 @@ import type {
   PermissionMode,
   SessionSource,
   SessionStatus,
+  Subagent,
   Tag,
   TagRule,
 } from '../lib/types'
@@ -50,6 +52,27 @@ export type SessionEvent =
   | { event: 'decision_pending'; decision: PendingDecision }
   /** It was settled — by this tab, another window, an interrupt, or the session ending. */
   | { event: 'decision_resolved'; decisionId: string }
+
+/**
+ * Events delivered on the `subagent:<sessionId>:<toolUseId>` topic — one
+ * `message` per live append to that agent's buffer, mirroring `session:<id>`'s
+ * own event exactly (spec: 2026-09-22-subagent-transcript-panel-design.md
+ * § 9). Nothing else rides this topic: the panel is frozen by its
+ * `Subagent.state`/`status` (read live off the parent session — see
+ * `SubagentPanel`), not by a WS event, and STREAM LOST is read off the
+ * messages fetch's 404, not off anything published here.
+ *
+ * `droppedCount` is the server's running total for that agent's ring buffer
+ * AFTER this append — spec § 3 puts it on the WS increments as well as the
+ * REST response, and it is optional here only so a frame published by an
+ * older server (or by a `Runner` wired without `subagentTranscripts`) still
+ * parses.
+ */
+export type SubagentEvent = {
+  event: 'message'
+  message: ChatMessage
+  droppedCount?: number
+}
 
 /**
  * Events delivered on the `errors` topic — the shared error log
@@ -123,6 +146,30 @@ export interface OrbitalUiState {
 
 /** How many of the newest error rows the log holds at a time. */
 export const ERROR_PAGE_SIZE = 50
+
+/**
+ * The one subagent panel the app can have open (task 7 brief: "One slot:
+ * opening a second agent swaps the contents"). `sessionId` is the PARENT
+ * session's id — the panel is read-only and everything it needs to join back
+ * to the parent (its transcript's `OPEN →` row, `QuestionCard`'s decision
+ * lookup) keys off that, never off the agent's own id.
+ *
+ * `found` is what carries the 404-vs-empty-200 distinction the whole design
+ * hinges on: `subagentMessages` 404s when the server no longer knows this
+ * agent at all (a restart dropped the buffer — STREAM LOST) and 200s with an
+ * empty `messages` array when the agent is known and has simply not said
+ * anything yet (an ordinary running panel with nothing to show yet). Both
+ * leave `messages` empty, so `found` is the only field that tells them apart
+ * — collapsing the two into "empty means empty" is the one mistake the brief
+ * calls out by name.
+ */
+export interface OpenSubagentState {
+  sessionId: string
+  subagent: Subagent
+  messages: ChatMessage[]
+  droppedCount: number
+  found: boolean
+}
 
 export interface OrbitalState {
   sessions: Record<string, ApiSession>
@@ -230,6 +277,8 @@ export interface OrbitalState {
   sessionsTotal: number
   toast: Toast | null
   ui: OrbitalUiState
+  /** The one open subagent panel, or null — see `OpenSubagentState`. */
+  subagentPanel: OpenSubagentState | null
 }
 
 /**
@@ -316,6 +365,36 @@ export interface OrbitalActions {
   setSidebarCollapsed(sidebarCollapsed: boolean): void
   setWsStatus(wsStatus: string): void
   clearToast(): void
+  /**
+   * Opens the subagent panel on one agent: fetches its buffer, subscribes to
+   * its live topic, and replaces whatever agent was open before — one slot,
+   * so the previous subscription is always released first (task 7 brief). A
+   * leaked subscription here is a real bug, not a tidiness point.
+   *
+   * `sessionId` is the PARENT session's id, `subagent` is one entry off that
+   * session's own `subagents` array — the moon or the parent transcript's
+   * `OPEN →` row hands this straight through, never a copy.
+   */
+  openSubagent(sessionId: string, subagent: Subagent): Promise<void>
+  /** Releases the live subscription (if any) and clears the panel. Safe to
+   * call when nothing is open. */
+  closeSubagent(): void
+  /**
+   * Dismisses one ended moon (spec § 4/9, task 9 brief). Fires the request
+   * and returns — no optimistic local removal. The route is idempotent and
+   * 204s, and the server republishes the session on success, which is what
+   * actually removes the moon: through the normal `sessions` topic, the
+   * SAME path every other session mutation already takes, rather than a
+   * second, parallel "remove this one locally" code path that could disagree
+   * with the republish arriving a moment later.
+   */
+  dismissSubagent(sessionId: string, agentId: string): Promise<void>
+  /**
+   * Applies one live message off an open agent's `subagent:<sessionId>:<toolUseId>`
+   * topic. Exposed as its own action — like `applySessionEvent` — so the
+   * dedupe/staleness rules are testable without going through a real socket.
+   */
+  applySubagentEvent(sessionId: string, toolUseId: string, msg: SubagentEvent): void
 }
 
 export type OrbitalStore = OrbitalState & OrbitalActions
@@ -394,6 +473,25 @@ function releaseLaunchSubscription(sessionId: string): void {
   const release = launchSubscriptions.get(sessionId)
   if (!release) return
   launchSubscriptions.delete(sessionId)
+  release()
+}
+
+/**
+ * The live subscription behind the ONE open subagent panel. Unlike
+ * `launchSubscriptions` above (keyed per session, because several launches
+ * can be in flight at once) this needs no key: `subagentPanel` is a single
+ * slot (task 7 brief), so there is never more than one of these live at a
+ * time. Set at the top of `openSubagent`, after releasing whatever this held
+ * before — releasing first, not last, is what stops a second agent's
+ * subscribe from ever overlapping the first's for even a beat, which would
+ * let the old topic's messages land in the new agent's list.
+ */
+let subagentSubscriptionRelease: (() => void) | null = null
+
+function releaseSubagentSubscription(): void {
+  if (!subagentSubscriptionRelease) return
+  const release = subagentSubscriptionRelease
+  subagentSubscriptionRelease = null
   release()
 }
 
@@ -478,6 +576,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   sessionsTotal: 0,
   toast: null,
   ui: initialUiState,
+  subagentPanel: null,
 
   async loadInitial() {
     const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] =
@@ -550,6 +649,33 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           ? { transcripts: { [selectedId]: fetched }, historyLoaded: { [selectedId]: true } }
           : { transcripts: {}, historyLoaded: {} },
       )
+
+      // The subagent panel needs the same treatment, and for a sharper
+      // reason than the session transcript above: `OrbitalSocket.onopen`
+      // re-subscribes every live topic, `subagent:…` included, so the
+      // SUBSCRIPTION comes back by itself and the panel quietly resumes
+      // appending — with every message published during the outage missing
+      // from the middle of the transcript and nothing in the UI saying so.
+      // A silent hole is exactly what spec § 10 exists to forbid; the
+      // server's ring buffer still holds those messages, so re-running the
+      // open is all it takes to close it.
+      //
+      // `openSubagent` rather than a bare refetch, because it is the one
+      // path that does all four things this needs: releases and re-takes
+      // the subscription, rebuilds the message list from the buffer, and —
+      // on a 404 — writes `found: false`, which is what finally makes
+      // STREAM LOST reachable at all. A server restart repopulates
+      // `sessions` with `subagents: []` and never touches `ui.selectedId`,
+      // so the close guard below does not fire and nothing else in the
+      // client would ever have noticed; the panel would keep showing a
+      // pre-restart transcript as if it were live.
+      //
+      // The cost, accepted: the body blanks for one fetch, where the
+      // session transcript above fetches before it swaps. The panel is
+      // already showing a transcript known to be incomplete, and the swap
+      // is bounded by one request.
+      const panel = get().subagentPanel
+      if (panel) await get().openSubagent(panel.sessionId, panel.subagent)
     } catch {
       // A failed catch-up leaves the caches as they were; the next reconnect,
       // or a manual reload, tries again.
@@ -606,6 +732,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         order: state.order.filter((id) => id !== msg.sessionId),
         sessionsTotal: Math.max(0, state.sessionsTotal - 1),
       })
+      // An open agent panel goes with its parent. The close guard at the
+      // bottom of this file only watches `ui.selectedId`, and a removal does
+      // not necessarily move it — a session removed while some OTHER planet
+      // is selected, or while the same one stays selected as a now-missing
+      // id, both leave `selectedId` exactly where it was. The panel would
+      // then keep rendering: header with no parent name (the session is
+      // gone from `sessions`), a transcript of an agent belonging to
+      // nothing, and — because the server drops both subagent stores at the
+      // same moment (`server/src/index.ts`, `onStatus` / `ended`) — no way
+      // to refetch it either.
+      if (get().subagentPanel?.sessionId === msg.sessionId) get().closeSubagent()
     }
   },
 
@@ -1306,7 +1443,183 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   clearToast() {
     set({ toast: null })
   },
+
+  async openSubagent(sessionId, subagent) {
+    // Release first, not last: the old subscription must be gone before the
+    // new one is even requested, or the two topics could both be live for a
+    // beat and the outgoing agent's messages would land in the incoming
+    // agent's list (task 7 brief: "A leaked subscription here is a real
+    // bug, not a tidiness point").
+    releaseSubagentSubscription()
+
+    // The parent session becomes the selected one, first (spec § 8's
+    // lifecycle: the agent panel sits BESIDE its parent's detail panel, and
+    // "Another planet selected | Subagent panel closes — it belonged to the
+    // old session" only makes sense if the two were ever the same session).
+    //
+    // The `OPEN →` path satisfies this trivially — that row only exists
+    // inside the parent's own open transcript. The MAP path did not:
+    // `SpaceMap` called `openSubagent` alone, so a moon click could dock an
+    // agent panel with nothing selected at all (`mapInsets.right` and
+    // `overlayRightPx` are both gated on `selectedId` and would ignore it)
+    // or beside a DIFFERENT session's detail panel. The close guard at the
+    // bottom of this file fires on `ui.selectedId` CHANGING, so it can
+    // narrow an inconsistency that appears later but can never repair one
+    // that exists the moment the panel opens.
+    //
+    // Not awaited: `select()` writes `ui.selectedId` synchronously and only
+    // then awaits its history fetch, and the panel must seat in the same
+    // frame as the click. Skipped when it is already the selected session,
+    // so clicking a second moon on the same planet does not re-run the
+    // parent's own bookkeeping.
+    if (get().ui.selectedId !== sessionId) void get().select(sessionId)
+
+    // Seats the header/badge immediately, before either the subscribe or the
+    // fetch — the swap has to read as "now showing the new agent" in the
+    // same frame as the click, not a beat later once the network responds.
+    // The body starts empty; the fetch below fills it in, or (on a 404)
+    // turns this into STREAM LOST. `subagent` is stored by reference
+    // (never copied) because every async continuation below re-checks
+    // identity against this exact object to tell a stale response apart
+    // from a fresh one.
+    set({
+      subagentPanel: { sessionId, subagent, messages: [], droppedCount: 0, found: true },
+    })
+
+    const toolUseId = subagent.toolUseId
+    if (!toolUseId) {
+      // Spec § 5: a moon (or row) whose `SubagentInfo` never got a
+      // `toolUseId` from `task_started` cannot be joined to any buffer —
+      // callers are expected not to reach here (such an agent takes no
+      // pointer and no tab stop), but if one does there is nothing to fetch
+      // or subscribe to. STREAM LOST is the honest reading: no transcript,
+      // and no reason to expect one to arrive.
+      set((state) =>
+        state.subagentPanel?.subagent === subagent
+          ? { subagentPanel: { ...state.subagentPanel, found: false } }
+          : {}
+      )
+      return
+    }
+
+    // Subscribed BEFORE the fetch goes out, same reasoning as
+    // `launchSession`'s subscribe-before-POST: a live message published in
+    // the gap between the fetch resolving and the subscribe existing would
+    // otherwise be lost with nothing to notice it ever happened.
+    subagentSubscriptionRelease = getSocket().subscribe(
+      `subagent:${sessionId}:${toolUseId}`,
+      (msg: SubagentEvent) => get().applySubagentEvent(sessionId, toolUseId, msg),
+    )
+
+    try {
+      const { messages, droppedCount } = await api.subagentMessages(sessionId, toolUseId)
+      const current = get().subagentPanel
+      // A second `openSubagent` (or a `closeSubagent`) may have run while
+      // this was in flight — identity is the object reference set above, so
+      // a stale response landing after the swap can never resurrect a panel
+      // the user already left.
+      if (!current || current.subagent !== subagent) return
+      const fetchedIds = new Set(messages.map((m) => m.id))
+      // Anything a live WS message already appended DURING the fetch (see
+      // `applySubagentEvent`) and that the fetched snapshot does not itself
+      // contain arrived strictly after that snapshot was taken, so it is
+      // folded in after it — the same merge `select()` uses for its own
+      // history fetch, applied here instead of an outright replace so a
+      // fast live message can never be dropped on the floor by its own
+      // fetch's response landing a moment later.
+      const alreadyLive = current.messages.filter((m) => !fetchedIds.has(m.id))
+      set({
+        subagentPanel: {
+          ...current,
+          messages: [...messages, ...alreadyLive],
+          droppedCount,
+          found: true,
+        },
+      })
+    } catch (err) {
+      const current = get().subagentPanel
+      if (!current || current.subagent !== subagent) return
+      if (err instanceof ApiError && err.status === 404) {
+        // The distinction the whole design hinges on (task 7 brief): the
+        // server no longer knows this agent at all — its buffer died with a
+        // restart — as opposed to a 200 with an empty list, which means the
+        // agent is known and simply hasn't said anything yet. Collapsing
+        // the two would tell the user the agent did nothing, which here
+        // would be a lie.
+        set({ subagentPanel: { ...current, messages: [], droppedCount: 0, found: false } })
+        return
+      }
+      const message = err instanceof Error ? err.message : 'Failed to load the subagent transcript'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
+
+  closeSubagent() {
+    releaseSubagentSubscription()
+    set({ subagentPanel: null })
+  },
+
+  async dismissSubagent(sessionId, agentId) {
+    try {
+      await api.dismissSubagent(sessionId, agentId)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to dismiss the subagent'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
+
+  applySubagentEvent(sessionId, toolUseId, msg) {
+    const panel = get().subagentPanel
+    // Guards identity the same way `openSubagent`'s own continuations do —
+    // belt-and-suspenders, since `releaseSubagentSubscription` already runs
+    // synchronously before a new subscribe, so a handler for a topic this
+    // panel no longer owns should never fire at all.
+    if (!panel || panel.sessionId !== sessionId || panel.subagent.toolUseId !== toolUseId) return
+    if (panel.messages.some((m) => m.id === msg.message.id)) return
+    // Capped at the SERVER's own cap, and evicted from the front the same
+    // way. The list started as a copy of the server's buffer (the fetch in
+    // `openSubagent`) and grows by exactly the appends the server makes, so
+    // the two stay in lockstep — which is why `droppedCount` is TAKEN from
+    // the payload rather than counted here: the server owns the number, and
+    // two independent counters that could ever disagree is how the
+    // TRUNCATED chip would come to claim "buffer 3,412 steps" about a ring
+    // buffer that cannot hold more than `MAX_SUBAGENT_MESSAGES`.
+    const appended = [...panel.messages, msg.message]
+    const messages =
+      appended.length > MAX_SUBAGENT_MESSAGES
+        ? appended.slice(appended.length - MAX_SUBAGENT_MESSAGES)
+        : appended
+    set({
+      subagentPanel: {
+        ...panel,
+        messages,
+        droppedCount: msg.droppedCount ?? panel.droppedCount,
+      },
+    })
+  },
 }))
+
+/**
+ * Closes the subagent panel whenever the selected session stops being its
+ * parent — either it was deselected, or another planet was selected (task 7
+ * brief: "The panel must close when its parent session is deselected or
+ * another planet is selected. Wire that to the existing selection action
+ * rather than adding a watcher effect.").
+ *
+ * `ui.selectedId` is written from FIVE places in this codebase — `select()`
+ * below, the detail panel's own × , the map's empty-space click, App's
+ * Escape handler, and `sessionUrl`'s stale-deep-link cleanup — and none of
+ * the other four go through `select()` at all; they zero it with a raw
+ * `setState`. A store subscription on the field itself is therefore the one
+ * seam that sees every one of them without adding a watcher effect to each
+ * call site (or a React effect at all — this is registered once, for the
+ * module's lifetime, not per component mount).
+ */
+useOrbital.subscribe((state, prevState) => {
+  if (state.ui.selectedId === prevState.ui.selectedId) return
+  const panel = state.subagentPanel
+  if (panel && panel.sessionId !== state.ui.selectedId) useOrbital.getState().closeSubagent()
+})
 
 // ---------------------------------------------------------------------------
 // Pure selector helpers (exported directly for testing). Do NOT call these
@@ -1503,6 +1816,103 @@ export function parseDetailPanelWidth(
 ): number {
   const raw = Number(settings.detail_panel_width)
   return clampDetailPanelWidth(Number.isFinite(raw) ? raw : DETAIL_PANEL_DEFAULT_PX, viewportWidth)
+}
+
+/** The subagent panel's own width recipe (canvas 11b) — default and
+ * minimum, the same role `DETAIL_PANEL_DEFAULT_PX`/`DETAIL_PANEL_MIN_PX`
+ * play for the detail panel. Unlike the detail panel there is no drag
+ * handle or persisted setting for this width yet (task 8 brief: placing the
+ * panel, not extending it) — every caller hands `resolvePanelPairWidths`
+ * this constant as its `subagentWidthPx` — but the pairing math below takes
+ * it as a value rather than inlining the constant so it is exercised the
+ * same way a future resizable width would be. */
+export const SUBAGENT_PANEL_DEFAULT_PX = 380
+/** Below this the header's chip row and the elapsed reading stop fitting. */
+export const SUBAGENT_PANEL_MIN_PX = 320
+
+/** The two docked panels together, as a share of the viewport, once the
+ * subagent panel is open (spec § 8 "Layout"; task 8 brief's resolution
+ * order). Independent of `DETAIL_PANEL_MAX_VIEWPORT_SHARE` — that ceiling
+ * governs the detail panel ALONE and stays exactly as it is (task 8 brief,
+ * requirement 1: the single-panel case must not regress), while this one
+ * only ever applies once a second panel exists to share the budget with. */
+const PANEL_PAIR_MAX_VIEWPORT_SHARE = 0.75
+
+/**
+ * The gutter between the detail and subagent panels, and — everywhere else
+ * a docked panel is drawn — the same panel's own edge inset (`App.tsx`'s
+ * wrapper offsets, `SpaceMap.tsx`'s follow inset and right-anchored
+ * overlays). One canvas value, "the 16px gutter is the same as every other
+ * gutter" (`Feature - Subagent panel` 11b/11d), so it is exported here
+ * rather than re-declared privately at each call site the way it was
+ * before fix round 1: `resolvePanelPairWidths` below now has to reason
+ * about this same 16px too (see its own comment), and a private copy that
+ * could silently drift from what the DOM actually renders would make the
+ * ceiling a statement about the wrong number.
+ */
+export const PANEL_GUTTER_PX = 16
+
+/** `resolvePanelPairWidths`'s return: the two panels' resolved CSS px
+ * widths, after the detail-yields-first ceiling has been applied. */
+export interface PanelPairWidths {
+  detailWidthPx: number
+  subagentWidthPx: number
+}
+
+/**
+ * Resolves the detail and subagent panel widths against the 75% pair
+ * ceiling, once the subagent panel is open (spec § 8 "Layout"; task 8
+ * brief's numbered resolution order, reproduced here step for step):
+ *
+ * 1. (Handled by the caller, not this function — see below.) With no
+ *    subagent panel open, `clampDetailPanelWidth` alone governs the detail
+ *    panel; this function is never called, and today's 60%-share behaviour
+ *    is exactly what runs. Generalising THIS function to also cover that
+ *    case is exactly the regression the brief warns against.
+ * 2. `subagentWidthPx` is floored at `SUBAGENT_PANEL_MIN_PX` — a caller
+ *    that ever lets the subagent panel shrink below its own minimum (there
+ *    is no such caller yet; see `SUBAGENT_PANEL_DEFAULT_PX`'s comment)
+ *    cannot borrow room from going smaller than the panel can actually
+ *    render.
+ * 3. If the pair — PLUS the `PANEL_GUTTER_PX` between them — already fits
+ *    the 75% ceiling, both widths pass through untouched: a wide viewport
+ *    never shrinks either panel just because a second one exists. The
+ *    ceiling check is gutter-INCLUSIVE (fix round 1 — see the ADR
+ *    `panel-pair-ceiling-includes-the-gutter`): the 16px between the two
+ *    panels is space they occupy just as much as either panel's own width
+ *    is, so a ceiling that pretended it were free would understate how
+ *    much of the viewport the pair actually takes.
+ * 4. Otherwise the DETAIL panel yields first, down to its own 360px floor
+ *    (`DETAIL_PANEL_MIN_PX`): the reader opened the agent, so the parent is
+ *    what gives way. The gutter is subtracted out of the ceiling before the
+ *    detail panel's share is computed, for the same reason step 3 adds it
+ *    into the check.
+ * 5. If the detail panel is already pinned at 360 and the pair — gutter
+ *    included — still exceeds the ceiling, the subagent panel starts
+ *    shrinking too, down to its own 320px floor.
+ * 6. Below roughly 1010px of viewport both floors together (plus the
+ *    gutter) still exceed 75% — this function returns 360/320 anyway and
+ *    lets the pair exceed the ceiling, exactly as the brief's "Deferred"
+ *    section says to: the sub-1010px second layout mode (the agent panel
+ *    taking the session panel's slot) is explicitly out of scope for this
+ *    branch.
+ */
+export function resolvePanelPairWidths(
+  detailWidthPx: number,
+  subagentWidthPx: number,
+  viewportWidth: number
+): PanelPairWidths {
+  const subagent = Math.max(SUBAGENT_PANEL_MIN_PX, subagentWidthPx)
+  const ceiling = viewportWidth * PANEL_PAIR_MAX_VIEWPORT_SHARE
+  if (detailWidthPx + PANEL_GUTTER_PX + subagent <= ceiling) {
+    return { detailWidthPx, subagentWidthPx: subagent }
+  }
+  const shrunkDetail = Math.max(DETAIL_PANEL_MIN_PX, ceiling - PANEL_GUTTER_PX - subagent)
+  if (shrunkDetail + PANEL_GUTTER_PX + subagent <= ceiling) {
+    return { detailWidthPx: shrunkDetail, subagentWidthPx: subagent }
+  }
+  const shrunkSubagent = Math.max(SUBAGENT_PANEL_MIN_PX, ceiling - PANEL_GUTTER_PX - DETAIL_PANEL_MIN_PX)
+  return { detailWidthPx: DETAIL_PANEL_MIN_PX, subagentWidthPx: shrunkSubagent }
 }
 
 /** The export's sidebar width (canvas 1a) — the default and the handle's double-click reset. */

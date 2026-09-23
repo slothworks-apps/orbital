@@ -83,8 +83,18 @@ export function clampZoom(zoom: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
 }
 
-/** The map's default zoom — the zoom at which bodies are drawn exactly as the canvas specifies them. */
-const REFERENCE_ZOOM = 60
+/**
+ * The map's default zoom — the zoom at and above which the counter-zoom
+ * stops inflating bodies. Exported because `Moon` seeds its DOM affordance's
+ * scale off it before the first frame has a camera to read.
+ *
+ * NOT "the zoom at which bodies are drawn exactly as the canvas specifies
+ * them", which this used to say: the canvas quotes bodies against a 100 px
+ * planet and a zoom of 60 draws that planet 60 px wide. Design px equal CSS
+ * px at zoom 100, which is above the reference and therefore outside the
+ * curve entirely (see `bodyDesignPxToScreenPx`).
+ */
+export const REFERENCE_ZOOM = 60
 /** Exponent of the counter-zoom curve; 0 would track zoom linearly, 1 would be a fixed-pixel map pin. */
 const FACTOR_K = 0.5
 /**
@@ -111,6 +121,39 @@ const FACTOR_MAX = (REFERENCE_ZOOM / MIN_ZOOM) ** FACTOR_K
  */
 export function bodyZoomFactor(zoom: number): number {
   return Math.min(FACTOR_MAX, Math.max(1, (REFERENCE_ZOOM / zoom) ** FACTOR_K))
+}
+
+/** `moonPx`/`planetPx` in `visuals.ts`: bodies are quoted against a 100 px planet. */
+const DESIGN_PX_PER_WORLD_UNIT = 100
+
+/**
+ * Design px → CSS px for anything drawn in DOM ON TOP of a body: the moon's
+ * hit area, its halo, its active ring and brackets (`MoonControl` in
+ * `Moon.tsx`).
+ *
+ * The map quotes every body in "design px" against a 100 px planet — one
+ * design px is `0.01` world units (`moonPx` in `visuals.ts`). A world unit
+ * covers `zoom` screen px on this orthographic camera, and a body's group is
+ * additionally scaled by `bodyZoomFactor(zoom)` (and, for a moon's body
+ * alone, by the appearance multiplier `bodyScale`). So one design px of a
+ * body is, on screen:
+ *
+ *     bodyZoomFactor(zoom) * bodyScale * zoom / 100   CSS px
+ *
+ * Worth stating plainly because the counter-zoom is easy to mistake for a
+ * constant-screen-size trick and it is not: `bodyZoomFactor` is clamped to 1
+ * from BELOW (see its own doc — "One-sided"), so above the reference zoom it
+ * contributes nothing at all and a body's screen size grows linearly with
+ * `zoom`. Across the 5–400 range this factor spans roughly 0.17 to 4.0 —
+ * a 23× span that a fixed CSS-px overlay cannot follow. At the map's default
+ * zoom of 60 it is 0.6, not 1: the canvas's 100 px planet draws 60 px wide.
+ *
+ * Pure and exported for tests; the frame loop in `Moon` reads
+ * `state.camera.zoom` and hands the result to `MoonControl`, because camera
+ * state deliberately never reaches React (`useSceneModel`).
+ */
+export function bodyDesignPxToScreenPx(zoom: number, bodyScale = 1): number {
+  return (bodyZoomFactor(zoom) * bodyScale * zoom) / DESIGN_PX_PER_WORLD_UNIT
 }
 
 /**

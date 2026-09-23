@@ -76,6 +76,23 @@ export interface QuestionCardProps {
   toolUse: ChatMessage
   /** Present once the SDK wrote the answer back — the historical card's source. */
   toolResult?: ChatMessage
+  /**
+   * Forces the card into its non-interactive forms (`answered` / `locked`)
+   * regardless of what `pendingDecisions[sessionId]` says — set by the
+   * subagent panel (`TranscriptView`'s own `readOnly` prop), which cannot
+   * rely on `isPending` ever being false there.
+   *
+   * The reason it can't: `decide()` (`server/src/runner/runner.ts`) does not
+   * read the SDK's `opts.agentID`, so a subagent whose own toolset happens to
+   * include `AskUserQuestion` produces a `decision_pending` on the PARENT's
+   * `session:<id>` topic keyed by the SUBAGENT's own `toolUseId` — the exact
+   * id this card's `decisionId` computes to when that tool_use is the one
+   * `forwardSubagentText` mirrors into the subagent panel. Without this flag,
+   * `isPending` would read true and the panel would render a fully
+   * interactive card for a decision that also has no visible row anywhere
+   * else to answer it from (fix: subagent-question-ignores-agent-id).
+   */
+  readOnly?: boolean
 }
 
 function questionsOf(toolInput: unknown): QuestionSpec[] {
@@ -96,7 +113,7 @@ function answeredAt(timestamp: string | undefined): string {
   return ` ${at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
 }
 
-export function QuestionCard({ sessionId, toolUse, toolResult }: QuestionCardProps) {
+export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false }: QuestionCardProps) {
   const decisionId = toolUse.toolUseId ?? toolUse.id
   const pending = useOrbital((s) => s.pendingDecisions[sessionId])
   const sentAnswers = useOrbital((s) => s.decisionAnswers[decisionId])
@@ -120,8 +137,16 @@ export function QuestionCard({ sessionId, toolUse, toolResult }: QuestionCardPro
 
   const watchedTerminal = session ? isReadOnly(session) : false
   const active = activeQuestionIndex(questions, answers)
-  const mode: 'interactive' | 'terminal' | 'answered' | 'locked' =
-    isPending && !watchedTerminal
+  // `readOnly` wins outright, ahead of `isPending` — it exists precisely
+  // because `isPending` cannot be trusted to say "nobody can answer this
+  // here" on its own (see the prop's own doc). A still-open question renders
+  // `locked` (readable, inert — the same body a session-ended-while-pending
+  // decision already uses), never `interactive` or `terminal`.
+  const mode: 'interactive' | 'terminal' | 'answered' | 'locked' = readOnly
+    ? active === -1 && questions.length > 0
+      ? 'answered'
+      : 'locked'
+    : isPending && !watchedTerminal
       ? 'interactive'
       : isPending
         ? 'terminal'

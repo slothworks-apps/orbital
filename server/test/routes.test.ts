@@ -29,7 +29,7 @@ import { IdeStore } from '../src/ide/store.js';
 import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 import type { SessionRow } from '../src/types.js';
-import { SubagentStore } from '../src/transcript/subagents.js';
+import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.js';
 import { createImageStore } from '../src/images/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 
@@ -133,6 +133,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
   // single one of its own checks.
   app.register(multipart);
   const subagents = new SubagentStore();
+  const subagentTranscripts = new SubagentTranscripts();
   const errors = new ErrorLog({ db, hub });
   const imagesDir = mkdtempSync(join(tmpdir(), 'orbital-images-'));
   const imageStore = createImageStore(imagesDir);
@@ -146,6 +147,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
     subagents,
     git: gitStore,
     ide: opts.ide ?? ideStore,
+    subagentTranscripts,
     errors,
     titler: stubTitler(),
     settings: {
@@ -162,7 +164,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
     retention: retentionFor(db),
   });
   return {
-    app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, errors,
+    app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, errors,
     imageStore, imagesDir, claudeDir,
   };
 }
@@ -195,6 +197,7 @@ describe('REST routes', () => {
   let registry: any;
   let startCalls: any[];
   let subagents: SubagentStore;
+  let subagentTranscripts: SubagentTranscripts;
   beforeEach(() => {
     const result = makeApp();
     app = result.app;
@@ -204,6 +207,7 @@ describe('REST routes', () => {
     registry = result.registry;
     startCalls = result.startCalls;
     subagents = result.subagents;
+    subagentTranscripts = result.subagentTranscripts;
   });
 
   it('GET /api/sessions carries each session\'s running subagents', async () => {
@@ -220,7 +224,7 @@ describe('REST routes', () => {
     ]);
     const body = (await app.inject({ method: 'GET', url: '/api/sessions' })).json();
     expect(body.sessions[0].subagents).toEqual([
-      { id: 't1', name: 'reviewer', state: 'working' },
+      { id: 't1', name: 'reviewer', state: 'working', startedAt: expect.any(Number) },
     ]);
     // A session with none says so explicitly rather than omitting the field.
     expect(body.sessions[1].subagents).toEqual([]);
@@ -383,6 +387,135 @@ describe('REST routes', () => {
     const res = await app.inject({ method: 'GET', url: '/api/sessions/does-not-exist/messages' });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ error: 'not found' });
+  });
+
+  // ---------------------------------------------------------------------
+  // GET /api/sessions/:id/subagents/:toolUseId/messages and
+  // POST /api/sessions/:id/subagents/:agentId/dismiss (task-4 brief).
+  // ---------------------------------------------------------------------
+
+  /** Registers `s1`'s agent `k1` (toolUseId `tu1`) as known to `SubagentStore`,
+   * the way a real `task_started` would — without this, every route under
+   * test would see an agent `SubagentStore` never heard of. */
+  function knownAgent() {
+    subagents.feedTask('s1', {
+      type: 'system', subtype: 'task_started', session_id: 's1',
+      task_id: 'k1', tool_use_id: 'tu1', description: 'reviewer', task_type: 'local_agent',
+    });
+  }
+
+  it('GET .../subagents/:toolUseId/messages 404s for a session nobody has heard of', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/does-not-exist/subagents/tu1/messages' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: 'not found' });
+  });
+
+  it('GET .../subagents/:toolUseId/messages 404s when the session exists but the agent is unknown to the store — the server-restarted case', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/subagents/tu1/messages' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: 'not found' });
+  });
+
+  // The important one: a known agent that has not been appended to yet must
+  // read as an honest empty panel, not as STREAM LOST. Would fail if the
+  // handler were "simplified" to 404-on-missing-buffer.
+  it('GET .../subagents/:toolUseId/messages 200s with an empty list for a known agent with no buffer yet', async () => {
+    knownAgent();
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/subagents/tu1/messages' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ messages: [], droppedCount: 0 });
+  });
+
+  it('GET .../subagents/:toolUseId/messages 200s with the buffered messages and droppedCount for a known agent with a buffer', async () => {
+    knownAgent();
+    subagentTranscripts.append('s1', 'tu1', [
+      { id: 'm1', role: 'assistant', text: 'looking' },
+      { id: 'm2', role: 'tool_use', toolName: 'Read', toolUseId: 'r1' },
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/subagents/tu1/messages' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      messages: [
+        { id: 'm1', role: 'assistant', text: 'looking' },
+        { id: 'm2', role: 'tool_use', toolName: 'Read', toolUseId: 'r1' },
+      ],
+      droppedCount: 0,
+    });
+  });
+
+  it('GET .../subagents/:toolUseId/messages 404s an agent whose toolUseId is absent — it can never be addressed this way', async () => {
+    // `feed()` (the transcript-only path) never learns a `toolUseId`; only
+    // `feedTask()` does, from the SDK's task events.
+    subagents.feed('s1', [
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'ag1', name: 'Task', input: { description: 'reviewer' } }],
+        },
+      },
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/subagents/ag1/messages' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('POST .../subagents/:agentId/dismiss 204s and marks the agent dismissed in subsequent GET /api/sessions/:id reads', async () => {
+    knownAgent();
+    let body = (await app.inject({ method: 'GET', url: '/api/sessions/s1' })).json();
+    expect(body.session.subagents.map((a: any) => a.id)).toEqual(['k1']);
+    expect(body.session.subagents[0].dismissed).toBeUndefined();
+
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/k1/dismiss' });
+    expect(res.statusCode).toBe(204);
+
+    // Marked, not withheld. The web filters on this exactly once, in
+    // `map/sceneModel.ts`, so the moon goes and nothing else does — this is
+    // the wire half of spec § 8's "Moon dismissed | That moon leaves the
+    // map; the row's `OPEN →` still works".
+    body = (await app.inject({ method: 'GET', url: '/api/sessions/s1' })).json();
+    expect(body.session.subagents.map((a: any) => a.id)).toEqual(['k1']);
+    expect(body.session.subagents[0].dismissed).toBe(true);
+  });
+
+  /**
+   * C2, the whole-branch review's own named regression: dismissing used to
+   * subtract the agent from `all()`, and the messages route's "is this agent
+   * known" check reads `all()` — so dismissing a moon 404'd its transcript
+   * and the panel rendered "the Orbital server lost this agent's buffer",
+   * about a buffer that had never been touched.
+   */
+  it('GET .../subagents/:toolUseId/messages still 200s with the buffer AFTER the moon is dismissed', async () => {
+    knownAgent();
+    subagentTranscripts.append('s1', 'tu1', [{ id: 'm1', role: 'assistant', text: 'looking' }]);
+
+    await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/k1/dismiss' });
+
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/subagents/tu1/messages' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      messages: [{ id: 'm1', role: 'assistant', text: 'looking' }],
+      droppedCount: 0,
+    });
+  });
+
+  it('POST .../subagents/:agentId/dismiss 204s an unknown id and publishes nothing — dismissal is idempotent', async () => {
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/does-not-exist/dismiss' });
+    expect(res.statusCode).toBe(204);
+    expect(received).toEqual([]);
+  });
+
+  it('POST .../subagents/:agentId/dismiss publishes a sessions upsert when it actually changes something', async () => {
+    knownAgent();
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/k1/dismiss' });
+    expect(res.statusCode).toBe(204);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ event: 'upsert', session: { id: 's1' } });
+    // The upsert is what takes the moon off the map, so it has to carry the
+    // mark — `sameAgents` compares `dismissed` for exactly this reason: the
+    // list's length and every agent's state are unchanged by a dismissal.
+    expect(received[0].session.subagents[0]).toMatchObject({ id: 'k1', dismissed: true });
   });
 
   it('POST /api/sessions starts a web session via the runner', async () => {
@@ -827,6 +960,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       subagents: new SubagentStore(),
       git: gitStore,
       ide: ideStore,
+      subagentTranscripts: new SubagentTranscripts(),
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
@@ -938,6 +1072,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       subagents: new SubagentStore(),
       git: gitStore,
       ide: ideStore,
+      subagentTranscripts: new SubagentTranscripts(),
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',

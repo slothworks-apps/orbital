@@ -284,6 +284,11 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
         } else {
           out.push({ id, role: 'assistant', text: block.text, ...base });
         }
+      } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
+        // Same field name and same empty-skip rule as the live path
+        // (`sdkToChatMessages`) — a thinking block with only a signature
+        // and no text is not a message on either path.
+        out.push({ id, role: 'thinking', text: block.thinking, ...base });
       } else if (block.type === 'tool_use') {
         out.push({
           id, role: 'tool_use', toolName: stringField(block.name),

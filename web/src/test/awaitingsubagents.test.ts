@@ -6,6 +6,7 @@ const agent = (id: string, state: Subagent['state'] = 'working'): Subagent => ({
   id,
   name: id,
   state,
+  startedAt: 0,
 })
 
 type Shape = Pick<ApiSession, 'status' | 'awaitingSubagents' | 'subagents'>
@@ -40,7 +41,11 @@ describe('awaitingSubagentCount', () => {
   })
 
   it('ignores agents that have already reported back', () => {
-    // The moons are the count, and an `ended` one is not drawn.
+    // Regression guard (task 9): `sceneModel.ts` stopped filtering ended
+    // agents out of `moons` — they now stay on the map until dismissed
+    // (spec § 4) — but THIS filter must not follow suit. It answers "is the
+    // parent still waiting", which an ended agent does not affect; removing
+    // it would strand a session reading WORKING forever.
     expect(
       awaitingSubagentCount(session({ subagents: [agent('a', 'ended'), agent('b')] }))
     ).toBe(1)

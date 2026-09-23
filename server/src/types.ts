@@ -67,13 +67,21 @@ export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning';
 export interface ChatMessage {
   id: string;
   /**
+   * `thinking` is Claude's reasoning block — the text it emits before the
+   * assistant answer, ahead of any `tool_use`. It gets its own role rather
+   * than riding along on an assistant message (a boolean flag, a side
+   * array) because the transcript renders it as a distinct block,
+   * interleaved in publish order with prose and tool rows rather than
+   * folded into either. See
+   * `docs/superpowers/specs/2026-09-22-subagent-transcript-panel-design.md` § 7.
+   *
    * `notice` is the CLI speaking for itself rather than through the model —
    * a locally-answered slash command's output, a hook's feedback. It is not a
    * turn: nothing about it went to or came from the model, so it carries no
    * `model` and is never folded into a tool run
    * (`docs/domains/locally-answered-slash-commands.md`).
    */
-  role: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'notice';
+  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice';
   text?: string;
   toolName?: string;
   toolInput?: unknown;

@@ -1,17 +1,27 @@
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital, editDiffsExpanded } from '../store/store'
-import type { ChatMessage } from '../lib/types'
+import type { ChatMessage, Subagent } from '../lib/types'
 import { ansiToHtml } from '../lib/highlight'
 import { hasTextExtension } from '../lib/pathLinks'
-import { formatBytes } from '../lib/format'
 import { changeCounts, describeFileChange } from '../lib/fileEdit'
 import { ChangeView, changeSectionLabel } from './DiffView'
+import { formatBytes, formatToolDuration } from '../lib/format'
 import { ImageThumb } from './ImageThumb'
 import { PathButton } from './PathButton'
 
 /** Tools whose salient input lives in a `file_path` field. */
 const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
+
+/**
+ * The tool name a subagent launch shows up under. Mirrors the server's own
+ * `SUBAGENT_TOOLS` (`server/src/transcript/subagents.ts`) rather than
+ * importing it — `web` and `server` are separate npm workspaces with no
+ * shared module for this. The current CLI calls it `Agent`; `Task` is the
+ * name an older CLI's transcript, still on disk, used instead (spec
+ * 2026-09-22-subagent-transcript-panel-design.md § 5 / task 9 brief).
+ */
+const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
 
 /** Input fields that name a file (spec: 2026-09-19-file-viewer-design §
  * Where paths come from) — pressable in the collapsed label and in the
@@ -35,6 +45,34 @@ export function pressablePathOf(toolName: string | undefined, toolInput: unknown
 }
 
 /**
+ * How long a tool call took, in ms: the gap between its `tool_use`'s
+ * publish `timestamp` and its `tool_result`'s. `undefined` — never `0` —
+ * when either side has no timestamp (a transcript from before Task 1, or a
+ * frame the SDK gave no time for) or the call hasn't finished yet
+ * (`toolResult` absent covers the "still running" case for free, since a
+ * running call has no result to carry a timestamp at all), OR the gap
+ * comes out negative. A negative gap is not a fast call, it is a clock
+ * lying: two timestamps stamped by `new Date().toISOString()`/the SDK's own
+ * clock, minutes or hours apart in wall time, can still land end-before-
+ * start across an NTP correction or a local clock adjustment mid-session.
+ * Clamping that to `0` (an earlier version of this function did) would
+ * render `formatToolDuration`'s forbidden fabricated `0s` — the exact lie
+ * the brief calls out — just laundered through this function instead of
+ * that one. Treating it as unknown, like every other unknown here, is the
+ * only option that isn't a guess. Shared by `ToolRow`'s own row and
+ * `summarizeToolRun`'s (`TranscriptView.tsx`) sum across a folded run, so
+ * the two can never disagree about what counts as "no duration".
+ */
+export function toolDurationMs(toolUse: ChatMessage, toolResult?: ChatMessage): number | undefined {
+  if (!toolUse.timestamp || !toolResult?.timestamp) return undefined
+  const start = Date.parse(toolUse.timestamp)
+  const end = Date.parse(toolResult.timestamp)
+  if (Number.isNaN(start) || Number.isNaN(end)) return undefined
+  if (end < start) return undefined
+  return end - start
+}
+
+/**
  * Picks the one input value worth showing in a `ToolRow`'s collapsed
  * one-liner: `command` for Bash, `file_path` for Read/Edit/Write,
  * `description` for Task, and otherwise the first string-valued field on
@@ -48,7 +86,9 @@ export function salientInput(toolName: string | undefined, toolInput: unknown): 
   if (toolName && FILE_PATH_TOOLS.has(toolName) && typeof input.file_path === 'string') {
     return input.file_path
   }
-  if (toolName === 'Task' && typeof input.description === 'string') return input.description
+  if (toolName && SUBAGENT_TOOLS.has(toolName) && typeof input.description === 'string') {
+    return input.description
+  }
 
   for (const value of Object.values(input)) {
     if (typeof value === 'string') return value
@@ -118,6 +158,22 @@ export interface ToolRowProps {
   toolUse: ChatMessage
   /** Undefined while the tool call is still running (no result yet). */
   toolResult?: ChatMessage
+  /**
+   * The session's own live `subagents` (spec § 5, canvas 11a) — joined
+   * against `toolUse.toolUseId` to decide whether THIS row is an
+   * `Agent`/`Task` call with a still-reachable live agent behind it, in
+   * which case it gains an `OPEN →` control. Omitted (or no match) renders
+   * no control at all: `Transcript` (the parent session's own transcript)
+   * passes the real list; `SubagentPanel`'s own `TranscriptView` never
+   * does, so a nested Agent/Task call inside a subagent's transcript stays
+   * a plain row — depth-2 agents have no moon and no panel (spec's own
+   * "DEPTH 2" row, out of scope to build here; this is what leaves it
+   * alone without special-casing depth).
+   */
+  subagents?: Subagent[]
+  /** Opens the subagent panel for the row's matched agent. Absent alongside
+   * `subagents` for the same reason. */
+  onOpenSubagent?: (subagent: Subagent) => void
 }
 
 /**
@@ -131,7 +187,7 @@ export interface ToolRowProps {
  * expanding lifts both (fill `.55`, border `.18`) so the open row reads as
  * one block with its output.
  */
-export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
+export function ToolRow({ toolUse, toolResult, subagents, onOpenSubagent }: ToolRowProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   // `null` means "nobody has touched this row", which is what lets the setting
   // still govern it. The first click writes a boolean and the row keeps that
@@ -146,6 +202,7 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
   // the case, and anything else keeps today's plain bright span.
   const pathInput = pressablePathOf(toolUse.toolName, toolUse.toolInput)
   const pressablePath = pathInput !== null && pathInput === label ? pathInput : null
+  const duration = formatToolDuration(toolDurationMs(toolUse, toolResult))
 
   // An editing tool's expanded body is its diff, not its input JSON (spec:
   // 2026-09-23-edit-diffs-in-the-transcript) — the JSON was where reviewing a
@@ -173,6 +230,26 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
   // Open because it arrived that way, not because anyone opened it — which is
   // what makes the body a preview rather than the whole change.
   const preview = expanded && override === null
+  // The `OPEN →` control (spec § 5, canvas 11a). Joined on `toolUseId`.
+  //
+  // A DISMISSED agent still matches and still gets its control: "unlike the
+  // moon this is part of the record forever … still reachable after
+  // scrolling back through a long session — and after the moon has been
+  // dismissed" (spec § 5). The list this joins against
+  // (`sessions[id].subagents`) used to have dismissed agents subtracted
+  // server-side, which silently made this the opposite of the spec and left
+  // a live in-memory buffer with no way in; the server now MARKS them and
+  // only `map/sceneModel.ts` acts on the mark.
+  //
+  // What genuinely renders no control — not a disabled one, since there is
+  // nothing to press and nothing to explain — is a row with no match at
+  // all: a nested depth-2 call, for which `subagents` is deliberately never
+  // passed (see `subagents`' own prop doc), or an agent the server has
+  // genuinely forgotten (a restart; `subagents` comes back empty).
+  const openableSubagent =
+    toolUse.toolName && SUBAGENT_TOOLS.has(toolUse.toolName) && toolUse.toolUseId
+      ? subagents?.find((a) => a.toolUseId === toolUse.toolUseId)
+      : undefined
 
   return (
     <div
@@ -244,6 +321,32 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
               {counts.removed > 0 && (
                 <span className="text-[oklch(72%_.15_22)]">−{counts.removed}</span>
               )}
+            </span>
+          )}
+          {duration && (
+            // Canvas 11b: "Read: eslint.config.js · 0.3s" — the row's own
+            // gap between its tool_use and tool_result timestamps. Absent
+            // (not "0s") when either side has no timestamp, or the call is
+            // still running — see `toolDurationMs`.
+            <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {duration}</span>
+          )}
+          {openableSubagent && onOpenSubagent && (
+            // Canvas 11a: `oklch(85% .12 205)`, tracked .12em. A sibling of
+            // the expand button (not inside it) for the same reason
+            // `PathButton` is — its own press, not the row's toggle.
+            <span className="pointer-events-auto shrink-0">
+              <button
+                type="button"
+                data-open-subagent
+                aria-label={`Open subagent transcript: ${openableSubagent.name}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenSubagent(openableSubagent)
+                }}
+                className="font-mono text-[10.5px] tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
+              >
+                OPEN →
+              </button>
             </span>
           )}
           {running && (

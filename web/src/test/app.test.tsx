@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
-import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
-import type { ApiSession } from '../lib/types'
+import type { ApiSession, Subagent } from '../lib/types'
 
 // ---------------------------------------------------------------------------
 // jsdom polyfills App's real (unmocked) children need to mount:
@@ -166,6 +166,10 @@ function resetStore() {
     errors: [],
     errorsUnseen: 0,
     toast: null,
+    // Reset explicitly (`setState` merges rather than replaces): a test
+    // below that opens the subagent panel and does not close it again
+    // would otherwise leak it into whatever test runs next.
+    subagentPanel: null,
     ui: {
       selectedId: null,
       filterTagId: 'all',
@@ -576,5 +580,152 @@ describe('errors trigger in the map HUD', () => {
 
     expect(useOrbital.getState().ui.dialog).toBe('errors')
     expect(screen.getByRole('heading', { name: 'Errors' })).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 8 (spec § 8 "Layout"): placing the subagent panel. `DetailPanel.tsx`
+// and `SpaceMap.tsx` each resolve their own widths/offsets (covered in
+// `detail.test.tsx` and `spacemap.test.tsx`); this is the one additional
+// right-offset site the brief calls out by name — App's OWN wrapper `div`
+// around `<DetailPanel>`, which used to be a static `right-4` and now has to
+// make room for `<SubagentPanel>` sitting to its right. A mistake here is
+// exactly "an overlay lands underneath a panel": the math could be correct
+// in `store.ts` and still never reach the DOM.
+// ---------------------------------------------------------------------------
+
+describe('App: placing the subagent panel', () => {
+  const originalInnerWidth = window.innerWidth
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { value: originalInnerWidth, configurable: true })
+  })
+
+  function makeSubagentFixture(overrides: Partial<Subagent> = {}): Subagent {
+    return {
+      id: 'agent-1',
+      name: 'Run the eslint and jest suites',
+      state: 'working',
+      toolUseId: 'tool-1',
+      startedAt: 0,
+      ...overrides,
+    }
+  }
+
+  it('mounts the subagent panel and pushes the detail panel left by its width plus both gutters', async () => {
+    // Wide enough (1600) that 450 + 380 sits comfortably under the pair's
+    // 75% ceiling — neither panel is shrunk, so the offset is exactly
+    // 16 (edge inset) + 380 (subagent) + 16 (gutter) = 412.
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true })
+    vi.mocked(api.listSessions).mockResolvedValue([makeSession({ id: 'a' })])
+    await renderApp()
+    act(() => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } }))
+    })
+    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
+
+    // Nothing subagent-shaped is on screen until the panel opens.
+    expect(screen.queryByText('SUBAGENT · READ-ONLY')).not.toBeInTheDocument()
+
+    act(() => {
+      useOrbital.setState({
+        subagentPanel: {
+          sessionId: 'a',
+          subagent: makeSubagentFixture(),
+          messages: [],
+          droppedCount: 0,
+          found: true,
+        },
+      })
+    })
+
+    // The panel itself is on screen — task 7's own chrome, now actually
+    // placed rather than merely built.
+    expect(screen.getByText('SUBAGENT · READ-ONLY')).toBeInTheDocument()
+    expect(screen.getByText(/read-only · a subagent takes no input/i)).toBeInTheDocument()
+
+    // The detail panel's own `<Panel>` (data-side="right") sits two DOM
+    // levels inside App's positioning wrapper: the wrapper itself, then
+    // `DetailPanel`'s presence div (ErrorBoundary renders no node of its
+    // own when nothing has crashed).
+    const detailPanelEl = document.querySelector('[data-side="right"]') as HTMLElement
+    const wrapper = detailPanelEl.parentElement?.parentElement as HTMLElement
+    expect(wrapper.style.right).toBe('412px')
+  })
+
+  it('shrinks the subagent panel itself once the ceiling bites, and offsets the detail panel by the SHRUNK width (fix round 1)', async () => {
+    // Reviewer finding 3: every other rendered test in this suite (and in
+    // detail.test.tsx/spacemap.test.tsx) happened to land at a viewport
+    // where the subagent panel stayed at its 380 default — so a bug that
+    // fed `detailPanelRightPx` the WRONG field (`.detailWidthPx` instead of
+    // `.subagentWidthPx`), or that hardcoded `SUBAGENT_PANEL_DEFAULT_PX`
+    // instead of reading the resolved value, would have passed the whole
+    // suite. V=1000 is `resolvePanelPairWidths`'s own worked example for
+    // fix round 1 (`store.test.ts`: "locks the gutter-inclusive reading in
+    // at V=1000") — it resolves to {360, 374}, so this is the one rendered
+    // test where the subagent panel's OWN width actually differs from its
+    // default and can be checked against `<SubagentPanel>`'s real DOM node.
+    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true })
+    vi.mocked(api.listSessions).mockResolvedValue([makeSession({ id: 'a' })])
+    await renderApp()
+    act(() => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } }))
+    })
+    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
+    act(() => {
+      useOrbital.setState({
+        subagentPanel: {
+          sessionId: 'a',
+          subagent: makeSubagentFixture(),
+          messages: [],
+          droppedCount: 0,
+          found: true,
+        },
+      })
+    })
+    expect(screen.getByText('SUBAGENT · READ-ONLY')).toBeInTheDocument()
+
+    // The subagent panel's own `<Panel side="subagent">` — its REAL rendered
+    // width, read the same way `detail.test.tsx`'s `panelWidthPx` reads the
+    // detail side.
+    const subagentPanelEl = document.querySelector('[data-side="subagent"]') as HTMLElement
+    expect(subagentPanelEl.style.width).toBe('374px')
+
+    // The detail panel's wrapper offset: 16 (edge inset) + 374 (the
+    // SHRUNK subagent width, not the 380 default) + 16 (gutter) = 406.
+    const detailPanelEl = document.querySelector('[data-side="right"]') as HTMLElement
+    const wrapper = detailPanelEl.parentElement?.parentElement as HTMLElement
+    expect(wrapper.style.right).toBe('406px')
+  })
+
+  it('closing the detail panel closes the subagent panel with it, restoring the plain 16px inset', async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([makeSession({ id: 'a' })])
+    await renderApp()
+    act(() => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } }))
+    })
+    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
+    act(() => {
+      useOrbital.setState({
+        subagentPanel: {
+          sessionId: 'a',
+          subagent: makeSubagentFixture(),
+          messages: [],
+          droppedCount: 0,
+          found: true,
+        },
+      })
+    })
+    expect(screen.getByText('SUBAGENT · READ-ONLY')).toBeInTheDocument()
+
+    // Deselecting the session — the store's own subscription (store.ts,
+    // "closes the subagent panel whenever the selected session stops being
+    // its parent") closes the subagent panel too, not this component.
+    act(() => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))
+    })
+
+    expect(screen.queryByText('SUBAGENT · READ-ONLY')).not.toBeInTheDocument()
+    expect(useOrbital.getState().subagentPanel).toBeNull()
   })
 })

@@ -1,8 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ApiSession, OrbitalModel, Tag } from '../lib/types'
-import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
+import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
+import {
+  useOrbital,
+  clampDetailPanelWidth,
+  DETAIL_PANEL_MIN_PX,
+  type OrbitalState,
+  type OrbitalUiState,
+} from '../store/store'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
@@ -31,6 +37,30 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     status: 'idle',
     subagents: [],
     ...overrides,
+  }
+}
+
+function makeSubagent(overrides: Partial<Subagent> = {}): Subagent {
+  return {
+    id: 'agent-1',
+    name: 'Run the eslint and jest suites',
+    state: 'working',
+    toolUseId: 'tool-1',
+    startedAt: 0,
+    ...overrides,
+  }
+}
+
+/** An open `subagentPanel` for session `sessionId` — the shape task 8's
+ * pairing tests need `useOrbital`'s state to carry; the panel's own
+ * content is `subagentpanel.test.tsx`'s concern, not this file's. */
+function openSubagentPanelFor(sessionId: string) {
+  return {
+    sessionId,
+    subagent: makeSubagent(),
+    messages: [],
+    droppedCount: 0,
+    found: true,
   }
 }
 
@@ -72,6 +102,11 @@ function resetStore(
     transcripts: {},
     historyLoaded: {},
     toast: null,
+    // Reset explicitly rather than left to `setState`'s shallow merge: a
+    // test that opens the subagent panel (task 8) and does not close it
+    // again would otherwise leak it into whatever test runs next in this
+    // file.
+    subagentPanel: null,
     ...overrides,
     ui: { ...defaultUi, ...overrides.ui },
   })
@@ -499,7 +534,7 @@ describe('DetailPanel header', () => {
       sessions: {
         a: makeSession({
           id: 'a',
-          subagents: [{ id: 's1', name: 'researcher', state: 'working' }],
+          subagents: [{ id: 's1', name: 'researcher', state: 'working', startedAt: 0 }],
         }),
       },
       ui: { selectedId: 'a' },
@@ -1490,5 +1525,158 @@ describe('DetailPanel session stats placement', () => {
       el.getAttribute('aria-label')
     )
     expect(names).toEqual(['Session stats', 'Pin session', 'Clear', 'Close panel'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The subagent pairing (task 8, spec § 8 "Layout"): with the subagent panel
+// open, the detail panel's width is resolved against the pair's 75%
+// ceiling — via `resolvePanelPairWidths` (unit-tested for the arithmetic
+// itself in `store.test.ts`) — instead of `clampDetailPanelWidth` alone.
+// These tests exercise that end to end through the real `<DetailPanel>`, so
+// a wiring mistake (the wrong width reaching `<Panel>`, or the pairing
+// firing when it should not) fails here even if the pure function is
+// correct in isolation.
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel — the subagent pairing (task 8)', () => {
+  const originalInnerWidth = window.innerWidth
+
+  function setViewportWidth(px: number) {
+    Object.defineProperty(window, 'innerWidth', { value: px, configurable: true })
+  }
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { value: originalInnerWidth, configurable: true })
+  })
+
+  /** The width `<Panel side="right">` is actually drawn at — read off its
+   * own inline style, the same live value the drag handle's math writes. */
+  function panelWidthPx(container: HTMLElement): number {
+    const panel = container.querySelector('[data-side="right"]') as HTMLElement
+    return Number(panel.style.width.replace('px', ''))
+  }
+
+  it('regression: with no subagent panel open, the width is exactly clampDetailPanelWidth — 60% share included', async () => {
+    // A stored width past the pair's own 75% ceiling but under the
+    // single-panel 60% one: if this were ever routed through
+    // `resolvePanelPairWidths` regardless of whether a subagent panel is
+    // open, the two ceilings would disagree and this assertion would fail.
+    setViewportWidth(1000)
+    resetStore({
+      sessions: { a: webSession },
+      settings: { detail_panel_width: '900' },
+      ui: { selectedId: 'a' },
+    })
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(panelWidthPx(container)).toBe(clampDetailPanelWidth(900, 1000))
+    expect(panelWidthPx(container)).toBe(600)
+  })
+
+  it('both panels fit under the ceiling at a wide viewport: the detail panel keeps its stored width', async () => {
+    setViewportWidth(1600)
+    resetStore({
+      sessions: { a: webSession },
+      settings: { detail_panel_width: '450' },
+      ui: { selectedId: 'a' },
+      subagentPanel: openSubagentPanelFor('a'),
+    })
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(panelWidthPx(container)).toBe(450)
+  })
+
+  it('the ceiling bites: the detail panel shrinks, giving up exactly what the subagent panel (plus the gutter) needs', async () => {
+    // Ceiling at 1100px viewport = 825; 450 (stored) + 16 (gutter) + 380
+    // (subagent default) = 846 overshoots it, so the detail panel gives way
+    // to 825 - 16 - 380 = 429 (fix round 1: the ceiling check is
+    // gutter-inclusive — see the ADR `panel-pair-ceiling-includes-the-gutter`).
+    setViewportWidth(1100)
+    resetStore({
+      sessions: { a: webSession },
+      settings: { detail_panel_width: '450' },
+      ui: { selectedId: 'a' },
+      subagentPanel: openSubagentPanelFor('a'),
+    })
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(panelWidthPx(container)).toBe(429)
+  })
+
+  it('the ceiling bites harder: the detail panel pins at its own 360px floor', async () => {
+    // Ceiling at 900px viewport = 675; even 360 + 16 (gutter) + 380 (756)
+    // overshoots it, so the detail panel pins at its floor (the subagent
+    // panel is the one that gives up the rest — `resolvePanelPairWidths`'s
+    // own tests cover that half; `SubagentPanel` is not mounted by this
+    // component).
+    setViewportWidth(900)
+    resetStore({
+      sessions: { a: webSession },
+      settings: { detail_panel_width: '450' },
+      ui: { selectedId: 'a' },
+      subagentPanel: openSubagentPanelFor('a'),
+    })
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    expect(panelWidthPx(container)).toBe(DETAIL_PANEL_MIN_PX)
+  })
+
+  it('dragging the detail panel wider while the subagent panel is open cannot push the pair past the ceiling', async () => {
+    const firePointer = (el: Element, type: string, clientX: number) =>
+      fireEvent(el, new MouseEvent(type, { bubbles: true, clientX }))
+
+    // Ceiling at 1200px viewport = 900. The single-panel ceiling alone
+    // (60% of 1200 = 720) lets the drag reach 720 — the pair ceiling does
+    // not, so the panel must draw narrower than what was actually dragged
+    // to: 900 - 16 (gutter) - 380 (subagent) = 504.
+    setViewportWidth(1200)
+    resetStore({
+      sessions: { a: webSession },
+      settings: { detail_panel_width: '450' },
+      ui: { selectedId: 'a' },
+      subagentPanel: openSubagentPanelFor('a'),
+    })
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+
+    const handle = screen.getByRole('separator', { name: /resize panel/i })
+    firePointer(handle, 'pointerdown', 500)
+    firePointer(handle, 'pointermove', 230) // startWidth 450 + (500 - 230) = 720
+
+    // The NOMINAL stored width still tracks the drag up to its own
+    // single-panel ceiling, exactly as it always has (requirement 1).
+    expect(useOrbital.getState().settings.detail_panel_width).toBe('720')
+    // But the panel is never actually DRAWN past the pair ceiling.
+    expect(panelWidthPx(container)).toBe(504)
+    expect(panelWidthPx(container)).toBeLessThan(720)
+  })
+
+  it('closing the subagent panel returns the detail panel to its stored width', async () => {
+    // Ceiling bites hard enough at this viewport to pin the detail panel at
+    // its 360px floor while open (fix round 1's own worked example — see
+    // `store.test.ts`'s "locks the gutter-inclusive reading in at V=1000"
+    // test); closing the subagent panel must hand the detail panel its
+    // stored 450 back regardless.
+    setViewportWidth(1000)
+    resetStore({
+      sessions: { a: webSession },
+      settings: { detail_panel_width: '450' },
+      ui: { selectedId: 'a' },
+      subagentPanel: openSubagentPanelFor('a'),
+    })
+    const { container } = render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
+    expect(panelWidthPx(container)).toBe(DETAIL_PANEL_MIN_PX)
+
+    act(() => {
+      useOrbital.setState({ subagentPanel: null })
+    })
+
+    expect(panelWidthPx(container)).toBe(450)
   })
 })

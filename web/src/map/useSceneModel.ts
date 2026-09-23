@@ -88,6 +88,7 @@ export function useSceneModel(): SceneModel {
           ideDismissed: {},
           sessionsTotal,
           toast: null,
+          subagentPanel: null,
           ui: {
             selectedId,
             filterTagId,

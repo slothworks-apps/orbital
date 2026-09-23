@@ -80,7 +80,13 @@ export interface ApiSession {
    * of them — it changes the label, the way `interruptedAt` does.
    */
   awaitingSubagents: boolean;
-  /** Subagents running in this session right now; empty for everything else. */
+  /**
+   * Every subagent this session has ever seen, ended included, minus
+   * whatever the user has dismissed — not just the running ones, so an
+   * ended agent's moon (and its transcript) survives on the map until it is
+   * dismissed (spec § "Moons outlive their agents"). Empty for every
+   * session that has never launched one.
+   */
   subagents: SubagentInfo[];
   /**
    * The question this session's CLI is blocked on, or null — which is what
@@ -141,7 +147,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
     awaitingSubagents: ctx.runner.awaitingSubagents(row.id),
-    subagents: ctx.subagents.get(row.id),
+    subagents: ctx.subagents.all(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
     git: ctx.git.locate(row.cwd),
     ide: ctx.ide.locate(row.cwd),

@@ -1,8 +1,20 @@
 import type { CSSProperties, ReactNode } from 'react'
 
 export interface PanelProps {
-  /** Which edge the panel docks to, or a free-floating glass card. Controls width/position classes. */
-  side?: 'left' | 'right' | 'float'
+  /**
+   * Which edge the panel docks to, or a free-floating glass card. Controls
+   * width/position classes.
+   *
+   * `subagent` is the read-only agent panel (canvas 11b) — its OWN docked
+   * right-edge recipe, distinct from `right`'s (the detail panel's glassy,
+   * blurred glass): flatter and darker, with an inset shadow instead of a
+   * drop shadow, so the two read as depth-separated when they sit side by
+   * side (spec 2026-09-22-subagent-transcript-panel-design.md § 8, "three
+   * cues separate the two panels ... a depth step"). Fixed chrome, not a
+   * layout concern — it is what canvas 11b draws for the panel on its own,
+   * with no detail panel beside it at all.
+   */
+  side?: 'left' | 'right' | 'float' | 'subagent'
   /** Collapses the panel to a narrow rail (docked sides only). The caller decides what content to show. */
   collapsed?: boolean
   /**
@@ -31,10 +43,14 @@ export interface PanelProps {
   children?: ReactNode
 }
 
-// Widths verbatim from the export: 300px sidebar (1a), 450px detail panel (1b).
+// Widths verbatim from the export: 300px sidebar (1a), 450px detail panel
+// (1b), 380px subagent panel default (11b — the task-8 brief's minimum/
+// clamp logic overrides this via `widthPx`, same as the detail panel's own
+// drag handle does).
 const sideWidth: Record<NonNullable<PanelProps['side']>, string> = {
   left: 'w-[300px]',
   right: 'w-[450px]',
+  subagent: 'w-[380px]',
   float: '',
 }
 
@@ -43,6 +59,7 @@ const sideWidth: Record<NonNullable<PanelProps['side']>, string> = {
 const sideRounding: Record<NonNullable<PanelProps['side']>, string> = {
   left: 'rounded-[14px]',
   right: 'rounded-[14px]',
+  subagent: 'rounded-[14px]',
   float: 'rounded-2xl',
 }
 
@@ -63,6 +80,15 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
     'border border-[rgba(150,205,255,.18)] backdrop-blur-[24px]',
     'shadow-[0_30px_80px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.06)]',
   ].join(' '),
+  // Canvas 11b, verbatim: no blur at all (it is meant to read as flatter and
+  // darker than `right`, not as another pane of the same glass), a plain
+  // dark gradient, and an INSET shadow — 24px positive x-offset — instead of
+  // a drop shadow, so the panel's own left inner edge reads as recessed.
+  subagent: [
+    'bg-gradient-to-b from-[rgba(10,15,27,.9)] to-[rgba(5,8,16,.94)]',
+    'border border-[rgba(150,205,255,.1)]',
+    'shadow-[inset_24px_0_40px_-28px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.03)]',
+  ].join(' '),
   // `float` is the centred 1120×740 modal panel of 1e/1h — it sits over a
   // scrim rather than over the map, so it is the densest and most opaque of
   // the three, with a much deeper shadow.
@@ -77,6 +103,11 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
 const sideShadow: Record<NonNullable<PanelProps['side']>, string> = {
   left: '0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06)',
   right: '0 30px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06)',
+  // No hue bloom on this panel in the canvas (11b draws none, matching the
+  // detail panel's own "omitted = no bloom" convention above) — restated
+  // here only so every `side` has an entry and `glowHue` stays type-safe if
+  // a future caller ever passes one anyway.
+  subagent: 'inset 24px 0 40px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.03)',
   float: '0 40px 120px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07)',
 }
 

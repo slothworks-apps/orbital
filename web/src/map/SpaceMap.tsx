@@ -10,10 +10,14 @@ import {
   parseDetailPanelWidth,
   parseSidebarWidth,
   parseContextThresholds,
+  resolvePanelPairWidths,
   showCompactBadge,
   showContext,
+  PANEL_GUTTER_PX,
+  SUBAGENT_PANEL_DEFAULT_PX,
 } from '../store/store'
 import { isReadOnly } from '../lib/types'
+import type { Subagent } from '../lib/types'
 import { labelFontPx } from './visuals'
 import { Button } from '../ui/Button'
 import { COMPACT_COMMAND, Planet } from './Planet'
@@ -102,11 +106,20 @@ const SLOTH_TOP_PERCENT = (640 / 900) * 100
 /**
  * Map width the panels sit on, in CSS pixels — what `centerOn` and `fitView`
  * keep the sessions clear of. Both panels are live now (drag handles,
- * `detail_panel_width` / `sidebar_width`): the detail panel adds its 16px
- * edge inset (1b), and the sidebar its 16px inset plus a 24px gutter, which
- * is where the collapsed rail's 96px (16 + 56 + 24) comes from too (1a).
+ * `detail_panel_width` / `sidebar_width`): the detail panel adds its
+ * `PANEL_GUTTER_PX` edge inset (1b), and the sidebar its own 16px inset plus
+ * a 24px gutter, which is where the collapsed rail's 96px (16 + 56 + 24)
+ * comes from too (1a).
+ *
+ * With the subagent panel open too, `PANEL_GUTTER_PX` does double duty as
+ * the gutter BETWEEN the two right-hand panels — "the 16px gutter is the
+ * same as every other gutter" (Feature - Subagent panel 11b/11d) — so the
+ * right inset below adds it a second time. Imported from `store.ts` (fix
+ * round 1) rather than re-declared locally: `resolvePanelPairWidths` now
+ * folds this same 16px into its own 75% ceiling check, and a private copy
+ * here that ever drifted from that one would make the ceiling a statement
+ * about a number the screen does not actually draw.
  */
-const DETAIL_PANEL_GUTTER_PX = 16
 const SIDEBAR_GUTTER_PX = 40
 const SIDEBAR_COLLAPSED_PX = 96
 
@@ -453,6 +466,16 @@ export function SpaceMap() {
   const model = useSceneModel()
   const select = useOrbital((s) => s.select)
   const setDialog = useOrbital((s) => s.setDialog)
+  const openSubagent = useOrbital((s) => s.openSubagent)
+  // A primitive, not the `subagentPanel` object itself: that object grows a
+  // new `messages` array on every live WS append, and subscribing to it
+  // directly here would re-render the whole map (every planet AND moon) on
+  // every subagent transcript line. `activePanelKey` only changes when
+  // WHICH agent is open changes, which is the one thing a moon's `active`
+  // treatment (canvas 11e) actually needs to know.
+  const activePanelKey = useOrbital((s) =>
+    s.subagentPanel ? `${s.subagentPanel.sessionId}:${s.subagentPanel.subagent.id}` : null
+  )
   // Appearance → default planet size (canvas 5a). Premultiplied into each
   // planet's `scale` prop at the call site below, so `sceneModel`/`layout`
   // never see it — orbit radii and cluster spacing stay put by design.
@@ -475,26 +498,54 @@ export function SpaceMap() {
   // Live panel width for the follow inset and the right-anchored overlays —
   // the drag handle moves it, and while it is held (`resizingPanel`) the
   // overlays drop their transition so they track the pointer with the panel.
-  const detailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, window.innerWidth))
+  //
+  // `rawDetailPanelWidth` is the single-panel-clamped nominal width, exactly
+  // as it always was. With the subagent panel open, `resolvePanelPairWidths`
+  // (task 8: spec § 8 "Layout") resolves what each panel is ACTUALLY drawn
+  // at once the 75% pair ceiling has had its say — `detailPanelWidth` below
+  // is that resolved value, unchanged from `rawDetailPanelWidth` whenever
+  // the subagent panel is closed (requirement 1: the single-panel case does
+  // not regress).
+  const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, window.innerWidth))
+  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  const pairWidths = useMemo(
+    () =>
+      subagentPanelOpen
+        ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, window.innerWidth)
+        : { detailWidthPx: rawDetailPanelWidth, subagentWidthPx: 0 },
+    [subagentPanelOpen, rawDetailPanelWidth]
+  )
+  const detailPanelWidth = pairWidths.detailWidthPx
   const sidebarWidth = useOrbital((s) => parseSidebarWidth(s.settings, window.innerWidth))
   const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
   const errorsUnseen = useOrbital((s) => s.errorsUnseen)
   const errorLogOpen = useOrbital((s) => s.ui.dialog === 'errors')
-  // 24px clear of the open panel and its 16px inset; the export's own edge
-  // inset (right:24px) when nothing is selected. No transition while the
-  // drag handle is held — the overlays track the pointer with the panel.
-  const overlayRightPx = selectedId ? detailPanelWidth + DETAIL_PANEL_GUTTER_PX + 24 : 24
+  // How much of the right edge the docked panel(s) occupy, detail panel
+  // width plus its 16px gutter — and, with the subagent panel open, ITS
+  // width plus a second 16px gutter on top of that (the same constant
+  // reused as the inter-panel gutter, per the canvas note above). Zero when
+  // the subagent panel is closed, so this is a no-op in the regression
+  // case.
+  const rightPanelsChromePx =
+    detailPanelWidth +
+    PANEL_GUTTER_PX +
+    (subagentPanelOpen ? pairWidths.subagentWidthPx + PANEL_GUTTER_PX : 0)
+  // 24px clear of the open panel(s) and their edge inset; the export's own
+  // edge inset (right:24px) when nothing is selected. No transition while
+  // the drag handle is held — the overlays track the pointer with the
+  // panel.
+  const overlayRightPx = selectedId ? rightPanelsChromePx + 24 : 24
   // Screen-space chrome the camera helpers keep the sessions clear of. Both
-  // widths are live, and the right side only counts when a panel is actually
+  // sides are live, and the right side only counts when a panel is actually
   // open — nothing is selected, nothing is covering that edge.
   const mapInsets = useMemo(
     () => ({
       left: sidebarCollapsed ? SIDEBAR_COLLAPSED_PX : sidebarWidth + SIDEBAR_GUTTER_PX,
-      right: selectedId ? detailPanelWidth + DETAIL_PANEL_GUTTER_PX : 0,
+      right: selectedId ? rightPanelsChromePx : 0,
     }),
-    [sidebarCollapsed, sidebarWidth, selectedId, detailPanelWidth]
+    [sidebarCollapsed, sidebarWidth, selectedId, rightPanelsChromePx]
   )
   const overlayTransition = resizingPanel
     ? ''
@@ -580,6 +631,19 @@ export function SpaceMap() {
       void select(id)
     },
     [select]
+  )
+
+  // The moon's own click (task 9, spec § 5 "The moon"). `Moon` never imports
+  // the store — this is the same "plain callback prop" shape as `onClick`
+  // above, just handed `openSubagent` instead of `select`. It does NOT also
+  // call `select` here: `openSubagent` selects the parent session itself, so
+  // the two ways in (a moon and the parent transcript's `OPEN →` row) cannot
+  // drift apart on which of them remembered to.
+  const handleOpenSubagent = useCallback(
+    (sessionId: string, subagent: Subagent) => {
+      void openSubagent(sessionId, subagent)
+    },
+    [openSubagent]
   )
 
   /**
@@ -991,6 +1055,9 @@ export function SpaceMap() {
             phase={moon.phase}
             bodyScale={planetScale}
             parentBody={sim.bodies.get(moon.sessionId)}
+            sessionId={moon.sessionId}
+            active={`${moon.sessionId}:${moon.subagent.id}` === activePanelKey}
+            onOpen={handleOpenSubagent}
           />
         ))}
 

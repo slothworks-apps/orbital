@@ -4,7 +4,7 @@ import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sd
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
-import { TASK_EVENT_SUBTYPES, type TaskEvent } from '../transcript/subagents.js';
+import { TASK_EVENT_SUBTYPES, type TaskEvent, type SubagentTranscripts } from '../transcript/subagents.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import { noticeFromSdkMessage } from '../transcript/notices.js';
 import type { ImageStore, ImageWriter } from '../images/store.js';
@@ -403,6 +403,11 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: I
   const content = sdkMsg.message?.content;
   if (!Array.isArray(content)) return [];
   const model = typeof sdkMsg.message?.model === 'string' ? sdkMsg.message.model : undefined;
+  // Stamped once per frame, not per block: every message this call emits
+  // was published in the same instant. The SDK frame's own timestamp wins
+  // when it has one; otherwise this is the only record of when it landed,
+  // so a tool row's duration (a later task) has something to subtract.
+  const timestamp = typeof sdkMsg.timestamp === 'string' ? sdkMsg.timestamp : new Date().toISOString();
   const out: ChatMessage[] = [];
   content.forEach((block: any, i: number) => {
     const id = `${sdkMsg.session_id}:${nextSeq()}:${i}`;
@@ -411,12 +416,27 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: I
         // Same split as the indexed path (`entriesToMessages`) — a live
         // command expansion must fold identically to a reloaded one.
         const split = splitUserText(block.text);
-        out.push({ id, role: 'user', text: split.text, ...(split.command ? { command: split.command } : {}) });
+        out.push({ id, role: 'user', text: split.text, ...(split.command ? { command: split.command } : {}), timestamp });
       } else {
-        out.push({ id, role: 'assistant', text: block.text, model });
+        out.push({ id, role: 'assistant', text: block.text, model, timestamp });
+      }
+    } else if (block.type === 'thinking') {
+      // The SDK carries the reasoning text in `thinking`, not `text` — the
+      // field text blocks use. A thinking block with only a signature and
+      // no text (real transcripts have these) is not a message, same as
+      // the text branch above skips empty text.
+      //
+      // `typeof` first, matching the indexed path (`entriesToMessages` in
+      // `transcript/parser.ts`): `block` is `any` off the stream, and a
+      // non-string `thinking` would throw on `.trim()` inside `pump()`'s
+      // `for await`, where the catch logs a warning and then calls
+      // `finish(sessionId)` — one malformed frame would end the whole
+      // session.
+      if (typeof block.thinking === 'string' && block.thinking.trim()) {
+        out.push({ id, role: 'thinking', text: block.thinking, model, timestamp });
       }
     } else if (block.type === 'tool_use') {
-      out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id });
+      out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id, timestamp });
     } else if (block.type === 'tool_result') {
       const parts = toolResultParts(block.content ?? '', images);
       out.push({
@@ -424,10 +444,11 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: I
         text: parts.text,
         ...(parts.images.length ? { images: parts.images } : {}),
         ...(block.is_error === true ? { isError: true } : {}),
+        timestamp,
       });
     } else if (block.type === 'image') {
       const entry = imageRefOf(block, images);
-      if (entry) out.push({ id, role: sdkMsg.type === 'user' ? 'user' : 'assistant', images: [entry] });
+      if (entry) out.push({ id, role: sdkMsg.type === 'user' ? 'user' : 'assistant', images: [entry], timestamp });
     }
   });
   return out;
@@ -454,6 +475,7 @@ export class Runner {
   private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
   private images?: ImageStore;
+  private subagentTranscripts?: SubagentTranscripts;
   private claudeExecutablePath?: string | null;
   private ide?: IdeApprovals;
 
@@ -473,6 +495,16 @@ export class Runner {
     /** Content-addressed store live image blocks are decoded into; absent
      * (some tests) they drop, which was always the live path's behaviour. */
     images?: ImageStore;
+    /**
+     * Where `pump()` files each subagent's own frames — keyed by the `Agent`
+     * `tool_use` id its `parent_tool_use_id` carries — instead of the ones
+     * it still sends to `onEntries`/`session:<id>` for the parent's own.
+     * Absent (most tests), a subagent's messages are converted and published
+     * to `subagent:<id>:<toolUseId>` same as ever; there is simply nothing
+     * buffering them for a panel opened later, which is the live behaviour
+     * before this Runner ever had a caller that cared.
+     */
+    subagentTranscripts?: SubagentTranscripts;
     onStatus?: (sessionId: string, status: SessionStatus) => void;
     /**
      * Which sessions this Runner owns, and in what state — `null` when it
@@ -612,6 +644,7 @@ export class Runner {
     this.onPermissionMode = deps.onPermissionMode;
     this.onError = deps.onError;
     this.images = deps.images;
+    this.subagentTranscripts = deps.subagentTranscripts;
     this.claudeExecutablePath = deps.claudeExecutablePath;
     this.ide = deps.ide;
   }
@@ -851,6 +884,13 @@ export class Runner {
       permissionMode: opts.permissionMode,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       settingSources: ['user', 'project', 'local'],
+      // The subagent panel's whole feed: without this only tool_use/tool_result
+      // blocks cross from a subagent to the stream, and prose/thinking never
+      // arrive at all. An older CLI that does not know the option ignores it
+      // silently — the panel degrades to tool rows with no prose, which is
+      // accepted, not an error (spec
+      // `2026-09-22-subagent-transcript-panel-design.md` § 1).
+      forwardSubagentText: true,
       // Without this the SDK treats every "ask" decision as terminal and
       // auto-denies it, which is what used to push `AskUserQuestion` into
       // plain prose (spec 2026-09-20-interactive-decisions-design).
@@ -988,9 +1028,42 @@ export class Runner {
             const s = this.sessions.get(sessionId);
             if (s && used !== null) s.lastCall = used;
           }
-          this.onEntries?.(sessionId, [msg as TranscriptEntry]);
-          for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images)) {
-            this.hub.publish(topic, { event: 'message', message: chat });
+          // The publish itself is the other half of the `parent_tool_use_id`
+          // split above. Before `forwardSubagentText` this branch mattered
+          // only for `onEntries` and the fallback reading, because a
+          // subagent's tool_use/tool_result blocks look harmless enough on
+          // `session:<id>` — but they vanish on reload (`entriesToMessages`
+          // skips `isSidechain` entries), so live and reloaded transcripts of
+          // the same session already disagreed before today. Now that the SDK
+          // also forwards a subagent's prose and thinking, publishing it here
+          // unchanged would flood the parent with the whole nested
+          // conversation instead of the one line it used to get from the
+          // tool's own `tool_result`. So a subagent frame goes to its own
+          // buffer and its own topic instead, and touches neither `onEntries`
+          // nor `session:<id>` at all (spec
+          // `2026-09-22-subagent-transcript-panel-design.md` § "The bug this
+          // uncovers" and § 2).
+          if (msg.parent_tool_use_id == null) {
+            this.onEntries?.(sessionId, [msg as TranscriptEntry]);
+            for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images)) {
+              this.hub.publish(topic, { event: 'message', message: chat });
+            }
+          } else {
+            const chats = sdkToChatMessages(msg, () => ++this.seq, this.images);
+            this.subagentTranscripts?.append(sessionId, msg.parent_tool_use_id, chats);
+            const subagentTopic = `subagent:${sessionId}:${msg.parent_tool_use_id}`;
+            // Read AFTER the append, so it already counts whatever this
+            // frame just evicted. `droppedCount` rides every increment and
+            // not just the REST response (spec § 3: "`droppedCount` rides
+            // the REST response and the WS increments") — without it a
+            // panel that was opened before the buffer overflowed would
+            // never learn it had, and its TRUNCATED chip would stay hidden
+            // while the transcript above it silently lost its head.
+            const droppedCount =
+              this.subagentTranscripts?.get(sessionId, msg.parent_tool_use_id)?.droppedCount ?? 0;
+            for (const chat of chats) {
+              this.hub.publish(subagentTopic, { event: 'message', message: chat, droppedCount });
+            }
           }
         } else if (msg.type === 'result') {
           this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });

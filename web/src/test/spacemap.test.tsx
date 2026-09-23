@@ -1,11 +1,13 @@
-import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { awaitingSubagentCount } from '../lib/types'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { PLANET_SCALE_MAX, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import { buildSceneModel, contextFillFor, type SceneModel } from '../map/sceneModel'
 import { useSceneModel } from '../map/useSceneModel'
 import {
   applyPan,
+  bodyDesignPxToScreenPx,
   bodyZoomFactor,
   centerOn,
   clampZoom,
@@ -105,6 +107,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     errorsUnseen: 0,
     sessionsTotal: 0,
     toast: null,
+    subagentPanel: null,
     ui: defaultUi,
     ...overrides,
   }
@@ -117,7 +120,7 @@ function withSessions(sessions: ApiSession[], overrides: Partial<OrbitalState> =
 }
 
 function makeSubagent(overrides: Partial<Subagent> & { id: string }): Subagent {
-  return { name: 'sub', state: 'working', ...overrides }
+  return { name: 'sub', state: 'working', startedAt: 0, ...overrides }
 }
 
 // ---------------------------------------------------------------------------
@@ -281,25 +284,66 @@ describe('buildSceneModel', () => {
     expect(three.planets[0].footprint).toBeGreaterThan(one.planets[0].footprint)
   })
 
-  it('drops ended subagents — moons exist only for LIVE subagents', () => {
+  it('keeps ended subagents as moons — they outlive their agents until dismissed (spec § 4)', () => {
     const liveSubagent = makeSubagent({ id: 'sub-live', state: 'working' })
     const endedSubagent = makeSubagent({ id: 'sub-ended', state: 'ended' })
     const model = sceneModelAt(
       withSessions([makeSession({ id: 'a', tagIds: [1], subagents: [liveSubagent, endedSubagent] })])
     )
 
-    expect(model.moons).toHaveLength(1)
-    expect(model.moons[0].subagent.id).toBe('sub-live')
-    expect(model.planets[0].subagents.map((s) => s.id)).toEqual(['sub-live'])
+    expect(model.moons).toHaveLength(2)
+    expect(model.moons.map((m) => m.subagent.id).sort()).toEqual(['sub-ended', 'sub-live'])
+    expect(model.planets[0].subagents.map((s) => s.id).sort()).toEqual(['sub-ended', 'sub-live'])
   })
 
-  it('drops every moon when a session has only ended subagents', () => {
+  /**
+   * C2. The server MARKS a dismissed agent rather than withholding it, so
+   * the parent transcript's `OPEN →` control and the messages route keep
+   * working (spec §§ 5, 8) — which makes this filter the entire meaning of
+   * dismissal, and the only place in the client entitled to read the flag.
+   */
+  it('drops a DISMISSED subagent from the map, and only from the map', () => {
+    const kept = makeSubagent({ id: 'sub-live', state: 'working' })
+    const dismissed = makeSubagent({ id: 'sub-gone', state: 'ended', dismissed: true })
+    const session = makeSession({ id: 'a', tagIds: [1], subagents: [kept, dismissed] })
+    const model = sceneModelAt(withSessions([session]))
+
+    expect(model.moons.map((m) => m.subagent.id)).toEqual(['sub-live'])
+    expect(model.planets[0].subagents.map((s) => s.id)).toEqual(['sub-live'])
+    // The session itself still carries it — that is the list `Transcript`
+    // hands to `ToolRow`, and it must not be narrowed by the map's concern.
+    expect(session.subagents.map((s) => s.id)).toEqual(['sub-live', 'sub-gone'])
+  })
+
+  it('still draws a moon for a session with only ended subagents', () => {
     const model = sceneModelAt(
       withSessions([makeSession({ id: 'a', tagIds: [1], subagents: [makeSubagent({ id: 'sub-1', state: 'ended' })] })])
     )
 
-    expect(model.moons).toHaveLength(0)
-    expect(model.planets[0].subagents).toEqual([])
+    expect(model.moons).toHaveLength(1)
+    expect(model.moons[0].subagent.id).toBe('sub-1')
+    expect(model.planets[0].subagents.map((s) => s.id)).toEqual(['sub-1'])
+  })
+
+  // Asserted together, since the bug this pair prevents is a session stuck
+  // reading WORKING forever (spec § 11): `sceneModel` must draw a moon for
+  // an ended agent, and `awaitingSubagentCount` must still not count it —
+  // the two filters look identical and mean opposite things. See
+  // `awaitingsubagents.test.ts` for the narrower unit test of the second
+  // half on its own.
+  it('an ended agent gets a moon, but never counts toward what the session is still awaiting', () => {
+    const ended = makeSubagent({ id: 'sub-ended', state: 'ended' })
+    const session = makeSession({
+      id: 'a',
+      tagIds: [1],
+      status: 'working',
+      awaitingSubagents: true,
+      subagents: [ended],
+    })
+    const model = sceneModelAt(withSessions([session]))
+
+    expect(model.moons.map((m) => m.subagent.id)).toEqual(['sub-ended'])
+    expect(awaitingSubagentCount(session)).toBe(0)
   })
 
   it('planet positions are independent of session recency order (stable id ordering feeds layout)', () => {
@@ -665,6 +709,64 @@ describe('bodyZoomFactor', () => {
     const factors = zooms.map(bodyZoomFactor)
     for (let i = 1; i < factors.length; i++) {
       expect(factors[i]).toBeLessThanOrEqual(factors[i - 1])
+    }
+  })
+})
+
+/**
+ * I5. What a DOM overlay on a body has to multiply its design px by. The
+ * moon's affordance (`MoonControl`) was sized in fixed CSS px on the premise
+ * that the counter-zoom holds a body's apparent screen size constant; it
+ * does not, and these pin the arithmetic that says so — there is no browser
+ * in this environment to check the result against.
+ */
+describe('bodyDesignPxToScreenPx', () => {
+  it('is NOT constant across the zoom range — the premise the fixed-px affordance rested on', () => {
+    expect(bodyDesignPxToScreenPx(MIN_ZOOM)).not.toBeCloseTo(bodyDesignPxToScreenPx(MAX_ZOOM), 3)
+  })
+
+  it('grows linearly with zoom at and above the reference, where the counter-zoom is inert', () => {
+    // bodyZoomFactor === 1 here, so one design px is zoom/100 CSS px.
+    expect(bodyDesignPxToScreenPx(100)).toBeCloseTo(1, 10)
+    expect(bodyDesignPxToScreenPx(MAX_ZOOM)).toBeCloseTo(MAX_ZOOM / 100, 10)
+    expect(bodyDesignPxToScreenPx(60)).toBeCloseTo(0.6, 10)
+  })
+
+  it('follows the counter-zoom curve below the reference', () => {
+    expect(bodyDesignPxToScreenPx(30)).toBeCloseTo((Math.SQRT2 * 30) / 100, 10)
+    expect(bodyDesignPxToScreenPx(MIN_ZOOM)).toBeCloseTo(
+      (bodyZoomFactor(MIN_ZOOM) * MIN_ZOOM) / 100,
+      10,
+    )
+  })
+
+  it('carries the appearance body multiplier, which scales a moon\'s body and not its orbit', () => {
+    expect(bodyDesignPxToScreenPx(60, 2)).toBeCloseTo(2 * bodyDesignPxToScreenPx(60), 10)
+  })
+
+  /**
+   * The load-bearing property, stated as a property rather than as numbers:
+   * whatever the camera does, a design-px offset converted through this
+   * lands on screen in the same proportion to the drawn body as the canvas
+   * drew it. That is the whole of what the affordance needs, and it is what
+   * a fixed CSS-px layer cannot provide.
+   */
+  it('keeps a design-px offset in constant proportion to the body it decorates', () => {
+    const discDesignPx = 13
+    const offsetDesignPx = 19
+    for (const zoom of [MIN_ZOOM, 20, 60, 150, MAX_ZOOM]) {
+      const scale = bodyDesignPxToScreenPx(zoom)
+      expect((discDesignPx + offsetDesignPx) * scale / (discDesignPx * scale)).toBeCloseTo(
+        (discDesignPx + offsetDesignPx) / discDesignPx,
+        10,
+      )
+      // And a moon's own drawn radius really is `designPx * scale`: the map
+      // quotes moons at 0.01 world units per design px (`moonPx`,
+      // `visuals.ts`) and a world unit covers `zoom` screen px.
+      expect(discDesignPx * scale).toBeCloseTo(
+        discDesignPx * 0.01 * bodyZoomFactor(zoom) * zoom,
+        10,
+      )
     }
   })
 })
@@ -1166,6 +1268,10 @@ describe('SpaceMap overlays and the live panel width', () => {
       transcripts: {},
       historyLoaded: {},
       toast: null,
+      // Reset explicitly (`setState` merges rather than replaces): a test
+      // below that opens the subagent panel and does not close it again
+      // would otherwise leak it into whatever test runs next.
+      subagentPanel: null,
       ...overrides,
       ui: { ...defaultUi, selectedId: 'a', ...(overrides.ui ?? {}) },
     })
@@ -1192,6 +1298,72 @@ describe('SpaceMap overlays and the live panel width', () => {
       .getByRole('button', { name: 'Zoom in' })
       .closest('[data-overlay="zoom-column"]') as HTMLElement
     expect(zoomStack.style.right).toBe('24px')
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 8 (spec § 8 "Layout"): with the subagent panel open, the map's
+  // right-anchored overlays have to clear BOTH docked panels plus BOTH of
+  // their gutters, not just the detail panel's own. `mapInsets.right` is
+  // computed from the exact same expression (`rightPanelsChromePx` in
+  // `SpaceMap.tsx`) but is never itself rendered to a DOM style — only fed
+  // to `fitView`/`centerOn`, which are already exercised against arbitrary
+  // inset values in this file's own `describe('fitView', ...)` /
+  // `describe('centerOn', ...)` blocks — so asserting the overlay offset
+  // here is also the coverage for that shared expression.
+  // -------------------------------------------------------------------------
+  describe('with the subagent panel also open', () => {
+    const originalInnerWidth = window.innerWidth
+
+    function setViewportWidth(px: number) {
+      Object.defineProperty(window, 'innerWidth', { value: px, configurable: true })
+    }
+
+    afterEach(() => {
+      Object.defineProperty(window, 'innerWidth', { value: originalInnerWidth, configurable: true })
+    })
+
+    function openSubagentPanel(): OrbitalState['subagentPanel'] {
+      return {
+        sessionId: 'a',
+        subagent: makeSubagent({ id: 'agent-1', toolUseId: 'tool-1' }),
+        messages: [],
+        droppedCount: 0,
+        found: true,
+      }
+    }
+
+    it('adds the subagent panel width and a second 16px gutter at a wide viewport (no ceiling shrink)', async () => {
+      // 450 (detail) + 16 (gutter) + 380 (subagent default) + 16 (gutter) +
+      // 24 (overlay clearance) = 886. Neither panel is shrunk: 450 + 16
+      // (gutter) + 380 = 846 sits well under the pair's 75% ceiling (1200)
+      // at this viewport.
+      setViewportWidth(1600)
+      await renderMap({ settings: { detail_panel_width: '450' }, subagentPanel: openSubagentPanel() })
+
+      const zoomStack = screen
+        .getByRole('button', { name: 'Zoom in' })
+        .closest('[data-overlay="zoom-column"]') as HTMLElement
+      expect(zoomStack.style.right).toBe('886px')
+      const readout = screen.getByText(/ENDED/).closest('[data-overlay="aggregate"]') as HTMLElement
+      expect(readout.style.right).toBe('886px')
+    })
+
+    it('reflects the shrunk detail AND subagent widths once the pair ceiling bites (fix round 1: gutter-inclusive)', async () => {
+      // Ceiling at 1000px viewport = 750; 450 + 16 (gutter) + 380 overshoots
+      // it hard enough that BOTH panels give way, resolving to {360, 374}
+      // (`resolvePanelPairWidths`'s own "locks the gutter-inclusive reading
+      // in at V=1000" test covers the arithmetic — this is the same
+      // viewport, deliberately). The overlay must offset by the RESOLVED
+      // widths, not the stored 450 or the subagent's 380 default:
+      // 360 + 16 + 374 + 16 + 24 = 790.
+      setViewportWidth(1000)
+      await renderMap({ settings: { detail_panel_width: '450' }, subagentPanel: openSubagentPanel() })
+
+      const zoomStack = screen
+        .getByRole('button', { name: 'Zoom in' })
+        .closest('[data-overlay="zoom-column"]') as HTMLElement
+      expect(zoomStack.style.right).toBe('790px')
+    })
   })
 })
 

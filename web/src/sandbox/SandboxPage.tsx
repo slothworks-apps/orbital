@@ -79,6 +79,7 @@ const sandboxMoons = (count: number): Subagent[] =>
     id: `moon-${i}`,
     name: `moon ${i + 1}`,
     state: MOON_STATE_CYCLE[i % MOON_STATE_CYCLE.length],
+    startedAt: Date.now(),
   }))
 
 /**

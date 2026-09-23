@@ -12,6 +12,8 @@ import {
   sdkToChatMessages,
 } from '../src/runner/runner.js';
 import type { PermissionMode } from '../src/types.js';
+import { entriesToMessages } from '../src/transcript/parser.js';
+import { MAX_SUBAGENT_MESSAGES, SubagentTranscripts } from '../src/transcript/subagents.js';
 
 /**
  * The id the real CLI runs the session under: the one the caller pinned via
@@ -417,7 +419,10 @@ describe('Runner', () => {
       // the user's message and a status that says nobody sent one.
       hasLiveSubagents: () => false,
     });
-    const events = subscribed(hub, 'session:web-1');
+    // Subagent frames are routed off `session:<id>` onto their own topic
+    // (spec `2026-09-22-subagent-transcript-panel-design.md` § 2), so that is
+    // where the fence below has to listen.
+    const subagentEvents = subscribed(hub, 'subagent:web-1:toolu_1');
     await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
     script.push({ type: 'result', subtype: 'success', usage: {} });
     await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
@@ -435,7 +440,7 @@ describe('Runner', () => {
       message: { role: 'assistant', content: [{ type: 'text', text: 'drained' }] },
     });
     await vi.waitFor(() =>
-      expect(events.filter((e) => e.event === 'message')).toHaveLength(1),
+      expect(subagentEvents.filter((e) => e.event === 'message')).toHaveLength(1),
     );
     expect(runner.status('web-1')).toBe('working');
   });
@@ -810,6 +815,92 @@ describe('Runner', () => {
     );
     expect(msgs[0].isError).toBe(true);
   });
+
+  it('emits a thinking message from a thinking block, carrying the model', () => {
+    const msgs = sdkToChatMessages(
+      {
+        type: 'assistant', session_id: 's',
+        message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'thinking', thinking: 'let me consider this' }] },
+      },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ role: 'thinking', text: 'let me consider this', model: 'claude-opus-5' });
+  });
+
+  it('skips a thinking block whose thinking text is empty (signature-only)', () => {
+    const msgs = sdkToChatMessages(
+      {
+        type: 'assistant', session_id: 's',
+        message: { role: 'assistant', content: [{ type: 'thinking', thinking: '', signature: 'sig' }] },
+      },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    expect(msgs).toHaveLength(0);
+  });
+
+  /**
+   * M1. `block` is `any` off the SDK stream and this branch called
+   * `.trim()` on `block.thinking` unguarded. A non-string value threw from
+   * inside `pump()`'s `for await`, where the catch logs a warning and then
+   * runs `finish(sessionId)` — one malformed frame ended the whole session.
+   * The indexed path (`entriesToMessages`) has always checked `typeof`.
+   */
+  it('skips a thinking block whose thinking is not a string, instead of throwing', () => {
+    for (const thinking of [null, 42, { text: 'nested' }, ['a']]) {
+      expect(() =>
+        sdkToChatMessages(
+          {
+            type: 'assistant', session_id: 's',
+            message: { role: 'assistant', content: [{ type: 'thinking', thinking }] },
+          },
+          (() => { let n = 0; return () => ++n; })(),
+        ),
+      ).not.toThrow();
+    }
+  });
+
+  it('stamps a timestamp on every emitted message, preferring the frame\'s own', () => {
+    const withFrameTs = sdkToChatMessages(
+      {
+        type: 'assistant', session_id: 's', timestamp: '2026-09-01T10:00:00.000Z',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }, { type: 'tool_use', id: 't1', name: 'Bash', input: {} }] },
+      },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    expect(withFrameTs[0].timestamp).toBe('2026-09-01T10:00:00.000Z');
+    expect(withFrameTs[1].timestamp).toBe('2026-09-01T10:00:00.000Z');
+
+    const before = new Date().toISOString();
+    const withoutFrameTs = sdkToChatMessages(
+      { type: 'assistant', session_id: 's', message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] } },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    const after = new Date().toISOString();
+    expect(withoutFrameTs[0].timestamp).toBeDefined();
+    expect(withoutFrameTs[0].timestamp! >= before && withoutFrameTs[0].timestamp! <= after).toBe(true);
+  });
+});
+
+describe('sdkToChatMessages / entriesToMessages agree on thinking', () => {
+  it('produce the same thinking text for equivalent input', () => {
+    const [live] = sdkToChatMessages(
+      {
+        type: 'assistant', session_id: 's',
+        message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'thinking', thinking: 'weighing options' }] },
+      },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    const [indexed] = entriesToMessages([
+      {
+        type: 'assistant', uuid: 'a1', timestamp: '2026-09-01T10:00:00.000Z',
+        message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'thinking', thinking: 'weighing options' }] },
+      },
+    ]);
+    expect(live.role).toBe('thinking');
+    expect(indexed.role).toBe('thinking');
+    expect(live.text).toBe(indexed.text);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1062,6 +1153,183 @@ describe('Runner subagent reporting', () => {
     ]);
     await runner.end(id);
   });
+});
+
+describe('Runner subagent frame routing', () => {
+  it(
+    'regression: a subagent tool_use frame publishes nothing on session:<id> and never reaches onEntries',
+    async () => {
+      // This is the bug the spec's "The bug this uncovers" section names:
+      // before routing, the SDK's own tool_use/tool_result forwarding put a
+      // subagent's blocks straight onto the parent's live transcript, where
+      // they vanished on reload because `entriesToMessages` skips
+      // `isSidechain` entries. Live and reloaded disagreed. Asserting on a
+      // `tool_use` block specifically (rather than prose) matches that
+      // leak — it is the one kind of block that reached `session:<id>` even
+      // with `forwardSubagentText` off.
+      const hub = new Hub();
+      const script = scriptedQueryFn();
+      const entriesSeen: unknown[] = [];
+      const runner = new Runner({
+        hub,
+        queryFn: script.fn as any,
+        newSessionId: () => 'web-1',
+        onEntries: (_sessionId, entries) => entriesSeen.push(...entries),
+      });
+      const sessionEvents = subscribed(hub, 'session:web-1');
+      await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+      script.push({
+        type: 'assistant',
+        parent_tool_use_id: 'toolu_1',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'inner_1', name: 'Read', input: { file_path: 'x.ts' } }],
+        },
+      });
+      // Fence: `result` publishes unconditionally, so waiting for it proves
+      // the subagent frame above has already been drained and, if it were
+      // going to reach `session:<id>`, would already have.
+      script.push({ type: 'result', subtype: 'success', usage: {} });
+      await vi.waitFor(() =>
+        expect(sessionEvents.some((e) => e.event === 'turn_result')).toBe(true),
+      );
+
+      expect(sessionEvents.filter((e) => e.event === 'message')).toEqual([]);
+      expect(entriesSeen).toEqual([]);
+    },
+  );
+
+  it("a parent frame (parent_tool_use_id null) still publishes on session:<id> and still reaches onEntries", async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const entriesSeen: unknown[] = [];
+    const runner = new Runner({
+      hub,
+      queryFn: script.fn as any,
+      newSessionId: () => 'web-1',
+      onEntries: (_sessionId, entries) => entriesSeen.push(...entries),
+    });
+    const sessionEvents = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({
+      type: 'assistant',
+      parent_tool_use_id: null,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'hi there' }] },
+    });
+    await vi.waitFor(() =>
+      expect(sessionEvents.filter((e) => e.event === 'message')).toHaveLength(1),
+    );
+    expect(sessionEvents.filter((e) => e.event === 'message')[0].message.text).toBe('hi there');
+    expect(entriesSeen).toHaveLength(1);
+  });
+
+  it('a subagent frame publishes on subagent:<sessionId>:<toolUseId> with the { event, message } envelope', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const subagentEvents = subscribed(hub, 'subagent:web-1:toolu_1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_1',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'digging' }] },
+    });
+    await vi.waitFor(() => expect(subagentEvents).toHaveLength(1));
+    expect(subagentEvents[0]).toEqual(
+      expect.objectContaining({
+        event: 'message',
+        message: expect.objectContaining({ role: 'assistant', text: 'digging' }),
+      }),
+    );
+  });
+
+  /**
+   * I7. Spec § 3: `droppedCount` "rides the REST response AND the WS
+   * increments". It rode only the REST response, so a panel that was open
+   * before the ring buffer overflowed never learned that it had — the
+   * TRUNCATED chip stayed hidden while the transcript above it silently lost
+   * its head.
+   *
+   * Read AFTER the append, so the number already counts whatever this very
+   * frame evicted.
+   */
+  it('carries the buffer\'s droppedCount on every subagent increment', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const transcripts = new SubagentTranscripts();
+    // Pre-fill to the cap, so the very next frame is the one that evicts.
+    transcripts.append(
+      'web-1',
+      'toolu_1',
+      Array.from({ length: MAX_SUBAGENT_MESSAGES }, (_, i) => ({
+        id: `seed-${i}`, role: 'assistant' as const, text: 'seed',
+      })),
+    );
+    const runner = new Runner({
+      hub, queryFn: script.fn as any, newSessionId: () => 'web-1',
+      subagentTranscripts: transcripts,
+    });
+    const subagentEvents = subscribed(hub, 'subagent:web-1:toolu_1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_1',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'one over' }] },
+    });
+
+    await vi.waitFor(() => expect(subagentEvents).toHaveLength(1));
+    expect(subagentEvents[0].droppedCount).toBe(1);
+    expect(transcripts.get('web-1', 'toolu_1')!.droppedCount).toBe(1);
+  });
+
+  it(
+    "two different parent_tool_use_ids in one session land in two separate buffers and two separate topics",
+    async () => {
+      // The nested-agent case: an agent spawned by an agent carries the
+      // INNER tool_use id, and must not be mixed into the outer agent's
+      // buffer or topic.
+      const hub = new Hub();
+      const script = scriptedQueryFn();
+      const transcripts = new SubagentTranscripts();
+      const runner = new Runner({
+        hub,
+        queryFn: script.fn as any,
+        newSessionId: () => 'web-1',
+        subagentTranscripts: transcripts,
+      });
+      const outerEvents = subscribed(hub, 'subagent:web-1:outer');
+      const innerEvents = subscribed(hub, 'subagent:web-1:inner');
+      await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+      script.push({
+        type: 'assistant',
+        parent_tool_use_id: 'outer',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'outer says hi' }] },
+      });
+      script.push({
+        type: 'assistant',
+        parent_tool_use_id: 'inner',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'inner says hi' }] },
+      });
+      await vi.waitFor(() => {
+        expect(outerEvents).toHaveLength(1);
+        expect(innerEvents).toHaveLength(1);
+      });
+      expect(outerEvents[0].message.text).toBe('outer says hi');
+      expect(innerEvents[0].message.text).toBe('inner says hi');
+
+      expect(transcripts.get('web-1', 'outer')?.messages.map((m: any) => m.text)).toEqual([
+        'outer says hi',
+      ]);
+      expect(transcripts.get('web-1', 'inner')?.messages.map((m: any) => m.text)).toEqual([
+        'inner says hi',
+      ]);
+    },
+  );
 });
 
 describe('Runner error reporting', () => {

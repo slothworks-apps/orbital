@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react'
-import { useOrbital } from './store/store'
+import {
+  useOrbital,
+  parseDetailPanelWidth,
+  resolvePanelPairWidths,
+  PANEL_GUTTER_PX,
+  SUBAGENT_PANEL_DEFAULT_PX,
+} from './store/store'
 import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
 import { getSocket } from './lib/socket'
 import { SpaceMap } from './map/SpaceMap'
 import { Sidebar } from './panels/Sidebar'
 import { DetailPanel } from './panels/DetailPanel'
+import { SubagentPanel } from './panels/SubagentPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
@@ -30,14 +37,15 @@ const socket = getSocket()
 
 /**
  * App shell (final integration task): mounts the full-bleed `SpaceMap`,
- * the docked `Sidebar`/`DetailPanel`, the three dialogs that don't own
- * their own trigger+render site (`NewSessionDialog`/`Settings`
- * — `StopDialog`/`ClearDialog` are rendered by `DetailPanel` itself, so
- * they're deliberately NOT repeated here), a single `Toasts` surface, and
- * the WS status banner. Owns the data lifecycle (`loadInitial` + the
- * `sessions`/`session:<id>` WS subscriptions) and the one keyboard shortcut
- * not already owned by a panel (`Esc`) — `Sidebar` owns ⌘K, `SpaceMap` owns
- * ⌥N (see its own comment), so neither is duplicated here.
+ * the docked `Sidebar`/`DetailPanel`/`SubagentPanel`, the three dialogs
+ * that don't own their own trigger+render site (`NewSessionDialog`/
+ * `Settings` — `StopDialog`/`ClearDialog` are rendered by `DetailPanel`
+ * itself, so they're deliberately NOT repeated here), a single `Toasts`
+ * surface, and the WS status banner. Owns the data lifecycle
+ * (`loadInitial` + the `sessions`/`session:<id>` WS subscriptions) and the
+ * one keyboard shortcut not already owned by a panel (`Esc`) — `Sidebar`
+ * owns ⌘K, `SpaceMap` owns ⌥N (see its own comment), so neither is
+ * duplicated here.
  */
 export default function App() {
   const loadInitial = useOrbital((s) => s.loadInitial)
@@ -49,6 +57,26 @@ export default function App() {
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const dialog = useOrbital((s) => s.ui.dialog)
   const wsStatus = useOrbital((s) => s.ui.wsStatus)
+
+  // Task 8 (spec § 8 "Layout"): with the subagent panel open, it docks at
+  // the right edge and the detail panel is pushed left to make room —
+  // "map → session → agent". `DetailPanel`/`SpaceMap` each resolve the
+  // PANEL WIDTHS themselves (they need the resolved detail width for its
+  // own `<Panel>` and for the map's follow inset respectively); this is the
+  // one additional site the brief calls out by name — the WRAPPER's own
+  // `right` offset, which used to be the static `right-4` below and now has
+  // to make room for the subagent panel sitting to its right. `subagentWidthPx`
+  // stays 0 (no offset added) whenever the subagent panel is closed, which
+  // is what keeps this a no-op in the regression case (requirement 1).
+  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, window.innerWidth))
+  const subagentWidthPx = subagentPanelOpen
+    ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, window.innerWidth)
+        .subagentWidthPx
+    : 0
+  const detailPanelRightPx = subagentPanelOpen
+    ? PANEL_GUTTER_PX + subagentWidthPx + PANEL_GUTTER_PX
+    : PANEL_GUTTER_PX
 
   // Initial REST snapshot (sessions/tags/rules/settings) — once per mount.
   // The flag gates `useSessionUrl`'s restore: `loadInitial` replaces the whole
@@ -139,9 +167,31 @@ export default function App() {
         </ErrorBoundary>
       </div>
 
-      <div className="absolute inset-y-4 right-4 z-10">
+      {/* `right` eases on the same 420ms curve `Panel.tsx` already animates
+          this panel's WIDTH on, and `SpaceMap`'s own right-anchored overlays
+          ease on (fix round 1, finding 2) — before this, the width eased in
+          while the wrapper's position snapped in one frame. No drag
+          exemption is needed the way `SpaceMap`'s `overlayTransition` drops
+          its own transition mid-drag: THIS offset never changes while the
+          detail panel is being dragged, only when the subagent panel opens
+          or closes. */}
+      <div
+        className="absolute inset-y-4 z-10 transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]"
+        style={{ right: detailPanelRightPx }}
+      >
         <ErrorBoundary label="Detail panel">
           <DetailPanel />
+        </ErrorBoundary>
+      </div>
+
+      {/* Subagent panel: always mounted, like `DetailPanel` above — it
+          renders nothing of its own the moment `store.subagentPanel` is
+          null (task 7), so there is no open/close gate to duplicate here.
+          Docks at the SAME 16px edge inset the detail panel used alone;
+          it is the detail panel that moves to make room, not this one. */}
+      <div className="absolute inset-y-4 right-4 z-10">
+        <ErrorBoundary label="Subagent panel">
+          <SubagentPanel widthPx={subagentWidthPx} />
         </ErrorBoundary>
       </div>
 
