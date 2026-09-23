@@ -29,6 +29,7 @@ import {
   blendPlanet,
   createPlanetBlend,
   endedHideTransform,
+  mutedOpacity,
   prefersReducedMotion,
   reticleEnterScale,
   stackAlphas,
@@ -378,6 +379,12 @@ export interface PlanetProps {
    * the same way.
    */
   hidden?: boolean
+  /**
+   * The session does not match the sidebar search. Drawn in place at
+   * `MUTED_OPACITY` and desaturated toward the ended grey, faded on the
+   * state-change curve (ADR `search-mutes-planets-instead-of-hiding-them`).
+   */
+  muted?: boolean
   /**
    * Second label line, family only (`Opus`) — null when the map's model
    * toggle is off or the session's model matches no catalog row.
@@ -1040,6 +1047,7 @@ export function Planet({
   scaleMultiplier = 1,
   selected,
   hidden = false,
+  muted = false,
   modelFamily = null,
   labelTitlePx = 11,
   labelFamilyPx = 9.5,
@@ -1066,6 +1074,9 @@ export function Planet({
   // 1 shown, 0 suppressed. Symmetric durations: the artboard transitions
   // opacity and transform over .5s in both directions.
   const hideFade = useFadeTween(!hidden, ENDED_HIDE_MS, ENDED_HIDE_MS)
+  // 0 unmuted, 1 muted by the search. Its own tween on the state-change
+  // curve, multiplied into the same whole-planet opacity as `hideFade`.
+  const muteFade = useFadeTween(muted, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
   const materials = usePlanetMaterials()
 
   // Textures are process-wide singletons; null only where no 2D canvas exists
@@ -1255,7 +1266,9 @@ export function Planet({
     settled.current = false
   }, [shownFill?.level])
 
-  const dimmedLabel = session.status === 'ended'
+  // A search-muted planet's label drops to the ended ink too — the colour
+  // rides the label's own CSS transition, the opacity the frame loop below.
+  const dimmedLabel = session.status === 'ended' || muted
 
   /**
    * Writes everything that depends only on the state weights and the hue.
@@ -1264,9 +1277,13 @@ export function Planet({
    */
   const applyState = () => {
     const w = mix.weights
-    const { opacity: fade } = endedHideTransform(hideFade.value)
+    // The whole-planet multiplier: the ENDED suppression times the search
+    // mute. Every opacity below takes it, so both reach every layer.
+    const fade = endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value)
     const b = blendRef.current
-    const hueC = setOklchTagColor(hueColor.current, hueTween.value)
+    // Desaturated toward the ended grey by the mute weight, here where the
+    // hue is resolved, so every layer that wears the hue greys with it.
+    const hueC = setOklchTagColor(hueColor.current, hueTween.value).lerp(GREY_COLOR, muteFade.value)
     const idleShare = w.idle + w.needs_input
 
     materials.glow.color.copy(hueC)
@@ -1300,6 +1317,10 @@ export function Planet({
       )
     } else {
       materials.contextFill.color.copy(hueC)
+    }
+    // hueC is already greyed; the warn/critical colours are not.
+    if (shownFill?.level === 'warn' || shownFill?.level === 'critical') {
+      materials.contextFill.color.lerp(GREY_COLOR, muteFade.value)
     }
 
     if (hasBodyTextures) {
@@ -1360,14 +1381,16 @@ export function Planet({
     const mixMoved = advanceStateMix(mix, delta)
     const hueMoved = advanceTween(hueTween, delta)
     const hideMoved = advanceTween(hideFade, delta)
+    const muteMoved = advanceTween(muteFade, delta)
     const b = blendRef.current
     if (mixMoved) blendPlanet(mix.weights, b)
-    // The hide fade multiplies into every opacity `applyState` writes, so a
-    // moving fade has to re-run it — otherwise the layers it only touches on
-    // a state change would keep their pre-fade alpha.
-    const applied = mixMoved || hueMoved || hideMoved || !settled.current
+    // The hide fade and the search mute multiply into every opacity (and the
+    // mute into the hue) `applyState` writes, so either moving has to re-run
+    // it — otherwise the layers it only touches on a state change would keep
+    // their pre-fade alpha.
+    const applied = mixMoved || hueMoved || hideMoved || muteMoved || !settled.current
     if (applied) applyState()
-    settled.current = !(mixMoved || hueMoved || hideMoved)
+    settled.current = !(mixMoved || hueMoved || hideMoved || muteMoved)
 
     if (simBody) {
       // The simulation owns the position outright — walks, drags and falls
@@ -1395,7 +1418,9 @@ export function Planet({
         // The label fades out over the last stretch of the fall rather than
         // riding a stretching body (canvas fades it with distance).
         if (labelRef.current && simBody.mode !== 'hold') {
-          labelRef.current.style.opacity = String(simBody.fallScale * hideFade.value)
+          labelRef.current.style.opacity = String(
+            simBody.fallScale * hideFade.value * mutedOpacity(muteFade.value)
+          )
         }
       }
     } else if (advancePointTween(move, delta) && groupRef.current) {
@@ -1415,6 +1440,10 @@ export function Planet({
       // paying for a dozen invisible meshes every frame.
       groupRef.current.visible = hide.opacity > 0.001
     }
+    // The whole-planet opacity every per-frame write below multiplies in: the
+    // ENDED suppression times the search mute, the same product `applyState`
+    // writes. The mute never touches the scale — a muted planet holds its size.
+    const whole = hide.opacity * mutedOpacity(muteFade.value)
     // Both pills are plain DOM, and both are written before the early return
     // below, or a planet on its way out would leave one hanging at full
     // strength. Written on EVERY frame they are mounted — not from
@@ -1424,19 +1453,19 @@ export function Planet({
     if (pillMounted) {
       advanceTween(pillFade, delta)
       if (badgeRef.current) {
-        badgeRef.current.style.opacity = String(pillFade.value * hide.opacity)
+        badgeRef.current.style.opacity = String(pillFade.value * whole)
       }
     }
     if (compactMounted) {
       advanceTween(compactFade, delta)
       if (compactBadgeRef.current) {
-        compactBadgeRef.current.style.opacity = String(compactFade.value * hide.opacity)
+        compactBadgeRef.current.style.opacity = String(compactFade.value * whole)
       }
     }
     if (detachedMounted) {
       advanceTween(detachedFade, delta)
       if (detachedBadgeRef.current) {
-        detachedBadgeRef.current.style.opacity = String(detachedFade.value * hide.opacity)
+        detachedBadgeRef.current.style.opacity = String(detachedFade.value * whole)
       }
     }
 
@@ -1456,7 +1485,7 @@ export function Planet({
       const pulse = critical
         ? HALO_BREATH_MIN + (1 - HALO_BREATH_MIN) * oscillate(state.clock.elapsedTime, CONTEXT_PULSE_SEC)
         : 1
-      const gauge = gaugeFade.value * hide.opacity
+      const gauge = gaugeFade.value * whole
       materials.contextTrack.opacity = CONTEXT_TRACK_OPACITY * pulse * gauge
       materials.contextTrack.visible = materials.contextTrack.opacity > 0.001
       materials.contextTicks.opacity = CONTEXT_TICK_OPACITY * gauge
@@ -1477,13 +1506,13 @@ export function Planet({
     // `orb-blink`: opacity 1 → .3 → 1 over corePulseSec (a blink, not a scale pulse).
     corePhase.current += b.corePulseSec > 0 ? delta / b.corePulseSec : 0
     const blink = b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
-    materials.core.opacity = b.coreOpacity * blink * b.dim * hide.opacity
+    materials.core.opacity = b.coreOpacity * blink * b.dim * whole
     materials.core.visible = materials.core.opacity > 0.001
 
     // `orb-ring`: opacity ×.55 → ×1 → ×.55 over 2.4s, faded in by haloBreath.
     const breath =
       1 - b.haloBreath * (1 - HALO_BREATH_MIN) * (1 - oscillate(state.clock.elapsedTime, HALO_BREATH_SEC))
-    materials.halo.opacity = b.haloOpacity * breath * hide.opacity
+    materials.halo.opacity = b.haloOpacity * breath * whole
     materials.halo.visible = materials.halo.opacity > 0.001
 
     advanceTween(rippleFade, delta)
@@ -1492,7 +1521,7 @@ export function Planet({
       rippleElapsed.current = (rippleElapsed.current + delta) % RIPPLE_DURATION_SEC
       const progress = easeOut(rippleElapsed.current / RIPPLE_DURATION_SEC)
       if (rippleRef.current) rippleRef.current.scale.setScalar(1 + progress * (RIPPLE_MAX_SCALE - 1))
-      materials.ripple.opacity = RIPPLE_START_OPACITY * (1 - progress) * ripple * hide.opacity
+      materials.ripple.opacity = RIPPLE_START_OPACITY * (1 - progress) * ripple * whole
       materials.ripple.visible = true
     } else {
       rippleElapsed.current = 0
@@ -1505,9 +1534,9 @@ export function Planet({
       reticleGroupRef.current.rotation.z += RETICLE_SPIN_SPEED * delta
     }
     if (advanceTween(reticleFade, delta) || reticleFade.value > 0) {
-      if (reticleRingRef.current) reticleRingRef.current.material.opacity = RETICLE_OPACITY * reticleFade.value * hide.opacity
+      if (reticleRingRef.current) reticleRingRef.current.material.opacity = RETICLE_OPACITY * reticleFade.value * whole
       for (const bracket of bracketRefs.current) {
-        if (bracket) bracket.material.opacity = reticleFade.value * hide.opacity
+        if (bracket) bracket.material.opacity = reticleFade.value * whole
       }
       // Ring and brackets settle together, so the whole mark arrives as one
       // object rather than as a fade with a spinning part. Scale is written on
@@ -1531,6 +1560,9 @@ export function Planet({
       if (hoverActive) hoverTypeElapsed.current += delta * 1000
       advanceTween(hoverFade, delta)
       if (overlayRef.current) {
+        // The ENDED suppression only, not the search mute: hovering is asking
+        // to read the title, and a muted planet's name is no less worth
+        // reading on request. Its moons' hover affordances stay unmuted too.
         overlayRef.current.style.opacity = String(hoverFade.value * hide.opacity)
         overlayRef.current.style.transform = `translate(-50%, ${(1 - hoverFade.value) * 2}px)`
       }
@@ -1667,7 +1699,7 @@ export function Planet({
           pulse={pillPulses}
           innerRef={badgeRef}
           clearsGauge={gaugeMounted && shownFill !== null}
-          initialOpacity={pillFade.value * endedHideTransform(hideFade.value).opacity}
+          initialOpacity={pillFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value)}
         />
       )}
 
@@ -1675,7 +1707,7 @@ export function Planet({
         <DetachedBadge
           innerRef={detachedBadgeRef}
           flashing={detachFlash}
-          initialOpacity={detachedFade.value * endedHideTransform(hideFade.value).opacity}
+          initialOpacity={detachedFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value)}
         />
       )}
 
@@ -1734,7 +1766,7 @@ export function Planet({
                 // Where the fade stands right now, so a label that mounts mid
                 // transition starts from it instead of flashing at full
                 // opacity for the frame before `applyState` runs.
-                opacity: hideFade.value,
+                opacity: hideFade.value * mutedOpacity(muteFade.value),
               }}
             >
               <span
