@@ -668,9 +668,9 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   // is its own washed-out ink rather than the accent at low alpha: an em dash
   // in the session's hue reads as a value.
   const contextInk = contextBarOklch ? oklchCss(contextBarOklch) : accent
-  // 1b-alt glows the fill at .55 under the first threshold and .5 past it —
-  // amber and red carry enough on their own.
-  const contextGlow = contextBarOklch ? oklchCss(contextBarOklch, 0.5) : accentSoft55
+  // 9d glows the fill at the same .55 in every ink — 1b-alt's dimmer glow
+  // past the first threshold did not survive into the implemented header.
+  const contextGlow = contextBarOklch ? oklchCss(contextBarOklch, 0.55) : accentSoft55
   /**
    * The right-hand note, present only when the read-out alone would mislead
    * (canvas 1b-alt): a session with no measurement yet, and one measured past
