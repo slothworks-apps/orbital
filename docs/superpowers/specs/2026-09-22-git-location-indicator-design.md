@@ -202,6 +202,27 @@ name in a tooltip on hover — no delay, no cursor change. One element carries
 the whole reading as its `aria-label`: *"Worktree · branch tray-mode ·
 ~/P/orbital/.worktrees/tray-mode"*.
 
+The bubble is a `name` variant added to `ui/Tooltip`, not a native `title`
+and not a local copy: the OS draws `title` itself, with its own look and its
+own second-long delay, and in the Electron shell it does not appear at all.
+Two things about it depart from 1f, both forced by a real branch name:
+
+- **It wraps, within a 300px cap.** 1f draws the line `nowrap`, which suits
+  the names the artboard shows. An eighty-seven-character branch at `nowrap`
+  makes a 592px bubble — wider than the panel it is explaining. It also has
+  to say `whitespace-normal` explicitly, the row above it setting `nowrap`.
+- **The hover target is the mark and the branch together**, not the branch
+  alone. They are one reading, and it puts the bubble's left edge on the
+  mark, which is where 1f aligns it.
+
+**Nothing in the row may clip its overflow.** The bubble hangs below a 28px
+row, so an `overflow: hidden` anywhere between it and the panel cuts away all
+of it while the row goes on looking correct — which is how it first shipped.
+The clip belongs on the path alone: the reading is `flex-none` and sized to
+its own capped text, so it cannot outgrow its share. jsdom lays nothing out
+and clips nothing, so this is guarded structurally, by asserting that no
+ancestor of the bubble carries the clip.
+
 **Live update.** The branch text fades out and in over 130 ms. No slide, no
 width animation. The path start, the mark and the icons never move; a new
 name changes only the branch's own right edge, and the path's cut point once

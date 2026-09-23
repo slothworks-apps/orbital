@@ -7,6 +7,7 @@ import {
   CONTEXT_WINDOWS_KEY,
   REFRESH_INTERVAL_MS,
   PROBE_TIMEOUT_MS,
+  VALIDATE_TIMEOUT_MS,
 } from '../src/models/catalog.js';
 
 /** The five rows the SDK actually served on 2026-09-16. */
@@ -376,5 +377,126 @@ describe('ModelCatalog', () => {
     const withoutCatalog = new ModelCatalog({ settings: fakeSettings(), queryFn: without.fn as never });
     await withoutCatalog.list();
     expect(without.options()).not.toHaveProperty('pathToClaudeCodeExecutable');
+  });
+});
+
+describe('ModelCatalog.validate', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * A query that yields `messages` in order, then — like the real SDK after
+   * an error result — throws if `throwAfter` is set. Records its options and
+   * its own closing.
+   */
+  function scriptedQueryFn(messages: unknown[], throwAfter?: Error) {
+    const closed = { count: 0 };
+    const options: any[] = [];
+    const fn = vi.fn((args: any) => {
+      options.push(args.options);
+      const gen: any = (async function* () {
+        for (const m of messages) yield m;
+        if (throwAfter) throw throwAfter;
+      })();
+      const originalReturn = gen.return.bind(gen);
+      gen.return = async (v: unknown) => { closed.count += 1; return originalReturn(v); };
+      return gen;
+    });
+    return { fn, closed, options };
+  }
+
+  const init = { type: 'system', subtype: 'init', model: 'x' };
+  const cliText =
+    "There's an issue with the selected model (claude-opus-nope). It may not exist or you may not have access to it. Run --model to pick a different model.";
+
+  it('reports the CLI\'s own words for a model the API rejects, even though the SDK throws after', async () => {
+    const { fn, closed } = scriptedQueryFn(
+      [
+        init,
+        { type: 'assistant', message: { content: [] } },
+        {
+          type: 'result', is_error: true, api_error_status: 404, terminal_reason: 'api_error',
+          total_cost_usd: 0, modelUsage: {}, result: `  ${cliText}\n`,
+        },
+      ],
+      new Error('Claude Code returned an error result: …'),
+    );
+    const catalog = new ModelCatalog({ settings: fakeSettings(), queryFn: fn as never });
+    const result = await catalog.validate('claude-opus-nope');
+    expect(result).toEqual({ ok: false, model: 'claude-opus-nope', reason: cliText });
+    expect(closed.count).toBeGreaterThan(0);
+  });
+
+  it('turns a throw before any result into a failed validation, never a rejection', async () => {
+    const { fn, closed } = scriptedQueryFn([init], new Error('spawn claude ENOENT'));
+    const catalog = new ModelCatalog({ settings: fakeSettings(), queryFn: fn as never });
+    await expect(catalog.validate('claude-opus-4-6')).resolves.toEqual({
+      ok: false, model: 'claude-opus-4-6', reason: 'spawn claude ENOENT',
+    });
+    expect(closed.count).toBe(1);
+  });
+
+  it('accepts a model that answers, and learns its context window', async () => {
+    const { fn, closed, options } = scriptedQueryFn([
+      init,
+      { type: 'assistant', message: { content: [] } },
+      { type: 'rate_limit_event' },
+      {
+        type: 'result', is_error: false, api_error_status: null,
+        modelUsage: { 'claude-opus-4-6': { inputTokens: 330, contextWindow: 200_000 } },
+      },
+    ]);
+    const settings = fakeSettings();
+    const catalog = new ModelCatalog({ settings, queryFn: fn as never, claudeExecutablePath: '/x/claude' });
+    const result = await catalog.validate('claude-opus-4-6');
+    expect(result).toEqual({
+      ok: true, model: 'claude-opus-4-6', resolvedModel: 'claude-opus-4-6', contextWindow: 200_000,
+    });
+    expect(JSON.parse(settings.store[CONTEXT_WINDOWS_KEY])).toEqual({ 'claude-opus-4-6': 200_000 });
+    expect(closed.count).toBeGreaterThan(0);
+    // The stripped-down turn: this is what keeps the check to a few hundred tokens.
+    expect(options[0]).toMatchObject({
+      model: 'claude-opus-4-6', maxTurns: 1, tools: [], strictMcpConfig: true, mcpServers: {},
+      settingSources: [], pathToClaudeCodeExecutable: '/x/claude',
+    });
+  });
+
+  it('does not spawn again for an id it already validated, or for a concurrent call', async () => {
+    const { fn } = scriptedQueryFn([
+      { type: 'result', is_error: false, api_error_status: null, modelUsage: { 'claude-opus-4-6': { contextWindow: 200_000 } } },
+    ]);
+    const catalog = new ModelCatalog({ settings: fakeSettings(), queryFn: fn as never });
+    const [a, b] = await Promise.all([catalog.validate('claude-opus-4-6'), catalog.validate('claude-opus-4-6')]);
+    expect(a).toEqual(b);
+    await catalog.validate('claude-opus-4-6');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('spawns again for an id that failed, so an outage does not condemn it', async () => {
+    const { fn } = scriptedQueryFn([], new Error('offline'));
+    const catalog = new ModelCatalog({ settings: fakeSettings(), queryFn: fn as never });
+    await catalog.validate('claude-opus-4-6');
+    await catalog.validate('claude-opus-4-6');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after VALIDATE_TIMEOUT_MS when the CLI never answers, and closes the query', async () => {
+    vi.useFakeTimers();
+    const closed = { count: 0 };
+    const fn = vi.fn(() => {
+      const gen: any = (async function* () {
+        await new Promise(() => {});
+      })();
+      // A generator parked in an await cannot be returned, so record the call
+      // and resolve rather than delegating to the real return().
+      gen.return = async () => { closed.count += 1; return { done: true, value: undefined }; };
+      return gen;
+    });
+    const catalog = new ModelCatalog({ settings: fakeSettings(), queryFn: fn as never });
+    const pending = catalog.validate('claude-opus-4-6');
+    await vi.advanceTimersByTimeAsync(VALIDATE_TIMEOUT_MS);
+    await expect(pending).resolves.toEqual({ ok: false, model: 'claude-opus-4-6', reason: 'validation timed out' });
+    expect(closed.count).toBe(1);
   });
 });

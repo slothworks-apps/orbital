@@ -228,13 +228,32 @@ describe('NewSessionDialog — model group (4b)', () => {
     )
   })
 
-  it('falls back to the first catalog row when the default is not offered', async () => {
-    resetStore({ settings: { default_model: 'nonexistent' }, models: MODELS })
+  it('falls back to the first catalog row when there is no default', async () => {
+    resetStore({ settings: {}, models: MODELS })
     vi.mocked(api.listProjects).mockResolvedValue([])
     render(<NewSessionDialog open onClose={() => {}} />)
     await waitFor(() =>
       expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'true')
     )
+  })
+
+  it('preselects Other, already trusted, when the default is an id the catalog does not list', async () => {
+    resetStore({ settings: { default_model: 'claude-opus-4-6' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    vi.mocked(api.createSession).mockResolvedValue('new-1')
+    render(<NewSessionDialog open onClose={() => {}} />)
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Other' })).toHaveAttribute('aria-checked', 'true')
+    )
+    expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByLabelText('Model id')).toHaveValue('claude-opus-4-6')
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    fireEvent.click(screen.getByRole('button', { name: /Launch session/ }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-opus-4-6' }))
+    )
+    // Trusted: it ran or was validated before, so it is not probed again.
+    expect(api.validateModel).not.toHaveBeenCalled()
   })
 
   it('adopts the project last-used model when the toggle is on', async () => {
@@ -282,15 +301,60 @@ describe('NewSessionDialog — model group (4b)', () => {
     expect(screen.queryByText(/claude-opus-5/)).not.toBeInTheDocument()
   })
 
-  it('shows no note and falls through to the settings default when the last model matches nothing', async () => {
+  it('preselects Other with the project last model when no catalog row matches it, and shows no note', async () => {
     resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
     vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'claude-mystery-1' }])
     render(<NewSessionDialog open onClose={() => {}} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
     fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
     await waitFor(() =>
-      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+      expect(screen.getByRole('radio', { name: 'Other' })).toHaveAttribute('aria-checked', 'true')
     )
+    expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByLabelText('Model id')).toHaveValue('claude-mystery-1')
     expect(screen.queryByText(/last used here/)).not.toBeInTheDocument()
+  })
+
+  it('holds Launch until an Other id validates, and releases it for a catalog pick', async () => {
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    vi.mocked(api.createSession).mockResolvedValue('new-1')
+    let settle!: (v: Awaited<ReturnType<typeof api.validateModel>>) => void
+    vi.mocked(api.validateModel).mockImplementation(() => new Promise((r) => (settle = r)))
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    const launch = screen.getByRole('button', { name: /Launch session/ })
+    await waitFor(() => expect(launch).toBeEnabled())
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
+    expect(launch).toBeDisabled()
+    // ⌘⏎ is held too, not only the button.
+    fireEvent.keyDown(document, { key: 'Enter', metaKey: true })
+
+    const field = screen.getByLabelText('Model id')
+    fireEvent.change(field, { target: { value: 'claude-opus-4-6' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(api.validateModel).toHaveBeenCalledWith('claude-opus-4-6')
+    expect(screen.getByText('checking…')).toBeInTheDocument()
+    expect(launch).toBeDisabled()
+
+    settle({ ok: true, model: 'claude-opus-4-6', resolvedModel: 'claude-opus-4-6', contextWindow: 200_000 })
+    await waitFor(() => expect(launch).toBeEnabled())
+    expect(api.createSession).not.toHaveBeenCalled()
+    // The footer names a custom id verbatim.
+    expect(screen.getAllByText(/claude-opus-4-6 · acceptEdits/).length).toBeGreaterThan(0)
+
+    // Typing over a validated id takes it back.
+    fireEvent.change(field, { target: { value: 'claude-opus-4-6x' } })
+    expect(launch).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Haiku 4.5' }))
+    expect(launch).toBeEnabled()
+    expect(screen.queryByLabelText('Model id')).not.toBeInTheDocument()
+    fireEvent.click(launch)
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'haiku' }))
+    )
   })
 
   it('launches with the chosen model', async () => {

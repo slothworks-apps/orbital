@@ -11,6 +11,51 @@ export interface ModelCardsProps {
   disabled?: boolean
   /** Settings variant (canvas 4c): short version + context line, no blurb. */
   compact?: boolean
+  /**
+   * Appends an `Other` card for a model id the catalog does not list. While
+   * it is active no catalog card is, whatever `value` says.
+   */
+  other?: { active: boolean; onSelect: () => void }
+}
+
+const OTHER_BLURB = 'Any model id Claude Code accepts'
+
+function cardClassName(active: boolean, compact: boolean): string {
+  return [
+    'relative min-w-0 text-left transition-colors',
+    'disabled:cursor-not-allowed disabled:opacity-40',
+    // canvas 4c: padding 10px 12px on a 9px radius. canvas 4b: padding 12px 14px on a 10px radius.
+    compact ? 'rounded-[9px] border px-3 py-2.5' : 'rounded-[10px] border px-3.5 py-3',
+    active
+      ? compact
+        ? // canvas 4c selected: border .7 / bg .08, no glow, no dot.
+          'border-accent/70 bg-accent/8'
+        : // canvas 4b selected: border .7 / bg .08, plus a 20px .15-alpha glow.
+          'border-accent/70 bg-accent/8 shadow-[0_0_20px_rgba(89,228,243,.15)]'
+      : 'border-panel-border bg-[rgba(4,8,16,.4)] hover:bg-white/5',
+  ].join(' ')
+}
+
+/** canvas 4b: 7px accent dot with a glow, 10px inset from the corner. */
+function ActiveDot() {
+  return (
+    <span
+      aria-hidden
+      className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_rgba(89,228,243,1)]"
+    />
+  )
+}
+
+function cardTitleClassName(compact: boolean): string {
+  return ['block truncate font-mono text-text-bright', compact ? 'text-[11.5px]' : 'text-xs'].join(' ')
+}
+
+function blurbClassName(active: boolean): string {
+  // canvas 4b body: 5px top margin.
+  return [
+    'mt-[5px] block text-[11.5px] leading-[1.4] [text-wrap:pretty]',
+    active ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.7)]',
+  ].join(' ')
 }
 
 /**
@@ -39,6 +84,7 @@ export function ModelCards({
   defaultValue = null,
   disabled = false,
   compact = false,
+  other,
 }: ModelCardsProps) {
   if (models.length === 0) {
     return (
@@ -57,7 +103,7 @@ export function ModelCards({
       style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? 120 : 150}px, 1fr))` }}
     >
       {models.map((model) => {
-        const active = value === model.value
+        const active = !other?.active && value === model.value
         const isDefault = !active && defaultValue === model.value
         return (
           <button
@@ -70,52 +116,17 @@ export function ModelCards({
             data-model={model.value}
             disabled={disabled}
             onClick={() => onChange(model.value)}
-            className={[
-              'relative min-w-0 text-left transition-colors',
-              'disabled:cursor-not-allowed disabled:opacity-40',
-              // canvas 4c: padding 10px 12px on a 9px radius. canvas 4b: padding 12px 14px on a 10px radius.
-              compact ? 'rounded-[9px] border px-3 py-2.5' : 'rounded-[10px] border px-3.5 py-3',
-              active
-                ? compact
-                  ? // canvas 4c selected: border .7 / bg .08, no glow, no dot.
-                    'border-accent/70 bg-accent/8'
-                  : // canvas 4b selected: border .7 / bg .08, plus a 20px .15-alpha glow.
-                    'border-accent/70 bg-accent/8 shadow-[0_0_20px_rgba(89,228,243,.15)]'
-                : 'border-panel-border bg-[rgba(4,8,16,.4)] hover:bg-white/5',
-            ].join(' ')}
+            className={cardClassName(active, compact)}
           >
-            {active && !compact && (
-              // canvas 4b: 7px accent dot with a glow, 10px inset from the corner.
-              <span
-                aria-hidden
-                className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_rgba(89,228,243,1)]"
-              />
-            )}
-            <span
-              className={[
-                'block truncate font-mono text-text-bright',
-                compact ? 'text-[11.5px]' : 'text-xs',
-              ].join(' ')}
-            >
-              {model.shortVersion}
-            </span>
+            {active && !compact && <ActiveDot />}
+            <span className={cardTitleClassName(compact)}>{model.shortVersion}</span>
             {compact
               ? model.contextWindow !== null && (
                   <span className="mt-1 block text-[11px] leading-[1.4] text-[rgba(160,190,225,.7)]">
                     {formatContextWindow(model.contextWindow)} ctx
                   </span>
                 )
-              : (
-                  // canvas 4b body: 5px top margin.
-                  <span
-                    className={[
-                      'mt-[5px] block text-[11.5px] leading-[1.4] [text-wrap:pretty]',
-                      active ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.7)]',
-                    ].join(' ')}
-                  >
-                    {model.blurb}
-                  </span>
-                )}
+              : <span className={blurbClassName(active)}>{model.blurb}</span>}
             {!compact && (model.contextWindow !== null || isDefault) && (
               // canvas 4b meta line: 8px top margin, 9.5px mono, .1em tracking.
               <span
@@ -138,6 +149,22 @@ export function ModelCards({
           </button>
         )
       })}
+      {other && (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={other.active}
+          aria-label="Other"
+          data-active={other.active}
+          disabled={disabled}
+          onClick={other.onSelect}
+          className={cardClassName(other.active, compact)}
+        >
+          {other.active && !compact && <ActiveDot />}
+          <span className={cardTitleClassName(compact)}>Other</span>
+          {!compact && <span className={blurbClassName(other.active)}>{OTHER_BLURB}</span>}
+        </button>
+      )}
     </div>
   )
 }

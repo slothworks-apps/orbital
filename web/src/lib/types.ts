@@ -250,6 +250,14 @@ export interface OrbitalModel {
   contextWindow: number | null;
 }
 
+/**
+ * `POST /api/models/validate` — whether Claude Code will start on a model id
+ * the SDK catalog does not list. `reason` is Claude Code's own sentence.
+ */
+export type ModelValidation =
+  | { ok: true; model: string; resolvedModel: string | null; contextWindow: number | null }
+  | { ok: false; model: string; reason: string };
+
 export interface Tag {
   id: number;
   name: string;

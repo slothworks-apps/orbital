@@ -83,3 +83,7 @@ A model Anthropic ships tomorrow shows up in Orbital without a release. A
 model that vanishes stops being offered. Nothing in the repository has to be
 edited when either happens — and when the SDK cannot be reached at all,
 Orbital serves the last list it saw rather than a guess.
+
+A model the SDK no longer lists but still serves is reachable through the
+pickers' `Other` field; how such an id is checked without a table is
+[[a-custom-model-id-is-validated-by-a-stripped-turn]].

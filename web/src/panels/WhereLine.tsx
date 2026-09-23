@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { splitWhereRow } from '../lib/format'
+import { Tooltip } from '../ui/Tooltip'
 import type { GitLocation } from '../lib/types'
 
 /**
@@ -168,28 +169,42 @@ export function WhereLine({
   const fit = splitWhereRow(path, shown?.ref ?? '', room)
   const Mark = mark ? MARKS[mark] : null
   const label = readingLabel(fullPath, shown)
+  const cut = Boolean(shown) && fit.branch !== shown?.ref
+
+  // The mark and the branch are one reading, so they are one hover target —
+  // which also puts the bubble's left edge on the mark, where 1f aligns it.
+  const reading = Mark ? (
+    <span data-testid="git-reading" className="flex flex-none items-center" style={{ gap: MARK_GAP_PX }}>
+      <Mark />
+      <span style={{ color: BRANCH_INK, opacity, transition: `opacity ${BRANCH_FADE_MS}ms ease` }}>
+        {fit.branch}
+      </span>
+    </span>
+  ) : null
 
   return (
     <span
       aria-label={label}
-      className="flex min-w-0 flex-1 cursor-default items-center overflow-hidden whitespace-nowrap font-mono text-[11px]"
+      // No `overflow-hidden` here, however much it looks like it belongs: the
+      // tooltip below hangs under the row, and a clip on this element cuts
+      // away the whole bubble while the row goes on looking fine. The clip
+      // lives on the path instead — the only part that can outgrow its share,
+      // the reading being `flex-none` and sized to its own capped text.
+      className="flex min-w-0 flex-1 cursor-default items-center whitespace-nowrap font-mono text-[11px]"
       style={{ gap: PATH_GAP_PX }}
     >
       <span className="min-w-0 overflow-hidden" style={{ color: PATH_INK }}>
         {fit.path}
       </span>
-      {Mark && (
-        <span className="flex flex-none items-center" style={{ gap: MARK_GAP_PX }}>
-          <Mark />
-          <span
-            // The full name when the middle was cut out of it; the row is
-            // otherwise silent on hover, as a read-out should be.
-            title={fit.branch === shown?.ref ? undefined : shown?.ref}
-            style={{ color: BRANCH_INK, opacity, transition: `opacity ${BRANCH_FADE_MS}ms ease` }}
-          >
-            {fit.branch}
-          </span>
-        </span>
+      {/* Only a cut name needs saying — a branch already on screen in full
+          gets no bubble, because the row is a read-out and should stay quiet
+          under the pointer (1f). */}
+      {cut && shown ? (
+        <Tooltip variant="name" title={shown.ref}>
+          {reading as ReactElement<{ 'aria-describedby'?: string }>}
+        </Tooltip>
+      ) : (
+        reading
       )}
     </span>
   )

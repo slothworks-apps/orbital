@@ -481,6 +481,37 @@ describe('Settings — model preferences (canvas 4c)', () => {
     await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ default_model: 'haiku' }))
   })
 
+  it('saves an Other id as the default only once it validates', async () => {
+    renderSettings({ settings: { default_model: 'sonnet' }, models: MODELS })
+    openSection('Sessions')
+    vi.mocked(api.validateModel).mockResolvedValueOnce({ ok: false, model: 'claude-nope', reason: 'no such model' })
+    fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
+    expect(screen.getByRole('radio', { name: 'Sonnet' })).toHaveAttribute('aria-checked', 'false')
+    const field = screen.getByLabelText('Model id')
+    fireEvent.change(field, { target: { value: 'claude-nope' } })
+    fireEvent.blur(field)
+    await waitFor(() => expect(screen.getByText('no such model')).toBeInTheDocument())
+    expect(api.patchSettings).not.toHaveBeenCalled()
+
+    vi.mocked(api.validateModel).mockResolvedValueOnce({
+      ok: true,
+      model: 'claude-opus-4-6',
+      resolvedModel: 'claude-opus-4-6',
+      contextWindow: null,
+    })
+    fireEvent.change(field, { target: { value: 'claude-opus-4-6' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ default_model: 'claude-opus-4-6' }))
+  })
+
+  it('shows a stored default the catalog does not list as Other, already trusted', () => {
+    renderSettings({ settings: { default_model: 'claude-opus-4-6' }, models: MODELS })
+    openSection('Sessions')
+    expect(screen.getByRole('radio', { name: 'Other' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByLabelText('Model id')).toHaveValue('claude-opus-4-6')
+    expect(api.validateModel).not.toHaveBeenCalled()
+  })
+
   it('toggles remembering the model per project', async () => {
     renderSettings({ settings: { remember_model_per_project: 'true' }, models: MODELS })
     openSection('Sessions')

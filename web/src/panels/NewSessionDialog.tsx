@@ -14,6 +14,7 @@ import { useImageDrop } from './useImageDrop'
 import { Chip } from '../ui/Chip'
 import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
+import { CustomModelField } from '../ui/CustomModelField'
 import { modelByValue, modelByAnyId } from '../lib/models'
 import type { PermissionMode } from '../lib/types'
 
@@ -67,6 +68,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [model, setModel] = useState<string | null>(null)
   /** Once the user picks a model, a later cwd change must not move it. */
   const [modelOverridden, setModelOverridden] = useState(false)
+  /**
+   * The Other card is selected. `model` then stays null until the field
+   * validates an id, and Launch waits for it.
+   */
+  const [otherActive, setOtherActive] = useState(false)
+  /** A remembered custom id the field starts from, already trusted. */
+  const [customInitial, setCustomInitial] = useState<string | null>(null)
   const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null }>>([])
   const [pending, setPending] = useState(false)
 
@@ -98,6 +106,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setMatchedRuleId(null)
       setModel(null)
       setModelOverridden(false)
+      setOtherActive(false)
+      setCustomInitial(null)
       setPending(false)
       api
         .listProjects()
@@ -124,12 +134,24 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // /api/projects` returns it honestly, never the SDK `value`), so this has
   // to accept either kind of id — see `modelByAnyId`.
   const lastModelRow = modelByAnyId(lastModelHere, models)
+  //
+  // An id no catalog row names — a model picked through Other that has run
+  // here, or a custom Settings default — preselects Other with that id
+  // already trusted: it has run or been validated before, so it is not
+  // probed again.
   useEffect(() => {
     if (!open || modelOverridden || models.length === 0) return
-    const remembered = rememberPerProject ? lastModelRow : undefined
-    const fromSettings = modelByValue(settings.default_model, models)
-    setModel((remembered ?? fromSettings ?? models[0]).value)
-  }, [open, modelOverridden, models, rememberPerProject, lastModelRow, settings.default_model])
+    const preferred = (rememberPerProject ? lastModelHere : null) || settings.default_model || null
+    const row = modelByAnyId(preferred, models)
+    if (preferred && !row) {
+      setOtherActive(true)
+      setCustomInitial(preferred)
+      setModel(preferred)
+    } else {
+      setOtherActive(false)
+      setModel((row ?? models[0]).value)
+    }
+  }, [open, modelOverridden, models, rememberPerProject, lastModelHere, settings.default_model])
 
   // Debounced auto-match: re-preview whenever cwd or permission mode
   // changes, and (unless the user has manually overridden) adopt the match.
@@ -159,8 +181,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     setTagId((current) => (current === id ? current : id))
   }
 
+  /** Other is selected but no id has validated yet. */
+  const awaitingCustomModel = otherActive && model === null
+
   const handleLaunch = useCallback(async () => {
-    if (!cwd.trim() || pending) return
+    if (!cwd.trim() || pending || awaitingCustomModel) return
     setPending(true)
     try {
       // The queued launch — the dialog's version of the panel's queued send
@@ -192,7 +217,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, model, pending, onClose, select, launchSession, attachments])
+  }, [cwd, prompt, permissionMode, tagId, model, pending, awaitingCustomModel, onClose, select, launchSession, attachments])
 
   // ⌘↵ / Ctrl+↵ launches from anywhere in the dialog.
   useEffect(() => {
@@ -237,7 +262,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               newline is stripped by JSX, which would run the count straight
               into the model name. */}
           {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
-          {modelByValue(model, models)?.shortVersion ?? 'default model'} · {permissionMode}
+          {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
           {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
         </>
       }
@@ -250,7 +275,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             variant="primary"
             size="lg"
             onClick={() => void handleLaunch()}
-            disabled={pending || !cwd.trim()}
+            disabled={pending || !cwd.trim() || awaitingCustomModel}
           >
             Launch session <span className="font-mono text-[10px] opacity-70">⌘⏎</span>
           </Button>
@@ -320,9 +345,30 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               defaultValue={settings.default_model ?? null}
               onChange={(next) => {
                 setModelOverridden(true)
+                setOtherActive(false)
                 setModel(next)
               }}
+              other={{
+                active: otherActive,
+                onSelect: () => {
+                  if (otherActive) return
+                  setModelOverridden(true)
+                  setOtherActive(true)
+                  setCustomInitial(null)
+                  setModel(null)
+                },
+              }}
             />
+            {otherActive && (
+              <CustomModelField
+                // Remounts when preselection swaps in another remembered id.
+                key={customInitial ?? ''}
+                size="lg"
+                initial={customInitial ? { id: customInitial, trusted: true } : undefined}
+                onValidated={(id) => setModel(id)}
+                onCleared={() => setModel(null)}
+              />
+            )}
           </div>
 
           <div className="flex flex-col gap-2">

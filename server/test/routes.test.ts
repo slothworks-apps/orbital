@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
@@ -113,6 +113,9 @@ function makeApp(opts: { projectsDir?: string } = {}) {
     ],
     recordContextWindows: () => {},
     learnedContextWindows: () => ({ 'claude-fable-5': 1_000_000 }),
+    validate: vi.fn(async (model: string) => ({
+      ok: true, model, resolvedModel: model, contextWindow: 200_000,
+    })),
   };
   const app = Fastify();
   // The attachments route is multipart, so the parser the real server installs
@@ -558,6 +561,35 @@ describe('REST routes', () => {
     // at all (fix: revived-session-shows-no-context-gauge).
     const res = await app.inject({ method: 'GET', url: '/api/models' });
     expect(res.json().contextWindows).toEqual({ 'claude-fable-5': 1_000_000 });
+  });
+
+  it('POST /api/models/validate rejects a body that is not one model id', async () => {
+    const { app, modelCatalog } = makeApp();
+    for (const payload of [{}, { model: '' }, { model: '   ' }, { model: 42 }, { model: 'claude opus' }, { model: 'x'.repeat(101) }]) {
+      const res = await app.inject({ method: 'POST', url: '/api/models/validate', payload });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: 'model is required' });
+    }
+    expect(modelCatalog.validate).not.toHaveBeenCalled();
+  });
+
+  it('POST /api/models/validate passes the catalog\'s answer through, trimmed id in', async () => {
+    const { app, modelCatalog } = makeApp();
+    modelCatalog.validate.mockResolvedValueOnce({ ok: false, model: 'claude-opus-nope', reason: 'no such model' } as any);
+    const res = await app.inject({ method: 'POST', url: '/api/models/validate', payload: { model: ' claude-opus-nope ' } });
+    expect(res200(res)).toEqual({ ok: false, model: 'claude-opus-nope', reason: 'no such model' });
+    expect(modelCatalog.validate).toHaveBeenCalledWith('claude-opus-nope');
+  });
+
+  it('a custom model id is stored as the default and handed to a new session unchanged', async () => {
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'claude-opus-4-6' } });
+    expect((await app.inject({ method: 'GET', url: '/api/settings' })).json().default_model).toBe('claude-opus-4-6');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/w/x', prompt: 'hi', permissionMode: 'default', model: 'claude-opus-4-6' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(startCalls.at(-1).model).toBe('claude-opus-4-6');
   });
 
   it('GET and PATCH /api/settings', async () => {

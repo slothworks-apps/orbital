@@ -95,6 +95,13 @@ const IMAGE_CONTENT_TYPES: Record<string, string> = {
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /**
+ * Longest id `POST /api/models/validate` will spawn a CLI for. Real ids are
+ * a few dozen characters; the cap only keeps arbitrary text off the CLI's
+ * command line.
+ */
+const MODEL_ID_MAX_LENGTH = 100;
+
+/**
  * An image store ref, the same shape `GET /api/images/:ref` serves: 64
  * lowercase hex characters and a whitelisted extension. A composer attachment
  * is named by the client, so it is held to exactly this — nothing else can
@@ -906,6 +913,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     models: await ctx.models.list(),
     contextWindows: ctx.models.learnedContextWindows(),
   }));
+
+  // The "Other…" model card: checks an id `GET /api/models` does not list by
+  // running a minimal turn on it (see `ModelCatalog.validate`). Always 200
+  // once the body is well-formed — an unusable model is an answer, not a
+  // failed request.
+  app.post('/api/models/validate', async (req, reply) => {
+    const { model } = (req.body ?? {}) as { model?: unknown };
+    const id = typeof model === 'string' ? model.trim() : '';
+    if (!id || /\s/.test(id) || id.length > MODEL_ID_MAX_LENGTH) {
+      return reply.code(400).send({ error: 'model is required' });
+    }
+    return ctx.models.validate(id);
+  });
 
   // The error log. One table, fed from both sides — see
   // `docs/superpowers/specs/2026-09-17-error-surface-design.md`.

@@ -52,6 +52,23 @@ export const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 export const PROBE_TIMEOUT_MS = 10_000;
 
 /**
+ * Longer than `PROBE_TIMEOUT_MS` because validation runs a real (if tiny)
+ * turn: a CLI spawn plus one API round trip, not just a control request.
+ */
+export const VALIDATE_TIMEOUT_MS = 30_000;
+
+/**
+ * What `ModelCatalog.validate()` answers. `ok: false` carries a sentence fit
+ * to show the user — the CLI's own wording when it gave one.
+ */
+export type ModelValidation =
+  | { ok: true; model: string; resolvedModel: string | null; contextWindow: number | null }
+  | { ok: false; model: string; reason: string };
+
+/** Shown when the CLI refused the model without saying why. */
+const GENERIC_INVALID_REASON = 'Claude Code could not start on this model';
+
+/**
  * Drops a trailing variant suffix: `claude-opus-5[1m]` -> `claude-opus-5`.
  * The seed table below is keyed by this stripped form, because
  * https://platform.claude.com/docs/en/about-claude/models/overview (checked
@@ -184,6 +201,10 @@ export class ModelCatalog {
   /** Whether the most recent probe to actually run succeeded — gates the warning to one line per outage. */
   private lastProbeOk = true;
   private claudeExecutablePath?: string | null;
+  /** In-flight validations by id, so a double submit spawns one CLI, not two. */
+  private validating = new Map<string, Promise<ModelValidation>>();
+  /** Successful validations for the life of the process, by id. */
+  private validated = new Map<string, ModelValidation>();
 
   constructor(deps: {
     settings: SettingsStore;
@@ -268,6 +289,112 @@ export class ModelCatalog {
     return this.refreshing;
   }
 
+  /**
+   * Checks that Claude Code will run on `model` — any id, not only the rows
+   * `list()` serves. The SDK's `supportedModels()` lists the current
+   * generation alone, so an older id the user still wants (and the CLI still
+   * accepts) has to be typed in and checked some other way.
+   *
+   * The API cannot be asked directly: Orbital runs on the user's
+   * subscription through the CLI, with no API key to call a models endpoint
+   * with. So this runs one real turn instead, stripped to the minimum — no
+   * Claude Code system prompt, no tools, no MCP servers, no settings
+   * sources — which leaves a request of a few hundred tokens. An id the API
+   * rejects costs nothing; the CLI reports it as an error result.
+   *
+   * Never rejects. Concurrent calls for one id share a single spawn, and a
+   * success is remembered for the process lifetime: the launch itself is the
+   * final check anyway, so a cached "yes" can only be wrong in a way the
+   * launch will surface. Failures are not cached, so a transient outage does
+   * not condemn an id.
+   *
+   * A success also records the turn's `modelUsage`, so the model's context
+   * window is learned before its first real session.
+   */
+  validate(model: string): Promise<ModelValidation> {
+    const cached = this.validated.get(model);
+    if (cached) return Promise.resolve(cached);
+    const inFlight = this.validating.get(model);
+    if (inFlight) return inFlight;
+    const run = this.runValidation(model)
+      .then((result) => {
+        if (result.ok) this.validated.set(model, result);
+        return result;
+      })
+      .finally(() => {
+        this.validating.delete(model);
+      });
+    this.validating.set(model, run);
+    return run;
+  }
+
+  private async runValidation(model: string): Promise<ModelValidation> {
+    // Exactly one user message, then the stream ends — the CLI answers it
+    // and exits instead of waiting for a second turn. Async only because the
+    // SDK takes an async iterable; there is nothing to await.
+    // eslint-disable-next-line @typescript-eslint/require-await
+    async function* oneMessage(): AsyncGenerator<unknown> {
+      yield { type: 'user', message: { role: 'user', content: 'ok' } };
+    }
+    const options: Record<string, unknown> = {
+      cwd: this.cwd,
+      model,
+      maxTurns: 1,
+      tools: [],
+      systemPrompt: 'Reply with the single word ok.',
+      strictMcpConfig: true,
+      mcpServers: {},
+      settingSources: [],
+    };
+    // Same reason as in `probe()`.
+    if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
+    const q = this.queryFn({ prompt: oneMessage(), options });
+
+    let result: Record<string, unknown> | null = null;
+    const consume = async (): Promise<void> => {
+      try {
+        for await (const msg of q) {
+          if (msg && typeof msg === 'object' && (msg as { type?: unknown }).type === 'result') {
+            result = msg as Record<string, unknown>;
+            break;
+          }
+        }
+      } catch (err) {
+        // After an error result the SDK throws "Claude Code returned an
+        // error result" as the CLI exits. The result already says
+        // everything, so only a throw before one is a failed validation.
+        if (!result) throw err;
+      }
+    };
+
+    try {
+      await withTimeout(consume(), VALIDATE_TIMEOUT_MS);
+    } catch (err) {
+      if (err instanceof TimeoutError) return { ok: false, model, reason: 'validation timed out' };
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, model, reason: message || GENERIC_INVALID_REASON };
+    } finally {
+      try {
+        await q.return?.(undefined);
+      } catch {
+        // Done with the process either way.
+      }
+    }
+
+    const r = result as Record<string, unknown> | null;
+    if (!r) return { ok: false, model, reason: GENERIC_INVALID_REASON };
+    if (r.is_error === true || r.api_error_status != null) {
+      const text = typeof r.result === 'string' ? r.result.trim() : '';
+      return { ok: false, model, reason: text || GENERIC_INVALID_REASON };
+    }
+    this.recordContextWindows(r.modelUsage);
+    const usage =
+      r.modelUsage && typeof r.modelUsage === 'object' ? (r.modelUsage as Record<string, unknown>) : {};
+    const resolvedModel = Object.keys(usage)[0] ?? null;
+    const contextWindow = resolvedModel ? extractContextWindows(usage)[resolvedModel] ?? null : null;
+    return { ok: true, model, resolvedModel, contextWindow };
+  }
+
   private storedRaw(): ModelInfoLike[] {
     return this.readJson<ModelInfoLike[]>(CATALOG_KEY, []);
   }
@@ -329,9 +456,12 @@ export class ModelCatalog {
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`model probe timed out after ${ms}ms`)), ms);
+    timer = setTimeout(() => reject(new TimeoutError(`model probe timed out after ${ms}ms`)), ms);
   });
   // A race rather than a hand-rolled executor, so a rejection from `promise`
   // reaches the caller as its own reason rather than being re-thrown as a new one.
   return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
 }
+
+/** What `withTimeout` rejects with, so a caller can tell expiry from a failure of its own. */
+class TimeoutError extends Error {}

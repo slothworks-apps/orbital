@@ -35,6 +35,7 @@ import {
 import { Input } from '../ui/Input'
 import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
+import { CustomModelField } from '../ui/CustomModelField'
 import { Select } from '../ui/Select'
 import { Checkbox, Toggle } from '../ui/Checkbox'
 import { Segmented } from '../ui/Segmented'
@@ -312,6 +313,8 @@ export function Settings({ open, onClose }: SettingsProps) {
   // Appearance preview (canvas 5a): open by default, collapse state lives
   // only for the dialog's visit — deliberately not persisted (spec).
   const [previewOpen, setPreviewOpen] = useState(true)
+  /** Other picked for the default model, before any id has validated. */
+  const [otherModelPicked, setOtherModelPicked] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -320,6 +323,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     setSection(initialSection(useOrbital.getState().settings))
     setSaved(false)
     setPreviewOpen(true)
+    setOtherModelPicked(false)
     // `settings` deliberately absent: this reseeds per visit, and reading it
     // through `getState` keeps a PATCH landing mid-visit from yanking the
     // user out of the section they are looking at.
@@ -566,6 +570,10 @@ export function Settings({ open, onClose }: SettingsProps) {
   // `default_model` is a value, not a flag — a missing key means "no
   // preference yet", not "off", so it reads as `null` rather than a default.
   const defaultModel = settings.default_model ?? ''
+  // A stored default no catalog row carries was set through Other (or is a
+  // model this install no longer lists): show Other with it, already trusted.
+  const defaultIsCustom = defaultModel !== '' && models.length > 0 && !modelByValue(defaultModel, models)
+  const defaultModelOtherActive = otherModelPicked || defaultIsCustom
   const rememberModelPerProject = settings.remember_model_per_project !== 'false'
   const mapShowModel = settings.map_show_model !== 'false'
   // Context-fill arc (canvas 1h, spec context-fill-arc): master switch and
@@ -1275,8 +1283,22 @@ export function Settings({ open, onClose }: SettingsProps) {
                 compact
                 models={models}
                 value={defaultModel || null}
-                onChange={(value) => void patchAndSet({ default_model: value })}
+                onChange={(value) => {
+                  setOtherModelPicked(false)
+                  void patchAndSet({ default_model: value })
+                }}
+                other={{ active: defaultModelOtherActive, onSelect: () => setOtherModelPicked(true) }}
               />
+              {defaultModelOtherActive && models.length > 0 && (
+                // Written only once the id validates; typing over it or a
+                // rejected id leaves the stored default as it was.
+                <CustomModelField
+                  size="sm"
+                  initial={defaultIsCustom ? { id: defaultModel, trusted: true } : undefined}
+                  onValidated={(id) => void patchAndSet({ default_model: id })}
+                  onCleared={() => {}}
+                />
+              )}
               <Checkbox
                 label="Remember last model per project"
                 checked={rememberModelPerProject}

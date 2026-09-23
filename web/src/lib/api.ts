@@ -13,6 +13,7 @@ import type {
   TagRule,
   PermissionMode,
   OrbitalModel,
+  ModelValidation,
   SessionStatsDetail,
   StatsOverview,
   StatsWindow,
@@ -416,6 +417,11 @@ export const api = {
 
   async setSessionModel(id: string, model: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/model`, { model })
+  },
+
+  /** Probes a model id the catalog does not list. An id Claude Code rejects is `ok: false`, not a throw. */
+  async validateModel(model: string): Promise<ModelValidation> {
+    return request<ModelValidation>('POST', '/api/models/validate', { model })
   },
 
   // Errors API — the one shared error log, fed from both sides. See

@@ -7,6 +7,7 @@ domain: sessions
 related:
   - 2026-09-15-orbital-design
   - runner-pins-the-session-id
+  - a-custom-model-id-is-validated-by-a-stripped-turn
 tags:
   - models
   - sessions
@@ -169,6 +170,11 @@ it corrects itself as the registry learns.
 ### Endpoints
 
 - `GET /api/models` → `{ models: OrbitalModel[] }`.
+- `POST /api/models/validate` `{ model }` → `{ ok: true, model, resolvedModel,
+  contextWindow }` or `{ ok: false, model, reason }`; `400` for an empty or
+  malformed id. Runs the stripped probe turn described in
+  [[a-custom-model-id-is-validated-by-a-stripped-turn]] and learns the
+  window on success.
 - `POST /api/sessions/:id/model` `{ model }`:
   - live in `Runner` → `Runner.setModel(id, model)` (which calls the
     generator's `setModel`) and update the row;
@@ -281,6 +287,23 @@ toggle. New keys and their defaults:
 
 The `Subagent model` row from `4c` is **not** built — see Out of scope.
 
+### Other model (added 2026-09-23)
+
+Both pickers end with an `Other` card. Selecting it opens a mono text
+field for a full model id (`claude-opus-4-6`), because the SDK list carries
+the current generation only. On Enter or blur the id is checked through
+`POST /api/models/validate`, which runs one stripped turn on it (see
+[[a-custom-model-id-is-validated-by-a-stripped-turn]]); the field reports
+`checking…`, then the resolved id with its context window, or Claude Code's
+own sentence for an id it cannot start on. In the dialog, Launch stays
+disabled until the id validates; in Settings, `default_model` is written
+only then. A remembered custom id — the project's last model or the stored
+default — preselects `Other` with the id already trusted, since it has run
+or been validated before. The footer line and the detail chip show a
+custom id verbatim. No canvas: the card and field reuse the cards' own
+styles. The mid-session switcher still offers the catalog only.
+
+
 ### Map
 
 `sceneModel` carries each planet's model family; `Planet` renders it as a
@@ -300,6 +323,8 @@ line brighter than the name it sits under.
 | Session's model matches no catalog row | Show `resolved_model` verbatim; context bar and read-out are not drawn (`contextWindow` is `null`). |
 | Session's `source` is `terminal` | The whole usage block — grid and context bar — is hidden, not dashed: a terminal session never publishes `turn_result`, so the numbers are permanently unmeasurable, not merely unmeasured yet. |
 | `modelUsage` reports a model the catalog does not list | Stored anyway — the map is keyed by model string, not by catalog membership. |
+| Custom id fails validation | The field shows Claude Code's message; nothing is launched or stored. |
+| Custom id validates, then the model is withdrawn before launch | The first turn fails with Claude Code's message, as any launch failure does. |
 
 ## Testing
 

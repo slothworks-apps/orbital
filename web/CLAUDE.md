@@ -87,3 +87,19 @@ may only be working because it happens to be a flex item — wrap it in
 anything else and it collapses. Give sized elements their own `block` /
 `inline-block` / `flex` / `grid`. jsdom measures nothing, so no unit test
 will catch this; only the browser will.
+
+## An overlay dies inside an `overflow: hidden`
+
+Tooltips, popovers and dropdowns are positioned outside the box they hang
+off. Any ancestor between the overlay and the panel that clips its overflow
+cuts the overlay away — and the row underneath goes on looking perfectly
+correct, so the only symptom is that hovering does nothing.
+
+Before adding `overflow-hidden` to a row, ask what hangs off it. Put the clip
+on the specific child that can outgrow its share — usually the one piece of
+elastic text — rather than on the whole row.
+
+jsdom lays nothing out and clips nothing, so a unit test will happily assert
+that the overlay is in the DOM while the real app shows empty space. Verify
+an overlay in a real browser, and guard the invariant structurally: assert
+that no ancestor of the overlay carries the clip.
