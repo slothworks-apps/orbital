@@ -13,6 +13,7 @@ import {
   type Scroller,
 } from './transcriptMotion'
 import { MessageView } from './MessageView'
+import { NoticeRow } from './NoticeRow'
 import { QuestionCard } from './QuestionCard'
 import { PermissionCard } from './PermissionCard'
 import { ToolRow, salientInput } from './ToolRow'
@@ -633,6 +634,12 @@ export function Transcript({ sessionId }: TranscriptProps) {
               onHeightSettled={refreshStick}
             />
           )
+        ) : group.item.message.role === 'notice' ? (
+          // The CLI answering for itself — a locally-answered slash command,
+          // a hook's banner. Never `MessageView`: it is neither speech nor a
+          // turn, and it carries no model, so the divider logic above leaves
+          // it alone as well.
+          <NoticeRow message={group.item.message} />
         ) : (
           <MessageView
             message={group.item.message}
