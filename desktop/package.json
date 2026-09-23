@@ -1,6 +1,6 @@
 {
   "name": "@orbital/desktop",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Orbital as a macOS desktop app: the window, the notifications and the server's lifecycle.",
   "private": true,
   "main": "dist/main.cjs",
