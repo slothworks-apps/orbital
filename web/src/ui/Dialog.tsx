@@ -192,7 +192,7 @@ export function Dialog({
       // leave the focus order — see EXITING in `ui/motion`.
       inert={state === 'exiting' || undefined}
       className={[
-        'fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]',
+        'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]',
         MODAL_TRANSITION,
         duration,
         entered ? SCRIM_OPEN : SCRIM_CLOSED,

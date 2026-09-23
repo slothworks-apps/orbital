@@ -15,6 +15,7 @@ import {
 } from 'electron';
 import { join } from 'node:path';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
+import { decideWindowButtons, parseWindowButtonsVisible } from './lib/mainWindow';
 import { SessionNotifier, parseNotificationSettings } from './lib/notifications';
 import { probeHealth, probeVite } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
@@ -61,6 +62,11 @@ const SESSION_WINDOW_BACKGROUND = '#0f1524';
 // that row, and the row's left padding is sized to clear them.
 const SESSION_WINDOW_TRAFFIC_LIGHTS = { x: 14, y: 20 };
 
+// The main window has no title bar either (canvas `Feature - Main window
+// chrome` 24a; spec: 2026-09-24-main-window-chrome-design): the lights sit
+// centred on the expanded sidebar's row 1, whose left padding clears them.
+const MAIN_WINDOW_TRAFFIC_LIGHTS = { x: 30, y: 32 };
+
 // Packaged, the three things the forked server needs sit beside the app's
 // resources; unpackaged (running `electron .` in the repo) they sit in the
 // sibling workspaces.
@@ -83,6 +89,12 @@ const trayIcon = app.isPackaged
   : join(__dirname, '..', 'build', 'trayTemplate.png');
 
 let win: BrowserWindow | null = null;
+/**
+ * What the main window's renderer last asked of the traffic lights: shown with
+ * the sidebar expanded, hidden with it collapsed (24b). Kept so leaving full
+ * screen, where macOS owns the lights, can put back what the sidebar wants.
+ */
+let mainWindowButtonsVisible = true;
 /**
  * Detached session windows, by session id. Main is the only thing that knows
  * this list (ADR: the-main-process-owns-the-detached-windows); the main
@@ -313,25 +325,76 @@ function confineToOrbital(contents: WebContents): void {
 
 function openWindow(url: string): void {
   windowTargetUrl = url;
-  win = new BrowserWindow({ width: 1440, height: 900, webPreferences });
-  confineToOrbital(win.webContents);
+  // `title` is pinned and the page's own ignored below: the window is
+  // "Orbital" in Mission Control, the Dock and ⌘` whatever page it shows
+  // (spec: 2026-09-24-main-window-chrome-design).
+  const main = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    title: 'Orbital',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: MAIN_WINDOW_TRAFFIC_LIGHTS,
+    webPreferences,
+  });
+  win = main;
+  confineToOrbital(main.webContents);
+  main.on('page-title-updated', (event) => event.preventDefault());
   // A renderer rebuilt after a crash starts with an empty list, and one that
   // reloaded has lost its own — so every finished load hears it again
-  // (spec: 2026-09-23-detached-session-windows-design § "Edge cases").
-  win.webContents.on('did-finish-load', () => sendDetachedChanged());
+  // (spec: 2026-09-23-detached-session-windows-design § "Edge cases"). The
+  // full-screen state goes with it: the page lays out its chrome by it (24c).
+  main.webContents.on('did-finish-load', () => {
+    sendDetachedChanged();
+    sendFullScreenChanged();
+  });
+  // A new page starts with the lights showing. Only the map's sidebar ever
+  // hides them, and the page that replaces it (a reload, `/stats`) may have
+  // no way to ask for them back; the map asks again as it mounts.
+  main.webContents.on('did-start-navigation', (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return;
+    setMainWindowButtons(true);
+  });
+  main.on('enter-full-screen', () => sendFullScreenChanged());
+  main.on('leave-full-screen', () => {
+    // macOS hid the lights for full screen. The sidebar may still want them
+    // hidden (24b), and it only says so when it changes.
+    setMainWindowButtons(mainWindowButtonsVisible);
+    sendFullScreenChanged();
+  });
 
   // Closing is hiding: the renderer stays alive, so reopening is instant and
   // the map is exactly where it was, and the server it would have taken with
   // it keeps running (spec: 2026-09-22-desktop-background-mode-design).
-  win.on('close', (event) => {
+  main.on('close', (event) => {
     if (decideWindowClose({ quitting }) === 'close') return;
     event.preventDefault();
     win?.hide();
   });
-  win.on('closed', () => {
+  main.on('closed', () => {
     win = null;
   });
-  void win.loadURL(url);
+  void main.loadURL(url);
+}
+
+/**
+ * Tell the main window whether it is full screen, which drops the drag band,
+ * its hint and the room row 1 makes for the lights (24c). Sent on every
+ * change and on every load.
+ */
+function sendFullScreenChanged(): void {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send('full-screen-changed', win.isFullScreen());
+}
+
+/**
+ * Show or hide the main window's traffic lights, as the sidebar asks (24a,
+ * 24b). Full screen leaves them to macOS; the request is kept for the way out.
+ */
+function setMainWindowButtons(visible: boolean): void {
+  mainWindowButtonsVisible = visible;
+  if (!win || win.isDestroyed()) return;
+  const apply = decideWindowButtons(visible, win.isFullScreen());
+  if (apply !== null) win.setWindowButtonVisibility(apply);
 }
 
 /**
@@ -628,6 +691,14 @@ ipcMain.on('detach-session', (_event, id: unknown) => {
 });
 ipcMain.on('focus-session', (_event, id: unknown) => {
   if (isSessionId(id)) focusSessionWindow(id);
+});
+// The sidebar collapsing or expanding in the main window hides or shows the
+// traffic lights (spec: 2026-09-24-main-window-chrome-design). A detached
+// window keeps its lights whatever it sends.
+ipcMain.on('set-window-buttons-visible', (event, payload: unknown) => {
+  if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return;
+  const visible = parseWindowButtonsVisible(payload);
+  if (visible !== null) setMainWindowButtons(visible);
 });
 // The subagent panel opening or closing inside a detached window. Only a
 // detached window's own renderer is heard, and only about itself.

@@ -17,6 +17,7 @@ import {
   SUBAGENT_PANEL_DEFAULT_PX,
 } from '../store/store'
 import { isReadOnly } from '../lib/types'
+import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
 import type { Subagent } from '../lib/types'
 import { labelFontPx } from './visuals'
 import { Button } from '../ui/Button'
@@ -542,13 +543,18 @@ export function SpaceMap() {
   const overlayRightPx = selectedId ? rightPanelsChromePx + 24 : 24
   // Screen-space chrome the camera helpers keep the sessions clear of. Both
   // sides are live, and the right side only counts when a panel is actually
-  // open — nothing is selected, nothing is covering that edge.
+  // open — nothing is selected, nothing is covering that edge. The top is the
+  // desktop window's drag band, which takes clicks meant for the map (canvas
+  // `Feature - Main window chrome` 24a); gone in full screen and the browser.
+  const windowChrome = useWindowChromeEnv()
+  const topInset = mapTopInset(windowChrome)
   const mapInsets = useMemo(
     () => ({
       left: sidebarCollapsed ? SIDEBAR_COLLAPSED_PX : sidebarWidth + SIDEBAR_GUTTER_PX,
       right: selectedId ? rightPanelsChromePx : 0,
+      top: topInset,
     }),
-    [sidebarCollapsed, sidebarWidth, selectedId, rightPanelsChromePx]
+    [sidebarCollapsed, sidebarWidth, selectedId, rightPanelsChromePx, topInset]
   )
   const overlayTransition = resizingPanel
     ? ''

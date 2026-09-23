@@ -479,3 +479,28 @@ body {
 .orbital-drag-region :is(button, a, input, textarea, [tabindex], [data-no-drag], [role='tooltip']) {
   -webkit-app-region: no-drag;
 }
+
+/* The main window's drag band (canvas `Feature - Main window chrome` 24a;
+   spec 2026-09-24-main-window-chrome-design): one transparent element across
+   the top, `WINDOW_DRAG_BAND_PX` tall, under the sidebar and the panels.
+
+   Electron builds the drag area from the DOM without regard to stacking: the
+   band's box counts as drag even where a panel is painted over it, and each
+   later no-drag box is cut out of it. So the band comes first in the DOM, and
+   what lies over it and must stay clickable says no-drag:
+   - `.orbital-band-controls`: a container whose controls sit in the band
+     (sidebar row 1 and the rail, the detail and subagent headers). The
+     container itself still drags, like the rest of the band.
+   - `.orbital-no-drag`: the whole box opts out. Resize handles, and every
+     dialog backdrop and popover, which otherwise would move the window
+     instead of taking a click in the top band. That goes for the detached
+     window's row 1 (`.orbital-drag-region`) as well.
+   Outside a drag region, and in a browser, none of this does anything. */
+.orbital-window-band {
+  -webkit-app-region: drag;
+}
+
+.orbital-band-controls :is(button, a, input, textarea, [tabindex], [role='separator'], [data-no-drag], [role='tooltip']),
+.orbital-no-drag {
+  -webkit-app-region: no-drag;
+}

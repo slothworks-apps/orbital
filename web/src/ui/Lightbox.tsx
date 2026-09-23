@@ -42,7 +42,7 @@ export function Lightbox({ open, image, caption, onClose }: LightboxProps) {
         inert={state === 'exiting' || undefined}
         onClick={onClose}
         style={{ transition: 'opacity 140ms ease', opacity: entered ? 1 : 0 }}
-        className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3.5 bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
+        className="orbital-no-drag fixed inset-0 z-50 flex flex-col items-center justify-center gap-3.5 bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
       >
         <img
           src={`/api/images/${image.ref}`}

@@ -121,7 +121,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
               inset top highlight `ui/Select.tsx`'s listbox uses. */}
           <div
             ref={popupRef}
-            className="absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-[rgba(150,205,255,.22)] bg-gradient-to-b from-[rgba(18,26,44,.98)] to-[rgba(10,14,26,.98)] shadow-[0_20px_50px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]"
+            className="orbital-no-drag absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-[rgba(150,205,255,.22)] bg-gradient-to-b from-[rgba(18,26,44,.98)] to-[rgba(10,14,26,.98)] shadow-[0_20px_50px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]"
           >
             <div className="px-3 pb-1.5 pt-2.5 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
               MODEL · APPLIES FROM NEXT TURN

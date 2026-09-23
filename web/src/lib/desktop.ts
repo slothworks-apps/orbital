@@ -10,6 +10,8 @@ type DesktopBridge = {
   focusSession?: (id: string) => void
   onDetachedChanged?: (cb: (ids: string[]) => void) => void
   setSubagentPanel?: (state: SubagentPanelState) => void
+  setWindowButtonsVisible?: (visible: boolean) => void
+  onFullScreenChanged?: (cb: (fullScreen: boolean) => void) => void
 }
 
 /**
@@ -45,11 +47,22 @@ export function hasDesktopBridge(): boolean {
 export function initDesktopBridge(handlers: {
   select: (id: string) => Promise<void>
   setDetached: (ids: string[]) => void
+  setFullScreen: (fullScreen: boolean) => void
 }): void {
   bridge()?.onSelectSession?.((id) => {
     void handlers.select(id)
   })
   bridge()?.onDetachedChanged?.((ids) => handlers.setDetached(ids))
+  bridge()?.onFullScreenChanged?.((fullScreen) => handlers.setFullScreen(fullScreen))
+}
+
+/**
+ * Shows or hides the main window's traffic lights: the collapsed sidebar has
+ * no room for them (canvas `Feature - Main window chrome` 24b). A no-op in
+ * the browser, and main ignores it from a detached window.
+ */
+export function setWindowButtonsVisible(visible: boolean): void {
+  bridge()?.setWindowButtonsVisible?.(visible)
 }
 
 /** Opens the session in its own window, or focuses the one it already has. */

@@ -127,7 +127,7 @@ export function Tooltip({
             // travel are what make a delayed bubble read as an answer to the
             // pointer resting, not as a flicker.
             'orbital-tooltip-in',
-            'absolute top-full z-20 mt-2 w-max border',
+            'orbital-no-drag absolute top-full z-20 mt-2 w-max border',
             'border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]',
             // 1f draws the one-line shell tighter and with a softer drop than
             // 2d's card, because it hangs off a text row rather than a control.

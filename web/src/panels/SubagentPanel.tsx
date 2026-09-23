@@ -273,8 +273,10 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
       />
 
       {/* Header — canvas 11b: 16px/18px padding, one step tighter than the
-          detail panel's 12px/22px/16px at every level. */}
-      <div className="border-b border-[rgba(150,205,255,.1)] px-[18px] pb-4 pt-4">
+          detail panel's 12px/22px/16px at every level. Docked in the main
+          window, its top lies under the drag band (canvas `Feature - Main
+          window chrome` 24a), so its controls opt out of it. */}
+      <div className="orbital-band-controls border-b border-[rgba(150,205,255,.1)] px-[18px] pb-4 pt-4">
         {/* In a detached window the row carries on the detail panel's title
             bar (22b): it reaches out over the header's top and side padding
             so the whole top band drags the window, and collapse stays clickable

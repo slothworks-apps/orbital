@@ -413,7 +413,7 @@ export function Select<T extends string | number>({
             // never fires a focusout that an ancestor reads as "left the row".
             onMouseDown={(e) => e.preventDefault()}
             className={[
-              'fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-[5px]',
+              'orbital-no-drag fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-[5px]',
               // Canvas 1b's shell, shared with `MenuButton` (see `POPUP_SHELL`).
               POPUP_SHELL,
               triggerFont[font],

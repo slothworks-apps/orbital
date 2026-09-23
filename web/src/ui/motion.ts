@@ -20,6 +20,14 @@ export const MODAL_EXIT_MS = 140
 export const PANEL_ENTER_MS = 320
 export const PANEL_EXIT_MS = 240
 
+/**
+ * The sidebar's collapse and expand: `Panel`'s width transition and the
+ * content layer's cross-fade (`duration-[420ms]` in both). JS needs it to know
+ * when an expand has finished — the traffic lights come back only then
+ * (canvas `Feature - Main window chrome` 24b).
+ */
+export const SIDEBAR_COLLAPSE_MS = 420
+
 const EASE = 'motion-safe:ease-[cubic-bezier(.2,.8,.2,1)]'
 
 /**

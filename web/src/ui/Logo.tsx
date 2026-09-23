@@ -1,5 +1,8 @@
 import { useId } from 'react'
 
+/** The mark while its window is not focused (canvas `Feature - Main window chrome` 24d). */
+const INACTIVE_MARK_OPACITY = 0.45
+
 /**
  * Orbital mark: the orbit ring with a body on its near side, shared by the
  * expanded sidebar header and the collapsed rail. Geometry and gradients are
@@ -11,8 +14,12 @@ import { useId } from 'react'
  * it can be dropped for a menu-bar template image, where the OS wants flat
  * artwork. `MARK SIZES` on that artboard rules out anything below 14px: the
  * body merges into the ring. Both placements here use the 18px size.
+ *
+ * `dimmed` is the desktop window sitting behind another: the mark steps down
+ * to `INACTIVE_MARK_OPACITY`, the one thing in the main window that does
+ * (canvas `Feature - Main window chrome` 24d).
  */
-export function Logo() {
+export function Logo({ dimmed = false }: { dimmed?: boolean } = {}) {
   // Both call sites (header and rail) are mounted at once, so the gradient
   // ids have to be per-instance. useId's colons are legal in an id but not
   // worth the url(#…) footgun.
@@ -26,7 +33,8 @@ export function Logo() {
       viewBox="0 0 24 24"
       width="18"
       height="18"
-      className="block shrink-0 drop-shadow-[0_0_8px_rgba(110,211,239,.45)]"
+      className="block shrink-0 drop-shadow-[0_0_8px_rgba(110,211,239,.45)] transition-opacity duration-200 ease-[ease]"
+      style={dimmed ? { opacity: INACTIVE_MARK_OPACITY } : undefined}
     >
       <defs>
         <linearGradient id={ring} x1="0.85" y1="0.1" x2="0.15" y2="0.95">

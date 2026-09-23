@@ -509,7 +509,7 @@ export function FileViewer({ session }: FileViewerProps) {
         onClick={closeFile}
         // 8e transitions: backdrop .14s; rgba(2,4,9,.82) + blur 6.
         style={{ transition: 'opacity 140ms ease', opacity: entered ? 1 : 0 }}
-        className="fixed inset-0 z-50 grid place-items-center bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
+        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
       >
         <div
           onClick={(event) => event.stopPropagation()}

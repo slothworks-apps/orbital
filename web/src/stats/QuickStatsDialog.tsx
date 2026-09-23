@@ -112,7 +112,7 @@ export function QuickStatsDialog({ open, detail, title, live, onClose }: QuickSt
         onClick={onClose}
         // 10e: backdrop rgba(2,4,9,.58) + 4px blur.
         className={[
-          'fixed inset-0 z-50 grid place-items-center bg-[rgba(2,4,9,.58)] p-6 backdrop-blur-[4px]',
+          'orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-[rgba(2,4,9,.58)] p-6 backdrop-blur-[4px]',
           MODAL_TRANSITION,
           duration,
           entered ? SCRIM_OPEN : SCRIM_CLOSED,

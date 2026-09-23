@@ -658,7 +658,7 @@ export function Settings({ open, onClose }: SettingsProps) {
         // Still painted on the way out, but no longer a live surface.
         inert={presence === 'exiting' || undefined}
         className={[
-          'fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]',
+          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]',
           MODAL_TRANSITION,
           duration,
           entered ? SCRIM_OPEN : SCRIM_CLOSED,

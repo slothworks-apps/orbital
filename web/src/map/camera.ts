@@ -258,6 +258,12 @@ export interface Insets {
   left: number
   /** Detail-panel side. */
   right: number
+  /**
+   * The desktop window's drag band (canvas `Feature - Main window chrome`
+   * 24a), which takes clicks and so hides whatever lies under it. Fit keeps
+   * clear of it on top of its own margin; absent is none.
+   */
+  top?: number
 }
 
 /**
@@ -347,9 +353,13 @@ export function fitView(
     strip - FIT_MARGIN_PX.left - FIT_MARGIN_PX.right,
     strip * MIN_FIT_FRAME_SHARE
   )
+  // Vertically only the window's drag band covers the map, and only from the
+  // top: the height the band leaves is the axis the margins come out of.
+  const insetTop = insets.top ?? 0
+  const column = viewport.height - insetTop
   const frameHeight = Math.max(
-    viewport.height - FIT_MARGIN_PX.top - FIT_MARGIN_PX.bottom,
-    viewport.height * MIN_FIT_FRAME_SHARE
+    column - FIT_MARGIN_PX.top - FIT_MARGIN_PX.bottom,
+    column * MIN_FIT_FRAME_SHARE
   )
 
   // Orthographic projection: on-screen pixels = world units * zoom, so the
@@ -375,9 +385,10 @@ export function fitView(
   // distance, converted back into world units — `centerOn`'s move, with the
   // margins folded in. The vertical pair reads the other way round because
   // screen y grows downward while world y grows upward: the taller bottom
-  // margin has to push the bodies UP.
+  // margin has to push the bodies UP, and the band over the top pushes them
+  // down.
   const offsetX =
     (insets.left - insets.right) / 2 + (FIT_MARGIN_PX.left - FIT_MARGIN_PX.right) / 2
-  const offsetY = (FIT_MARGIN_PX.bottom - FIT_MARGIN_PX.top) / 2
+  const offsetY = (FIT_MARGIN_PX.bottom - FIT_MARGIN_PX.top - insetTop) / 2
   return { x: centerX - offsetX / zoom, y: centerY - offsetY / zoom, zoom }
 }

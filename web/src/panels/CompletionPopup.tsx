@@ -315,7 +315,7 @@ export function CompletionPopup({
       // backdrop-filter becomes the containing block for fixed children, and
       // the panel clips its own overflow.
       className={[
-        'fixed z-[60] flex flex-col overflow-hidden',
+        'orbital-no-drag fixed z-[60] flex flex-col overflow-hidden',
         'rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]',
         'shadow-[0_26px_70px_rgba(0,0,0,.6)]',
         // 9e: open .12s cubic-bezier(.2,.9,.25,1), opacity with a 4px rise;

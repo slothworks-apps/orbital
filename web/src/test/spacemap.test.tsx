@@ -1033,6 +1033,41 @@ describe('fitView', () => {
       expect(fitView([], VIEWPORT, INSETS)).toEqual({ x: 0, y: 0, zoom: 60 })
     })
   })
+
+  describe('with the window drag band on top', () => {
+    const BAND = 48
+    // Taller than wide in world units, so height is the tighter axis and the
+    // band has to cost zoom.
+    const bodies = [
+      { x: -2, y: -10 },
+      { x: 2, y: 10 },
+    ]
+
+    it('keeps the bodies below the band plus the usual top margin', () => {
+      const fit = fitView(bodies, VIEWPORT, { left: 0, right: 0, top: BAND })
+      const top = worldToScreen(fit, VIEWPORT, { x: 0, y: 10 })
+      const bottom = worldToScreen(fit, VIEWPORT, { x: 0, y: -10 })
+      expect(top.y).toBeGreaterThanOrEqual(BAND + FIT_MARGIN_PX.top - EDGE_SLACK_PX)
+      expect(bottom.y).toBeLessThanOrEqual(VIEWPORT.height - FIT_MARGIN_PX.bottom + EDGE_SLACK_PX)
+    })
+
+    it('centres the box in the height the band leaves', () => {
+      const fit = fitView(bodies, VIEWPORT, { left: 0, right: 0, top: BAND })
+      const centre = worldToScreen(fit, VIEWPORT, { x: 0, y: 0 })
+      const frameTop = BAND + FIT_MARGIN_PX.top
+      const frameBottom = VIEWPORT.height - FIT_MARGIN_PX.bottom
+      expect(centre.y).toBeCloseTo((frameTop + frameBottom) / 2, 10)
+    })
+
+    it('zooms out further than without it when height is the tighter axis', () => {
+      const banded = fitView(bodies, VIEWPORT, { left: 0, right: 0, top: BAND })
+      expect(banded.zoom).toBeLessThan(fitView(bodies, VIEWPORT).zoom)
+    })
+
+    it('is the plain fit when the band is absent (full screen, the browser)', () => {
+      expect(fitView(bodies, VIEWPORT, { left: 0, right: 0, top: 0 })).toEqual(fitView(bodies, VIEWPORT))
+    })
+  })
 })
 
 describe('zoomFromWheel', () => {

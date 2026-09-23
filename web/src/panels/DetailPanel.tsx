@@ -24,6 +24,7 @@ import { api } from '../lib/api'
 import { openQuestion } from '../lib/questionCard'
 import { composerHintFor, composerPlaceholderFor } from '../lib/decisionCard'
 import { reportError } from '../lib/errors'
+import { useWindowFocused } from '../lib/useWindowFocused'
 import { Panel } from '../ui/Panel'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { usePresence } from '../ui/usePresence'
@@ -148,27 +149,6 @@ function useWindowWidth(enabled: boolean): number {
     return () => window.removeEventListener('resize', onResize)
   }, [enabled])
   return width
-}
-
-/**
- * Whether the window has focus, tracked only while `enabled` — a detached
- * window dims its glint while it sits behind another (canvas `Feature -
- * Detached window` 22d). Always true when not tracked.
- */
-function useWindowFocused(enabled: boolean): boolean {
-  const [focused, setFocused] = useState(() => !enabled || document.hasFocus())
-  useEffect(() => {
-    if (!enabled) return
-    const onFocus = () => setFocused(true)
-    const onBlur = () => setFocused(false)
-    window.addEventListener('focus', onFocus)
-    window.addEventListener('blur', onBlur)
-    return () => {
-      window.removeEventListener('focus', onFocus)
-      window.removeEventListener('blur', onBlur)
-    }
-  }, [enabled])
-  return focused
 }
 
 /**
@@ -722,7 +702,9 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
         onPointerUp={handleWidthPointerUp}
         onPointerCancel={handleWidthPointerUp}
         onDoubleClick={handleWidthReset}
-        className="absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
+        // `orbital-no-drag`: its top runs under the main window's drag band
+        // (canvas `Feature - Main window chrome` 24a), which would take it.
+        className="orbital-no-drag absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
       />
       )}
       {/* Top hairline glint in the session's tag hue (canvas 1b). A detached
@@ -741,10 +723,13 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
           the whole next line. Padding 12px 22px 16px over a hairline rule.
           9c-1 steps it back to .4 while a drop is armed, a touch brighter than
           the transcript's .35: it is the session's name, and the marker is the
-          only thing that should be competing. */}
+          only thing that should be competing.
+          Docked in the main window, its top lies under the drag band (24a):
+          `orbital-band-controls` keeps row 1's buttons and the title field
+          clickable there. */}
       <div
         className={[
-          'border-b border-panel-border px-[22px] pt-3 pb-4',
+          'orbital-band-controls border-b border-panel-border px-[22px] pt-3 pb-4',
           dropArmed ? 'opacity-40' : '',
         ].join(' ')}
       >

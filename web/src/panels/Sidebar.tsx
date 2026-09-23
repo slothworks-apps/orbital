@@ -10,6 +10,9 @@ import {
 } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
+import { hasDesktopBridge } from '../lib/desktop'
+import { useWindowBand } from '../lib/windowChrome'
+import { useWindowFocused } from '../lib/useWindowFocused'
 import { isReadOnly, parkedLabel, tagColor } from '../lib/types'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
@@ -422,6 +425,11 @@ export function partitionSessions(
  */
 export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarProps) {
   const collapsed = useOrbital((s) => s.ui.sidebarCollapsed)
+  // The main desktop window's chrome: row 1 makes room for the traffic
+  // lights, and the mark dims while the window is behind another (canvas
+  // `Feature - Main window chrome` 24a, 24d).
+  const windowBand = useWindowBand()
+  const windowFocused = useWindowFocused(hasDesktopBridge())
   const historyRevealNonce = useOrbital((s) => s.ui.historyRevealNonce ?? 0)
   const filterTagId = useOrbital((s) => s.ui.filterTagId)
   const search = useOrbital((s) => s.ui.search)
@@ -624,7 +632,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           onPointerUp={handleWidthPointerUp}
           onPointerCancel={handleWidthPointerUp}
           onDoubleClick={handleWidthReset}
-          className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
+          // `orbital-no-drag`: its top runs under the window's drag band (24a).
+          className="orbital-no-drag absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
         />
       )}
       {/* Collapsed rail per canvas 1b: logo, expand toggle, divider, one hue
@@ -635,9 +644,12 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           'absolute inset-y-0 left-0 flex w-14 flex-col items-center gap-3.5 py-[18px]',
           'transition-opacity duration-300',
           collapsed ? 'opacity-100 delay-100' : 'pointer-events-none opacity-0',
+          // Only the layer on show opts its controls out of the drag band: the
+          // faded one's boxes are still there, and would punch holes in it.
+          collapsed ? 'orbital-band-controls' : '',
         ].join(' ')}
       >
-        <Logo />
+        <Logo dimmed={!windowFocused} />
         <IconButton label="Expand sidebar" glyph="»" onClick={() => setSidebarCollapsed(false)} />
         <span aria-hidden className="h-px w-5 bg-panel-border" />
         {active.slice(0, 8).map((s) => (
@@ -677,8 +689,19 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       {/* Every padding below is the export's own rhythm (1a), not a uniform
           grid: 18px gutters for headers/footer, 14px for the search and
           chips, 8px for the row lists so selected rows bleed toward the edge. */}
-      <div className="flex items-center gap-2.5 px-[18px] pt-[18px] pb-3.5">
-        <Logo />
+      {/* In the windowed desktop app the traffic lights sit on this row
+          (canvas `Feature - Main window chrome` 24a): it trades top padding
+          for left, so the mark and the wordmark move right of the lights and
+          the row keeps its height and centre line. Full screen has no lights
+          and gets 1a's padding back (24c). */}
+      <div
+        className={[
+          'flex items-center gap-2.5 pb-3.5',
+          windowBand ? 'pt-2 pr-[18px] pl-20' : 'px-[18px] pt-[18px]',
+          collapsed ? '' : 'orbital-band-controls',
+        ].join(' ')}
+      >
+        <Logo dimmed={!windowFocused} />
         <span className="text-[13px] font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
         <span className="flex-1" />
         <IconButton label="Collapse sidebar" glyph="«" onClick={() => setSidebarCollapsed(true)} />

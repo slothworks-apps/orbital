@@ -72,3 +72,30 @@ top edge, as it does in the detached window.
 
 Pure logic only: camera fit's top inset with and without the band, and any
 decision function for when the lights show.
+
+## Implementation notes
+
+Recorded while building it, 2026-09-24.
+
+- **How the band is built.** One transparent element across the top
+  (`.orbital-window-band`, `WINDOW_DRAG_BAND_PX` tall), first among the
+  chrome in the DOM, above the HUD and under the panels. Electron adds drag
+  boxes and cuts no-drag boxes in document order, whatever the stacking, so
+  what lies over the band and must stay clickable says no-drag:
+  `.orbital-band-controls` on the containers whose controls sit in the band
+  (sidebar row 1 and the rail — only the layer on show, since the faded one
+  keeps its boxes — the detail and subagent headers), and `.orbital-no-drag`
+  on the resize handles and on every dialog backdrop and popover root (the
+  latter in both kinds of window).
+- **The hint sits under the HUD**, over the map and its labels. The
+  aggregate readout in the band is not darkened by it.
+- **Fit's top padding** is the band plus `FIT_MARGIN_PX.top`, which is what
+  fit already kept clear of the top edge before (not the HUD's 24 px offset).
+- **Lights and full screen.** Main keeps the last request from the sidebar
+  and applies it only out of full screen, including on the way out. A new
+  page load (not an in-page navigation) resets the lights to shown, because
+  the page that replaces the map may have no sidebar to ask for them back.
+- **Open: other pages in the main window.** `/stats` and `/walkthrough/<id>`
+  load in the main window too, and they draw no band: under `hiddenInset`
+  their top edge does not drag the window and the lights sit over their top
+  left. Needs a canvas decision; until then those pages are as they render.

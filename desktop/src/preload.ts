@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { parseFullScreen } from './lib/mainWindow';
 import { parseDetachedIds } from './lib/sessionWindows';
 
 // The bridge the renderer sees. `select-session` is sent by main.ts when the
@@ -34,5 +35,16 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   // window). Main validates the payload; the main window's is ignored.
   setSubagentPanel(state: unknown) {
     ipcRenderer.send('session-window-subagent', state);
+  },
+  // The main window's chrome (spec: 2026-09-24-main-window-chrome-design):
+  // the sidebar hides the traffic lights while it is collapsed, and main says
+  // when the window enters or leaves full screen, where the drag band goes.
+  // Main heeds the first only from the main window and sends the second only
+  // to it.
+  setWindowButtonsVisible(visible: boolean) {
+    ipcRenderer.send('set-window-buttons-visible', visible);
+  },
+  onFullScreenChanged(cb: (fullScreen: boolean) => void) {
+    ipcRenderer.on('full-screen-changed', (_e, fullScreen) => cb(parseFullScreen(fullScreen)));
   },
 });

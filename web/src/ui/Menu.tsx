@@ -234,7 +234,7 @@ export function MenuButton({
             onKeyDown={handleMenuKeyDown}
             // 23c form 4: 6px padding, rows 2px apart, and the popup shell
             // Select's listbox wears (10px radius, .96 fill, .16 hairline).
-            className={['fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col gap-0.5 p-1.5', POPUP_SHELL].join(' ')}
+            className={['orbital-no-drag fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col gap-0.5 p-1.5', POPUP_SHELL].join(' ')}
             style={widthPx === undefined ? undefined : { width: `${widthPx}px` }}
           >
             {entries.map((entry, i) => {

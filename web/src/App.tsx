@@ -19,6 +19,7 @@ import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import { readNewSessionParam, useSessionUrl, withoutNewSessionParam } from './lib/sessionUrl'
+import { WINDOW_DRAG_BAND_PX, useSidebarWindowButtons, useWindowBand } from './lib/windowChrome'
 
 /**
  * The app's single WebSocket connection, taken at module level so it's created
@@ -57,6 +58,13 @@ export default function App() {
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const dialog = useOrbital((s) => s.ui.dialog)
   const wsStatus = useOrbital((s) => s.ui.wsStatus)
+  const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
+
+  // The desktop window's chrome (spec: 2026-09-24-main-window-chrome-design):
+  // the band that drags the window, and the traffic lights following the
+  // sidebar. Nothing in a browser or in full screen.
+  const windowBand = useWindowBand()
+  useSidebarWindowButtons(sidebarCollapsed)
 
   // Task 8 (spec § 8 "Layout"): with the subagent panel open, it docks at
   // the right edge and the detail panel is pushed left to make room —
@@ -153,6 +161,32 @@ export default function App() {
           <SpaceMap />
         </ErrorBoundary>
       </div>
+
+      {/* The window's top band (canvas `Feature - Main window chrome` 24a,
+          24g). The hint is a gradient that marks it: over the map and its
+          labels (`z-[5]`), under the HUD (`z-[6]`) and the panels, and faded
+          out where there is no band. The band itself is a transparent element
+          that drags the window; it sits above the HUD so a drag starting in
+          it never reaches the map, and FIRST among the chrome in the DOM, so
+          every no-drag box after it (`theme.css`, `.orbital-window-band`) is
+          cut out of it. Double-clicking it zooms, as macOS does for a title
+          bar. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-[5] transition-opacity duration-200 ease-[ease]"
+        style={{
+          height: WINDOW_DRAG_BAND_PX,
+          background: 'linear-gradient(180deg, rgba(2,3,8,.55), rgba(2,3,8,0))',
+          opacity: windowBand ? 1 : 0,
+        }}
+      />
+      {windowBand && (
+        <div
+          aria-hidden
+          className="orbital-window-band absolute inset-x-0 top-0 z-[7]"
+          style={{ height: WINDOW_DRAG_BAND_PX }}
+        />
+      )}
 
       {/* Docked panels inset 16px from the viewport edge, per the export's
           `left:16px;top:16px;bottom:16px` on both 1a's sidebar and 1b's

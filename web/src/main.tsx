@@ -5,6 +5,7 @@ import './theme.css'
 import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import { initDesktopBridge } from './lib/desktop'
+import { setWindowFullScreen } from './lib/windowChrome'
 import { useOrbital } from './store/store'
 import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
 import { parseStatsRoute } from './stats/route'
@@ -82,7 +83,9 @@ const sessionWindowId = parseSessionWindowRoute(window.location.pathname)
 
 /**
  * Under Electron, clicking a notification asks the map to open that session,
- * and the main process pushes the list of detached sessions. In a browser
+ * and the main process pushes the list of detached sessions and whether the
+ * window is full screen (which drops the window chrome, `lib/windowChrome`).
+ * In a browser
  * there is no bridge and this does nothing. The store is a module singleton,
  * so it is ready here — the listeners only ever fire after the page has
  * loaded.
@@ -94,6 +97,7 @@ if (sessionWindowId === null) {
   initDesktopBridge({
     select: (id) => useOrbital.getState().select(id),
     setDetached: (ids) => useOrbital.getState().setDetached(ids),
+    setFullScreen: setWindowFullScreen,
   })
 }
 
