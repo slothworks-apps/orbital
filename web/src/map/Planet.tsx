@@ -10,6 +10,7 @@ import {
   DIMMED_OPACITY,
   HALO_BREATH_MIN,
   HALO_BREATH_SEC,
+  LABEL_TITLE_TRACKING_EM,
   easeOut,
   oscillate,
   truncateLabel,
@@ -1742,7 +1743,7 @@ export function Planet({
                   display: 'block',
                   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                   fontSize: labelTitlePx,
-                  letterSpacing: '0.06em',
+                  letterSpacing: `${LABEL_TITLE_TRACKING_EM}em`,
                   color: dimmedLabel ? LABEL_COLOR_DIMMED : LABEL_COLOR_ACTIVE,
                   // The label is plain DOM, so its half of the state change is a
                   // CSS transition on the same curve — dropped entirely under
@@ -1808,7 +1809,7 @@ export function Planet({
                   marginTop: -3,
                   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                   fontSize: labelTitlePx,
-                  letterSpacing: '0.06em',
+                  letterSpacing: `${LABEL_TITLE_TRACKING_EM}em`,
                   lineHeight: 1.5,
                   color: LABEL_COLOR_ACTIVE,
                   overflowWrap: 'anywhere',
