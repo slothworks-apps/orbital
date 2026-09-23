@@ -5,3 +5,4 @@ node_modules/
 server/dist/
 desktop/dist/
 desktop/release/
+.claude/worktrees/
