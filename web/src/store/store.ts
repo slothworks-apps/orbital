@@ -1508,6 +1508,24 @@ export function showCompactBadge(settings: Record<string, string>): boolean {
 }
 
 /**
+ * `transcript_edit_diffs` — whether an editing tool's row arrives open
+ * (canvas `Feature - Transcript blocks` 20f). Default-off convention, unlike
+ * the map switches above: the shipped value is `collapsed`, so only the exact
+ * word turns it on and an unreadable value leaves the transcript as it was.
+ */
+export function editDiffsExpanded(settings: Record<string, string>): boolean {
+  return settings.transcript_edit_diffs === 'expanded'
+}
+
+/**
+ * `transcript_expand_diff_on_permission` — whether an edit the session is
+ * blocked on opens regardless of the setting above. Default-on convention.
+ */
+export function expandDiffOnPermission(settings: Record<string, string>): boolean {
+  return settings.transcript_expand_diff_on_permission !== 'false'
+}
+
+/**
  * How the detail header carries session stats (canvas `Feature - Header
  * gauges` 11c):
  *

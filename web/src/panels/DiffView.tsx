@@ -74,7 +74,25 @@ function Frame({ children }: { children: React.ReactNode }) {
   )
 }
 
-function DiffBody({ diff }: { diff: LineDiff }) {
+/**
+ * Rows an unopened row may show. A diff that arrives open because of the
+ * `transcript_edit_diffs` setting is a preview, not the change: it stops at
+ * the first hunk and at this many lines, so turning the setting on cannot
+ * turn a transcript into a wall of code (canvas `Feature - Transcript
+ * blocks` 20f). Opening the row by hand is what shows all of it.
+ */
+export const DIFF_PREVIEW_LINES = 14
+
+function DiffBody({ diff, preview = false }: { diff: LineDiff; preview?: boolean }) {
+  // The preview keeps the first hunk only, and only its first lines. `skipped`
+  // is left as it was: it counts what the diff dropped before this hunk, which
+  // is true whether or not the preview then cuts the hunk short.
+  const hunks = preview
+    ? diff.hunks.slice(0, 1).map((h) => ({ ...h, lines: h.lines.slice(0, DIFF_PREVIEW_LINES) }))
+    : diff.hunks
+  const shown = hunks.reduce((n, h) => n + h.lines.length, 0)
+  const total = diff.hunks.reduce((n, h) => n + h.lines.length, 0)
+
   return (
     <Frame>
       {diff.coarse && (
@@ -83,7 +101,7 @@ function DiffBody({ diff }: { diff: LineDiff }) {
           are counted as changed.
         </Note>
       )}
-      {diff.hunks.map((hunk, hunkIndex) => (
+      {hunks.map((hunk, hunkIndex) => (
         // A static list derived from one immutable diff: the index is stable.
         <div key={hunkIndex}>
           {hunk.skipped > 0 && <Gap count={hunk.skipped} />}
@@ -92,8 +110,13 @@ function DiffBody({ diff }: { diff: LineDiff }) {
           ))}
         </div>
       ))}
-      {diff.trailingSkipped > 0 && <Gap count={diff.trailingSkipped} />}
-      {diff.truncated && (
+      {!preview && diff.trailingSkipped > 0 && <Gap count={diff.trailingSkipped} />}
+      {preview && shown < total && (
+        <Note>
+          Showing the first {shown} of {total} lines — open the row for the rest.
+        </Note>
+      )}
+      {!preview && diff.truncated && (
         <Note>
           {diff.truncatedLines} more {diff.truncatedLines === 1 ? 'line' : 'lines'} not shown — open
           the file to read the result.
@@ -112,9 +135,17 @@ function DiffBody({ diff }: { diff: LineDiff }) {
 
 /** One-sided content: a `Write`'s new text, or a notebook cell's new source.
  *  `asAddition` is true only when the missing side is genuinely empty. */
-function ContentBody({ content, asAddition }: { content: string; asAddition: boolean }) {
+function ContentBody({
+  content,
+  asAddition,
+  preview = false,
+}: {
+  content: string
+  asAddition: boolean
+  preview?: boolean
+}) {
   const all = splitLines(content)
-  const shown = all.slice(0, DIFF_MAX_RENDERED_LINES)
+  const shown = all.slice(0, preview ? DIFF_PREVIEW_LINES : DIFF_MAX_RENDERED_LINES)
   const hidden = all.length - shown.length
   return (
     <Frame>
@@ -142,7 +173,16 @@ export function changeSectionLabel(change: FileChange, isError: boolean): string
   return change.mode === 'insert' ? 'CELL INSERTED' : 'CELL SOURCE'
 }
 
-export function ChangeView({ change, isError = false }: { change: FileChange; isError?: boolean }) {
+export function ChangeView({
+  change,
+  isError = false,
+  preview = false,
+}: {
+  change: FileChange
+  isError?: boolean
+  /** Drawn because the row arrived open, not because anyone opened it. */
+  preview?: boolean
+}) {
   if (change.kind === 'edit') {
     return (
       <div className="flex flex-col gap-1 font-mono text-[10.5px] leading-[1.6]">
@@ -150,7 +190,7 @@ export function ChangeView({ change, isError = false }: { change: FileChange; is
           <Note>Applied to every occurrence in the file, not only the one shown.</Note>
         )}
         {change.diff.changed ? (
-          <DiffBody diff={change.diff} />
+          <DiffBody diff={change.diff} preview={preview} />
         ) : (
           <Note>The replacement is identical to what it replaced — nothing changed.</Note>
         )}
@@ -175,7 +215,11 @@ export function ChangeView({ change, isError = false }: { change: FileChange; is
               : 'Whether this replaced an existing file is not known yet.'}
           </Note>
         )}
-        <ContentBody content={change.content} asAddition={change.outcome === 'created'} />
+        <ContentBody
+          content={change.content}
+          asAddition={change.outcome === 'created'}
+          preview={preview}
+        />
       </div>
     )
   }
@@ -190,7 +234,11 @@ export function ChangeView({ change, isError = false }: { change: FileChange; is
             : `Replaced the source of cell ${change.cellId ?? '(unnamed)'}. Orbital does not have the previous source.`}
       </Note>
       {change.mode !== 'delete' && (
-        <ContentBody content={change.source} asAddition={change.mode === 'insert'} />
+        <ContentBody
+          content={change.source}
+          asAddition={change.mode === 'insert'}
+          preview={preview}
+        />
       )}
     </div>
   )

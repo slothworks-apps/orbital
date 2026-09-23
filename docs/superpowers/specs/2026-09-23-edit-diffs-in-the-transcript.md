@@ -167,3 +167,33 @@ overwrite.
 `transcript.test.tsx` adds only the branch — an `Edit` row opens on its
 diff, every other tool still opens on its JSON. Styling values are not
 pinned, per the repo's testing rule.
+
+## How a row arrives
+
+Added 2026-09-23, from canvas `Feature - Transcript blocks` 20f.
+
+Settings → Appearance → TRANSCRIPT → **Edit diffs** decides whether an
+editing tool's row arrives collapsed or open. The reasoning — why an
+arriving diff is a preview rather than the change, why a hand-toggled row
+stops listening to the setting, and why the row is in Appearance — is
+[[an-arriving-diff-is-a-preview]].
+
+Two things this adds to `DiffView`:
+
+- `DIFF_PREVIEW_LINES` and a `preview` flag threaded through `ChangeView`
+  into `DiffBody` and `ContentBody`. A preview keeps the first hunk only,
+  cut to that many lines, and replaces the truncation and trailing-gap
+  notes with one that points at the row rather than at the file.
+- Nothing about the diff itself. The algorithm, the ceilings and the
+  descriptor are untouched; the preview is a slice taken at render time,
+  so a row opened by hand shows what it always did.
+
+The companion row, **"Always expand an edit waiting for your permission"**
+(default on), is honoured by `PermissionCard`, not here — `groupToolRuns`
+routes a call its session is parked on away from `ToolRow` — and it renders
+the change in full rather than as a preview.
+
+`store.test.ts` covers the two selectors, including that they use opposite
+default conventions. `transcript.test.tsx` covers that an edit arrives open
+when the setting says so, that a `Bash` call never does, and that a row
+closed by hand stays closed when the setting would open it.

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useOrbital, editDiffsExpanded } from '../store/store'
 import type { ChatMessage } from '../lib/types'
 import { ansiToHtml } from '../lib/highlight'
 import { hasTextExtension } from '../lib/pathLinks'
@@ -130,7 +132,13 @@ export interface ToolRowProps {
  * one block with its output.
  */
 export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
-  const [expanded, setExpanded] = useState(false)
+  const settings = useOrbital(useShallow((s) => s.settings))
+  // `null` means "nobody has touched this row", which is what lets the setting
+  // still govern it. The first click writes a boolean and the row keeps that
+  // choice from then on, so changing the setting never reaches back and closes
+  // something the reader deliberately opened (canvas `Feature - Transcript
+  // blocks` 20f: "rows you've toggled by hand keep your choice").
+  const [override, setOverride] = useState<boolean | null>(null)
   const running = !toolResult
   const label = salientInput(toolUse.toolName, toolUse.toolInput)
   // The collapsed label's path span becomes a PathButton only when the
@@ -148,11 +156,23 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
   const failed = toolResult?.isError === true
   const change = useMemo(
     () => describeFileChange(toolUse.toolName, toolUse.toolInput, toolResult?.text, failed),
-    [toolUse.toolName, toolUse.toolInput, toolResult?.text, failed]
+    [toolUse.toolName, toolUse.toolInput, toolResult?.text, failed],
   )
   // Memoised alongside the change: a created file's count is a split of the
   // whole content, which is not something to redo on every frame either.
   const counts = useMemo(() => (change ? changeCounts(change) : null), [change])
+
+  // Only a row that has a change to show can arrive open: the setting is about
+  // edit diffs, and auto-opening a Bash call's input JSON is not what anyone
+  // asked for. The companion "expand under a pending permission" setting is
+  // not read here — a call its session is parked on never reaches `ToolRow`,
+  // `groupToolRuns` having routed it to a `PermissionCard` instead, which is
+  // where that setting is honoured.
+  const autoOpen = change !== null && editDiffsExpanded(settings)
+  const expanded = override ?? autoOpen
+  // Open because it arrived that way, not because anyone opened it — which is
+  // what makes the body a preview rather than the whole change.
+  const preview = expanded && override === null
 
   return (
     <div
@@ -181,7 +201,7 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
       >
         <button
           type="button"
-          onClick={() => setExpanded((e) => !e)}
+          onClick={() => setOverride(!expanded)}
           aria-expanded={expanded}
           aria-label={`${toolUse.toolName ?? 'Tool'}${label ? `: ${label}` : ''}`}
           className="absolute inset-0 h-full w-full"
@@ -235,7 +255,7 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
           <div>
             <SectionLabel>{change ? changeSectionLabel(change, failed) : 'INPUT'}</SectionLabel>
             {change ? (
-              <ChangeView change={change} isError={failed} />
+              <ChangeView change={change} isError={failed} preview={preview} />
             ) : (
               <InputJson input={toolUse.toolInput} />
             )}
@@ -250,7 +270,11 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
                 <div className="flex flex-col gap-2">
                   {toolResult.images.map((image) => (
                     <div key={image.ref} className="flex items-start gap-2.5">
-                      <ImageThumb image={image} variant="tool" source={toolUse.toolName ?? 'tool result'} />
+                      <ImageThumb
+                        image={image}
+                        variant="tool"
+                        source={toolUse.toolName ?? 'tool result'}
+                      />
                       <div className="min-w-0 font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.6)]">
                         {image.w && image.h ? (
                           <>

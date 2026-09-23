@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, act, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ChatMessage, ErrorRecord, OrbitalModel } from '../lib/types'
@@ -216,6 +216,11 @@ describe('salientInput', () => {
 })
 
 describe('ToolRow', () => {
+  // Two tests below drive the transcript_edit_diffs setting; without this the
+  // store carries it into later describes, where a row that arrives open
+  // turns their expanding click into a closing one.
+  afterEach(() => useOrbital.setState({ settings: {} }))
+
   it('renders an image result as a thumbnail with a dims · size readout, never JSON', () => {
     const { container } = render(
       <ToolRow
@@ -246,6 +251,46 @@ describe('ToolRow', () => {
 
     expect(screen.getByText(/"file_path"/)).toBeInTheDocument()
     expect(screen.getByText(/file contents here/)).toBeInTheDocument()
+  })
+
+  it('arrives open on an edit when the setting says expanded, and never on a Bash call', () => {
+    useOrbital.setState({ settings: { transcript_edit_diffs: 'expanded' } })
+    const edit = makeToolUse({
+      id: 't1', toolName: 'Edit',
+      toolInput: { file_path: '/a.ts', old_string: 'one', new_string: 'two' },
+    })
+    const { unmount } = render(<ToolRow toolUse={edit} toolResult={makeToolResult({ id: 'r1', toolUseId: 't1', text: 'ok' })} />)
+    expect(screen.getByRole('button', { name: /Edit: \/a\.ts/ })).toHaveAttribute(
+      'aria-expanded', 'true'
+    )
+    unmount()
+
+    // The setting is about edit diffs: a tool with no change to show has no
+    // business opening itself and dumping its input JSON into the transcript.
+    const bash = makeToolUse({ id: 't2', toolName: 'Bash', toolInput: { command: 'npm test' } })
+    render(<ToolRow toolUse={bash} toolResult={makeToolResult({ id: 'r2', toolUseId: 't2', text: 'ok' })} />)
+    expect(screen.getByRole('button', { name: /Bash: npm test/ })).toHaveAttribute(
+      'aria-expanded', 'false'
+    )
+  })
+
+  it('keeps a hand-toggled row shut when the setting would open it', async () => {
+    const user = userEvent.setup()
+    useOrbital.setState({ settings: { transcript_edit_diffs: 'expanded' } })
+    const edit = makeToolUse({
+      id: 't1', toolName: 'Edit',
+      toolInput: { file_path: '/a.ts', old_string: 'one', new_string: 'two' },
+    })
+    render(<ToolRow toolUse={edit} toolResult={makeToolResult({ id: 'r1', toolUseId: 't1', text: 'ok' })} />)
+    const row = screen.getByRole('button', { name: /Edit: \/a\.ts/ })
+
+    await user.click(row)
+    expect(row).toHaveAttribute('aria-expanded', 'false')
+
+    // A later change to the setting must not reach back and reopen a row the
+    // reader deliberately closed.
+    useOrbital.setState({ settings: { transcript_edit_diffs: 'expanded' } })
+    expect(row).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('renders Bash results through ansiToHtml, producing colored spans', async () => {

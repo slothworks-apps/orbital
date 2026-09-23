@@ -25,6 +25,8 @@ import {
   parseContextThresholds,
   showContext,
   showCompactBadge,
+  editDiffsExpanded,
+  expandDiffOnPermission,
   headerSessionStats,
   releaseDelayMs,
   absorptionFor,
@@ -1758,6 +1760,22 @@ describe('showContext / showCompactBadge', () => {
     expect(showContext({ map_show_context: 'false' })).toBe(false)
     expect(showCompactBadge({ map_show_compact_badge: 'false' })).toBe(false)
     expect(showContext({ map_show_context: 'true' })).toBe(true)
+  })
+})
+
+describe('editDiffsExpanded / expandDiffOnPermission', () => {
+  it('ships collapsed, and only the exact word opens a diff', () => {
+    // Opposite conventions on purpose: an unreadable value must leave the
+    // transcript as it was, so this one is opt-in rather than default-on.
+    expect(editDiffsExpanded({})).toBe(false)
+    expect(editDiffsExpanded({ transcript_edit_diffs: 'collapsed' })).toBe(false)
+    expect(editDiffsExpanded({ transcript_edit_diffs: 'Expanded' })).toBe(false)
+    expect(editDiffsExpanded({ transcript_edit_diffs: 'expanded' })).toBe(true)
+  })
+
+  it('shows a blocked edit by default, off only when explicitly "false"', () => {
+    expect(expandDiffOnPermission({})).toBe(true)
+    expect(expandDiffOnPermission({ transcript_expand_diff_on_permission: 'false' })).toBe(false)
   })
 })
 

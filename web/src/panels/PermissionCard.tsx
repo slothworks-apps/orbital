@@ -1,5 +1,8 @@
-import { useRef, useState } from 'react'
-import { useOrbital } from '../store/store'
+import { useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useOrbital, expandDiffOnPermission } from '../store/store'
+import { describeFileChange } from '../lib/fileEdit'
+import { ChangeView, changeSectionLabel } from './DiffView'
 import {
   DECLINE_TEXT_CAP,
   decisionChipLabel,
@@ -125,8 +128,21 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
             : 'DECLINED'
 
   const plan = planText(decision.input)
-  const summary = inputSummary(decision.input)
-  const detail = plan ? null : inputDetail(decision.input)
+  // An edit you are being asked to approve is shown as the diff it will make,
+  // not as its input JSON — being asked to allow a change without being shown
+  // it is the case the setting exists to prevent (canvas
+  // `Feature - Transcript blocks` 20f). There is no result yet, by definition,
+  // so the change is read from the input alone.
+  const settings = useOrbital(useShallow((s) => s.settings))
+  const change = useMemo(
+    () =>
+      expandDiffOnPermission(settings)
+        ? describeFileChange(decision.toolName, decision.input, undefined, false)
+        : null,
+    [settings, decision.toolName, decision.input],
+  )
+  const summary = change ? null : inputSummary(decision.input)
+  const detail = plan || change ? null : inputDetail(decision.input)
   const live = mode === 'interactive'
 
   return (
@@ -180,6 +196,18 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
         {decision.description && (
           <div className={`pb-[11px] text-[11.5px] leading-[1.4] ${DESCRIPTION_INK}`}>
             {decision.description}
+          </div>
+        )}
+
+        {change && (
+          <div className={`mb-[11px] ${MONO_FRAME}`}>
+            <div className={MONO_EYEBROW}>{changeSectionLabel(change, false)}</div>
+            {/* Shown whole rather than as the transcript's preview: this is
+                the one moment the change has to be read before it happens.
+                It scrolls inside the card like the plan block above. */}
+            <div className="max-h-[320px] overflow-y-auto p-2.5">
+              <ChangeView change={change} />
+            </div>
           </div>
         )}
 

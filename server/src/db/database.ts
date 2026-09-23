@@ -92,6 +92,25 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * to `map_show_context` also being on. Default-on convention. */
   map_show_compact_badge: 'true',
   /**
+   * Settings → Appearance → TRANSCRIPT → "Edit diffs" (canvas
+   * `Feature - Transcript blocks` 20f). `collapsed` or `expanded`: how an
+   * `Edit` or `Write` row arrives in the transcript. An expanded row arrives
+   * showing a preview rather than the whole change; opening one by hand is
+   * still what shows all of it.
+   *
+   * In Appearance rather than Sessions because it changes only what is drawn
+   * and no session's fate (adr `settings-sections-split-by-kind`). Ships
+   * `collapsed`, which is how every tool row has always arrived.
+   */
+  transcript_edit_diffs: 'collapsed',
+  /**
+   * Whether an edit the session is blocked on shows its diff without being
+   * asked, whatever `transcript_edit_diffs` says. Default-on convention: being
+   * asked to approve a change and not being shown it is the case this exists
+   * to prevent (spec `2026-09-23-permission-and-plan-decisions-design`).
+   */
+  transcript_expand_diff_on_permission: 'true',
+  /**
    * Settings → Appearance → "Session stats in the header" (canvas
    * `Feature - Header gauges` 11c). `bar` draws the stats strip under the
    * context gauge; `button` drops the strip and folds stats into the header's

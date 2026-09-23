@@ -10,6 +10,7 @@ import {
   showContext,
   showCompactBadge,
   headerSessionStats,
+  expandDiffOnPermission,
   type HeaderSessionStats,
   CONTEXT_THRESHOLD_MIN,
   CONTEXT_THRESHOLD_MAX,
@@ -594,6 +595,8 @@ export function Settings({ open, onClose }: SettingsProps) {
   const notifySound = settings.notify_sound !== 'false'
   // Appearance (canvas 5a).
   const headerStats = headerSessionStats(settings)
+  const editDiffs = settings.transcript_edit_diffs === 'expanded' ? 'expanded' : 'collapsed'
+  const expandDiffOnPermissionRow = expandDiffOnPermission(settings)
   const planetScale = parsePlanetScale(settings)
   const mapScaleLabels = settings.map_scale_labels === 'true'
   const scaleNote =
@@ -1267,6 +1270,39 @@ export function Settings({ open, onClose }: SettingsProps) {
                     void patchAndSet({ map_show_compact_badge: checked ? 'true' : 'false' })
                   }
                   label={'Show “/compact” badge above the second threshold'}
+                />
+              </Row>
+
+              {/* Its own kicker rather than a row under MAP or CONTEXT USAGE:
+                  the transcript is neither, and per adr
+                  settings-sections-split-by-kind a kicker that misdescribes
+                  its rows is the thing that split this dialog in the first
+                  place. In Appearance rather than Sessions because it changes
+                  only what is drawn (canvas `Feature - Transcript blocks`
+                  20f, which drew it under Sessions). */}
+              <SectionLabel>TRANSCRIPT</SectionLabel>
+              <Row
+                title="Edit diffs"
+                desc="How Edit and Write rows arrive in the transcript. Expanded shows a preview — the first hunk, at most a few lines — and opening a row by hand still shows all of it. Rows you have toggled keep your choice."
+              >
+                <Segmented
+                  label="Edit diffs"
+                  size="row"
+                  options={[
+                    { value: 'collapsed', label: 'Collapsed' },
+                    { value: 'expanded', label: 'Expanded' },
+                  ]}
+                  value={editDiffs}
+                  onChange={(value) => void patchAndSet({ transcript_edit_diffs: value })}
+                />
+                <Checkbox
+                  checked={expandDiffOnPermissionRow}
+                  onChange={(checked) =>
+                    void patchAndSet({
+                      transcript_expand_diff_on_permission: checked ? 'true' : 'false',
+                    })
+                  }
+                  label="Always expand an edit waiting for your permission"
                 />
               </Row>
               </>

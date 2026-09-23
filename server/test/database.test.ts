@@ -217,6 +217,8 @@ describe('openDb', () => {
       context_threshold_warn: '50',
       context_threshold_critical: '80',
       map_show_compact_badge: 'true',
+      transcript_edit_diffs: 'collapsed',
+      transcript_expand_diff_on_permission: 'true',
       header_session_stats: 'bar',
       claude_executable_path: '',
       claude_directory: '',
