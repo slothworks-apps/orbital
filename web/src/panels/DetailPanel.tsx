@@ -599,6 +599,7 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   // skryl"). Same ruling as `contextFillFor`'s `source !== 'web'`; unlike the
   // arc, an ENDED session keeps its last reading here.
   const canShowContext = session?.source !== 'terminal'
+  const showContext = canShowContext && contextWindow !== null
   // Same predicate the sidebar badges a row with — one definition, so the
   // mark on the row and the refusal at the composer cannot drift apart.
   const isTerminalLive = session ? isReadOnly(session) : false
@@ -980,8 +981,9 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
 
         {session && (
           <>
-            {/* Tag dropdown left, permission/status chips pushed right (1b:
-                one wrapping row, 6px gap, 14px below the title block). */}
+            {/* Row 3 — meta (canvas 9d): tag dropdown left, model badge and
+                permission dot pushed right; one wrapping row, 6px gap, 14px
+                below the title block. The status lives in row 4. */}
             <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
               {sessionTag && (
                 <Select
@@ -1010,6 +1012,17 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
                 />
               )}
               {session.permissionMode && <ModeReadout mode={session.permissionMode} />}
+            </div>
+
+            {/* Row 4 — status + context (canvas `Feature - Detail header`
+                9d): the status as a dot and plain mono text on the left, the
+                context read-out pushed right. The read-out, and the bar under
+                this row, are drawn only when the window is actually known — a
+                bar scaled to a made-up denominator is worse than no bar (per
+                docs/decisions/models-come-from-the-sdk.md). A terminal
+                session never gets either (see `canShowContext`); 9d ends its
+                row with a TERMINAL chip instead. */}
+            <div className="mt-3 flex items-center gap-2.5">
               <Badge
                 variant="status"
                 value={session.status}
@@ -1021,82 +1034,82 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
                 // two — it hears `decision_pending` directly.
                 parked={parkedLabel({ pendingDecision: pendingDecision ?? session.pendingDecision })}
               />
-            </div>
-
-            {/* The context gauge (canvas 1b, states in 1b-alt column A): a
-                21px read-out over a 6px track notched at the two thresholds.
-                It took over the 16px gap under the badge row when the
-                INPUT/OUTPUT/CACHE READ grid was removed from above it (adr
-                `context-usage-has-one-source`), which is why the header does
-                not shift. Drawn only when the window is actually known — a
-                bar scaled to a made-up denominator is worse than no bar (per
-                docs/decisions/models-come-from-the-sdk.md).
-
-                1b draws this as a <button> that cycles the demo states; that
-                is canvas scaffolding for previewing, not a control the
-                product has. */}
-            {canShowContext && contextWindow !== null && (
-              <div className="mt-4">
-                <div
+              <span aria-hidden className="flex-1" />
+              {showContext && contextNote && (
+                // 9d names the note but draws no state that carries one; it
+                // sits just left of the read-out, so the number keeps the
+                // row's right edge in every state.
+                <span
+                  data-context-note
+                  className="font-mono text-[9.5px] tracking-[0.16em]"
+                  style={{ color: contextNote.ink }}
+                >
+                  {contextNote.text}
+                </span>
+              )}
+              {showContext && (
+                <span
                   data-context-readout
                   data-testid="context-readout"
-                  className="flex items-baseline gap-[7px] font-mono"
+                  className="flex items-baseline gap-[5px] font-mono"
                 >
                   <span
-                    className="text-[21px] leading-none tracking-[-0.01em] transition-colors duration-300"
+                    className="text-[17px] leading-none tracking-[-0.01em] transition-colors duration-300"
                     style={{ color: contextUsed != null ? contextInk : UNMEASURED_INK }}
                   >
                     {/* The measurement itself, NOT the bar's clamped fraction:
                         a session past a mis-learned window says so. */}
                     {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
                   </span>
-                  <span className="text-[11px] text-[rgba(160,190,225,.6)]">
-                    / {formatContextWindow(contextWindow)} ctx
+                  <span className="text-[10.5px] text-[rgba(160,190,225,.55)]">
+                    / {formatContextWindow(contextWindow)}
                   </span>
-                  {contextNote && (
-                    <>
-                      <span aria-hidden className="flex-1" />
-                      <span
-                        data-context-note
-                        className="text-[9.5px] tracking-[0.16em]"
-                        style={{ color: contextNote.ink }}
-                      >
-                        {contextNote.text}
-                      </span>
-                    </>
-                  )}
-                </div>
-                <div className="relative mt-[9px] h-[6px] overflow-hidden rounded-[3px] bg-[rgba(150,205,255,.12)]">
-                  {contextPercent !== undefined && (
-                    <span
-                      role="progressbar"
-                      aria-label="Context usage"
-                      aria-valuenow={contextPercent}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      className="block h-full rounded-[3px]"
-                      data-context-level={contextBarLevel}
-                      style={{
-                        width: `${contextPercent}%`,
-                        background: contextInk,
-                        boxShadow: `0 0 10px ${contextGlow}`,
-                        transition: 'width .45s ease, background .3s ease',
-                      }}
-                    />
-                  )}
-                  {/* The two notches mark where the ink changes. Positioned
-                      from the SETTINGS, not from 1b's literal 50/80 — those
-                      are the defaults the artboard happens to draw. */}
-                  {[contextThresholds.warn, contextThresholds.critical].map((percent) => (
-                    <span
-                      key={percent}
-                      aria-hidden
-                      data-context-notch={percent}
-                      className="absolute top-0 bottom-0 w-[1.5px] bg-[rgba(4,8,16,.8)]"
-                      style={{ left: `${percent}%` }}
-                    />
-                  ))}
-                </div>
+                </span>
+              )}
+              {session.source === 'terminal' && (
+                <span
+                  data-terminal-chip
+                  title="Attached from an external terminal · Orbital measures no context for it"
+                  className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[7px] py-[3px] font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.75)]"
+                >
+                  TERMINAL
+                </span>
+              )}
+            </div>
+
+            {/* The context bar (9d): a 3px track notched at the two
+                thresholds, filled in the same ink as the read-out above. */}
+            {showContext && (
+              <div className="relative mt-[9px] h-[3px] overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)]">
+                {contextPercent !== undefined && (
+                  <span
+                    role="progressbar"
+                    aria-label="Context usage"
+                    aria-valuenow={contextPercent}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="block h-full rounded-[2px]"
+                    data-context-level={contextBarLevel}
+                    style={{
+                      width: `${contextPercent}%`,
+                      background: contextInk,
+                      boxShadow: `0 0 8px ${contextGlow}`,
+                      transition: 'width .45s ease, background .3s ease',
+                    }}
+                  />
+                )}
+                {/* The two notches mark where the ink changes. Positioned
+                    from the SETTINGS, not from 9d's literal 50/80 — those are
+                    the defaults the artboard happens to draw. */}
+                {[contextThresholds.warn, contextThresholds.critical].map((percent) => (
+                  <span
+                    key={percent}
+                    aria-hidden
+                    data-context-notch={percent}
+                    className="absolute top-0 bottom-0 w-[1.5px] bg-[rgba(4,8,16,.8)]"
+                    style={{ left: `${percent}%` }}
+                  />
+                ))}
               </div>
             )}
 

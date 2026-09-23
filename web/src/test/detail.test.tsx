@@ -319,7 +319,7 @@ describe('DetailPanel header', () => {
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     // Canvas 1b's compact notation ("142.3k"), not raw counts.
-    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/100k\s*\/ 200k ctx/)
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/100k\s*\/ 200k$/)
     const bar = screen.getByRole('progressbar', { name: /context usage/i })
     expect(bar).toHaveAttribute('aria-valuenow', '50')
     // An ordinary fill gets no note — the read-out is not ambiguous (1b-alt).
@@ -344,7 +344,7 @@ describe('DetailPanel header', () => {
 
     // The window IS known (sonnet -> 200k), so the readout renders — honestly
     // unmeasured, not unknown.
-    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/—\s*\/ 200k ctx/)
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/—\s*\/ 200k$/)
     // No value to report -> an empty track, not a progressbar claiming 0%.
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     // ...and the note says which of the two em-dash readings this is.
@@ -367,7 +367,7 @@ describe('DetailPanel header', () => {
       'aria-valuenow',
       '100'
     )
-    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/500k\s*\/ 200k ctx/)
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/500k\s*\/ 200k$/)
     // The note is what stops a full bar over "500k / 200k" reading as a bug.
     expect(container.querySelector('[data-context-note]')).toHaveTextContent('OVER WINDOW')
   })
@@ -384,7 +384,7 @@ describe('DetailPanel header', () => {
     const { container } = render(<DetailPanel />)
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
-    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/100k\s*\/ 200k ctx/)
+    expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/100k\s*\/ 200k$/)
   })
 
   it('hides the context bar entirely for a terminal session, which can never report one (owner\'s ruling: hide, don\'t dash)', async () => {
@@ -698,7 +698,7 @@ describe('DetailPanel model chip', () => {
       session: { ...webSession, model: 'opus[1m]', contextUsedTokens: 100_000 },
       models: MODELS,
     })
-    expect(screen.getByTestId('context-readout')).toHaveTextContent(/100k\s*\/ 1M ctx/)
+    expect(screen.getByTestId('context-readout')).toHaveTextContent(/100k\s*\/ 1M$/)
     expect(screen.getByRole('progressbar', { name: 'Context usage' })).toHaveAttribute('aria-valuenow', '10')
   })
 
