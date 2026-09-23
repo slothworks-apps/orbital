@@ -1,6 +1,6 @@
 ---
 id: separation-rests-at-the-outline
-title: Planets rest where their drawn outlines meet, at the zoom they are seen at
+title: Planets rest where their drawn outlines meet
 type: adr
 status: in-force
 domain: web
@@ -14,7 +14,7 @@ tags:
   - simulation
   - camera
 ---
-# Planets rest where their drawn outlines meet, at the zoom they are seen at
+# Planets rest where their drawn outlines meet
 
 Supersedes [[separation-reaches-at-least-half-a-label]]. After that change,
 labels and pills on the map still ran into each other: in a cluster of a
@@ -97,20 +97,22 @@ On main, two things were wrong.
   `CONTACT_RAMP` of the way into `min`, instead of over the whole of it.
   It pushes along the normal of the face the boxes meet at. A dashpot
   (`CONTACT_DAMPING`) on the closing speed along that normal keeps it
-  from bouncing. (Replaced later the same day: the face normal stacked
-  clusters into columns. See the amendment at the end.)
+  from bouncing. (Still so. What stacked clusters into columns was that
+  nothing but separation decided where a body sits; see the amendment.)
 - **Labels and pills are measured at their true size below the reference
   zoom** (`worldPerPx`). Above the reference they are frozen, so zooming
   in never moves anything. Bodies still follow `bodyZoomFactor`. This
   changes the rule in [[separation-follows-the-counter-zoom-curve]] for
-  labels and pills only.
+  labels and pills only. (Replaced later the same day: every outline is
+  now measured at one fixed zoom, `OUTLINE_ZOOM`. See the amendment.)
 - **Fit frames where the clumps will rest** (`fitViewTo` in `camera.ts`,
   `settledCopy` in the sim). Clumps now rest wider the further out the
   camera is. Framing the bodies where they stand, or the layout's seeds,
   would frame the wrong picture. Each round of fit's fixed-point solve
   settles a copy at that round's zoom, starting from the previous round's
   copy. The cluster name chip sits above the top of the topmost box, not
-  above the bare body.
+  above the bare body. (Replaced later the same day: the layout no longer
+  depends on the zoom, so fit frames one settled copy.)
 
 Canvas 4a provenance stays in the code. The strengths are the canvas's.
 `CROSS_TAG_EXTRA` is the difference between the canvas footer's 190 px
@@ -161,94 +163,113 @@ the real map over a fixed two-cluster fixture for checking this by eye.
 - The `/compact` pill on a gauged planet is not measured. It sits where
   the state pill would, and it is narrower than the widest state pills.
 
-## Amendment, 2026-09-23 (later the same day): columns, the hole's label, selection
+## Amendment, 2026-09-23 (later the same day): columns, a fixed outline zoom, packed slots
 
 ### What went wrong
 
-Pushed square off the face where two boxes meet, clusters settled as
-columns. A planet's box is much wider than tall (a label up to about
-189 px, against about 110 px of body and label at the default zoom), so
-from most directions two boxes meet top to bottom and the push was purely
-vertical. Nothing pushed sideways, cohesion drew every x onto the
-barycentre, and three planets ended up one exactly under the next. The
-golden-angle spiral from `layoutClusters` was only the starting point.
-In the settled 3-planet fixtures the bounding box of the centres came out
-0.00–0.01 wide per unit of height, at every zoom tested.
-
-In a column the bottom planet also landed on the hole's own label
-("HISTORY · 499 sessions · click to browse"). The hole kept bodies out of
-a circle round its centre (`HOLE_REPEL_RADIUS`). The label sits left of
-the disc and is fixed CSS px, so zoomed out it reaches well past that
-circle. At zoom 20 it ends about 14 world units left of the centre; the
-circle's radius is 8.8.
+1. **Columns.** Pushed square off the face where two boxes meet, clusters
+   settled as columns. A planet's box is much wider than tall, so from
+   most directions two boxes meet top to bottom and the push was purely
+   vertical; cohesion drew every x onto the barycentre, and three planets
+   ended up one exactly under the next (width/height of the settled
+   centres 0.00–0.01 in the 3-planet fixtures). In a column the bottom
+   planet also landed on the hole's own label, which the hole's round
+   repulsion (`HOLE_REPEL_RADIUS`) does not cover.
+2. **A feedback loop with fit.** Outlines were measured at the live zoom.
+   Labels are fixed CSS px, so zooming out grew every box in world units,
+   the clumps spread, and fit — which settles a copy at each zoom it
+   tries — zoomed out further. With the detail panel open, fit never
+   converged: 400 → 28 → 21 → 17 → 14 → 11 over its six rounds, and the
+   clumps ended up round the hole.
+3. **Separation cannot give a box clump a resting shape.** Pushed along
+   the line between centres instead of off the face (tried first today),
+   the columns went, but a body resting on a neighbour's flat face is also
+   pushed along it, so there is no place where the forces balance: clumps
+   slid for 8–17 s before they slept. A gable "roof" over the top and
+   bottom faces made stacking unstable but left the same sliding; with the
+   face normal it settled into a diagonal staircase.
 
 ### What replaced it
 
-- **The push runs along the line between the centres again**, as in the
-  canvas 4a script. `CONTACT_DAMPING` damps along the same line. The
-  minimum distance still comes from the boxes.
-- **The top and bottom faces carry a shallow roof** (`ROOF_SLOPE`, in
-  `contact`). The line push alone was not enough. A planet under two
-  others was pushed away from the centre of the further one, and slid
-  until it sat almost exactly under the nearer (0.19 of a body radius
-  off, in the 3-planet fixture). The roof has its ridge straight above
-  and below the centre and comes down to the face at the nearer side. It
-  makes "straight under a neighbour" a point the planet slides off rather
-  than a place it rests. It only ever adds room, so everything the boxes
-  kept clear stays clear. Two planets exactly one over the other rest a
-  fifth of the narrower half-width further apart than the bare boxes.
-- **Tried and ruled out:** the face normal with the roof (clumps settled
-  as a diagonal staircase at the roof's slope); a weak spring from each
-  planet to its own spiral slot at 1–4 × 10⁻⁴ per tick (no effect on the
-  shape; the settled clump is much wider than the spiral, so the slots
-  mostly act as extra cohesion). Neither is in the code.
-- **The hole's label is a box** (`holeLabelBox`, pushed by
-  `holeLabelPush`). The box is measured from `Hole`'s own constants, which
-  now live in `visuals.ts` (`holeLabelSizePx`, `HOLE_RADIUS`,
-  `HOLE_LABEL_GAP`). A body whose box, plus `NEIGHBOUR_AIR_PX`, overlaps
-  it is pushed straight out the nearest side, with the stiff contact's
-  ramp and dashpot. A box and not a bigger circle: the column is a long
-  flat strip, and a circle round the hole big enough to cover it would
-  also claim a wide band of empty map above and below the hole. The round
-  halo stays as it was.
-- **Selection moves nothing.** `planetOutline` no longer takes
-  `selected`: every outline measures the label at the position it drops
-  to under the reticle (`labelRestY(gauged, true)`). `Planet` still drops
-  the label when a planet is selected; the room for it is simply always
-  there. Every planet's box is a little taller for it.
+- **One outline zoom** (`OUTLINE_ZOOM` = 30). Every outline — body at its
+  counter-zoom, label and pill at their CSS px, the hole's label column —
+  is measured at that zoom, whatever the camera does. The layout is a
+  fixed picture: `stepSimulation`, `settleSimulation` and `settledCopy`
+  take no zoom, and fit frames one settled copy (only the hole's
+  counter-zoomed halo still changes with the zoom it tries), so it
+  converges at once. 30 because an ordinary map of two or three clusters
+  fits between about 25 and 35: above `OUTLINE_ZOOM` there is more air
+  than needed, below it labels can touch, and a map so big that fit goes
+  well below it is past what can be labelled cleanly (Tomin: overflow on
+  huge maps does not matter).
+- **Packed slots** (`packSlots`). Each body has a slot, an offset from its
+  tag's barycentre, and a spring (`COHESION_K`) holds it there. Slots are
+  packed on reconcile: bodies in the layout spiral's order, each starting
+  from its spiral place and taking, of the spots in `SLOT_DIRECTIONS`
+  directions where its box first clears the boxes already placed by the
+  air gap, the one closest to the clump's barycentre in box widths and
+  box heights. The clump fills in round its middle: three planets make a
+  triangle, not a column. Separation now only keeps boxes apart; it is
+  back to the face normal, which has a resting point.
+- **Bodies appear in their slots.** A body that joins is placed straight
+  into its slot, so a page load starts settled instead of shoving a pile
+  of boxes apart.
+- **Homes** (`placeHomes`). The layout spaces anchors for bare planets; a
+  clump a label wide is several times that. Each tag's clump rests at its
+  anchor moved the least distance that clears the clumps placed before it
+  by `CROSS_TAG_EXTRA`, so two clumps never press into each other. The
+  home spring (`HOME_K`) pulls the whole clump alike, and is off while one
+  of its bodies is dragged.
+- **Tag-mates on their way to their slots pass through each other**
+  (`TRAVELLING`). Slots never overlap, so bodies only meet in passing;
+  pushing each other aside sent a rearranging clump the long way round.
+- **Springs** at twice critical stiffness for `DAMPING` (damping ratio
+  about 0.7), and forces for every body gathered before any body moves.
+  The canvas's `0.0011` cohesion and `0.0004` home crept for seconds.
+- **The hole's label is a box** (`holeLabelBox`, `holeLabelPush`),
+  measured from `Hole`'s own constants (now in `visuals.ts`:
+  `holeLabelSizePx`, `HOLE_RADIUS`, `HOLE_LABEL_GAP`) at `OUTLINE_ZOOM`.
+  A body overlapping it is pushed straight out the nearest side. A box
+  rather than a bigger circle, because the column is a long flat strip and
+  a circle covering it would claim a wide ring of empty map. The round
+  halo stays as it was, in world units.
+- **Selection moves nothing.** `planetOutline` no longer takes `selected`;
+  every outline keeps room for the label where it drops under the reticle
+  (`labelRestY(gauged, true)`). `Planet` still drops the label on
+  selection.
 
 ### Measured
 
-Same 3-, 4- and 6-planet fixtures, settled from the spiral:
+Fixtures in `simulation.test.ts` (3, 4 and 6 planets):
 
-| | before | after |
+| | before today | after |
 |---|---|---|
-| 3 planets: width/height of the centres | 0.00–0.01 | 0.99–1.41 |
-| 3 planets: closest pair in x, per body radius | 0.00–0.01 | 1.7–4.9 |
-| ticks until asleep, zoom 60 / 30 / 15: 3 planets | 219 / 278 / 297 | 214 / 285 / 326 |
-| 4 planets | 366 / 496 / 640 | 353 / 421 / 497 |
-| 6 planets | 324 / 319 / 417 | 757 / 521 / 1005 |
+| 3 planets, width/height of the settled centres | 0.00–0.01 | a triangle: two side by side, one under their middle |
+| ticks to sleep, page load | 219–417 (zoom 60) | 1 (bodies start in their slots) |
+| ticks to sleep, every body shaken back onto its layout spiral | — | 99–159 |
+| ticks to sleep, a sixth planet joining a settled five | — | 163 |
+| `/sandbox/cluster`, fit zoom, detail panel open / closed | 25 / — | 20 / 33 |
+| `/sandbox/cluster/hole`, fit zoom, detail panel open / closed | 17 / — | 21 / 25 |
 
-Larger clumps still pack in rows. A planet can end up wedged over one in
-the row below when neighbours hold it on both sides; the 4-planet fixture
-keeps one such pair. No three planets stand in a column.
+`simulation.test.ts` checks: the shape (bounding box of the outlines
+between 1:2 and 2:1 in box units; no two of three planets, and no three
+of any clump, sharing an x), the compactness (the outlines' bounding box
+at most `MAX_EMPTINESS` times what the outlines fill), the settle budgets
+above, two clumps homed too close resting apart, a body let go on the
+hole's label settling clear of it, and an outline being the same
+selected or not. The label-and-pill acceptance runs at 60, 40 and
+`OUTLINE_ZOOM`.
 
-`simulation.test.ts` checks this: the 3-, 4- and 6-planet fixtures stay
-between 1:2 and 2:1, no two of three planets and no three of any clump
-share an x, every clump settles inside `SETTLE_MAX_TICKS`, the roof's
-geometry, a body let go on the hole's label settles clear of it at zoom
-60, 26 and 20, and an outline is the same selected or not. The dev route
-`/sandbox/cluster/hole` puts a clump of three beside the hole's label.
+### Limits
 
-### New limit
-
-A clump is now wider than a column was, so fit's capacity is lower. On
-`/sandbox/cluster` with the detail panel open, fit used to settle at zoom
-25. Now each round of its solve finds the clumps too wide for the strip
-and zooms further out: all six rounds, down to about zoom 11. A clump's
-width on screen does not shrink as fit zooms out, and the distance between
-clumps does. The hole sits at a fixed world position, so at that zoom the
-clumps reach round it. Its label stays clear of them, but a planet can
-rest inside the drawn drop halo (`HOLE_REPEL_RADIUS` is not
-counter-zoomed; the halo is).
-Tracked in [[fit-runs-away-when-clumps-outgrow-the-strip]].
+- **Below `OUTLINE_ZOOM`, labels can touch.** The outlines do not grow as
+  the camera zooms out. A clump's labels keep their screen size, so
+  whether fit can hold every label clear depends on how many labelled
+  planets fit side by side in the strip, not on this zoom. With the
+  detail panel open, the eight-planet `/sandbox/cluster` fixture needs
+  more width than the strip leaves: fit lands on 20 and a few labels
+  touch. Closed, it lands on 33 and all are clear.
+- Moon systems are measured at `OUTLINE_ZOOM`'s counter-zoom; further out
+  they are drawn larger than their box and can reach a neighbour.
+- A body sits in the drawn drop halo when its clump is homed next to the
+  hole: `HOLE_REPEL_RADIUS` is in world units, the halo is counter-zoomed.

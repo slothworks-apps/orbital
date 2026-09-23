@@ -218,13 +218,11 @@ function SimStepper({
   flashRef: MutableRefObject<number>
   reduced: boolean
 }) {
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (reduced) return
-    // The camera zoom, so what the springs keep clear of is what the eye
-    // sees: bodies at their counter-zoom, labels and pills at their fixed
-    // px. Read off the three camera rather than passed as a prop: camera
-    // state deliberately never reaches React.
-    const events = stepSimulation(simRef.current, delta, state.camera.zoom)
+    // No camera zoom: the springs measure every outline at OUTLINE_ZOOM,
+    // so zooming never moves anything.
+    const events = stepSimulation(simRef.current, delta)
     if (events.absorbed.length > 0) flashRef.current = ABSORB_FLASH_SEC
   }, -1)
   return null
@@ -607,10 +605,7 @@ export function SpaceMap() {
       hole: { x: model.hole.x, y: model.hole.y, label: holeLabelSizePx(model.hole.count) },
     }
     reconcileSimulation(simRef.current, input)
-    // Reading the camera ref (never the state) keeps this out of the memo's
-    // deps: a wheel notch must not re-settle the sim, it just changes what
-    // the next frame separates by.
-    if (reduced) settleSimulation(simRef.current, cameraRef.current.zoom)
+    if (reduced) settleSimulation(simRef.current)
     return simRef.current
   }, [model, reduced, planetScale, scaleLabels])
 
@@ -753,7 +748,7 @@ export function SpaceMap() {
         dragSimBody(simRef.current, bodyDrag.id, pointerToWorld(e))
         // Reduced motion renders the sim statically, so a drag converges the
         // field synchronously instead of animating toward it.
-        if (reduced) settleSimulation(simRef.current, cameraRef.current.zoom)
+        if (reduced) settleSimulation(simRef.current)
         return
       }
 
@@ -805,7 +800,7 @@ export function SpaceMap() {
           dragSimBody(sim, bodyDrag.id, null)
           if (drop === 'armed') void setSessionDismissed(bodyDrag.id, true)
           else if (rehome) void setTagAnchor(rehome.tagId, { x: rehome.x, y: rehome.y })
-          if (reduced) settleSimulation(simRef.current, cameraRef.current.zoom)
+          if (reduced) settleSimulation(simRef.current)
         }
         return
       }
@@ -851,29 +846,24 @@ export function SpaceMap() {
    * hanging over the edge, which on the hole is most of it.
    */
   const fitCamera = useCallback(() => {
-    // Planets are framed where the simulation will rest them at each zoom
-    // the solve tries — clumps rest wider the further out the camera is
-    // (`settledCopy`). `sim` is one object for the map's lifetime,
-    // reconciled in place, so this reads the bodies as they are when fit
-    // runs. The hole is part of the map — fit frames it with the planets,
-    // so the history landmark is never fitted out of view.
-    // Each round settles from the previous round's result rather than from
-    // the live bodies: the solve's zooms close in on each other, so the
-    // clumps are nearly in place already and the settle is short.
-    let from: SimState = sim
-    const bodiesAt = (zoom: number): FitBody[] => {
-      const bodies: FitBody[] = [
-        { x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) },
-      ]
-      from = settledCopy(from, zoom)
-      for (const body of from.bodies.values()) {
-        if (body.mode !== 'hold') continue
-        // A planet's box enters as its two opposite corners.
-        const { left, right, bottom, top } = body.extent
-        bodies.push({ x: body.x + left, y: body.y + bottom }, { x: body.x + right, y: body.y + top })
-      }
-      return bodies
+    // Planets are framed where the simulation will rest them (`settledCopy`):
+    // fit runs on the first frame, before the clumps have walked out of
+    // their spiral seeds. The layout does not follow the camera (outlines
+    // are measured at OUTLINE_ZOOM), so one settled copy serves every zoom
+    // the solve tries; only the hole's counter-zoomed halo changes with it.
+    // The hole is part of the map — fit frames it with the planets, so the
+    // history landmark is never fitted out of view.
+    const planets: FitBody[] = []
+    for (const body of settledCopy(sim).bodies.values()) {
+      if (body.mode !== 'hold') continue
+      // A planet's box enters as its two opposite corners.
+      const { left, right, bottom, top } = body.extent
+      planets.push({ x: body.x + left, y: body.y + bottom }, { x: body.x + right, y: body.y + top })
     }
+    const bodiesAt = (zoom: number): FitBody[] => [
+      { x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) },
+      ...planets,
+    ]
     const rect = containerRef.current?.getBoundingClientRect()
     const viewport = {
       width: rect?.width ?? window.innerWidth,

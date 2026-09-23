@@ -4,8 +4,10 @@
  * springs, settle to rest, wake on drag — and a released body falls into the
  * corner hole on a scripted straight line.
  *
- * This is a direct port of the canvas 4a demo script, which is the tuned
- * reference implementation. d3-force was considered and rejected: its
+ * It started as a direct port of the canvas 4a demo script, the tuned
+ * reference implementation; where it departs from the script (the box
+ * outlines, the stiff contact, the packed slots) the constant says so and
+ * why. d3-force was considered and rejected: its
  * `forceCollide` cannot express the pair-dependent minimum distances below
  * (same-tag vs cross-tag), so every force would have been custom anyway,
  * and its global alpha cooling does not model the per-body sleep the canvas
@@ -22,7 +24,7 @@
 
 import type { ApiSession } from '../lib/types'
 import { statePill } from '../lib/types'
-import { REFERENCE_ZOOM, bodyZoomFactor } from './camera'
+import { bodyZoomFactor } from './camera'
 import { PLANET_BASE_RADIUS } from './layout'
 import {
   BADGE_OFFSET_X,
@@ -46,12 +48,37 @@ import {
 /** World units per canvas-4a pixel. */
 const PX = 1 / 34
 
-/** Spring to the tag's radius-weighted barycentre, per tick (canvas: `0.0011 * bond`). */
-const COHESION_K = 0.0011
-/** Weak spring to the tag's home anchor, per tick (canvas: `0.0004`). */
-const HOME_K = 0.0004
 /** Velocity damping per tick (canvas: `* 0.92`). */
 const DAMPING = 0.92
+/**
+ * Spring from each body to its slot in the clump (`packSlots`), which rides
+ * on the tag's radius-weighted barycentre, per tick.
+ *
+ * NOT the canvas 4a script's `0.0011`, which pulled every body at the
+ * barycentre itself and left the clump's shape to separation. With boxes a
+ * label wide and not circles, separation alone has no good resting shape:
+ * pushed square off the faces, clumps settled as columns; pushed along the
+ * line between centres, a body on a face never found a place where the
+ * forces balanced and slid for many seconds (ADR
+ * `separation-rests-at-the-outline`). The shape now comes from the slots,
+ * and this is the spring that holds a body in one. Twice the critical
+ * stiffness for DAMPING ((1 − DAMPING)² / 4 per tick²), so a damping ratio
+ * of about 0.7: the fastest a spring settles to within a few percent, with
+ * an overshoot the contact's dashpot absorbs. A clump of the 3-, 4- or
+ * 6-planet fixtures shaken back onto its layout spiral sleeps in 99–159
+ * ticks.
+ */
+const COHESION_K = (1 - DAMPING) ** 2 / 2
+/**
+ * Spring from the tag's barycentre to its home anchor, per tick, applied to
+ * every body alike so the whole clump moves home without being squeezed.
+ * NOT the canvas's `0.0004` per body: at that strength a clump took most of
+ * ten seconds to creep the last few units home, awake the whole time.
+ * As stiff as COHESION_K. Off while a body of the tag is
+ * dragged, so the clump trails the pointer (`rehomeTarget` moves the home
+ * on release).
+ */
+const HOME_K = COHESION_K
 
 /**
  * The canvas 4a footer's clearances between two bare bodies: "96 px same
@@ -105,8 +132,7 @@ const CONTACT_RAMP = 0.03
  * Dashpot on two touching bodies' closing (and parting) speed, per tick.
  * A contact this stiff would ring under DAMPING alone — two bodies meeting
  * would bounce off each other a few times before resting. This damps the
- * pair's relative motion along the line between their centres (the
- * direction the contact pushes in) to about critical, so
+ * pair's relative motion along the contact normal to about critical, so
  * a collision settles in one approach, the way the canvas's soft ramp did.
  */
 const CONTACT_DAMPING = 0.3
@@ -173,17 +199,25 @@ export interface SimBody {
   /** What the planet draws around itself (label, pill, reticle); null for a bare body. */
   outline: PlanetOutline | null
   /**
-   * `bodyExtent` at the zoom of the tick in progress, rewritten in place at
-   * the start of every tick so the pair loop reads it instead of re-deriving
-   * it for every pair — and without allocating.
+   * `bodyExtent`, rewritten in place on every reconcile so the pair loop
+   * reads it instead of re-deriving it for every pair.
    */
   extent: Extent
+  /** The body's place in its clump (`packSlots`), as an offset from the tag's barycentre. */
+  slotX: number
+  slotY: number
+  /** The body's place on the layout's spiral (`SimInputBody.x`/`y` of the latest reconcile), where `packSlots` starts it from. */
+  seedX: number
+  seedY: number
   /** working/needs_input: repelled by the hole, never absorbable. */
   live: boolean
   x: number
   y: number
   vx: number
   vy: number
+  /** This tick's acceleration, gathered for every body before any of them moves. */
+  ax: number
+  ay: number
   asleep: boolean
   /** `hold` = bonded; `fall` = released, falling; `gone` = captured by the hole. */
   mode: 'hold' | 'fall' | 'gone'
@@ -216,7 +250,7 @@ export interface SimInputBody {
  * Everything a planet draws around its body, in the two units it is drawn
  * in: offsets in local units before the planet's scale (they grow with the
  * body), sizes in CSS px (the label and pill are DOM at a fixed type size).
- * `bodyExtent` turns it into world units at a given zoom.
+ * `bodyExtent` turns it into world units at OUTLINE_ZOOM.
  */
 export interface PlanetOutline {
   /** The planet's drawn scale at REFERENCE_ZOOM: tier scale times the planet-size setting. */
@@ -266,7 +300,14 @@ export interface SimHole {
 
 export interface SimState {
   bodies: Map<string, SimBody>
+  /** Each tag's home as the scene model gives it (the layout's, or the one a drop stored). */
   anchors: Map<number, { x: number; y: number }>
+  /**
+   * Where each tag's clump actually rests (`placeHomes`): its anchor, moved
+   * out just far enough that its packed boxes clear the clumps placed
+   * before it. What the home spring pulls to.
+   */
+  homes: Map<number, { x: number; y: number }>
   hole: SimHole
 }
 
@@ -282,6 +323,7 @@ export function createSimulation(): SimState {
   return {
     bodies: new Map(),
     anchors: new Map(),
+    homes: new Map(),
     hole: { x: 0, y: 0, labelWidthPx: 0, labelHeightPx: 0 },
   }
 }
@@ -298,23 +340,30 @@ export function createSimulation(): SimState {
  */
 export function reconcileSimulation(sim: SimState, input: SimInput): void {
   let structuralChange = false
+  const arrived: SimBody[] = []
 
   const seen = new Set<string>()
   for (const spec of input.bodies) {
     seen.add(spec.id)
     const existing = sim.bodies.get(spec.id)
     if (!existing) {
-      sim.bodies.set(spec.id, {
+      const body: SimBody = {
         id: spec.id,
         tagId: spec.tagId,
         r: spec.r,
         outline: spec.outline ?? null,
         extent: { left: -spec.r, right: spec.r, bottom: -spec.r, top: spec.r },
+        slotX: 0,
+        slotY: 0,
+        seedX: spec.x,
+        seedY: spec.y,
         live: spec.live,
         x: spec.x,
         y: spec.y,
         vx: 0,
         vy: 0,
+        ax: 0,
+        ay: 0,
         asleep: false,
         mode: spec.released ? 'fall' : 'hold',
         drag: null,
@@ -322,7 +371,9 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
         fallStretch: 1,
         fallAngle: 0,
         fallScale: 1,
-      })
+      }
+      sim.bodies.set(spec.id, body)
+      if (body.mode === 'hold') arrived.push(body)
       structuralChange = true
       continue
     }
@@ -344,6 +395,8 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
       structuralChange = true
     }
     existing.live = spec.live
+    existing.seedX = spec.x
+    existing.seedY = spec.y
     if (spec.released && existing.mode === 'hold') {
       existing.mode = 'fall'
       existing.fallT = 0
@@ -378,7 +431,126 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
   }
 
   if (structuralChange) {
-    for (const body of sim.bodies.values()) body.asleep = false
+    for (const body of sim.bodies.values()) {
+      bodyExtent(body.r, body.outline, body.extent)
+      body.asleep = false
+    }
+    packSlots(sim)
+  }
+  // Every reconcile: a drop moves an anchor without changing anything else.
+  placeHomes(sim)
+  placeArrivals(sim, arrived)
+}
+
+/**
+ * Puts bodies that just appeared straight into their slots, beside the
+ * clump they joined (its barycentre over the bodies already there), or
+ * round the tag's anchor when the whole clump is new — on a page load,
+ * every clump. Seeded at the layout's spiral instead, a clump started with
+ * its boxes piled on one another and spent seconds shoving itself apart.
+ */
+function placeArrivals(sim: SimState, arrived: SimBody[]): void {
+  if (arrived.length === 0) return
+  const isNew = new Set(arrived)
+  for (const body of arrived) {
+    let x = 0
+    let y = 0
+    let w = 0
+    for (const other of sim.bodies.values()) {
+      if (other.tagId !== body.tagId || other.mode !== 'hold' || isNew.has(other)) continue
+      x += (other.x - other.slotX) * other.r
+      y += (other.y - other.slotY) * other.r
+      w += other.r
+    }
+    const home = sim.homes.get(body.tagId)
+    const cx = w > 0 ? x / w : (home?.x ?? body.seedX)
+    const cy = w > 0 ? y / w : (home?.y ?? body.seedY)
+    body.x = cx + body.slotX
+    body.y = cy + body.slotY
+  }
+}
+
+/**
+ * How far from `anchor` along (`ux`, `uy`) a clump whose boxes (relative to
+ * its barycentre) are `boxes` first clears every box in `placed`, by
+ * CROSS_GAP: the stretches of the ray where one of its boxes would overlap
+ * one placed, and the nearest free point past them.
+ */
+function clumpClearAlong(
+  boxes: Extent[],
+  placed: Extent[],
+  anchor: { x: number; y: number },
+  ux: number,
+  uy: number
+): number {
+  const blocked: Array<[number, number]> = []
+  for (const b of boxes) {
+    for (const p of placed) {
+      const [inX, outX] = slab(p.left - b.right - CROSS_GAP - anchor.x, p.right - b.left + CROSS_GAP - anchor.x, ux)
+      const [inY, outY] = slab(p.bottom - b.top - CROSS_GAP - anchor.y, p.top - b.bottom + CROSS_GAP - anchor.y, uy)
+      const enter = Math.max(inX, inY)
+      const leave = Math.min(outX, outY)
+      if (enter < leave && leave > 0) blocked.push([enter, leave])
+    }
+  }
+  blocked.sort((a, b) => a[0] - b[0])
+  let t = 0
+  for (const [enter, leave] of blocked) if (enter <= t && t < leave) t = leave
+  return t
+}
+
+/**
+ * Where each tag's clump rests (`sim.homes`): its anchor, or — when its
+ * packed boxes there would reach into a clump placed before it, with
+ * CROSS_GAP between them — as little further out from the middle of all
+ * the anchors as clears them.
+ *
+ * The layout spaces anchors for bare planets (`clusterAnchors`), and a
+ * clump a label wide is several times that. Left at their anchors, two
+ * neighbouring clumps pressed into each other: every body's slot spring
+ * held it inside the other clump against the contact, and their labels
+ * overlapped. Clumps are placed in the scene model's order, so the first
+ * keeps its anchor and a new tag never moves the ones already there.
+ */
+function placeHomes(sim: SimState): void {
+  sim.homes.clear()
+  let midX = 0
+  let midY = 0
+  for (const anchor of sim.anchors.values()) {
+    midX += anchor.x / sim.anchors.size
+    midY += anchor.y / sim.anchors.size
+  }
+  const placed: Extent[] = []
+  for (const [tagId, anchor] of sim.anchors) {
+    const boxes: Extent[] = []
+    for (const body of sim.bodies.values()) {
+      if (body.tagId !== tagId || body.mode !== 'hold') continue
+      const e = body.extent
+      boxes.push({
+        left: body.slotX + e.left,
+        right: body.slotX + e.right,
+        bottom: body.slotY + e.bottom,
+        top: body.slotY + e.top,
+      })
+    }
+    // Out from the middle first; of SLOT_DIRECTIONS directions, the one
+    // that clears in the shortest move keeps the clump nearest its anchor.
+    const out = Math.atan2(anchor.y - midY, anchor.x - midX)
+    let best = Infinity
+    const home = { x: anchor.x, y: anchor.y }
+    for (let k = 0; k < SLOT_DIRECTIONS && best > 0; k++) {
+      const angle = out + (k * 2 * Math.PI) / SLOT_DIRECTIONS
+      const t = clumpClearAlong(boxes, placed, anchor, Math.cos(angle), Math.sin(angle))
+      if (t < best - 1e-9) {
+        best = t
+        home.x = anchor.x + t * Math.cos(angle)
+        home.y = anchor.y + t * Math.sin(angle)
+      }
+    }
+    sim.homes.set(tagId, home)
+    for (const b of boxes) {
+      placed.push({ left: home.x + b.left, right: home.x + b.right, bottom: home.y + b.bottom, top: home.y + b.top })
+    }
   }
 }
 
@@ -458,14 +630,13 @@ export function dragSimBody(
 /**
  * Advances the simulation by `dtSeconds`, in fixed 60Hz substeps (capped, so
  * a hitched frame catches up smoothly instead of exploding the springs).
- * Deterministic: same state + same dt sequence + same `zoom` = bit-identical
- * results — the camera zoom arrives as an argument precisely to keep that
- * true, the same way `buildSceneModel` takes its clock as `nowMs`.
+ * Deterministic: same state + same dt sequence = bit-identical results. The
+ * camera does not enter: everything is measured at OUTLINE_ZOOM.
  */
-export function stepSimulation(sim: SimState, dtSeconds: number, zoom = REFERENCE_ZOOM): SimEvents {
+export function stepSimulation(sim: SimState, dtSeconds: number): SimEvents {
   const events: SimEvents = { absorbed: [] }
   const substeps = Math.max(1, Math.min(MAX_SUBSTEPS, Math.round(dtSeconds / TICK_SEC)))
-  for (let i = 0; i < substeps; i++) tick(sim, events, zoom)
+  for (let i = 0; i < substeps; i++) tick(sim, events)
   return events
 }
 
@@ -474,7 +645,7 @@ export function stepSimulation(sim: SimState, dtSeconds: number, zoom = REFERENC
  * resolve instantly (no animation to honour) and the springs converge before
  * anything is drawn. Bounded by SETTLE_MAX_TICKS as a runaway guard.
  */
-export function settleSimulation(sim: SimState, zoom = REFERENCE_ZOOM): SimEvents {
+export function settleSimulation(sim: SimState): SimEvents {
   const events: SimEvents = { absorbed: [] }
   for (const body of sim.bodies.values()) {
     if (body.mode === 'fall') {
@@ -489,56 +660,62 @@ export function settleSimulation(sim: SimState, zoom = REFERENCE_ZOOM): SimEvent
       if (body.mode === 'hold' && !body.asleep) anyAwake = true
     }
     if (!anyAwake) break
-    tick(sim, events, zoom)
+    tick(sim, events)
   }
   return events
 }
 
 /**
- * Where the simulation would come to rest if the camera were at `zoom`,
- * worked out on a copy — `sim` itself is not touched. Every copied body's
- * `extent` is left at that zoom, so the result says both where each body
- * stops and what its drawing covers there.
+ * Where the simulation will come to rest, worked out on a copy — `sim`
+ * itself is not touched. Every copied body's `extent` is filled in, so the
+ * result says both where each body stops and what its drawing covers.
  *
- * For fit (`fitViewTo`): clumps rest wider the further out the camera is,
- * so framing them where they stand now would frame the wrong picture. An
+ * For fit (`fitViewTo`), which runs on the first frame, before the live
+ * clumps have walked out of their spiral seeds. The layout does not depend
+ * on the camera, so one settled copy frames every zoom fit tries. An
  * allocation per call, which is fine for a keystroke and never runs in a
  * frame loop.
  */
-export function settledCopy(sim: SimState, zoom: number): SimState {
+export function settledCopy(sim: SimState): SimState {
   const copy = createSimulation()
   for (const [id, body] of sim.bodies) {
-    // Awake, so a clump resting at another zoom re-spaces for this one;
-    // undragged, since the copy has no pointer to follow.
+    // Undragged, since the copy has no pointer to follow.
     copy.bodies.set(id, { ...body, extent: { ...body.extent }, drag: null, asleep: false })
   }
   for (const [tagId, anchor] of sim.anchors) copy.anchors.set(tagId, { x: anchor.x, y: anchor.y })
+  for (const [tagId, home] of sim.homes) copy.homes.set(tagId, { x: home.x, y: home.y })
   copy.hole = { ...sim.hole }
-  settleSimulation(copy, zoom)
-  for (const body of copy.bodies.values()) bodyExtent(body.r, body.outline, zoom, body.extent)
+  settleSimulation(copy)
+  for (const body of copy.bodies.values()) bodyExtent(body.r, body.outline, body.extent)
   return copy
 }
 
 /**
- * World units per CSS px of the label and pill, as far as separation is
- * concerned: their true size below REFERENCE_ZOOM, and the reference's size
- * above it.
+ * The one zoom every outline is measured at: labels and pills at their
+ * size in world units there, bodies and moon systems at their counter-zoom
+ * (`bodyZoomFactor`) there. The layout never follows the camera.
  *
- * The label and pill are DOM at a fixed type size, so zooming out makes
- * them larger in world units — by the whole zoom ratio, not by the
- * counter-zoom curve the bodies follow. Separation that tracked them only
- * as far as the body did (the previous rule) let labels meet as soon as
- * the map was zoomed out a little, which a fit of any map with more than
- * one cluster does.
+ * It used to (ADR `separation-rests-at-the-outline`): the labels are fixed
+ * CSS px, so measured at the live zoom every box grew as the camera zoomed
+ * out, the clumps spread, fit zoomed out further to hold them, and on a map
+ * with the detail panel open it never stopped. Measured at one zoom, the
+ * layout is a fixed picture and fit frames it in one go.
  *
- * Frozen above the reference, like `bodyZoomFactor`, so zooming in never
- * moves anything: the labels only get smaller relative to the bodies
- * there, and the room kept for them at the reference is then more than
- * enough.
+ * The trade: at zooms above this one the map has more air than it needs;
+ * below it, labels on a clump's neighbours can touch, and inflated moon
+ * systems can reach each other. Fit of an ordinary map of two or three
+ * clusters lands between about 25 and 35 in a 1440×860 window (the two
+ * cluster sandboxes, panels closed: 33 and 25), so that view is the one
+ * kept clean. A map
+ * so big that fit has to go further out is past what can be labelled
+ * cleanly anyway (Tomin: overflow on huge maps does not matter).
  */
-function worldPerPx(zoom: number): number {
-  return 1 / Math.min(zoom, REFERENCE_ZOOM)
-}
+export const OUTLINE_ZOOM = 30
+
+/** World units per CSS px of a label or pill at OUTLINE_ZOOM. */
+const OUTLINE_PER_PX = 1 / OUTLINE_ZOOM
+/** The counter-zoom bodies are measured with, at OUTLINE_ZOOM. */
+const OUTLINE_BODY_FACTOR = bodyZoomFactor(OUTLINE_ZOOM)
 
 /**
  * Builds a planet's outline from what it will draw. Pure; the map calls it
@@ -597,8 +774,8 @@ function sameOutline(a: PlanetOutline | null, b: PlanetOutline | null): boolean 
 }
 
 /**
- * The box a body's drawing covers at `zoom`, written into `out` (and
- * returned): the union of
+ * The box a body's drawing covers at OUTLINE_ZOOM, written into `out`
+ * (and returned): the union of
  *
  * - the body, as a square — its moon system (`r`) or the selection
  *   reticle's corner brackets, whichever is wider. The brackets count
@@ -609,22 +786,16 @@ function sameOutline(a: PlanetOutline | null, b: PlanetOutline | null): boolean 
  *   already there and selecting never moves a neighbour;
  * - the state pill to its right, when it wears one.
  *
- * Body parts grow with the counter-zoom (`bodyZoomFactor`), the label and
- * pill with `worldPerPx`. A box and not a circle round the centre, because
+ * Body parts are measured at their counter-zoomed size there
+ * (`bodyZoomFactor`), the label and pill at their CSS px there. A box and not a circle round the centre, because
  * the label is wide and flat: a circle holding it would also claim the
  * empty space above it, and a clump of such circles packed half again as
  * loosely as its labels needed — too loosely for a fit of several clusters
  * to find any zoom that holds them. Pure; `out` keeps the frame loop free
  * of allocations.
  */
-export function bodyExtent(
-  r: number,
-  outline: PlanetOutline | null,
-  zoom: number,
-  out: Extent
-): Extent {
-  const zoomFactor = bodyZoomFactor(zoom)
-  let half = r * zoomFactor
+export function bodyExtent(r: number, outline: PlanetOutline | null, out: Extent): Extent {
+  let half = r * OUTLINE_BODY_FACTOR
   if (!outline) {
     out.left = -half
     out.right = half
@@ -632,8 +803,8 @@ export function bodyExtent(
     out.top = half
     return out
   }
-  const perPx = worldPerPx(zoom)
-  const s = outline.scale * zoomFactor
+  const perPx = OUTLINE_PER_PX
+  const s = outline.scale * OUTLINE_BODY_FACTOR
   half = Math.max(half, BRACKET_INSET * s)
   const labelHalf = (outline.labelWidthPx / 2) * perPx
   out.left = -Math.max(half, labelHalf)
@@ -648,23 +819,11 @@ export function bodyExtent(
 }
 
 /**
- * How steep the roof over a box's top and bottom faces is, as rise over
- * run (see `contact`). Tuned on the three-, four- and six-planet fixtures
- * in `simulation.test.ts`: below about 0.1 a planet still settles almost
- * straight under a neighbour; from about 0.4 clumps spread wide and slow
- * to settle when zoomed out. Two planets exactly one above the other rest
- * this fraction of the narrower half-width further apart than the bare
- * boxes would; anywhere else on the face, less, and nothing at its ends.
- */
-const ROOF_SLOPE = 0.2
-
-/**
  * How close two bodies' centres may get when `b` lies in direction
  * (`ux`, `uy`) — a unit vector — from `a`: the distance along that line at
- * which their boxes (`bodyExtent`, at the tick's zoom) stop overlapping
- * with NEIGHBOUR_AIR_PX of screen between them, and CROSS_TAG_EXTRA more
- * between different tags — plus the roof over the top and bottom faces
- * (`contact`).
+ * which their boxes (`bodyExtent`, at OUTLINE_ZOOM) stop overlapping with
+ * NEIGHBOUR_AIR_PX between them, and CROSS_TAG_EXTRA more between
+ * different tags.
  *
  * The boxes overlap exactly while `b`'s offset from `a` lies inside one
  * box — `a`'s box grown by `b`'s on every side, plus the gap — so this is
@@ -675,86 +834,216 @@ const ROOF_SLOPE = 0.2
  *
  * Pure and exported for unit tests.
  */
-export function minDistance(
+export function minDistance(a: Extent, b: Extent, ux: number, uy: number, sameTag: boolean): number {
+  return contact(a, b, ux, uy, sameTag ? SAME_GAP : CROSS_GAP, CONTACT_NORMAL)
+}
+
+/** The empty room `minDistance` keeps between two boxes: NEIGHBOUR_AIR_PX at OUTLINE_ZOOM, plus CROSS_TAG_EXTRA across tags. */
+const SAME_GAP = NEIGHBOUR_AIR_PX * OUTLINE_PER_PX
+const CROSS_GAP = SAME_GAP + CROSS_TAG_EXTRA
+
+/** `contact`'s normal, written in place so the tick never allocates. */
+const CONTACT_NORMAL = { x: 0, y: 0 }
+
+/**
+ * `minDistance`, plus the side of the grown box the ray leaves through,
+ * written into `normal` as a unit axis pointing from `a` towards `b`.
+ *
+ * Separation pushes along that normal, square off the face the two boxes
+ * meet at. That is the direction the overlap shrinks fastest, so a pair
+ * pressed together by the slot springs has a place to rest. Pushed along
+ * the line between the centres instead, a body resting on a neighbour's
+ * face was also shoved along it and slid for seconds before it slept
+ * (ADR `separation-rests-at-the-outline`). The face normal on its own let
+ * clusters settle as columns; the slots (`packSlots`) now decide where a
+ * body sits, and separation only keeps boxes apart.
+ */
+function contact(
   a: Extent,
   b: Extent,
   ux: number,
   uy: number,
-  sameTag: boolean,
-  zoom = REFERENCE_ZOOM
+  gap: number,
+  normal: { x: number; y: number }
 ): number {
-  return contact(a, b, ux, uy, pairGap(sameTag, zoom))
-}
-
-/** The empty room `minDistance` keeps between two boxes. */
-function pairGap(sameTag: boolean, zoom: number): number {
-  return NEIGHBOUR_AIR_PX * worldPerPx(zoom) + (sameTag ? 0 : CROSS_TAG_EXTRA)
+  const alongX =
+    ux > 0 ? (a.right - b.left + gap) / ux : ux < 0 ? (a.left - b.right - gap) / ux : Infinity
+  const alongY =
+    uy > 0 ? (a.top - b.bottom + gap) / uy : uy < 0 ? (a.bottom - b.top - gap) / uy : Infinity
+  if (alongX <= alongY) {
+    normal.x = Math.sign(ux)
+    normal.y = 0
+    return alongX
+  }
+  normal.x = 0
+  normal.y = Math.sign(uy)
+  return alongY
 }
 
 /**
- * `minDistance` with the gap already worked out: where the ray from `a`'s
- * centre in direction (`ux`, `uy`) leaves `a`'s box grown by `b`'s and
- * `gap`, with a shallow gable roof (ROOF_SLOPE) over the grown box's top
- * and bottom faces. The roof's ridge is straight above and below `a`'s
- * centre, and it comes down to the face at the nearer of the two sides.
- * It only ever adds room, so what the boxes keep clear stays clear.
+ * Where each body of each tag sits in its clump, as an offset from the
+ * tag's radius-weighted barycentre, written into `slotX`/`slotY`.
  *
- * The tick pushes along the ray — the line between the two centres, the
- * canvas 4a script's direction — and only the distance comes from here.
- * Both halves of that are needed (ADR `separation-rests-at-the-outline`,
- * the later 2026-09-23 amendment):
+ * Each body starts from its place on the layout's golden-angle spiral
+ * (`seedX`/`seedY`, `layoutClusters`), which is spaced for bare planets
+ * and far too tight for boxes a label wide. Bodies are taken in the scene
+ * spiral's order, middle out. Each looks from its spiral place in
+ * SLOT_DIRECTIONS directions, goes along each only as far as it takes for
+ * its box to clear every box already placed by SAME_GAP, and of those
+ * spots keeps the one closest to the barycentre of the bodies placed so
+ * far — measured in box widths and box heights, so a place beside the
+ * clump counts the same as one above it. So each box fills in round the
+ * middle, against its neighbours: the clump is as tight as its labels
+ * allow, and it does not stack up into a column. Starting each search from
+ * the spiral place keeps a body on the side of the clump it was seeded on,
+ * so no two bodies have to pass through each other to reach their slots.
  *
- * - Pushed square off the face the boxes meet at, as before, a box much
- *   wider than tall was pushed almost only up and down: nothing moved a
- *   clump sideways, cohesion drew every x onto the barycentre, and three
- *   planets settled as a column, one exactly under the next.
- * - Pushed along the line against a flat face, a planet under two others
- *   was shoved away from the further one's centre, and slid until it sat
- *   almost exactly under the nearer. The roof makes straight under a
- *   neighbour the one place on the face that is not a resting place: the
- *   ridge pushes it off to either side.
+ * Runs on reconcile, when a body arrives, leaves, changes tag or changes
+ * size — never in the frame loop. Deterministic: the same model always
+ * packs the same way.
  */
-function contact(a: Extent, b: Extent, ux: number, uy: number, gap: number): number {
-  const right = a.right - b.left + gap
-  const left = b.right - a.left + gap
-  const alongX = ux > 0 ? right / ux : ux < 0 ? -left / ux : Infinity
-  const face = uy > 0 ? a.top - b.bottom + gap : uy < 0 ? b.top - a.bottom + gap : 0
-  const across = Math.abs(ux)
-  const up = Math.abs(uy)
-  const alongY = up > 0 ? face / up : Infinity
-  if (alongX <= alongY) return alongX
-  // The roof: `rise` above the face at the ridge, down to it `half` either
-  // side. Where the ray meets it, if that is before the roof ends.
-  const half = Math.min(left, right)
-  const rise = ROOF_SLOPE * half
-  const onRoof = (face + rise) / (up + (rise * across) / half)
-  return across * onRoof < half ? onRoof : alongY
+function packSlots(sim: SimState): void {
+  const byTag = new Map<number, SimBody[]>()
+  for (const body of sim.bodies.values()) {
+    if (body.mode !== 'hold') continue
+    let members = byTag.get(body.tagId)
+    if (!members) {
+      members = []
+      byTag.set(body.tagId, members)
+    }
+    members.push(body)
+  }
+  for (const [tagId, members] of byTag) {
+    // Middle out, as the spiral numbers them: the spiral's centre is the
+    // tag's anchor (`layoutClusters`), and a body's distance from it is
+    // its place in the spiral. Ties (never in practice) by id.
+    const anchor = sim.anchors.get(tagId) ?? { x: members[0].seedX, y: members[0].seedY }
+    const fromAnchor = (b: SimBody) => Math.hypot(b.seedX - anchor.x, b.seedY - anchor.y)
+    members.sort((a, b) => fromAnchor(a) - fromAnchor(b) || (a.id < b.id ? -1 : 1))
+
+    // The clump's typical box, to measure a move in box units: a box is
+    // much wider than tall, and measured in world units the shortest way
+    // out of an overlap is nearly always straight up or down.
+    let boxW = 0
+    let boxH = 0
+    for (const body of members) {
+      boxW += body.extent.right - body.extent.left + SAME_GAP
+      boxH += body.extent.top - body.extent.bottom + SAME_GAP
+    }
+    boxW /= members.length
+    boxH /= members.length
+
+    let sumX = 0
+    let sumY = 0
+    let weight = 0
+    for (let i = 0; i < members.length; i++) {
+      const body = members[i]
+      body.slotX = body.seedX
+      body.slotY = body.seedY
+      if (i > 0) {
+        const cx = sumX / weight
+        const cy = sumY / weight
+        // Out from the middle first: a tie keeps the outward direction.
+        const out = Math.atan2(body.seedY - anchor.y, body.seedX - anchor.x)
+        let best = Infinity
+        for (let k = 0; k < SLOT_DIRECTIONS; k++) {
+          const angle = out + (k * 2 * Math.PI) / SLOT_DIRECTIONS
+          const ux = Math.cos(angle)
+          const uy = Math.sin(angle)
+          const t = clearAlong(members, i, body.seedX, body.seedY, ux, uy)
+          const x = body.seedX + t * ux
+          const y = body.seedY + t * uy
+          const spread = ((x - cx) / boxW) ** 2 + ((y - cy) / boxH) ** 2
+          if (spread < best - 1e-12) {
+            best = spread
+            body.slotX = x
+            body.slotY = y
+          }
+        }
+      }
+      sumX += body.slotX * body.r
+      sumY += body.slotY * body.r
+      weight += body.r
+    }
+    // Relative to the barycentre, which is what the tick measures from.
+    for (const body of members) {
+      body.slotX -= sumX / weight
+      body.slotY -= sumY / weight
+    }
+  }
+}
+
+/** How many directions `packSlots` tries for each body: enough that one of them lands close to any gap. */
+const SLOT_DIRECTIONS = 24
+
+/**
+ * How far from (`ox`, `oy`) along (`ux`, `uy`) `members[i]`'s box first
+ * clears the boxes of `members[0..i-1]`, already placed at their slots.
+ * Each placed box rules out one stretch of the ray (where it runs through
+ * that box grown by the newcomer's, and SAME_GAP); the answer is the
+ * nearest point outside all of them.
+ */
+function clearAlong(members: SimBody[], i: number, ox: number, oy: number, ux: number, uy: number): number {
+  const e = members[i].extent
+  let t = 0
+  // Each pass moves t past every stretch it sits in; t only grows, so a
+  // stretch passed is never re-entered and i + 1 passes always end free.
+  for (let pass = 0; pass <= i; pass++) {
+    let moved = false
+    for (let j = 0; j < i; j++) {
+      const o = members[j]
+      const [inX, outX] = slab(
+        o.slotX + o.extent.left - e.right - SAME_GAP - ox,
+        o.slotX + o.extent.right - e.left + SAME_GAP - ox,
+        ux
+      )
+      const [inY, outY] = slab(
+        o.slotY + o.extent.bottom - e.top - SAME_GAP - oy,
+        o.slotY + o.extent.top - e.bottom + SAME_GAP - oy,
+        uy
+      )
+      const enter = Math.max(inX, inY)
+      const leave = Math.min(outX, outY)
+      if (enter < leave && t >= enter && t < leave) {
+        t = leave
+        moved = true
+      }
+    }
+    if (!moved) break
+  }
+  return t
+}
+
+/** The stretch of the ray `t · u` (one axis of it) that lies between `lo` and `hi`. */
+function slab(lo: number, hi: number, u: number): [number, number] {
+  if (u === 0) return lo < 0 && 0 < hi ? [-Infinity, Infinity] : [Infinity, -Infinity]
+  const a = lo / u
+  const b = hi / u
+  return a < b ? [a, b] : [b, a]
 }
 
 /**
- * The box the hole's label column covers at `zoom`, in world coordinates
- * (not offsets: `left` is the box's left edge on the map), written into
- * `out` and returned. Null when the hole has no label.
+ * The box the hole's label column covers at OUTLINE_ZOOM, in world
+ * coordinates (not offsets: `left` is the box's left edge on the map),
+ * written into `out` and returned. Null when the hole has no label.
  *
  * `Hole` draws the column right-aligned HOLE_RADIUS + HOLE_LABEL_GAP left
  * of its centre, scaled by the counter-zoom like the rest of the hole, and
- * centred on it vertically; the text is fixed CSS px, measured with
- * `worldPerPx` like a planet's label.
+ * centred on it vertically; the text is fixed CSS px, measured at
+ * OUTLINE_ZOOM like a planet's label.
  *
  * A box, not a wider round halo: the column is a long flat strip reaching
- * well to the left of the disc, and further the more the map is zoomed out.
- * A circle round the hole big enough to cover it would claim a wide ring of
- * empty map above and below the hole as well.
+ * well to the left of the disc. A circle round the hole big enough to cover
+ * it would claim a wide ring of empty map above and below the hole as well.
  *
  * Pure and exported for unit tests.
  */
-export function holeLabelBox(hole: SimHole, zoom: number, out: Extent): Extent | null {
+export function holeLabelBox(hole: SimHole, out: Extent): Extent | null {
   if (hole.labelWidthPx <= 0 || hole.labelHeightPx <= 0) return null
-  const perPx = worldPerPx(zoom)
-  out.right = hole.x - (HOLE_RADIUS + HOLE_LABEL_GAP) * bodyZoomFactor(zoom)
-  out.left = out.right - hole.labelWidthPx * perPx
-  out.top = hole.y + (hole.labelHeightPx / 2) * perPx
-  out.bottom = hole.y - (hole.labelHeightPx / 2) * perPx
+  out.right = hole.x - (HOLE_RADIUS + HOLE_LABEL_GAP) * OUTLINE_BODY_FACTOR
+  out.left = out.right - hole.labelWidthPx * OUTLINE_PER_PX
+  out.top = hole.y + (hole.labelHeightPx / 2) * OUTLINE_PER_PX
+  out.bottom = hole.y - (hole.labelHeightPx / 2) * OUTLINE_PER_PX
   return out
 }
 
@@ -797,14 +1086,32 @@ interface Centre {
   x: number
   y: number
   w: number
+  /** A body of this tag is in hand: the clump follows the pointer, not its home. */
+  held: boolean
 }
 
-function tick(sim: SimState, events: SimEvents, zoom: number): void {
-  for (const body of sim.bodies.values()) bodyExtent(body.r, body.outline, zoom, body.extent)
-  const sameGap = pairGap(true, zoom)
-  const crossGap = pairGap(false, zoom)
-  const holeLabel = holeLabelBox(sim.hole, zoom, HOLE_LABEL_SCRATCH)
-  const holeLabelAir = NEIGHBOUR_AIR_PX * worldPerPx(zoom)
+/**
+ * How far from its slot a body is still on its way there, as a fraction of
+ * its box's height. Two tag-mates either of which is further than this
+ * from its slot do not push each other: the slots never overlap, so they
+ * only meet in passing, and pushing each other aside there sent a clump
+ * that had to rearrange itself (a planet joining, a moon widening one) the
+ * long way round its neighbours. Measured on the six-planet fixture shaken
+ * back onto its spiral: up to 512 ticks to sleep with every pair pushing,
+ * under 160 with this.
+ */
+const TRAVELLING = 0.5
+
+/** Whether `body` is still on its way to its slot. A body in hand never is: its tag-mates keep off it. */
+function travelling(body: SimBody, centre: Centre): boolean {
+  if (body.drag) return false
+  const dx = centre.x + body.slotX - body.x
+  const dy = centre.y + body.slotY - body.y
+  return Math.hypot(dx, dy) > TRAVELLING * (body.extent.top - body.extent.bottom)
+}
+
+function tick(sim: SimState, events: SimEvents): void {
+  const holeLabel = holeLabelBox(sim.hole, HOLE_LABEL_SCRATCH)
 
   // Radius-weighted barycentre per tag, over bonded bodies only — a falling
   // body has no bond left to pull with (canvas: `if (n.free) continue`).
@@ -813,50 +1120,56 @@ function tick(sim: SimState, events: SimEvents, zoom: number): void {
     if (body.mode !== 'hold') continue
     let centre = centres.get(body.tagId)
     if (!centre) {
-      centre = { x: 0, y: 0, w: 0 }
+      centre = { x: 0, y: 0, w: 0, held: false }
       centres.set(body.tagId, centre)
     }
     centre.x += body.x * body.r
     centre.y += body.y * body.r
     centre.w += body.r
+    if (body.drag) centre.held = true
   }
   for (const [tagId, centre] of centres) {
     if (centre.w > 0) {
       centre.x /= centre.w
       centre.y /= centre.w
     } else {
-      const anchor = sim.anchors.get(tagId)
+      const anchor = sim.homes.get(tagId)
       centre.x = anchor?.x ?? 0
       centre.y = anchor?.y ?? 0
     }
   }
 
+  // Falls and drags first: they are placed, not pushed.
   for (const body of sim.bodies.values()) {
-    if (body.mode === 'gone') continue
-    if (body.mode === 'fall') {
-      tickFall(sim, body, events)
-      continue
-    }
-    if (body.drag) {
+    if (body.mode === 'fall') tickFall(sim, body, events)
+    else if (body.mode === 'hold' && body.drag) {
       body.x = body.drag.x
       body.y = body.drag.y
       body.vx = 0
       body.vy = 0
       body.asleep = false
-      continue
     }
+  }
 
+  for (const body of sim.bodies.values()) {
+    body.ax = 0
+    body.ay = 0
+    if (body.mode !== 'hold' || body.drag) continue
     const centre = centres.get(body.tagId)
-    const anchor = sim.anchors.get(body.tagId)
+    const anchor = sim.homes.get(body.tagId)
     let ax = 0
     let ay = 0
     if (centre) {
-      ax += (centre.x - body.x) * COHESION_K
-      ay += (centre.y - body.y) * COHESION_K
-    }
-    if (anchor) {
-      ax += (anchor.x - body.x) * HOME_K
-      ay += (anchor.y - body.y) * HOME_K
+      // To its slot, which rides on the barycentre — so dragging one body
+      // moves the barycentre and the rest of the clump trails after it.
+      ax += (centre.x + body.slotX - body.x) * COHESION_K
+      ay += (centre.y + body.slotY - body.y) * COHESION_K
+      // The whole clump home, every body alike — except while one of it is
+      // in hand: then it follows the pointer, and the release re-homes it.
+      if (anchor && !centre.held) {
+        ax += (anchor.x - centre.x) * HOME_K
+        ay += (anchor.y - centre.y) * HOME_K
+      }
     }
 
     for (const other of sim.bodies.values()) {
@@ -868,15 +1181,17 @@ function tick(sim: SimState, events: SimEvents, zoom: number): void {
       const ux = d > 0 ? dx / d : body.id < other.id ? 1 : -1
       const uy = d > 0 ? dy / d : 0
       const same = other.tagId === body.tagId
-      const min = contact(other.extent, body.extent, ux, uy, same ? sameGap : crossGap)
+      // Two tag-mates on their way to their slots pass through each other.
+      if (same && centre && (travelling(body, centre) || travelling(other, centre))) continue
+      const min = contact(other.extent, body.extent, ux, uy, same ? SAME_GAP : CROSS_GAP, CONTACT_NORMAL)
       if (d < min) {
-        // Apart along the line between the centres, and the dashpot along
-        // the same line (see `contact` for why not square off the face).
-        // `vn` is positive while the two part, negative while they close.
-        const vn = (body.vx - other.vx) * ux + (body.vy - other.vy) * uy
+        const nx = CONTACT_NORMAL.x
+        const ny = CONTACT_NORMAL.y
+        // Positive while the two are parting, negative while closing.
+        const vn = (body.vx - other.vx) * nx + (body.vy - other.vy) * ny
         const f = separation(min, d, same) - vn * CONTACT_DAMPING
-        ax += ux * f
-        ay += uy * f
+        ax += nx * f
+        ay += ny * f
       }
     }
 
@@ -891,18 +1206,28 @@ function tick(sim: SimState, events: SimEvents, zoom: number): void {
       ay += (hdy / hd) * f
     }
     if (holeLabel) {
-      const f = holeLabelPush(body, holeLabel, holeLabelAir)
+      const f = holeLabelPush(body, holeLabel, SAME_GAP)
       ax += HOLE_LABEL_PUSH.x * f
       ay += HOLE_LABEL_PUSH.y * f
     }
+    body.ax = ax
+    body.ay = ay
+  }
 
-    const accel = Math.hypot(ax, ay)
+  // Integrate only once every force is in, all read from the same
+  // positions. Moving each body as soon as its own force was known (the
+  // canvas script's order) let the one moved first see its neighbours
+  // where they were and the one moved last see them where they had gone,
+  // so a touching pair's two pushes did not quite cancel.
+  for (const body of sim.bodies.values()) {
+    if (body.mode !== 'hold' || body.drag) continue
+    const accel = Math.hypot(body.ax, body.ay)
     if (body.asleep) {
       if (accel < WAKE_ACCEL) continue
       body.asleep = false
     }
-    body.vx = (body.vx + ax) * DAMPING
-    body.vy = (body.vy + ay) * DAMPING
+    body.vx = (body.vx + body.ax) * DAMPING
+    body.vy = (body.vy + body.ay) * DAMPING
     body.x += body.vx
     body.y += body.vy
     if (Math.hypot(body.vx, body.vy) < SLEEP_SPEED && accel < SLEEP_ACCEL) {
@@ -912,6 +1237,7 @@ function tick(sim: SimState, events: SimEvents, zoom: number): void {
     }
   }
 }
+
 
 /** `holeLabelPush`'s direction, written in place so the tick never allocates. */
 const HOLE_LABEL_PUSH = { x: 0, y: 0 }

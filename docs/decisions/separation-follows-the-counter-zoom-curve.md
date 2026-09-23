@@ -70,3 +70,18 @@ world size below the reference zoom, not along the counter-zoom curve.
 Bodies and moon systems still follow `bodyZoomFactor` as described above.
 `stepSimulation` now takes the camera zoom itself instead of the factor,
 and the determinism contract holds the same way.
+
+## Amended again, 2026-09-23 (later the same day)
+
+[[separation-rests-at-the-outline]] now measures every outline at one
+fixed zoom, `OUTLINE_ZOOM`, and the simulation no longer takes the camera
+zoom at all. What still applies from this ADR: bodies and moon systems are
+measured at their counter-zoomed size (`bodyZoomFactor`), but at
+`OUTLINE_ZOOM` only, not at the zoom the camera is at; the map's anchors,
+the hole's position and its repulsion radius (`HOLE_REPEL_RADIUS`) stay in
+world units. What no longer applies: separation does not follow the camera
+along the curve. Measured at the live zoom, labels in fixed CSS px grew
+every box as the camera zoomed out, and fit — which frames where the
+clumps will rest — chased the growing clumps outward without converging.
+The price is that further out than `OUTLINE_ZOOM` inflated moon systems
+and labels can reach a neighbour.

@@ -16,6 +16,7 @@ import {
   NEIGHBOUR_AIR_PX,
   bodyExtent,
   holeLabelBox,
+  OUTLINE_ZOOM,
   planetOutline,
   type Extent,
   type PlanetOutline,
@@ -95,12 +96,24 @@ function body(sim: SimState, id: string) {
 }
 
 describe('reconcileSimulation', () => {
-  it('seeds a new body at its input position, awake and holding', () => {
+  it('seeds a new clump straight into its slots round the tag’s anchor, clear of one another, awake and holding', () => {
     const sim = makeSim()
     const a1 = body(sim, 'a1')
-    expect({ x: a1.x, y: a1.y }).toEqual({ x: -4, y: 0 })
     expect(a1.mode).toBe('hold')
     expect(a1.asleep).toBe(false)
+    // Its radius-weighted barycentre is the anchor…
+    const mates = [...sim.bodies.values()].filter((b) => b.tagId === 1)
+    const w = mates.reduce((s, b) => s + b.r, 0)
+    expect(mates.reduce((s, b) => s + b.x * b.r, 0) / w).toBeCloseTo(-4, 10)
+    expect(mates.reduce((s, b) => s + b.y * b.r, 0) / w).toBeCloseTo(0, 10)
+    // …and nothing in it overlaps: nothing is pushed on the first tick.
+    for (const a of mates) {
+      for (const b of mates) {
+        if (a === b) continue
+        const d = Math.hypot(b.x - a.x, b.y - a.y)
+        expect(d).toBeGreaterThanOrEqual(minDistance(a.extent, b.extent, (b.x - a.x) / d, (b.y - a.y) / d, true) - 1e-9)
+      }
+    }
   })
 
   it('removes bodies that left the model and keeps the survivors where they stood', () => {
@@ -373,42 +386,21 @@ describe('footprints and separation', () => {
     return sim
   }
 
-  function spread(sim: SimState, zoom = REFERENCE_ZOOM): number {
-    settleSimulation(sim, zoom)
+  function spread(sim: SimState): number {
+    settleSimulation(sim)
     return Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, body(sim, 'p1').y - body(sim, 'p2').y)
   }
 
   it('keeps the two boxes plus the air apart, and a different tag further still', () => {
-    const air = NEIGHBOUR_AIR_PX / REFERENCE_ZOOM
+    const air = NEIGHBOUR_AIR_PX / OUTLINE_ZOOM
     expect(minDistance(square(3), square(3), 1, 0, true)).toBeCloseTo(6 + air, 10)
     expect(minDistance(square(3), square(3), -1, 0, false)).toBeCloseTo(6 + air + CROSS_TAG_EXTRA, 10)
-    // The air is screen px: zoomed out it is more world, zoomed in never less.
-    expect(minDistance(square(3), square(3), 1, 0, true, REFERENCE_ZOOM / 2)).toBeCloseTo(6 + 2 * air, 10)
-    expect(minDistance(square(3), square(3), 1, 0, true, REFERENCE_ZOOM * 2)).toBeCloseTo(6 + air, 10)
   })
 
   it('measures along the line between the two, so a corner neighbour sits further off than a side one', () => {
-    const air = NEIGHBOUR_AIR_PX / REFERENCE_ZOOM
+    const air = NEIGHBOUR_AIR_PX / OUTLINE_ZOOM
     const diagonal = minDistance(square(3), square(3), Math.SQRT1_2, Math.SQRT1_2, true)
     expect(diagonal).toBeCloseTo((6 + air) * Math.SQRT2, 10)
-  })
-
-  it('roofs the top and bottom faces: straight above is the highest point, and it never cuts into the box', () => {
-    // A neighbour above: how high its centre has to sit, as the direction
-    // swings from straight up to the box's corner.
-    const air = NEIGHBOUR_AIR_PX / REFERENCE_ZOOM
-    const face = 6 + air
-    let previous = Infinity
-    for (let i = 0; i <= 20; i++) {
-      const angle = Math.PI / 2 - (i / 20) * (Math.PI / 4)
-      const height = minDistance(square(3), square(3), Math.cos(angle), Math.sin(angle), true) * Math.sin(angle)
-      expect(height).toBeGreaterThanOrEqual(face - 1e-9)
-      expect(height).toBeLessThanOrEqual(previous + 1e-9)
-      previous = height
-    }
-    // Higher than the face straight above, down to it by the corner.
-    expect(minDistance(square(3), square(3), 0, 1, true)).toBeGreaterThan(face)
-    expect(previous).toBeCloseTo(face, 10)
   })
 
   it('reads a lopsided box from the side the neighbour is on, the same from either end', () => {
@@ -416,10 +408,9 @@ describe('footprints and separation', () => {
     // the label, one straight above only the body.
     const a: Extent = { left: -1, right: 1, bottom: -3, top: 1 }
     const b = square(1)
-    // Beside it, the body alone; below, the label's drop more than above.
-    const air = NEIGHBOUR_AIR_PX / REFERENCE_ZOOM
-    expect(minDistance(a, b, 1, 0, true)).toBeCloseTo(2 + air, 10)
-    expect(minDistance(a, b, 0, -1, true) - minDistance(a, b, 0, 1, true)).toBeCloseTo(2, 10)
+    const air = NEIGHBOUR_AIR_PX / OUTLINE_ZOOM
+    expect(minDistance(a, b, 0, -1, true)).toBeCloseTo(4 + air, 10)
+    expect(minDistance(a, b, 0, 1, true)).toBeCloseTo(2 + air, 10)
     // Seen from the neighbour, the direction flips and the distance holds.
     expect(minDistance(b, a, 0, 1, true)).toBeCloseTo(minDistance(a, b, 0, -1, true), 10)
     expect(minDistance(b, a, -0.6, 0.8, true)).toBeCloseTo(minDistance(a, b, 0.6, -0.8, true), 10)
@@ -437,17 +428,9 @@ describe('footprints and separation', () => {
     expect(many).toBeGreaterThan(2 * 3)
   })
 
-  it('keeps them clear at far zoom too, where every body is drawn inflated', () => {
-    // A planet carrying three moons, zoomed out to where it is drawn well
-    // past its world size.
+  it('keeps them clear as drawn at OUTLINE_ZOOM, where every body is inflated by the counter-zoom', () => {
     const r = 2.04
-    expect(spread(pair(r), FAR_ZOOM)).toBeGreaterThan(2 * r * bodyZoomFactor(FAR_ZOOM))
-  })
-
-  it('widens the clump as the camera zooms out and closes it again on the way back', () => {
-    const near = spread(pair(1))
-    const far = spread(pair(1), FAR_ZOOM)
-    expect(far).toBeGreaterThan(near)
+    expect(spread(pair(r))).toBeGreaterThan(2 * r * bodyZoomFactor(OUTLINE_ZOOM))
   })
 
   it('wakes a settled clump when a body grows a moon, so the springs walk it open', () => {
@@ -485,10 +468,10 @@ describe('footprints and separation', () => {
 // 64–81 % of its minimum, which is how labels spaced to clear each other
 // still met (ADR separation-rests-at-the-outline).
 describe('separation', () => {
-  const REFERENCE_MIN = minDistance(square(1), square(1), 1, 0, true)
+  const REFERENCE_MIN = minDistance(bodyExtent(1, null, square(0)), bodyExtent(1, null, square(0)), 1, 0, true)
 
   it('rests a settled clump within a few percent of every touching pair’s minimum', () => {
-    const sim = mixedCluster(REFERENCE_ZOOM)
+    const sim = mixedCluster()
     const bodies = [...sim.bodies.values()]
     let tightest = Infinity
     for (let i = 0; i < bodies.length; i++) {
@@ -557,46 +540,37 @@ describe('bodyExtent', () => {
     pillWidthPx: 0,
     pillHeightPx: 0,
   }
-  const extent = (r: number, o: PlanetOutline | null, zoom = REFERENCE_ZOOM) => bodyExtent(r, o, zoom, square(0))
+  const extent = (r: number, o: PlanetOutline | null) => bodyExtent(r, o, square(0))
+  // Everything is measured at OUTLINE_ZOOM: bodies at their counter-zoom
+  // there, labels and pills at their px there.
+  const zf = bodyZoomFactor(OUTLINE_ZOOM)
+  const px = 1 / OUTLINE_ZOOM
 
   it('is the footprint alone for a bare body, at its counter-zoomed size', () => {
-    expect(extent(2, null)).toEqual(square(2))
-    const far = extent(2, null, FAR_ZOOM)
-    expect(far.right).toBeCloseTo(2 * bodyZoomFactor(FAR_ZOOM), 12)
-    expect(far.bottom).toBeCloseTo(-2 * bodyZoomFactor(FAR_ZOOM), 12)
+    const bare = extent(2, null)
+    expect(bare.right).toBeCloseTo(2 * zf, 12)
+    expect(bare.bottom).toBeCloseTo(-2 * zf, 12)
   })
 
   it('hangs the label below the body and the pill off to the right', () => {
     const plain = extent(0.44, outline)
-    expect(plain.left).toBeCloseTo(-90 / REFERENCE_ZOOM, 12)
-    expect(plain.right).toBeCloseTo(90 / REFERENCE_ZOOM, 12)
-    expect(plain.bottom).toBeCloseTo(LABEL_TOP_REST_Y - 30 / REFERENCE_ZOOM, 12)
-    expect(plain.top).toBeCloseTo(BRACKET_INSET, 12)
+    expect(plain.left).toBeCloseTo(-90 * px, 12)
+    expect(plain.right).toBeCloseTo(90 * px, 12)
+    expect(plain.bottom).toBeCloseTo(LABEL_TOP_REST_Y * zf - 30 * px, 12)
+    expect(plain.top).toBeCloseTo(BRACKET_INSET * zf, 12)
 
     const withPill = extent(0.44, { ...outline, pillWidthPx: 200, pillHeightPx: 20 })
-    expect(withPill.right).toBeCloseTo(BADGE_OFFSET_X + 200 / REFERENCE_ZOOM, 12)
+    expect(withPill.right).toBeCloseTo(BADGE_OFFSET_X * zf + 200 * px, 12)
     expect(withPill.left).toBe(plain.left)
 
     // A moon system wider than all of it is measured by its moons.
-    expect(extent(4, outline)).toEqual(square(4))
+    expect(extent(8, outline)).toEqual(extent(8, null))
   })
 
   it('never lets a selected planet’s reticle push its neighbours: the brackets always count', () => {
     const bare = extent(0, { ...outline, labelWidthPx: 0, labelHeightPx: 0 })
-    expect(bare.right).toBeCloseTo(BRACKET_INSET, 12)
-    expect(bare.top).toBeCloseTo(BRACKET_INSET, 12)
-  })
-
-  it('grows the label with the whole zoom ratio when zooming out, and holds it when zooming in', () => {
-    const half = extent(0.44, outline, REFERENCE_ZOOM / 2)
-    // Half the zoom: the label's px are twice the world units, while the
-    // body's offset grows only by the counter-zoom.
-    expect(half.right).toBeCloseTo((2 * 90) / REFERENCE_ZOOM, 12)
-    expect(half.bottom).toBeCloseTo(
-      LABEL_TOP_REST_Y * bodyZoomFactor(REFERENCE_ZOOM / 2) - (2 * 30) / REFERENCE_ZOOM,
-      12
-    )
-    expect(extent(0.44, outline, REFERENCE_ZOOM * 3)).toEqual(extent(0.44, outline))
+    expect(bare.right).toBeCloseTo(BRACKET_INSET * zf, 12)
+    expect(bare.top).toBeCloseTo(BRACKET_INSET * zf, 12)
   })
 })
 
@@ -604,8 +578,10 @@ describe('bodyExtent', () => {
 // The acceptance check: in ordinary settled clusters, nothing a planet draws
 // below or beside it — its label, its pill — touches anything a neighbour
 // draws. Measured with rectangles built straight from the drawing constants
-// (not from `bodyExtent`), at the default zoom and at the zooms a
-// fit of a few clusters lands on.
+// (not from `bodyExtent`), at the default zoom and down to OUTLINE_ZOOM,
+// the zoom the outlines are measured at. Further out labels may touch:
+// the layout no longer follows the camera there (ADR
+// separation-rests-at-the-outline).
 describe('settled clusters keep labels and pills clear', () => {
   const AIR_PX = 8
 
@@ -642,9 +618,9 @@ describe('settled clusters keep labels and pills clear', () => {
   }
 
   for (const [name, specs] of Object.entries(CLUSTERS)) {
-    for (const zoom of [REFERENCE_ZOOM, 40, 26, 20]) {
+    for (const zoom of [REFERENCE_ZOOM, 40, OUTLINE_ZOOM]) {
       it(`${name}, zoom ${zoom}`, () => {
-        const sim = settledCluster(specs, zoom)
+        const sim = settledCluster(specs)
         const drawn = rects(sim, zoom, specs)
         const touching: string[] = []
         for (const a of drawn) {
@@ -673,16 +649,17 @@ describe('selection moves nothing', () => {
       expect(selected).toEqual(plain)
 
       // The box reaches down past the dropped label's bottom edge.
-      const e = bodyExtent(ACTIVE_SCALE, plain, REFERENCE_ZOOM, square(0))
+      const e = bodyExtent(ACTIVE_SCALE, plain, square(0))
       const label = restingLabelSizePx(LONG, 'OPUS', FONT)
-      const droppedBottom = labelRestY(gauged, true) * ACTIVE_SCALE - label.height / REFERENCE_ZOOM
+      const droppedBottom =
+        labelRestY(gauged, true) * ACTIVE_SCALE * bodyZoomFactor(OUTLINE_ZOOM) - label.height / OUTLINE_ZOOM
       expect(e.bottom).toBeLessThanOrEqual(droppedBottom + 1e-12)
     }
   })
 
   it('selecting a planet in a settled cluster moves no neighbour', () => {
     const specs = CLUSTERS['three, two of them DONE']
-    const sim = settledCluster(specs, REFERENCE_ZOOM)
+    const sim = settledCluster(specs)
     const before = [...sim.bodies.values()].map((b) => ({ id: b.id, x: b.x, y: b.y }))
 
     // The map re-reconciles when the selection changes; nothing wakes.
@@ -709,39 +686,154 @@ describe('settled clusters keep a clump’s shape, not a column', () => {
     return Math.abs(a.x - b.x) < SAME_X * Math.min(a.r, b.r)
   }
 
+  /**
+   * How much of the clump's bounding box is empty: the box round every
+   * planet's outline (`extent`) against the sum of the outlines, each
+   * grown by half the air a neighbour keeps. Packed edge to edge the ratio
+   * is 1; boxes of unequal size can never tile their bounding box, so a
+   * tight clump sits a little above that; a clump that drifted apart
+   * leaves most of its box empty.
+   */
+  function emptiness(bodies: Array<{ x: number; y: number; extent: Extent }>): number {
+    const air = NEIGHBOUR_AIR_PX / OUTLINE_ZOOM / 2
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    let filled = 0
+    for (const b of bodies) {
+      const e = b.extent
+      minX = Math.min(minX, b.x + e.left - air)
+      maxX = Math.max(maxX, b.x + e.right + air)
+      minY = Math.min(minY, b.y + e.bottom - air)
+      maxY = Math.max(maxY, b.y + e.top + air)
+      filled += (e.right - e.left + 2 * air) * (e.top - e.bottom + 2 * air)
+    }
+    return ((maxX - minX) * (maxY - minY)) / filled
+  }
+
+  /**
+   * How much wider than tall the clump is, counted in its own boxes: the
+   * bounding box round every outline, its width in average box widths over
+   * its height in average box heights. A box is much wider than tall, so
+   * in world units even a tight clump is wide; in boxes a round clump is
+   * about 1, a column of three about 1/3 and a row of three about 3.
+   */
+  function boxAspect(bodies: Array<{ x: number; y: number; extent: Extent }>): number {
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    let w = 0
+    let h = 0
+    for (const b of bodies) {
+      const e = b.extent
+      minX = Math.min(minX, b.x + e.left)
+      maxX = Math.max(maxX, b.x + e.right)
+      minY = Math.min(minY, b.y + e.bottom)
+      maxY = Math.max(maxY, b.y + e.top)
+      w += (e.right - e.left) / bodies.length
+      h += (e.top - e.bottom) / bodies.length
+    }
+    return (maxX - minX) / w / ((maxY - minY) / h)
+  }
+
+  /** Steps `sim` until every body sleeps; the number of ticks it took. */
+  function ticksToSleep(sim: SimState): number {
+    let ticks = 0
+    while ([...sim.bodies.values()].some((b) => b.mode === 'hold' && !b.asleep) && ticks < 10 * SETTLE_BUDGET_TICKS) {
+      step(sim, 1)
+      ticks++
+    }
+    return ticks
+  }
+
   for (const [name, specs] of Object.entries(CLUSTERS)) {
-    for (const zoom of [REFERENCE_ZOOM, 40, 26, 20]) {
-      it(`${name}, zoom ${zoom}`, () => {
-        const sim = settledCluster(specs, zoom)
-        const bodies = [...sim.bodies.values()]
-        // Settled inside settleSimulation's budget, not cut off by it.
-        expect(bodies.every((b) => b.asleep)).toBe(true)
+    // At OUTLINE_ZOOM only: the layout no longer depends on the zoom.
+    it(name, () => {
+      const sim = createSimulation()
+      reconcileSimulation(sim, clusterInput(specs))
+      expect(ticksToSleep(sim)).toBeLessThan(SETTLE_BUDGET_TICKS)
+      const bodies = [...sim.bodies.values()]
 
-        const xs = bodies.map((b) => b.x)
-        const ys = bodies.map((b) => b.y)
-        const aspect = (Math.max(...xs) - Math.min(...xs)) / (Math.max(...ys) - Math.min(...ys))
-        expect(aspect).toBeGreaterThan(0.5)
-        expect(aspect).toBeLessThan(2)
+      const loose = emptiness(bodies)
+      expect(loose).toBeGreaterThanOrEqual(1)
+      expect(loose).toBeLessThan(MAX_EMPTINESS)
 
-        const stacked: string[] = []
-        for (let i = 0; i < bodies.length; i++) {
-          for (let j = i + 1; j < bodies.length; j++) {
-            if (!sharesX(bodies[i], bodies[j])) continue
-            // Three planets: no two of them one under the other. Larger
-            // clumps pack in rows, and a planet can be wedged over one in
-            // the row below; what they must not do is stand three high.
-            if (bodies.length === 3) stacked.push(`${bodies[i].id}/${bodies[j].id}`)
-            for (let k = j + 1; k < bodies.length; k++) {
-              if (sharesX(bodies[i], bodies[k]) && sharesX(bodies[j], bodies[k])) {
-                stacked.push(`${bodies[i].id}/${bodies[j].id}/${bodies[k].id}`)
-              }
+      const aspect = boxAspect(bodies)
+      expect(aspect).toBeGreaterThan(0.5)
+      expect(aspect).toBeLessThan(2)
+
+      const stacked: string[] = []
+      for (let i = 0; i < bodies.length; i++) {
+        for (let j = i + 1; j < bodies.length; j++) {
+          if (!sharesX(bodies[i], bodies[j])) continue
+          // Three planets: no two of them one under the other. Larger
+          // clumps pack in rows, and a planet can sit over one in the row
+          // below; what they must not do is stand three high.
+          if (bodies.length === 3) stacked.push(`${bodies[i].id}/${bodies[j].id}`)
+          for (let k = j + 1; k < bodies.length; k++) {
+            if (sharesX(bodies[i], bodies[k]) && sharesX(bodies[j], bodies[k])) {
+              stacked.push(`${bodies[i].id}/${bodies[j].id}/${bodies[k].id}`)
             }
           }
         }
-        expect(stacked).toEqual([])
-      })
-    }
+      }
+      expect(stacked).toEqual([])
+    })
+
+    it(`${name}: shaken back onto the layout's spiral, it is home again within the budget`, () => {
+      // Every body back on its spiral seed, where the boxes pile on one
+      // another: the most a clump ever has to sort itself out.
+      const input = clusterInput(specs)
+      const sim = createSimulation()
+      reconcileSimulation(sim, input)
+      for (const spec of input.bodies) {
+        const b = body(sim, spec.id)
+        b.x = spec.x
+        b.y = spec.y
+        b.asleep = false
+      }
+      expect(ticksToSleep(sim)).toBeLessThan(SETTLE_BUDGET_TICKS)
+    })
   }
+
+  it('two clumps homed too close for their boxes rest apart, however hard their homes pull', () => {
+    // The layout spaces anchors for bare planets; clumps a label wide
+    // overlap there, and must rest off their homes rather than in each other.
+    const left = clusterInput(CLUSTERS['six mixed tiers with moons'])
+    const right = clusterInput(CLUSTERS['four mixed tiers, one asking'])
+    const sim = createSimulation()
+    reconcileSimulation(sim, {
+      bodies: [
+        ...left.bodies,
+        ...right.bodies.map((b) => ({ ...b, id: `r-${b.id}`, tagId: 2, x: b.x + 4 })),
+      ],
+      anchors: [
+        { tagId: 1, x: 0, y: 0 },
+        { tagId: 2, x: 4, y: 0 },
+      ],
+      hole: { x: 100, y: -100 },
+    })
+    settleSimulation(sim)
+    const bodies = [...sim.bodies.values()]
+    for (const a of bodies) {
+      for (const b of bodies) {
+        if (a.tagId === b.tagId) continue
+        const d = Math.hypot(b.x - a.x, b.y - a.y)
+        expect(d / minDistance(a.extent, b.extent, (b.x - a.x) / d, (b.y - a.y) / d, false)).toBeGreaterThan(0.95)
+      }
+    }
+  })
+
+  it('a planet joining a settled clump finds its place within the budget', () => {
+    const specs = CLUSTERS['six mixed tiers with moons']
+    const sim = createSimulation()
+    reconcileSimulation(sim, clusterInput(specs.slice(0, 5)))
+    settleSimulation(sim)
+    reconcileSimulation(sim, clusterInput(specs))
+    expect(ticksToSleep(sim)).toBeLessThan(SETTLE_BUDGET_TICKS)
+  })
 })
 
 // The hole's label column reaches well left of its round repulsion halo
@@ -764,7 +856,7 @@ describe('the hole keeps bodies off its label', () => {
     }
   }
 
-  function released(zoom: number, at: { x: number; y: number }): SimState {
+  function released(at: { x: number; y: number }): SimState {
     const spec: ClusterSpec = { id: 'p', status: 'working', title: LONG }
     const sim = createSimulation()
     reconcileSimulation(sim, {
@@ -789,21 +881,25 @@ describe('the hole keeps bodies off its label', () => {
       anchors: [{ tagId: 1, x: at.x, y: at.y }],
       hole: { ...HOLE, label: holeLabelSizePx(COUNT) },
     })
-    settleSimulation(sim, zoom)
+    settleSimulation(sim)
     return sim
   }
 
-  for (const zoom of [REFERENCE_ZOOM, 26, 20]) {
+  // Drawn at OUTLINE_ZOOM and closer; further out the drawn column
+  // outgrows the box measured at OUTLINE_ZOOM, like every other label.
+  for (const zoom of [REFERENCE_ZOOM, OUTLINE_ZOOM]) {
     for (const [where, along] of [
       ['near the hole', 0.8],
       ['at the far end', 0.15],
     ] as const) {
       it(`a body let go on the label ${where}, zoom ${zoom}, settles clear of it`, () => {
-        const label = drawnLabel(zoom)
-        const sim = released(zoom, { x: label.x0 + along * (label.x1 - label.x0), y: HOLE.y + 0.1 })
+        // Let go on the column as drawn at OUTLINE_ZOOM, its widest here.
+        const on = drawnLabel(OUTLINE_ZOOM)
+        const sim = released({ x: on.x0 + along * (on.x1 - on.x0), y: HOLE.y + 0.1 })
         const p = body(sim, 'p')
         expect(p.asleep).toBe(true)
-        const e = bodyExtent(p.r, p.outline, zoom, square(0))
+        const label = drawnLabel(zoom)
+        const e = bodyExtent(p.r, p.outline, square(0))
         const gapPx =
           Math.max(label.x0 - (p.x + e.right), p.x + e.left - label.x1, label.y0 - (p.y + e.top), p.y + e.bottom - label.y1) *
           zoom
@@ -812,17 +908,15 @@ describe('the hole keeps bodies off its label', () => {
     }
   }
 
-  it('measures the column where Hole draws it, and grows it with the zoom ratio as the map zooms out', () => {
+  it('measures the column where Hole draws it at OUTLINE_ZOOM', () => {
     const hole = { ...HOLE, labelWidthPx: 200, labelHeightPx: 40 }
-    const at = (zoom: number) => holeLabelBox(hole, zoom, square(0))!
-    const near = at(REFERENCE_ZOOM)
-    expect(near.right).toBeCloseTo(HOLE.x - (HOLE_RADIUS + HOLE_LABEL_GAP), 12)
-    expect(near.right - near.left).toBeCloseTo(200 / REFERENCE_ZOOM, 12)
-    expect((near.top + near.bottom) / 2).toBeCloseTo(HOLE.y, 12)
-    const far = at(REFERENCE_ZOOM / 2)
-    expect(far.right - far.left).toBeCloseTo((2 * 200) / REFERENCE_ZOOM, 12)
-    expect(far.right).toBeLessThan(near.right)
-    expect(holeLabelBox({ ...hole, labelWidthPx: 0 }, REFERENCE_ZOOM, square(0))).toBeNull()
+    const box = holeLabelBox(hole, square(0))!
+    const drawn = { width: 200, height: 40 }
+    expect(box.right).toBeCloseTo(HOLE.x - (HOLE_RADIUS + HOLE_LABEL_GAP) * bodyZoomFactor(OUTLINE_ZOOM), 12)
+    expect(box.right - box.left).toBeCloseTo(drawn.width / OUTLINE_ZOOM, 12)
+    expect(box.top - box.bottom).toBeCloseTo(drawn.height / OUTLINE_ZOOM, 12)
+    expect((box.top + box.bottom) / 2).toBeCloseTo(HOLE.y, 12)
+    expect(holeLabelBox({ ...hole, labelWidthPx: 0 }, square(0))).toBeNull()
   })
 })
 
@@ -841,8 +935,10 @@ interface ClusterSpec {
 }
 
 const FONT = labelFontPx(1, false)
-/** Zoomed out far enough that the counter-zoom inflates bodies well past their world size. */
-const FAR_ZOOM = REFERENCE_ZOOM / 3
+/** A clump seeded on the spiral is asleep within this many 60 Hz ticks: well under the 5 s a settle may take on screen. */
+const SETTLE_BUDGET_TICKS = 4 * 60
+/** How much of a settled clump's bounding box may be empty (`emptiness`): at most this many times what its outlines fill. */
+const MAX_EMPTINESS = 2.25
 const LONG = 'Refactor the session index for speed'
 
 /** The shapes the map shows most: a handful of planets in a tag, mixed tiers, some parked, one with moons. */
@@ -906,13 +1002,13 @@ function session(spec: ClusterSpec) {
 
 /**
  * A same-tag cluster seeded on the layout's golden-angle spiral, as the
- * scene model seeds one, and settled at `zoom`. A planet with moons is
+ * scene model seeds one, and settled. A planet with moons is
  * measured by its moon shell, as `buildSceneModel` measures it.
  */
-function settledCluster(specs: ClusterSpec[], zoom: number): SimState {
+function settledCluster(specs: ClusterSpec[]): SimState {
   const sim = createSimulation()
   reconcileSimulation(sim, clusterInput(specs))
-  settleSimulation(sim, zoom)
+  settleSimulation(sim)
   return sim
 }
 
@@ -949,8 +1045,8 @@ function clusterInput(specs: ClusterSpec[]): SimInput {
   }
 }
 
-function mixedCluster(zoom: number): SimState {
-  return settledCluster(CLUSTERS['six mixed tiers with moons'], zoom)
+function mixedCluster(): SimState {
+  return settledCluster(CLUSTERS['six mixed tiers with moons'])
 }
 
 /** A bare body's box: `r` every way. */

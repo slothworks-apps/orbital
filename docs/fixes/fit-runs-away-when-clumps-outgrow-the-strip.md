@@ -2,7 +2,7 @@
 id: fit-runs-away-when-clumps-outgrow-the-strip
 title: Fit zooms far out when the clumps are wider than the strip the panels leave
 type: fix
-status: backlog
+status: done
 domain: web
 related:
   - separation-rests-at-the-outline
@@ -12,37 +12,27 @@ tags:
 ---
 # Fit zooms far out when the clumps are wider than the strip the panels leave
 
-## What happens
+**Done, 2026-09-23.** The loop is gone: outlines are measured at one fixed
+zoom (`OUTLINE_ZOOM`), so the layout no longer changes with the camera and
+fit frames one settled copy of it. On `/sandbox/cluster` with the detail
+panel open fit now lands on 20, where it used to run down to about 11
+without converging. See [[separation-rests-at-the-outline]].
+
+## What happened
 
 Open `/sandbox/cluster` with its default fixture: two clumps, 8 planets,
-one selected, so the detail panel is open. Fit settles at about zoom 11
-and leaves most of the strip empty. Before the 2026-09-23 fix that stopped
-clusters settling as columns, the same page fitted at zoom 25.
+one selected, so the detail panel is open. Fit settled at about zoom 11
+and left most of the strip empty.
 
-`fitViewTo` runs `FIT_SOLVE_ROUNDS` rounds. Each round settles a copy of
-the simulation at that round's zoom (`settledCopy`). Logged in the browser,
-the rounds went 400 → 28.0 → 21.0 → 16.9 → 13.8 → 11.4 and never
-converged. A clump's labels are fixed CSS px, so its width on screen stays
-the same as fit zooms out; only the distance between clumps (world units)
-gets smaller. Once the two clumps together are wider than the strip, every
-round zooms out a little more, until the rounds run out.
+`fitViewTo` runs `FIT_SOLVE_ROUNDS` rounds. Each round settled a copy of
+the simulation at that round's zoom (`settledCopy`), and outlines were
+measured at that zoom. Logged in the browser, the rounds went 400 → 28.0 →
+21.0 → 16.9 → 13.8 → 11.4 and never converged: a clump's labels are fixed
+CSS px, so its width on screen stayed the same as fit zoomed out, and only
+the distance between clumps got smaller.
 
-With the detail panel closed, the same fixture fits at about zoom 34.
-A clump is wider now that it is a clump and not a column, so it hits this
-limit sooner.
+## What is left
 
-## Side effect
-
-The hole stays at its world position (`holePosition`), so at zoom 11 the
-clumps reach round it. Its label is kept clear (`holeLabelBox`), but a
-planet can rest inside the drawn drop halo: `HOLE_REPEL_RADIUS` is in
-world units and not counter-zoomed, while `Hole` draws the halo with the
-counter-zoom.
-
-## Where to start
-
-- Stop the solve when a round gains nothing, and fall back to the zoom
-  that framed the most, not the last one tried.
-- Or place clusters side by side by their settled width, not by the
-  layout's bounding circles, so the gap between clumps grows with them.
-- Counter-zoom `HOLE_REPEL_RADIUS` the way the halo is drawn.
+A map whose labelled clumps are wider than the strip still cannot be
+framed with every label clear: fit lands below `OUTLINE_ZOOM` and some
+labels touch. That is capacity, not a loop, and the ADR's limits record it.
