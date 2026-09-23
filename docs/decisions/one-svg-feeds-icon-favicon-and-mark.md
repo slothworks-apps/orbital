@@ -44,6 +44,25 @@ design project.** `DesignSync` can only return a file inline, so pulling a
 with `qlmanage` and downscales with `sips`, so it grew three lines and now
 writes `favicon-512/180/32.png` too. One command, one renderer, every size.
 
+**Transparency is recovered from two renders, not from a second renderer.**
+`qlmanage` flattens transparency onto white, and until 0.5.0 that shipped: the
+icon had opaque white corners around its rounded tile, visible in the DMG
+window. The script now renders the SVG once as-is and once over a black rect,
+and `desktop/build/unflatten.mjs` takes the alpha from the difference between
+the two. That keeps the pipeline on stock macOS tools plus Node's zlib. `sharp`
+or `resvg` would render transparency directly, but that would mean a native
+npm dependency for a script someone runs by hand a few times a year. The
+earlier fallback, which upscaled `favicon-512.png` when `qlmanage` failed, is
+gone. It could only ever produce the flattened icon, and it is better for the
+script to fail.
+
+**The icon is inset on Apple's grid; the favicon is not.** `.icns` sizes
+render from a widened viewBox, so the tile takes `ICON_TILE` of `ICON_CANVAS`
+(see `make-icon.sh`) and the rest is transparent margin. Drawn full-bleed, the
+tile looked larger than every other app icon in the Dock and Finder. A browser
+tab has no such grid, so the favicon rasters stay full-bleed and only lose
+their white corners.
+
 **The committed SVG drops the C2PA manifest the canvas asset carries.** The
 manifest is ~6 KB of base64 against ~1.5 KB of drawing, and the favicon is
 served on every page load. The provenance record stays on the canvas, which is

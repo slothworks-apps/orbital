@@ -19,7 +19,13 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 SRC_SVG="$REPO_ROOT/web/public/favicon.svg"
 PUBLIC="$REPO_ROOT/web/public"
-SRC_512="$PUBLIC/favicon-512.png"
+
+# The tile's share of the macOS icon canvas, from Apple's icon grid: the
+# rounded tile is drawn smaller than the canvas and the rest is transparent
+# margin. Full-bleed, the tile reads larger than every other app's icon in the
+# Dock, Finder and the DMG window.
+ICON_CANVAS=1024
+ICON_TILE=824
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -27,37 +33,41 @@ trap 'rm -rf "$WORK"' EXIT
 ICONSET="$WORK/icon.iconset"
 mkdir -p "$ICONSET"
 
-# 512@2x (1024) is rendered straight from the SVG via Quick Look's renderer,
-# which produces a clean, crisp 1024x1024 PNG on this pipeline. If qlmanage
-# is unavailable or produces a broken render on some other machine, fall
-# back to upscaling favicon-512.png with sips instead — the art goes soft
-# at 1024 but stays correct, which is an acceptable degradation noted here
-# rather than silently shipping a blank icon.
-qlmanage -t -s 1024 -o "$WORK" "$SRC_SVG" >/dev/null
-SRC_1024="$WORK/favicon.svg.png"
-if [ ! -s "$SRC_1024" ]; then
-  echo "make-icon.sh: qlmanage produced no 1024 render, upscaling favicon-512.png instead (softer at 1024)" >&2
-  sips -z 1024 1024 "$SRC_512" --out "$SRC_1024" >/dev/null
-fi
+# render <viewBox> <out.png>: SRC_SVG at ICON_CANVAS pixels, transparency intact.
+#
+# qlmanage — Quick Look's renderer, the only SVG renderer on a stock macOS —
+# flattens transparency onto white, which is what gave the icon white corners
+# around its rounded tile. So the drawing is rendered twice, once as-is and
+# once over a black rect covering the whole viewBox, and unflatten.mjs
+# recovers the alpha from the difference.
+render() {
+  VIEWBOX="$1"
+  MIN="${VIEWBOX%% *}"
+  SIZE="${VIEWBOX##* }"
+  sed -E "s#(<svg[^>]*)viewBox=\"[^\"]*\"#\1viewBox=\"$VIEWBOX\"#" "$SRC_SVG" > "$WORK/on-white.svg"
+  sed -E "s#(<svg[^>]*>)#\1<rect x=\"$MIN\" y=\"$MIN\" width=\"$SIZE\" height=\"$SIZE\" fill=\"\#000\"/>#" \
+    "$WORK/on-white.svg" > "$WORK/on-black.svg"
+  qlmanage -t -s "$ICON_CANVAS" -o "$WORK" "$WORK/on-white.svg" "$WORK/on-black.svg" >/dev/null
+  node "$HERE/unflatten.mjs" "$WORK/on-white.svg.png" "$WORK/on-black.svg.png" "$2" >/dev/null
+}
 
-# The favicon rasters index.html and site.webmanifest point at. Written here,
-# after the fallback above has had its chance to read the OLD favicon-512.png,
-# and before the iconset below downscales from the new one.
-sips -z 512 512 "$SRC_1024" --out "$PUBLIC/favicon-512.png" >/dev/null
-sips -z 180 180 "$SRC_1024" --out "$PUBLIC/favicon-180.png" >/dev/null
-sips -z 32 32   "$SRC_1024" --out "$PUBLIC/favicon-32.png"  >/dev/null
+# The favicon keeps the tile full-bleed: a browser tab has no grid to sit in.
+FAVICON_MASTER="$WORK/favicon-master.png"
+render "0 0 512 512" "$FAVICON_MASTER"
+sips -z 512 512 "$FAVICON_MASTER" --out "$PUBLIC/favicon-512.png" >/dev/null
+sips -z 180 180 "$FAVICON_MASTER" --out "$PUBLIC/favicon-180.png" >/dev/null
+sips -z 32 32   "$FAVICON_MASTER" --out "$PUBLIC/favicon-32.png"  >/dev/null
 
-# All sizes <=512 downscale from the pre-rendered favicon-512.png.
-sips -z 16 16     "$SRC_512" --out "$ICONSET/icon_16x16.png"      >/dev/null
-sips -z 32 32     "$SRC_512" --out "$ICONSET/icon_16x16@2x.png"   >/dev/null
-sips -z 32 32     "$SRC_512" --out "$ICONSET/icon_32x32.png"      >/dev/null
-sips -z 64 64     "$SRC_512" --out "$ICONSET/icon_32x32@2x.png"   >/dev/null
-sips -z 128 128   "$SRC_512" --out "$ICONSET/icon_128x128.png"    >/dev/null
-sips -z 256 256   "$SRC_512" --out "$ICONSET/icon_128x128@2x.png" >/dev/null
-sips -z 256 256   "$SRC_512" --out "$ICONSET/icon_256x256.png"    >/dev/null
-sips -z 512 512   "$SRC_512" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
-cp "$SRC_512" "$ICONSET/icon_512x512.png"
-sips -z 1024 1024 "$SRC_1024" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
+# The icon widens the viewBox around the 512 artwork so the tile lands at
+# ICON_TILE of ICON_CANVAS, centred.
+ICON_VIEWBOX="$(awk -v c="$ICON_CANVAS" -v t="$ICON_TILE" 'BEGIN {
+  s = 512 * c / t; printf "%.3f %.3f %.3f %.3f", (512 - s) / 2, (512 - s) / 2, s, s }')"
+ICON_MASTER="$WORK/icon-master.png"
+render "$ICON_VIEWBOX" "$ICON_MASTER"
+for SIZE in 16 32 128 256 512; do
+  sips -z "$SIZE" "$SIZE" "$ICON_MASTER" --out "$ICONSET/icon_${SIZE}x${SIZE}.png" >/dev/null
+  sips -z $((SIZE * 2)) $((SIZE * 2)) "$ICON_MASTER" --out "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" >/dev/null
+done
 
 iconutil -c icns "$ICONSET" -o "$HERE/icon.icns"
 

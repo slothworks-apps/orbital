@@ -1,10 +1,13 @@
 ---
 id: walk-me-through-what-the-agent-did
 title: Walk me through what the agent did
-status: backlog
+status: active
 type: idea
 domain: sessions
 related:
+  - 2026-09-23-walkthrough-design
+  - walkthrough-narration-is-a-turn-in-the-session
+  - an-orbital-tag-marks-a-walkthrough-turn
   - 2026-09-22-subagent-transcript-panel-design
   - orbital-speaks-to-the-ide-itself
   - 2026-09-23-ide-bridge-design
@@ -113,3 +116,13 @@ code.
   it does not have the IDE connection. The answer may be that the *elision* —
   working out which turns matter — is a skill, and the reading surface is the
   feature.
+
+## Where it went
+
+Brainstormed 2026-09-23. The open questions above are answered in
+[[2026-09-23-walkthrough-design]]: a step is a run of tool calls that wrote
+something, atlas documents are not used at all, a subagent's writes are one
+step expandable into its own, and the elision is mechanical with the session
+itself narrating on request ([[walkthrough-narration-is-a-turn-in-the-session]]).
+The walkthrough is its own page, and a question about a step goes to the
+session. Orbital's own sessions only.
