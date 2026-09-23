@@ -754,6 +754,20 @@ describe('Runner', () => {
     expect(toolUse[0].id).not.toBe(toolResult[0].id);
   });
 
+  it('sdkToChatMessages: a synthetic user frame (the SDK form of isMeta) is not a turn', () => {
+    const nextSeq = (() => { let n = 0; return () => ++n; })();
+    const note = [{ type: 'text', text: '[Image: original 2880x1720, displayed at 2000x1194. Multiply coordinates by 1.44 to map to original image.]' }];
+    expect(sdkToChatMessages(
+      { type: 'user', session_id: 'x', parent_tool_use_id: null, isSynthetic: true, message: { role: 'user', content: note } },
+      nextSeq,
+    )).toEqual([]);
+    // The same text without the stamp is still a user turn — the rule is the flag, not the words.
+    expect(sdkToChatMessages(
+      { type: 'user', session_id: 'x', parent_tool_use_id: null, message: { role: 'user', content: note } },
+      nextSeq,
+    )).toHaveLength(1);
+  });
+
   it('carries the model on assistant chat messages', () => {
     const msgs = sdkToChatMessages(
       { type: 'assistant', session_id: 's', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'hi' }] } },

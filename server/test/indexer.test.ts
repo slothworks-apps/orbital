@@ -113,6 +113,19 @@ describe('indexProjects', () => {
         .title,
     ).toBe('/clickup-branch CU-8180');
   });
+  it('re-derives a title that was a skill body from an isMeta entry', () => {
+    const { db, projects } = setup();
+    indexProjects(db, projects);
+    db.update(sessions)
+      .set({ title: 'Base directory for this skill: /Users/x/.claude/skills/ask' })
+      .where(eq(sessions.id, 'aaaa-bbbb'))
+      .run();
+    indexProjects(db, projects);
+    expect(
+      db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!
+        .title,
+    ).toBe('Fix the login bug in the auth service please');
+  });
   it('returns zeros for a missing dir', () => {
     const { db } = setup();
     expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0 });

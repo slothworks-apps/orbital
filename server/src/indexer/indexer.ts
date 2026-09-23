@@ -23,10 +23,13 @@ export function indexProjects(
   // extractMeta learned to skip bare slash commands are stuck on "/clear".
   // Blank both and drop the mtime short-circuit so those transcripts re-derive
   // a clean title below. A command with arguments ("/foo bar", hence the space
-  // test) is a legitimate title and is left alone.
+  // test) is a legitimate title and is left alone. Titles indexed before
+  // extractMeta skipped `isMeta` entries may be a skill's body — a bare
+  // `/skill` turn fell through to the harness entry right after it — so the
+  // harness's own openings are blanked too.
   db.update(sessions)
     .set({ title: '', indexedMtime: 0 })
-    .where(sql`${sessions.title} LIKE '<local-command-%' OR ${sessions.title} LIKE '<command-%' OR ${sessions.title} LIKE '<system-reminder%' OR (${sessions.title} LIKE '/%' AND ${sessions.title} NOT LIKE '% %')`)
+    .where(sql`${sessions.title} LIKE '<local-command-%' OR ${sessions.title} LIKE '<command-%' OR ${sessions.title} LIKE '<system-reminder%' OR (${sessions.title} LIKE '/%' AND ${sessions.title} NOT LIKE '% %') OR ${sessions.title} LIKE 'Base directory for this skill:%' OR ${sessions.title} LIKE '(Re-invocation of /%' OR ${sessions.title} LIKE '[Image:%'`)
     .run();
   let dirs: string[];
   try {
