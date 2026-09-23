@@ -277,6 +277,45 @@ describe('ToolRow', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Edit diffs (spec: 2026-09-23-edit-diffs-in-the-transcript). The diff itself
+// is exercised in diff.test.ts; what is worth a component test is only the
+// branch — which body an expanded row opens with.
+// ---------------------------------------------------------------------------
+
+describe('ToolRow: editing tools open on their change, not on their input JSON', () => {
+  it('replaces the input JSON of an Edit row with the diff', async () => {
+    const user = userEvent.setup()
+    render(
+      <ToolRow
+        toolUse={makeToolUse({
+          id: 't1',
+          toolName: 'Edit',
+          toolInput: { file_path: '/a.ts', old_string: 'before\n', new_string: 'after\n' },
+        })}
+        toolResult={makeToolResult({ id: 'r1', toolUseId: 't1', text: 'ok' })}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /Edit: \/a\.ts/ }))
+
+    expect(screen.queryByText(/"old_string"/)).not.toBeInTheDocument()
+    expect(screen.getByText('before')).toBeInTheDocument()
+    expect(screen.getByText('after')).toBeInTheDocument()
+  })
+
+  it('keeps the input JSON for every other tool', async () => {
+    const user = userEvent.setup()
+    render(
+      <ToolRow
+        toolUse={makeToolUse({ id: 't1', toolName: 'Grep', toolInput: { pattern: 'x' } })}
+        toolResult={makeToolResult({ id: 'r1', toolUseId: 't1', text: 'ok' })}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /Grep/ }))
+    expect(screen.getByText(/"pattern"/)).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Pressable paths (spec: 2026-09-19-file-viewer-design)
 // ---------------------------------------------------------------------------
 
@@ -313,18 +352,18 @@ describe('ToolRow: pressable path', () => {
       <ToolRow
         toolUse={makeToolUse({
           id: 't1',
-          toolName: 'Edit',
-          toolInput: { file_path: '/a/b/store.ts', old_string: 'x', new_string: 'y' },
+          toolName: 'Read',
+          toolInput: { file_path: '/a/b/store.ts', offset: 12 },
         })}
       />
     )
 
-    await user.click(screen.getByRole('button', { name: /Edit: \/a\/b\/store\.ts/ }))
+    await user.click(screen.getByRole('button', { name: /Read: \/a\/b\/store\.ts/ }))
 
     // One in the collapsed label, one inside the pretty-printed INPUT.
     expect(container.querySelectorAll('[data-path-button]')).toHaveLength(2)
     // Everything else in the JSON stays text.
-    expect(screen.getByText(/"old_string"/)).toBeInTheDocument()
+    expect(screen.getByText(/"offset"/)).toBeInTheDocument()
 
     fireEvent.click(container.querySelectorAll('[data-path-button]')[1])
     expect(useOrbital.getState().ui.fileViewer).toEqual({ path: '/a/b/store.ts', line: null })

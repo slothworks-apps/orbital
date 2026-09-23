@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ChatMessage } from '../lib/types'
 import { ansiToHtml } from '../lib/highlight'
 import { hasTextExtension } from '../lib/pathLinks'
 import { formatBytes } from '../lib/format'
+import { changeCounts, describeFileChange } from '../lib/fileEdit'
+import { ChangeView, changeSectionLabel } from './DiffView'
 import { ImageThumb } from './ImageThumb'
 import { PathButton } from './PathButton'
 
@@ -137,6 +139,21 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
   const pathInput = pressablePathOf(toolUse.toolName, toolUse.toolInput)
   const pressablePath = pathInput !== null && pathInput === label ? pathInput : null
 
+  // An editing tool's expanded body is its diff, not its input JSON (spec:
+  // 2026-09-23-edit-diffs-in-the-transcript) — the JSON was where reviewing a
+  // change used to mean reading `old_string` and `new_string` side by side in
+  // a `<pre>`. Memoised on the input object because the transcript re-renders
+  // on every websocket message and the diff is real work; `describeFileChange`
+  // caches the diff itself as well, so a remount is free too.
+  const failed = toolResult?.isError === true
+  const change = useMemo(
+    () => describeFileChange(toolUse.toolName, toolUse.toolInput, toolResult?.text, failed),
+    [toolUse.toolName, toolUse.toolInput, toolResult?.text, failed]
+  )
+  // Memoised alongside the change: a created file's count is a split of the
+  // whole content, which is not something to redo on every frame either.
+  const counts = useMemo(() => (change ? changeCounts(change) : null), [change])
+
   return (
     <div
       data-role="tool"
@@ -187,6 +204,21 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
               <span className="text-text-bright">{label}</span>
             )}
           </span>
+          {/* The skim line: how much this call changed, without opening it.
+              Each side appears only when it is non-zero — a new file has
+              nothing removed, and `−0` would read as a claim about a side
+              Orbital does not have. */}
+          {counts && (counts.added > 0 || counts.removed > 0) && (
+            <span data-diff-stat className="shrink-0 tabular-nums">
+              {counts.added > 0 && (
+                <span className="text-[oklch(78%_.13_145)]">+{counts.added}</span>
+              )}
+              {counts.added > 0 && counts.removed > 0 && ' '}
+              {counts.removed > 0 && (
+                <span className="text-[oklch(74%_.14_22)]">−{counts.removed}</span>
+              )}
+            </span>
+          )}
           {running && (
             <span
               data-testid="tool-running-dot"
@@ -201,8 +233,12 @@ export function ToolRow({ toolUse, toolResult }: ToolRowProps) {
       {expanded && (
         <div className="flex flex-col gap-2 border-t border-[rgba(150,205,255,.08)] px-3 pb-2.5 pt-2">
           <div>
-            <SectionLabel>INPUT</SectionLabel>
-            <InputJson input={toolUse.toolInput} />
+            <SectionLabel>{change ? changeSectionLabel(change, failed) : 'INPUT'}</SectionLabel>
+            {change ? (
+              <ChangeView change={change} isError={failed} />
+            ) : (
+              <InputJson input={toolUse.toolInput} />
+            )}
           </div>
           {toolResult && (
             <div>
