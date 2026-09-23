@@ -251,8 +251,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const messages = readTranscriptMessages(id);
     if (!messages) return reply.code(404).send({ error: 'not found' });
     const limit = Math.min(Number(q.limit ?? 100), 500);
-    const before = q.before ? messages.findIndex((m) => m.id === q.before) : messages.length;
-    const end = before === -1 ? messages.length : before;
+    // A `before` cursor this transcript does not contain is answered with an
+    // empty page, never with the tail. The cursor is whatever the client holds
+    // oldest, and for a session Orbital launched that is a message the file
+    // never had: a live row (`<session>:<seq>:<i>`, see `sdkToChatMessages`)
+    // or the optimistic `local:` first prompt. Everything the client holds
+    // there arrived live from the launch on, so nothing is older than it.
+    // Answering with the tail instead handed back the whole transcript under
+    // file ids the client's dedupe cannot match, and "load older" printed the
+    // session a second time above itself.
+    const end = q.before ? messages.findIndex((m) => m.id === q.before) : messages.length;
+    if (end === -1) return { messages: [] };
     return { messages: messages.slice(Math.max(0, end - limit), end) };
   });
 

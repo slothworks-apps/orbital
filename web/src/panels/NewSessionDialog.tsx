@@ -209,7 +209,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         // Omitted rather than sent empty: absent and `[]` mean the same thing to
         // the server, and every existing body assertion stays true.
         ...(refs.length > 0 ? { attachments: refs } : {}),
-      })
+      }, images)
       onClose()
       await select(sessionId)
     } catch (err) {

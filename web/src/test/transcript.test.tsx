@@ -1188,29 +1188,45 @@ describe('Transcript', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('renders a "Load older" button that calls the store\'s loadOlder with the session id', async () => {
-    const user = userEvent.setup()
-    const loadOlderSpy = vi.fn().mockResolvedValue([])
-    resetStore({
-      transcripts: {
-        s1: [{ id: '5', role: 'user', text: 'hello' }],
-      },
-    })
-    useOrbital.setState({ loadOlder: loadOlderSpy })
+  // Infinite scroll (ADR transcript-pages-older-history-on-scroll). The
+  // observer is faked: `reachTop` is the reader's scroll bringing the
+  // sentinel into view, reported to whichever observer is currently live.
+  function fakeScroll() {
+    let live: IntersectionObserverCallback | null = null
+    const observerFactory = (callback: IntersectionObserverCallback) => {
+      const self = {
+        observe: () => {
+          live = callback
+        },
+        disconnect: () => {
+          if (live === callback) live = null
+        },
+      }
+      return self
+    }
+    const reachTop = async () => {
+      await act(async () => {
+        live?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+      })
+    }
+    return { observerFactory, reachTop, observing: () => live !== null }
+  }
 
-    render(<Transcript sessionId="s1" />)
-    await user.click(screen.getByRole('button', { name: /load older/i }))
+  it('asks the store for the page before the oldest message when the reader reaches the top', async () => {
+    const loadOlderSpy = vi.fn().mockResolvedValue([])
+    resetStore({ transcripts: { s1: [{ id: '5', role: 'user', text: 'hello' }] } })
+    useOrbital.setState({ loadOlder: loadOlderSpy })
+    const scroll = fakeScroll()
+
+    render(<Transcript sessionId="s1" observerFactory={scroll.observerFactory} />)
+    await scroll.reachTop()
 
     expect(loadOlderSpy).toHaveBeenCalledWith('s1')
+    expect(screen.queryByRole('button', { name: /load older/i })).not.toBeInTheDocument()
   })
 
   it('prepends older messages returned by loadOlder while keeping existing ones in place', async () => {
-    const user = userEvent.setup()
-    resetStore({
-      transcripts: {
-        s1: [{ id: '5', role: 'user', text: 'newer message' }],
-      },
-    })
+    resetStore({ transcripts: { s1: [{ id: '5', role: 'user', text: 'newer message' }] } })
     const loadOlderSpy = vi.fn().mockImplementation(async (id: string) => {
       const older: ChatMessage = { id: '1', role: 'user', text: 'older message' }
       useOrbital.setState((state) => ({
@@ -1219,46 +1235,42 @@ describe('Transcript', () => {
       return [older]
     })
     useOrbital.setState({ loadOlder: loadOlderSpy })
+    const scroll = fakeScroll()
 
-    render(<Transcript sessionId="s1" />)
-    await user.click(screen.getByRole('button', { name: /load older/i }))
+    render(<Transcript sessionId="s1" observerFactory={scroll.observerFactory} />)
+    await scroll.reachTop()
 
     expect(await screen.findByText('older message')).toBeInTheDocument()
     expect(screen.getByText('newer message')).toBeInTheDocument()
   })
 
   it('grows the visible window so newly loaded older messages actually appear (regression: window used to stay pinned to the last 200 raw messages, hiding anything loadOlder prepended)', async () => {
-    const user = userEvent.setup()
     // The realistic steady state: exactly the window size already stored
-    // and visible (the server caps the initial select() fetch at 100 —
-    // see server/src/api/routes.ts — well under the 200-item window, so
-    // nothing is hidden yet when the first "load older" click happens).
+    // and visible, so nothing is hidden yet when the reader reaches the top.
     const initial: ChatMessage[] = Array.from({ length: 200 }, (_, i) => ({
       id: `m${i}`,
       role: 'user',
       text: `message ${i}`,
     }))
     resetStore({ transcripts: { s1: initial } })
-
-    render(<Transcript sessionId="s1" />)
-    expect(screen.getByText('message 0')).toBeInTheDocument()
-
     const older: ChatMessage[] = Array.from({ length: 50 }, (_, i) => ({
       id: `older${i}`,
       role: 'user',
       text: `older message ${i}`,
     }))
-    const loadOlderSpy = vi.fn().mockImplementation(async (id: string) => {
-      useOrbital.setState((state) => ({
-        transcripts: { ...state.transcripts, [id]: [...older, ...state.transcripts[id]] },
-      }))
-      return older
+    useOrbital.setState({
+      loadOlder: vi.fn().mockImplementation(async (id: string) => {
+        useOrbital.setState((state) => ({
+          transcripts: { ...state.transcripts, [id]: [...older, ...state.transcripts[id]] },
+        }))
+        return older
+      }),
     })
-    act(() => {
-      useOrbital.setState({ loadOlder: loadOlderSpy })
-    })
+    const scroll = fakeScroll()
 
-    await user.click(screen.getByRole('button', { name: /load older/i }))
+    render(<Transcript sessionId="s1" observerFactory={scroll.observerFactory} />)
+    expect(screen.getByText('message 0')).toBeInTheDocument()
+    await scroll.reachTop()
 
     // The newly prepended page must actually render, not just sit in the
     // store while the window stays pinned to its old size.
@@ -1266,67 +1278,80 @@ describe('Transcript', () => {
     expect(screen.getByText('older message 49')).toBeInTheDocument()
   })
 
-  it('grows the window by exactly the fetched page size, not by collapsing to the full stored history (bounded growth)', async () => {
-    const user = userEvent.setup()
-    // A backlog already sits beyond the window before any click (260
-    // stored, 200-item window -> the oldest 60 are hidden). A single
-    // "load older" click should grow the window by only the newly
-    // fetched page's size (5), not jump straight to showing everything
-    // ever stored.
-    const initial: ChatMessage[] = Array.from({ length: 260 }, (_, i) => ({
+  // A launched session's oldest held message is its optimistic first prompt;
+  // at the window's cap it is cut off, and the server — cursored on it — has
+  // nothing older to give. Only the window growing can bring it back.
+  it('reveals rows the window cut off before fetching anything, one step per scroll to the top', async () => {
+    const initial: ChatMessage[] = Array.from({ length: 360 }, (_, i) => ({
       id: `m${i}`,
       role: 'user',
       text: `message ${i}`,
     }))
     resetStore({ transcripts: { s1: initial } })
+    const loadOlderSpy = vi.fn().mockResolvedValue([])
+    useOrbital.setState({ loadOlder: loadOlderSpy })
+    const scroll = fakeScroll()
 
-    render(<Transcript sessionId="s1" />)
-    expect(screen.queryByText('message 0')).not.toBeInTheDocument()
+    render(<Transcript sessionId="s1" observerFactory={scroll.observerFactory} />)
+    expect(screen.queryByText('message 159')).not.toBeInTheDocument()
 
-    const loadOlderSpy = vi.fn().mockImplementation(async (id: string) => {
-      const extra: ChatMessage[] = Array.from({ length: 5 }, (_, i) => ({
-        id: `extra${i}`,
-        role: 'user',
-        text: `extra ${i}`,
-      }))
-      useOrbital.setState((state) => ({
-        transcripts: { ...state.transcripts, [id]: [...extra, ...state.transcripts[id]] },
-      }))
-      return extra
-    })
-    act(() => {
-      useOrbital.setState({ loadOlder: loadOlderSpy })
-    })
+    await scroll.reachTop()
+    // One step, not the whole backlog: 160 were cut off.
+    expect(screen.getByText('message 60')).toBeInTheDocument()
+    expect(screen.queryByText('message 59')).not.toBeInTheDocument()
+    expect(loadOlderSpy).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole('button', { name: /load older/i }))
+    await scroll.reachTop()
+    expect(screen.getByText('message 0')).toBeInTheDocument()
+    expect(loadOlderSpy).not.toHaveBeenCalled()
 
-    // 260 (pre-existing backlog beyond the window) + 5 (freshly fetched) =
-    // 265 total; window grows from 200 to 205. With the 5 extras prepended
-    // in front, the cutoff (still 60 items from the end of whatever's
-    // hidden) now lands 5 messages later into the original backlog:
-    // "message 55" through "message 59" become newly visible, but
-    // "message 54" and earlier, and the freshly fetched "extra*" messages,
-    // stay hidden — proving the window grew by exactly the fetched page's
-    // size (5), not by 60+5 (which a total-collapsing formula would have
-    // revealed all of, including the extras).
-    await waitFor(() => {
-      expect(screen.getByText('message 55')).toBeInTheDocument()
-    })
-    expect(screen.queryByText('message 54')).not.toBeInTheDocument()
-    expect(screen.queryByText('extra 0')).not.toBeInTheDocument()
-    expect(screen.queryByText('extra 4')).not.toBeInTheDocument()
+    // Everything held is on screen; only now is the server asked.
+    await scroll.reachTop()
+    expect(loadOlderSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('hides the "Load older" button once loadOlder reports an empty page', async () => {
-    const user = userEvent.setup()
+  it('stops paging once loadOlder reports an empty page', async () => {
     resetStore({ transcripts: { s1: [{ id: '1', role: 'user', text: 'only message' }] } })
-    useOrbital.setState({ loadOlder: vi.fn().mockResolvedValue([]) })
+    const loadOlderSpy = vi.fn().mockResolvedValue([])
+    useOrbital.setState({ loadOlder: loadOlderSpy })
+    const scroll = fakeScroll()
 
-    render(<Transcript sessionId="s1" />)
-    await user.click(screen.getByRole('button', { name: /load older/i }))
+    render(<Transcript sessionId="s1" observerFactory={scroll.observerFactory} />)
+    await scroll.reachTop()
 
     expect(await screen.findByText('only message')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /load older/i })).not.toBeInTheDocument()
+    expect(scroll.observing()).toBe(false)
+    await scroll.reachTop()
+    expect(loadOlderSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps paging after a failed fetch, so the next scroll to the top tries again', async () => {
+    resetStore({ transcripts: { s1: [{ id: '1', role: 'user', text: 'only message' }] } })
+    const loadOlderSpy = vi.fn().mockResolvedValue(null)
+    useOrbital.setState({ loadOlder: loadOlderSpy })
+    const scroll = fakeScroll()
+
+    render(<Transcript sessionId="s1" observerFactory={scroll.observerFactory} />)
+    await scroll.reachTop()
+    await scroll.reachTop()
+
+    expect(scroll.observing()).toBe(true)
+    expect(loadOlderSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not ask again while a page is still in flight', async () => {
+    resetStore({ transcripts: { s1: [{ id: '1', role: 'user', text: 'only message' }] } })
+    let resolve: (v: ChatMessage[]) => void = () => {}
+    const loadOlderSpy = vi.fn().mockImplementation(() => new Promise<ChatMessage[]>((r) => (resolve = r)))
+    useOrbital.setState({ loadOlder: loadOlderSpy })
+    const scroll = fakeScroll()
+
+    render(<Transcript sessionId="s1" observerFactory={scroll.observerFactory} />)
+    await scroll.reachTop()
+    await scroll.reachTop()
+    expect(loadOlderSpy).toHaveBeenCalledTimes(1)
+
+    await act(async () => resolve([]))
   })
 
   it('keeps a tool_use visible together with its tool_result even though raw-message windowing alone would split them (regression: pairing must happen on the full array before windowing)', () => {

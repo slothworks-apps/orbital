@@ -321,9 +321,9 @@ export interface OrbitalActions {
     model?: string
     /** Image refs the dialog's first turn carries (spec: 2026-09-20-composer-design). */
     attachments?: string[]
-  }): Promise<string>
+  }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
-  loadOlder(id: string): Promise<ChatMessage[]>
+  loadOlder(id: string): Promise<ChatMessage[] | null>
   sendPrompt(id: string, text: string, attachments?: readonly SentAttachment[]): Promise<void>
   /**
    * Records one question's answer on the session's pending decision and,
@@ -426,6 +426,34 @@ let sawClosedSocket = false
 function nextLocalMessageId(): string {
   localMessageCounter += 1
   return `local:${Date.now()}:${localMessageCounter}`
+}
+
+/**
+ * The user's own turn as the transcript shows it until the transcript file
+ * says otherwise. Needed because the Runner never publishes a user's turn:
+ * the SDK is not asked to replay stdin, so the only user frames it streams
+ * back are tool results. Both ways a turn leaves this tab go through here —
+ * `sendPrompt` and the New Session dialog's first prompt in `launchSession`.
+ */
+function optimisticTurn(text: string, attachments?: readonly SentAttachment[]): ChatMessage {
+  const images = attachments?.map((a) => a.entry)
+  return {
+    id: nextLocalMessageId(),
+    role: 'user',
+    text,
+    timestamp: new Date().toISOString(),
+    // Absent, not empty, for a text-only turn: `MessageView` reads
+    // `images.length` to decide whether a turn has a thumbnail row, and an
+    // empty array on every plain message would be noise in every fixture.
+    ...(images && images.length > 0
+      ? {
+          images,
+          imageProvenance: Object.fromEntries(
+            attachments!.map((a) => [a.entry.ref, { name: a.name, source: a.source }]),
+          ),
+        }
+      : {}),
+  }
 }
 
 /**
@@ -653,7 +681,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // prepends the messages it has not seen, which is exactly the wrong
       // place for a tail missed during the outage. A cache rebuilt from REST
       // cannot be mis-ordered. Pages pulled in by `loadOlder` are lost with
-      // it, at the cost of one click.
+      // it, at the cost of scrolling up through them again.
       const selectedId = get().ui.selectedId
       // Fetched before the swap, so the open transcript never flashes empty.
       const fetched = selectedId ? await api.getMessages(selectedId) : null
@@ -943,7 +971,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
   },
 
-  async launchSession(body) {
+  async launchSession(body, images) {
     // The id is minted HERE, not by the server, so that this tab can be
     // listening to `session:<id>` before the request that starts the session
     // goes out. `Runner.start()` returns without waiting for the CLI
@@ -961,11 +989,29 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     )
     launchSubscriptions.set(sessionId, release)
 
+    // The first prompt, shown the way `sendPrompt` shows every later one. The
+    // Runner publishes no user turn, and `select`'s REST read right after the
+    // launch finds no transcript file yet, so without this the prompt the
+    // session was started with appeared only once the file was re-read — on a
+    // reload. Appended before the request, not after: the session's first
+    // reply can land while the request is still in flight, and the prompt
+    // has to sit above it.
+    if (body.prompt || images?.length) {
+      const turn = optimisticTurn(body.prompt, images)
+      set((state) => ({
+        transcripts: { ...state.transcripts, [sessionId]: [turn, ...(state.transcripts[sessionId] ?? [])] },
+      }))
+    }
+
     let started: string
     try {
       started = await api.createSession({ ...body, sessionId })
     } catch (err) {
       releaseLaunchSubscription(sessionId)
+      set((state) => {
+        const { [sessionId]: _dropped, ...rest } = state.transcripts
+        return { transcripts: rest }
+      })
       throw err
     }
 
@@ -975,6 +1021,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // failure this whole change is about, so move rather than assume.
     if (started !== sessionId) {
       releaseLaunchSubscription(sessionId)
+      set((state) => {
+        const { [sessionId]: held, ...rest } = state.transcripts
+        return held ? { transcripts: { ...rest, [started]: held } } : {}
+      })
       launchSubscriptions.set(
         started,
         getSocket().subscribe(`session:${started}`, (msg: SessionEvent) =>
@@ -1037,32 +1087,38 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   /**
    * Fetches the page of messages just before the oldest one currently held
    * for `id` and prepends it (deduped by id, same pattern as `select`).
-   * Returns the fetched page so callers (Transcript's "load older" button)
-   * can tell an empty response apart from one still in flight — there was
-   * no existing store action for this, so it's added here per task 11.
+   *
+   * Resolves to what was actually prepended, so the transcript's infinite
+   * scroll can tell "nothing older" (an empty array — stop asking) apart from
+   * a failed fetch (`null` — worth asking again the next time the reader
+   * scrolls up). A page that came back holding only messages already here
+   * counts as empty: asking again with the same cursor would get the same
+   * page, forever.
    */
   async loadOlder(id) {
     const existing = get().transcripts[id] ?? []
     const firstId = existing[0]?.id
     if (!firstId) return []
 
+    let fetched: ChatMessage[]
     try {
-      const fetched = await api.getMessages(id, { before: firstId })
-      set((state) => {
-        const current = state.transcripts[id] ?? []
-        const currentIds = new Set(current.map((m) => m.id))
-        const toPrepend = fetched.filter((m) => !currentIds.has(m.id))
-        return {
-          transcripts: {
-            ...state.transcripts,
-            [id]: [...toPrepend, ...current],
-          },
-        }
-      })
-      return fetched
+      fetched = await api.getMessages(id, { before: firstId })
     } catch {
-      return []
+      return null
     }
+    let prepended: ChatMessage[] = []
+    set((state) => {
+      const current = state.transcripts[id] ?? []
+      const currentIds = new Set(current.map((m) => m.id))
+      prepended = fetched.filter((m) => !currentIds.has(m.id))
+      return {
+        transcripts: {
+          ...state.transcripts,
+          [id]: [...prepended, ...current],
+        },
+      }
+    })
+    return prepended
   },
 
   async sendPrompt(id, text, attachments) {
@@ -1113,26 +1169,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         : text
 
     const images = attachments?.map((a) => a.entry)
-    const optimisticMessage: ChatMessage = {
-      id: nextLocalMessageId(),
-      role: 'user',
-      // What was SENT, not what was typed: the echo that comes back off the
-      // transcript carries the block too, and an optimistic turn that showed
-      // less would be replaced by a longer one a moment later.
-      text: outgoing,
-      timestamp: new Date().toISOString(),
-      // Absent, not empty, for a text-only turn: `MessageView` reads
-      // `images.length` to decide whether a turn has a thumbnail row, and an
-      // empty array on every plain message would be noise in every fixture.
-      ...(images && images.length > 0
-        ? {
-            images,
-            imageProvenance: Object.fromEntries(
-              attachments!.map((a) => [a.entry.ref, { name: a.name, source: a.source }]),
-            ),
-          }
-        : {}),
-    }
+    // What was SENT, not what was typed: the echo that comes back off the
+    // transcript carries the block too, and an optimistic turn that showed
+    // less would be replaced by a longer one a moment later.
+    const optimisticMessage = optimisticTurn(outgoing, attachments)
 
     set((state) => ({
       transcripts: {

@@ -1,8 +1,7 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChatMessage, OrbitalModel, Subagent } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { formatToolDuration } from '../lib/format'
-import { Button } from '../ui/Button'
 import { usePresence } from '../ui/usePresence'
 import {
   compensatePrepend,
@@ -20,11 +19,38 @@ import { ToolRow, salientInput, toolDurationMs } from './ToolRow'
 import { QUESTION_TOOL_NAME } from '../lib/questionCard'
 import { PLAN_TOOL_NAME } from '../lib/decisionCard'
 
-/** Initial size of the rendered window (in paired items), and the amount a
- * successful "load older" grows it by (bounded — see `handleLoadOlderClick`
- * below) — windowing beyond that (real virtualization) is explicitly
- * deferred per the task brief. */
+/** Initial size of the rendered window (in paired items) — windowing beyond
+ * that (real virtualization) is explicitly deferred per the task brief. */
 const MAX_VISIBLE_MESSAGES = 200
+
+/** How many already-held rows one scroll to the top reveals when the window
+ * has cut some off, before anything is fetched. */
+const REVEAL_STEP = 100
+
+/** How far above the top of the transcript the next page starts loading, so
+ * a reader scrolling up meets older rows rather than a pause. */
+const PAGING_MARGIN = '200px 0px 0px 0px'
+
+/**
+ * Minimal shape the transcript needs from an `IntersectionObserver` — lets
+ * tests inject a fake, since jsdom has no real IO implementation (the same
+ * seam `Sidebar`'s infinite scroll has).
+ */
+export interface ObserverLike {
+  observe(el: Element): void
+  disconnect(): void
+}
+
+/** Builds the observer watching the paging sentinel, rooted at the
+ * transcript's own scroll container. */
+export type ScrollObserverFactory = (callback: IntersectionObserverCallback, root: Element) => ObserverLike
+
+/** Real `IntersectionObserver`, used outside tests. Absent (jsdom), nothing
+ * pages on its own, which is what every test that is not about paging wants. */
+export const defaultScrollObserverFactory: ScrollObserverFactory = (callback, root) =>
+  typeof IntersectionObserver === 'undefined'
+    ? { observe() {}, disconnect() {} }
+    : new IntersectionObserver(callback, { root, rootMargin: PAGING_MARGIN })
 
 export type TranscriptItem =
   | { kind: 'message'; key: string; message: ChatMessage }
@@ -231,13 +257,15 @@ export interface TranscriptViewProps {
   pendingDecisionId?: string
   /** Fetches the next page of older history (the fetch itself prepends it
    * into whatever backs `messages`) and resolves to how many messages that
-   * page contained — 0 meaning exhausted. Omitted entirely (rather than
-   * passed as a no-op) when there is nothing to page — a subagent buffer is
-   * finite and unpaginated — in which case the "load older" control is not
-   * rendered at all. */
-  onLoadOlder?: () => Promise<number>
-  loadingOlder?: boolean
+   * page added — 0 meaning exhausted, `null` a failed fetch that scrolling
+   * up again may retry. Called by the infinite scroll when the reader nears
+   * the top. Omitted entirely (rather than passed as a no-op) when there is
+   * nothing to page — a subagent buffer is finite and unpaginated. */
+  onLoadOlder?: () => Promise<number | null>
+  /** Nothing older exists to fetch; the view stops asking. */
   exhausted?: boolean
+  /** Injectable observer for the paging sentinel; defaults to the real one. */
+  observerFactory?: ScrollObserverFactory
   /** Rendered exactly where the error banner sits today, in the same
    * position inside the same scroll container, so DOM order is unchanged. */
   footer?: ReactNode
@@ -439,9 +467,10 @@ function ToolRunGroup({
 /**
  * Renders a message array: tool_use/tool_result pairs collapsed into
  * `ToolRow`s (paired on the full history, then windowed — see
- * `pairMessages`), starting at the last `MAX_VISIBLE_MESSAGES` items and
- * growing by each fetched page's size as "load older" pulls more history
- * in (bounded growth — a click reveals that page, not the whole backlog;
+ * `pairMessages`), starting at the last `MAX_VISIBLE_MESSAGES` items. Scrolling
+ * near the top grows the window — first over rows already held but cut off,
+ * then by each fetched page's size as `onLoadOlder` pulls more history in
+ * (bounded growth — one scroll reveals one page, not the whole backlog;
  * `slice(-N)` clamps naturally once N reaches the array length). Auto-
  * scrolls to the bottom on new messages, but only when the viewport was
  * already scrolled near the bottom (so reading scrollback isn't yanked out
@@ -456,8 +485,8 @@ export function TranscriptView({
   sessionId,
   pendingDecisionId,
   onLoadOlder,
-  loadingOlder,
   exhausted,
+  observerFactory = defaultScrollObserverFactory,
   footer,
   compact = false,
   readOnly = false,
@@ -492,7 +521,7 @@ export function TranscriptView({
   // bottom with no animation. Easing down through a whole backlog would read
   // as the view running away, and there is nothing along the way to see.
   const jumpNextRef = useRef(true)
-  // Explicit "a prepend is about to land" signal, set by handleLoadOlderClick
+  // Explicit "a prepend is about to land" signal, set by `loadOlder` below
   // right before it awaits onLoadOlder and consumed (cleared) by the layout
   // effect below. This is deliberately NOT inferred from `items[0]`
   // changing: at the MAX_VISIBLE_MESSAGES cap, a live WS-appended message
@@ -502,7 +531,7 @@ export function TranscriptView({
   // viewport) on a bottom append, yanking the view for anyone reading
   // scrollback during a long streaming session.
   const prependPendingRef = useRef(false)
-  // The container's scrollHeight at the moment "Load older" was clicked,
+  // The container's scrollHeight at the moment an older page was asked for,
   // which is what a landing prepend has to be measured against. Captured
   // there rather than carried forward from the last render, because plenty
   // changes the height without changing `items` at all — folding a run,
@@ -608,34 +637,80 @@ export function TranscriptView({
     seenRef.current = { resetKey, keys: groups.map((g) => g.key) }
   }, [groups, resetKey])
 
-  // Wraps the caller's fetch with the scroll-anchoring signal (see
-  // `prependPendingRef` and `heightBeforePrependRef` above) and, once the
-  // page resolves, grows `visibleCount` by exactly what it contained —
-  // bounded growth: a click reveals that page, not the whole backlog.
-  const handleLoadOlderClick = useCallback(async () => {
-    // Re-entrancy guard, checked before either ref below is touched — an
-    // overlapping call must never clear the "a prepend is about to land"
-    // signal out from under the fetch that IS going to land content, which
-    // is exactly the misclassification `prependPendingRef` above exists to
-    // avoid. Unreachable today (the button is natively `disabled` while
-    // `loadingOlder` is true, and both jsdom and real browsers block click
-    // dispatch on a disabled element), restored anyway because the atomicity
-    // — guard first, touch refs second — is what the surrounding comments
-    // describe and a later caller that doesn't go through the disabled
-    // button should not have to rediscover it the hard way.
-    if (!onLoadOlder || loadingOlder) return
-    heightBeforePrependRef.current = containerRef.current?.scrollHeight ?? 0
-    prependPendingRef.current = true
-    const fetchedCount = await onLoadOlder()
-    if (fetchedCount === 0) {
-      // No content is actually landing above the viewport, so there's
-      // nothing for the layout effect to compensate — don't leave the flag
-      // armed for some unrelated later change to misfire on.
-      prependPendingRef.current = false
-    } else {
-      setVisibleCount((count) => count + fetchedCount)
+  // Rows already held but cut off by the window. They come first: they are
+  // older than anything held on screen and newer than anything a fetch
+  // would bring, and a fetch cursored on the store's oldest message would
+  // skip right over them.
+  const hiddenCount = pairedAll.length - items.length
+  const canFetch = Boolean(onLoadOlder) && !exhausted && messages.length > 0
+  const pages = hiddenCount > 0 || canFetch
+
+  // One load at a time. A ref, not state: the observer can report twice
+  // before a render lands, and a second call must never clear the "a
+  // prepend is about to land" signal out from under the fetch that IS going
+  // to land content — the misclassification `prependPendingRef` exists to
+  // avoid. Checked before either ref below is touched.
+  const loadingRef = useRef(false)
+  // The resetKey a load started under; a page that resolves after the view
+  // was pointed somewhere else belongs to the old key and is ignored.
+  const resetKeyRef = useRef(resetKey)
+  resetKeyRef.current = resetKey
+
+  // Called when the reader nears the top. Arms the scroll-anchoring signal
+  // (see `prependPendingRef` and `heightBeforePrependRef` above), then grows
+  // `visibleCount` by exactly what landed — bounded growth: one scroll to the
+  // top reveals one page, not the whole backlog.
+  const loadOlder = useCallback(async () => {
+    if (loadingRef.current) return
+    const el = containerRef.current
+    if (hiddenCount > 0) {
+      heightBeforePrependRef.current = el?.scrollHeight ?? 0
+      prependPendingRef.current = true
+      setVisibleCount((count) => count + Math.min(REVEAL_STEP, hiddenCount))
+      return
     }
-  }, [onLoadOlder, loadingOlder])
+    if (!canFetch || !onLoadOlder) return
+    loadingRef.current = true
+    const key = resetKey
+    heightBeforePrependRef.current = el?.scrollHeight ?? 0
+    prependPendingRef.current = true
+    try {
+      const fetchedCount = await onLoadOlder()
+      if (resetKeyRef.current !== key) return
+      if (!fetchedCount) {
+        // No content is actually landing above the viewport, so there's
+        // nothing for the layout effect to compensate — don't leave the flag
+        // armed for some unrelated later change to misfire on.
+        prependPendingRef.current = false
+      } else {
+        setVisibleCount((count) => count + fetchedCount)
+      }
+    } finally {
+      loadingRef.current = false
+    }
+  }, [hiddenCount, canFetch, onLoadOlder, resetKey])
+
+  // Infinite scroll, `Sidebar`'s pattern turned upside down: a sentinel above
+  // the first row, observed against the transcript's own scroll container.
+  // Re-observed whenever the transcript grows, because an observer only
+  // reports CHANGES — a sentinel still in view after a page landed (a short
+  // transcript) says nothing more on its own, and re-observing is what asks
+  // again. It stops when there is nothing left to page: the sentinel leaves
+  // the DOM. On arrival the layout effect above has already jumped to the
+  // bottom before an observer reports anything, so a long transcript loads
+  // nothing until the reader scrolls up; a short one, whose top is in view,
+  // asks until a page comes back empty.
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const root = containerRef.current
+    const el = sentinelRef.current
+    if (!root || !el || !pages) return
+    const observer = observerFactory((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadOlder()
+    }, root)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [observerFactory, loadOlder, pages, messages.length, visibleCount])
 
   return (
     // Canvas 1b: the transcript owns the panel's 18px/22px inset and stacks
@@ -644,12 +719,10 @@ export function TranscriptView({
       ref={containerRef}
       className="flex h-full flex-col gap-[14px] overflow-y-auto px-[22px] py-[18px]"
     >
-      {onLoadOlder && !exhausted && messages.length > 0 && (
-        <div className="flex justify-center pb-1">
-          <Button variant="ghost" size="sm" onClick={() => void handleLoadOlderClick()} disabled={loadingOlder}>
-            {loadingOlder ? 'Loading…' : 'Load older'}
-          </Button>
-        </div>
+      {/* The negative margin takes back the row gap the sentinel would
+          otherwise add above the first row. */}
+      {pages && (
+        <div ref={sentinelRef} data-testid="transcript-sentinel" aria-hidden className="-mb-[15px] h-px shrink-0" />
       )}
       {groups.map((group, index, all) => (
         // One wrapper per group, unconditionally — the entrance belongs to

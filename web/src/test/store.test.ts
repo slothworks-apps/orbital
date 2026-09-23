@@ -472,7 +472,8 @@ describe('loadOlder', () => {
     const fetched = await useOrbital.getState().loadOlder('s1')
 
     expect(api.getMessages).toHaveBeenCalledWith('s1', { before: 'm5' })
-    expect(fetched).toEqual(older)
+    // What landed, not what came back: `m5` was already here.
+    expect(fetched).toEqual(older.slice(0, 2))
     expect(useOrbital.getState().transcripts.s1).toEqual([
       { id: 'm3', role: 'user', text: 'third' },
       { id: 'm4', role: 'assistant', text: 'fourth' },
@@ -487,13 +488,22 @@ describe('loadOlder', () => {
     expect(api.getMessages).not.toHaveBeenCalled()
   })
 
-  it('resolves to an empty array (leaving the transcript untouched) when the fetch fails', async () => {
+  // An infinite scroll that asked again with the same cursor would get the
+  // same page back, forever.
+  it('resolves to an empty array when the page holds nothing that is not already here', async () => {
+    useOrbital.setState({ transcripts: { s1: [{ id: 'm5', role: 'user', text: 'fifth' }] } })
+    vi.mocked(api.getMessages).mockResolvedValueOnce([{ id: 'm5', role: 'user', text: 'fifth' }])
+
+    expect(await useOrbital.getState().loadOlder('s1')).toEqual([])
+  })
+
+  it('resolves to null (leaving the transcript untouched) when the fetch fails', async () => {
     useOrbital.setState({ transcripts: { s1: [{ id: 'm5', role: 'user', text: 'fifth' }] } })
     vi.mocked(api.getMessages).mockRejectedValueOnce(new Error('network error'))
 
     const fetched = await useOrbital.getState().loadOlder('s1')
 
-    expect(fetched).toEqual([])
+    expect(fetched).toBeNull()
     expect(useOrbital.getState().transcripts.s1).toEqual([{ id: 'm5', role: 'user', text: 'fifth' }])
   })
 })

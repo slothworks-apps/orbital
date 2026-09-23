@@ -384,6 +384,44 @@ describe('REST routes', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  describe('GET /api/sessions/:id/messages paging', () => {
+    function appWithTurns(count: number) {
+      const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-msg-routes-'));
+      mkdirSync(join(projectsDir, 'p'), { recursive: true });
+      const lines = Array.from({ length: count }, (_, i) =>
+        JSON.stringify({
+          type: 'user', uuid: `u${i}`, timestamp: new Date(Date.UTC(2026, 8, 9, 14, 0, i)).toISOString(),
+          message: { role: 'user', content: `turn ${i}` },
+        }),
+      );
+      writeFileSync(join(projectsDir, 'p', 's1.jsonl'), lines.join('\n') + '\n');
+      return makeApp({ projectsDir }).app;
+    }
+    const texts = (res: { json(): { messages: { text: string }[] } }) =>
+      res.json().messages.map((m) => m.text);
+
+    it('pages backwards from a cursor, oldest first within the page', async () => {
+      const app = appWithTurns(5);
+      const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/messages?before=u3:0&limit=2' });
+      expect(texts(res)).toEqual(['turn 1', 'turn 2']);
+    });
+
+    // The cursor a launched session's client holds oldest is a live id or the
+    // optimistic `local:` first prompt — never a file id. The tail it used to
+    // get back was the whole transcript again, under ids its dedupe could not
+    // match, printed above the live copy.
+    it('answers a cursor the transcript does not contain with an empty page, not the tail', async () => {
+      const app = appWithTurns(5);
+      for (const before of ['local:1758000000000:1', 's1:7:0']) {
+        const res = await app.inject({
+          method: 'GET', url: `/api/sessions/s1/messages?before=${encodeURIComponent(before)}`,
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual({ messages: [] });
+      }
+    });
+  });
+
   it('GET /api/sessions/:id/messages still 404s for a session nobody has heard of', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/sessions/does-not-exist/messages' });
     expect(res.statusCode).toBe(404);
