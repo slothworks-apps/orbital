@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import type { SessionStatus, Subagent } from '../lib/types'
 import {
+  BRACKET_INSET,
   DIMMED_OPACITY,
   easeOut,
   labelFontPx,
+  labelRestY,
   moonVisuals,
   oscillate,
   planetVisuals,
@@ -33,7 +35,9 @@ import {
   createTween,
   endedHideTransform,
   ENDED_HIDDEN_SCALE,
+  labelUnderReticle,
   reticleEnterScale,
+  selectionLabelOpacity,
   RETICLE_ENTER_SCALE,
   easeMotion,
   retargetHueTween,
@@ -664,6 +668,49 @@ describe('reticleEnterScale', () => {
     for (let i = 1; i < steps.length; i += 1) {
       expect(steps[i]).toBeLessThan(steps[i - 1])
     }
+  })
+})
+
+describe('the selected label’s handoff', () => {
+  it('rests at full strength at either end, under the reticle only when selected', () => {
+    expect(selectionLabelOpacity(0)).toBe(1)
+    expect(selectionLabelOpacity(1)).toBe(1)
+    expect(labelUnderReticle(0)).toBe(false)
+    expect(labelUnderReticle(1)).toBe(true)
+  })
+
+  it('changes place only while the label is invisible', () => {
+    // Sample the fade finely; wherever the place flips between two samples,
+    // the label must be (nearly) gone on both sides of the flip.
+    const steps = 1000
+    for (let i = 1; i <= steps; i += 1) {
+      const a = (i - 1) / steps
+      const b = i / steps
+      if (labelUnderReticle(a) !== labelUnderReticle(b)) {
+        expect(selectionLabelOpacity(a)).toBeLessThan(0.01)
+        expect(selectionLabelOpacity(b)).toBeLessThan(0.01)
+      }
+    }
+  })
+
+  it('fades out monotonically before the jump and back in after it', () => {
+    const before = [0, 0.1, 0.2, 0.3, 0.4].map(selectionLabelOpacity)
+    const after = [0.6, 0.7, 0.8, 0.9, 1].map(selectionLabelOpacity)
+    for (let i = 1; i < before.length; i += 1) expect(before[i]).toBeLessThan(before[i - 1])
+    for (let i = 1; i < after.length; i += 1) expect(after[i]).toBeGreaterThan(after[i - 1])
+  })
+})
+
+describe('labelRestY', () => {
+  it('hangs the label under the lowest thing drawn below the body', () => {
+    const rest = labelRestY(false, false)
+    const gauged = labelRestY(true, false)
+    const selected = labelRestY(false, true)
+    expect(gauged).toBeLessThan(rest)
+    expect(selected).toBeLessThan(rest)
+    expect(labelRestY(true, true)).toBe(Math.min(gauged, selected))
+    // The point of the drop: the label's top edge is clear of the brackets.
+    expect(-selected).toBeGreaterThan(BRACKET_INSET)
   })
 })
 

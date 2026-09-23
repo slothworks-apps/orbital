@@ -307,6 +307,36 @@ export function reticleEnterScale(fade: number): number {
   return 1 + (RETICLE_ENTER_SCALE - 1) * (1 - fade)
 }
 
+/**
+ * The point on the reticle's fade where a selected planet's label changes
+ * place — from under the body (or gauge) to under the reticle's brackets on
+ * the way in, and back on the way out (`labelRestY`).
+ *
+ * The label does not slide there. It fades out at its old place, jumps while
+ * it is invisible, and fades in at the new one, all on the reticle's own fade
+ * (`selectionLabelOpacity`). A slide would put the text back where
+ * `docs/fixes/selection-reticle-drags-the-label.md` found it: the one thing in
+ * the frame moving at full strength while everything around it dissolves.
+ */
+export const SELECTION_LABEL_HANDOFF = 0.5
+
+/** Whether the label rests under the reticle at this point of its fade. */
+export function labelUnderReticle(fade: number): boolean {
+  return fade >= SELECTION_LABEL_HANDOFF
+}
+
+/**
+ * The label's opacity multiplier across the handoff: 1 at either end of the
+ * fade, falling to 0 exactly where `labelUnderReticle` flips, so the jump
+ * happens with nothing on screen. Exactly 1 at rest either way, so it never
+ * dims a label that is not changing place.
+ */
+export function selectionLabelOpacity(fade: number): number {
+  return fade < SELECTION_LABEL_HANDOFF
+    ? 1 - fade / SELECTION_LABEL_HANDOFF
+    : (fade - SELECTION_LABEL_HANDOFF) / (1 - SELECTION_LABEL_HANDOFF)
+}
+
 export function retargetTween(tw: Tween, to: number, durationMs = tw.durationMs, reduced = false): void {
   if (tw.to === to) return
   tw.from = tw.value

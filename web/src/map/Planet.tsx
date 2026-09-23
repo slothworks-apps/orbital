@@ -17,9 +17,7 @@ import {
   HALO_BREATH_SEC,
   LABEL_FAMILY_GAP_PX,
   LABEL_FAMILY_TRACKING_EM,
-  LABEL_GAUGED_REST_Y,
   LABEL_TITLE_TRACKING_EM,
-  LABEL_TOP_REST_Y,
   STATE_PILL_BORDER_PX,
   STATE_PILL_DOT_PX,
   STATE_PILL_FONT_PX,
@@ -28,6 +26,7 @@ import {
   STATE_PILL_PAD_Y_PX,
   STATE_PILL_TRACKING_EM,
   easeOut,
+  labelRestY,
   oscillate,
   truncateLabel,
   typedLabel,
@@ -46,9 +45,11 @@ import {
   blendPlanet,
   createPlanetBlend,
   endedHideTransform,
+  labelUnderReticle,
   mutedOpacity,
   prefersReducedMotion,
   reticleEnterScale,
+  selectionLabelOpacity,
   stackAlphas,
   tickLayerWeight,
   useFadeTween,
@@ -209,35 +210,32 @@ const WHITE_COLOR = new THREE.Color(WHITE)
  * fixed 11px, so half a line of text is a different number of world units at
  * every zoom level, and a centred anchor would let the gap drift with it.
  *
- * It does not move when the planet is selected, and that is deliberate.
- *
- * The label used to slide clear of the bracket square on the reticle's own
- * fade, because the resting text runs through the bottom edge of it. The
- * travel is only ~14px at rest zoom, but the label is the one thing in the
- * frame that is NOT fading — its opacity follows the ended suppression, never
- * the selection — so while the ring dissolved, the text slid at full
- * strength, and the eye followed the one thing that moved.
- *
- * The canvas does not ask for the slide. Artboard 1f draws the reticle on a
- * planet with no title under it at all (the text below it is the state
- * sheet's own caption, at a fixed `top:206px`), and `1.5px solid #fff` — the
- * brackets — appears exactly once in `Orbital.dc.html`. So the design never
- * specifies a selected planet *with* a label: the overlap is unaddressed, not
- * accepted, and the slide was the implementation's own invention.
- *
- * If the overlap ever looks wrong on screen, move the reticle — fade the
- * bottom bracket while a label is under it, or shorten it — rather than
- * moving the text. See `docs/fixes/selection-reticle-drags-the-label.md`.
- */
-// LABEL_TOP_REST_Y itself is in `visuals.ts`: the simulation measures the label from it.
-/**
  * A gauged planet drops the label below the gauge's tick ring instead of the
  * body edge, keeping the same 34px gap — at the rest offset the label sits
  * inside the ring band and the title reads through the arc. Same discrete
  * switch as the badges' `clearsGauge` offsets (owner ruling, no canvas
  * value: 1i draws gauged planets with spec-sheet captions, not map labels).
+ *
+ * A selected planet drops it below the reticle's bracket square the same
+ * way, for the same reason: at the rest offset the bottom brackets run
+ * through the title. `labelRestY` in `visuals.ts` picks the lowest of the
+ * three, and the simulation measures the label from the same function, so a
+ * neighbour keeps clear of the label where it actually hangs.
+ *
+ * The selection drop never slides. The label used to slide clear of the
+ * brackets on the reticle's fade, and the label was then the one thing in
+ * the frame NOT fading — so the text slid at full strength while the ring
+ * dissolved, and the eye followed it. Now the label fades out where it is,
+ * jumps while invisible and fades in at the new place, all on the reticle's
+ * own fade (`labelUnderReticle` / `selectionLabelOpacity` in
+ * `transition.ts`). The canvas is silent on it: 1f draws the reticle on a
+ * planet with no title under it. See
+ * `docs/fixes/selection-reticle-drags-the-label.md`.
+ *
+ * The label group's `y` is a frame-loop write, not a JSX prop — the handoff
+ * happens mid-tween, where no render is — so there is exactly one owner.
  */
-// LABEL_GAUGED_REST_Y is in `visuals.ts` with LABEL_TOP_REST_Y.
+// LABEL_TOP_REST_Y, LABEL_GAUGED_REST_Y and LABEL_SELECTED_REST_Y are in `visuals.ts`.
 const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
 const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
 /** Family line under the title (canvas 4a). Subordinate to the name in both states. */
@@ -1233,6 +1231,14 @@ export function Planet({
   const compactBadgeRef = useRef<HTMLButtonElement | null>(null)
   const labelRef = useRef<HTMLSpanElement | null>(null)
   const labelGroupRef = useRef<THREE.Group>(null)
+  /** Where the label hangs right now: under the gauge, and under the reticle once its fade is past the handoff. */
+  const labelGauged = gaugeMounted && shownFill !== null
+  const labelY = () => labelRestY(labelGauged, labelUnderReticle(reticleFade.value))
+  // The frame loop owns the label group's `y`; this places it before the
+  // first paint, so a label that mounts does not start a frame at the centre.
+  useLayoutEffect(() => {
+    if (labelGroupRef.current) labelGroupRef.current.position.y = labelY()
+  })
   const overlayRef = useRef<HTMLSpanElement | null>(null)
   const overlayTextRef = useRef<HTMLSpanElement | null>(null)
   const overlayCursorRef = useRef<HTMLSpanElement | null>(null)
@@ -1370,7 +1376,9 @@ export function Planet({
     // it but says nothing about a portalled `<Html>`, so the fade has to be
     // written onto the span itself (and the span unmounted once it is out —
     // see `labelMounted`).
-    if (labelRef.current) labelRef.current.style.opacity = String(fade)
+    if (labelRef.current) {
+      labelRef.current.style.opacity = String(fade * selectionLabelOpacity(reticleFade.value))
+    }
   }
 
   useFrame((state, delta) => {
@@ -1415,7 +1423,10 @@ export function Planet({
         // riding a stretching body (canvas fades it with distance).
         if (labelRef.current && simBody.mode !== 'hold') {
           labelRef.current.style.opacity = String(
-            simBody.fallScale * hideFade.value * mutedOpacity(muteFade.value)
+            simBody.fallScale *
+              hideFade.value *
+              mutedOpacity(muteFade.value) *
+              selectionLabelOpacity(reticleFade.value)
           )
         }
       }
@@ -1543,11 +1554,17 @@ export function Planet({
         const scale = reticleEnterScale(reticleFade.value)
         reticleScaleRef.current.scale.set(scale, scale, 1)
       }
-      // The label deliberately does not move with any of this — see
-      // `LABEL_TOP_REST_Y`. Its `position` is a JSX prop and the frame loop
-      // must not write it, or R3F's next render stamps over whatever this
-      // wrote.
+      // The label changes place on this fade without sliding: it fades out,
+      // jumps at the handoff while invisible, and fades back in (see the
+      // label block at the top of this file). A falling planet's label is
+      // the fall's to write, which multiplies the same factor in.
+      if (labelRef.current && (!simBody || simBody.mode === 'hold')) {
+        labelRef.current.style.opacity = String(whole * selectionLabelOpacity(reticleFade.value))
+      }
     }
+    // Every frame, not only while the reticle fades: the gauge's discrete
+    // drop arrives through a render, and the handoff mid-tween through none.
+    if (labelGroupRef.current) labelGroupRef.current.position.y = labelY()
 
     // Hover-expanded label: the typing reveal and both fades are written
     // straight onto the overlay's DOM, like `labelRef`'s opacity above —
@@ -1733,10 +1750,9 @@ export function Planet({
      </group>
 
       {labelMounted && (
-        <group
-          ref={labelGroupRef}
-          position={[0, gaugeMounted && shownFill ? LABEL_GAUGED_REST_Y : LABEL_TOP_REST_Y, 0]}
-        >
+        // No `position` prop: the frame loop owns `y` (`labelY`), and a prop
+        // would have R3F stamp over the handoff on the next render.
+        <group ref={labelGroupRef}>
           <Html zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
             {/* All three of display/width/transform below are load-bearing.
                 `transform` does not apply to an inline box, and the shift is
@@ -1762,7 +1778,10 @@ export function Planet({
                 // Where the fade stands right now, so a label that mounts mid
                 // transition starts from it instead of flashing at full
                 // opacity for the frame before `applyState` runs.
-                opacity: hideFade.value * mutedOpacity(muteFade.value),
+                opacity:
+                  hideFade.value *
+                  mutedOpacity(muteFade.value) *
+                  selectionLabelOpacity(reticleFade.value),
               }}
             >
               <span

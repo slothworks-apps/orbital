@@ -151,8 +151,11 @@ the real map over a fixed two-cluster fixture for checking this by eye.
   maps above.
 - Each box is the union of the body, label and pill, so a planet with a
   pill also claims the empty corner under the pill.
-- A planet's own reticle brackets still cross its own label
-  ([[selection-reticle-drags-the-label]]). Separation only concerns
-  neighbours.
+- ~~A planet's own reticle brackets still cross its own label.~~
+  Resolved 2026-09-23 ([[selection-reticle-drags-the-label]]): a selected
+  planet's label drops below the brackets, and `planetOutline` measures it
+  there (`labelRestY`). The brackets still always count, so the reticle
+  itself never pushes the neighbours. The dropped label does push them:
+  selecting a planet moves the neighbour below it by the length of the drop.
 - The `/compact` pill on a gauged planet is not measured. It sits where
   the state pill would, and it is narrower than the widest state pills.
