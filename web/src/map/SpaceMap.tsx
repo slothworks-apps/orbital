@@ -980,8 +980,10 @@ export function SpaceMap() {
     // `model.counts`, which knows the status and not the reason — a line
     // reading "3 NEEDS INPUT" over three planets all saying DONE is the very
     // mismatch the pills were fixed to stop telling.
+    // Muted planets are left out, as `statusCounts` leaves them out: the
+    // readout counts what matches the search, not what holds its place.
     const asking = model.planets.filter(
-      (p) => p.session.status === 'needs_input' && p.session.pendingDecision
+      (p) => !p.muted && p.session.status === 'needs_input' && p.session.pendingDecision
     ).length
     const segments = [
       `${working} WORKING`,
@@ -1034,6 +1036,7 @@ export function SpaceMap() {
             scale={planet.scale}
             scaleMultiplier={planetScale}
             selected={planet.selected}
+            muted={planet.muted}
             modelFamily={planet.modelFamily}
             labelTitlePx={labelFont.title}
             labelFamilyPx={labelFont.family}
@@ -1062,6 +1065,7 @@ export function SpaceMap() {
             sessionId={moon.sessionId}
             active={`${moon.sessionId}:${moon.subagent.id}` === activePanelKey}
             onOpen={handleOpenSubagent}
+            muted={moon.muted}
           />
         ))}
 

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SessionStatus, Subagent } from '../lib/types'
-import { DIMMED_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type PlanetVisuals } from './visuals'
+import { DIMMED_OPACITY, MUTED_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type PlanetVisuals } from './visuals'
 
 /**
  * The interpolation layer that sits ON TOP of `visuals.ts`.
@@ -277,6 +277,16 @@ export function endedHideTransform(fade: number): { opacity: number; scale: numb
     opacity: fade,
     scale: ENDED_HIDDEN_SCALE + (1 - ENDED_HIDDEN_SCALE) * fade,
   }
+}
+
+/**
+ * The whole-body opacity multiplier for the search mute, given a mute weight
+ * where 0 is unmuted and 1 fully muted: 1 → `MUTED_OPACITY`. A multiplier
+ * like `endedHideTransform`'s, and multiplied alongside it — an exact no-op
+ * at `mute === 0`.
+ */
+export function mutedOpacity(mute: number): number {
+  return 1 - mute * (1 - MUTED_OPACITY)
 }
 
 /**

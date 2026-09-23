@@ -1717,7 +1717,20 @@ export function recordedFailureFor(
   return latest
 }
 
-export function visibleSessions(state: OrbitalState): ApiSession[] {
+/**
+ * Whether a session matches the sidebar's search box — the one predicate the
+ * sidebar's lists and the map's muting both read, so the two cannot disagree
+ * about what matches. Case-insensitive substring over the title and the
+ * working directory; an empty (or all-whitespace) query matches everything.
+ */
+export function matchesSearch(session: ApiSession, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return session.title.toLowerCase().includes(q) || session.cwd.toLowerCase().includes(q)
+}
+
+/** The tag filter alone, newest first — what both the sidebar and the map start from. */
+function tagFilteredSessions(state: OrbitalState): ApiSession[] {
   let list = Object.values(state.sessions)
 
   if (state.ui.filterTagId !== 'all') {
@@ -1725,14 +1738,17 @@ export function visibleSessions(state: OrbitalState): ApiSession[] {
     list = list.filter((s) => s.tagIds.includes(tagId))
   }
 
-  const query = state.ui.search.trim().toLowerCase()
-  if (query) {
-    list = list.filter(
-      (s) => s.title.toLowerCase().includes(query) || s.cwd.toLowerCase().includes(query),
-    )
-  }
-
   return list.sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
+}
+
+/**
+ * What the sidebar lists: the tag filter, then the search. The map does NOT
+ * derive from this — it keeps non-matching sessions in place and mutes them
+ * (see `mapSessions`, ADR `search-mutes-planets-instead-of-hiding-them`).
+ */
+export function visibleSessions(state: OrbitalState): ApiSession[] {
+  const query = state.ui.search
+  return tagFilteredSessions(state).filter((s) => matchesSearch(s, query))
 }
 
 /** Sentinel for the release delay's "Never" preset: bonds are never cut by time. */
@@ -2076,8 +2092,11 @@ export function headerSessionStats(settings: Record<string, string>): HeaderSess
 }
 
 /**
- * What the space map draws: `visibleSessions` minus the sessions the origin
- * filter excludes, minus everything the hole has absorbed (`absorptionFor`).
+ * What the space map draws: the tag-filtered sessions minus the ones the
+ * origin filter excludes, minus everything the hole has absorbed
+ * (`absorptionFor`). The search is deliberately NOT applied: typing a query
+ * must not reflow the layout, so a non-matching session stays on the map and
+ * `buildSceneModel` mutes it (ADR `search-mutes-planets-instead-of-hiding-them`).
  * A session that is `releasing` is still returned — the scene keeps it as a
  * falling body until its grace runs out. Live sessions are never dropped by
  * time — an idle terminal session that has sat untouched for a month is
@@ -2095,8 +2114,8 @@ export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
   const origin = state.ui.sourceFilter
   const list =
     origin === 'all'
-      ? visibleSessions(state)
-      : visibleSessions(state).filter((session) => session.source === origin)
+      ? tagFilteredSessions(state)
+      : tagFilteredSessions(state).filter((session) => session.source === origin)
 
   return list.filter((session) => absorptionFor(session, state.settings, nowMs) !== 'absorbed')
 }
@@ -2108,10 +2127,14 @@ export function statusCounts(state: OrbitalState, nowMs: number): Record<Session
     needs_input: 0,
     ended: 0,
   }
-  // Aggregates over mapSessions (post tag/search/source filters and post
-  // absorption), since the aggregate describes what's currently on the map.
+  // Aggregates over mapSessions (post tag/source filters and post
+  // absorption), since the aggregate describes what's currently on the map —
+  // but only the planets matching the search. A muted planet is there to
+  // hold its place, not to be counted, and the sidebar's lists already leave
+  // it out.
+  const query = state.ui.search
   for (const session of mapSessions(state, nowMs)) {
-    counts[session.status] += 1
+    if (matchesSearch(session, query)) counts[session.status] += 1
   }
   return counts
 }

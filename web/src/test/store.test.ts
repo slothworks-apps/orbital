@@ -16,6 +16,7 @@ import { api, ApiError } from '../lib/api'
 import {
   useOrbital,
   visibleSessions,
+  matchesSearch,
   mapSessions,
   statusCounts,
   recordedFailureFor,
@@ -1166,7 +1167,7 @@ describe('statusCounts (pure)', () => {
     })
   })
 
-  it('aggregates over visibleSessions, not the full session map — a tag filter excludes non-matching sessions', () => {
+  it('aggregates over the map, not the full session map — a tag filter excludes non-matching sessions', () => {
     const sessions: Record<string, ApiSession> = {
       a: makeSession({ id: 'a', status: 'working', tagIds: [1] }),
       b: makeSession({ id: 'b', status: 'working', tagIds: [2] }), // filtered out
@@ -1182,6 +1183,41 @@ describe('statusCounts (pure)', () => {
     }
     // Only sessions a, c, e (tagIds includes 1) should be counted.
     expect(statusCounts(state, NOW)).toEqual({ working: 1, idle: 1, needs_input: 0, ended: 1 })
+  })
+
+  // The map keeps non-matching planets (muted), but the readout counts what
+  // the sidebar lists — ADR `search-mutes-planets-instead-of-hiding-them`.
+  it('counts search matches only, although the map keeps the rest', () => {
+    const sessions: Record<string, ApiSession> = {
+      a: makeSession({ id: 'a', status: 'working', title: 'Fix login' }),
+      b: makeSession({ id: 'b', status: 'working', title: 'Refactor', cwd: '/src/login-service' }),
+      c: makeSession({ id: 'c', status: 'needs_input', title: 'Docs' }),
+      d: makeSession({ id: 'd', status: 'ended', title: 'Release notes' }),
+    }
+    const state: OrbitalState = {
+      ...initialSnapshot,
+      sessions,
+      settings: { map_release_ended_after_minutes: 'never' },
+      ui: { ...initialSnapshot.ui, search: 'LOGIN' },
+    }
+    expect(statusCounts(state, NOW)).toEqual({ working: 2, idle: 0, needs_input: 0, ended: 0 })
+    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['a', 'b', 'c', 'd'])
+    expect(visibleSessions(state).map((s) => s.id).sort()).toEqual(['a', 'b'])
+  })
+})
+
+describe('matchesSearch (pure)', () => {
+  const session = makeSession({ id: 'm', title: 'Alpha Project', cwd: '/home/work/orbital' })
+
+  it('matches title or cwd, case-insensitively, ignoring surrounding whitespace', () => {
+    expect(matchesSearch(session, 'alpha')).toBe(true)
+    expect(matchesSearch(session, '  ORBITAL ')).toBe(true)
+    expect(matchesSearch(session, 'beta')).toBe(false)
+  })
+
+  it('matches everything for an empty or all-whitespace query', () => {
+    expect(matchesSearch(session, '')).toBe(true)
+    expect(matchesSearch(session, '   ')).toBe(true)
   })
 })
 

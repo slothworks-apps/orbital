@@ -175,7 +175,39 @@ describe('buildSceneModel', () => {
     expect(b?.selected).toBe(true)
   })
 
-  it('respects visibleSessions filtering (tag filter excludes non-matching sessions)', () => {
+  // ADR `search-mutes-planets-instead-of-hiding-them`: typing a query must
+  // not move a single body — the layout never sees the search.
+  it('keeps every planet in place under a search query, muting the ones that do not match', () => {
+    const sessions = [
+      makeSession({ id: 'a', tagIds: [1], title: 'Alpha', status: 'working', subagents: [makeSubagent({ id: 'sa' })] }),
+      makeSession({ id: 'b', tagIds: [1], title: 'Beta', status: 'working', subagents: [makeSubagent({ id: 'sb' })] }),
+      makeSession({ id: 'c', tagIds: [2], title: 'Gamma', cwd: '/home/alpha-tools', status: 'idle' }),
+      makeSession({ id: 'd', tagIds: [2], title: 'Delta', status: 'ended' }),
+    ]
+    const plain = sceneModelAt(withSessions(sessions))
+    const searched = sceneModelAt(withSessions(sessions, { ui: { ...defaultUi, search: '  ALPHA ' } }))
+
+    const place = (m: SceneModel) =>
+      m.planets.map((p) => ({ id: p.session.id, x: p.x, y: p.y, scale: p.scale, footprint: p.footprint }))
+    expect(place(searched)).toEqual(place(plain))
+    expect(searched.anchors).toEqual(plain.anchors)
+    expect(searched.labels).toEqual(plain.labels)
+    expect(searched.hole).toEqual(plain.hole)
+
+    // Title OR cwd, case-insensitive, trimmed — the sidebar's own predicate.
+    const muted = Object.fromEntries(searched.planets.map((p) => [p.session.id, p.muted]))
+    expect(muted).toEqual({ a: false, b: true, c: false, d: true })
+    expect(plain.planets.every((p) => !p.muted)).toBe(true)
+
+    // A muted planet's moons mute with it.
+    const moonMuted = Object.fromEntries(searched.moons.map((m) => [m.sessionId, m.muted]))
+    expect(moonMuted).toEqual({ a: false, b: true })
+
+    // The readout counts matches only; the layout above counts everything.
+    expect(searched.counts).toEqual({ working: 1, idle: 1, needs_input: 0, ended: 0 })
+  })
+
+  it('respects the tag filter (it excludes non-matching sessions, unlike the search)', () => {
     const sessions = [
       makeSession({ id: 'a', tagIds: [1] }),
       makeSession({ id: 'b', tagIds: [2] }),
@@ -203,7 +235,7 @@ describe('buildSceneModel', () => {
     expect(personalLabel?.hue).toBe(330)
   })
 
-  it('derives counts from statusCounts over the visible sessions', () => {
+  it('derives counts from statusCounts over the drawn sessions', () => {
     const sessions = [
       makeSession({ id: 'a', tagIds: [1], status: 'working' }),
       makeSession({ id: 'b', tagIds: [1], status: 'working' }),

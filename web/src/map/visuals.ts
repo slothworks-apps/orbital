@@ -87,6 +87,16 @@ export interface PlanetVisuals {
 /** `opacity:.6` wrapper the export puts around every ended body (1a/1f/2d). */
 export const DIMMED_OPACITY = 0.6
 
+/**
+ * Whole-body opacity of a planet (and its moons) that does not match the
+ * sidebar search (ADR `search-mutes-planets-instead-of-hiding-them`). The
+ * canvas draws no search state, so this is a judgement call: clearly below
+ * `DIMMED_OPACITY`, so a muted WORKING planet reads as "not this one" next to
+ * an ended planet that matches. It multiplies onto the ended dim rather than
+ * replacing it, so a muted ended planet sits lower still.
+ */
+export const MUTED_OPACITY = 0.28
+
 /** `orb-ring 2.4s` — the working halo's breathing period. */
 export const HALO_BREATH_SEC = 2.4
 /** `orb-ring` keyframes: opacity .55 at 0/100%, 1 at 50% — a multiplier on `haloOpacity`. */

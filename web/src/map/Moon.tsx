@@ -31,6 +31,9 @@ import {
   blendMoon,
   createMoonBlend,
   advancePointTween,
+  mutedOpacity,
+  STATE_TRANSITION_MS,
+  useFadeTween,
   useHueTween,
   usePointTween,
   useScaleTween,
@@ -455,6 +458,12 @@ export interface MoonProps {
    * fixtures carry no `toolUseId` and would otherwise all read as INERT.
    */
   onOpen?: (sessionId: string, subagent: Subagent) => void
+  /**
+   * The parent planet is muted by the sidebar search — the moon mutes with
+   * it: whole-body opacity down to `MUTED_OPACITY`, hue toward the ended
+   * grey, on the same tween as the planet's.
+   */
+  muted?: boolean
 }
 
 /** Circle outline used for the orbit trail, the materializing shell and its expanding ring. */
@@ -567,11 +576,15 @@ export function Moon({
   sessionId,
   active = false,
   onOpen,
+  muted = false,
 }: MoonProps) {
   const { openable, effectiveState } = moonInteraction(subagent, Boolean(onOpen && sessionId))
 
   const mix = useStateMix(MOON_STATES, effectiveState)
   const hueTween = useHueTween(hue)
+  // 0 unmuted, 1 muted — the same tween the parent planet runs, so the two
+  // fade together.
+  const muteFade = useFadeTween(muted, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
   const materials = useMoonMaterials()
   const hasGlowTexture = glowTexture() !== null
 
@@ -662,7 +675,10 @@ export function Moon({
   const applyState = () => {
     const w = mix.weights
     const b = blendRef.current
-    const hueC = setOklchTagColor(hueColor.current, hueTween.value)
+    // The search mute: the whole moon down by `mutedOpacity`, its hue toward
+    // the ended grey — the same pair the parent planet applies.
+    const mute = mutedOpacity(muteFade.value)
+    const hueC = setOklchTagColor(hueColor.current, hueTween.value).lerp(GREY_COLOR, muteFade.value)
     const solid = 1 - b.materializing
     // Canvas 11e Hover: "white rim, brighter core, one outer halo ring" — the
     // ring/label are `MoonControl`'s own DOM (see `Moon`'s "INTERACTIVITY"
@@ -675,7 +691,7 @@ export function Moon({
     // 1f: the needs-input moon's glow is the white `0 0 10px #fff` on its core;
     // every other state glows in the tag hue off the disc.
     materials.glow.color.copy(hueC).lerp(WHITE_COLOR, w.needs_input)
-    materials.glow.opacity = Math.min(1, b.glowOpacity * (hoverAmt ? MOON_HOVER_GLOW_BOOST : 1))
+    materials.glow.opacity = Math.min(1, b.glowOpacity * (hoverAmt ? MOON_HOVER_GLOW_BOOST : 1)) * mute
     materials.glow.visible = hasGlowTexture && b.glowOpacity > 0.001 && b.glowSize > 0
     if (glowRef.current) glowRef.current.scale.setScalar(b.glowSize)
 
@@ -692,16 +708,16 @@ export function Moon({
     }
     materials.disc.color.setRGB(r, g, bl)
     if (hoverAmt) materials.disc.color.lerp(WHITE_COLOR, MOON_HOVER_DISC_BRIGHTEN)
-    materials.disc.opacity = solid * b.dim
+    materials.disc.opacity = solid * b.dim * mute
     materials.disc.visible = materials.disc.opacity > 0.001
 
     materials.rim.color.copy(hueC).lerp(GREY_COLOR, w.ended).lerp(WHITE_COLOR, hoverAmt)
-    materials.rim.opacity = b.rimOpacity * solid * b.dim
+    materials.rim.opacity = b.rimOpacity * solid * b.dim * mute
     materials.rim.visible = materials.rim.opacity > 0.001
     if (discGroupRef.current) discGroupRef.current.scale.setScalar(b.discRadius)
 
     materials.ticks.color.copy(hueC)
-    materials.ticks.opacity = w.working * MOON_TICK_OPACITY
+    materials.ticks.opacity = w.working * MOON_TICK_OPACITY * mute
     materials.ticks.visible = materials.ticks.opacity > 0.001
 
     materials.core.color.copy(hueC).lerp(WHITE_COLOR, Math.max(w.needs_input, hoverAmt))
@@ -709,7 +725,7 @@ export function Moon({
 
     if (trailRef.current) {
       trailRef.current.material.color.copy(hueC).lerp(GREY_COLOR, w.ended)
-      trailRef.current.material.opacity = b.trailOpacity
+      trailRef.current.material.opacity = b.trailOpacity * mute
     }
     if (shellLineRef.current) shellLineRef.current.material.color.copy(hueC)
     if (matRingRef.current) matRingRef.current.material.color.copy(hueC)
@@ -768,8 +784,10 @@ export function Moon({
     const hueMoved = advanceTween(hueTween, delta)
     const b = blendRef.current
     if (mixMoved) blendMoon(mix.weights, b)
-    if (mixMoved || hueMoved || !settled.current) applyState()
-    settled.current = !(mixMoved || hueMoved)
+    const muteMoved = advanceTween(muteFade, delta)
+    if (mixMoved || hueMoved || muteMoved || !settled.current) applyState()
+    settled.current = !(mixMoved || hueMoved || muteMoved)
+    const mute = mutedOpacity(muteFade.value)
 
     if (b.tickSpin > 0 && tickGroupRef.current) {
       tickGroupRef.current.rotation.z += b.tickSpin * delta
@@ -777,14 +795,14 @@ export function Moon({
 
     corePhase.current += b.corePulseSec > 0 ? delta / b.corePulseSec : 0
     const blink = b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
-    materials.core.opacity = b.coreOpacity * blink * b.dim
+    materials.core.opacity = b.coreOpacity * blink * b.dim * mute
     materials.core.visible = materials.core.opacity > 0.001 && b.coreRadius > 0
 
     if (b.ripple > 0.001) {
       rippleElapsed.current = (rippleElapsed.current + delta) % MOON_RIPPLE_DURATION_SEC
       const progress = easeOut(rippleElapsed.current / MOON_RIPPLE_DURATION_SEC)
       if (rippleRef.current) rippleRef.current.scale.setScalar(1 + progress * (MOON_RIPPLE_MAX_SCALE - 1))
-      materials.ripple.opacity = MOON_RIPPLE_START_OPACITY * (1 - progress) * b.ripple
+      materials.ripple.opacity = MOON_RIPPLE_START_OPACITY * (1 - progress) * b.ripple * mute
       materials.ripple.visible = true
     } else {
       rippleElapsed.current = 0
@@ -802,10 +820,10 @@ export function Moon({
       const shellScale = MAT_SHELL_MIN_SCALE + (MAT_SHELL_MAX_SCALE - MAT_SHELL_MIN_SCALE) * breath
       if (shellGroupRef.current) shellGroupRef.current.scale.setScalar(shellScale)
       if (shellLineRef.current) {
-        shellLineRef.current.material.opacity = shellOpacity * 0.9 * b.materializing
+        shellLineRef.current.material.opacity = shellOpacity * 0.9 * b.materializing * mute
         shellLineRef.current.visible = true
       }
-      materials.matFill.opacity = shellOpacity * MAT_FILL_ALPHA * b.materializing
+      materials.matFill.opacity = shellOpacity * MAT_FILL_ALPHA * b.materializing * mute
       materials.matFill.visible = true
       // `orb-matring 1.8s ease-out`: scale .6 → 2, opacity .8 → 0.
       const ringProgress = easeOut((matElapsed.current % MAT_RING_SEC) / MAT_RING_SEC)
@@ -813,7 +831,7 @@ export function Moon({
         matRingRef.current.scale.setScalar(
           MAT_RING_MIN_SCALE + ringProgress * (MAT_RING_MAX_SCALE - MAT_RING_MIN_SCALE)
         )
-        matRingRef.current.material.opacity = MAT_RING_START_OPACITY * (1 - ringProgress) * b.materializing
+        matRingRef.current.material.opacity = MAT_RING_START_OPACITY * (1 - ringProgress) * b.materializing * mute
         matRingRef.current.visible = true
       }
     } else {
