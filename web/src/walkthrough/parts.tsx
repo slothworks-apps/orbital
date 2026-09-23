@@ -12,7 +12,7 @@ const TONES = {
   lit: 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright font-semibold',
   // Previous, Open the transcript (canvas 21b/21e).
   quiet: 'border-[rgba(150,205,255,.14)] bg-transparent text-text-bright font-semibold',
-  // Start, Back to the map (canvas 21a/21e).
+  // Start (canvas 21a).
   accent:
     'border-[oklch(85%_.12_205/.6)] bg-[oklch(85%_.12_205/.12)] text-[#f2f9ff] font-bold shadow-[0_0_0_3px_oklch(85%_.12_205/.08)]',
 } as const

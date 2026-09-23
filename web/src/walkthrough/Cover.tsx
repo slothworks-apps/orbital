@@ -1,10 +1,9 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import type { ApiSession, Walkthrough } from '../lib/types'
 import { blindAlleySteps, midTurn, plural, refusalOf, sessionSpan } from './derive'
 import { WalkButton } from './parts'
-import { TopBar } from './TopBar'
 
 interface CoverProps {
   id: string
@@ -12,10 +11,12 @@ interface CoverProps {
   walkthrough: Walkthrough
   onStart(): void
   onRefetch(): void
+  /** The page bar, which this screen places (canvas `Feature - Page headers` 25d). */
+  bar: ReactNode
 }
 
 /** Screen one (canvas 21a): what the session did, in four numbers, and the way in. */
-export function Cover({ id, session, walkthrough, onStart, onRefetch }: CoverProps) {
+export function Cover({ id, session, walkthrough, onStart, onRefetch, bar }: CoverProps) {
   const empty = walkthrough.steps.length === 0
   const span = sessionSpan(session.firstAt, session.lastAt)
   const branch = session.git?.ref
@@ -28,7 +29,7 @@ export function Cover({ id, session, walkthrough, onStart, onRefetch }: CoverPro
 
   return (
     <div className="flex min-h-screen flex-col">
-      <TopBar id={id} session={session} />
+      {bar}
 
       <main className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center gap-9 py-12">
         <div className="flex flex-col gap-3">
@@ -90,7 +91,7 @@ const NOT_OURS = 'this session is not Orbital\'s to continue'
  * — and asked but not answered yet, while the previous narration (if any)
  * still groups the rail. The button asks the session for one turn.
  */
-function NarrationBlock({ id, session, walkthrough, onRefetch }: Omit<CoverProps, 'onStart'>) {
+function NarrationBlock({ id, session, walkthrough, onRefetch }: Omit<CoverProps, 'onStart' | 'bar'>) {
   const [sending, setSending] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
   const narration = walkthrough.narration

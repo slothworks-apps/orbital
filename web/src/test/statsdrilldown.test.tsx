@@ -85,7 +85,7 @@ describe('SessionDrilldown', () => {
 
     render(<StatsPage route={route} />)
 
-    await screen.findByText('refactor map layer')
+    await screen.findByRole('heading', { name: 'refactor map layer' })
     // The drilldown draws the waterfall, so it asks for the on-demand timeline.
     expect(api.sessionStats).toHaveBeenCalledWith(route.id, { timeline: true })
   })

@@ -4,20 +4,21 @@ import { blindAlleySteps, callsOf, fileCounts, intentFor, midTurn, pathOf, plura
 import { GapLine } from './GapLine'
 import { BlinkDot, JumpLink, WalkButton } from './parts'
 import { mapHref } from './route'
-import { TopBar } from './TopBar'
 
 interface CloseScreenProps {
   id: string
   session: ApiSession
   walkthrough: Walkthrough
   onJump(stepId: string): void
+  /** The page bar, which this screen places (canvas `Feature - Page headers` 25d). */
+  bar: ReactNode
 }
 
 /**
  * Screen three (canvas 21e): every file touched and how it ended, the
  * abandoned work in one place, and what is still open — three columns.
  */
-export function CloseScreen({ id, session, walkthrough, onJump }: CloseScreenProps) {
+export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScreenProps) {
   const steps = walkthrough.steps
   const blind = blindAlleySteps(walkthrough)
   const open = stillOpen(walkthrough)
@@ -53,7 +54,7 @@ export function CloseScreen({ id, session, walkthrough, onJump }: CloseScreenPro
 
   return (
     <div className="flex min-h-screen flex-col">
-      <TopBar id={id} session={session} crumb="close" />
+      {bar}
 
       <main className="flex flex-1 flex-col gap-[30px] px-24 pt-11">
         <h1 className="text-[32px] font-bold tracking-[-.02em] text-text-bright">
@@ -175,15 +176,14 @@ export function CloseScreen({ id, session, walkthrough, onJump }: CloseScreenPro
           </Column>
         </div>
 
+        {/* 21e's "← Back to the map" is gone: the bar's esc does it (canvas
+            `Feature - Page headers` 25d). */}
         <footer className="mt-auto flex items-center gap-3.5 border-t border-[rgba(150,205,255,.08)] pt-[18px] pb-7">
-          <WalkButton tone="accent" size="md" href={mapHref(id)}>
-            ← Back to the map
-          </WalkButton>
           <WalkButton tone="quiet" size="md" href={mapHref(id)}>
             Open the transcript
           </WalkButton>
           <span className="flex-1" />
-          <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">esc · back to the map with {session.title} selected</span>
+          <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">esc · back to the map</span>
         </footer>
       </main>
     </div>

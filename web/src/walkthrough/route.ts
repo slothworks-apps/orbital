@@ -25,9 +25,10 @@ export function walkthroughPath(id: string): string {
 }
 
 /**
- * Back to the map with this session selected — the page's only exit. Lives
- * here rather than in `WalkthroughPage` so the screens can link to it without
- * importing the page that renders them.
+ * The map with this session's detail panel open: where the page bar's session
+ * crumb and the close screen's "Open the transcript" go. Lives here rather
+ * than in `WalkthroughPage` so the screens and the bar's crumbs
+ * (`lib/pageCrumbs`) can link to it without importing the page.
  */
 export function mapHref(id: string): string {
   return withSessionParam(id, `${window.location.origin}/`)

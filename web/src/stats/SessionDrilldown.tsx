@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api, ApiError } from '../lib/api'
 import { modelNameForId } from '../lib/models'
 import { SESSION_PARAM } from '../lib/sessionUrl'
-import type { OrbitalModel, SessionStatsDetail } from '../lib/types'
+import type { ApiSession, OrbitalModel, SessionStatsDetail } from '../lib/types'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
+import { PageBar } from '../ui/PageBar'
 import { FindingCard } from './FindingCard'
 import { PANEL_CLASS, PANEL_LABEL_CLASS, TIME_CATEGORIES, TRACK_COLOR } from './constants'
 import { findingTurnUuid, withSession } from './findingCopy'
@@ -19,7 +20,7 @@ import { projectLabeller } from './projects'
 import { busyMsOf, spanOf } from './rollup'
 import { Scroller } from './Scroller'
 import { STATS_PATH, readTurnParam, sessionStatsPath } from './route'
-import { StatsHeader, StatsShell } from './StatsShell'
+import { StatsShell } from './StatsShell'
 import { TurnWaterfall, type WaterfallFocus } from './TurnWaterfall'
 
 /**
@@ -64,6 +65,23 @@ export function SessionDrilldown({ id }: { id: string }) {
     void api.listModels().then((r) => setModels(r.models)).catch(() => setModels([]))
   }, [])
 
+  // The session's own row, for the bar only: its tag, path and status (25c).
+  // The stats endpoint carries none of the three. A session Orbital does not
+  // know leaves the bar with its crumbs and esc.
+  const [session, setSession] = useState<ApiSession | null>(null)
+  useEffect(() => {
+    let live = true
+    api.getSession(id).then(
+      (data) => {
+        if (live) setSession(data?.session ?? null)
+      },
+      () => {},
+    )
+    return () => {
+      live = false
+    }
+  }, [id])
+
   const jumpToTurn = useCallback(
     (uuid: string) => {
       setFocus((current) => ({ uuid, seq: (current?.seq ?? 0) + 1 }))
@@ -74,21 +92,20 @@ export function SessionDrilldown({ id }: { id: string }) {
     [id]
   )
 
-  return (
-    <StatsShell sky="session">
-      <StatsHeader
-        crumb={
-          <>
-            /{' '}
-            <a href={STATS_PATH} className="text-[rgba(160,190,225,.6)] no-underline hover:text-text-soft">
-              STATS
-            </a>{' '}
-            / SESSION
-          </>
-        }
-        actions={<BackToFindings />}
-      />
+  // ORBITAL / STATS / <session>; right, path · status chip · esc (canvas
+  // `Feature - Page headers` 25c). Until the stats answer, the crumb reads
+  // the head of the uuid, as the meta line does.
+  const bar = (
+    <PageBar
+      route={{ page: 'drilldown', title: detail?.session.title ?? session?.title ?? id.slice(0, 8) }}
+      surface="sky"
+      session={session}
+      onCrumb={{ stats: backToFindings }}
+    />
+  )
 
+  return (
+    <StatsShell sky="session" bar={bar}>
       {error !== null && (
         <div className="rounded-[14px] border border-[rgba(255,138,122,.35)] bg-[rgba(4,8,16,.45)] px-[14px] py-3 font-mono text-[11.5px] text-[#ff8a7a]">
           session stats unavailable — {error}
@@ -132,30 +149,20 @@ export function SessionDrilldown({ id }: { id: string }) {
 }
 
 /**
- * 10b's way back. A real link, so it works from a pasted URL and under
- * ⌘-click — but when the feed is the previous entry, it goes back through
- * history instead, which is what restores the scroll position the user left
- * it at (10e "click finding").
+ * The way up, by the STATS crumb or ⌘[ (canvas `Feature - Page headers` 25c).
+ * When the feed is the previous entry it goes back through history, which is
+ * what restores the scroll position the user left it at (10e "click
+ * finding"); otherwise it loads `/stats`. The crumb stays a real link, so a
+ * ⌘-click still opens the feed in a tab of its own.
  */
-function BackToFindings() {
-  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return
-    const referrer = document.referrer
-    if (referrer === '' || new URL(referrer).origin !== window.location.origin) return
-    if (new URL(referrer).pathname !== STATS_PATH) return
-    event.preventDefault()
-    window.history.back()
-  }
-
-  return (
-    <a
-      href={STATS_PATH}
-      onClick={onClick}
-      className="font-mono text-[11px] tracking-[0.08em] text-[#8fd8ff] no-underline"
-    >
-      ← back to findings
-    </a>
-  )
+function backToFindings(): void {
+  const referrer = document.referrer
+  const fromFeed =
+    referrer !== '' &&
+    new URL(referrer).origin === window.location.origin &&
+    new URL(referrer).pathname === STATS_PATH
+  if (fromFeed) window.history.back()
+  else window.location.assign(STATS_PATH)
 }
 
 function SessionMeta({

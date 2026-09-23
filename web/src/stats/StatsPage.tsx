@@ -3,12 +3,13 @@ import { api, ApiError } from '../lib/api'
 import type { OrbitalModel, StatsOverview } from '../lib/types'
 import { NEW_SESSION_PARAM } from '../lib/sessionUrl'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
+import { PageBar } from '../ui/PageBar'
 import { BusyPerDayChart } from './BusyPerDayChart'
 import { CacheRatioChart } from './CacheRatioChart'
 import { FindingsFeed } from './FindingsFeed'
 import { StatsEmpty } from './StatsEmpty'
 import { StatsFilterBar } from './StatsFilterBar'
-import { StatsShell, StatsHeader } from './StatsShell'
+import { StatsShell } from './StatsShell'
 import { StatsTiles } from './StatsTiles'
 import { SessionDrilldown } from './SessionDrilldown'
 import { ToolLeaderboard } from './ToolLeaderboard'
@@ -94,9 +95,10 @@ function StatsDashboard() {
   const empty = overview !== null && overview.sessionCount === 0
 
   return (
-    <StatsShell sky={empty ? 'empty' : 'dashboard'}>
-      <StatsHeader crumb="/ STATS" actions={<DashboardNav />} />
-
+    // ORBITAL / STATS, and esc as the only item on the right: the ORBITAL
+    // crumb and esc replace the MAP · STATS switch (canvas `Feature - Page
+    // headers` 25b).
+    <StatsShell sky={empty ? 'empty' : 'dashboard'} bar={<PageBar route={{ page: 'stats' }} surface="sky" />}>
       <StatsFilterBar
         filters={filters}
         projects={projects}
@@ -134,20 +136,6 @@ function StatsDashboard() {
           </ErrorBoundary>
         ))}
     </StatsShell>
-  )
-}
-
-/** 10a's right-hand header pair, the second half of which this screen is. */
-function DashboardNav() {
-  return (
-    <nav className="flex items-center gap-[18px] font-mono text-[11px] tracking-[0.08em]">
-      {/* A real link, not a router push: `/` mounts `App`, which this screen
-          deliberately does not have loaded. */}
-      <a href="/" className="text-[rgba(160,190,225,.6)] no-underline hover:text-text-soft">
-        MAP
-      </a>
-      <span className="border-b border-accent pb-[3px] text-text-bright">STATS</span>
-    </nav>
   )
 }
 
