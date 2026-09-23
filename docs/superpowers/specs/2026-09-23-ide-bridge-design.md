@@ -1,7 +1,7 @@
 ---
 id: 2026-09-23-ide-bridge-design
 title: The IDE bridge
-status: draft
+status: active
 type: spec
 domain: sessions
 related:
@@ -59,19 +59,35 @@ the thing being tracked belongs to a directory, and several sessions share it.
 
 - A `chokidar` watch on `~/.claude/ide` picks up locks as they appear and
   vanish. A lock that cannot be parsed is ignored, not retried.
-- Each lock becomes one connection, keyed by **workspace root**: every entry of
-  its `workspaceFolders`. One editor process can hold several locks — one per
-  open project — and they are separate connections with separate tokens.
+- Each lock becomes one connection, held **by port** — the lock file is the
+  unit, and one editor process can hold several, one per open project, with
+  separate tokens. A connection *claims* the workspace roots in its
+  `workspaceFolders`, but only once its handshake and `tools/list` have come
+  back: until then it is invisible, which is how a stale lock on a refusing
+  port stays "no editor" rather than becoming a broken one.
+- A lock rewritten with the same contents is left alone. A lock rewritten with
+  a new token or new folders is a new editor session on that port, so the old
+  socket is dropped and a new one opened.
 - `locate(cwd)` answers which connection covers a `cwd`, by longest matching
   workspace root, or null. Resolutions are cached both ways, like `GitStore`'s
   `rootByCwd` / `cwdsByRoot`, so a change can name the sessions it touches.
+- Unlike a working tree, an editor comes and goes under a running session, so
+  a cached resolution is not final: every `cwd` the store has ever been asked
+  about is re-answered whenever the set of connected workspaces changes, and
+  the ones that moved are what `change` carries.
 - The store emits `change` with the workspace root and the affected `cwd`s.
   `index.ts` turns that into republished sessions, exactly as it already does
-  for a `HEAD` that moved.
+  for a `HEAD` that moved — one helper now serves both.
 - A stale lock — the port refuses the connection — is left on disk. Deleting
   other processes' lock files is the CLI's job, not Orbital's.
+- A lock naming a `transport` other than `ws` is ignored rather than tried:
+  the only client here speaks WebSocket. A lock that omits the field is taken
+  at the word of everything else in it.
 
-`ShapeContext` gains an `ide: IdeStore` field alongside `git`.
+`ShapeContext` gains an `ide: IdeStore` field alongside `git`, and the store is
+`start()`ed rather than used straight from its constructor — starting is what
+reads the lock directory and opens sockets, and none of that may sit in front
+of a session.
 
 ## Normalising a selection
 
@@ -91,10 +107,20 @@ interface IdeSelection {
 ```
 
 `lineStart` is `start.line + 1`. `lineCount` is `end.line - start.line + 1`,
-**decremented when `end.character` is zero** — a selection dragged to the start
-of the next line does not include that line, and without this correction every
-full-line selection reads one line too long. This mirrors the CLI's arithmetic
-so that Orbital and the terminal describe the same selection identically.
+**decremented when `end.character` is zero and the range spans more than one
+line** — a selection dragged to the start of the next line does not include
+that line, and without this correction every full-line selection reads one line
+too long. This mirrors the CLI's arithmetic so that Orbital and the terminal
+describe the same selection identically.
+
+The "spans more than one line" guard is a correction to this spec as first
+written, found while building: a caret is `start === end`, and a caret resting
+in column zero is by far the commonest payload the extension sends. The
+unguarded rule reports **zero lines** for it, which is not a reading anything
+downstream can draw.
+
+An empty `text` is treated exactly as an absent one — both mean the caret
+moved and nothing is selected — so no lip is ever raised over an empty string.
 
 Edge cases the tests should pin: a caret with `start === end`; a selection
 ending at column zero; a single-line selection; a selection spanning the end of
@@ -112,6 +138,13 @@ flooding the browser socket; the trailing edge is what matters, and it is what
 gets sent. The two rates the canvas asks for — the cursor line's throttle and
 the lip's debounce — are applied in the browser, on one publish stream, rather
 than by publishing twice.
+
+`IDE_SELECTION_COALESCE_MS` is the window. It starts on the first notification
+of a burst and is **not** extended by the rest of it: a drag that never lets go
+still publishes, and what it publishes is wherever the drag had reached. A
+payload equal to the last one published is dropped at the end of the window, so
+the byte-identical repeats — a good third of the flood — never become a
+republish of every session in the workspace.
 
 ## What reaches the browser
 
@@ -202,8 +235,16 @@ timings are a good starting point for the values and nothing more.
 ## Open files, for `@` completion
 
 `GET /api/sessions/:id/ide/open-files` calls `get_all_opened_file_paths` on the
-connection covering that session and returns absolute paths, or `404` when
-there is no editor. The composer's `@` completion
+connection covering that session and answers `{ files: string[] }` — absolute
+paths, in the editor's order, filtered to the session's `cwd`.
+
+`404` is the single answer to every kind of "no": an id that names no session,
+no lock at all, a lock covering another project, a connection that never came
+up, and an extension whose `tools/list` did not include the tool. One thing for
+the caller to handle, and it is the thing Orbital did before this feature
+existed.
+
+The composer's `@` completion
 (`server/src/files/complete.ts`) ranks them above other matches. Canvas
 artboard 20c: no section header, no divider, no second list — open tabs are
 just ranked higher, and "open" is said in the row's existing mark slot.
@@ -299,6 +340,29 @@ Worth testing, per the repository's rule:
 
 Not worth testing: that the chip renders its props, and anything that would
 require a live editor to assert against.
+
+## What is built
+
+The server half, as of 2026-09-23:
+
+- `server/src/ide/protocol.ts` — lock parsing, the selection normaliser, the
+  workspace and sandbox matching, and the wire constants. All pure.
+- `server/src/ide/client.ts` — `IdeSocket`, the WebSocket MCP client, behind an
+  `IdeConnection` interface so the store can be tested without an editor. `ws`
+  is now a server dependency, as the adr said it would have to be.
+- `server/src/ide/store.ts` — `IdeStore`: the lock watch, the connections, the
+  coalescer, `locate`, `cwdsFor` and `openFiles`.
+- `ide` on `ShapeContext` and on `ApiSession`, beside `git`, and
+  `GET /api/sessions/:id/ide/open-files`.
+
+Measured working against the live WebStorm on this machine, through the source
+and through an `esbuild` bundle of it — the DMG ships the bundle, and `ws`
+carries optional native dependencies that a bundler has to get past.
+
+Still to build: everything in the browser (the slot, the lip, the per-session
+dismissal), the `@` completion's ranking in `server/src/files/complete.ts`,
+and the three tools in *Talking back to the editor*, in the order given there.
+Nothing above assumes any of them.
 
 ## Out of scope
 

@@ -6,6 +6,8 @@ import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '.
 import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
 import type { GitStore } from '../git/store.js';
 import type { GitLocation } from '../git/gitState.js';
+import type { IdeStore } from '../ide/store.js';
+import type { IdeContext } from '../ide/protocol.js';
 
 /**
  * Minimal context `toApiSession` needs to compute the REST session shape.
@@ -19,6 +21,7 @@ export interface ShapeContext {
   runner: Runner;
   subagents: SubagentStore;
   git: GitStore;
+  ide: IdeStore;
 }
 
 export interface ApiSession {
@@ -95,6 +98,18 @@ export interface ApiSession {
    * fork or tree mark from these facts; the mark itself is not on the wire.
    */
   git: GitLocation | null;
+  /**
+   * The editor open on this session's workspace right now, or null when none
+   * is — live state of a directory rather than a fact about the session, the
+   * same standing `git` has (adr `orbital-speaks-to-the-ide-itself`). Two
+   * sessions in one workspace always show the same selection, for the same
+   * reason two sessions in one checkout show the same branch.
+   *
+   * Open files deliberately do not ride here: there can be dozens, they
+   * change constantly, and one surface wants them — so they are fetched from
+   * `GET /api/sessions/:id/ide/open-files` instead.
+   */
+  ide: IdeContext | null;
 }
 
 export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
@@ -129,5 +144,6 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     subagents: ctx.subagents.get(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
     git: ctx.git.locate(row.cwd),
+    ide: ctx.ide.locate(row.cwd),
   };
 }
