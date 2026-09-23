@@ -38,6 +38,47 @@ accepted, and the slide was the implementation's own invention. If the overlap
 looks wrong on screen, the reticle should move — fade the bottom bracket while
 a label is under it, or shorten it — not the text.
 
+## 2026-09-23: the overlap is resolved by dropping the label
+
+Pinning the label left the bottom brackets running through the title of a
+selected planet, and on screen that did look wrong. Tomin asked for the
+overlap to go.
+
+**The label now drops below the reticle's bracket square while the planet is
+selected.** It works the same way as the drop a gauged planet already had
+below the gauge's tick ring. `labelRestY(gauged, selected)` in `visuals.ts`
+picks the lowest place: under the brackets (`LABEL_SELECTED_REST_Y`, which is
+`BRACKET_INSET` plus the label's usual 34px gap, `LABEL_GAP`), under the tick
+ring (`LABEL_GAUGED_REST_Y`), or under the body (`LABEL_TOP_REST_Y`).
+
+The drop does not slide, which is what this document warned against. The
+label fades out where it is, jumps while it is invisible, and fades back in
+at the new place. All three steps follow the reticle's own fade:
+`labelUnderReticle` flips at `SELECTION_LABEL_HANDOFF`, and
+`selectionLabelOpacity` reaches zero at exactly that point (`transition.ts`,
+tested in `visuals.test.ts`). The text never moves while it can be seen. The
+label group's `y` is now written by the frame loop instead of a JSX prop, so
+it still has one owner. The hover scrim is a child of the same group and
+drops with it.
+
+**The simulation knows about the drop.** `planetOutline` takes `selected` and
+measures the label from `labelRestY`, so the box of a selected planet
+reaches the dropped label. Its neighbours walk clear of the label instead of
+the label landing on them. This changes one point of
+[[separation-rests-at-the-outline]]: the reticle still never pushes the
+neighbours, but selecting a planet now moves the neighbour below it by the
+length of the drop. `simulation.test.ts` has two selected clusters in its
+acceptance check. Without the sim change, the three-planet one fails with the
+dropped label 9.5px inside a neighbour's body.
+
+**Why the reticle was not shortened instead.** The reticle is the canvas's
+element: 1f draws four equal corner brackets, and taking out or fading the
+bottom pair would change the design to fit around our label. The label drop
+already existed for the gauge, and it is a rule the owner has already
+accepted. The simulation also already models label offsets, so reusing the
+drop costs one more case. Changing the reticle's shape would have needed a
+new canvas decision.
+
 ## A re-render could snap it
 
 The label group carried `position` as a JSX prop while the frame loop wrote

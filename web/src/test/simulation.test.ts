@@ -34,6 +34,7 @@ import {
   BADGE_OFFSET_X,
   BADGE_OFFSET_Y,
   BRACKET_INSET,
+  LABEL_SELECTED_REST_Y,
   LABEL_TOP_REST_Y,
   labelFontPx,
   moonVisuals,
@@ -595,7 +596,8 @@ describe('settled clusters keep labels and pills clear', () => {
       const edge = BRACKET_INSET * s
       out.push({ id: spec.id, kind: 'body', x0: b.x - edge, x1: b.x + edge, y0: b.y - edge, y1: b.y + edge })
       const label = restingLabelSizePx(spec.title, 'OPUS', FONT)
-      const top = b.y + LABEL_TOP_REST_Y * s
+      // A selected planet hangs its label under the reticle's brackets instead.
+      const top = b.y + (spec.selected ? LABEL_SELECTED_REST_Y : LABEL_TOP_REST_Y) * s
       out.push({
         id: spec.id,
         kind: 'label',
@@ -645,6 +647,8 @@ interface ClusterSpec {
   asks?: boolean
   /** Live moons, all still working — the planet waits on them. */
   moons?: number
+  /** Selected: the label drops below the reticle's brackets. */
+  selected?: boolean
 }
 
 const FONT = labelFontPx(1, false)
@@ -671,6 +675,21 @@ const CLUSTERS: Record<string, ClusterSpec[]> = {
     { id: 'c', status: 'working', title: 'Docs pass', moons: 1 },
     { id: 'd', status: 'idle', title: LONG },
     { id: 'e', status: 'ended', title: LONG },
+    { id: 'f', status: 'ended', title: 'Spike' },
+  ],
+  // The selected planet's label hangs lower than a resting one, so the
+  // neighbour below it has to keep clear of the dropped label.
+  'three, the working one selected': [
+    { id: 'a', status: 'working', title: LONG, selected: true },
+    { id: 'b', status: 'needs_input', title: LONG },
+    { id: 'c', status: 'needs_input', title: LONG },
+  ],
+  'six with moons, a DONE one selected': [
+    { id: 'a', status: 'working', title: LONG, moons: 3 },
+    { id: 'b', status: 'needs_input', title: LONG, asks: true },
+    { id: 'c', status: 'working', title: 'Docs pass', moons: 1 },
+    { id: 'd', status: 'idle', title: LONG },
+    { id: 'e', status: 'needs_input', title: LONG, selected: true },
     { id: 'f', status: 'ended', title: 'Spike' },
   ],
 }
@@ -714,7 +733,11 @@ function settledCluster(specs: ClusterSpec[], zoom: number): SimState {
         x: k * Math.sqrt(i) * Math.cos(i * GOLDEN_ANGLE),
         y: k * Math.sqrt(i) * Math.sin(i * GOLDEN_ANGLE),
         r: moons > 0 ? moonOrbitRadius(scale, moons - 1, false) + moonVisuals('working').discRadius : scale,
-        outline: planetOutline({ session: session(spec), scale, modelFamily: 'Opus', gauged: false }, 1, FONT),
+        outline: planetOutline(
+          { session: session(spec), scale, modelFamily: 'Opus', gauged: false, selected: spec.selected ?? false },
+          1,
+          FONT
+        ),
         live: spec.status === 'working' || spec.status === 'needs_input',
         released: false,
       }

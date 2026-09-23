@@ -46,10 +46,28 @@ export const CONTEXT_GAUGE_OUTER = px(92)
 
 /** Selection reticle's corner brackets (1f: `±50px` spans on a 100px body, i.e. `inset:-50px`). */
 export const BRACKET_INSET = px(100)
+/** The label's gap under whatever it hangs below: the `34px` of `top: calc(100% + 34px)`. */
+const LABEL_GAP = px(34)
 /** Top edge of the resting label: `top: calc(100% + 34px)` under the body box. */
-export const LABEL_TOP_REST_Y = -(BODY_RADIUS + px(34))
-/** …and under a context gauge's tick ring instead, with the same 34px gap. */
-export const LABEL_GAUGED_REST_Y = -(CONTEXT_GAUGE_OUTER + px(34))
+export const LABEL_TOP_REST_Y = -(BODY_RADIUS + LABEL_GAP)
+/** …and under a context gauge's tick ring instead, with the same gap. */
+export const LABEL_GAUGED_REST_Y = -(CONTEXT_GAUGE_OUTER + LABEL_GAP)
+/** …and under the selection reticle's bracket square, with the same gap. */
+export const LABEL_SELECTED_REST_Y = -(BRACKET_INSET + LABEL_GAP)
+
+/**
+ * Where the label's top edge rests: under the lowest thing the planet draws
+ * below its body — the reticle's brackets while selected, the gauge's tick
+ * ring while gauged, the body otherwise. `Planet` places the label with it
+ * and `planetOutline` measures it, so the two cannot disagree.
+ */
+export function labelRestY(gauged: boolean, selected: boolean): number {
+  return Math.min(
+    LABEL_TOP_REST_Y,
+    gauged ? LABEL_GAUGED_REST_Y : 0,
+    selected ? LABEL_SELECTED_REST_Y : 0
+  )
+}
 /** State pill's top-left corner (1f: `left: calc(100% + 10px); top: -12px` off the body box). */
 export const BADGE_OFFSET_X = px(60)
 export const BADGE_OFFSET_Y = px(62)

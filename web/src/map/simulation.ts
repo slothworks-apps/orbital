@@ -30,8 +30,7 @@ import {
   BRACKET_INSET,
   COMPACT_BADGE_OFFSET_X,
   COMPACT_BADGE_OFFSET_Y,
-  LABEL_GAUGED_REST_Y,
-  LABEL_TOP_REST_Y,
+  labelRestY,
   restingLabelSizePx,
   statePillSizePx,
 } from './visuals'
@@ -531,6 +530,8 @@ export function planetOutline(
     modelFamily: string | null
     /** The context gauge moves the label and the pill further out (`Planet`'s `clearsGauge`). */
     gauged: boolean
+    /** Selection drops the label below the reticle's brackets (`labelRestY`). */
+    selected: boolean
   },
   planetScale: number,
   labelFont: { title: number; family: number }
@@ -540,7 +541,7 @@ export function planetOutline(
   const pill = state ? statePillSizePx(state.label, state.pulse) : { width: 0, height: 0 }
   return {
     scale: planet.scale * planetScale,
-    labelTop: -(planet.gauged ? LABEL_GAUGED_REST_Y : LABEL_TOP_REST_Y),
+    labelTop: -labelRestY(planet.gauged, planet.selected),
     labelWidthPx: label.width,
     labelHeightPx: label.height,
     pillX: planet.gauged ? COMPACT_BADGE_OFFSET_X : BADGE_OFFSET_X,
@@ -571,9 +572,11 @@ function sameOutline(a: PlanetOutline | null, b: PlanetOutline | null): boolean 
  *
  * - the body, as a square — its moon system (`r`) or the selection
  *   reticle's corner brackets, whichever is wider. The brackets count
- *   whether or not the planet is selected, so selecting one never shoves its
- *   neighbours;
- * - the label below it;
+ *   whether or not the planet is selected, so the reticle itself never
+ *   shoves the neighbours;
+ * - the label below it — below the brackets while the planet is selected
+ *   (`labelRestY`), so selecting a planet does walk the neighbour under it
+ *   clear of the dropped label;
  * - the state pill to its right, when it wears one.
  *
  * Body parts grow with the counter-zoom (`bodyZoomFactor`), the label and
