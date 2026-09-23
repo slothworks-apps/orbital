@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react'
 import { awaitingSubagentLabel, tagColor } from '../lib/types'
 import type { SessionStatus } from '../lib/types'
 import type { SubagentTaskState } from '../lib/subagentPanel'
@@ -7,13 +6,13 @@ export type BadgeProps =
   | {
       variant: 'status'
       value: SessionStatus
-      /** Tag hue tinting a working badge (canvas 1b). */
+      /** Tag hue tinting a working status's dot (canvas 9d). */
       hue?: number
       /**
        * A server restart cut this session's turn short (spec
        * 2026-09-21-session-autoheal-design). A modifier rather than a status
        * of its own: the session really is waiting for input, and this says
-       * why. It reads `INTERRUPTED`, keeps the needs-input chip's treatment,
+       * why. It reads `INTERRUPTED`, keeps the needs-input label's treatment,
        * and drops the blinking dot — nothing is happening; something stopped.
        */
       interrupted?: boolean
@@ -22,14 +21,14 @@ export type BadgeProps =
        * reason it is working (`awaitingSubagentCount`). A modifier on
        * `working` for the same reason `interrupted` is one on `needs_input`:
        * the state is right, and this says what is filling it. It keeps the
-       * working chip's tint and its blinking dot — something IS happening,
+       * working label's tint and its blinking dot — something IS happening,
        * just not here.
        */
       awaiting?: number
       /**
-       * What a `needs_input` chip should say (`parkedLabel`): NEEDS INPUT
+       * What a `needs_input` label should say (`parkedLabel`): NEEDS INPUT
        * when something is actually parked on the human, DONE when the turn
-       * merely finished. Ignored for every other status. Absent, the chip
+       * merely finished. Ignored for every other status. Absent, the label
        * keeps the blunt NEEDS INPUT — the answer for a caller that has no
        * session to ask, such as a legend.
        */
@@ -71,8 +70,7 @@ const statusLabel: Record<SessionStatus, string> = {
   ended: 'ENDED',
 }
 
-// Canvas 1b: squared-off mono chips (radius 5px), quiet dark fill, hue-tinted
-// border + blinking dot while working.
+// Canvas 1b: squared-off mono chips (radius 5px), quiet dark fill.
 const baseClass =
   'inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.04em]'
 
@@ -162,41 +160,34 @@ export function Badge(props: BadgeProps) {
   if (props.variant === 'status') {
     const { value, hue, interrupted, awaiting = 0, parked } = props
     const busy = value === 'working' || value === 'needs_input'
-    // The interrupted chip keeps needs-input's white treatment (which is what
-    // `tint === undefined` selects below), so the hue tint is dropped along
-    // with the dot.
+    // The interrupted label keeps needs-input's white treatment (which is
+    // what `tint === undefined` selects below), so the hue tint is dropped
+    // along with the dot.
     const tint = busy && !interrupted && hue !== undefined ? tagColor(hue) : undefined
-    // 1b tints only the BORDER with the session's tag hue, at 40% — the label
-    // itself stays the fixed accent, so the badge reads as one family across
-    // tags rather than restating the hue twice.
-    const style: CSSProperties | undefined =
-      tint && hue !== undefined
-        ? {
-            borderColor: `oklch(80% 0.13 ${hue} / 0.4)`,
-            color: 'var(--color-accent)',
-            letterSpacing: '0.08em',
-          }
-        : undefined
-    const stateClass =
-      interrupted || (value === 'needs_input' && !tint)
-        ? 'border-white text-white bg-white/10'
+    // The tag hue goes on the DOT only — the label stays the fixed accent, so
+    // it reads as one family across tags rather than restating the hue twice.
+    const stateClass = tint
+      ? 'text-accent'
+      : interrupted || value === 'needs_input'
+        ? 'text-white'
         : value === 'ended'
-          ? 'border-panel-border text-text-muted opacity-60'
+          ? 'text-text-muted opacity-60'
           : busy
-            ? 'border-panel-border text-text-soft'
-            : 'border-panel-border text-text-muted'
+            ? 'text-text-soft'
+            : 'text-text-muted'
 
     return (
+      // Canvas `Feature - Detail header` 9d, row 4: a dot and a mono label as
+      // plain text — no border, fill or padding. It replaced canvas 1b's chip.
       <span
         data-variant="status"
         data-status={interrupted ? 'interrupted' : awaiting > 0 ? 'awaiting_subagents' : value}
-        style={style}
-        className={`${baseClass} ${tint ? '' : stateClass}`}
+        className={`inline-flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.08em] ${stateClass}`}
       >
         {busy && !interrupted && (
           <span
             aria-hidden
-            className="orbital-pulse h-1.5 w-1.5 rounded-full"
+            className="orbital-pulse h-1.5 w-1.5 shrink-0 rounded-full"
             style={{ background: tint ?? 'currentColor', boxShadow: tint ? `0 0 8px ${tint}` : undefined }}
           />
         )}
@@ -212,7 +203,7 @@ export function Badge(props: BadgeProps) {
   }
 
   if (props.variant === 'model') {
-    // Canvas 4a: the same squared mono chip as the status badge beside it,
+    // Canvas 4a: the squared mono chip,
     // accent-outlined while it is a control you can open. The `▾` is drawn here (not by the
     // caller) so it can carry its own muted, smaller-than-the-label style and
     // only ever shows up on the interactive (switcher) chip.
