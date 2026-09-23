@@ -169,29 +169,35 @@ down when one goes, as an overlay — nothing reflows.
 A lip and an attachment chip never share a row — the chip stays in the well,
 the lip sits on its edge.
 
-### Two things the design settles that this spec had left open
+### Behaviour
 
-**Dismissal is per session, not per workspace.** The selection itself is shared
-by every session in the workspace, but pressing × must not clear it for the
-others. Dismissed selection ids are kept per session; the lip sinks back to the
-cursor line until the selection changes.
+The canvas describes how the slot looks and moves. What follows is what it
+does, which is decided here.
 
-**Timing is split in two.** The cursor line rewrites in place, throttled to
-`IDE_CURSOR_THROTTLE_HZ`, so arrowing through a file does not strobe. The lip
-is debounced by `IDE_SELECTION_DEBOUNCE_MS` after the first change, so a
-drag-select does not flash "1 line" first. These are different numbers for
-different reasons and the earlier single publish interval is replaced by both.
+**The selection attaches to every prompt while it stands, as the CLI does.**
+This was settled when the feature was agreed: the terminal's behaviour, so
+there is nothing new to learn. The canvas proposes the alternative — send it
+once, then wait for a change — and the argument for it is real, that
+re-attaching an unchanged selection is noise. It is not taken, for two reasons.
+The first is the agreement. The second is that the protocol cannot support it
+cleanly: a selection can be keyed by **file + range + text**, but there is **no
+editor revision** in the payload, so an edit that leaves the same range
+selected with the same text is indistinguishable from no change — and
+send-once would silently skip it. Re-attaching is never wrong in that way.
 
-### The one question the design opens and this spec cannot close
+**Dismissal is per session.** The selection belongs to the workspace and every
+session in it sees the same one, but × is a statement about *this*
+conversation — that the selection is not relevant to what is being asked here.
+Clearing it for the other sessions would make one panel's housekeeping reach
+into another's. Dismissed selection ids are therefore kept per session, and the
+lip sinks back to the cursor line until the selection changes.
 
-The design proposes the selection is **sent once** and then waits for a change,
-where the CLI re-attaches an unchanged selection to every prompt. Both are
-defensible and the choice is the user's, not the implementer's. What the
-protocol allows is settled, though: a selection can be keyed by
-**file + range + text**, which is enough to notice that it changed. There is
-**no editor revision** in the payload — so an edit that leaves the same range
-selected with the same text is indistinguishable from no change at all, and
-send-once would skip it. Decide with that in hand.
+**Two rates, because there are two problems.** The cursor line rewrites in
+place at `IDE_CURSOR_THROTTLE_HZ` so that arrowing through a file does not
+strobe; the lip waits `IDE_SELECTION_DEBOUNCE_MS` after the first change so a
+drag-select does not flash "1 line" before settling. One interval cannot serve
+both: the cursor wants to keep up, the lip wants to wait. The canvas's motion
+timings are a good starting point for the values and nothing more.
 
 ## Open files, for `@` completion
 
@@ -206,16 +212,15 @@ This is the whole justification for the pull direction: an editor's open tabs
 are a far better guess at what you mean by `@Det` than an alphabetical walk of
 the working tree.
 
-**The ranking's second step has to change.** The canvas asks for "other open
-tabs, in the editor's recency order", and **the protocol does not expose
-recency**. Measured on 2026-09-23: two calls to `get_all_opened_file_paths` an
-hour apart, across several tab switches by the user in between, returned
-byte-identical order, with files the user had just visited still sitting in
-their original positions. The order is stable — tab order, not use order.
+**Ranking by recency is not possible, so the order is the editor's own.**
+Measured on 2026-09-23: two calls to `get_all_opened_file_paths` an hour apart,
+across several tab switches in between, returned byte-identical order, with
+files just visited still sitting in their original positions. The list is
+stable — the order tabs sit in, not the order they were used in.
 
-Tab order is the better fallback anyway, and better than the alphabetical one
-the canvas names: it is the order the person can see in their own tab bar, so
-ranking by it matches what they are looking at. The ranking becomes:
+That is a good enough answer, and better than sorting alphabetically: it is the
+order the person can see in their own tab bar, so the list matches what they
+are looking at. The ranking is:
 
 1. the active tab, if it matches the prefix — known from `selection_changed`'s
    `filePath`, which arrives on a bare cursor move and needs no selection;
@@ -230,13 +235,14 @@ The extension's tools make three more things possible. They are listed in the
 order they should be built, because the third has a dependency the first two do
 not.
 
-**`openFile` — a path in Orbital opens in the editor.** Canvas artboard 20d
-settles the shape: **a modifier, not a button.** The path is already the file
-viewer's door, so holding a modifier over it drops the viewer's hover fill and
-writes the destination after that one path; the click turns the suffix into a
-short receipt while the editor takes focus at the line. Nothing is added at
-rest, and nothing is added to every row. The viewer's header carries the one
-worded link that teaches the gesture.
+**`openFile` — a path in Orbital opens in the editor.** A file path in the
+transcript already opens the file viewer, and that stays the primary meaning;
+opening in the editor is the secondary one, so it hangs off a held modifier
+rather than competing for the same click or adding a control to every row. The
+file viewer's header carries the one worded link that teaches the gesture,
+because that is where someone has already shown interest in a particular file.
+Canvas artboard 20d draws all of this — the hover treatment, the destination
+suffix, the receipt after the click.
 
 **`getDiagnostics` — the editor's own errors.** The editor already knows what is
 broken, from inspections no test run reports. Surfaced on the session, this
