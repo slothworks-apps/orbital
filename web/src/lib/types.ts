@@ -156,9 +156,20 @@ export interface PendingDecision {
   createdAt: number;
 }
 
+/**
+ * How loudly a notice row speaks — the SDK's own vocabulary. Mirrors
+ * `server/src/types.ts`.
+ */
+export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning';
+
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'tool_use' | 'tool_result';
+  /**
+   * `notice` is the CLI speaking for itself rather than through the model —
+   * a locally-answered slash command's output (`/context`, `/usage`, `/mcp`),
+   * a hook's feedback. Rendered by `NoticeRow`, never by `MessageView`.
+   */
+  role: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'notice';
   text?: string;
   toolName?: string;
   toolInput?: unknown;
@@ -175,6 +186,12 @@ export interface ChatMessage {
   command?: { name: string | null; body: string; blocks: number };
   /** tool_result only: the block carried `is_error: true`. */
   isError?: boolean;
+  /**
+   * `notice` rows only. `command` is the slash command whose output this is
+   * (`/context`), absent when the CLI did not name one. Mirrors
+   * `server/src/types.ts`.
+   */
+  notice?: { level: NoticeLevel; command?: string };
   /** Images this message carries — refs into the server's image store
    * (`GET /api/images/<ref>`), never bytes. Mirrors `server/src/types.ts`.
    * Spec: 2026-09-18-transcript-images-design. */

@@ -1735,6 +1735,99 @@ describe('Runner decisions', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Slash commands the CLI answers by itself (adr:
+// notice-rows-are-their-own-kind-of-turn)
+// ---------------------------------------------------------------------------
+
+describe('Runner local command output', () => {
+  /**
+   * Recorded from CLI 2.1.278: a synthetic assistant frame, `<synthetic>` in
+   * place of a model, zero usage, and the answer in both the text blocks and
+   * the `local_command_source` sibling.
+   */
+  const SYNTHETIC = {
+    type: 'assistant',
+    parent_tool_use_id: null,
+    message: {
+      role: 'assistant',
+      model: '<synthetic>',
+      content: [{ type: 'text', text: '## Context Usage\n\n| Messages | 1.3k |' }],
+      usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    },
+    local_command_source: '<local-command-stdout>## Context Usage\n\n| Messages | 1.3k |</local-command-stdout>',
+    local_command_run: { command: 'context', args: '' },
+  };
+
+  it('publishes the answer as a notice, never as an assistant turn', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const entries: any[] = [];
+    const runner = new Runner({
+      hub, queryFn: script.fn as any, newSessionId: () => 'web-1',
+      onEntries: (_id, e) => entries.push(...e),
+    });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: '/context', permissionMode: 'acceptEdits' });
+
+    script.push(SYNTHETIC);
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(events.some((e) => e.event === 'turn_result')).toBe(true));
+
+    const messages = events.filter((e) => e.event === 'message').map((e) => e.message);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: 'notice',
+      text: '## Context Usage\n\n| Messages | 1.3k |',
+      notice: { level: 'notice', command: '/context' },
+    });
+    // `<synthetic>` is not a model, and a page of `/context` output is not
+    // material for the auto-titler.
+    expect(messages[0].model).toBeUndefined();
+    expect(entries).toEqual([]);
+  });
+
+  it('does not let the frame`s zero usage stand in as the turn`s context reading', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const used: Array<number | null> = [];
+    const runner = new Runner({
+      hub, queryFn: script.fn as any, newSessionId: () => 'web-1',
+      onContextUsed: (_id, tokens) => used.push(tokens),
+    });
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    // A real call first, so the turn HAS a reading to lose.
+    script.push({
+      type: 'assistant', parent_tool_use_id: null,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 9_000 } },
+    });
+    script.push(SYNTHETIC);
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+
+    await vi.waitFor(() => expect(used).toHaveLength(1));
+    expect(used[0]).toBe(9_000);
+  });
+
+  it('surfaces the system subtypes that carry text, and still ignores the rest', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({ type: 'system', subtype: 'local_command_output', content: 'recording started' });
+    script.push({ type: 'system', subtype: 'informational', content: 'a hook blocked it', level: 'warning' });
+    script.push({ type: 'system', subtype: 'thinking_tokens', tokens: 5 });
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(events.some((e) => e.event === 'turn_result')).toBe(true));
+
+    const messages = events.filter((e) => e.event === 'message').map((e) => e.message);
+    expect(messages.map((m) => m.text)).toEqual(['recording started', 'a hook blocked it']);
+    expect(messages.map((m) => m.notice.level)).toEqual(['notice', 'warning']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // How full the context is: the arc's numerator (spec: context-fill-arc)
 // ---------------------------------------------------------------------------
 

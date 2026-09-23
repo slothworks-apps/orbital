@@ -553,6 +553,37 @@ describe('insertModelDividers', () => {
     const groups = insertModelDividers(groupsOf([assistant('a1', 'claude-opus-5')]))
     expect(groups.some((g) => g.kind === 'model-divider')).toBe(false)
   })
+
+  // A notice is the CLI answering for itself. It carries no model precisely
+  // so that it cannot break a model run in two — a `/context` between two
+  // turns of the same model must not produce a divider on either side of it.
+  it('is not interrupted by a notice between two turns of the same model', () => {
+    const groups = insertModelDividers(
+      groupsOf([
+        assistant('a1', 'claude-opus-5'),
+        { id: 'n1', role: 'notice', text: '## Context Usage', notice: { level: 'notice', command: '/context' } },
+        assistant('a2', 'claude-opus-5'),
+      ]),
+    )
+    expect(groups.some((g) => g.kind === 'model-divider')).toBe(false)
+    expect(groups.map((g) => g.kind)).toEqual(['message', 'message', 'message'])
+  })
+})
+
+describe('pairMessages: notices', () => {
+  it('keeps a notice as a row of its own rather than folding it into a tool run', () => {
+    const items = pairMessages([
+      { id: '1', role: 'tool_use', toolName: 'Bash', toolUseId: 'tu1' },
+      { id: '2', role: 'tool_result', toolUseId: 'tu1', text: 'ok' },
+      { id: '3', role: 'notice', text: '/status isn\'t available', notice: { level: 'notice' } },
+      { id: '4', role: 'tool_use', toolName: 'Read', toolUseId: 'tu2' },
+    ])
+    expect(items.map((i) => i.kind)).toEqual(['tool', 'message', 'tool'])
+    const groups = groupToolRuns(items)
+    // The notice breaks the run, so the two calls never fold together behind
+    // a header that would hide it.
+    expect(groups.map((g) => g.kind)).toEqual(['tools', 'message', 'tools'])
+  })
 })
 
 it('renders the divider in the transcript', () => {

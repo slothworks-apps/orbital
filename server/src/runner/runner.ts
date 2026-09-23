@@ -6,6 +6,7 @@ import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
 import { TASK_EVENT_SUBTYPES, type TaskEvent } from '../transcript/subagents.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
+import { noticeFromSdkMessage } from '../transcript/notices.js';
 import type { ImageStore, ImageWriter } from '../images/store.js';
 
 /**
@@ -813,6 +814,15 @@ export class Runner {
           if (s && Array.isArray(msg.commands)) s.commands = shapeCommands(msg.commands);
           continue;
         }
+        // The CLI speaking for itself: `local_command_output` and the loop's
+        // `informational` banner. Neither is a turn, so neither touches the
+        // session's status or its context reading — they are rows and nothing
+        // else. Every OTHER `system` subtype still falls through unread.
+        if (msg.type === 'system') {
+          const row = noticeFromSdkMessage(msg, `${sessionId}:${++this.seq}:0`);
+          if (row) this.hub.publish(topic, { event: 'message', message: row });
+          continue;
+        }
         if (msg.type === 'assistant' || msg.type === 'user') {
           // A main-loop frame means the turn is running, whoever started it.
           // Orbital used to learn that only from its own `send()`, so every
@@ -830,6 +840,23 @@ export class Runner {
             // Only on the edge: every later frame of the same turn changes
             // nothing, and a republish per streamed block is a firehose.
             if (began) this.onTurnBoundary?.(sessionId, false);
+          }
+          // A slash command the CLI answered by itself arrives as a SYNTHETIC
+          // assistant frame — `message.model` is the literal `<synthetic>`
+          // and `message.usage` is all zeros — with the answer in its text
+          // blocks and `local_command_source` beside them. Publishing it as
+          // an assistant turn would draw a model divider around a model that
+          // does not exist, feed the context arc's fallback a zero, and hand
+          // the auto-titler a page of `/context` output; a reload, which
+          // rebuilds the same answer from the transcript file, would then
+          // disagree with the live view about what kind of row it is. So it
+          // becomes the same notice on both paths and stops here — before
+          // the usage capture, `onEntries` and the ordinary publish, and
+          // after the turn edge above, which is real: the turn did run.
+          const localCommand = noticeFromSdkMessage(msg, `${sessionId}:${++this.seq}:0`);
+          if (localCommand) {
+            this.hub.publish(topic, { event: 'message', message: localCommand });
+            continue;
           }
           // How big the conversation was when this call ran — kept as the
           // turn's fallback reading. Only the main loop's own calls: a

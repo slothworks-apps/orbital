@@ -1,5 +1,6 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
+import { messageFromLocalCommandEntry } from './notices.js';
 
 /**
  * The CLI's `message.usage`, as the transcripts write it. Every field is
@@ -20,6 +21,10 @@ export interface TranscriptUsage {
 
 export interface TranscriptEntry {
   type: string;
+  /** `system` entries only — `local_command`, `compact_boundary` and so on. */
+  subtype?: string;
+  /** `system` entries only: the line the CLI wrote, tags and all. */
+  content?: string;
   uuid?: string;
   timestamp?: string;
   cwd?: string;
@@ -238,6 +243,16 @@ export function toolResultParts(
 export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWriter): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const e of entries) {
+    // The CLI answers some slash commands by itself and writes the answer as
+    // a `system`/`local_command` entry — never as a turn. Without this the
+    // whole of `/context`, `/usage`, `/mcp` and friends survived only in the
+    // live stream and vanished on reload, and a terminal session (which
+    // Orbital only ever reads from the file) never showed them at all.
+    if (e.type === 'system') {
+      const row = messageFromLocalCommandEntry(e, `${e.uuid}:0`);
+      if (row) out.push(row);
+      continue;
+    }
     if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || e.isSidechain) continue;
     const base =
       e.type === 'assistant' && typeof e.message.model === 'string' && e.message.model

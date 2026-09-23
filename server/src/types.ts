@@ -56,9 +56,24 @@ export interface ImageRefEntry {
   bytes: number;
 }
 
+/**
+ * How loudly a notice row speaks. The SDK's own vocabulary
+ * (`SDKInformationalMessage.level`): `info` shows only in a transcript, which
+ * is where Orbital puts it anyway; `notice` is the ordinary answer to a local
+ * slash command; `suggestion` and `warning` are meant to stand out.
+ */
+export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning';
+
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'tool_use' | 'tool_result';
+  /**
+   * `notice` is the CLI speaking for itself rather than through the model —
+   * a locally-answered slash command's output, a hook's feedback. It is not a
+   * turn: nothing about it went to or came from the model, so it carries no
+   * `model` and is never folded into a tool run
+   * (`docs/domains/locally-answered-slash-commands.md`).
+   */
+  role: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'notice';
   text?: string;
   toolName?: string;
   toolInput?: unknown;
@@ -76,6 +91,12 @@ export interface ChatMessage {
   command?: { name: string | null; body: string; blocks: number };
   /** tool_result only: the block carried `is_error: true`. */
   isError?: boolean;
+  /**
+   * `notice` rows only. `command` is the slash command whose output this is
+   * (`/context`), absent when the CLI did not say which — a refused command
+   * carries no `local_command_run`, and a hook's banner names no command.
+   */
+  notice?: { level: NoticeLevel; command?: string };
   /** Images this message carries — refs into the image store, never data.
    * A pasted user image is its own message (no text); a tool_result keeps
    * its text beside them. Spec: 2026-09-18-transcript-images-design. */
