@@ -141,9 +141,18 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
             opacity: standing ? 0 : 1,
             transition: `opacity ${CROSSFADE_MS}ms ease`,
           }}
-          // 20b-2 / 20f: mono 10.5, ink rgba(160,190,225,.55), no border, no
-          // fill, nothing to refuse. Padding 0 11px 2px, whole row nowrap.
-          className="motion-reduce:!transition-none absolute inset-x-0 top-0 box-border flex items-center gap-2 whitespace-nowrap px-[11px] pb-[2px] font-mono text-[10.5px] text-[rgba(160,190,225,.55)]"
+          // 20b-2 / 20f: mono 10.5, ink rgba(160,190,225,.55), no border and
+          // nothing to refuse. Padding 0 11px 2px, whole row nowrap.
+          //
+          // The fill is not decoration and not a panel of its own: the slot
+          // stands 12px above the composer's hairline rule, so without it the
+          // rule draws straight through the file name. 20a's own gradient
+          // masks the rule under the text and fades out over 14px at each end,
+          // which is what stops the mask from reading as a second box with two
+          // hard edges. Its ground is the canvas's own value for this surface —
+          // `--color-panel-solid` is a shade off, being the panel before it is
+          // laid over `--color-space`.
+          className="motion-reduce:!transition-none absolute inset-x-0 top-0 box-border flex items-center gap-2 whitespace-nowrap bg-[linear-gradient(90deg,transparent,#0a0f1c_14px,#0a0f1c_calc(100%-14px),transparent)] px-[11px] pb-[2px] font-mono text-[10.5px] text-[rgba(160,190,225,.55)]"
         >
           {/* 20f: the caret glyph, 1.4×11px at .55 — the same bar the active
               tab wears in the completion list, so one glyph means "the cursor
