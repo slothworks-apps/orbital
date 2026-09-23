@@ -2,7 +2,7 @@
 id: separation-reaches-at-least-half-a-label
 title: Separation measures every body as at least half a label wide
 type: adr
-status: in-force
+status: superseded
 domain: web
 related:
   - moons-widen-the-body-the-sim-separates
@@ -14,6 +14,13 @@ tags:
   - simulation
 ---
 # Separation measures every body as at least half a label wide
+
+> **Superseded by [[separation-rests-at-the-outline]] (2026-09-23).** The
+> floor was where the push started, not where the bodies stopped: the soft
+> ramp still rested pairs at 64–81 % of it. And the label grows with the
+> whole zoom ratio, while the floor grew only with the counter-zoom. At the
+> zooms fit actually lands on, labels still met. `LABEL_HALF_SPAN` and
+> `LABEL_MAX_WIDTH_PX` are gone.
 
 ## What overlapped
 

@@ -32,6 +32,8 @@ import {
   createSimulation,
   dragSimBody,
   holeDropState,
+  planetOutline,
+  settledCopy,
   rehomeTarget,
   reconcileSimulation,
   settleSimulation,
@@ -55,7 +57,7 @@ import {
   bodyZoomFactor,
   centerOn,
   clampZoom,
-  fitView,
+  fitViewTo,
   screenToWorld,
   zoomAt,
   zoomFromWheel,
@@ -153,7 +155,9 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
 /**
  * A cluster's label, tracking the clump per frame: anchored above the
  * topmost BONDED body of its tag, read straight off the simulation the same
- * way the planets read their own positions. Falls back to the scene model's
+ * way the planets read their own positions. Measured from the top of the
+ * body's drawn box (`extent`), so the label clears a reticle or a pill
+ * rather than the bare planet. Falls back to the scene model's
  * anchor when the sim has no bodies for the tag yet (first frame).
  *
  * `Html` reprojects from its parent's world matrix every frame, so writing
@@ -167,9 +171,9 @@ function ClusterLabel({ label, simRef }: { label: SceneLabel; simRef: RefObject<
     let top: SimBody | null = null
     for (const body of simRef.current.bodies.values()) {
       if (body.tagId !== label.tagId || body.mode !== 'hold') continue
-      if (!top || body.y + body.r > top.y + top.r) top = body
+      if (!top || body.y + body.extent.top > top.y + top.extent.top) top = body
     }
-    if (top) groupRef.current.position.set(top.x, top.y + top.r + LABEL_MARGIN, 0)
+    if (top) groupRef.current.position.set(top.x, top.y + top.extent.top + LABEL_MARGIN, 0)
     else groupRef.current.position.set(label.x, label.y, 0)
   })
 
@@ -214,10 +218,11 @@ function SimStepper({
 }) {
   useFrame((state, delta) => {
     if (reduced) return
-    // The same counter-zoom every body is DRAWN with, so what the springs
-    // keep clear of is what the eye sees. Read off the three camera rather
-    // than passed as a prop: camera state deliberately never reaches React.
-    const events = stepSimulation(simRef.current, delta, bodyZoomFactor(state.camera.zoom))
+    // The camera zoom, so what the springs keep clear of is what the eye
+    // sees: bodies at their counter-zoom, labels and pills at their fixed
+    // px. Read off the three camera rather than passed as a prop: camera
+    // state deliberately never reaches React.
+    const events = stepSimulation(simRef.current, delta, state.camera.zoom)
     if (events.absorbed.length > 0) flashRef.current = ABSORB_FLASH_SEC
   }, -1)
   return null
@@ -585,6 +590,7 @@ export function SpaceMap() {
   // frame loop can mutate it without a render, and returning it here is what
   // keeps this a memo rather than a side effect hiding in one.
   const sim = useMemo(() => {
+    const font = labelFontPx(planetScale, scaleLabels)
     const input: SimInput = {
       bodies: model.planets.map((p) => ({
         id: p.session.id,
@@ -592,6 +598,10 @@ export function SpaceMap() {
         x: p.x,
         y: p.y,
         r: p.footprint,
+        // What the planet draws around itself, sized by the same Appearance
+        // settings `Planet` is drawn with below, so the springs keep
+        // neighbours clear of the actual label and pill.
+        outline: planetOutline({ ...p, gauged: p.contextFill !== null }, planetScale, font),
         live: p.session.status === 'working' || p.session.status === 'needs_input',
         released: p.released,
       })),
@@ -602,9 +612,9 @@ export function SpaceMap() {
     // Reading the camera ref (never the state) keeps this out of the memo's
     // deps: a wheel notch must not re-settle the sim, it just changes what
     // the next frame separates by.
-    if (reduced) settleSimulation(simRef.current, bodyZoomFactor(cameraRef.current.zoom))
+    if (reduced) settleSimulation(simRef.current, cameraRef.current.zoom)
     return simRef.current
-  }, [model, reduced])
+  }, [model, reduced, planetScale, scaleLabels])
 
   const { panTo, cancel: cancelPan } = usePanTo(setCamera)
   const { zoomBy, cancel: cancelZoom } = useZoomTo(setCamera)
@@ -745,7 +755,7 @@ export function SpaceMap() {
         dragSimBody(simRef.current, bodyDrag.id, pointerToWorld(e))
         // Reduced motion renders the sim statically, so a drag converges the
         // field synchronously instead of animating toward it.
-        if (reduced) settleSimulation(simRef.current)
+        if (reduced) settleSimulation(simRef.current, cameraRef.current.zoom)
         return
       }
 
@@ -797,7 +807,7 @@ export function SpaceMap() {
           dragSimBody(sim, bodyDrag.id, null)
           if (drop === 'armed') void setSessionDismissed(bodyDrag.id, true)
           else if (rehome) void setTagAnchor(rehome.tagId, { x: rehome.x, y: rehome.y })
-          if (reduced) settleSimulation(simRef.current)
+          if (reduced) settleSimulation(simRef.current, cameraRef.current.zoom)
         }
         return
       }
@@ -837,18 +847,35 @@ export function SpaceMap() {
   /**
    * The camera that frames the whole map right now.
    *
-   * Every body carries the radius it DRAWS at (`footprint` already covers a
-   * planet's moon system, `HOLE_DROP_RADIUS` the hole's halo), not just its
-   * centre: a fit that frames centres leaves whatever is drawn around the
-   * outermost ones hanging over the edge, which on the hole is most of it.
+   * Frames what each body DRAWS, not just its centre (a planet's
+   * `bodyExtent` — moons, label and pill — and the hole's halo): a fit that
+   * frames centres leaves whatever is drawn around the outermost ones
+   * hanging over the edge, which on the hole is most of it.
    */
   const fitCamera = useCallback(() => {
-    // The hole is part of the map — fit frames it with the planets, so the
-    // history landmark is never fitted out of view.
-    const bodies: FitBody[] = [
-      ...model.planets.map((p) => ({ x: p.x, y: p.y, r: p.footprint })),
-      { x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS },
-    ]
+    // Planets are framed where the simulation will rest them at each zoom
+    // the solve tries — clumps rest wider the further out the camera is
+    // (`settledCopy`). `sim` is one object for the map's lifetime,
+    // reconciled in place, so this reads the bodies as they are when fit
+    // runs. The hole is part of the map — fit frames it with the planets,
+    // so the history landmark is never fitted out of view.
+    // Each round settles from the previous round's result rather than from
+    // the live bodies: the solve's zooms close in on each other, so the
+    // clumps are nearly in place already and the settle is short.
+    let from: SimState = sim
+    const bodiesAt = (zoom: number): FitBody[] => {
+      const bodies: FitBody[] = [
+        { x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) },
+      ]
+      from = settledCopy(from, zoom)
+      for (const body of from.bodies.values()) {
+        if (body.mode !== 'hold') continue
+        // A planet's box enters as its two opposite corners.
+        const { left, right, bottom, top } = body.extent
+        bodies.push({ x: body.x + left, y: body.y + bottom }, { x: body.x + right, y: body.y + top })
+      }
+      return bodies
+    }
     const rect = containerRef.current?.getBoundingClientRect()
     const viewport = {
       width: rect?.width ?? window.innerWidth,
@@ -857,8 +884,8 @@ export function SpaceMap() {
     // Fit into the strip the panels leave, not the raw viewport: "show me
     // everything" that parks half the sessions under the sidebar or the
     // detail panel has not shown them.
-    return fitView(bodies, viewport, mapInsets)
-  }, [model.planets, model.hole.x, model.hole.y, mapInsets])
+    return fitViewTo(bodiesAt, viewport, mapInsets)
+  }, [sim, model.hole.x, model.hole.y, mapInsets])
 
   const handleFit = useCallback(() => {
     cancelCameraMotion()

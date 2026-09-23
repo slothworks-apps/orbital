@@ -20,9 +20,21 @@
  * React: the driver holds it in a ref and applies positions imperatively.
  */
 
-import { REFERENCE_ZOOM } from './camera'
+import type { ApiSession } from '../lib/types'
+import { statePill } from '../lib/types'
+import { REFERENCE_ZOOM, bodyZoomFactor } from './camera'
 import { PLANET_BASE_RADIUS } from './layout'
-import { LABEL_MAX_WIDTH_PX } from './visuals'
+import {
+  BADGE_OFFSET_X,
+  BADGE_OFFSET_Y,
+  BRACKET_INSET,
+  COMPACT_BADGE_OFFSET_X,
+  COMPACT_BADGE_OFFSET_Y,
+  LABEL_GAUGED_REST_Y,
+  LABEL_TOP_REST_Y,
+  restingLabelSizePx,
+  statePillSizePx,
+} from './visuals'
 
 // --- Constants, canvas 4a script -------------------------------------------
 // The canvas map is pixel-based; its working planet body is r=34px while the
@@ -40,29 +52,62 @@ const HOME_K = 0.0004
 /** Velocity damping per tick (canvas: `* 0.92`). */
 const DAMPING = 0.92
 
-/** Clearance kept between same-tag bodies beyond their two reaches (canvas 4a footer: "96 px same tag"; see `minDistance`). */
-export const SAME_TAG_GAP = 96 * PX
-/** Clearance kept between different-tag bodies beyond their two reaches (canvas 4a footer: "190 px across tags"). */
-export const CROSS_TAG_GAP = 190 * PX
-/** Separation acceleration once the two footprints touch, same tag (canvas: `0.34` px). */
-export const SEPARATION_SAME = 0.34 * PX
-/** Separation acceleration once the two footprints touch, different tags (canvas: `0.32` px). */
-const SEPARATION_CROSS = 0.32 * PX
-
 /**
- * Half the widest resting planet label, in world units at REFERENCE_ZOOM:
- * the least room any body takes up sideways, whatever its footprint.
+ * The canvas 4a footer's clearances between two bare bodies: "96 px same
+ * tag, 190 px across tags".
  *
- * NOT a canvas 4a value — a deviation from the script. The canvas measures
- * its gaps between bare bodies because its demo planets carry no labels;
- * the map's labels are fixed screen px (`LABEL_MAX_WIDTH_PX`) and do not
- * shrink with the body, so an idle or ended planet's label is wider than
- * its whole footprint pair. Measured against body radii alone, a small
- * planet settled with its label across its neighbour's, and a selected
- * planet's reticle across the next one's state pill (ADR
- * `separation-reaches-at-least-half-a-label`).
+ * The map no longer keeps the same-tag one as empty space. The canvas demo
+ * planets carry no labels; the map's do, and they are fixed screen px that
+ * reach far past the body, so what two neighbours keep clear of is their
+ * whole drawn outline (`bodyExtent`) plus NEIGHBOUR_AIR_PX — not the body
+ * plus 96 px of nothing (ADR `separation-rests-at-the-outline`). Both
+ * values stay for what they still mean:
+ *
+ * - their DIFFERENCE is how much further off a different tag sits than a
+ *   tag-mate (CROSS_TAG_EXTRA), which is what tells two clusters apart;
+ * - the same-tag pair of working planets is the pair the canvas tuned its
+ *   separation strength against (`REFERENCE_PAIR`).
  */
-export const LABEL_HALF_SPAN = LABEL_MAX_WIDTH_PX / 2 / REFERENCE_ZOOM
+const CANVAS_SAME_TAG_GAP = 96 * PX
+const CANVAS_CROSS_TAG_GAP = 190 * PX
+/** How much further apart two bodies of different tags rest than two tag-mates (canvas 4a, the footer's two gaps apart). */
+export const CROSS_TAG_EXTRA = CANVAS_CROSS_TAG_GAP - CANVAS_SAME_TAG_GAP
+/**
+ * Empty room between two neighbours' drawn outlines, in CSS px — so the
+ * closest two things on neighbouring planets (a label and a pill, say) are
+ * never nearer than this on screen. NOT a canvas value: the canvas has no
+ * labels to keep apart. It includes the sliver of contact a settled pair
+ * still sits inside `minDistance` (CONTACT_RAMP), so what is left on screen
+ * is a little less than this, never nothing.
+ */
+export const NEIGHBOUR_AIR_PX = 20
+
+/** Separation acceleration at full contact, same tag (canvas: `0.34` px). */
+export const SEPARATION_SAME = 0.34 * PX
+/** Separation acceleration at full contact, different tags (canvas: `0.32` px). */
+const SEPARATION_CROSS = 0.32 * PX
+/**
+ * How deep into `minDistance` the separation push reaches full strength,
+ * as a fraction of that distance.
+ *
+ * NOT the canvas 4a script's ramp, which spread the push over the whole of
+ * `min` (`(min - d) / min`). That ramp is a soft spring: the tag's cohesion
+ * leans on it until the two balance, and a settled clump sat at 64–81 % of
+ * its `minDistance` — so a distance chosen to clear two labels was where the
+ * push began, not where the bodies stopped, and the labels still met
+ * (ADR `separation-rests-at-the-outline`). Ramping over a short stretch
+ * makes the contact stiff enough that cohesion can only press a pair a
+ * percent or two inside it.
+ */
+const CONTACT_RAMP = 0.03
+/**
+ * Dashpot on two touching bodies' closing (and parting) speed, per tick.
+ * A contact this stiff would ring under DAMPING alone — two bodies meeting
+ * would bounce off each other a few times before resting. This damps the
+ * pair's relative motion along the contact normal to about critical, so
+ * a collision settles in one approach, the way the canvas's soft ramp did.
+ */
+const CONTACT_DAMPING = 0.3
 
 /** The hole's repulsion halo (canvas: `hd < 300`): bonded bodies inside get pushed out. */
 export const HOLE_REPEL_RADIUS = 300 * PX
@@ -123,6 +168,14 @@ export interface SimBody {
    * cluster label's anchor all measure from this.
    */
   r: number
+  /** What the planet draws around itself (label, pill, reticle); null for a bare body. */
+  outline: PlanetOutline | null
+  /**
+   * `bodyExtent` at the zoom of the tick in progress, rewritten in place at
+   * the start of every tick so the pair loop reads it instead of re-deriving
+   * it for every pair — and without allocating.
+   */
+  extent: Extent
   /** working/needs_input: repelled by the hole, never absorbable. */
   live: boolean
   x: number
@@ -151,8 +204,43 @@ export interface SimInputBody {
   x: number
   y: number
   r: number
+  /** `planetOutline` of the planet; absent for a bare body, measured by `r` alone. */
+  outline?: PlanetOutline
   live: boolean
   released: boolean
+}
+
+/**
+ * Everything a planet draws around its body, in the two units it is drawn
+ * in: offsets in local units before the planet's scale (they grow with the
+ * body), sizes in CSS px (the label and pill are DOM at a fixed type size).
+ * `bodyExtent` turns it into world units at a given zoom.
+ */
+export interface PlanetOutline {
+  /** The planet's drawn scale at REFERENCE_ZOOM: tier scale times the planet-size setting. */
+  scale: number
+  /** Distance from the centre down to the label's top edge, local units. */
+  labelTop: number
+  labelWidthPx: number
+  labelHeightPx: number
+  /** The state pill's top-left corner, local units (x right, y up). */
+  pillX: number
+  pillY: number
+  /** 0 when the planet wears no pill. */
+  pillWidthPx: number
+  pillHeightPx: number
+}
+
+/**
+ * The box a body's drawing occupies, as offsets from its centre in world
+ * units (`left`/`bottom` negative). Screen-aligned: the label hangs below,
+ * the pill to the right, and neither turns with anything.
+ */
+export interface Extent {
+  left: number
+  right: number
+  bottom: number
+  top: number
 }
 
 export interface SimInput {
@@ -201,6 +289,8 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
         id: spec.id,
         tagId: spec.tagId,
         r: spec.r,
+        outline: spec.outline ?? null,
+        extent: { left: -spec.r, right: spec.r, bottom: -spec.r, top: spec.r },
         live: spec.live,
         x: spec.x,
         y: spec.y,
@@ -226,6 +316,12 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
       // springs to walk the neighbours out, or a sleeping clump would simply
       // keep sitting inside the new footprint.
       existing.r = spec.r
+      structuralChange = true
+    }
+    if (!sameOutline(existing.outline, spec.outline ?? null)) {
+      // Same reason: a pill appearing or a title growing widens what the
+      // neighbours have to keep clear of.
+      existing.outline = spec.outline ?? null
       structuralChange = true
     }
     existing.live = spec.live
@@ -338,14 +434,14 @@ export function dragSimBody(
 /**
  * Advances the simulation by `dtSeconds`, in fixed 60Hz substeps (capped, so
  * a hitched frame catches up smoothly instead of exploding the springs).
- * Deterministic: same state + same dt sequence + same `zoomFactor` =
- * bit-identical results — the zoom arrives as an argument precisely to keep
- * that true, the same way `buildSceneModel` takes its clock as `nowMs`.
+ * Deterministic: same state + same dt sequence + same `zoom` = bit-identical
+ * results — the camera zoom arrives as an argument precisely to keep that
+ * true, the same way `buildSceneModel` takes its clock as `nowMs`.
  */
-export function stepSimulation(sim: SimState, dtSeconds: number, zoomFactor = 1): SimEvents {
+export function stepSimulation(sim: SimState, dtSeconds: number, zoom = REFERENCE_ZOOM): SimEvents {
   const events: SimEvents = { absorbed: [] }
   const substeps = Math.max(1, Math.min(MAX_SUBSTEPS, Math.round(dtSeconds / TICK_SEC)))
-  for (let i = 0; i < substeps; i++) tick(sim, events, zoomFactor)
+  for (let i = 0; i < substeps; i++) tick(sim, events, zoom)
   return events
 }
 
@@ -354,7 +450,7 @@ export function stepSimulation(sim: SimState, dtSeconds: number, zoomFactor = 1)
  * resolve instantly (no animation to honour) and the springs converge before
  * anything is drawn. Bounded by SETTLE_MAX_TICKS as a runaway guard.
  */
-export function settleSimulation(sim: SimState, zoomFactor = 1): SimEvents {
+export function settleSimulation(sim: SimState, zoom = REFERENCE_ZOOM): SimEvents {
   const events: SimEvents = { absorbed: [] }
   for (const body of sim.bodies.values()) {
     if (body.mode === 'fall') {
@@ -369,77 +465,250 @@ export function settleSimulation(sim: SimState, zoomFactor = 1): SimEvents {
       if (body.mode === 'hold' && !body.asleep) anyAwake = true
     }
     if (!anyAwake) break
-    tick(sim, events, zoomFactor)
+    tick(sim, events, zoom)
   }
   return events
 }
 
 /**
- * How close two bodies' centres are allowed to get: their two reaches, plus
- * the design's empty clearance between them (SAME_TAG_GAP / CROSS_TAG_GAP,
- * canvas 4a).
+ * Where the simulation would come to rest if the camera were at `zoom`,
+ * worked out on a copy — `sim` itself is not touched. Every copied body's
+ * `extent` is left at that zoom, so the result says both where each body
+ * stops and what its drawing covers there.
  *
- * A body's reach is its footprint, but never less than LABEL_HALF_SPAN:
- * the label under a planet is wider than the planet, and wider still next
- * to an idle or ended one, so two footprints alone let neighbouring labels
- * settle across each other. A planet whose moons reach further than half a
- * label is measured by its moons, exactly as before.
+ * For fit (`fitViewTo`): clumps rest wider the further out the camera is,
+ * so framing them where they stand now would frame the wrong picture. An
+ * allocation per call, which is fine for a keystroke and never runs in a
+ * frame loop.
+ */
+export function settledCopy(sim: SimState, zoom: number): SimState {
+  const copy = createSimulation()
+  for (const [id, body] of sim.bodies) {
+    // Awake, so a clump resting at another zoom re-spaces for this one;
+    // undragged, since the copy has no pointer to follow.
+    copy.bodies.set(id, { ...body, extent: { ...body.extent }, drag: null, asleep: false })
+  }
+  for (const [tagId, anchor] of sim.anchors) copy.anchors.set(tagId, { x: anchor.x, y: anchor.y })
+  copy.hole = { x: sim.hole.x, y: sim.hole.y }
+  settleSimulation(copy, zoom)
+  for (const body of copy.bodies.values()) bodyExtent(body.r, body.outline, zoom, body.extent)
+  return copy
+}
+
+/**
+ * World units per CSS px of the label and pill, as far as separation is
+ * concerned: their true size below REFERENCE_ZOOM, and the reference's size
+ * above it.
  *
- * The reaches — and only the reaches — are multiplied by `zoomFactor`,
- * which is `bodyZoomFactor(zoom)`: zooming out draws every body up to its
- * cap larger than its world radius, and separation that ignored that would
- * let two inflated moon systems grow through each other at the far view.
- * The clearance itself is left alone. The label's own growth past the
- * counter-zoom at the far view is not tracked: that view is for finding a
- * clump, not for reading its names.
+ * The label and pill are DOM at a fixed type size, so zooming out makes
+ * them larger in world units — by the whole zoom ratio, not by the
+ * counter-zoom curve the bodies follow. Separation that tracked them only
+ * as far as the body did (the previous rule) let labels meet as soon as
+ * the map was zoomed out a little, which a fit of any map with more than
+ * one cluster does.
+ *
+ * Frozen above the reference, like `bodyZoomFactor`, so zooming in never
+ * moves anything: the labels only get smaller relative to the bodies
+ * there, and the room kept for them at the reference is then more than
+ * enough.
+ */
+function worldPerPx(zoom: number): number {
+  return 1 / Math.min(zoom, REFERENCE_ZOOM)
+}
+
+/**
+ * Builds a planet's outline from what it will draw. Pure; the map calls it
+ * with the scene planet and the Appearance settings that size the drawing
+ * (`planetScale`, `labelFontPx`).
+ */
+export function planetOutline(
+  planet: {
+    session: Pick<
+      ApiSession,
+      'title' | 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents'
+    >
+    scale: number
+    modelFamily: string | null
+    /** The context gauge moves the label and the pill further out (`Planet`'s `clearsGauge`). */
+    gauged: boolean
+  },
+  planetScale: number,
+  labelFont: { title: number; family: number }
+): PlanetOutline {
+  const label = restingLabelSizePx(planet.session.title, planet.modelFamily?.toUpperCase() ?? null, labelFont)
+  const state = statePill(planet.session)
+  const pill = state ? statePillSizePx(state.label, state.pulse) : { width: 0, height: 0 }
+  return {
+    scale: planet.scale * planetScale,
+    labelTop: -(planet.gauged ? LABEL_GAUGED_REST_Y : LABEL_TOP_REST_Y),
+    labelWidthPx: label.width,
+    labelHeightPx: label.height,
+    pillX: planet.gauged ? COMPACT_BADGE_OFFSET_X : BADGE_OFFSET_X,
+    pillY: planet.gauged ? COMPACT_BADGE_OFFSET_Y : BADGE_OFFSET_Y,
+    pillWidthPx: pill.width,
+    pillHeightPx: pill.height,
+  }
+}
+
+function sameOutline(a: PlanetOutline | null, b: PlanetOutline | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return (
+    a.scale === b.scale &&
+    a.labelTop === b.labelTop &&
+    a.labelWidthPx === b.labelWidthPx &&
+    a.labelHeightPx === b.labelHeightPx &&
+    a.pillX === b.pillX &&
+    a.pillY === b.pillY &&
+    a.pillWidthPx === b.pillWidthPx &&
+    a.pillHeightPx === b.pillHeightPx
+  )
+}
+
+/**
+ * The box a body's drawing covers at `zoom`, written into `out` (and
+ * returned): the union of
+ *
+ * - the body, as a square — its moon system (`r`) or the selection
+ *   reticle's corner brackets, whichever is wider. The brackets count
+ *   whether or not the planet is selected, so selecting one never shoves its
+ *   neighbours;
+ * - the label below it;
+ * - the state pill to its right, when it wears one.
+ *
+ * Body parts grow with the counter-zoom (`bodyZoomFactor`), the label and
+ * pill with `worldPerPx`. A box and not a circle round the centre, because
+ * the label is wide and flat: a circle holding it would also claim the
+ * empty space above it, and a clump of such circles packed half again as
+ * loosely as its labels needed — too loosely for a fit of several clusters
+ * to find any zoom that holds them. Pure; `out` keeps the frame loop free
+ * of allocations.
+ */
+export function bodyExtent(
+  r: number,
+  outline: PlanetOutline | null,
+  zoom: number,
+  out: Extent
+): Extent {
+  const zoomFactor = bodyZoomFactor(zoom)
+  let half = r * zoomFactor
+  if (!outline) {
+    out.left = -half
+    out.right = half
+    out.bottom = -half
+    out.top = half
+    return out
+  }
+  const perPx = worldPerPx(zoom)
+  const s = outline.scale * zoomFactor
+  half = Math.max(half, BRACKET_INSET * s)
+  const labelHalf = (outline.labelWidthPx / 2) * perPx
+  out.left = -Math.max(half, labelHalf)
+  out.right = Math.max(half, labelHalf)
+  out.bottom = -Math.max(half, outline.labelTop * s + outline.labelHeightPx * perPx)
+  out.top = half
+  if (outline.pillWidthPx > 0) {
+    out.right = Math.max(out.right, outline.pillX * s + outline.pillWidthPx * perPx)
+    out.top = Math.max(out.top, outline.pillY * s)
+  }
+  return out
+}
+
+/**
+ * How close two bodies' centres may get when `b` lies in direction
+ * (`ux`, `uy`) — a unit vector — from `a`: the distance along that line at
+ * which their boxes (`bodyExtent`, at the tick's zoom) stop overlapping
+ * with NEIGHBOUR_AIR_PX of screen between them, and CROSS_TAG_EXTRA more
+ * between different tags.
+ *
+ * The boxes overlap exactly while `b`'s offset from `a` lies inside one
+ * box — `a`'s box grown by `b`'s on every side, plus the gap — so this is
+ * where a ray from the centre in that direction leaves it. Side by side
+ * that is the two labels' half-widths; one above the other, the label's
+ * drop and the body. Symmetric: seen from `b`, the box and the ray are
+ * both reversed and the ray leaves at the same distance.
  *
  * Pure and exported for unit tests.
  */
 export function minDistance(
-  r1: number,
-  r2: number,
+  a: Extent,
+  b: Extent,
+  ux: number,
+  uy: number,
   sameTag: boolean,
-  zoomFactor = 1
+  zoom = REFERENCE_ZOOM
 ): number {
-  const reach = (r: number) => Math.max(r, LABEL_HALF_SPAN)
-  return (reach(r1) + reach(r2)) * zoomFactor + (sameTag ? SAME_TAG_GAP : CROSS_TAG_GAP)
+  return contact(a, b, ux, uy, pairGap(sameTag, zoom), CONTACT_NORMAL)
+}
+
+/** The empty room `minDistance` keeps between two boxes. */
+function pairGap(sameTag: boolean, zoom: number): number {
+  return NEIGHBOUR_AIR_PX * worldPerPx(zoom) + (sameTag ? 0 : CROSS_TAG_EXTRA)
+}
+
+/** `contact`'s normal, written in place so the tick never allocates. */
+const CONTACT_NORMAL = { x: 0, y: 0 }
+
+/**
+ * `minDistance`, plus the side of the grown box the ray leaves through,
+ * written into `normal` as a unit axis pointing from `a` towards `b`.
+ *
+ * Separation pushes along that normal, square off the face the two boxes
+ * meet at, rather than along the line between the centres. Pushed along
+ * the line, two boxes meeting off-centre shoved each other sideways as
+ * well as apart, and a clump kept sliding round itself long after it had
+ * room — seconds of drift before it slept.
+ */
+function contact(
+  a: Extent,
+  b: Extent,
+  ux: number,
+  uy: number,
+  gap: number,
+  normal: { x: number; y: number }
+): number {
+  const alongX =
+    ux > 0 ? (a.right - b.left + gap) / ux : ux < 0 ? (a.left - b.right - gap) / ux : Infinity
+  const alongY =
+    uy > 0 ? (a.top - b.bottom + gap) / uy : uy < 0 ? (a.bottom - b.top - gap) / uy : Infinity
+  if (alongX <= alongY) {
+    normal.x = Math.sign(ux)
+    normal.y = 0
+    return alongX
+  }
+  normal.x = 0
+  normal.y = Math.sign(uy)
+  return alongY
 }
 
 /**
- * The pair the canvas script was tuned against: two active planets, each
- * `PLANET_BASE_RADIUS`. `separation` reproduces the canvas formula exactly
- * at this size and departs from it only as bodies grow past it. The pair's
- * `min` is measured by `minDistance` like any other, so it includes the
- * LABEL_HALF_SPAN floor — wider than the canvas's own bare-body pair.
+ * The pair the canvas script was tuned against: two bare working planets,
+ * each PLANET_BASE_RADIUS, at the canvas's same-tag gap. Separation's
+ * strength is scaled by how big a pair is next to this one.
  */
-const referenceMin = (sameTag: boolean) => minDistance(PLANET_BASE_RADIUS, PLANET_BASE_RADIUS, sameTag)
+const REFERENCE_PAIR = 2 * PLANET_BASE_RADIUS + CANVAS_SAME_TAG_GAP
 
 /**
  * Separation acceleration for a pair already inside `min`, at distance `d`.
  *
- * The canvas 4a script pushes with `(min - d) / min * SEPARATION`, which
- * has two problems once a body can be much larger than a bare planet — and
- * with moon footprints, it can:
+ * The strength is the canvas 4a script's (SEPARATION_SAME /
+ * SEPARATION_CROSS), scaled by how big this pair is next to REFERENCE_PAIR,
+ * because the cohesion spring pulling a clump together grows with it: a
+ * force that topped out at the canvas's value however large the bodies
+ * were let a clump close over a planet's moons.
  *
- * - the ramp is measured against the pair's own `min`, so the same physical
- *   overlap registers as a smaller fraction the bigger the bodies are;
- * - the force tops out at `SEPARATION` however large they are, while the
- *   cohesion spring pulling them back together grows with the clump.
- *
- * So both are measured against the reference pair instead: the ramp over a
- * FIXED distance, and the strength scaled by how big this pair is next to
- * that reference. Separation is then proportional to size, where the
- * canvas's was independent of it — which is what stops a clump from closing
- * over a planet's moons. At the reference pair both corrections are 1 and
- * this is the canvas script, unchanged and bit-identical.
+ * It reaches that strength CONTACT_RAMP of the way into `min` — see there
+ * for why this is no longer the canvas's whole-of-`min` ramp. Both the
+ * strength and the ramp are proportional to `min`, so the contact is
+ * equally stiff for every pair: the same overlap pushes the same.
  *
  * Pure and exported for unit tests.
  */
 export function separation(min: number, d: number, sameTag: boolean): number {
-  const reference = referenceMin(sameTag)
-  const strength = (sameTag ? SEPARATION_SAME : SEPARATION_CROSS) * (min / reference)
-  return Math.min(1, (min - d) / reference) * strength
+  const strength = (sameTag ? SEPARATION_SAME : SEPARATION_CROSS) * (min / REFERENCE_PAIR)
+  return Math.min(1, (min - d) / (CONTACT_RAMP * min)) * strength
 }
+
 
 // --- The tick ----------------------------------------------------------------
 
@@ -450,7 +719,11 @@ interface Centre {
   w: number
 }
 
-function tick(sim: SimState, events: SimEvents, zoomFactor: number): void {
+function tick(sim: SimState, events: SimEvents, zoom: number): void {
+  for (const body of sim.bodies.values()) bodyExtent(body.r, body.outline, zoom, body.extent)
+  const sameGap = pairGap(true, zoom)
+  const crossGap = pairGap(false, zoom)
+
   // Radius-weighted barycentre per tag, over bonded bodies only — a falling
   // body has no bond left to pull with (canvas: `if (n.free) continue`).
   const centres = new Map<number, Centre>()
@@ -508,13 +781,20 @@ function tick(sim: SimState, events: SimEvents, zoomFactor: number): void {
       if (other === body || other.mode !== 'hold') continue
       const dx = body.x - other.x
       const dy = body.y - other.y
-      const d = Math.hypot(dx, dy) || 0.01
+      const d = Math.hypot(dx, dy)
+      // Two bodies on the very same spot part along x, each its own way.
+      const ux = d > 0 ? dx / d : body.id < other.id ? 1 : -1
+      const uy = d > 0 ? dy / d : 0
       const same = other.tagId === body.tagId
-      const min = minDistance(body.r, other.r, same, zoomFactor)
+      const min = contact(other.extent, body.extent, ux, uy, same ? sameGap : crossGap, CONTACT_NORMAL)
       if (d < min) {
-        const f = separation(min, d, same)
-        ax += (dx / d) * f
-        ay += (dy / d) * f
+        const nx = CONTACT_NORMAL.x
+        const ny = CONTACT_NORMAL.y
+        // Positive while the two are parting, negative while closing.
+        const vn = (body.vx - other.vx) * nx + (body.vy - other.vy) * ny
+        const f = separation(min, d, same) - vn * CONTACT_DAMPING
+        ax += nx * f
+        ay += ny * f
       }
     }
 

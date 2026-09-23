@@ -20,6 +20,9 @@ const App = lazy(() => import('./App.tsx'))
 const SandboxPage = lazy(() =>
   import('./sandbox/SandboxPage.tsx').then((m) => ({ default: m.SandboxPage }))
 )
+const ClusterSandboxPage = lazy(() =>
+  import('./sandbox/ClusterSandboxPage.tsx').then((m) => ({ default: m.ClusterSandboxPage }))
+)
 const StatsPage = lazy(() => import('./stats/StatsPage.tsx').then((m) => ({ default: m.StatsPage })))
 const SessionWindow = lazy(() =>
   import('./SessionWindow.tsx').then((m) => ({ default: m.SessionWindow }))
@@ -74,6 +77,12 @@ import.meta.hot?.on('vite:afterUpdate', resetErrorBoundaries)
  * loads.
  */
 const sandbox = window.location.pathname === '/sandbox'
+/**
+ * `/sandbox/cluster` — the real space map over a fixed set of sessions, for
+ * looking at how a settled cluster spaces its labels and pills. Same kind of
+ * branch as `/sandbox`, for the same reasons.
+ */
+const clusterSandbox = window.location.pathname === '/sandbox/cluster'
 
 /**
  * `/session/<id>` — a detached session window, one more branch of the same
@@ -123,6 +132,8 @@ createRoot(document.getElementById('root')!).render(
       <Suspense fallback={null}>
         {sandbox ? (
           <SandboxPage />
+        ) : clusterSandbox ? (
+          <ClusterSandboxPage />
         ) : stats ? (
           <StatsPage route={stats} />
         ) : sessionWindowId !== null ? (
