@@ -52,10 +52,10 @@ export function parseIdleTimeoutMs(raw: string | number | null | undefined): num
 
 /**
  * The subset of the SDK's `Query` object Orbital uses. `supportedModels`,
- * `supportedCommands`, `setModel` and `getContextUsage` are optional because a
- * fake in a test may implement only what that test exercises — and because a
- * CLI too old to answer a control request must degrade to "unknown", never to
- * a crash.
+ * `supportedCommands`, `setModel`, `setPermissionMode` and `getContextUsage`
+ * are optional because a fake in a test may implement only what that test
+ * exercises — and because a CLI too old to answer a control request must
+ * degrade to "unknown", never to a crash.
  */
 export type QueryFn = (args: {
   prompt: AsyncIterable<unknown>;
@@ -63,6 +63,7 @@ export type QueryFn = (args: {
 }) => AsyncGenerator<any> & {
   interrupt?: () => Promise<void>;
   setModel?: (model?: string) => Promise<void>;
+  setPermissionMode?: (mode: PermissionMode) => Promise<void>;
   supportedModels?: () => Promise<unknown[]>;
   supportedCommands?: () => Promise<unknown[]>;
   getContextUsage?: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown>;
@@ -195,28 +196,114 @@ export interface SessionAttempt {
   model: string | null;
 }
 
-/**
- * The one tool Orbital can render a surface for. Every other tool the CLI asks
- * about is denied — see `decide`.
- */
+/** The tool whose call becomes a question card rather than a permission prompt. */
 const QUESTION_TOOL = 'AskUserQuestion';
+
+/**
+ * The tool that asks to leave plan mode. It is a permission request as far as
+ * the SDK is concerned, but approving it does something no other approval
+ * does — it changes the session's permission mode — so it gets its own kind.
+ */
+const PLAN_TOOL = 'ExitPlanMode';
+
+/**
+ * What kind of surface a parked decision needs. The `kind` on the envelope the
+ * spec left as an extension point, now with all three of its values
+ * (spec 2026-09-23-permission-and-plan-decisions-design).
+ */
+export type DecisionKind = 'question' | 'permission' | 'plan';
+
+/**
+ * Which surface a tool's ask belongs on. Total by design: any tool that is not
+ * one of the two named ones is an ordinary permission prompt, which is the
+ * whole point — the CLI can ask about a tool this build has never heard of and
+ * still get a surface instead of a synthetic denial.
+ */
+export function decisionKindFor(toolName: string): DecisionKind {
+  if (toolName === QUESTION_TOOL) return 'question';
+  if (toolName === PLAN_TOOL) return 'plan';
+  return 'permission';
+}
 
 /**
  * A blocked tool call waiting on the browser, as it travels on the hub
  * (`decision_pending`) and in the session snapshot (`ApiSession`).
  *
- * `kind` is an open union on purpose: ordinary permission prompts and
- * `onUserDialog` dialogs ride this same envelope later without changing the
- * transport (spec 2026-09-20-interactive-decisions-design § Channel).
+ * The prompt copy (`title`, `displayName`, `description`) is the CLI bridge's
+ * own, taken off the `canUseTool` options rather than reconstructed here: the
+ * bridge writes the sentence the terminal shows, and two hosts writing their
+ * own wording for the same ask is how they come to disagree about what a tool
+ * is about to do. Every one of them is optional — an older CLI sends none.
  */
 export interface PendingDecision {
   /** The SDK's `toolUseID` — what an answer has to name to be accepted. */
   id: string;
-  kind: 'question';
-  /** The tool's own input, verbatim: `AskUserQuestionInput` for `question`. */
+  kind: DecisionKind;
+  /**
+   * The tool's own input, verbatim: `AskUserQuestionInput` for `question`,
+   * `{plan}` for `plan`, and whatever the tool takes for `permission`.
+   */
   input: Record<string, unknown>;
   createdAt: number;
+  /** The tool being asked about. Absent on `question`, where it is implied. */
+  toolName?: string;
+  /** The bridge's full prompt sentence ("Claude wants to read foo.txt"). */
+  title?: string;
+  /** The bridge's short noun phrase for the action ("Read file"). */
+  displayName?: string;
+  /** The bridge's subtitle, when it wrote one. */
+  description?: string;
+  /**
+   * The ask must open on its decline option and offer no one-key approve
+   * (the SDK's `defaultToNo`). Carried so the card cannot be approved by a
+   * stray keystroke on the asks the CLI flagged as dangerous.
+   */
+  defaultToNo?: boolean;
 }
+
+/**
+ * The verdict a `permission` or `plan` decision is settled with — the other
+ * half of `DecisionAnswer`, the question's `answers` map being the first.
+ *
+ * `message` is what the model reads back when `approved` is false: the
+ * composer's "no, do this instead" text, or nothing at all for a bare refusal.
+ */
+export interface DecisionVerdict {
+  approved: boolean;
+  message?: string;
+}
+
+/**
+ * What `answerDecision` takes. Which arm applies is decided by the PARKED
+ * decision's `kind`, never by sniffing the payload: a question's answers map
+ * is `Record<string, string>` and could hold any key at all, so the shape
+ * alone can never be the discriminator.
+ */
+export type DecisionAnswer = Record<string, string> | DecisionVerdict;
+
+/** True for the verdict arm of `DecisionAnswer`. */
+export function isDecisionVerdict(answer: DecisionAnswer): answer is DecisionVerdict {
+  return typeof (answer as DecisionVerdict).approved === 'boolean';
+}
+
+/**
+ * What a denied tool tells the model when the user gave no reason of their
+ * own. Plain and non-committal: the model has to be able to pick another
+ * route without reading a refusal as an instruction.
+ */
+const DENIED_MESSAGE = 'The user declined this action.';
+
+/**
+ * The mode a session continues in once its plan is approved.
+ *
+ * `acceptEdits` rather than a choice between it and "keep asking": Orbital's
+ * `PermissionMode` has no ask-about-everything member (see `types.ts`), and
+ * adding one changes the launch picker, its artboard and the lists pinned to
+ * it. `acceptEdits` still routes every shell command through the permission
+ * card this same change adds, so an approved plan is not a blank cheque
+ * (adr: an-approved-plan-continues-in-acceptedits).
+ */
+export const APPROVED_PLAN_MODE: PermissionMode = 'acceptEdits';
 
 /**
  * The question texts of a decision's input, which are the keys its `answers`
@@ -263,6 +350,7 @@ interface ManagedSession {
     | (AsyncGenerator<any> & {
         interrupt?: () => Promise<void>;
         setModel?: (model?: string) => Promise<void>;
+        setPermissionMode?: (mode: PermissionMode) => Promise<void>;
         supportedCommands?: () => Promise<unknown[]>;
         getContextUsage?: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown>;
       })
@@ -354,6 +442,7 @@ export class Runner {
   private hasLiveSubagents?: (sessionId: string) => boolean;
   private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
   private onDecision?: (sessionId: string) => void;
+  private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
   private images?: ImageStore;
   private claudeExecutablePath?: string | null;
@@ -456,6 +545,15 @@ export class Runner {
      */
     onDecision?: (sessionId: string) => void;
     /**
+     * The session's permission mode changed mid-run — which today happens on
+     * exactly one edge, an approved plan leaving plan mode
+     * (spec 2026-09-23-permission-and-plan-decisions-design). Whoever stores
+     * the sessions row writes it, so the panel's readout and the next
+     * autoheal both see the mode the CLI is actually in rather than the one
+     * the session was launched with.
+     */
+    onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
+    /**
      * Whatever the SDK generator threw, with the session it was running.
      * Called from `pump()`'s catch, where the only record of a session dying
      * on its own used to be a line on the server's terminal that nobody was
@@ -489,6 +587,7 @@ export class Runner {
     this.hasLiveSubagents = deps.hasLiveSubagents;
     this.onTurnBoundary = deps.onTurnBoundary;
     this.onDecision = deps.onDecision;
+    this.onPermissionMode = deps.onPermissionMode;
     this.onError = deps.onError;
     this.images = deps.images;
     this.claudeExecutablePath = deps.claudeExecutablePath;
@@ -518,7 +617,7 @@ export class Runner {
     this.idleTimeoutMs = idleTimeoutMs;
     for (const [sessionId, s] of this.sessions) {
       if (s.status !== 'needs_input') continue;
-      // A parked question has no deadline (see `decide`), so a setting change
+      // A parked decision has no deadline (see `decide`), so a setting change
       // must not hand it one either.
       if (s.decision) continue;
       this.armIdleTimer(sessionId);
@@ -637,7 +736,7 @@ export class Runner {
   /** Final state transition shared by explicit end() and natural SDK-generator completion. */
   private finish(sessionId: string): void {
     // The backstop for the paths that do not go through end(): a generator
-    // that completed or threw while a question was parked. No promise may
+    // that completed or threw while a decision was parked. No promise may
     // outlive its session.
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
     this.setStatus(sessionId, 'ended');
@@ -934,6 +1033,11 @@ export class Runner {
    * The SDK's `canUseTool`: what the CLI blocks on while it waits for a
    * human. An unsettled promise blocks the tool forever — the SDK gives it no
    * park deadline — so every path out of here settles exactly once.
+   *
+   * Three kinds ride one envelope (`decisionKindFor`): the question card, the
+   * permission prompt, and the plan approval. Only the surface the browser
+   * draws differs; the parking, the hub events, the `needs_input` status and
+   * the settle-exactly-once guarantee are the same machinery for all three.
    */
   private decide(
     sessionId: string,
@@ -941,28 +1045,45 @@ export class Runner {
     input: Record<string, unknown>,
     opts: Parameters<CanUseTool>[2],
   ): Promise<PermissionResult> {
-    // The extension point for permission prompts and dialogs: a new `kind` on
-    // the same envelope. Until Orbital has a surface for one, denying
-    // reproduces exactly what the SDK did while no `canUseTool` was passed.
-    if (toolName !== QUESTION_TOOL) {
-      return Promise.resolve({
-        behavior: 'deny',
-        message: `Orbital has no prompt surface for ${toolName}.`,
-      });
-    }
     const s = this.sessions.get(sessionId);
     if (!s) {
       return Promise.resolve({ behavior: 'deny', message: `session ${sessionId} is not active` });
     }
-    // Defensive: the model is blocked on the first question, so a second
-    // cannot normally arrive. If one does, the older promise is settled rather
-    // than dropped — an overwritten resolver is a permanently blocked tool.
+    const kind = decisionKindFor(toolName);
+    // `bypassPermissions` is the user saying "do not ask me". The CLI normally
+    // honours that before the callback is reached, but a rule or a safety
+    // check can still route one here — and a session launched to run
+    // unattended must not stop on a card nobody is watching for. Questions and
+    // plan approvals are not permission prompts and are unaffected: the model
+    // asked the human something, and no mode answers that on their behalf.
+    if (kind === 'permission' && s.attempt.permissionMode === 'bypassPermissions') {
+      return Promise.resolve({ behavior: 'allow' });
+    }
+    // Defensive: the model is blocked on the first ask, so a second cannot
+    // normally arrive. If one does, the older promise is settled rather than
+    // dropped — an overwritten resolver is a permanently blocked tool.
     this.settleDecision(sessionId, {
       behavior: 'deny',
-      message: 'Superseded by a newer question.',
+      message: 'Superseded by a newer request.',
     });
     const pending: PendingDecision = {
-      id: opts.toolUseID, kind: 'question', input, createdAt: Date.now(),
+      id: opts.toolUseID, kind, input, createdAt: Date.now(),
+      // The bridge's prompt copy, only where there is a surface that draws
+      // it. A question card names its own tool and writes its own headline
+      // out of the questions, so none of this would reach the browser — and
+      // an envelope carrying fields nothing reads is one more thing that can
+      // drift. Each field travels only when the CLI actually sent it: an
+      // older CLI sends none, and an absent field says "none" more honestly
+      // than an empty string the browser would then have to test for.
+      ...(kind === 'question'
+        ? {}
+        : {
+            toolName,
+            ...(typeof opts.title === 'string' ? { title: opts.title } : {}),
+            ...(typeof opts.displayName === 'string' ? { displayName: opts.displayName } : {}),
+            ...(typeof opts.description === 'string' ? { description: opts.description } : {}),
+            ...(opts.defaultToNo === true ? { defaultToNo: true } : {}),
+          }),
     };
     return new Promise<PermissionResult>((resolve) => {
       // Already aborted: `addEventListener` would never fire, and parking a
@@ -983,7 +1104,7 @@ export class Runner {
       };
       this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: pending });
       this.onDecision?.(sessionId);
-      // No idle timer is armed for this: a parked question has no deadline,
+      // No idle timer is armed for this: a parked decision has no deadline,
       // mirroring the SDK, whose `canUseTool` promise has none either.
       this.setStatus(sessionId, 'needs_input');
     });
@@ -1020,43 +1141,124 @@ export class Runner {
   }
 
   /**
-   * Answers the parked question and unblocks the tool. `false` for every case
+   * Answers the parked decision and unblocks the tool. `false` for every case
    * the route reports as 404: a session it does not run, and an id that is not
    * the parked one — a decision already settled among them, which is how the
-   * loser of two open windows finds out.
+   * loser of two open windows finds out. Also `false` when the payload does
+   * not fit the parked decision's `kind`, which is a 400 rather than a 404 and
+   * is why the route checks the shape itself before calling.
    *
-   * `answers` is taken as given: the route checks there is one per question,
-   * nothing checks what they say.
+   * A question's `answers` are taken as given: the route checks there is one
+   * per question, nothing checks what they say. A verdict's `message` reaches
+   * the model verbatim as the tool's refusal.
    */
-  answerDecision(sessionId: string, decisionId: string, answers: Record<string, string>): boolean {
-    const parked = this.sessions.get(sessionId)?.decision;
-    if (!parked || parked.pending.id !== decisionId) return false;
+  answerDecision(sessionId: string, decisionId: string, answer: DecisionAnswer): boolean {
+    const s = this.sessions.get(sessionId);
+    const parked = s?.decision;
+    if (!s || !parked || parked.pending.id !== decisionId) return false;
+    const { kind, input } = parked.pending;
+
+    if (kind === 'question') {
+      if (isDecisionVerdict(answer)) return false;
+      this.settleDecision(sessionId, {
+        behavior: 'allow',
+        updatedInput: { ...input, answers: answer },
+      });
+      this.setStatus(sessionId, 'working');
+      return true;
+    }
+
+    if (!isDecisionVerdict(answer)) return false;
+    if (!answer.approved) {
+      this.settleDecision(sessionId, {
+        behavior: 'deny',
+        message: answer.message?.trim() || DENIED_MESSAGE,
+        // Telemetry only, but the SDK asks hosts that actually prompt a human
+        // to say so rather than let the CLI infer it.
+        decisionClassification: 'user_reject',
+      });
+      // A refused tool does not end the turn: the model reads the refusal as
+      // this tool's result and carries on with whatever it does instead.
+      this.setStatus(sessionId, 'working');
+      return true;
+    }
+    // Before the settle, deliberately. Both the control request and the
+    // permission answer travel the CLI's stdin, and stdin is ordered, so
+    // firing it first is what puts the new mode in place before the tools the
+    // approved plan calls for. Nothing is awaited — the browser's POST is
+    // answered by the park being over, not by the CLI acknowledging a mode.
+    if (kind === 'plan') this.leavePlanMode(sessionId);
     this.settleDecision(sessionId, {
       behavior: 'allow',
-      updatedInput: { ...parked.pending.input, answers },
+      decisionClassification: 'user_temporary',
     });
     this.setStatus(sessionId, 'working');
     return true;
   }
 
+  /**
+   * Takes an approved session out of plan mode.
+   *
+   * Approving `ExitPlanMode` is the one approval that is not only about the
+   * tool in front of it: the tool's own result is a formality, and what the
+   * user actually said yes to is the session being allowed to act. Without
+   * the control request the CLI stays read-only and the approved plan cannot
+   * run a single step of itself — which is the dead end this whole change
+   * exists to open.
+   *
+   * A CLI too old to answer the request (or one that rejects it) leaves the
+   * session where it was: still in plan mode, still read-only. Degraded, but
+   * never less safe than what the user chose at launch.
+   *
+   * Only a session actually IN plan mode moves. A model that calls the tool
+   * from some other mode is asking for nothing, and quietly rewriting a
+   * session's mode on the back of it would be a downgrade the user never
+   * asked for.
+   */
+  private leavePlanMode(sessionId: string): void {
+    const s = this.sessions.get(sessionId);
+    if (!s || s.attempt.permissionMode !== 'plan') return;
+    void s.generator?.setPermissionMode?.(APPROVED_PLAN_MODE)?.catch(() => {});
+    s.attempt.permissionMode = APPROVED_PLAN_MODE;
+    this.onPermissionMode?.(sessionId, APPROVED_PLAN_MODE);
+  }
+
   send(sessionId: string, text: string, attachments?: string[]): void {
     const s = this.sessions.get(sessionId);
     if (!s || s.status === 'ended') throw new Error(`session ${sessionId} is not active`);
-    // Composer text answers a parked question instead of starting a turn: the
-    // model asked, so the text it gets back is the answer, which is what the
-    // typing meant. Every question gets the same text — the web client routes
-    // per question before it ever posts here, and this is the fallback for the
-    // race and for the API. Attachments have nowhere to go on this path.
+    // Composer text settles a parked decision instead of starting a turn: the
+    // CLI asked, so the text it gets back belongs to the ask, which is what
+    // the typing meant. What it MEANS depends on the kind, and the two must
+    // not be confused — a question's text is an answer merged into the tool's
+    // input, and merging an `answers` key into a Bash call would both corrupt
+    // the command and approve it.
+    //
+    // Attachments have nowhere to go on either path.
     const parked = s.decision;
     if (parked && text) {
-      const answers: Record<string, string> = {};
-      for (const question of decisionQuestions(parked.pending.input)) answers[question] = text;
-      this.settleDecision(sessionId, {
-        behavior: 'allow',
-        updatedInput: { ...parked.pending.input, answers },
-      });
-      // The answer resumes the turn the question paused — same mark as
-      // the send below.
+      if (parked.pending.kind === 'question') {
+        // Every question gets the same text — the web client routes per
+        // question before it ever posts here, and this is the fallback for
+        // the race and for the API.
+        const answers: Record<string, string> = {};
+        for (const question of decisionQuestions(parked.pending.input)) answers[question] = text;
+        this.settleDecision(sessionId, {
+          behavior: 'allow',
+          updatedInput: { ...parked.pending.input, answers },
+        });
+      } else {
+        // The CLI's own "No, and tell Claude what to do differently". Typing
+        // instead of clicking approve is a refusal with a reason in it, never
+        // an approval — the one reading under which a stray keystroke cannot
+        // authorise anything (spec § Answering).
+        this.settleDecision(sessionId, {
+          behavior: 'deny',
+          message: text,
+          decisionClassification: 'user_reject',
+        });
+      }
+      // The settle resumes the turn the ask paused — same mark as the send
+      // below.
       s.turnEnded = false;
       this.setStatus(sessionId, 'working');
       return;
@@ -1113,7 +1315,7 @@ export class Runner {
   }
 
   async interrupt(sessionId: string): Promise<void> {
-    // Nothing is auto-answered on the user's behalf: an interrupted question
+    // Nothing is auto-answered on the user's behalf: an interrupted ask
     // is a denied one, and its card locks unanswered.
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The user interrupted.' });
     const s = this.sessions.get(sessionId);

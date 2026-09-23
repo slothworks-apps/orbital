@@ -19,7 +19,12 @@ import {
   tagRules,
   tags,
 } from '../db/schema.js';
-import { decisionQuestions, parseIdleTimeoutMs, type Runner } from '../runner/runner.js';
+import {
+  decisionQuestions,
+  parseIdleTimeoutMs,
+  type DecisionAnswer,
+  type Runner,
+} from '../runner/runner.js';
 import { RETENTION_KEY } from '../retention.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
@@ -585,36 +590,67 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   /**
-   * The answer to a parked question (spec
-   * 2026-09-20-interactive-decisions-design § Channel). REST rather than the
-   * hub because answering has a real outcome the client has to hear: the
-   * decision may already be gone — answered in another window, interrupted, or
-   * ended — and that is this 404.
+   * The answer to a parked decision (specs
+   * 2026-09-20-interactive-decisions-design § Channel and
+   * 2026-09-23-permission-and-plan-decisions-design § Channel). REST rather
+   * than the hub because answering has a real outcome the client has to hear:
+   * the decision may already be gone — answered in another window,
+   * interrupted, or ended — and that is this 404.
    *
-   * `answers` is complete or it is nothing: one entry per question, keyed by
-   * the question's own text, which is the shape the SDK takes it in. What each
-   * answer *says* is the client's business; only its presence is checked here.
+   * ONE endpoint for all three kinds, with the body read against the kind the
+   * server is actually parked on rather than against whatever the client
+   * thinks it is looking at. A client one version behind cannot approve a
+   * permission prompt by posting question answers at it, and cannot corrupt a
+   * tool's input by posting a verdict at a question.
+   *
+   * - `question` takes `{answers}`, complete or nothing: one entry per
+   *   question, keyed by the question's own text, which is the shape the SDK
+   *   takes it in. What each answer *says* is the client's business; only its
+   *   presence is checked here.
+   * - `permission` and `plan` take `{approved, message?}`. `message` is what
+   *   the model reads back from a refusal.
    */
   app.post('/api/sessions/:id/decision/:decisionId', (req, reply) => {
     const { id, decisionId } = req.params as { id: string; decisionId: string };
-    const { answers } = (req.body ?? {}) as { answers?: unknown };
-    if (
-      !answers ||
-      typeof answers !== 'object' ||
-      Array.isArray(answers) ||
-      Object.values(answers).some((a) => typeof a !== 'string')
-    ) {
-      return reply.code(400).send({ error: 'answers must be an object of strings' });
-    }
+    // The lookup comes first now: which body is valid depends on the kind, so
+    // there is nothing to check a payload against until the decision is known.
+    // A session with nothing parked is still the same 404 it always was.
     const pending = ctx.runner.pendingDecision(id);
     if (!pending || pending.id !== decisionId) return reply.code(404).send({ error: 'not found' });
-    const given = answers as Record<string, string>;
-    if (decisionQuestions(pending.input).some((q) => typeof given[q] !== 'string')) {
-      return reply.code(400).send({ error: 'answers is missing a question' });
+    const body = (req.body ?? {}) as { answers?: unknown; approved?: unknown; message?: unknown };
+
+    let answer: DecisionAnswer;
+    if (pending.kind === 'question') {
+      const { answers } = body;
+      if (
+        !answers ||
+        typeof answers !== 'object' ||
+        Array.isArray(answers) ||
+        Object.values(answers).some((a) => typeof a !== 'string')
+      ) {
+        return reply.code(400).send({ error: 'answers must be an object of strings' });
+      }
+      const given = answers as Record<string, string>;
+      if (decisionQuestions(pending.input).some((q) => typeof given[q] !== 'string')) {
+        return reply.code(400).send({ error: 'answers is missing a question' });
+      }
+      answer = given;
+    } else {
+      if (typeof body.approved !== 'boolean') {
+        return reply.code(400).send({ error: 'approved must be a boolean' });
+      }
+      if (body.message !== undefined && typeof body.message !== 'string') {
+        return reply.code(400).send({ error: 'message must be a string' });
+      }
+      answer = {
+        approved: body.approved,
+        ...(typeof body.message === 'string' ? { message: body.message } : {}),
+      };
     }
+
     // Re-read rather than trusting the lookup above: the decision may have
     // settled between the two, which is the same 404 as never having existed.
-    if (!ctx.runner.answerDecision(id, decisionId, given)) {
+    if (!ctx.runner.answerDecision(id, decisionId, answer)) {
       return reply.code(404).send({ error: 'not found' });
     }
     return { ok: true };

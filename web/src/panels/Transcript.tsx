@@ -14,8 +14,10 @@ import {
 } from './transcriptMotion'
 import { MessageView } from './MessageView'
 import { QuestionCard } from './QuestionCard'
+import { PermissionCard } from './PermissionCard'
 import { ToolRow, salientInput } from './ToolRow'
 import { QUESTION_TOOL_NAME } from '../lib/questionCard'
+import { PLAN_TOOL_NAME } from '../lib/decisionCard'
 
 /** Initial size of the rendered window (in paired items), and the amount a
  * successful "load older" grows it by (bounded — see `handleLoadOlder`
@@ -68,12 +70,13 @@ export function pairMessages(messages: ChatMessage[]): TranscriptItem[] {
   return items
 }
 
-/** A run of consecutive tool rows, a question card, a single message row, or
- * a model-switch marker inserted between two assistant messages (see
- * `insertModelDividers`). */
+/** A run of consecutive tool rows, a decision card (a question, a permission
+ * prompt or a plan), a single message row, or a model-switch marker inserted
+ * between two assistant messages (see `insertModelDividers`). */
 export type TranscriptGroup =
   | { kind: 'tools'; key: string; items: Extract<TranscriptItem, { kind: 'tool' }>[] }
   | { kind: 'question'; key: string; item: Extract<TranscriptItem, { kind: 'tool' }> }
+  | { kind: 'decision'; key: string; item: Extract<TranscriptItem, { kind: 'tool' }> }
   | { kind: 'message'; key: string; item: Extract<TranscriptItem, { kind: 'message' }> }
   | { kind: 'model-divider'; key: string; from: string; to: string; timestamp?: string }
 
@@ -83,16 +86,26 @@ export type TranscriptGroup =
  * 4px stack, so a multi-step tool sequence reads as one block of machine
  * work between two turns of conversation rather than as N loose rows.
  *
- * `AskUserQuestion` is the one exception: it becomes its own group so the
- * folding rules can never reach it (spec:
+ * Decisions are the exception: they become their own group so the folding
+ * rules can never reach them (spec:
  * 2026-09-20-interactive-decisions-design — "a pending card cannot be folded
- * by the transcript-folding rules"). A question is not machine work to be
+ * by the transcript-folding rules"). A decision is not machine work to be
  * skimmed past; it is the moment the session stopped on the user. Being a
  * group of its own also breaks the run around it, which is right: the calls
- * before the question and the calls after it are two different stretches of
- * work.
+ * before it and the calls after it are two different stretches of work.
+ *
+ * Three tool calls qualify. `AskUserQuestion` and `ExitPlanMode` always do —
+ * the first IS the question and the second IS the plan, which stays worth
+ * reading long after it was approved. An ordinary tool qualifies only while
+ * the session is actually parked on it (`pendingDecisionId`): the CLI records
+ * the tool call, never the prompt, so there is nothing to draw a permission
+ * card from once the ask is over, and the row reverts to its usual form
+ * (spec 2026-09-23-permission-and-plan-decisions-design § Web UI).
  */
-export function groupToolRuns(items: TranscriptItem[]): TranscriptGroup[] {
+export function groupToolRuns(
+  items: TranscriptItem[],
+  pendingDecisionId?: string,
+): TranscriptGroup[] {
   const groups: TranscriptGroup[] = []
   for (const item of items) {
     if (item.kind === 'message') {
@@ -101,6 +114,13 @@ export function groupToolRuns(items: TranscriptItem[]): TranscriptGroup[] {
     }
     if (item.toolUse.toolName === QUESTION_TOOL_NAME) {
       groups.push({ kind: 'question', key: item.key, item })
+      continue
+    }
+    if (
+      item.toolUse.toolName === PLAN_TOOL_NAME ||
+      (pendingDecisionId !== undefined && item.toolUse.toolUseId === pendingDecisionId)
+    ) {
+      groups.push({ kind: 'decision', key: item.key, item })
       continue
     }
     const last = groups[groups.length - 1]
@@ -372,7 +392,14 @@ export function Transcript({ sessionId }: TranscriptProps) {
   // window the paired rows — never the other way around.
   const pairedAll = useMemo(() => pairMessages(messages), [messages])
   const items = useMemo(() => pairedAll.slice(-visibleCount), [pairedAll, visibleCount])
-  const groups = useMemo(() => insertModelDividers(groupToolRuns(items)), [items])
+  // The id of the tool call this session is parked on, so the row for it is
+  // lifted out of the folding rules and drawn as a card. Read here rather than
+  // inside the card, because grouping is what has to know.
+  const pendingDecisionId = useOrbital((s) => s.pendingDecisions[sessionId]?.id)
+  const groups = useMemo(
+    () => insertModelDividers(groupToolRuns(items, pendingDecisionId)),
+    [items, pendingDecisionId],
+  )
 
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<Scroller | null>(null)
@@ -582,6 +609,12 @@ export function Transcript({ sessionId }: TranscriptProps) {
           </div>
         ) : group.kind === 'question' ? (
           <QuestionCard
+            sessionId={sessionId}
+            toolUse={group.item.toolUse}
+            toolResult={group.item.toolResult}
+          />
+        ) : group.kind === 'decision' ? (
+          <PermissionCard
             sessionId={sessionId}
             toolUse={group.item.toolUse}
             toolResult={group.item.toolResult}

@@ -17,6 +17,30 @@ import {
   type AnswerMap,
 } from '../lib/questionCard'
 import { useEscapeLayer } from '../ui/escapeLayer'
+// Every value below was transcribed from canvas 9b/9d and now lives beside
+// the permission card that shares it — see `decisionCardStyles`.
+import {
+  CARD_ANSWERED,
+  CARD_PENDING,
+  CARD_READONLY,
+  CARD_SHADOW,
+  CARD_SHELL,
+  CHIP_BASE,
+  CHIP_PENDING,
+  CHIP_QUIET,
+  DESCRIPTION,
+  DESCRIPTION_INK,
+  GUTTER,
+  LABEL,
+  ROW_BASE,
+  ROW_CHOSEN,
+  ROW_FOCUS,
+  ROW_LOCKED,
+  ROW_OTHER_OPEN,
+  ROW_REST,
+  ROW_TICKED,
+  STATUS_BASE,
+} from './decisionCardStyles'
 import { isReadOnly } from '../lib/types'
 import type { AskUserQuestionInput, ChatMessage, QuestionOption, QuestionSpec } from '../lib/types'
 
@@ -45,60 +69,6 @@ import type { AskUserQuestionInput, ChatMessage, QuestionOption, QuestionSpec } 
  * The accent is the composer's panel-interaction accent throughout, never the
  * session's tag hue: hue means tag, this means "a control you can act on".
  */
-
-/** Canvas 9d COLOUR: the pending card's border, and the accent every row state is built from. */
-const CARD_PENDING = 'border-accent/28 bg-[linear-gradient(180deg,rgba(10,16,28,.72),rgba(5,9,18,.82))]'
-/** Canvas 9d COLOUR: "answered card border — rgba(150,205,255,.12)"; 9b D's quieter fill. */
-const CARD_ANSWERED =
-  'border-[rgba(150,205,255,.12)] bg-[linear-gradient(180deg,rgba(10,16,28,.55),rgba(5,9,18,.66))]'
-/** Canvas 9b C: the watched-terminal card, quieter again. */
-const CARD_READONLY =
-  'border-[rgba(150,205,255,.12)] bg-[linear-gradient(180deg,rgba(10,16,28,.5),rgba(5,9,18,.62))]'
-
-/** Canvas 9b: chip is mono 10 at .14em tracking in a 3px/8px, r4 box. */
-const CHIP_BASE = 'shrink-0 rounded-[4px] border px-2 py-[3px] font-mono text-[10px] tracking-[0.14em]'
-const CHIP_PENDING = 'border-accent/35 bg-accent/12 text-[oklch(90%_.08_205)]'
-const CHIP_QUIET = 'border-[rgba(150,205,255,.18)] text-[rgba(190,215,240,.7)]'
-
-/** Canvas 9b: the status slot opposite the chip — mono 9.5 at .12em. */
-const STATUS_BASE = 'shrink-0 font-mono text-[9.5px] tracking-[0.12em]'
-
-/** Canvas 9d METRICS: "option row — 9px 11px · r9 · gap 6". */
-const ROW_BASE =
-  'flex w-full items-start gap-[9px] rounded-[9px] border px-[11px] py-[9px] text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[ease]'
-/** Canvas 9d COLOUR: "row rest — rgba(150,205,255,.14), no fill"; hover adds .34 + .06. */
-const ROW_REST =
-  'border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.34)] hover:bg-[rgba(150,205,255,.06)]'
-/** Canvas 9d COLOUR: "row focus — accent/.55 + ring accent/.18". */
-const ROW_FOCUS = 'border-accent/55 bg-accent/8 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'
-/** Canvas 9d COLOUR: "row chosen — accent/.35 + accent/.12". */
-const ROW_CHOSEN = 'border-accent/35 bg-accent/12'
-/** Canvas 9d COLOUR: "row locked — .1 border · opacity .55". Applied to the list, per 9b C. */
-const ROW_LOCKED = 'border-[rgba(150,205,255,.1)]'
-/** Canvas 9b B: a ticked multiSelect row, quieter than a single-select's chosen row. */
-const ROW_TICKED = 'border-accent/30 bg-accent/10'
-/**
- * The expanded Other… row (canvas 9b H). Written out rather than composed
- * from `ROW_BASE`: it needs a different axis and a different gap, and two
- * same-property utilities on one element resolve by stylesheet order rather
- * than by intent (web/CLAUDE.md).
- */
-const ROW_OTHER_OPEN =
-  'flex w-full flex-col gap-[7px] rounded-[9px] border border-accent/55 bg-accent/6 px-[11px] py-[9px] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'
-
-/** Canvas 9d METRICS: "marker gutter — 12px · mono 10 / ✓ 11". */
-const GUTTER = 'w-3 shrink-0 text-center font-mono text-[10px] leading-[1.5]'
-
-/**
- * Canvas 9b: label 13/600/1.3 over description 11.5/1.4, clamped to two lines
- * (9d). Neither carries its ink — each row state sets that, and two
- * same-property utilities on one element resolve by stylesheet order rather
- * than by intent (web/CLAUDE.md).
- */
-const LABEL = 'text-[13px] font-semibold leading-[1.3]'
-const DESCRIPTION = 'line-clamp-2 text-[11.5px] leading-[1.4]'
-/** Canvas 9d COLOUR: "label / description ink — #e8eef8 / rgba(160,190,225,.62)". */
-const DESCRIPTION_INK = 'text-[rgba(160,190,225,.62)]'
 
 export interface QuestionCardProps {
   sessionId: string
@@ -190,15 +160,9 @@ export function QuestionCard({ sessionId, toolUse, toolResult }: QuestionCardPro
       className={[
         // Canvas 9d METRICS: "card radius / border — 12px / 1px"; 9d
         // "answering": the border neutralises over .2s when it is answered.
-        // `shrink-0` is load-bearing: `overflow-hidden` drops a flex item's
-        // automatic min-height to 0, and the transcript is a fixed-height
-        // flex column whose content overflows — without it the card is the
-        // ONLY child the flex algorithm can crush, and it renders 2px tall
-        // (the borders). jsdom cannot catch this; only the browser can.
-        'orbital-card-in shrink-0 overflow-hidden rounded-[12px] border transition-[border-color,background-color] duration-200',
+        CARD_SHELL,
         mode === 'interactive' ? CARD_PENDING : mode === 'terminal' ? CARD_READONLY : CARD_ANSWERED,
-        // 9a in situ: the pending card sits on a soft drop shadow in the panel.
-        mode === 'interactive' ? 'shadow-[0_0_0_1px_rgba(0,0,0,.2),0_10px_30px_rgba(0,0,0,.35)]' : '',
+        mode === 'interactive' ? CARD_SHADOW : '',
       ].join(' ')}
     >
       {/* Multi-question header (canvas 9b F): the progress ticks are the only

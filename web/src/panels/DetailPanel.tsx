@@ -19,6 +19,7 @@ import {
 } from '../lib/usage'
 import { api } from '../lib/api'
 import { openQuestion } from '../lib/questionCard'
+import { composerHintFor, composerPlaceholderFor } from '../lib/decisionCard'
 import { reportError } from '../lib/errors'
 import { Panel } from '../ui/Panel'
 import { useEscapeLayer } from '../ui/escapeLayer'
@@ -165,7 +166,7 @@ export function DetailPanel() {
   // so far (spec: 2026-09-20-interactive-decisions-design § Web UI).
   const pendingDecision = useOrbital((s) => (id ? s.pendingDecisions[id] : undefined))
   const decisionAnswers = useOrbital((s) =>
-    pendingDecision ? s.decisionAnswers[pendingDecision.id] : undefined,
+    pendingDecision?.kind === 'question' ? s.decisionAnswers[pendingDecision.id] : undefined,
   )
 
   const [titleDraft, setTitleDraft] = useState('')
@@ -480,8 +481,18 @@ export function DetailPanel() {
   // A terminal session Orbital only watches can read the question but never
   // answer it, so its composer is unchanged too.
   const openDecisionQuestion =
-    pendingDecision && !isTerminalLive
+    pendingDecision?.kind === 'question' && !isTerminalLive
       ? openQuestion(pendingDecision.input.questions, decisionAnswers ?? {})
+      : undefined
+
+  // A permission prompt or a plan approval takes no words as its answer, but
+  // typed words are still meant for it — as the CLI's own "no, and tell
+  // Claude what to do differently". The composer has to say so before anyone
+  // presses ⏎ expecting the opposite (spec
+  // 2026-09-23-permission-and-plan-decisions-design § Answering).
+  const openVerdictKind =
+    pendingDecision && pendingDecision.kind !== 'question' && !isTerminalLive
+      ? pendingDecision.kind
       : undefined
 
   const pinned = session?.pinnedAt != null
@@ -981,15 +992,19 @@ export function DetailPanel() {
             hint={
               openDecisionQuestion
                 ? '⏎ answers the question · ⇧⏎ newline'
-                : '⏎ send · ⇧⏎ newline · ⌘V paste image'
+                : openVerdictKind
+                  ? composerHintFor(openVerdictKind)
+                  : '⏎ send · ⇧⏎ newline · ⌘V paste image'
             }
-            answering={openDecisionQuestion !== undefined}
+            answering={openDecisionQuestion !== undefined || openVerdictKind !== undefined}
             // The placeholder names the question's header chip, so with 2–4
             // stacked you know WHICH one you would be answering (canvas 9c).
             placeholder={
               openDecisionQuestion
                 ? `Answer ${openDecisionQuestion.header}, or pick an option above…`
-                : promptPlaceholder
+                : openVerdictKind
+                  ? composerPlaceholderFor(openVerdictKind)
+                  : promptPlaceholder
             }
             aria-label="Prompt"
             attachments={attachments}

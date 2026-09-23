@@ -1967,6 +1967,82 @@ describe('the decision endpoint', () => {
     // Nothing half-answered reaches the model.
     expect(answered).toEqual([]);
   });
+
+  it('400s a verdict posted at a parked question', async () => {
+    // A client one version ahead (or confused) must not be able to approve a
+    // question, which would reach the model as an empty answers map.
+    const { app, answered } = makeParkedApp();
+    const res = await answer(app, '/api/sessions/s1/decision/tu-1', { approved: true });
+    expect(res.statusCode).toBe(400);
+    expect(answered).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // The other two kinds (spec: 2026-09-23-permission-and-plan-decisions-design)
+  // -------------------------------------------------------------------------
+
+  /** An app whose runner is parked on a verdict-shaped decision for s1. */
+  function makeVerdictApp(kind: 'permission' | 'plan') {
+    const made = makeApp();
+    const answered: any[] = [];
+    made.runner.pendingDecision = (id: string) =>
+      id === 's1'
+        ? { id: 'tu-1', kind, toolName: 'Bash', input: { command: 'ls' }, createdAt: 1 }
+        : null;
+    made.runner.answerDecision = (id: string, decisionId: string, a: unknown) => {
+      answered.push({ id, decisionId, answer: a });
+      return decisionId === 'tu-1';
+    };
+    return { ...made, answered };
+  }
+
+  for (const kind of ['permission', 'plan'] as const) {
+    it(`approves a parked ${kind} decision`, async () => {
+      const { app, answered } = makeVerdictApp(kind);
+      const res = await answer(app, '/api/sessions/s1/decision/tu-1', { approved: true });
+      expect(res.statusCode).toBe(200);
+      expect(answered).toEqual([
+        { id: 's1', decisionId: 'tu-1', answer: { approved: true } },
+      ]);
+    });
+
+    it(`declines a parked ${kind} decision with a reason`, async () => {
+      const { app, answered } = makeVerdictApp(kind);
+      const res = await answer(app, '/api/sessions/s1/decision/tu-1', {
+        approved: false,
+        message: 'do it the other way',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(answered).toEqual([
+        {
+          id: 's1',
+          decisionId: 'tu-1',
+          answer: { approved: false, message: 'do it the other way' },
+        },
+      ]);
+    });
+
+    it(`400s a body that is not a verdict on a ${kind} decision`, async () => {
+      const { app, answered } = makeVerdictApp(kind);
+      for (const payload of [
+        {},
+        { answers: { a: 'b' } },
+        { approved: 'yes' },
+        { approved: true, message: 7 },
+      ]) {
+        const res = await answer(app, '/api/sessions/s1/decision/tu-1', payload);
+        expect(res.statusCode).toBe(400);
+      }
+      expect(answered).toEqual([]);
+    });
+
+    it(`404s a ${kind} verdict for an id that is not the parked one`, async () => {
+      const { app, answered } = makeVerdictApp(kind);
+      const res = await answer(app, '/api/sessions/s1/decision/tu-0', { approved: true });
+      expect(res.statusCode).toBe(404);
+      expect(answered).toEqual([]);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------

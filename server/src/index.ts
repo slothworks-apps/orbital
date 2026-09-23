@@ -394,6 +394,14 @@ export async function buildServer(overrides: {
     // Both edges of a parked question, for the map: `pendingDecision` rides
     // the snapshot, and it is what separates NEEDS INPUT from DONE.
     onDecision: (sessionId) => republish(sessionId),
+    // An approved plan left plan mode. Stored on the row, so the panel's mode
+    // readout stops claiming the session is read-only and an autoheal after a
+    // restart resumes it in the mode it was actually running in — not the one
+    // it was launched in (spec 2026-09-23-permission-and-plan-decisions-design).
+    onPermissionMode: (sessionId, mode) => {
+      db.update(sessions).set({ permissionMode: mode }).where(eq(sessions.id, sessionId)).run();
+      republish(sessionId);
+    },
     // What the session said, for the titler, in the shape the transcript
     // already converts to.
     onEntries: (sessionId, entries) => {

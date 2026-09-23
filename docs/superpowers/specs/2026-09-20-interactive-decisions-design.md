@@ -6,6 +6,7 @@ type: spec
 domain: web
 related:
   - 2026-09-20-composer-design
+  - 2026-09-23-permission-and-plan-decisions-design
 tags:
   - runner
   - detail-panel
@@ -164,6 +165,9 @@ Not tested: QuestionCard pixels, labels, classNames.
 ## Out of scope
 
 - Ordinary permission prompts (Allow / Always allow / Deny) — next
-  `kind` on this channel.
+  `kind` on this channel. **Built:**
+  `2026-09-23-permission-and-plan-decisions-design`, which adds
+  `permission` and `plan` on this same envelope (without "always
+  allow" — adr `permission-prompts-write-no-permission-rules`).
 - `onUserDialog` blocking dialogs (open `dialog_kind` union) — after
   that.
