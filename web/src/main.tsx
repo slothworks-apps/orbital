@@ -80,10 +80,12 @@ import.meta.hot?.on('vite:afterUpdate', resetErrorBoundaries)
 const sandbox = window.location.pathname === '/sandbox'
 /**
  * `/sandbox/cluster` — the real space map over a fixed set of sessions, for
- * looking at how a settled cluster spaces its labels and pills. Same kind of
- * branch as `/sandbox`, for the same reasons.
+ * looking at how a settled cluster spaces its labels and pills;
+ * `/sandbox/cluster/hole` adds a clump resting beside the hole's label.
+ * Same kind of branch as `/sandbox`, for the same reasons.
  */
-const clusterSandbox = window.location.pathname === '/sandbox/cluster'
+const clusterSandbox =
+  window.location.pathname === '/sandbox/cluster' || window.location.pathname === '/sandbox/cluster/hole'
 
 /**
  * `/session/<id>` — a detached session window, one more branch of the same

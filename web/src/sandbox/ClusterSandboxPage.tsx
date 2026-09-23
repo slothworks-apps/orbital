@@ -95,15 +95,37 @@ const SESSIONS: ApiSession[] = [
   fixtureSession('orb-5', 1, 'ended', 'Fix login'),
 ]
 
+/**
+ * `/sandbox/cluster/hole`: the same map plus a third clump of three whose
+ * stored home is close by the hole's label, and a history of 499 sessions
+ * so the label is as wide as it gets in practice. The layout alone never
+ * puts a clump there (the hole sits `HOLE_CLEARANCE` past every cluster);
+ * a drag re-homes one there, and zoomed out the label reaches it.
+ */
+const HOLE_TAGS: Tag[] = [
+  { ...TAGS[0], anchor_x: -4, anchor_y: 3 },
+  { ...TAGS[1], anchor_x: 5, anchor_y: 4 },
+  { id: 3, name: 'release', hue: 140, is_default: 0, anchor_x: 7, anchor_y: -12 },
+]
+const HOLE_SESSIONS: ApiSession[] = [
+  ...SESSIONS,
+  fixtureSession('rel-1', 3, 'working', 'Cut the 0.8 release branch'),
+  fixtureSession('rel-2', 3, 'needs_input', 'Changelog for the DMG'),
+  fixtureSession('rel-3', 3, 'idle', 'Notarize the build', { sonnet: true }),
+]
+const HOLE_HISTORY = 499
+
 function seedStore() {
+  const hole = window.location.pathname.endsWith('/hole')
+  const fixture = hole ? HOLE_SESSIONS : SESSIONS
   const sessions: Record<string, ApiSession> = {}
-  for (const session of SESSIONS) sessions[session.id] = session
+  for (const session of fixture) sessions[session.id] = session
   useOrbital.setState((state) => ({
     sessions,
-    order: SESSIONS.map((s) => s.id),
-    tags: TAGS,
+    order: fixture.map((s) => s.id),
+    tags: hole ? HOLE_TAGS : TAGS,
     models: MODELS,
-    sessionsTotal: SESSIONS.length,
+    sessionsTotal: fixture.length + (hole ? HOLE_HISTORY : 0),
     // Ended planets stay on the map, released never: the spacing is what is
     // being looked at, not the release.
     settings: { ...state.settings, map_release_ended_after_minutes: 'never' },

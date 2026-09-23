@@ -30,6 +30,8 @@ import {
   BRACKET_INSET,
   COMPACT_BADGE_OFFSET_X,
   COMPACT_BADGE_OFFSET_Y,
+  HOLE_LABEL_GAP,
+  HOLE_RADIUS,
   labelRestY,
   restingLabelSizePx,
   statePillSizePx,
@@ -103,7 +105,8 @@ const CONTACT_RAMP = 0.03
  * Dashpot on two touching bodies' closing (and parting) speed, per tick.
  * A contact this stiff would ring under DAMPING alone — two bodies meeting
  * would bounce off each other a few times before resting. This damps the
- * pair's relative motion along the contact normal to about critical, so
+ * pair's relative motion along the line between their centres (the
+ * direction the contact pushes in) to about critical, so
  * a collision settles in one approach, the way the canvas's soft ramp did.
  */
 const CONTACT_DAMPING = 0.3
@@ -245,13 +248,26 @@ export interface Extent {
 export interface SimInput {
   bodies: SimInputBody[]
   anchors: Array<{ tagId: number; x: number; y: number }>
-  hole: { x: number; y: number }
+  /**
+   * The hole's centre, and the size of its label column in CSS px
+   * (`holeLabelSizePx`); without `label`, only the round repulsion halo
+   * keeps bodies away.
+   */
+  hole: { x: number; y: number; label?: { width: number; height: number } }
+}
+
+/** The hole as the tick reads it: its centre and its label column's size, CSS px (0 × 0 for none). */
+export interface SimHole {
+  x: number
+  y: number
+  labelWidthPx: number
+  labelHeightPx: number
 }
 
 export interface SimState {
   bodies: Map<string, SimBody>
   anchors: Map<number, { x: number; y: number }>
-  hole: { x: number; y: number }
+  hole: SimHole
 }
 
 /** What one stepSimulation call reports back to the driver. */
@@ -263,7 +279,11 @@ export interface SimEvents {
 // --- API ---------------------------------------------------------------------
 
 export function createSimulation(): SimState {
-  return { bodies: new Map(), anchors: new Map(), hole: { x: 0, y: 0 } }
+  return {
+    bodies: new Map(),
+    anchors: new Map(),
+    hole: { x: 0, y: 0, labelWidthPx: 0, labelHeightPx: 0 },
+  }
 }
 
 /**
@@ -350,7 +370,12 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
 
   sim.anchors.clear()
   for (const anchor of input.anchors) sim.anchors.set(anchor.tagId, { x: anchor.x, y: anchor.y })
-  sim.hole = { x: input.hole.x, y: input.hole.y }
+  sim.hole = {
+    x: input.hole.x,
+    y: input.hole.y,
+    labelWidthPx: input.hole.label?.width ?? 0,
+    labelHeightPx: input.hole.label?.height ?? 0,
+  }
 
   if (structuralChange) {
     for (const body of sim.bodies.values()) body.asleep = false
@@ -488,7 +513,7 @@ export function settledCopy(sim: SimState, zoom: number): SimState {
     copy.bodies.set(id, { ...body, extent: { ...body.extent }, drag: null, asleep: false })
   }
   for (const [tagId, anchor] of sim.anchors) copy.anchors.set(tagId, { x: anchor.x, y: anchor.y })
-  copy.hole = { x: sim.hole.x, y: sim.hole.y }
+  copy.hole = { ...sim.hole }
   settleSimulation(copy, zoom)
   for (const body of copy.bodies.values()) bodyExtent(body.r, body.outline, zoom, body.extent)
   return copy
@@ -519,6 +544,13 @@ function worldPerPx(zoom: number): number {
  * Builds a planet's outline from what it will draw. Pure; the map calls it
  * with the scene planet and the Appearance settings that size the drawing
  * (`planetScale`, `labelFontPx`).
+ *
+ * Selection is deliberately not an input: selecting a planet must not move
+ * anything on the map. `Planet` still drops the label under the reticle's
+ * brackets while selected, so the outline always measures the label at
+ * that dropped position (`labelRestY(gauged, true)`) — the room is kept
+ * whether or not the planet is selected, and neither the planet nor its
+ * neighbours shift when the selection changes.
  */
 export function planetOutline(
   planet: {
@@ -530,8 +562,6 @@ export function planetOutline(
     modelFamily: string | null
     /** The context gauge moves the label and the pill further out (`Planet`'s `clearsGauge`). */
     gauged: boolean
-    /** Selection drops the label below the reticle's brackets (`labelRestY`). */
-    selected: boolean
   },
   planetScale: number,
   labelFont: { title: number; family: number }
@@ -541,7 +571,7 @@ export function planetOutline(
   const pill = state ? statePillSizePx(state.label, state.pulse) : { width: 0, height: 0 }
   return {
     scale: planet.scale * planetScale,
-    labelTop: -labelRestY(planet.gauged, planet.selected),
+    labelTop: -labelRestY(planet.gauged, true),
     labelWidthPx: label.width,
     labelHeightPx: label.height,
     pillX: planet.gauged ? COMPACT_BADGE_OFFSET_X : BADGE_OFFSET_X,
@@ -574,9 +604,9 @@ function sameOutline(a: PlanetOutline | null, b: PlanetOutline | null): boolean 
  *   reticle's corner brackets, whichever is wider. The brackets count
  *   whether or not the planet is selected, so the reticle itself never
  *   shoves the neighbours;
- * - the label below it — below the brackets while the planet is selected
- *   (`labelRestY`), so selecting a planet does walk the neighbour under it
- *   clear of the dropped label;
+ * - the label below it, measured where it hangs while the planet is
+ *   selected (`planetOutline`), so the room for the dropped label is
+ *   already there and selecting never moves a neighbour;
  * - the state pill to its right, when it wears one.
  *
  * Body parts grow with the counter-zoom (`bodyZoomFactor`), the label and
@@ -618,11 +648,23 @@ export function bodyExtent(
 }
 
 /**
+ * How steep the roof over a box's top and bottom faces is, as rise over
+ * run (see `contact`). Tuned on the three-, four- and six-planet fixtures
+ * in `simulation.test.ts`: below about 0.1 a planet still settles almost
+ * straight under a neighbour; from about 0.4 clumps spread wide and slow
+ * to settle when zoomed out. Two planets exactly one above the other rest
+ * this fraction of the narrower half-width further apart than the bare
+ * boxes would; anywhere else on the face, less, and nothing at its ends.
+ */
+const ROOF_SLOPE = 0.2
+
+/**
  * How close two bodies' centres may get when `b` lies in direction
  * (`ux`, `uy`) — a unit vector — from `a`: the distance along that line at
  * which their boxes (`bodyExtent`, at the tick's zoom) stop overlapping
  * with NEIGHBOUR_AIR_PX of screen between them, and CROSS_TAG_EXTRA more
- * between different tags.
+ * between different tags — plus the roof over the top and bottom faces
+ * (`contact`).
  *
  * The boxes overlap exactly while `b`'s offset from `a` lies inside one
  * box — `a`'s box grown by `b`'s on every side, plus the gap — so this is
@@ -641,7 +683,7 @@ export function minDistance(
   sameTag: boolean,
   zoom = REFERENCE_ZOOM
 ): number {
-  return contact(a, b, ux, uy, pairGap(sameTag, zoom), CONTACT_NORMAL)
+  return contact(a, b, ux, uy, pairGap(sameTag, zoom))
 }
 
 /** The empty room `minDistance` keeps between two boxes. */
@@ -649,40 +691,75 @@ function pairGap(sameTag: boolean, zoom: number): number {
   return NEIGHBOUR_AIR_PX * worldPerPx(zoom) + (sameTag ? 0 : CROSS_TAG_EXTRA)
 }
 
-/** `contact`'s normal, written in place so the tick never allocates. */
-const CONTACT_NORMAL = { x: 0, y: 0 }
+/**
+ * `minDistance` with the gap already worked out: where the ray from `a`'s
+ * centre in direction (`ux`, `uy`) leaves `a`'s box grown by `b`'s and
+ * `gap`, with a shallow gable roof (ROOF_SLOPE) over the grown box's top
+ * and bottom faces. The roof's ridge is straight above and below `a`'s
+ * centre, and it comes down to the face at the nearer of the two sides.
+ * It only ever adds room, so what the boxes keep clear stays clear.
+ *
+ * The tick pushes along the ray — the line between the two centres, the
+ * canvas 4a script's direction — and only the distance comes from here.
+ * Both halves of that are needed (ADR `separation-rests-at-the-outline`,
+ * the later 2026-09-23 amendment):
+ *
+ * - Pushed square off the face the boxes meet at, as before, a box much
+ *   wider than tall was pushed almost only up and down: nothing moved a
+ *   clump sideways, cohesion drew every x onto the barycentre, and three
+ *   planets settled as a column, one exactly under the next.
+ * - Pushed along the line against a flat face, a planet under two others
+ *   was shoved away from the further one's centre, and slid until it sat
+ *   almost exactly under the nearer. The roof makes straight under a
+ *   neighbour the one place on the face that is not a resting place: the
+ *   ridge pushes it off to either side.
+ */
+function contact(a: Extent, b: Extent, ux: number, uy: number, gap: number): number {
+  const right = a.right - b.left + gap
+  const left = b.right - a.left + gap
+  const alongX = ux > 0 ? right / ux : ux < 0 ? -left / ux : Infinity
+  const face = uy > 0 ? a.top - b.bottom + gap : uy < 0 ? b.top - a.bottom + gap : 0
+  const across = Math.abs(ux)
+  const up = Math.abs(uy)
+  const alongY = up > 0 ? face / up : Infinity
+  if (alongX <= alongY) return alongX
+  // The roof: `rise` above the face at the ridge, down to it `half` either
+  // side. Where the ray meets it, if that is before the roof ends.
+  const half = Math.min(left, right)
+  const rise = ROOF_SLOPE * half
+  const onRoof = (face + rise) / (up + (rise * across) / half)
+  return across * onRoof < half ? onRoof : alongY
+}
 
 /**
- * `minDistance`, plus the side of the grown box the ray leaves through,
- * written into `normal` as a unit axis pointing from `a` towards `b`.
+ * The box the hole's label column covers at `zoom`, in world coordinates
+ * (not offsets: `left` is the box's left edge on the map), written into
+ * `out` and returned. Null when the hole has no label.
  *
- * Separation pushes along that normal, square off the face the two boxes
- * meet at, rather than along the line between the centres. Pushed along
- * the line, two boxes meeting off-centre shoved each other sideways as
- * well as apart, and a clump kept sliding round itself long after it had
- * room — seconds of drift before it slept.
+ * `Hole` draws the column right-aligned HOLE_RADIUS + HOLE_LABEL_GAP left
+ * of its centre, scaled by the counter-zoom like the rest of the hole, and
+ * centred on it vertically; the text is fixed CSS px, measured with
+ * `worldPerPx` like a planet's label.
+ *
+ * A box, not a wider round halo: the column is a long flat strip reaching
+ * well to the left of the disc, and further the more the map is zoomed out.
+ * A circle round the hole big enough to cover it would claim a wide ring of
+ * empty map above and below the hole as well.
+ *
+ * Pure and exported for unit tests.
  */
-function contact(
-  a: Extent,
-  b: Extent,
-  ux: number,
-  uy: number,
-  gap: number,
-  normal: { x: number; y: number }
-): number {
-  const alongX =
-    ux > 0 ? (a.right - b.left + gap) / ux : ux < 0 ? (a.left - b.right - gap) / ux : Infinity
-  const alongY =
-    uy > 0 ? (a.top - b.bottom + gap) / uy : uy < 0 ? (a.bottom - b.top - gap) / uy : Infinity
-  if (alongX <= alongY) {
-    normal.x = Math.sign(ux)
-    normal.y = 0
-    return alongX
-  }
-  normal.x = 0
-  normal.y = Math.sign(uy)
-  return alongY
+export function holeLabelBox(hole: SimHole, zoom: number, out: Extent): Extent | null {
+  if (hole.labelWidthPx <= 0 || hole.labelHeightPx <= 0) return null
+  const perPx = worldPerPx(zoom)
+  out.right = hole.x - (HOLE_RADIUS + HOLE_LABEL_GAP) * bodyZoomFactor(zoom)
+  out.left = out.right - hole.labelWidthPx * perPx
+  out.top = hole.y + (hole.labelHeightPx / 2) * perPx
+  out.bottom = hole.y - (hole.labelHeightPx / 2) * perPx
+  return out
 }
+
+/** The hole label's box for the tick in progress, reused so the tick never allocates. */
+const HOLE_LABEL_SCRATCH: Extent = { left: 0, right: 0, bottom: 0, top: 0 }
 
 /**
  * The pair the canvas script was tuned against: two bare working planets,
@@ -726,6 +803,8 @@ function tick(sim: SimState, events: SimEvents, zoom: number): void {
   for (const body of sim.bodies.values()) bodyExtent(body.r, body.outline, zoom, body.extent)
   const sameGap = pairGap(true, zoom)
   const crossGap = pairGap(false, zoom)
+  const holeLabel = holeLabelBox(sim.hole, zoom, HOLE_LABEL_SCRATCH)
+  const holeLabelAir = NEIGHBOUR_AIR_PX * worldPerPx(zoom)
 
   // Radius-weighted barycentre per tag, over bonded bodies only — a falling
   // body has no bond left to pull with (canvas: `if (n.free) continue`).
@@ -789,15 +868,15 @@ function tick(sim: SimState, events: SimEvents, zoom: number): void {
       const ux = d > 0 ? dx / d : body.id < other.id ? 1 : -1
       const uy = d > 0 ? dy / d : 0
       const same = other.tagId === body.tagId
-      const min = contact(other.extent, body.extent, ux, uy, same ? sameGap : crossGap, CONTACT_NORMAL)
+      const min = contact(other.extent, body.extent, ux, uy, same ? sameGap : crossGap)
       if (d < min) {
-        const nx = CONTACT_NORMAL.x
-        const ny = CONTACT_NORMAL.y
-        // Positive while the two are parting, negative while closing.
-        const vn = (body.vx - other.vx) * nx + (body.vy - other.vy) * ny
+        // Apart along the line between the centres, and the dashpot along
+        // the same line (see `contact` for why not square off the face).
+        // `vn` is positive while the two part, negative while they close.
+        const vn = (body.vx - other.vx) * ux + (body.vy - other.vy) * uy
         const f = separation(min, d, same) - vn * CONTACT_DAMPING
-        ax += nx * f
-        ay += ny * f
+        ax += ux * f
+        ay += uy * f
       }
     }
 
@@ -810,6 +889,11 @@ function tick(sim: SimState, events: SimEvents, zoom: number): void {
       const f = ((HOLE_REPEL_RADIUS - hd) / HOLE_REPEL_RADIUS) * HOLE_REPEL_STRENGTH
       ax += (hdx / hd) * f
       ay += (hdy / hd) * f
+    }
+    if (holeLabel) {
+      const f = holeLabelPush(body, holeLabel, holeLabelAir)
+      ax += HOLE_LABEL_PUSH.x * f
+      ay += HOLE_LABEL_PUSH.y * f
     }
 
     const accel = Math.hypot(ax, ay)
@@ -827,6 +911,47 @@ function tick(sim: SimState, events: SimEvents, zoom: number): void {
       body.asleep = true
     }
   }
+}
+
+/** `holeLabelPush`'s direction, written in place so the tick never allocates. */
+const HOLE_LABEL_PUSH = { x: 0, y: 0 }
+
+/**
+ * How hard the hole's label column pushes `body` out, with the direction
+ * written into HOLE_LABEL_PUSH; 0 while the body's box, grown by `air`,
+ * stays clear of it.
+ *
+ * The column does not move, so it pushes square off whichever of its sides
+ * the body is least far past — the shortest way out. (The face normal that
+ * stacked planets into columns did so between two bodies that both move;
+ * against a fixed wall it is simply the way out.) The push has the stiff
+ * contact's shape: full HOLE_REPEL_STRENGTH CONTACT_RAMP of the way into
+ * the overlap the two boxes can have along that axis, with the
+ * CONTACT_DAMPING dashpot on the body's speed along it.
+ */
+function holeLabelPush(body: SimBody, label: Extent, air: number): number {
+  const e = body.extent
+  const pastLeft = body.x + e.right + air - label.left
+  const pastRight = label.right - (body.x + e.left - air)
+  const pastBottom = body.y + e.top + air - label.bottom
+  const pastTop = label.top - (body.y + e.bottom - air)
+  if (pastLeft <= 0 || pastRight <= 0 || pastBottom <= 0 || pastTop <= 0) return 0
+  let depth = pastLeft
+  let span = label.right - label.left + e.right - e.left + 2 * air
+  HOLE_LABEL_PUSH.x = -1
+  HOLE_LABEL_PUSH.y = 0
+  if (pastRight < depth) {
+    depth = pastRight
+    HOLE_LABEL_PUSH.x = 1
+  }
+  if (pastBottom < depth || pastTop < depth) {
+    span = label.top - label.bottom + e.top - e.bottom + 2 * air
+    HOLE_LABEL_PUSH.x = 0
+    HOLE_LABEL_PUSH.y = pastBottom < pastTop ? -1 : 1
+    depth = Math.min(pastBottom, pastTop)
+  }
+  const vn = body.vx * HOLE_LABEL_PUSH.x + body.vy * HOLE_LABEL_PUSH.y
+  return Math.min(1, depth / (CONTACT_RAMP * span)) * HOLE_REPEL_STRENGTH - vn * CONTACT_DAMPING
 }
 
 /** The scripted straight fall (canvas `stepFalling`): ease in, accelerate at the hole, stretch, shrink, capture. */

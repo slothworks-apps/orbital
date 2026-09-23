@@ -19,7 +19,7 @@ import {
 import { isReadOnly } from '../lib/types'
 import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
 import type { Subagent } from '../lib/types'
-import { labelFontPx } from './visuals'
+import { holeLabelSizePx, labelFontPx } from './visuals'
 import { Button } from '../ui/Button'
 import { chordLabel, command } from '../lib/keymap'
 import { useCommand } from '../lib/commands'
@@ -602,7 +602,9 @@ export function SpaceMap() {
         released: p.released,
       })),
       anchors: model.anchors.map(({ tagId, x, y }) => ({ tagId, x, y })),
-      hole: { x: model.hole.x, y: model.hole.y },
+      // The label column too, so bonded bodies are kept off it as well as
+      // out of the round halo.
+      hole: { x: model.hole.x, y: model.hole.y, label: holeLabelSizePx(model.hole.count) },
     }
     reconcileSimulation(simRef.current, input)
     // Reading the camera ref (never the state) keeps this out of the memo's

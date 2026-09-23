@@ -501,6 +501,60 @@ export function restingLabelSizePx(
   }
 }
 
+// --- What hangs off the hole -------------------------------------------------
+// The corner hole's label column (canvas 4a's hole block), here rather than
+// in `Hole.tsx` for the same reason as the planet's: the simulation keeps
+// bonded bodies out of it and must stay free of three.js. Canvas 4a draws
+// the hole in px at 34 px = 1 world unit, the conversion `simulation.ts`
+// uses too; the offsets below are in the hole's local units, before the
+// counter-zoom `Hole` draws it with.
+
+/** Canvas 4a px → hole-local units. */
+const holePx = (canvasPx: number) => canvasPx / 34
+
+/** The event horizon: canvas draws a 50px disc. Constant size — open question 3 resolved as "constant". */
+export const HOLE_RADIUS = holePx(25)
+/** Label column offset: canvas puts it `right: calc(100% + 26px)`. */
+export const HOLE_LABEL_GAP = holePx(26)
+
+/** The label column's three lines: title, count, drop hint — mono, px and em tracking. */
+export const HOLE_TITLE_FONT_PX = 10
+export const HOLE_TITLE_TRACKING_EM = 0.2
+export const HOLE_COUNT_FONT_PX = 10
+export const HOLE_COUNT_TRACKING_EM = 0.06
+export const HOLE_HINT_FONT_PX = 9.5
+export const HOLE_HINT_TRACKING_EM = 0.06
+/** The column's flex `gap`, CSS px. */
+export const HOLE_LABEL_LINE_GAP_PX = 4
+export const HOLE_TITLE = 'HISTORY'
+/** Hint copy per drop state. */
+export const HOLE_HINT_REST = 'drop a body in the halo to absorb it'
+export const HOLE_HINT_ARMED = 'release to absorb'
+
+/** The count line under the title. */
+export function holeCountLine(count: number): string {
+  return `${count} ${count === 1 ? 'session' : 'sessions'} · click to browse`
+}
+
+/**
+ * The box the hole's label column occupies, CSS px: its widest line (the
+ * longer of the two hints counts, so the box does not change as a drag
+ * arms the hole) over three lines and two gaps.
+ */
+export function holeLabelSizePx(count: number): { width: number; height: number } {
+  const hintChars = Math.max(HOLE_HINT_REST.length, HOLE_HINT_ARMED.length)
+  return {
+    width: Math.max(
+      monoWidthPx(HOLE_TITLE.length, HOLE_TITLE_FONT_PX, HOLE_TITLE_TRACKING_EM),
+      monoWidthPx(holeCountLine(count).length, HOLE_COUNT_FONT_PX, HOLE_COUNT_TRACKING_EM),
+      monoWidthPx(hintChars, HOLE_HINT_FONT_PX, HOLE_HINT_TRACKING_EM)
+    ),
+    height:
+      (HOLE_TITLE_FONT_PX + HOLE_COUNT_FONT_PX + HOLE_HINT_FONT_PX) * MONO_LINE_HEIGHT_EM +
+      2 * HOLE_LABEL_LINE_GAP_PX,
+  }
+}
+
 /** The state pill's type and box, CSS px (artboard 1f): mono 9.5px / .1em, `padding: 3px 8px`, 1px border. */
 export const STATE_PILL_FONT_PX = 9.5
 export const STATE_PILL_TRACKING_EM = 0.1

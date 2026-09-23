@@ -6,6 +6,21 @@ import type { SceneHole } from './sceneModel'
 import { bodyZoomFactor } from './camera'
 import { holeDropState, HOLE_DROP_RADIUS, type SimState } from './simulation'
 import {
+  HOLE_COUNT_FONT_PX,
+  HOLE_COUNT_TRACKING_EM,
+  HOLE_HINT_ARMED,
+  HOLE_HINT_FONT_PX,
+  HOLE_HINT_REST,
+  HOLE_HINT_TRACKING_EM,
+  HOLE_LABEL_GAP,
+  HOLE_LABEL_LINE_GAP_PX,
+  HOLE_RADIUS,
+  HOLE_TITLE,
+  HOLE_TITLE_FONT_PX,
+  HOLE_TITLE_TRACKING_EM,
+  holeCountLine,
+} from './visuals'
+import {
   BODY_MOVE_MS,
   advancePointTween,
   prefersReducedMotion,
@@ -29,8 +44,6 @@ import {
 /** World units per canvas-4a pixel — same conversion as simulation.ts. */
 const PX = 1 / 34
 
-/** The event horizon: canvas draws a 50px disc. Constant size — open question 3 resolved as "constant". */
-export const HOLE_RADIUS = 25 * PX
 /** Horizon ring: the disc's `inset:-2px` border. */
 const RING_INNER = HOLE_RADIUS
 const RING_OUTER = 27 * PX
@@ -48,18 +61,13 @@ const HALO_ELIGIBLE_BOOST = 2
 const HALO_ARMED_BOOST = 4
 /** How fast the drop-target emphasis eases in and out, per second. */
 const SIGNAL_EASE = 10
-/** Hint copy per drop state — written imperatively, no re-render per frame. */
-const HINT_REST = 'drop a body in the halo to absorb it'
-const HINT_ARMED = 'release to absorb'
+/** Hint colours per drop state; the copy (`HOLE_HINT_REST`/`_ARMED`) is written imperatively, no re-render per frame. */
 const HINT_COLOR_REST = 'rgba(160,190,225,.42)'
 const HINT_COLOR_ELIGIBLE = 'rgba(200,225,255,.75)'
 const HINT_COLOR_ARMED = 'rgba(240,248,255,.95)'
 
 /** The ring flash on absorption (canvas: `this.flash = 0.45`). */
 const FLASH_SEC = 0.45
-
-/** Label column offset: canvas puts it `right: calc(100% + 26px)`. */
-const LABEL_GAP = 26 * PX
 
 const HOLE_Z = 0.03
 
@@ -158,7 +166,7 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
       (1 + 3 * k + (HALO_ELIGIBLE_BOOST - 1) * eligible + (HALO_ARMED_BOOST - HALO_ELIGIBLE_BOOST) * armed)
 
     if (hintRef.current) {
-      const text = drop === 'armed' ? HINT_ARMED : HINT_REST
+      const text = drop === 'armed' ? HOLE_HINT_ARMED : HOLE_HINT_REST
       if (hintRef.current.textContent !== text) hintRef.current.textContent = text
       hintRef.current.style.color =
         drop === 'armed' ? HINT_COLOR_ARMED : drop === 'eligible' ? HINT_COLOR_ELIGIBLE : HINT_COLOR_REST
@@ -207,9 +215,11 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
         <meshBasicMaterial color="#000000" />
       </mesh>
 
-      {/* Label column, right-aligned against the hole (canvas 4a). */}
+      {/* Label column, right-aligned against the hole (canvas 4a). Its type
+          lives in `visuals.ts` (`holeLabelSizePx`), where the simulation
+          measures it to keep bodies off it. */}
       <Html
-        position={[-(HOLE_RADIUS + LABEL_GAP), 0, HOLE_Z]}
+        position={[-(HOLE_RADIUS + HOLE_LABEL_GAP), 0, HOLE_Z]}
         zIndexRange={[5, 0]}
         style={{ pointerEvents: 'none' }}
       >
@@ -218,23 +228,39 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'flex-end',
-            gap: 4,
+            gap: HOLE_LABEL_LINE_GAP_PX,
             whiteSpace: 'nowrap',
             transform: 'translate(-100%, -50%)',
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           }}
         >
-          <div style={{ fontSize: 10, letterSpacing: '0.2em', color: 'rgba(240,248,255,.8)' }}>
-            HISTORY
+          <div
+            style={{
+              fontSize: HOLE_TITLE_FONT_PX,
+              letterSpacing: `${HOLE_TITLE_TRACKING_EM}em`,
+              color: 'rgba(240,248,255,.8)',
+            }}
+          >
+            {HOLE_TITLE}
           </div>
-          <div style={{ fontSize: 10, letterSpacing: '0.06em', color: 'rgba(160,190,225,.6)' }}>
-            {hole.count} {hole.count === 1 ? 'session' : 'sessions'} · click to browse
+          <div
+            style={{
+              fontSize: HOLE_COUNT_FONT_PX,
+              letterSpacing: `${HOLE_COUNT_TRACKING_EM}em`,
+              color: 'rgba(160,190,225,.6)',
+            }}
+          >
+            {holeCountLine(hole.count)}
           </div>
           <div
             ref={hintRef}
-            style={{ fontSize: 9.5, letterSpacing: '0.06em', color: HINT_COLOR_REST }}
+            style={{
+              fontSize: HOLE_HINT_FONT_PX,
+              letterSpacing: `${HOLE_HINT_TRACKING_EM}em`,
+              color: HINT_COLOR_REST,
+            }}
           >
-            {HINT_REST}
+            {HOLE_HINT_REST}
           </div>
         </div>
       </Html>

@@ -15,6 +15,7 @@ import {
   CROSS_TAG_EXTRA,
   NEIGHBOUR_AIR_PX,
   bodyExtent,
+  holeLabelBox,
   planetOutline,
   type Extent,
   type PlanetOutline,
@@ -34,8 +35,12 @@ import {
   BADGE_OFFSET_X,
   BADGE_OFFSET_Y,
   BRACKET_INSET,
+  HOLE_LABEL_GAP,
+  HOLE_RADIUS,
+  holeLabelSizePx,
   LABEL_SELECTED_REST_Y,
   LABEL_TOP_REST_Y,
+  labelRestY,
   labelFontPx,
   moonVisuals,
   restingLabelSizePx,
@@ -376,7 +381,7 @@ describe('footprints and separation', () => {
   it('keeps the two boxes plus the air apart, and a different tag further still', () => {
     const air = NEIGHBOUR_AIR_PX / REFERENCE_ZOOM
     expect(minDistance(square(3), square(3), 1, 0, true)).toBeCloseTo(6 + air, 10)
-    expect(minDistance(square(3), square(3), 0, -1, false)).toBeCloseTo(6 + air + CROSS_TAG_EXTRA, 10)
+    expect(minDistance(square(3), square(3), -1, 0, false)).toBeCloseTo(6 + air + CROSS_TAG_EXTRA, 10)
     // The air is screen px: zoomed out it is more world, zoomed in never less.
     expect(minDistance(square(3), square(3), 1, 0, true, REFERENCE_ZOOM / 2)).toBeCloseTo(6 + 2 * air, 10)
     expect(minDistance(square(3), square(3), 1, 0, true, REFERENCE_ZOOM * 2)).toBeCloseTo(6 + air, 10)
@@ -388,14 +393,33 @@ describe('footprints and separation', () => {
     expect(diagonal).toBeCloseTo((6 + air) * Math.SQRT2, 10)
   })
 
+  it('roofs the top and bottom faces: straight above is the highest point, and it never cuts into the box', () => {
+    // A neighbour above: how high its centre has to sit, as the direction
+    // swings from straight up to the box's corner.
+    const air = NEIGHBOUR_AIR_PX / REFERENCE_ZOOM
+    const face = 6 + air
+    let previous = Infinity
+    for (let i = 0; i <= 20; i++) {
+      const angle = Math.PI / 2 - (i / 20) * (Math.PI / 4)
+      const height = minDistance(square(3), square(3), Math.cos(angle), Math.sin(angle), true) * Math.sin(angle)
+      expect(height).toBeGreaterThanOrEqual(face - 1e-9)
+      expect(height).toBeLessThanOrEqual(previous + 1e-9)
+      previous = height
+    }
+    // Higher than the face straight above, down to it by the corner.
+    expect(minDistance(square(3), square(3), 0, 1, true)).toBeGreaterThan(face)
+    expect(previous).toBeCloseTo(face, 10)
+  })
+
   it('reads a lopsided box from the side the neighbour is on, the same from either end', () => {
     // A label hanging below `a`: a neighbour straight under it has to clear
     // the label, one straight above only the body.
     const a: Extent = { left: -1, right: 1, bottom: -3, top: 1 }
     const b = square(1)
+    // Beside it, the body alone; below, the label's drop more than above.
     const air = NEIGHBOUR_AIR_PX / REFERENCE_ZOOM
-    expect(minDistance(a, b, 0, -1, true)).toBeCloseTo(4 + air, 10)
-    expect(minDistance(a, b, 0, 1, true)).toBeCloseTo(2 + air, 10)
+    expect(minDistance(a, b, 1, 0, true)).toBeCloseTo(2 + air, 10)
+    expect(minDistance(a, b, 0, -1, true) - minDistance(a, b, 0, 1, true)).toBeCloseTo(2, 10)
     // Seen from the neighbour, the direction flips and the distance holds.
     expect(minDistance(b, a, 0, 1, true)).toBeCloseTo(minDistance(a, b, 0, -1, true), 10)
     expect(minDistance(b, a, -0.6, 0.8, true)).toBeCloseTo(minDistance(a, b, 0.6, -0.8, true), 10)
@@ -637,6 +661,171 @@ describe('settled clusters keep labels and pills clear', () => {
   }
 })
 
+// Selecting a planet moves nothing: the outline already keeps room for the
+// label where it hangs under the reticle's brackets, selected or not.
+describe('selection moves nothing', () => {
+  it('measures the label where it hangs while selected, gauged or not, whether or not it is', () => {
+    const spec: ClusterSpec = { id: 'p', status: 'working', title: LONG }
+    for (const gauged of [false, true]) {
+      const planet = { session: session(spec), scale: ACTIVE_SCALE, modelFamily: 'Opus', gauged }
+      const plain = planetOutline({ ...planet, selected: false } as typeof planet, 1, FONT)
+      const selected = planetOutline({ ...planet, selected: true } as typeof planet, 1, FONT)
+      expect(selected).toEqual(plain)
+
+      // The box reaches down past the dropped label's bottom edge.
+      const e = bodyExtent(ACTIVE_SCALE, plain, REFERENCE_ZOOM, square(0))
+      const label = restingLabelSizePx(LONG, 'OPUS', FONT)
+      const droppedBottom = labelRestY(gauged, true) * ACTIVE_SCALE - label.height / REFERENCE_ZOOM
+      expect(e.bottom).toBeLessThanOrEqual(droppedBottom + 1e-12)
+    }
+  })
+
+  it('selecting a planet in a settled cluster moves no neighbour', () => {
+    const specs = CLUSTERS['three, two of them DONE']
+    const sim = settledCluster(specs, REFERENCE_ZOOM)
+    const before = [...sim.bodies.values()].map((b) => ({ id: b.id, x: b.x, y: b.y }))
+
+    // The map re-reconciles when the selection changes; nothing wakes.
+    reconcileSimulation(sim, clusterInput(specs.map((s) => ({ ...s, selected: s.id === 'b' }))))
+    expect([...sim.bodies.values()].every((b) => b.asleep)).toBe(true)
+    step(sim, 120)
+    for (const was of before) {
+      const now = body(sim, was.id)
+      expect(Math.hypot(now.x - was.x, now.y - was.y)).toBeLessThan(1e-6)
+    }
+  })
+})
+
+// A planet's box is much wider than it is tall, so pushed square off the
+// face two boxes meet at, a clump was only ever pushed up and down; cohesion
+// drew every x onto the barycentre and three planets settled as a column,
+// one exactly under the next (ADR separation-rests-at-the-outline, the later
+// 2026-09-23 amendment). A settled cluster keeps a clump's shape instead.
+describe('settled clusters keep a clump’s shape, not a column', () => {
+  /** Two centres closer in x than this fraction of the smaller body's radius stand one under the other. */
+  const SAME_X = 0.25
+
+  function sharesX(a: { x: number; r: number }, b: { x: number; r: number }): boolean {
+    return Math.abs(a.x - b.x) < SAME_X * Math.min(a.r, b.r)
+  }
+
+  for (const [name, specs] of Object.entries(CLUSTERS)) {
+    for (const zoom of [REFERENCE_ZOOM, 40, 26, 20]) {
+      it(`${name}, zoom ${zoom}`, () => {
+        const sim = settledCluster(specs, zoom)
+        const bodies = [...sim.bodies.values()]
+        // Settled inside settleSimulation's budget, not cut off by it.
+        expect(bodies.every((b) => b.asleep)).toBe(true)
+
+        const xs = bodies.map((b) => b.x)
+        const ys = bodies.map((b) => b.y)
+        const aspect = (Math.max(...xs) - Math.min(...xs)) / (Math.max(...ys) - Math.min(...ys))
+        expect(aspect).toBeGreaterThan(0.5)
+        expect(aspect).toBeLessThan(2)
+
+        const stacked: string[] = []
+        for (let i = 0; i < bodies.length; i++) {
+          for (let j = i + 1; j < bodies.length; j++) {
+            if (!sharesX(bodies[i], bodies[j])) continue
+            // Three planets: no two of them one under the other. Larger
+            // clumps pack in rows, and a planet can be wedged over one in
+            // the row below; what they must not do is stand three high.
+            if (bodies.length === 3) stacked.push(`${bodies[i].id}/${bodies[j].id}`)
+            for (let k = j + 1; k < bodies.length; k++) {
+              if (sharesX(bodies[i], bodies[k]) && sharesX(bodies[j], bodies[k])) {
+                stacked.push(`${bodies[i].id}/${bodies[j].id}/${bodies[k].id}`)
+              }
+            }
+          }
+        }
+        expect(stacked).toEqual([])
+      })
+    }
+  }
+})
+
+// The hole's label column reaches well left of its round repulsion halo
+// when the map is zoomed out, and a planet used to settle right across
+// "HISTORY · N sessions". Bonded bodies keep off the column as they keep
+// off a neighbour's label.
+describe('the hole keeps bodies off its label', () => {
+  const HOLE = { x: 30, y: -30 }
+  const COUNT = 499
+
+  /** The label column as `Hole` draws it, in world coordinates, straight from its drawing constants. */
+  function drawnLabel(zoom: number) {
+    const size = holeLabelSizePx(COUNT)
+    const right = HOLE.x - (HOLE_RADIUS + HOLE_LABEL_GAP) * bodyZoomFactor(zoom)
+    return {
+      x0: right - size.width / zoom,
+      x1: right,
+      y0: HOLE.y - size.height / 2 / zoom,
+      y1: HOLE.y + size.height / 2 / zoom,
+    }
+  }
+
+  function released(zoom: number, at: { x: number; y: number }): SimState {
+    const spec: ClusterSpec = { id: 'p', status: 'working', title: LONG }
+    const sim = createSimulation()
+    reconcileSimulation(sim, {
+      bodies: [
+        {
+          id: 'p',
+          tagId: 1,
+          x: at.x,
+          y: at.y,
+          r: ACTIVE_SCALE,
+          outline: planetOutline(
+            { session: session(spec), scale: ACTIVE_SCALE, modelFamily: 'Opus', gauged: false },
+            1,
+            FONT
+          ),
+          live: true,
+          released: false,
+        },
+      ],
+      // Its home is where it was let go, on the label: the spring keeps
+      // pressing it back in, so only the label's push keeps it out.
+      anchors: [{ tagId: 1, x: at.x, y: at.y }],
+      hole: { ...HOLE, label: holeLabelSizePx(COUNT) },
+    })
+    settleSimulation(sim, zoom)
+    return sim
+  }
+
+  for (const zoom of [REFERENCE_ZOOM, 26, 20]) {
+    for (const [where, along] of [
+      ['near the hole', 0.8],
+      ['at the far end', 0.15],
+    ] as const) {
+      it(`a body let go on the label ${where}, zoom ${zoom}, settles clear of it`, () => {
+        const label = drawnLabel(zoom)
+        const sim = released(zoom, { x: label.x0 + along * (label.x1 - label.x0), y: HOLE.y + 0.1 })
+        const p = body(sim, 'p')
+        expect(p.asleep).toBe(true)
+        const e = bodyExtent(p.r, p.outline, zoom, square(0))
+        const gapPx =
+          Math.max(label.x0 - (p.x + e.right), p.x + e.left - label.x1, label.y0 - (p.y + e.top), p.y + e.bottom - label.y1) *
+          zoom
+        expect(gapPx).toBeGreaterThan(0)
+      })
+    }
+  }
+
+  it('measures the column where Hole draws it, and grows it with the zoom ratio as the map zooms out', () => {
+    const hole = { ...HOLE, labelWidthPx: 200, labelHeightPx: 40 }
+    const at = (zoom: number) => holeLabelBox(hole, zoom, square(0))!
+    const near = at(REFERENCE_ZOOM)
+    expect(near.right).toBeCloseTo(HOLE.x - (HOLE_RADIUS + HOLE_LABEL_GAP), 12)
+    expect(near.right - near.left).toBeCloseTo(200 / REFERENCE_ZOOM, 12)
+    expect((near.top + near.bottom) / 2).toBeCloseTo(HOLE.y, 12)
+    const far = at(REFERENCE_ZOOM / 2)
+    expect(far.right - far.left).toBeCloseTo((2 * 200) / REFERENCE_ZOOM, 12)
+    expect(far.right).toBeLessThan(near.right)
+    expect(holeLabelBox({ ...hole, labelWidthPx: 0 }, REFERENCE_ZOOM, square(0))).toBeNull()
+  })
+})
+
 // --- Cluster fixtures ---------------------------------------------------------
 
 interface ClusterSpec {
@@ -721,32 +910,43 @@ function session(spec: ClusterSpec) {
  * measured by its moon shell, as `buildSceneModel` measures it.
  */
 function settledCluster(specs: ClusterSpec[], zoom: number): SimState {
-  const k = 2 * ACTIVE_SCALE + MIN_GAP + SPIRAL_SAFETY_MARGIN
   const sim = createSimulation()
-  reconcileSimulation(sim, {
+  reconcileSimulation(sim, clusterInput(specs))
+  settleSimulation(sim, zoom)
+  return sim
+}
+
+/**
+ * The sim input for a cluster, built the way `SpaceMap` builds it: the
+ * outline from the scene planet as a whole, `selected` flag and all.
+ */
+function clusterInput(specs: ClusterSpec[]): SimInput {
+  const k = 2 * ACTIVE_SCALE + MIN_GAP + SPIRAL_SAFETY_MARGIN
+  return {
     bodies: specs.map((spec, i) => {
       const scale = scaleFor(spec.status)
       const moons = spec.moons ?? 0
+      const planet = {
+        session: session(spec),
+        scale,
+        modelFamily: 'Opus',
+        gauged: false,
+        selected: spec.selected ?? false,
+      }
       return {
         id: spec.id,
         tagId: 1,
         x: k * Math.sqrt(i) * Math.cos(i * GOLDEN_ANGLE),
         y: k * Math.sqrt(i) * Math.sin(i * GOLDEN_ANGLE),
         r: moons > 0 ? moonOrbitRadius(scale, moons - 1, false) + moonVisuals('working').discRadius : scale,
-        outline: planetOutline(
-          { session: session(spec), scale, modelFamily: 'Opus', gauged: false, selected: spec.selected ?? false },
-          1,
-          FONT
-        ),
+        outline: planetOutline(planet, 1, FONT),
         live: spec.status === 'working' || spec.status === 'needs_input',
         released: false,
       }
     }),
     anchors: [{ tagId: 1, x: 0, y: 0 }],
     hole: { x: 100, y: -100 },
-  })
-  settleSimulation(sim, zoom)
-  return sim
+  }
 }
 
 function mixedCluster(zoom: number): SimState {
