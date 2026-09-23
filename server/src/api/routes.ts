@@ -7,6 +7,7 @@ import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { expandHome } from '../paths.js';
 import { readFilePreview } from '../files/preview.js';
 import { completeFilePath } from '../files/complete.js';
+import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
@@ -144,6 +145,12 @@ function invalidAttachments(raw: unknown): boolean {
 
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
+  /**
+   * One reader for the whole server, because its whole job is to hold a tab
+   * list still for a moment across the burst of requests one `@` produces
+   * (spec 2026-09-23-ide-bridge-design § Open files, for `@` completion).
+   */
+  const openTabs = new OpenTabsReader(ctx.ide);
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -350,8 +357,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * helper the file viewer uses, and deliberately incapable of an error:
    * a popup fed by keystrokes asks about half-typed paths constantly, and
    * `{ entries: [] }` is the right answer to every one that names nothing.
+   *
+   * The editor's open tabs are ranked above the walk of the working tree when
+   * there is an editor on this directory, and the answer is unchanged when
+   * there is not (spec 2026-09-23-ide-bridge-design § Open files).
    */
-  app.get('/api/files/complete', (req, reply) => {
+  app.get('/api/files/complete', async (req, reply) => {
     const q = req.query as Record<string, string>;
     let cwd: string;
     if (q.session) {
@@ -365,7 +376,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     } else {
       return reply.code(400).send({ error: 'missing_params' });
     }
-    return { entries: completeFilePath(cwd, q.prefix ?? '') };
+    return { entries: completeFilePath(cwd, q.prefix ?? '', await openTabs.read(cwd)) };
   });
 
   /**

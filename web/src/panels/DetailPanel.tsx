@@ -161,6 +161,11 @@ export function DetailPanel() {
   const dialog = useOrbital((s) => s.ui.dialog)
   const setDialog = useOrbital((s) => s.setDialog)
   const sendPrompt = useOrbital((s) => s.sendPrompt)
+  /** The editor on this session's workspace, and this session's own × (spec
+   * 2026-09-23-ide-bridge-design § The slot and the lip). */
+  const ide = useOrbital((s) => (id ? (s.sessions[id]?.ide ?? null) : null))
+  const ideDismissedId = useOrbital((s) => (id ? s.ideDismissed[id] : undefined))
+  const dismissIdeSelection = useOrbital((s) => s.dismissIdeSelection)
   const setSessionPinned = useOrbital((s) => s.setSessionPinned)
   // The question this session is stopped on, and what has been answered of it
   // so far (spec: 2026-09-20-interactive-decisions-design § Web UI).
@@ -1007,6 +1012,12 @@ export function DetailPanel() {
                   : promptPlaceholder
             }
             aria-label="Prompt"
+            // Ambient, optional and silent about every kind of absence: no
+            // editor, an editor on another project, a socket that dropped —
+            // each draws nothing and changes nothing else about the composer.
+            ide={ide}
+            ideDismissedId={ideDismissedId}
+            onIdeDismiss={(selectionId) => id && dismissIdeSelection(id, selectionId)}
             attachments={attachments}
             dropArmed={dropArmed}
             actions={

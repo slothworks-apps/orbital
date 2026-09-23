@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { api, ApiError } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
+import { isAttachable, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
 import type { ContextThresholds } from '../lib/usage'
 import type {
@@ -205,6 +206,22 @@ export interface OrbitalState {
    */
   decisionVerdicts: Record<string, { approved: boolean; message?: string }>
   /**
+   * The editor selection each session has dismissed, keyed by SESSION id and
+   * holding the dismissed selection's id (spec
+   * 2026-09-23-ide-bridge-design § Behaviour).
+   *
+   * Per session on purpose, even though the selection belongs to the
+   * workspace and every session in it sees the same one: × is a statement
+   * about *this* conversation — that the selection is not relevant to what is
+   * being asked here. Clearing it for the other sessions would make one
+   * panel's housekeeping reach into another's.
+   *
+   * It needs no clearing pass. The id is file + range + text, so the moment
+   * the selection changes the stored id stops matching and the lip comes
+   * back on its own.
+   */
+  ideDismissed: Record<string, string>
+  /**
    * How many sessions the whole index holds — the hole's label subtracts
    * the drawn planets from this (spec 2026-09-18-tag-clusters-design § 4).
    * Seeded by `GET /api/sessions/count` at load, then tracked off the
@@ -265,6 +282,12 @@ export interface OrbitalActions {
    * (spec 2026-09-23-permission-and-plan-decisions-design § Answering).
    */
   resolveDecision(sessionId: string, verdict: { approved: boolean; message?: string }): void
+  /**
+   * Drops the editor selection from THIS session's composer (the lip's ×).
+   * `selectionId` is what the lip was standing over; a later selection has a
+   * different one and raises the lip again by itself.
+   */
+  dismissIdeSelection(sessionId: string, selectionId: string): void
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
@@ -441,6 +464,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   pendingDecisions: {},
   decisionAnswers: {},
   decisionVerdicts: {},
+  ideDismissed: {},
   sessionsTotal: 0,
   toast: null,
   ui: initialUiState,
@@ -899,11 +923,32 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       }
     }
 
+    // The editor selection rides along, and it rides along with EVERY prompt
+    // while it stands — the terminal's behaviour, and the only one the
+    // protocol supports: there is no editor revision in the payload, so an
+    // edit that leaves the same range selected is indistinguishable from no
+    // change and a send-once rule would silently skip it (spec
+    // 2026-09-23-ide-bridge-design § Behaviour). It is dropped for THIS
+    // session only, by the lip's ×.
+    //
+    // Deliberately after the decision branch above: an answer to a question,
+    // or the reason on a refused permission, is words meant for the ask — not
+    // a new turn, and nothing rides on it.
+    const session = get().sessions[id]
+    const selection = session?.ide?.selection ?? null
+    const outgoing =
+      isAttachable(selection) && get().ideDismissed[id] !== selectionId(selection)
+        ? promptWithSelection(text, session?.cwd ?? '', selection)
+        : text
+
     const images = attachments?.map((a) => a.entry)
     const optimisticMessage: ChatMessage = {
       id: nextLocalMessageId(),
       role: 'user',
-      text,
+      // What was SENT, not what was typed: the echo that comes back off the
+      // transcript carries the block too, and an optimistic turn that showed
+      // less would be replaced by a longer one a moment later.
+      text: outgoing,
       timestamp: new Date().toISOString(),
       // Absent, not empty, for a text-only turn: `MessageView` reads
       // `images.length` to decide whether a turn has a thumbnail row, and an
@@ -930,9 +975,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // `undefined` is a different call as far as every existing assertion in
       // the suite is concerned, and a plain turn's wire shape has not changed.
       if (images && images.length > 0) {
-        await api.sendMessage(id, text, images.map((image) => image.ref))
+        await api.sendMessage(id, outgoing, images.map((image) => image.ref))
       } else {
-        await api.sendMessage(id, text)
+        await api.sendMessage(id, outgoing)
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -1015,6 +1060,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const message = err instanceof Error ? err.message : 'Failed to send the answer'
       set({ toast: { kind: 'error', message } })
     })
+  },
+
+  dismissIdeSelection(sessionId, selectionId) {
+    set((state) => ({ ideDismissed: { ...state.ideDismissed, [sessionId]: selectionId } }))
   },
 
   setFilterTag(filterTagId) {

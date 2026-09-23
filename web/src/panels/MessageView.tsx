@@ -9,6 +9,8 @@ import { rehypePathLinks } from '../lib/pathLinks'
 import { rehypeSentTokens } from '../lib/sentTokens'
 import { ImageThumb } from './ImageThumb'
 import { PathButton } from './PathButton'
+import { parseSentSelection } from '../lib/ideSelection'
+import { useOrbital } from '../store/store'
 
 /** 7a: two or more images share one wrapping row, each capped narrower. */
 const TWO_UP_WIDTH_PX = 171
@@ -188,8 +190,21 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
   // 2026-09-18-transcript-folding-design). Only user turns carry `command`.
   const command = isUser ? message.command : undefined
   const [commandOpen, setCommandOpen] = useState(false)
+  /**
+   * The editor selection this turn carried, read back out of its own text
+   * (spec 2026-09-23-ide-bridge-design; canvas `Feature - IDE bridge`
+   * 20a/20b-5). The bubble shows what was TYPED and the range becomes a
+   * caption under it — the block itself is what the model reads, not what the
+   * person needs to re-read.
+   *
+   * Read back rather than stored because that is the only form that survives a
+   * reload: the turn comes off the CLI's transcript as plain text.
+   */
+  const sentSelection = isUser ? parseSentSelection(message.text) : null
+  const openFile = useOrbital((s) => s.openFile)
+  const bodyText = sentSelection ? sentSelection.text : (message.text ?? '')
   // Typed nothing → no empty bubble, the chip is the whole turn (6c B).
-  const hasText = Boolean(message.text?.trim())
+  const hasText = Boolean(bodyText.trim())
   // Transcript images (canvas 7a): an image-only turn renders the
   // thumbnail AS the bubble — no empty markdown bubble above it.
   const images = message.images ?? []
@@ -244,7 +259,7 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
           rehypePlugins={isUser ? [rehypeSentTokens] : [rehypePathLinks]}
           components={isUser ? { code: Code, pre: Pre } : { code: Code, pre: Pre, a: MarkdownLink }}
         >
-          {message.text ?? ''}
+          {bodyText}
         </ReactMarkdown>
         {streaming && (
           // 1b: 7×14px accent block, 3px after the last glyph.
@@ -255,6 +270,32 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
           />
         )}
       </div>
+      )}
+      {sentSelection && (
+        // 20a / 20f: a 9.5px caption 6px under the bubble — the lines glyph,
+        // the count, and the file as a pressable path to the lines. It is a
+        // receipt, not a control: there is nothing here to undo.
+        <button
+          type="button"
+          data-sent-selection
+          onClick={() => openFile(sentSelection.path, sentSelection.lineStart)}
+          className="mt-[2px] flex items-center gap-1.5 font-mono text-[9.5px] tracking-[0.04em] text-[rgba(160,190,225,.55)]"
+        >
+          {/* The lip's three bars, at the caption's smaller scale (20a). */}
+          <span aria-hidden className="relative block h-[7px] w-2 flex-none">
+            <span className="absolute left-0 top-0 block h-[1.3px] w-2 bg-[rgba(160,190,225,.5)]" />
+            <span className="absolute left-0 top-[2.9px] block h-[1.3px] w-[5.5px] bg-[rgba(160,190,225,.5)]" />
+            <span className="absolute left-0 top-[5.8px] block h-[1.3px] w-[7px] bg-[rgba(160,190,225,.5)]" />
+          </span>
+          {sentSelection.lineCount} line{sentSelection.lineCount === 1 ? '' : 's'} from{' '}
+          <span className="border-b border-dashed border-[rgba(150,205,255,.3)] text-[#cfe6ff]">
+            {sentSelection.path.slice(sentSelection.path.lastIndexOf('/') + 1)}
+            <span className="text-accent">
+              :{sentSelection.lineStart}
+              {sentSelection.lineEnd > sentSelection.lineStart ? `–${sentSelection.lineEnd}` : ''}
+            </span>
+          </span>
+        </button>
       )}
       {hasImages && (
         // 7a: one wrapping row, 6px gap; under a bubble the image sits at

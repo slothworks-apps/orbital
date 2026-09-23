@@ -97,6 +97,39 @@ export interface ApiSession {
    * sends the field, and absent and null mean the same thing to every reader.
    */
   git?: GitLocation | null;
+  /**
+   * The editor open on this session's workspace right now, or null when there
+   * is none (spec 2026-09-23-ide-bridge-design). Live state of a directory
+   * rather than a fact about the session, exactly as `git` is — two sessions in
+   * one workspace always read the same selection (adr
+   * `orbital-speaks-to-the-ide-itself`). Mirrors `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `git`: the server always sends the
+   * field, and absent and null mean the same thing to every reader.
+   */
+  ide?: IdeContext | null;
+}
+
+/**
+ * The editor covering a session's workspace. Mirrors
+ * `server/src/ide/protocol.ts` — the two must move together.
+ */
+export interface IdeContext {
+  /** As the lock reports it: the product (`WebStorm`), not the vendor. */
+  ideName: string
+  workspaceRoot: string
+  selection: IdeSelection | null
+}
+
+/** Where the caret is, and what is selected under it. */
+export interface IdeSelection {
+  /** Absolute, as the extension reports it. */
+  filePath: string
+  /** 1-based, so it matches what the editor's gutter shows. */
+  lineStart: number
+  lineCount: number
+  /** null when the caret moved and nothing is selected. */
+  text: string | null
 }
 
 /**
@@ -438,6 +471,21 @@ export interface FileCompletionEntry {
   name: string
   dir: boolean
   size?: number
+  /**
+   * The row's path relative to the session's cwd, sent ONLY when the row does
+   * not live in the directory the typed prefix names — an open editor tab
+   * reached by its base name from somewhere else in the tree (spec
+   * 2026-09-23-ide-bridge-design § Open files). Absent means the old rule: the
+   * prefix's directory part plus `name`.
+   */
+  path?: string
+  /** The file is open in the editor right now. Absent means not. */
+  open?: boolean
+  /** It is the tab the caret is in — it wears the editor slot's caret bar
+   * (canvas `Feature - IDE bridge` 20c). */
+  active?: boolean
+  /** The caret's line in the active tab, which its mark slot reads (20c). */
+  line?: number
 }
 
 /**

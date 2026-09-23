@@ -96,6 +96,13 @@ export interface CompletionPopupProps {
   commands: readonly SlashCommand[] | null
   /** Above on the panel floor, below in the dialog (canvas 9b / 9d). */
   placement: 'above' | 'below'
+  /**
+   * Extra clearance the popup keeps on the anchored side, for anything that
+   * sits between it and the well — today the editor slot on the well's top
+   * edge (canvas `Feature - IDE bridge` 20c: "the slot belongs to the well, so
+   * the popup clears both"). Zero when nothing is there.
+   */
+  anchorInsetPx?: number
   /** `id` of the listbox, minted by the composer so it can point at it. */
   listboxId: string
   /** Replaces the typed fragment. `keepOpen` for a directory — the one case ⏎ does not close. */
@@ -114,6 +121,7 @@ export function CompletionPopup({
   sessionKey,
   commands,
   placement,
+  anchorInsetPx = 0,
   listboxId,
   onAccept,
   onClose,
@@ -179,18 +187,29 @@ export function CompletionPopup({
       }))
     }
     if (!files) return []
-    const dir = files.prefix.slice(0, files.prefix.lastIndexOf('/') + 1)
-    // Directories first (canvas 9b), otherwise the server's own alphabetical
-    // order — a stable sort keeps it.
+    const typedDir = files.prefix.slice(0, files.prefix.lastIndexOf('/') + 1)
+    // Open editor tabs first, then directories, then files — a stable sort, so
+    // the server's own order survives inside each group. That order is the
+    // ranking for the open group (the active tab, then the editor's tab order,
+    // spec 2026-09-23-ide-bridge-design § Open files) and alphabetical for the
+    // other two (canvas 9b). No header, no divider, no second list: the rows
+    // are simply higher (canvas `Feature - IDE bridge` 20c).
+    const group = (e: FileCompletionEntry) => (e.open ? 0 : e.dir ? 1 : 2)
     return [...files.entries]
-      .sort((a, b) => (a.dir === b.dir ? 0 : a.dir ? -1 : 1))
-      .map((entry) => ({
-        kind: 'file' as const,
-        entry,
-        dir,
-        insert: `@${dir}${entry.name}${entry.dir ? '/' : ''}`,
-        keepOpen: entry.dir,
-      }))
+      .sort((a, b) => group(a) - group(b))
+      .map((entry) => {
+        // An open tab reached by its base name lives somewhere else in the
+        // tree and carries its own path; every other row is where the typed
+        // prefix points, exactly as it always was.
+        const path = entry.path ?? typedDir + entry.name
+        return {
+          kind: 'file' as const,
+          entry,
+          dir: path.slice(0, path.lastIndexOf('/') + 1),
+          insert: `@${path}${entry.dir ? '/' : ''}`,
+          keepOpen: entry.dir,
+        }
+      })
   }, [kind, prefix, commands, files])
 
   const [selected, setSelected] = useState(0)
@@ -218,7 +237,7 @@ export function CompletionPopup({
   useEffect(() => () => onActiveDescendantChange(null), [onActiveDescendantChange])
 
   usePopupPosition(mounted, anchorRef, popupRef, {
-    gap: POPUP_GAP,
+    gap: POPUP_GAP + anchorInsetPx,
     prefer: placement,
     matchAnchorWidth: true,
   })
@@ -283,6 +302,7 @@ export function CompletionPopup({
   const entering = state === 'entering'
   const exiting = state === 'exiting'
   const total = kind === 'command' ? (commands?.length ?? 0) : rows.length
+  const openCount = rows.reduce((n, row) => n + (row.kind === 'file' && row.entry.open ? 1 : 0), 0)
   const dirLabel = kind === 'file' && files ? files.prefix.slice(0, files.prefix.lastIndexOf('/') + 1) : ''
 
   return createPortal(
@@ -316,6 +336,9 @@ export function CompletionPopup({
       <div className="flex shrink-0 items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-2 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.5)]">
         {kind === 'command' ? 'COMMANDS' : `FILES${dirLabel ? ` · ${dirLabel}` : ''}`}
         <span aria-hidden className="flex-1" />
+        {/* "The head counts them" (canvas `Feature - IDE bridge` 20c); with no
+            editor there is no count and the head is 9b byte for byte. */}
+        {openCount > 0 ? `${openCount} OPEN · ` : ''}
         {rows.length} OF {total}
       </div>
 
@@ -383,12 +406,29 @@ export function CompletionPopup({
                 <>
                   {/* 9b marks: a folder (12×10, a thick top edge) or a file
                       (12×12 square). `block`, because an inline span has no
-                      size (web/CLAUDE.md). */}
+                      size (web/CLAUDE.md).
+
+                      "Open" is said in this same slot, the one that already
+                      tells a file from a folder: the square gets filled, the
+                      way a tab is a file that is IN something, and the active
+                      tab adds the editor slot's own caret bar so the glyph
+                      means "the cursor is here" in both places (canvas
+                      `Feature - IDE bridge` 20c). */}
                   {row.entry.dir ? (
                     <span
                       aria-hidden
                       className="block h-[10px] w-3 shrink-0 rounded-[2px] border border-t-[3px] border-[rgba(190,215,240,.55)]"
                     />
+                  ) : row.entry.open ? (
+                    <span
+                      aria-hidden
+                      className="relative block h-3 w-3 shrink-0 rounded-[2px] border border-[rgba(190,215,240,.55)]"
+                    >
+                      <span className="absolute left-[2px] top-[2px] block h-[6px] w-[6px] rounded-[1px] bg-[rgba(190,215,240,.7)]" />
+                      {row.entry.active && (
+                        <span className="absolute right-[-3px] top-1/2 -mt-1 block h-2 w-[1.4px] rounded-[1px] bg-[rgba(190,215,240,.7)]" />
+                      )}
+                    </span>
                   ) : (
                     <span
                       aria-hidden
@@ -425,7 +465,14 @@ export function CompletionPopup({
                         row.entry.size !== undefined
                         ? `DIR · ${row.entry.size} ITEMS`
                         : 'DIR'
-                      : formatBytes(row.entry.size ?? 0)}
+                      : row.entry.open
+                        ? // `OPEN` REPLACES the size — "a file you have open
+                          // you don't need weighed" — and the active tab adds
+                          // the caret's line (canvas 20c).
+                          row.entry.line !== undefined
+                          ? `OPEN · :${row.entry.line}`
+                          : 'OPEN'
+                        : formatBytes(row.entry.size ?? 0)}
                   </span>
                 </>
               )}

@@ -11,7 +11,10 @@ import { CompletionPopup, type CompletionHandle } from './CompletionPopup'
 import { AttachmentChip } from './AttachmentChip'
 import { ATTACHMENT_TYPES_LINE, MAX_ATTACHMENTS, filesFrom } from '../lib/attachments'
 import type { AttachmentsHandle } from './useAttachments'
-import type { CompletionKey, SlashCommand } from '../lib/types'
+import { IdeSlot, IDE_SLOT_HEIGHT_PX } from './IdeSlot'
+import { lineCountLabel, selectionId } from '../lib/ideSelection'
+import { useIdeReadout } from '../lib/useIdeReadout'
+import type { CompletionKey, IdeContext, SlashCommand } from '../lib/types'
 
 /**
  * The prompt composer — one control, two homes (spec:
@@ -103,6 +106,22 @@ export interface ComposerProps {
   /** Rendered at the right end of the hint row — the panel's Stop/Send buttons. */
   actions?: ReactNode
   /**
+   * The editor covering this mount's directory, or null/absent when there is
+   * none (spec 2026-09-23-ide-bridge-design § The slot and the lip). The
+   * composer draws the slot on the well's top edge, names what ⏎ will carry in
+   * the hint line, and lifts the completion popup clear of both (canvas
+   * `Feature - IDE bridge` 20c).
+   *
+   * The readout's two rates live here rather than in `IdeSlot` because the hint
+   * line needs the same answer, and running the hook twice would run two
+   * independent debounces over one stream.
+   */
+  ide?: IdeContext | null
+  /** The selection id THIS session has dropped with the lip's ×, if any. */
+  ideDismissedId?: string
+  /** Called with the dropped selection's id. Per session (spec § Behaviour). */
+  onIdeDismiss?: (selectionId: string) => void
+  /**
    * The mount's attachment state (`useAttachments`). Absent means this mount
    * has nowhere to upload to, and then there is no chip row, no paste intake
    * and no refusal line — see the note in `NewSessionDialog`.
@@ -130,6 +149,9 @@ export function Composer({
   placeholder,
   id,
   actions,
+  ide = null,
+  ideDismissedId,
+  onIdeDismiss,
   attachments,
   dropArmed = false,
   className,
@@ -243,10 +265,18 @@ export function Composer({
       api
         .filesComplete(sessionKey, pending.path)
         .then((entries) => {
-          const base = pending.path.slice(pending.path.lastIndexOf('/') + 1)
+          const dir = pending.path.slice(0, pending.path.lastIndexOf('/') + 1)
+          // The row's own path, not its base name: with an editor connected
+          // the list also carries open tabs matched by base name from
+          // elsewhere in the tree (spec 2026-09-23-ide-bridge-design § Open
+          // files), and one of those must not confirm a path that is not
+          // there. `path` is sent only when it cannot be derived.
           // A path ending in `/` has no basename to match; a directory that
           // lists anything at all exists.
-          const exists = base === '' ? entries.length > 0 : entries.some((e) => e.name === base)
+          const exists =
+            dir === pending.path
+              ? entries.length > 0
+              : entries.some((e) => (e.path ?? dir + e.name) === pending.path)
           if (exists) setResolved((prev) => new Set(prev).add(pending.path))
         })
         .catch(() => {
@@ -299,9 +329,32 @@ export function Composer({
     [context, caret, value, onChange],
   )
 
-  const chips = attachments?.items ?? []
+  /** The mount's chip row. Memoised on the handle rather than rebuilt every
+   * render, because the hint line's `useMemo` below depends on it. */
+  const chips = useMemo(() => attachments?.items ?? [], [attachments?.items])
   const anyFailed = chips.some((chip) => chip.state === 'failed')
   const refusal = attachments?.refusal ?? null
+
+  // The editor slot's two rates, run once for the slot and the hint line both
+  // (spec 2026-09-23-ide-bridge-design § The slot and the lip).
+  const ideReadout = useIdeReadout(ide?.selection ?? null)
+  const ideLip = ideReadout.lip
+  const ideStanding = ideLip !== null && selectionId(ideLip) !== ideDismissedId
+  /**
+   * What ⏎ will carry, said in the hint line (canvas `Feature - IDE bridge`
+   * 20b-3/20b-6): `⏎ send with 5 lines · ⇧⏎ newline`, and the images alongside
+   * when there are any. It replaces the mount's RESTING copy only — an open
+   * question's hint is about the question and outranks it.
+   */
+  const ideHint = useMemo(() => {
+    if (!ideStanding || !ideLip) return null
+    const armed = chips.filter((chip) => chip.state !== 'failed').length
+    const images = armed > 0 ? `, ${armed} image${armed === 1 ? '' : 's'}` : ''
+    const carries = `${lineCountLabel(ideLip)}${images}`
+    return enter === 'send'
+      ? `⏎ send with ${carries} · ⇧⏎ newline`
+      : `⏎ newline · ⌘⏎ start session with ${carries}`
+  }, [ideStanding, ideLip, chips, enter])
 
   function handleKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
     // The list gets first refusal on every key — it owns ↑↓, ⏎ and Tab while
@@ -351,6 +404,20 @@ export function Composer({
               : 'border-[rgba(150,205,255,.18)]',
         ].join(' ')}
       >
+        {/* The editor slot, on the well's top edge (canvas `Feature - IDE
+            bridge` 20a, placement C of 20e). It lives inside the well because
+            the well is the positioned ancestor; the clip that makes the slide
+            read as "from behind the edge" is inside `IdeSlot`, never on the
+            well — an `overflow-hidden` here would cut nothing today (the popup
+            is portalled) but would be one refactor away from doing so
+            (web/CLAUDE.md). */}
+        <IdeSlot
+          ideName={ide?.ideName ?? null}
+          readout={ideReadout}
+          standing={ideStanding}
+          onDismiss={(selection) => onIdeDismiss?.(selection)}
+        />
+
         {/* The chip row: above the text, inside the well (canvas 9c-2). Three
             fit across a 418px well and it wraps to a second row. */}
         {chips.length > 0 && (
@@ -526,7 +593,7 @@ export function Composer({
             </span>
           ) : (
             <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
-              {hint}
+              {ideHint ?? hint}
             </span>
           )}
           <span aria-hidden className="flex-1" />
@@ -563,6 +630,10 @@ export function Composer({
           sessionKey={sessionKey}
           commands={commands}
           placement={placement}
+          // The slot belongs to the well, so the popup clears both (canvas
+          // `Feature - IDE bridge` 20c). Only above: the slot sits on the top
+          // edge, and the dialog's list opens below it.
+          anchorInsetPx={ide && placement === 'above' ? IDE_SLOT_HEIGHT_PX : 0}
           listboxId={listboxId}
           onAccept={handleAccept}
           onClose={() => setDismissed(true)}
