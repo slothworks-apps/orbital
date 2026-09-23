@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react'
-import { useOrbital } from './store/store'
+import {
+  useOrbital,
+  resolveWindowPanelWidths,
+  SUBAGENT_PANEL_DEFAULT_PX,
+  WINDOW_PANEL_PAIR_MIN_PX,
+} from './store/store'
 import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
 import { getSocket } from './lib/socket'
 import { api } from './lib/api'
+import { setSubagentPanel } from './lib/desktop'
 import { DetailPanel } from './panels/DetailPanel'
+import { SubagentPanel } from './panels/SubagentPanel'
 import { ErrorLog } from './panels/ErrorLog'
 import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
@@ -32,6 +39,17 @@ async function seatSession(id: string): Promise<void> {
   await useOrbital.getState().select(id)
 }
 
+/** The window's width, followed through every resize — main's grow included. */
+function useWindowWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return width
+}
+
 /**
  * A detached session window, `/session/<id>`: one session's `DetailPanel`
  * filling a desktop window of its own, so several can sit side by side (spec:
@@ -42,6 +60,9 @@ async function seatSession(id: string): Promise<void> {
  * selection, and nothing here changes it. The window never receives the
  * detached list (`main.tsx` does not wire the bridge here), so its own
  * `select` is never redirected to focusing itself.
+ *
+ * An agent opened from the transcript sits in `SubagentPanel` to the detail
+ * panel's right, in the same window, with the lifecycle it has on the map.
  */
 export function SessionWindow({ id }: { id: string }) {
   const loadInitial = useOrbital((s) => s.loadInitial)
@@ -93,12 +114,43 @@ export function SessionWindow({ id }: { id: string }) {
     if (title) document.title = title
   }, [title])
 
+  // `OPEN →` on an agent row opens the subagent panel beside the detail
+  // panel, and main grows the window to make room — or not, when it already
+  // holds both — and shrinks it back on close (spec:
+  // 2026-09-23-detached-session-windows-design § The subagent panel in the
+  // window). Sent on mount too, closed: a reload under an open panel lets main
+  // give back what it grew.
+  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  useEffect(() => {
+    setSubagentPanel(
+      subagentPanelOpen
+        ? { open: true, widthPx: SUBAGENT_PANEL_DEFAULT_PX, pairMinPx: WINDOW_PANEL_PAIR_MIN_PX }
+        : { open: false }
+    )
+  }, [subagentPanelOpen])
+
+  const windowWidth = useWindowWidth()
+  const { detailWidthPx, subagentWidthPx } = resolveWindowPanelWidths(windowWidth)
+
   return (
     <EscapeBoundary>
-      <div className="relative h-screen w-screen overflow-hidden bg-space">
-        <ErrorBoundary label="Detail panel">
-          <DetailPanel standalone />
-        </ErrorBoundary>
+      <div className="relative flex h-screen w-screen overflow-hidden bg-space">
+        {/* Flush, no gutter: the window is the two panels. */}
+        <div
+          className="h-full shrink-0"
+          style={{ width: subagentPanelOpen ? detailWidthPx : '100%' }}
+        >
+          <ErrorBoundary label="Detail panel">
+            <DetailPanel standalone />
+          </ErrorBoundary>
+        </div>
+        {subagentPanelOpen && (
+          <div className="h-full shrink-0" style={{ width: subagentWidthPx }}>
+            <ErrorBoundary label="Subagent panel">
+              <SubagentPanel widthPx={subagentWidthPx} inWindow />
+            </ErrorBoundary>
+          </div>
+        )}
 
         {wsStatus !== 'open' && (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center pt-3">

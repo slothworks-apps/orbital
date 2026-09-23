@@ -9,6 +9,7 @@ import {
   headerSessionStats,
   releaseDelayMs,
   resolvePanelPairWidths,
+  resolveWindowPanelWidths,
   DETAIL_PANEL_DEFAULT_PX,
   SUBAGENT_PANEL_DEFAULT_PX,
 } from '../store/store'
@@ -292,6 +293,11 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   const renderedDetailWidth = subagentPanelOpen
     ? resolvePanelPairWidths(detailWidth, SUBAGENT_PANEL_DEFAULT_PX, window.innerWidth).detailWidthPx
     : detailWidth
+  // A standalone panel is the window's width, or its share of it once the
+  // subagent panel sits beside it (`SessionWindow`).
+  const standaloneWidth = subagentPanelOpen
+    ? resolveWindowPanelWidths(windowWidth).detailWidthPx
+    : windowWidth
   const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
   // In the store, not local state: SpaceMap's right-anchored overlays (the
   // aggregate readout, the zoom stack) drop their `right` transition on the
@@ -778,7 +784,7 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
             fullPath={session?.cwd ?? ''}
             git={session?.git ?? null}
             sessionId={session?.id ?? null}
-            panelWidthPx={standalone ? windowWidth : detailWidth}
+            panelWidthPx={standalone ? standaloneWidth : detailWidth}
           />
           {lineage && lineage.length > 0 && (
             <span aria-label="Lineage" className="flex shrink-0 items-center gap-1">

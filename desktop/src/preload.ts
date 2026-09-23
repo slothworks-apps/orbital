@@ -28,4 +28,11 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   onDetachedChanged(cb: (ids: string[]) => void) {
     ipcRenderer.on('detached-changed', (_e, ids) => cb(parseDetachedIds(ids)));
   },
+  // A detached window's subagent panel opened or closed: main grows the
+  // window to make room, and shrinks it back (spec:
+  // 2026-09-23-detached-session-windows-design § The subagent panel in the
+  // window). Main validates the payload; the main window's is ignored.
+  setSubagentPanel(state: unknown) {
+    ipcRenderer.send('session-window-subagent', state);
+  },
 });

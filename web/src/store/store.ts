@@ -1951,6 +1951,39 @@ export function resolvePanelPairWidths(
   return { detailWidthPx: DETAIL_PANEL_MIN_PX, subagentWidthPx: shrunkSubagent }
 }
 
+/**
+ * How wide a detached window must be to hold both panels at their minimums.
+ * Narrower, opening the subagent panel grows the window; this wide or wider,
+ * the panel opens inside it (spec: 2026-09-23-detached-session-windows-design
+ * § The subagent panel in the window). The two sit flush, so no gutter.
+ */
+export const WINDOW_PANEL_PAIR_MIN_PX = DETAIL_PANEL_MIN_PX + SUBAGENT_PANEL_MIN_PX
+
+/**
+ * The detail and subagent panels side by side in a detached window, flush,
+ * splitting the window's whole width between them (spec:
+ * 2026-09-23-detached-session-windows-design § The subagent panel in the
+ * window). `resolvePanelPairWidths`' order, without its viewport ceiling:
+ * there is no map to keep usable, the window is the two panels.
+ *
+ * The subagent panel takes `SUBAGENT_PANEL_DEFAULT_PX` and the detail panel
+ * the rest. When the rest would be under `DETAIL_PANEL_MIN_PX`, the detail
+ * panel yields first — it stops at its minimum and the subagent panel takes
+ * what is left, down to `SUBAGENT_PANEL_MIN_PX`. A window narrower than
+ * `WINDOW_PANEL_PAIR_MIN_PX` (only while it is still growing to make room)
+ * gets both minimums, and the overflow is clipped on the right.
+ */
+export function resolveWindowPanelWidths(windowWidthPx: number): PanelPairWidths {
+  const subagent = Math.max(SUBAGENT_PANEL_MIN_PX, SUBAGENT_PANEL_DEFAULT_PX)
+  if (windowWidthPx - subagent >= DETAIL_PANEL_MIN_PX) {
+    return { detailWidthPx: windowWidthPx - subagent, subagentWidthPx: subagent }
+  }
+  return {
+    detailWidthPx: DETAIL_PANEL_MIN_PX,
+    subagentWidthPx: Math.max(SUBAGENT_PANEL_MIN_PX, windowWidthPx - DETAIL_PANEL_MIN_PX),
+  }
+}
+
 /** The export's sidebar width (canvas 1a) — the default and the handle's double-click reset. */
 export const SIDEBAR_DEFAULT_PX = 300
 /** Below this the session rows' meta line and the footer's pill stop fitting. */
