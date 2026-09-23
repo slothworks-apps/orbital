@@ -67,3 +67,93 @@ export function decideNotificationClick(
   if (sessionId && detached.has(sessionId)) return { kind: 'session-window', sessionId };
   return { kind: 'main', select: sessionId || null };
 }
+
+/** A window's frame, or a display's work area, in screen points. */
+export interface Bounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * `session-window-subagent` as main reads it: the subagent panel opened or
+ * closed inside a detached window (spec:
+ * 2026-09-23-detached-session-windows-design § The subagent panel in the
+ * window). The renderer owns the panel widths, so it says how much room the
+ * panel wants (`widthPx`) and how wide the window must be to hold both
+ * panels at their minimums without growing (`pairMinPx`).
+ */
+export type SubagentPanelMessage =
+  | { open: true; widthPx: number; pairMinPx: number }
+  | { open: false };
+
+function isWidth(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * The payload as it arrives over IPC. Whatever it carries ends up in
+ * `setBounds`, so a width that is not a positive finite number drops the
+ * whole message rather than being coerced.
+ */
+export function parseSubagentPanelMessage(payload: unknown): SubagentPanelMessage | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const { open, widthPx, pairMinPx } = payload as Record<string, unknown>;
+  if (open === false) return { open: false };
+  if (open !== true || !isWidth(widthPx) || !isWidth(pairMinPx)) return null;
+  return { open: true, widthPx, pairMinPx };
+}
+
+/** What a grow did, kept per window so the close can undo exactly that. */
+export interface SubagentGrowth {
+  /** The frame before the grow. */
+  before: Bounds;
+  /** The frame the grow set. */
+  after: Bounds;
+}
+
+/**
+ * The frame a detached window takes when its subagent panel opens, or null
+ * when it stays as it is.
+ *
+ * It stays when it already holds both panels at their minimums. Otherwise it
+ * widens to the right by the panel's width; if that would leave the work area
+ * on the right it shifts left to stay inside, and it is never wider than the
+ * work area. A shift stops at the work area's left edge, and a window that
+ * does not need to shift keeps its x even if it sits partly off screen.
+ */
+export function growForSubagent(
+  bounds: Bounds,
+  workArea: Bounds,
+  widthPx: number,
+  pairMinPx: number,
+): SubagentGrowth | null {
+  if (bounds.width >= pairMinPx) return null;
+  const width = Math.min(bounds.width + widthPx, workArea.width);
+  if (width <= bounds.width) return null;
+  const right = workArea.x + workArea.width;
+  const x = bounds.x + width > right ? Math.max(workArea.x, right - width) : bounds.x;
+  return { before: bounds, after: { ...bounds, x, width } };
+}
+
+/**
+ * The frame a detached window takes when its subagent panel closes, or null
+ * when it is left alone.
+ *
+ * It narrows by exactly what the grow added and moves back by whatever the
+ * grow shifted it, never below `minWidth`. A window whose width is no longer
+ * the one the grow set was resized by hand while the agent was open, and the
+ * user's size wins. Height and y stay as they are now, and a move made in the
+ * meantime is kept: the shift is undone relative to where the window sits.
+ */
+export function shrinkAfterSubagent(
+  current: Bounds,
+  growth: SubagentGrowth,
+  minWidth: number,
+): Bounds | null {
+  if (current.width !== growth.after.width) return null;
+  const width = Math.max(minWidth, current.width - (growth.after.width - growth.before.width));
+  const x = current.x + (growth.before.x - growth.after.x);
+  return { ...current, x, width };
+}

@@ -6,6 +6,7 @@ import {
   Menu,
   nativeImage,
   Notification,
+  screen,
   shell,
   Tray,
   utilityProcess,
@@ -20,8 +21,13 @@ import { startSessionsFeed } from './lib/sessionsFeed';
 import {
   decideDetach,
   decideNotificationClick,
+  growForSubagent,
   isSessionId,
+  parseSubagentPanelMessage,
   sessionWindowUrl,
+  shrinkAfterSubagent,
+  type SubagentGrowth,
+  type SubagentPanelMessage,
 } from './lib/sessionWindows';
 import {
   classifyChildExit,
@@ -386,6 +392,44 @@ function openSessionWindow(sessionId: string): void {
 }
 
 /**
+ * What opening the subagent panel did to each detached window's frame, so
+ * closing it can undo exactly that. Absent when the panel is closed, or when
+ * the window was wide enough and did not grow. Weak, so a closed window takes
+ * its entry with it.
+ */
+const subagentGrowth = new WeakMap<BrowserWindow, SubagentGrowth>();
+
+/**
+ * A detached window makes room for its subagent panel on the right, and gives
+ * it back when the panel closes (spec: 2026-09-23-detached-session-windows-design
+ * § The subagent panel in the window). The decisions are
+ * `growForSubagent`/`shrinkAfterSubagent`; this only reads and sets frames.
+ * Animated, as macOS resizes a window it was asked to.
+ *
+ * A full-screen window is its own space and keeps its size; the panel opens
+ * inside it.
+ */
+function resizeForSubagent(target: BrowserWindow, message: SubagentPanelMessage): void {
+  if (target.isFullScreen()) return;
+  if (message.open) {
+    // A repeat open (the renderer reloaded mid-agent) keeps the first grow.
+    if (subagentGrowth.has(target)) return;
+    const bounds = target.getBounds();
+    const { workArea } = screen.getDisplayMatching(bounds);
+    const growth = growForSubagent(bounds, workArea, message.widthPx, message.pairMinPx);
+    if (!growth) return;
+    subagentGrowth.set(target, growth);
+    target.setBounds(growth.after, true);
+    return;
+  }
+  const growth = subagentGrowth.get(target);
+  if (!growth) return;
+  subagentGrowth.delete(target);
+  const bounds = shrinkAfterSubagent(target.getBounds(), growth, target.getMinimumSize()[0]);
+  if (bounds) target.setBounds(bounds, true);
+}
+
+/**
  * Bring the map back: the Dock icon, the tray's Open Orbital and a clicked
  * notification all land here (spec: 2026-09-22-desktop-background-mode-design).
  *
@@ -584,6 +628,14 @@ ipcMain.on('detach-session', (_event, id: unknown) => {
 });
 ipcMain.on('focus-session', (_event, id: unknown) => {
   if (isSessionId(id)) focusSessionWindow(id);
+});
+// The subagent panel opening or closing inside a detached window. Only a
+// detached window's own renderer is heard, and only about itself.
+ipcMain.on('session-window-subagent', (event, payload: unknown) => {
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  if (!sender || ![...sessionWindows.values()].includes(sender)) return;
+  const message = parseSubagentPanelMessage(payload);
+  if (message) resizeForSubagent(sender, message);
 });
 
 // There is deliberately no `window-all-closed` handler: closing the window no

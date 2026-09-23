@@ -9,7 +9,17 @@ type DesktopBridge = {
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
   onDetachedChanged?: (cb: (ids: string[]) => void) => void
+  setSubagentPanel?: (state: SubagentPanelState) => void
 }
+
+/**
+ * The subagent panel's state in a detached window, as main needs it to size
+ * the window: how much room the panel wants, and how wide the window must be
+ * to hold both panels at their minimums without growing.
+ */
+export type SubagentPanelState =
+  | { open: true; widthPx: number; pairMinPx: number }
+  | { open: false }
 
 function bridge(): DesktopBridge | undefined {
   return (window as { orbitalDesktop?: DesktopBridge }).orbitalDesktop
@@ -50,6 +60,16 @@ export function detachSession(id: string): void {
 /** Brings a detached session's window to the front. */
 export function focusSession(id: string): void {
   bridge()?.focusSession?.(id)
+}
+
+/**
+ * Tells main that this detached window's subagent panel opened or closed, so
+ * the window grows to make room and shrinks back (spec:
+ * 2026-09-23-detached-session-windows-design § The subagent panel in the
+ * window). A no-op in the browser.
+ */
+export function setSubagentPanel(state: SubagentPanelState): void {
+  bridge()?.setSubagentPanel?.(state)
 }
 
 /**

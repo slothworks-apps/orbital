@@ -100,6 +100,13 @@ export interface SubagentPanelProps {
    * task place it").
    */
   widthPx: number
+  /**
+   * Beside the detail panel in a detached window (spec:
+   * 2026-09-23-detached-session-windows-design § The subagent panel in the
+   * window): flush and chrome-less like the standalone detail panel, filling
+   * the column its caller sizes, and its header row drags the window.
+   */
+  inWindow?: boolean
 }
 
 /**
@@ -111,7 +118,7 @@ export interface SubagentPanelProps {
  * does, because how the two panels enter and leave TOGETHER is explicitly
  * the next task's layout concern, not this one's.
  */
-export function SubagentPanel({ widthPx }: SubagentPanelProps) {
+export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps) {
   const panel = useOrbital((s) => s.subagentPanel)
   const closeSubagent = useOrbital((s) => s.closeSubagent)
   const dismissSubagent = useOrbital((s) => s.dismissSubagent)
@@ -244,6 +251,7 @@ export function SubagentPanel({ widthPx }: SubagentPanelProps) {
     <Panel
       side="subagent"
       widthPx={widthPx}
+      fill={inWindow}
       className="relative flex h-full flex-col overflow-hidden"
     >
       {/* Top-edge seam (task 8: spec § 8 "Layout", "three cues separate the
@@ -265,7 +273,16 @@ export function SubagentPanel({ widthPx }: SubagentPanelProps) {
       {/* Header — canvas 11b: 16px/18px padding, one step tighter than the
           detail panel's 12px/22px/16px at every level. */}
       <div className="border-b border-[rgba(150,205,255,.1)] px-[18px] pb-4 pt-4">
-        <div className="flex h-[22px] items-center gap-2">
+        {/* In a detached window the row carries on the detail panel's title
+            bar (22b): it reaches out over the header's top and side padding
+            so the whole top band drags the window, and × stays clickable
+            (`orbital-drag-region`). */}
+        <div
+          className={[
+            'flex items-center gap-2',
+            inWindow ? 'orbital-drag-region -mx-[18px] -mt-4 h-[38px] px-[18px] pt-4' : 'h-[22px]',
+          ].join(' ')}
+        >
           <span className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]">
             SUBAGENT · READ-ONLY
           </span>

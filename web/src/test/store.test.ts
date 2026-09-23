@@ -33,6 +33,8 @@ import {
   releaseDelayMs,
   absorptionFor,
   resolvePanelPairWidths,
+  resolveWindowPanelWidths,
+  WINDOW_PANEL_PAIR_MIN_PX,
   RELEASE_FALL_GRACE_MS,
   DETAIL_PANEL_MIN_PX,
   PANEL_GUTTER_PX,
@@ -1915,6 +1917,43 @@ describe('resolvePanelPairWidths', () => {
     )
     expect(result.detailWidthPx).toBeLessThan(900)
     expect(result.subagentWidthPx).toBe(SUBAGENT_PANEL_DEFAULT_PX)
+  })
+})
+
+// The same pair in a detached window: flush, no ceiling, the whole window
+// split between them (spec: 2026-09-23-detached-session-windows-design).
+describe('resolveWindowPanelWidths', () => {
+  it('gives the subagent panel its default and the detail panel the rest', () => {
+    const wide = DETAIL_PANEL_MIN_PX + SUBAGENT_PANEL_DEFAULT_PX + 200
+    expect(resolveWindowPanelWidths(wide)).toEqual({
+      detailWidthPx: DETAIL_PANEL_MIN_PX + 200,
+      subagentWidthPx: SUBAGENT_PANEL_DEFAULT_PX,
+    })
+  })
+
+  it('yields the detail panel first, then shrinks the subagent panel', () => {
+    const between = WINDOW_PANEL_PAIR_MIN_PX + 10
+    const result = resolveWindowPanelWidths(between)
+    expect(result.detailWidthPx).toBe(DETAIL_PANEL_MIN_PX)
+    expect(result.subagentWidthPx).toBe(SUBAGENT_PANEL_MIN_PX + 10)
+    expect(result.detailWidthPx + result.subagentWidthPx).toBe(between)
+  })
+
+  it('fills the window exactly whenever the window can hold both minimums', () => {
+    for (let width = WINDOW_PANEL_PAIR_MIN_PX; width <= 2000; width += 37) {
+      const result = resolveWindowPanelWidths(width)
+      expect(result.detailWidthPx + result.subagentWidthPx).toBe(width)
+      expect(result.detailWidthPx).toBeGreaterThanOrEqual(DETAIL_PANEL_MIN_PX)
+      expect(result.subagentWidthPx).toBeGreaterThanOrEqual(SUBAGENT_PANEL_MIN_PX)
+      expect(result.subagentWidthPx).toBeLessThanOrEqual(SUBAGENT_PANEL_DEFAULT_PX)
+    }
+  })
+
+  it('holds both minimums in a window still too narrow for them', () => {
+    expect(resolveWindowPanelWidths(DETAIL_PANEL_MIN_PX)).toEqual({
+      detailWidthPx: DETAIL_PANEL_MIN_PX,
+      subagentWidthPx: SUBAGENT_PANEL_MIN_PX,
+    })
   })
 })
 

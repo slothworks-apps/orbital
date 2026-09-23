@@ -39,7 +39,8 @@ export interface PanelProps {
    * The panel IS the window — the detail panel alone in a detached window
    * (spec: 2026-09-23-detached-session-windows-design). It takes the whole
    * width and wears `windowChrome` in place of the side's glass. Wins over
-   * `widthPx` and `glowHue`.
+   * `widthPx` and `glowHue`. The subagent panel beside it takes the whole
+   * width of the column its caller gives it, in `subagentWindowChrome`.
    */
   fill?: boolean
   /**
@@ -115,6 +116,21 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
  */
 const windowChrome = 'bg-gradient-to-b from-[#0f1524] to-[#080c16]'
 
+/**
+ * The subagent panel beside the detail panel in a detached window (spec:
+ * 2026-09-23-detached-session-windows-design § The subagent panel in the
+ * window). No gutter and no glass, so of 11b's cues between the two panels it
+ * keeps the depth step: its own flatter, darker stops, the inset shadow on
+ * its left edge, and its hairline on that one shared edge only. The dashed
+ * top seam is the panel's own (`SubagentPanel`). Provisional until canvas
+ * 22f; this is the one place the separation lives.
+ */
+const subagentWindowChrome = [
+  'bg-gradient-to-b from-[rgba(10,15,27,.9)] to-[rgba(5,8,16,.94)]',
+  'border-l border-[rgba(150,205,255,.1)]',
+  'shadow-[inset_24px_0_40px_-28px_rgba(0,0,0,.9)]',
+].join(' ')
+
 /** Drop shadow list for `sideChrome[side]`, re-stated so the hue bloom can extend it. */
 const sideShadow: Record<NonNullable<PanelProps['side']>, string> = {
   left: '0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06)',
@@ -168,7 +184,11 @@ export function Panel({
       data-collapsed={collapsed}
       style={style}
       className={[
-        fill ? windowChrome : `${sideChrome[side]} ${sideRounding[side]}`,
+        fill
+          ? side === 'subagent'
+            ? subagentWindowChrome
+            : windowChrome
+          : `${sideChrome[side]} ${sideRounding[side]}`,
         width,
         // Collapse/expand timing verbatim from the canvas export; dropped
         // during a drag so the width tracks the pointer (see widthTransition).

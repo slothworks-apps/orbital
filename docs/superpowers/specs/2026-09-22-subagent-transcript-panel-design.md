@@ -10,6 +10,7 @@ related:
   - subagent-liveness-from-sdk-task-events
   - 2026-09-18-transcript-folding-design
   - 2026-09-21-fit-honours-the-panels-design
+  - 2026-09-23-detached-session-windows-design
 ---
 
 # Subagent transcript panel
@@ -292,6 +293,10 @@ The panel slides in at the right edge and pushes the detail panel left.
   (450 → 380), a depth step (the agent panel is flatter and darker, with an
   inset shadow on its left edge, so it reads as recessed), and a top-edge
   seam.
+- In a detached session window the panel sits flush beside the detail panel
+  and the window grows to make room — see
+  [[2026-09-23-detached-session-windows-design]] § "The subagent panel in the
+  window".
 
 ### Lifecycle
 

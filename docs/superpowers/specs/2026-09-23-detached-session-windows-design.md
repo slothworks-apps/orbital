@@ -102,6 +102,52 @@ selects the session as today.
 - A session deleted while its window is open shows the panel's existing
   empty state.
 
+### The subagent panel in the window
+
+Decided with Tomin, 2026-09-23. Before this, `OPEN →` on an agent row in a
+detached window set the store's `subagentPanel` and nothing rendered it.
+
+- `OPEN →` opens `SubagentPanel` to the RIGHT of the detail panel, inside
+  the same window. The lifecycle is the map's (subagent panel spec § 8
+  "Lifecycle"): another agent switches the content, one slot; the panel's ×
+  and ⎋ close it; closing the window closes everything.
+- **The window grows to make room.** Main widens it to the right by
+  `SUBAGENT_PANEL_DEFAULT_PX`, animated. If that would leave the display's
+  work area on the right, the window shifts left to stay inside it, and it
+  is never wider than the work area.
+- **Unless it already fits.** A window at least `WINDOW_PANEL_PAIR_MIN_PX`
+  wide (`DETAIL_PANEL_MIN_PX` + `SUBAGENT_PANEL_MIN_PX`; the panels sit
+  flush, so there is no gutter) does not grow; the panel opens inside it. A
+  full-screen window never grows.
+- **Closing gives the room back.** The window narrows by exactly what it
+  grew and moves back by whatever it shifted, relative to where it sits now,
+  never below its minimum width. If the user resized it while the agent was
+  open (its width is no longer the one main set), it is left alone.
+- **The width split** (`resolveWindowPanelWidths`): `resolvePanelPairWidths`'
+  order without its 75 % ceiling, since there is no map beside the pair to
+  keep usable. The subagent panel takes `SUBAGENT_PANEL_DEFAULT_PX` and the
+  detail panel the rest. When the rest would be under `DETAIL_PANEL_MIN_PX`,
+  the detail panel stops at its minimum and the subagent panel takes what is
+  left, down to its own. Below both minimums (only for the moment the window
+  is still growing) the overflow is clipped on the right.
+- **Separation, provisional until canvas 22f.** No gutter and no glass: both
+  panels are chrome-less and flush. Of 11b's cues the subagent panel keeps
+  its flatter, darker stops, the inset shadow and hairline on its left edge,
+  and its dashed top seam. The chrome lives in one place,
+  `subagentWindowChrome` in `web/src/ui/Panel.tsx`.
+- **The top band drags the window.** The detail panel's row 1 stays the title
+  bar with the traffic-light inset, and the subagent panel's header row
+  continues it (`orbital-drag-region`; × stays clickable).
+- The main window is unchanged.
+
+The renderer tells main through the bridge's `setSubagentPanel`, IPC
+`session-window-subagent`: `{ open: true, widthPx, pairMinPx }` or
+`{ open: false }`. The renderer owns the widths, so it sends them; main
+validates the payload and honours it only from a detached window, about
+itself. The window sends its state on mount as well, so a reload under an
+open panel gives back what was grown. Main keeps what each grow did per
+window, and a second open while grown keeps the first.
+
 ### The session on the map while it is detached
 
 Canvas `Feature - Detached window` 22e.
@@ -137,6 +183,9 @@ Canvas `Feature - Detached window` 22e.
   - detach: open a window, or focus the existing one
   - the URL of a session's window
   - which window a notification click targets
+  - the `session-window-subagent` payload, and the frame a window takes when
+    its subagent panel opens (`growForSubagent`) and closes
+    (`shrinkAfterSubagent`)
 - `src/main.ts`:
   - `sessionId → BrowserWindow` map and `openSessionWindow`
   - IPC `detach-session`, `focus-session`
@@ -144,8 +193,10 @@ Canvas `Feature - Detached window` 22e.
     opens or closes, and when the main window finishes loading
   - a detached window really closes on close and leaves the map
   - the background check asks whether any Orbital window has focus
+  - IPC `session-window-subagent`, heard only from a detached window, and
+    the per-window record of what its grow did
 - `src/preload.ts`: `detachSession(id)`, `focusSession(id)`,
-  `onDetachedChanged(cb)`.
+  `onDetachedChanged(cb)`, `setSubagentPanel(state)`.
 
 ### web/
 
@@ -156,7 +207,11 @@ Canvas `Feature - Detached window` 22e.
 - `src/lib/sessionWindowRoute.ts` (new): the `/session/<id>` parser,
   alongside `parseStatsRoute`. `main.tsx` branches on it.
 - `src/SessionWindow.tsx` (new): the data lifecycle above and
-  `DetailPanel` in its standalone mode.
+  `DetailPanel` in its standalone mode, with `SubagentPanel` beside it when
+  an agent is open.
+- Store: `resolveWindowPanelWidths` and `WINDOW_PANEL_PAIR_MIN_PX`.
+- `SubagentPanel`: an `inWindow` mode (fills the column it is given, window
+  chrome, its header row drags the window).
 - `DetailPanel`: a standalone mode (fills the window in window chrome, no
   resize handle, no close control, row 1 is the drag region), and the
   detach control. `Panel`'s `fill` carries the window chrome.
@@ -167,7 +222,12 @@ Canvas `Feature - Detached window` 22e.
 
 - The `/session/<id>` parser: empty id, trailing slash, extra segments,
   percent-encoded ids.
-- The decisions in `desktop/src/lib/sessionWindows.ts`.
+- The decisions in `desktop/src/lib/sessionWindows.ts`, including the grow
+  and shrink bounds: grow right, shift left at the work area's edge, clamp
+  to the work area, no grow when it already fits, shrink back, leave a
+  hand-resized window alone, never below the minimum.
+- `resolveWindowPanelWidths`: the split and the detail panel yielding
+  first.
 - Store transitions: `select` on a detached id focuses instead of
   selecting; `setDetached` clears a selection that became detached and
   leaves any other alone.
