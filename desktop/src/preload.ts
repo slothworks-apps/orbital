@@ -29,6 +29,12 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   onDetachedChanged(cb: (ids: string[]) => void) {
     ipcRenderer.on('detached-changed', (_e, ids) => cb(parseDetachedIds(ids)));
   },
+  // A detached window's walkthrough control: main loads the page in the main
+  // window and brings it forward (spec: 2026-09-24-page-headers-design). Main
+  // lets only a walkthrough path through.
+  openInMainWindow(path: string) {
+    ipcRenderer.send('open-in-main-window', path);
+  },
   // A detached window's subagent panel opened or closed: main grows the
   // window to make room, and shrinks it back (spec:
   // 2026-09-23-detached-session-windows-design § The subagent panel in the
