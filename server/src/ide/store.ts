@@ -2,17 +2,25 @@ import { EventEmitter } from 'node:events';
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
-import { IdeSocket, type IdeConnection } from './client.js';
+import { IdeSocket, NO_TIMEOUT, type IdeConnection } from './client.js';
 import {
+  CLOSE_TAB_TOOL,
+  DIAGNOSTICS_TOOL,
   IDE_LOCK_DIR,
+  OPEN_DIFF_TOOL,
   OPEN_FILES_TOOL,
+  OPEN_FILE_TOOL,
   insideCwd,
   lockPortOf,
   normaliseSelection,
+  parseDiagnostics,
   parseIdeLock,
+  readDiffOutcome,
   sameSelection,
   workspaceRootFor,
   type IdeContext,
+  type IdeDiagnostic,
+  type IdeDiffOutcome,
   type IdeLock,
   type IdeSelection,
 } from './protocol.js';
@@ -142,8 +150,7 @@ export class IdeStore extends EventEmitter {
    * of what is interesting.
    */
   async openFiles(cwd: string): Promise<string[] | null> {
-    const root = this.locate(cwd)?.workspaceRoot;
-    const entry = root ? this.entryByRoot.get(root) : undefined;
+    const entry = this.entryFor(cwd);
     if (!entry) return null;
     const text = await entry.connection.callTool(OPEN_FILES_TOOL);
     if (text === null) return null;
@@ -151,6 +158,116 @@ export class IdeStore extends EventEmitter {
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line !== '' && insideCwd(cwd, line));
+  }
+
+  // -------------------------------------------------------------------------
+  // Talking back to the editor
+  // -------------------------------------------------------------------------
+
+  /**
+   * Whether the editor covering this `cwd` offers a tool. Asked rather than
+   * assumed everywhere, so a build that does not have one simply does not
+   * show the feature that needs it (adr `orbital-speaks-to-the-ide-itself`).
+   */
+  supports(cwd: string, tool: string): boolean {
+    return this.entryFor(cwd)?.connection.hasTool(tool) ?? false;
+  }
+
+  /**
+   * Reveals a path in the editor, optionally on a line. `false` for every
+   * kind of "no": no editor, no such tool, a path outside the session's
+   * sandbox, a call that errored or timed out.
+   *
+   * The sandbox check is the same one the open-files list is filtered by. A
+   * path Orbital would refuse to *read* for a session is not one it should
+   * ask an editor to open on that session's behalf.
+   */
+  async openFile(cwd: string, path: string, line: number | null = null): Promise<boolean> {
+    const entry = this.entryFor(cwd);
+    if (!entry || !insideCwd(cwd, path)) return false;
+    // `startLine`/`endLine` are 1-based here, matching the gutter, which is
+    // the opposite of what `selection_changed` pushes. The extension takes
+    // an absent pair as "just reveal the file".
+    const args: Record<string, unknown> = { filePath: path };
+    if (line !== null && Number.isSafeInteger(line) && line > 0) {
+      args.startLine = line;
+      args.endLine = line;
+      args.startText = '';
+      args.endText = '';
+    }
+    return (await entry.connection.callTool(OPEN_FILE_TOOL, args)) !== null;
+  }
+
+  /**
+   * The editor's own findings, for one file or for everything it has open,
+   * or null when no editor covers the `cwd` or the connected one does not
+   * offer the tool.
+   *
+   * Filtered to the session's `cwd`, for the same reason the open-files list
+   * is: a finding in someone else's project is not this session's business.
+   */
+  async diagnostics(cwd: string, path?: string): Promise<IdeDiagnostic[] | null> {
+    const entry = this.entryFor(cwd);
+    if (!entry) return null;
+    if (path !== undefined && !insideCwd(cwd, path)) return null;
+    const text = await entry.connection.callTool(
+      DIAGNOSTICS_TOOL,
+      path === undefined ? {} : { uri: `file://${path}` },
+    );
+    if (text === null) return null;
+    return parseDiagnostics(text).filter((d) => insideCwd(cwd, d.filePath));
+  }
+
+  /**
+   * Opens a review tab and waits for the human — the one call here with no
+   * deadline, because the thing it waits for is a person reading a diff.
+   *
+   * `signal` is how the wait is abandoned when the verdict arrives from
+   * somewhere else; aborting also drops the tab, so the editor is never left
+   * holding a review of a decision that is already settled.
+   *
+   * Null for every kind of no-answer, which the caller must treat as "no
+   * verdict" rather than as a refusal.
+   */
+  async openDiff(
+    cwd: string,
+    args: { oldPath: string; newPath: string; contents: string; tabName: string },
+    signal: AbortSignal,
+  ): Promise<IdeDiffOutcome | null> {
+    const entry = this.entryFor(cwd);
+    if (!entry || !insideCwd(cwd, args.oldPath)) return null;
+    try {
+      const content = await entry.connection.callToolContent(
+        OPEN_DIFF_TOOL,
+        {
+          old_file_path: args.oldPath,
+          new_file_path: args.newPath,
+          new_file_contents: args.contents,
+          tab_name: args.tabName,
+        },
+        { timeoutMs: NO_TIMEOUT, signal },
+      );
+      return content === null ? null : readDiffOutcome(content);
+    } finally {
+      // Whatever happened — a verdict, an abort, a socket that went away —
+      // the tab is this call's to clean up. `close_tab` on a tab the editor
+      // has already dropped is a no-op there, which is what makes calling it
+      // unconditionally the simple thing to do.
+      void this.closeTab(cwd, args.tabName);
+    }
+  }
+
+  /** Drops a tab `openDiff` opened. Safe to call for one already gone. */
+  async closeTab(cwd: string, tabName: string): Promise<void> {
+    const entry = this.entryFor(cwd);
+    if (!entry || !entry.connection.hasTool(CLOSE_TAB_TOOL)) return;
+    await entry.connection.callTool(CLOSE_TAB_TOOL, { tab_name: tabName });
+  }
+
+  /** The connected editor covering this `cwd`, or undefined. */
+  private entryFor(cwd: string): Entry | undefined {
+    const root = this.locate(cwd)?.workspaceRoot;
+    return root ? this.entryByRoot.get(root) : undefined;
   }
 
   /**

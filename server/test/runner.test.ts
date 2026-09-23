@@ -2007,6 +2007,245 @@ describe('Runner plan approval', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The editor as a second route to one verdict
+// (spec: 2026-09-23-ide-bridge-design § Talking back to the editor)
+// ---------------------------------------------------------------------------
+
+const EDIT_INPUT = { file_path: '/w/a.ts', old_string: 'a', new_string: 'b' };
+
+/**
+ * A scripted `IdeApprovals` whose `review()` is resolved by the test — which
+ * is what makes every failure mode in the spec reachable without an editor:
+ * an editor that quits is `finish(null)`, one that never answers is never
+ * finishing at all, and the browser winning the race is the abort arriving
+ * before `finish`.
+ */
+function fakeApprovals(opts: { offers?: boolean } = {}) {
+  const reviews: any[] = [];
+  const finish: Array<(v: any) => void> = [];
+  /** Which reviews were abandoned — the abort a settle fires. */
+  const aborted: boolean[] = [];
+  const ide = {
+    offers: () => opts.offers ?? true,
+    review: (req: any) => {
+      const index = reviews.length;
+      reviews.push(req);
+      aborted.push(false);
+      req.signal.addEventListener('abort', () => {
+        aborted[index] = true;
+        finish[index]?.(null);
+      });
+      return new Promise((resolve) => {
+        finish[index] = resolve;
+      });
+    },
+  };
+  return {
+    ide,
+    reviews,
+    aborted,
+    /** The editor answers one review. A microtask turn lets the Runner act. */
+    async answer(verdict: any, index = reviews.length - 1) {
+      finish[index]?.(verdict);
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  };
+}
+
+/** A runner parked on an edit ask, with an editor showing it as a diff. */
+async function parkedWithEditor(
+  toolName = 'Edit',
+  input: Record<string, unknown> = EDIT_INPUT,
+  opts: { offers?: boolean } = {},
+) {
+  const hub = new Hub();
+  const editor = fakeApprovals(opts);
+  const { fn, ask, abort } = fakeQueryFnAsking();
+  const runner = new Runner({
+    hub, queryFn: fn as any, newSessionId: () => 'web-1', ide: editor.ide as any,
+  });
+  const received = subscribed(hub, 'session:web-1');
+  const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'auto' });
+  const decision = ask(input, 'tu-1', toolName);
+  // The review is opened off the park, so it is one microtask behind it.
+  await Promise.resolve();
+  return { runner, id, received, decision, editor, abort };
+}
+
+/** How many times the hub was told this decision was settled. */
+function resolvedCount(received: any[], decisionId = 'tu-1'): number {
+  return received.filter((m) => m.event === 'decision_resolved' && m.decisionId === decisionId)
+    .length;
+}
+
+describe('Runner decisions — the editor as a second route', () => {
+  it('parks the browser card first and opens the diff beside it', async () => {
+    const { runner, id, received, editor } = await parkedWithEditor();
+    // The card is what owns the decision; the diff is extra. A session with
+    // no editor is this same state minus the review.
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-1', kind: 'permission' });
+    expect(runner.status(id)).toBe('needs_input');
+    expect(received.some((m) => m.event === 'decision_pending')).toBe(true);
+    expect(editor.reviews).toHaveLength(1);
+    expect(editor.reviews[0]).toMatchObject({ cwd: '/w', toolName: 'Edit', decisionId: 'tu-1' });
+  });
+
+  it('opens no diff for a question, a plan, or an editor that cannot show one', async () => {
+    const question = await parkedWithEditor('AskUserQuestion', ONE_QUESTION);
+    expect(question.editor.reviews).toHaveLength(0);
+    const plan = await parkedWithEditor('ExitPlanMode', PLAN_INPUT);
+    expect(plan.editor.reviews).toHaveLength(0);
+    const unsupported = await parkedWithEditor('Edit', EDIT_INPUT, { offers: false });
+    expect(unsupported.editor.reviews).toHaveLength(0);
+  });
+
+  it('accepting in the editor allows the tool, with its input untouched', async () => {
+    const { runner, id, received, decision, editor } = await parkedWithEditor();
+    await editor.answer({ approved: true });
+    expect(await decision).toEqual({
+      behavior: 'allow', decisionClassification: 'user_temporary',
+    });
+    expect(runner.status(id)).toBe('working');
+    expect(runner.pendingDecision(id)).toBeNull();
+    expect(resolvedCount(received)).toBe(1);
+  });
+
+  it('carries a hand-edit through as the tool input that reproduces it', async () => {
+    const { decision, editor } = await parkedWithEditor();
+    const updatedInput = { file_path: '/w/a.ts', old_string: 'a', new_string: 'c' };
+    await editor.answer({ approved: true, updatedInput });
+    expect(await decision).toMatchObject({ behavior: 'allow', updatedInput });
+  });
+
+  it('rejecting in the editor denies the tool and leaves the session working', async () => {
+    const { runner, id, decision, editor, received } = await parkedWithEditor();
+    await editor.answer({ approved: false, message: 'not like that' });
+    expect(await decision).toMatchObject({ behavior: 'deny', message: 'not like that' });
+    expect(runner.status(id)).toBe('working');
+    expect(resolvedCount(received)).toBe(1);
+  });
+
+  // The failure modes, each of which must leave exactly one verdict and no
+  // orphaned tab.
+
+  it('the browser answering first wins, and the editor’s later verdict is ignored', async () => {
+    const { runner, id, received, decision, editor } = await parkedWithEditor();
+    expect(runner.answerDecision(id, 'tu-1', { approved: false, message: 'no' })).toBe(true);
+    // Settling abandons the review, which is also what drops the tab.
+    expect(editor.aborted[0]).toBe(true);
+    // The editor answering afterwards finds nothing parked under that id.
+    await editor.answer({ approved: true });
+    expect(await decision).toMatchObject({ behavior: 'deny', message: 'no' });
+    expect(resolvedCount(received)).toBe(1);
+    expect(runner.answerDecision(id, 'tu-1', { approved: true })).toBe(false);
+  });
+
+  it('a verdict for a decision that is no longer parked settles nothing', async () => {
+    const { runner, id, received, decision, editor, abort } = await parkedWithEditor();
+    // The first ask goes away on its own, and a second one parks behind it.
+    abort();
+    expect(await decision).toMatchObject({ behavior: 'deny' });
+    const later = secondAsk(runner, id);
+    await Promise.resolve();
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-2' });
+
+    // The FIRST review's verdict arrives late. It names `tu-1`, which is no
+    // longer what is parked — so it must answer nothing, least of all `tu-2`.
+    // This is the one way two routes could settle one decision wrongly.
+    await editor.answer({ approved: true }, 0);
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-2' });
+    expect(resolvedCount(received, 'tu-2')).toBe(0);
+
+    runner.answerDecision(id, 'tu-2', { approved: false });
+    expect(await later).toMatchObject({ behavior: 'deny' });
+    expect(resolvedCount(received, 'tu-2')).toBe(1);
+  });
+
+  it('an editor that quits mid-diff leaves the decision parked for the browser', async () => {
+    const { runner, id, received, decision, editor } = await parkedWithEditor();
+    // The socket went away: the review answers with no verdict at all.
+    await editor.answer(null);
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-1' });
+    expect(runner.status(id)).toBe('needs_input');
+    expect(resolvedCount(received)).toBe(0);
+    // And the browser can still answer it, which is the whole point.
+    expect(runner.answerDecision(id, 'tu-1', { approved: true })).toBe(true);
+    expect(await decision).toMatchObject({ behavior: 'allow' });
+    expect(resolvedCount(received)).toBe(1);
+  });
+
+  it('a closed tab is not a verdict', async () => {
+    // `TAB_CLOSED` reaches the Runner as a null review for the same reason an
+    // editor that quit does: neither said yes and neither said no.
+    const { runner, id, decision, editor } = await parkedWithEditor();
+    await editor.answer(null);
+    expect(runner.pendingDecision(id)).not.toBeNull();
+    runner.answerDecision(id, 'tu-1', { approved: true });
+    expect(await decision).toMatchObject({ behavior: 'allow' });
+  });
+
+  it('aborting the request settles once and drops the tab', async () => {
+    const { runner, id, received, decision, editor, abort } = await parkedWithEditor();
+    abort();
+    expect(await decision).toMatchObject({
+      behavior: 'deny', message: 'The request was aborted.',
+    });
+    expect(editor.aborted[0]).toBe(true);
+    expect(resolvedCount(received)).toBe(1);
+    expect(runner.pendingDecision(id)).toBeNull();
+  });
+
+  it('ending the session settles once and drops the tab', async () => {
+    const { runner, id, received, decision, editor } = await parkedWithEditor();
+    await runner.end(id);
+    expect(await decision).toMatchObject({ behavior: 'deny', message: 'The session ended.' });
+    expect(editor.aborted[0]).toBe(true);
+    expect(resolvedCount(received)).toBe(1);
+  });
+
+  it('a review that never answers blocks nothing', async () => {
+    // `openDiff` has no deadline on purpose. The promise simply stays
+    // pending; the decision is the browser's the whole time.
+    const { runner, id, decision, editor } = await parkedWithEditor();
+    expect(runner.status(id)).toBe('needs_input');
+    expect(runner.answerDecision(id, 'tu-1', { approved: true })).toBe(true);
+    expect(await decision).toMatchObject({ behavior: 'allow' });
+    expect(editor.aborted[0]).toBe(true);
+  });
+
+  it('a review that throws cannot fail the session', async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({
+      hub, queryFn: fn as any, newSessionId: () => 'web-1',
+      ide: {
+        offers: () => true,
+        review: () => Promise.reject(new Error('the socket went away')),
+      } as any,
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'auto' });
+    const decision = ask(EDIT_INPUT, 'tu-1', 'Edit');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-1' });
+    runner.answerDecision(id, 'tu-1', { approved: true });
+    expect(await decision).toMatchObject({ behavior: 'allow' });
+  });
+});
+
+/**
+ * A second ask on a session whose first one is over — the setup the
+ * late-verdict test needs. `decide` is what `canUseTool` is bound to, so
+ * calling it directly is the same park the SDK would have made.
+ */
+function secondAsk(runner: Runner, sessionId: string): Promise<any> {
+  return (runner as any).decide(sessionId, 'Edit', EDIT_INPUT, {
+    signal: new AbortController().signal, toolUseID: 'tu-2', requestId: 'req-2',
+  });
+}
+
 // Slash commands the CLI answers by itself (adr:
 // notice-rows-are-their-own-kind-of-turn)
 // ---------------------------------------------------------------------------

@@ -2481,6 +2481,7 @@ describe('GET /api/sessions/:id/ide/open-files', () => {
     const connection = Object.assign(new EventEmitter(), {
       hasTool: () => answer !== null,
       callTool: async () => answer,
+      callToolContent: async () => (answer === null ? null : [{ type: 'text', text: answer }]),
       close: () => {},
     });
     const ide = new IdeStore({ claudeDir, watch: false, connect: () => connection });
@@ -2513,5 +2514,69 @@ describe('GET /api/sessions/:id/ide/open-files', () => {
     const { app } = makeApp();
     const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/ide/open-files' });
     expect(res.statusCode).toBe(404);
+  });
+
+  // The two routes that talk back (spec § Talking back to the editor). Both
+  // answer 404 for every kind of "no editor", which is the one thing the
+  // caller has to handle.
+
+  it('opens a path in the editor, and 204s because nothing came back', async () => {
+    const { app } = makeApp({ ide: ideOn('/w/x', 'ok') });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sessions/s1/ide/open-file',
+      payload: { path: '/w/x/src/a.ts', line: 88 },
+    });
+    expect(res.statusCode).toBe(204);
+  });
+
+  it('refuses to open a path outside the session cwd', async () => {
+    const { app } = makeApp({ ide: ideOn('/w/x', 'ok') });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/sessions/s1/ide/open-file',
+      payload: { path: '/w/y/secret.ts' },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('400s a request with no path, and 404s one with no editor', async () => {
+    const { app } = makeApp({ ide: ideOn('/w/x', 'ok') });
+    const noPath = await app.inject({
+      method: 'POST', url: '/api/sessions/s1/ide/open-file', payload: {},
+    });
+    expect(noPath.statusCode).toBe(400);
+    const { app: bare } = makeApp();
+    const noEditor = await bare.inject({
+      method: 'POST',
+      url: '/api/sessions/s1/ide/open-file',
+      payload: { path: '/w/x/src/a.ts' },
+    });
+    expect(noEditor.statusCode).toBe(404);
+  });
+
+  it('answers the editor’s findings, filtered to the session cwd', async () => {
+    const answer = JSON.stringify([
+      { uri: 'file:///w/x/src/a.ts', diagnostics: [{ message: 'boom', severity: 'Error' }] },
+      { uri: 'file:///w/y/b.ts', diagnostics: [{ message: 'not ours', severity: 'Error' }] },
+    ]);
+    const { app } = makeApp({ ide: ideOn('/w/x', answer) });
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/ide/diagnostics' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().diagnostics).toEqual([
+      { filePath: '/w/x/src/a.ts', line: 1, severity: 'error', message: 'boom', source: null },
+    ]);
+  });
+
+  it('404s diagnostics with no editor, and for an unknown session', async () => {
+    const { app } = makeApp();
+    expect(
+      (await app.inject({ method: 'GET', url: '/api/sessions/s1/ide/diagnostics' })).statusCode,
+    ).toBe(404);
+    const { app: withIde } = makeApp({ ide: ideOn('/w/x', '[]') });
+    expect(
+      (await withIde.inject({ method: 'GET', url: '/api/sessions/nope/ide/diagnostics' }))
+        .statusCode,
+    ).toBe(404);
   });
 });

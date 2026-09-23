@@ -26,6 +26,22 @@ const HANDSHAKE_TIMEOUT_MS = 5_000;
 /** How long any one request waits before it is answered with nothing. */
 const REQUEST_TIMEOUT_MS = 5_000;
 
+/**
+ * What a call may be given instead of a deadline. Exactly one tool needs it —
+ * `openDiff` does not answer until a human acts on the tab, and any deadline
+ * at all would turn "still reading it" into a lost verdict. The caller that
+ * passes it owns the cancellation instead, through `signal`.
+ */
+export const NO_TIMEOUT = null;
+
+/** Per-call overrides. Both exist for `openDiff` and nothing else needs them. */
+export interface CallOptions {
+  /** `NO_TIMEOUT` waits indefinitely; absent means `REQUEST_TIMEOUT_MS`. */
+  timeoutMs?: number | null;
+  /** Abandons the wait, and tells the editor so. Answers null. */
+  signal?: AbortSignal;
+}
+
 /** What Orbital calls itself in `initialize`, so the editor's log names it. */
 const CLIENT_NAME = 'orbital';
 const CLIENT_VERSION = '1';
@@ -44,12 +60,26 @@ export interface IdeConnection extends EventEmitter {
    * answered in time.
    */
   callTool(name: string, args?: Record<string, unknown>): Promise<string | null>;
+  /**
+   * The same call, answering with the result's raw `content` array rather
+   * than its text joined together. `openDiff` needs it: its verdict is the
+   * FIRST block and the human's file is the SECOND, a distinction joining
+   * destroys.
+   */
+  callToolContent(
+    name: string,
+    args?: Record<string, unknown>,
+    opts?: CallOptions,
+  ): Promise<unknown[] | null>;
   close(): void;
 }
 
 interface Pending {
   resolve(message: Record<string, unknown> | null): void;
-  timer: NodeJS.Timeout;
+  /** Absent for a call given `NO_TIMEOUT` — `openDiff`, and only it. */
+  timer: NodeJS.Timeout | null;
+  /** Detaches the abort listener, so an abandoned wait leaks neither. */
+  release: () => void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,11 +135,31 @@ export class IdeSocket extends EventEmitter implements IdeConnection {
   }
 
   async callTool(name: string, args: Record<string, unknown> = {}): Promise<string | null> {
+    const result = await this.call(name, args);
+    return result === null ? null : textOf(result);
+  }
+
+  async callToolContent(
+    name: string,
+    args: Record<string, unknown> = {},
+    opts: CallOptions = {},
+  ): Promise<unknown[] | null> {
+    const result = await this.call(name, args, opts);
+    if (result === null) return null;
+    return Array.isArray(result.content) ? result.content : null;
+  }
+
+  /** One `tools/call`, or null for every kind of "no" there is. */
+  private async call(
+    name: string,
+    args: Record<string, unknown>,
+    opts: CallOptions = {},
+  ): Promise<Record<string, unknown> | null> {
     if (!this.hasTool(name)) return null;
-    const reply = await this.request('tools/call', { name, arguments: args });
+    const reply = await this.request('tools/call', { name, arguments: args }, opts);
     const result = reply?.result;
     if (!isRecord(result) || result.isError === true) return null;
-    return textOf(result);
+    return result;
   }
 
   close(): void {
@@ -146,19 +196,54 @@ export class IdeSocket extends EventEmitter implements IdeConnection {
     this.emit('ready', [...this.tools]);
   }
 
+  /**
+   * One JSON-RPC round trip. Every way out answers — a reply, a deadline, an
+   * abort, or the socket going away — because a request that never settles
+   * is a promise some caller is still holding.
+   *
+   * An abandoned request tells the editor so (`notifications/cancelled`),
+   * which is what lets it drop a diff tab nobody is waiting on any more. The
+   * extension is free to ignore it; `close_tab` is the cleanup that does not
+   * depend on it being honoured.
+   */
   private request(
     method: string,
     params: Record<string, unknown>,
+    opts: CallOptions = {},
   ): Promise<Record<string, unknown> | null> {
     if (this.finished) return Promise.resolve(null);
+    const { signal } = opts;
+    if (signal?.aborted) return Promise.resolve(null);
+    const timeoutMs = opts.timeoutMs === undefined ? REQUEST_TIMEOUT_MS : opts.timeoutMs;
     const id = this.nextId++;
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
+      const settle = (message: Record<string, unknown> | null) => {
+        const waiting = this.pending.get(id);
+        if (!waiting) return;
         this.pending.delete(id);
-        resolve(null);
-      }, REQUEST_TIMEOUT_MS);
-      timer.unref?.();
-      this.pending.set(id, { resolve, timer });
+        waiting.release();
+        resolve(message);
+      };
+      const timer =
+        timeoutMs === NO_TIMEOUT
+          ? null
+          : setTimeout(() => {
+              settle(null);
+            }, timeoutMs);
+      timer?.unref?.();
+      const onAbort = () => {
+        this.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } });
+        settle(null);
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      this.pending.set(id, {
+        resolve,
+        timer,
+        release: () => {
+          if (timer) clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+        },
+      });
       this.send({ jsonrpc: '2.0', id, method, params });
     });
   }
@@ -191,7 +276,7 @@ export class IdeSocket extends EventEmitter implements IdeConnection {
       const waiting = this.pending.get(message.id);
       if (waiting) {
         this.pending.delete(message.id);
-        clearTimeout(waiting.timer);
+        waiting.release();
         waiting.resolve(message);
       }
       return;
@@ -204,7 +289,7 @@ export class IdeSocket extends EventEmitter implements IdeConnection {
     if (this.finished) return;
     this.finished = true;
     for (const waiting of this.pending.values()) {
-      clearTimeout(waiting.timer);
+      waiting.release();
       waiting.resolve(null);
     }
     this.pending.clear();

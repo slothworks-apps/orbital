@@ -8,6 +8,7 @@ import { TASK_EVENT_SUBTYPES, type TaskEvent } from '../transcript/subagents.js'
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import { noticeFromSdkMessage } from '../transcript/notices.js';
 import type { ImageStore, ImageWriter } from '../images/store.js';
+import type { IdeApprovals, IdeReviewVerdict } from '../ide/approvals.js';
 
 /**
  * Sentinel for canvas 1h's "Never — only on Clear": no idle timer at all.
@@ -340,6 +341,13 @@ interface ManagedSession {
     pending: PendingDecision;
     /** Settles the SDK's promise and drops the abort listener with it. */
     settle: (result: PermissionResult) => void;
+    /**
+     * Abandons the editor's review of this decision, when one was opened —
+     * which also drops the diff tab. Fired by `settleDecision`, so a verdict
+     * reaching the decision by ANY route leaves no tab behind and no second
+     * answer on its way (spec § Talking back to the editor).
+     */
+    review: AbortController | null;
   } | null;
   /**
    * The live query handle — the object `queryFn` returned. It is both the
@@ -447,6 +455,7 @@ export class Runner {
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
   private images?: ImageStore;
   private claudeExecutablePath?: string | null;
+  private ide?: IdeApprovals;
 
   constructor(deps: {
     hub: Hub;
@@ -570,6 +579,18 @@ export class Runner {
      * to exist. Absent only if the session is already gone from the map.
      */
     onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
+    /**
+     * The editor, as a second route to a parked permission's verdict
+     * (spec 2026-09-23-ide-bridge-design § Talking back to the editor).
+     *
+     * Optional in every sense. Absent — no editor running, an extension
+     * without `openDiff`, a test that does not care — every decision is
+     * answered from the browser exactly as it was before this existed, and
+     * that stays true even when it IS wired: the browser card is never
+     * disabled, never waits on the editor, and never learns that a diff is
+     * open (adr `the-editor-is-a-second-route-to-one-verdict`).
+     */
+    ide?: IdeApprovals;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -592,6 +613,7 @@ export class Runner {
     this.onError = deps.onError;
     this.images = deps.images;
     this.claudeExecutablePath = deps.claudeExecutablePath;
+    this.ide = deps.ide;
   }
 
   /**
@@ -1128,13 +1150,106 @@ export class Runner {
           opts.signal.removeEventListener('abort', onAbort);
           resolve(result);
         },
+        review: null,
       };
       this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: pending });
       this.onDecision?.(sessionId);
       // No idle timer is armed for this: a parked decision has no deadline,
       // mirroring the SDK, whose `canUseTool` promise has none either.
       this.setStatus(sessionId, 'needs_input');
+      // AFTER the park, and only after: the browser's card is what owns this
+      // decision, and the editor is offered as a second way to answer the
+      // same one. Nothing below can stop the card from appearing, and
+      // nothing here is awaited.
+      this.offerReview(sessionId, pending, toolName, input);
     });
+  }
+
+  /**
+   * Shows a parked edit in the editor as a diff, when there is an editor to
+   * show it in (spec 2026-09-23-ide-bridge-design § Talking back to the
+   * editor).
+   *
+   * Strictly additive. The browser card is already published by the time
+   * this runs; a session with no editor, an extension without `openDiff`, or
+   * an ask that is not an edit simply never opens a tab, and every one of
+   * those is the behaviour Orbital has today.
+   */
+  private offerReview(
+    sessionId: string,
+    pending: PendingDecision,
+    toolName: string,
+    input: Record<string, unknown>,
+  ): void {
+    const ide = this.ide;
+    const s = this.sessions.get(sessionId);
+    // Only an ordinary permission ask. A question is the model asking the
+    // human something and a plan is not a file, so neither is a diff.
+    if (!ide || !s || pending.kind !== 'permission') return;
+    const cwd = s.attempt.cwd;
+    if (!ide.offers(cwd, toolName, input)) return;
+
+    const controller = new AbortController();
+    // Re-read rather than closing over `s.decision`: a settle may already
+    // have happened between the park and here, in which case there is
+    // nothing to attach the review to and nothing to open.
+    const parked = s.decision;
+    if (!parked || parked.pending.id !== pending.id) return;
+    parked.review = controller;
+
+    void ide
+      .review({ cwd, toolName, input, decisionId: pending.id, signal: controller.signal })
+      .then((verdict) => {
+        // Null is no verdict at all — an editor that quit, a tab closed
+        // without an answer, a call that failed, or this review being
+        // abandoned because the browser got there first. In every one of
+        // them the decision is left exactly as it was found.
+        if (verdict) this.answerFromEditor(sessionId, pending.id, verdict);
+      })
+      .catch(() => {
+        // Nothing about the editor may fail a session. A review that throws
+        // is a review that did not happen.
+      });
+  }
+
+  /**
+   * The editor's verdict on a decision it was shown — the second route in.
+   *
+   * It settles through `settleDecision` like every other route, and it
+   * refuses everything that route already refuses: a session this process
+   * does not run, a decision that is no longer parked, and — the guard this
+   * route adds — a decision that is parked but is *not the one this review
+   * was opened for*. Without that last check a late verdict could answer the
+   * NEXT ask, which is the one way two routes could ever settle one decision
+   * wrongly.
+   */
+  private answerFromEditor(
+    sessionId: string,
+    decisionId: string,
+    verdict: IdeReviewVerdict,
+  ): boolean {
+    const s = this.sessions.get(sessionId);
+    const parked = s?.decision;
+    if (!s || !parked || parked.pending.id !== decisionId) return false;
+    if (parked.pending.kind !== 'permission') return false;
+    if (!verdict.approved) {
+      this.settleDecision(sessionId, {
+        behavior: 'deny',
+        message: verdict.message || DENIED_MESSAGE,
+        decisionClassification: 'user_reject',
+      });
+    } else {
+      this.settleDecision(sessionId, {
+        behavior: 'allow',
+        // Present only for a hand-edit in the diff tab. A plain approval
+        // carries none, exactly as the browser's does: approving a tool must
+        // not rewrite what it was asked to do.
+        ...(verdict.updatedInput ? { updatedInput: verdict.updatedInput } : {}),
+        decisionClassification: 'user_temporary',
+      });
+    }
+    this.setStatus(sessionId, 'working');
+    return true;
   }
 
   /**
@@ -1149,6 +1264,11 @@ export class Runner {
     // Cleared before the resolve, so a settle path that re-enters here
     // (abort racing an answer) finds nothing left to settle.
     s.decision = null;
+    // The editor's copy of this ask goes with it, whichever route won. The
+    // abort drops the diff tab as well, so no editor is left holding a
+    // review of something already decided — and the abandoned `openDiff`
+    // answers null, which `answerFromEditor` would refuse anyway.
+    parked.review?.abort();
     parked.settle(result);
     this.hub.publish(`session:${sessionId}`, {
       event: 'decision_resolved',

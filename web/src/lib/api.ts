@@ -8,6 +8,7 @@ import type {
   ErrorRecord,
   FileCompletionEntry,
   FilePreview,
+  IdeDiagnostic,
   SlashCommand,
   Tag,
   TagRule,
@@ -398,6 +399,44 @@ export const api = {
     }
 
     throw new ApiError(text || response.statusText, response.status, requestUrl)
+  },
+
+  // IDE bridge — the two calls that talk back to the editor (spec:
+  // 2026-09-23-ide-bridge-design § Talking back to the editor). Both answer
+  // `404` for every kind of "no editor", and both read that as a value
+  // rather than an error: the whole feature is optional, and a missing
+  // editor must never raise a toast.
+
+  /**
+   * Reveals a path in the editor covering this session's workspace. `false`
+   * when there was no editor to reveal it in — which is the ordinary state
+   * of a machine, not a failure worth reporting.
+   */
+  async ideOpenFile(sessionId: string, path: string, line: number | null): Promise<boolean> {
+    const response = await fetch(`/api/sessions/${sessionId}/ide/open-file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, ...(line !== null ? { line } : {}) }),
+    })
+    if (response.status === 404) return false
+    if (!response.ok) {
+      throw new ApiError(await response.text(), response.status, '/ide/open-file')
+    }
+    return true
+  },
+
+  /**
+   * The editor's own findings, for one file or for the whole workspace, or
+   * null when no editor covers the session.
+   */
+  async ideDiagnostics(sessionId: string, path?: string): Promise<IdeDiagnostic[] | null> {
+    const url = new URL(`/api/sessions/${sessionId}/ide/diagnostics`, window.location.origin)
+    if (path) url.searchParams.set('path', path)
+    const response = await fetch(url.pathname + url.search)
+    if (response.status === 404) return null
+    if (!response.ok) return null
+    const data = (await response.json()) as { diagnostics: IdeDiagnostic[] }
+    return data.diagnostics
   },
 
   // Completion API — the composer's two sources (spec:

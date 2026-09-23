@@ -3,7 +3,10 @@ import {
   insideCwd,
   lockPortOf,
   normaliseSelection,
+  parseDiagnostics,
   parseIdeLock,
+  pathFromFileUri,
+  readDiffOutcome,
   sameSelection,
   workspaceRootFor,
 } from '../src/ide/protocol.js';
@@ -181,5 +184,120 @@ describe('insideCwd', () => {
     expect(insideCwd('/w/a', '/w/b/x.ts')).toBe(false);
     expect(insideCwd('/w/a', 'relative.ts')).toBe(false);
     expect(insideCwd('', '/w/a/x.ts')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Talking back to the editor (spec § Talking back to the editor)
+// ---------------------------------------------------------------------------
+
+describe('pathFromFileUri', () => {
+  it('unwraps the URI the extension answers with, spaces and all', () => {
+    expect(pathFromFileUri('file:///w/a/src/x.ts')).toBe('/w/a/src/x.ts');
+    expect(pathFromFileUri('file:///w/a/My%20File.ts')).toBe('/w/a/My File.ts');
+  });
+
+  it('takes a bare absolute path too, and refuses everything else', () => {
+    expect(pathFromFileUri('/w/a/x.ts')).toBe('/w/a/x.ts');
+    expect(pathFromFileUri('relative.ts')).toBeNull();
+    expect(pathFromFileUri('')).toBeNull();
+    expect(pathFromFileUri('file://')).toBeNull();
+  });
+});
+
+describe('parseDiagnostics', () => {
+  const ANSWER = JSON.stringify([
+    {
+      uri: 'file:///w/a/src/x.ts',
+      diagnostics: [
+        {
+          message: 'Cannot find name "foo".',
+          severity: 'Error',
+          source: 'ts',
+          range: { start: { line: 11, character: 4 }, end: { line: 11, character: 7 } },
+        },
+        { message: 'Unused import', severity: 2, range: { start: { line: 0, character: 0 } } },
+      ],
+    },
+  ]);
+
+  it('flattens the groups, with lines the gutter would agree with', () => {
+    expect(parseDiagnostics(ANSWER)).toEqual([
+      {
+        filePath: '/w/a/src/x.ts',
+        line: 12,
+        severity: 'error',
+        message: 'Cannot find name "foo".',
+        source: 'ts',
+      },
+      { filePath: '/w/a/src/x.ts', line: 1, severity: 'warning', message: 'Unused import', source: null },
+    ]);
+  });
+
+  it('reads severity as a word or as an LSP number, and never drops a finding it cannot rank', () => {
+    const severities = ['Warning', 'warn', 'HINT', 1, 3, 4, 'something new', null];
+    const found = parseDiagnostics(
+      JSON.stringify([
+        {
+          uri: 'file:///w/a/x.ts',
+          diagnostics: severities.map((severity) => ({ message: 'm', severity })),
+        },
+      ]),
+    );
+    expect(found.map((d) => d.severity)).toEqual([
+      'warning', 'warning', 'hint', 'error', 'info', 'hint', 'info', 'info',
+    ]);
+  });
+
+  it('answers nothing rather than throwing for anything it cannot read', () => {
+    expect(parseDiagnostics('not json')).toEqual([]);
+    expect(parseDiagnostics('')).toEqual([]);
+    expect(parseDiagnostics('[]')).toEqual([]);
+    // No path to attribute the finding to, a finding with no message, and a
+    // group that is not a group at all.
+    expect(parseDiagnostics(JSON.stringify([{ diagnostics: [{ message: 'm' }] }]))).toEqual([]);
+    expect(
+      parseDiagnostics(JSON.stringify([{ uri: 'file:///w/a/x.ts', diagnostics: [{}, 'x', null] }])),
+    ).toEqual([]);
+    expect(parseDiagnostics(JSON.stringify([null, 3, 'x']))).toEqual([]);
+  });
+
+  it('takes a single group that was not wrapped in a list', () => {
+    const one = JSON.stringify({ uri: '/w/a/x.ts', diagnostics: [{ message: 'm' }] });
+    expect(parseDiagnostics(one)).toEqual([
+      { filePath: '/w/a/x.ts', line: 1, severity: 'info', message: 'm', source: null },
+    ]);
+  });
+});
+
+describe('readDiffOutcome', () => {
+  const text = (value: string) => ({ type: 'text', text: value });
+
+  it('reads the three answers openDiff blocks for', () => {
+    expect(readDiffOutcome([text('DIFF_REJECTED')])).toEqual({ kind: 'rejected' });
+    expect(readDiffOutcome([text('TAB_CLOSED')])).toEqual({ kind: 'closed' });
+    expect(readDiffOutcome([text('FILE_SAVED'), text('const a = 2;\n')])).toEqual({
+      kind: 'saved',
+      contents: 'const a = 2;\n',
+    });
+  });
+
+  it('keeps the two elements apart — the verdict is the first, the file the second', () => {
+    // A save with nothing behind it says the human accepted and left the
+    // content alone; it must not be read as an empty file.
+    expect(readDiffOutcome([text('FILE_SAVED')])).toEqual({ kind: 'saved', contents: null });
+  });
+
+  it('is null for anything this build does not understand', () => {
+    // Guessing here would approve an edit nobody approved.
+    expect(readDiffOutcome([text('SOMETHING_NEW')])).toBeNull();
+    expect(readDiffOutcome([])).toBeNull();
+    expect(readDiffOutcome(null)).toBeNull();
+    expect(readDiffOutcome('FILE_SAVED')).toBeNull();
+    expect(readDiffOutcome([{ type: 'image' }])).toBeNull();
+  });
+
+  it('is tolerant of the whitespace a marker may arrive with', () => {
+    expect(readDiffOutcome([text(' FILE_SAVED\n')])).toEqual({ kind: 'saved', contents: null });
   });
 });

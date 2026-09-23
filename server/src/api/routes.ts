@@ -394,6 +394,66 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   /**
+   * Reveals a path in the editor covering this session's workspace
+   * (spec 2026-09-23-ide-bridge-design § Talking back to the editor).
+   *
+   * The same `404`-for-every-no as the open-files route, and for the same
+   * reason: the caller has one thing to handle. A path outside the session's
+   * `cwd` is among them — Orbital refuses to read one for a session, so it
+   * does not ask an editor to open one on that session's behalf either.
+   *
+   * `204`, not the file: nothing came back and nothing is shown. The receipt
+   * the browser draws is the request having succeeded.
+   */
+  app.post('/api/sessions/:id/ide/open-file', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { path?: unknown; line?: unknown };
+    if (typeof body.path !== 'string' || body.path === '') {
+      return reply.code(400).send({ error: 'missing_path' });
+    }
+    const line =
+      typeof body.line === 'number' && Number.isSafeInteger(body.line) && body.line > 0
+        ? body.line
+        : null;
+    const row = db
+      .select({ cwd: sessions.cwd })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const opened = await ctx.ide.openFile(row.cwd, expandHome(body.path), line);
+    if (!opened) return reply.code(404).send({ error: 'no_ide' });
+    return reply.code(204).send();
+  });
+
+  /**
+   * The editor's own findings for this session's workspace — everything it
+   * knows, or one file's worth when `path` names one
+   * (spec § Talking back to the editor).
+   *
+   * What makes this worth a route at all: the editor's inspections are
+   * things no test run reports, so they answer "did that edit break
+   * anything" without a build. The same `404` covers every kind of no
+   * editor.
+   */
+  app.get('/api/sessions/:id/ide/diagnostics', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { path?: string };
+    const row = db
+      .select({ cwd: sessions.cwd })
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .get();
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const diagnostics = await ctx.ide.diagnostics(
+      row.cwd,
+      q.path ? expandHome(q.path) : undefined,
+    );
+    if (!diagnostics) return reply.code(404).send({ error: 'no_ide' });
+    return { diagnostics };
+  });
+
+  /**
    * One composer attachment, multipart, one file per request — the body of both
    * attachment routes.
    *
