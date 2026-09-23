@@ -1,10 +1,12 @@
+import type { ReactNode } from 'react'
 import type { ApiSession, Walkthrough } from '../lib/types'
+import { useWindowBand } from '../lib/windowChrome'
+import { PAGE_BAR_FLAT, pageBarGeometry } from '../ui/PageBar'
 import { gapBefore, stepLabel } from './derive'
 import { GapLine } from './GapLine'
 import { WalkButton } from './parts'
 import { StepBody } from './StepBody'
 import { StepRail } from './StepRail'
-import { TopBar } from './TopBar'
 
 interface StepScreenProps {
   id: string
@@ -15,10 +17,21 @@ interface StepScreenProps {
   onNext(): void
   onJump(stepId: string): void
   onRefetch(): void
+  /** The page bar, which this screen places (canvas `Feature - Page headers` 25d). */
+  bar: ReactNode
 }
 
+/** The rail's width and inner padding with the page bar in its flat geometry (canvas 21b). */
+const RAIL_WIDTH_PX = 320
+const RAIL_PAD_PX = 14
+
 /** Screen two (canvas 21b): the rail on the left, one step in the middle, and the way on. */
-export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, onJump, onRefetch }: StepScreenProps) {
+export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, onJump, onRefetch, bar }: StepScreenProps) {
+  // Windowed, the bar's mark moves right to clear the traffic lights, and the
+  // rail widens by the same amount on its left so its list keeps its width
+  // and its left edge follows the mark (canvas `Feature - Page headers` 25d,
+  // 25e).
+  const railInset = pageBarGeometry(useWindowBand()).markXPx - PAGE_BAR_FLAT.markXPx
   const total = walkthrough.steps.length
   const step = walkthrough.steps[index]
   if (!step) return null
@@ -27,10 +40,13 @@ export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, on
 
   return (
     <div className="flex h-screen flex-col">
-      <TopBar id={id} session={session} crumb={`step ${n} of ${total}`} />
+      {bar}
 
       <div className="flex min-h-0 flex-1">
-        <aside className="w-[320px] shrink-0 overflow-y-auto border-r border-[rgba(150,205,255,.08)] px-3.5 py-[18px]">
+        <aside
+          className="shrink-0 overflow-y-auto border-r border-[rgba(150,205,255,.08)] py-[18px]"
+          style={{ width: RAIL_WIDTH_PX + railInset, paddingLeft: RAIL_PAD_PX + railInset, paddingRight: RAIL_PAD_PX }}
+        >
           <StepRail walkthrough={walkthrough} currentId={step.id} onJump={onJump} />
         </aside>
         <main className="min-w-0 flex-1 overflow-y-auto">

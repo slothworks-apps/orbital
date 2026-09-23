@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
-import { Logo } from '../ui/Logo'
+import { useWindowBand } from '../lib/windowChrome'
+import { pageBarGeometry } from '../ui/PageBar'
 
 /**
- * The chrome both `/stats` screens sit in: the sky, and the wordmark row.
+ * The chrome both `/stats` screens sit in: the sky, and the page bar.
  *
  * Each artboard lights its own sky — 10a washes behind the two panel corners,
  * 10c puts one soft glow behind the middle where the unmeasured planet sits,
@@ -25,33 +26,26 @@ const STARS: Record<StatsSky, string> = {
   session: 'orbital-stats-stars-session',
 }
 
-export function StatsShell({ sky, children }: { sky: StatsSky; children: ReactNode }) {
+/**
+ * `bar` is the page's `PageBar`, sticky over the content that scrolls under
+ * it. The content's left edge follows the bar's mark, which moves with the
+ * window's mode (canvas `Feature - Page headers` 25b, 25f).
+ */
+export function StatsShell({ sky, bar, children }: { sky: StatsSky; bar: ReactNode; children: ReactNode }) {
+  const geometry = pageBarGeometry(useWindowBand())
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden bg-space">
+    // `overflow-x: clip`, not `hidden`: a hidden overflow makes this box the
+    // bar's scroll container, and the bar would stop sticking to the window.
+    <div className="relative min-h-screen w-full overflow-x-clip bg-space">
       <div aria-hidden className={`pointer-events-none fixed inset-0 ${WASH[sky]}`} />
       <div aria-hidden className={`pointer-events-none fixed inset-0 ${STARS[sky]}`} />
-      <div className="relative flex min-h-screen flex-col gap-4 px-10 pb-10 pt-[26px]">
+      {bar}
+      <div
+        className="relative flex flex-col gap-4 pb-10 pr-10 pt-7"
+        style={{ paddingLeft: geometry.markXPx, minHeight: `calc(100vh - ${geometry.heightPx}px)` }}
+      >
         {children}
       </div>
     </div>
-  )
-}
-
-/**
- * The wordmark row. `crumb` is the mono path after it (`/ STATS`, `/ STATS /
- * SESSION`) and `actions` whatever the screen offers on the right — the
- * MAP | STATS pair on the dashboard, the way back on the drilldown.
- */
-export function StatsHeader({ crumb, actions }: { crumb: ReactNode; actions: ReactNode }) {
-  return (
-    <header className="flex items-center gap-[14px]">
-      <Logo />
-      <span className="text-[13px] font-bold tracking-[0.22em]">ORBITAL</span>
-      <span className="font-mono text-[11px] tracking-[0.1em] text-[rgba(160,190,225,.6)]">
-        {crumb}
-      </span>
-      <span className="flex-1" />
-      {actions}
-    </header>
   )
 }

@@ -54,8 +54,15 @@ export function AskField({ id, step, session, onSent }: AskFieldProps) {
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // The page steps on arrows and leaves on Escape; typing is not stepping.
+    // ⌘[ is the page bar's, typing or not (canvas `Feature - Page headers` 25h).
+    if (e.metaKey && e.key === '[') return
+    // The page steps on arrows; typing is not stepping. Escape only lets go of
+    // the field, and the next one goes to the map (25h).
     e.stopPropagation()
+    if (e.key === 'Escape') {
+      e.currentTarget.blur()
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       send()

@@ -98,3 +98,41 @@ keeps macOS's defaults (⌘W, ⌘M, Edit, etc.).
 Pure logic only: the crumb list per route, the ⌘[ target per route, the
 truncation order if it is computed rather than CSS-driven, and the bridge
 message parsing for opening a path in the main window.
+
+## Implementation notes
+
+Recorded while building the bar, 2026-09-24.
+
+- **One component, one list.** `web/src/ui/PageBar.tsx` draws the bar and
+  owns esc and ⌘[; `web/src/lib/pageCrumbs.ts` turns the page into its crumbs,
+  and the ⌘[ target (the parent crumb) and `document.title` are read off the
+  same list. A page can take over a crumb's navigation by its key: the
+  walkthrough's cover is page state, not a path, so WALKTHROUGH and ⌘[ go
+  there without a reload; the drilldown's STATS goes back through history when
+  the feed is the previous entry, which is what keeps the findings' scroll.
+  A modified click still follows the crumb's real href.
+- **esc goes to the map itself, `/`**, with no session selected; the session
+  crumb (and ⌘[ from the cover) is the way to the map with the session's
+  panel open (25h). The walkthrough's esc used to select the session.
+- **An open overlay** registered with the escape-layer stack takes esc first.
+  A focused text field only lets go of the focus; the next esc goes to the
+  map. ⌘[ works with either open.
+- **Titles.** The cover is `<session> · Walkthrough · Orbital`, the close
+  screen `close · <session> · Orbital` (its crumb reads `close`).
+- **The drilldown reads the session's row** (`GET /api/sessions/<id>`) for the
+  tag dot, path and status chip; the stats endpoint carries none of them. A
+  session Orbital does not know gets its crumbs and esc only. Until the stats
+  answer, the session crumb reads the head of the uuid.
+- **Status chip** is the canvas's resting chip in every state; the dot blinks
+  while the session works, as the walkthrough's pill did (21a).
+- **"session working · steps may be added"** stays, as plain text ahead of
+  the path. It shortens after the session crumb and before the path.
+- **The stats content's left edge follows the mark** (25b, 25f), so it moves
+  with the bar between windowed and full screen.
+- **The walkthrough rail.** 25d/25e draw the rail at a mock width; the real
+  rail (21b) keeps its width in full screen and in the browser, and windowed
+  it widens on its left by exactly as much as the mark moves right, so the
+  list keeps its width and its left edge follows the mark.
+- **Tooltips are native `title`s**, as the canvas draws them. `ui/Tooltip`
+  claims esc while it is open from the keyboard, which would make the esc
+  button's first press dismiss its own tooltip.

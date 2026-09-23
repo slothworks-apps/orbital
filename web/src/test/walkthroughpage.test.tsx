@@ -30,7 +30,7 @@ beforeEach(() => { vi.mocked(api.getWalkthrough).mockResolvedValue({ session: se
 describe('WalkthroughPage', () => {
   it('opens on the cover with the counts, starts into step 1, and shows the diff and the exchange', async () => {
     render(<WalkthroughPage id="w1" />)
-    await screen.findByText('auth-refactor')
+    await screen.findByRole('heading', { name: 'auth-refactor' })
     expect(screen.getByLabelText('steps')).toHaveTextContent('2')
     expect(screen.getByLabelText('files touched')).toHaveTextContent('1')
     fireEvent.click(screen.getByRole('button', { name: /start/i }))
@@ -41,6 +41,16 @@ describe('WalkthroughPage', () => {
     expect(screen.getByText(/revised in/)).toBeInTheDocument()
     expect(screen.getByText('Why?')).toBeInTheDocument()
     expect(screen.getByText('Because.')).toBeInTheDocument()
+  })
+
+  it('goes up to the cover on ⌘[ from a step, without leaving the page', async () => {
+    render(<WalkthroughPage id="w1" />)
+    fireEvent.click(await screen.findByRole('button', { name: /start/i }))
+    await screen.findAllByText(/step 1 of 2/i)
+    expect(document.title).toBe('step 1 · auth-refactor · Orbital')
+    fireEvent.keyDown(window, { key: '[', metaKey: true })
+    expect(await screen.findByRole('button', { name: /start/i })).toBeInTheDocument()
+    expect(document.title).toBe('auth-refactor · Walkthrough · Orbital')
   })
 
   it('asks the session from a step', async () => {

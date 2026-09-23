@@ -8,6 +8,7 @@ related:
   - 2026-09-16-electron-wrapper-design
   - 2026-09-23-detached-session-windows-design
   - 2026-09-21-fit-honours-the-panels-design
+  - 2026-09-24-page-headers-design
 ---
 
 # Main window chrome
@@ -95,7 +96,7 @@ Recorded while building it, 2026-09-24.
   and applies it only out of full screen, including on the way out. A new
   page load (not an in-page navigation) resets the lights to shown, because
   the page that replaces the map may have no sidebar to ask for them back.
-- **Open: other pages in the main window.** `/stats` and `/walkthrough/<id>`
-  load in the main window too, and they draw no band: under `hiddenInset`
-  their top edge does not drag the window and the lights sit over their top
-  left. Needs a canvas decision; until then those pages are as they render.
+- **Other pages in the main window.** `/stats` and `/walkthrough/<id>` load
+  in the main window too. They draw no band; their page bar reserves the
+  lights' corner and drags the window instead (spec
+  [[2026-09-24-page-headers-design]]).
