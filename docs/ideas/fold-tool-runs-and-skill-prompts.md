@@ -31,6 +31,9 @@ only when it is open. Two rules keep it honest:
 - A run that is still running stays open, or at minimum keeps its unfinished
   row visible. `openToolUse` already names exactly that row for `StopDialog`;
   the transcript can use the same predicate rather than a second one.
+  (2026-09-23: the shipped row now holds the run's latest call, finished or
+  not, while the run is the live turn's leading edge — see the spec
+  `2026-09-18-transcript-folding-design`, "Live run".)
 - Collapse by threshold, not always. A single `Bash` between two turns is not
   noise, and hiding it behind a summary costs a click to learn nothing.
 

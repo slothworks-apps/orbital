@@ -315,10 +315,26 @@ export interface TranscriptViewProps {
 const FOLD_MS = 160
 
 /**
+ * Which call a folded run holds beneath its header, if any: the run's
+ * leading edge. Only a run that is the transcript's last group, while the
+ * turn is still live, has one — and it is always the run's LAST call,
+ * finished or not. Picking the unfinished call instead made the row vanish
+ * at every boundary between two calls (one finished, the next not yet
+ * arrived) and come back a moment later: a layout jump on every call. The
+ * row now leaves only when the run stops being the leading edge — something
+ * other than a tool call follows it, or the turn ends.
+ */
+export function leadingEdgeItem<T>(items: T[], isLastGroup: boolean, turnLive: boolean): T | undefined {
+  if (!isLastGroup || !turnLive) return undefined
+  return items[items.length - 1]
+}
+
+/**
  * A folded run of 2+ consecutive tool calls (canvas 6b). Folded is the
  * default; a run containing a failed call defaults OPEN and its right slot
- * says `n failed`; a live run stays folded with only its one unfinished
- * call visible beneath the header — the run's leading edge, not a child.
+ * says `n failed`; a live run (the last group, while the turn runs) stays
+ * folded with its latest call visible beneath the header, finished or not —
+ * the run's leading edge, not a child (see `leadingEdgeItem`).
  * The right slot holds one value at a time: `running`, `n failed`, or (on
  * hover) the verb. `toggled` is the user's explicit choice and always wins.
  *
@@ -329,6 +345,7 @@ const FOLD_MS = 160
  */
 function ToolRunGroup({
   items,
+  leadingEdge,
   toggled,
   onToggle,
   onHeightSettled,
@@ -336,6 +353,8 @@ function ToolRunGroup({
   onOpenSubagent,
 }: {
   items: Extract<TranscriptItem, { kind: 'tool' }>[]
+  /** The call held beneath the folded header — see `leadingEdgeItem`. */
+  leadingEdge: Extract<TranscriptItem, { kind: 'tool' }> | undefined
   toggled: boolean | undefined
   onToggle: (next: boolean) => void
   onHeightSettled: () => void
@@ -361,7 +380,11 @@ function ToolRunGroup({
   const open = toggled ?? defaultOpen.current
   const stack = usePresence(open, FOLD_MS, FOLD_MS)
   const rightSlot = unfinished ? 'running' : failed > 0 ? `${failed} failed` : ''
-  const liveLabel = unfinished ? salientInput(unfinished.toolUse.toolName, unfinished.toolUse.toolInput) : ''
+  const liveLabel = leadingEdge ? salientInput(leadingEdge.toolUse.toolName, leadingEdge.toolUse.toolInput) : ''
+  const liveRunning = leadingEdge !== undefined && !leadingEdge.toolResult
+  const liveDuration = leadingEdge
+    ? formatToolDuration(toolDurationMs(leadingEdge.toolUse, leadingEdge.toolResult))
+    : undefined
 
   return (
     <div data-tool-run data-folded={!open} className="flex flex-col">
@@ -441,9 +464,12 @@ function ToolRunGroup({
             </div>
           </div>
         </div>
-      ) : unfinished ? (
-        // The live row: a plain trace with its caret slot left EMPTY — it
-        // isn't openable yet — and the ⚙ blinking at the WORKING tempo.
+      ) : leadingEdge ? (
+        // The live row: a plain trace with its caret slot left EMPTY — it is
+        // the leading edge, not an openable child — and, while its call
+        // runs, the ⚙ blinking at the WORKING tempo. Once the call finishes
+        // the same row stays put showing the finished call, so the run does
+        // not shrink in the gap before the next call arrives.
         // Gated on `mounted`, not on `open`, so it doesn't stand alongside a
         // copy of itself in the stack that is still closing.
         <div
@@ -451,13 +477,22 @@ function ToolRunGroup({
           className="mt-1 flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono text-[11.5px] text-[rgba(200,220,245,.8)]"
         >
           <span aria-hidden className="w-2" />
-          <span aria-hidden className="orbital-pulse text-[rgba(160,190,225,.6)]">⚙</span>
+          <span
+            aria-hidden
+            className={[liveRunning ? 'orbital-pulse' : '', 'text-[rgba(160,190,225,.6)]'].join(' ')}
+          >
+            ⚙
+          </span>
           <span className="min-w-0 flex-1 truncate">
-            {unfinished.toolUse.toolName}
+            {leadingEdge.toolUse.toolName}
             {liveLabel ? ': ' : ''}
             <span className="text-text-bright">{liveLabel}</span>
-            <span className="text-[rgba(160,190,225,.5)]">…</span>
+            {liveRunning && <span className="text-[rgba(160,190,225,.5)]">…</span>}
           </span>
+          {!liveRunning && liveDuration && (
+            // The same "· 0.3s" a `ToolRow` carries (canvas 11b).
+            <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {liveDuration}</span>
+          )}
         </div>
       ) : null}
     </div>
@@ -788,6 +823,7 @@ export function TranscriptView({
           ) : (
             <ToolRunGroup
               items={group.items}
+              leadingEdge={leadingEdgeItem(group.items, index === all.length - 1, isWorking)}
               toggled={runToggles[group.key]}
               onToggle={(next) => setRunToggles((t) => ({ ...t, [group.key]: next }))}
               onHeightSettled={refreshStick}

@@ -32,6 +32,23 @@ plus a click is enough).
   normal row with an empty caret slot — the run's leading edge, not a
   child. Right slot says `running`. When it finishes it folds into the
   count and the next unfinished row takes its place.
+  - **The leading edge holds the latest call, finished or not** (amended
+    2026-09-23). Keying the row on "the unfinished call" made it vanish at
+    every boundary between two calls — one finished, the next not yet
+    arrived — and reappear a moment later; that shrink-and-grow was the
+    jump Tomin kept seeing. Now a run that is the transcript's last group
+    while the session is `working` shows its LAST call beneath the header.
+    Unfinished, it reads as before (`running`, `…`, pulsing ⚙). Finished,
+    the same row stays in place with the tool name, salient input and the
+    call's duration when there is one; the header's right slot drops
+    `running`. Still a plain trace with an empty caret slot, never an
+    expandable `ToolRow`. The row leaves only when the run stops being the
+    leading edge: a non-tool group follows it, or the turn ends — then it
+    folds to header-only as before. A run that is not last, or in a session
+    that is not working (history, ended, reload), shows no live row at all.
+    Pure helper `leadingEdgeItem(items, isLastGroup, turnLive)`,
+    unit-tested. A single call is still a plain `ToolRow`; the open stack
+    still replaces the row rather than standing beside it.
 - **A run containing a failed call auto-opens** and the right slot says
   `1 failed` (`{n} failed` when more). Auto-open sets the DEFAULT state
   only — a manual toggle always wins, in both directions. Requires

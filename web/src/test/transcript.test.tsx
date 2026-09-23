@@ -1442,11 +1442,12 @@ describe('Transcript', () => {
 
     const runs = container.querySelectorAll('[data-tool-run]')
     expect(runs).toHaveLength(1)
-    // Folded by default: no openable ToolRows, one header, and — because
-    // tu2 has no result yet — the live trace beneath it.
+    // Folded by default: no openable ToolRows, one header, and — because a
+    // message follows the run, so it is not the leading edge — no live
+    // trace beneath it, even though tu2 has no result.
     expect(runs[0].querySelectorAll('[data-role="tool"]')).toHaveLength(0)
     expect(screen.getByRole('button', { name: /2 tool calls/ })).toBeInTheDocument()
-    expect(runs[0].querySelector('[data-live-tool]')).toBeInTheDocument()
+    expect(runs[0].querySelector('[data-live-tool]')).not.toBeInTheDocument()
   })
 
   it('renders a `thinking` message through the thinking path, never as an assistant bubble (the live defect § 7 closes)', () => {
@@ -1548,6 +1549,29 @@ describe('summarizeToolRun', () => {
   })
 })
 
+import { leadingEdgeItem } from '../panels/TranscriptView'
+
+describe('leadingEdgeItem', () => {
+  const finished = { id: 'a', done: true }
+  const unfinished = { id: 'b', done: false }
+
+  it('a live last run holds its unfinished last call', () => {
+    expect(leadingEdgeItem([finished, unfinished], true, true)).toBe(unfinished)
+  })
+
+  it('a live last run holds its last call after it finishes', () => {
+    expect(leadingEdgeItem([unfinished, finished], true, true)).toBe(finished)
+  })
+
+  it('a run that is not the last group holds nothing', () => {
+    expect(leadingEdgeItem([finished, unfinished], false, true)).toBeUndefined()
+  })
+
+  it('a run in a turn that is not live holds nothing', () => {
+    expect(leadingEdgeItem([finished, unfinished], true, false)).toBeUndefined()
+  })
+})
+
 describe('Transcript: folded tool runs', () => {
   const run = (n: number, opts: { unfinishedLast?: boolean; failFirst?: boolean } = {}) => {
     const messages: ChatMessage[] = [{ id: 'u', role: 'user', text: 'go' }]
@@ -1559,6 +1583,41 @@ describe('Transcript: folded tool runs', () => {
     }
     return messages
   }
+
+  // The same transcript, in a session that is still running its turn.
+  const renderLive = (messages: ChatMessage[]) => {
+    resetStore({
+      transcripts: { s1: messages },
+      sessions: {
+        s1: {
+          id: 's1',
+          cwd: '/tmp',
+          title: 's1',
+          firstAt: 1,
+          lastAt: 2,
+          messageCount: messages.length,
+          source: 'web',
+          permissionMode: null,
+          model: null,
+          resolvedModel: null,
+          parentId: null,
+          mapDismissedAt: null,
+          tagIds: [],
+          status: 'working',
+          subagents: [],
+        },
+      },
+    })
+    return render(<Transcript sessionId="s1" />)
+  }
+  const append = (...extra: ChatMessage[]) =>
+    act(() => {
+      useOrbital.setState((s) => ({ transcripts: { ...s.transcripts, s1: [...s.transcripts.s1, ...extra] } }))
+    })
+  const setStatus = (status: 'working' | 'idle') =>
+    act(() => {
+      useOrbital.setState((s) => ({ sessions: { s1: { ...s.sessions.s1, status } } }))
+    })
 
   it('folds 2+ consecutive calls behind a header and hides the rows', () => {
     renderTranscript(run(3))
@@ -1587,8 +1646,8 @@ describe('Transcript: folded tool runs', () => {
     )
   })
 
-  it('a live run stays folded with the one unfinished call visible beneath the header', () => {
-    renderTranscript(run(3, { unfinishedLast: true }))
+  it('a live run stays folded with the unfinished call visible beneath the header', () => {
+    renderLive(run(3, { unfinishedLast: true }))
     const header = screen.getByRole('button', { name: /3 tool calls/ })
     expect(header).toHaveTextContent('running')
     // The unfinished row is a plain trace, not an openable ToolRow. (The
@@ -1597,6 +1656,42 @@ describe('Transcript: folded tool runs', () => {
     expect(screen.queryByRole('button', { name: /Read: f3/ })).not.toBeInTheDocument()
     // The finished calls stay folded into the count.
     expect(screen.queryByText('f1')).not.toBeInTheDocument()
+  })
+
+  it('the leading-edge row holds its place when its call finishes, until something follows the run', () => {
+    const { container, rerender } = renderLive(run(2, { unfinishedLast: true }))
+    expect(container.querySelector('[data-live-tool]')).toHaveTextContent('f2')
+
+    // The call finishes, the next has not arrived: the row stays, showing
+    // the finished call, and the header stops saying `running`.
+    append({ id: 'r2', role: 'tool_result', toolUseId: 'tu2', text: 'ok' })
+    rerender(<Transcript sessionId="s1" />)
+    expect(container.querySelector('[data-live-tool]')).toHaveTextContent('f2')
+    expect(screen.getByRole('button', { name: /2 tool calls/ })).not.toHaveTextContent('running')
+
+    // The next call arrives: the same row now shows it.
+    append({ id: 't3', role: 'tool_use', toolName: 'Grep', toolInput: { pattern: 'needle' }, toolUseId: 'tu3' })
+    rerender(<Transcript sessionId="s1" />)
+    expect(container.querySelectorAll('[data-live-tool]')).toHaveLength(1)
+    expect(container.querySelector('[data-live-tool]')).toHaveTextContent('Grep')
+
+    // A message follows the run: it is no longer the leading edge.
+    append({ id: 'r3', role: 'tool_result', toolUseId: 'tu3', text: 'ok' }, { id: 'a', role: 'assistant', text: 'done' })
+    rerender(<Transcript sessionId="s1" />)
+    expect(container.querySelector('[data-live-tool]')).not.toBeInTheDocument()
+  })
+
+  it('the leading-edge row leaves when the turn ends', () => {
+    const { container, rerender } = renderLive(run(2))
+    expect(container.querySelector('[data-live-tool]')).toHaveTextContent('f2')
+    setStatus('idle')
+    rerender(<Transcript sessionId="s1" />)
+    expect(container.querySelector('[data-live-tool]')).not.toBeInTheDocument()
+  })
+
+  it('a run in a session that is not working has no live row, even with an unfinished call', () => {
+    const { container } = renderTranscript(run(2, { unfinishedLast: true }))
+    expect(container.querySelector('[data-live-tool]')).not.toBeInTheDocument()
   })
 
   it('a run containing a failed call opens itself and says n failed — but a manual toggle wins', async () => {
