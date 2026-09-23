@@ -9,6 +9,7 @@ type DesktopBridge = {
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
   onDetachedChanged?: (cb: (ids: string[]) => void) => void
+  openInMainWindow?: (path: string) => void
   setSubagentPanel?: (state: SubagentPanelState) => void
   setWindowButtonsVisible?: (visible: boolean) => void
   onFullScreenChanged?: (cb: (fullScreen: boolean) => void) => void
@@ -73,6 +74,16 @@ export function detachSession(id: string): void {
 /** Brings a detached session's window to the front. */
 export function focusSession(id: string): void {
   bridge()?.focusSession?.(id)
+}
+
+/**
+ * Loads an in-app page in the main window and brings it forward — how a
+ * detached window opens its walkthrough without giving up its own panel
+ * (spec: 2026-09-24-page-headers-design § "Walkthrough from a detached
+ * window"). Main takes only a walkthrough path. A no-op in the browser.
+ */
+export function openInMainWindow(path: string): void {
+  bridge()?.openInMainWindow?.(path)
 }
 
 /**

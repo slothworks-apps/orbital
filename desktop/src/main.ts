@@ -14,8 +14,14 @@ import {
   type WebContents,
 } from 'electron';
 import { join } from 'node:path';
+import { appMenuTemplate } from './lib/appMenu';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
-import { decideWindowButtons, parseWindowButtonsVisible } from './lib/mainWindow';
+import {
+  decideWindowButtons,
+  mainWindowUrl,
+  parseMainWindowPath,
+  parseWindowButtonsVisible,
+} from './lib/mainWindow';
 import { SessionNotifier, parseNotificationSettings } from './lib/notifications';
 import { probeHealth, probeVite } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
@@ -323,7 +329,12 @@ function confineToOrbital(contents: WebContents): void {
   });
 }
 
-function openWindow(url: string): void {
+/**
+ * Build the main window on `url`, which becomes the URL a restarted server
+ * reloads. `page` is what it loads now when that is another page on the same
+ * origin — a walkthrough handed over by a detached window.
+ */
+function openWindow(url: string, page: string = url): void {
   windowTargetUrl = url;
   // `title` is pinned and the page's own ignored below: the window is
   // "Orbital" in Mission Control, the Dock and ⌘` whatever page it shows
@@ -373,7 +384,7 @@ function openWindow(url: string): void {
   main.on('closed', () => {
     win = null;
   });
-  void main.loadURL(url);
+  void main.loadURL(page);
 }
 
 /**
@@ -431,7 +442,7 @@ function openSessionWindow(sessionId: string): void {
   if (!windowTargetUrl) return;
   // No `title`: Electron follows the page's, which the renderer keeps set to
   // the session's, so the Dock and Mission Control name the session. No menu
-  // of our own either — Electron's default one carries Close Window on ⌘W,
+  // of its own either — the application menu carries Close Window on ⌘W,
   // which with the red light is how this window closes (22c draws no × of
   // ours).
   const detached = new BrowserWindow({
@@ -509,6 +520,25 @@ function showWindow(): void {
     openWindow(windowTargetUrl);
     return;
   }
+  win.show();
+  win.focus();
+}
+
+/**
+ * Load an in-app page in the main window and bring it forward: a detached
+ * window's walkthrough control lands here, and the detached window stays as
+ * it was (spec: 2026-09-24-page-headers-design § "Walkthrough from a detached
+ * window"). A missing main window is rebuilt as `showWindow` rebuilds it, on
+ * the page instead of the map; startup's URL stays the one a restart reloads.
+ */
+function openInMainWindow(path: string): void {
+  if (!windowTargetUrl) return;
+  const url = mainWindowUrl(windowTargetUrl, path);
+  if (!win) {
+    openWindow(windowTargetUrl, url);
+    return;
+  }
+  void win.loadURL(url);
   win.show();
   win.focus();
 }
@@ -681,7 +711,12 @@ async function start(): Promise<void> {
   startNotifications();
 }
 
-void app.whenReady().then(start);
+void app.whenReady().then(() => {
+  // Before `start`, so ⌘Q and the Edit roles already work in its dialogs.
+  // Map does nothing until startup has chosen a URL, as the Dock icon does not.
+  Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate({ dev: DEV, showMap: showWindow })));
+  return start();
+});
 
 // The detail panel's detach control, and the renderer's `select` landing on a
 // detached session (spec: 2026-09-23-detached-session-windows-design). The
@@ -691,6 +726,13 @@ ipcMain.on('detach-session', (_event, id: unknown) => {
 });
 ipcMain.on('focus-session', (_event, id: unknown) => {
   if (isSessionId(id)) focusSessionWindow(id);
+});
+// A detached window's walkthrough control: the page opens in the main window
+// (spec: 2026-09-24-page-headers-design). The path comes from a renderer and
+// ends up in `loadURL`, so only a walkthrough path gets through.
+ipcMain.on('open-in-main-window', (_event, payload: unknown) => {
+  const path = parseMainWindowPath(payload);
+  if (path !== null) openInMainWindow(path);
 });
 // The sidebar collapsing or expanding in the main window hides or shows the
 // traffic lights (spec: 2026-09-24-main-window-chrome-design). A detached

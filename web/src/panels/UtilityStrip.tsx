@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
-import { detachSession, hasDesktopBridge } from '../lib/desktop'
+import { detachSession, hasDesktopBridge, openInMainWindow } from '../lib/desktop'
 import { formatDuration, shortenPath } from '../lib/format'
 import type { ApiSession, WalkthroughSummary } from '../lib/types'
 import { MENU_SEPARATOR, MenuButton } from '../ui/Menu'
@@ -221,7 +221,10 @@ function useStripForm(
 
 export interface UtilityStripProps {
   session: ApiSession | undefined
-  /** The panel alone in a detached window: no walkthrough, no detach, no collapse (22c). */
+  /**
+   * The panel alone in a detached window: no detach, no collapse (22c), and
+   * the walkthrough opens in the main window.
+   */
   standalone: boolean
   /** Whether stats is a strip button or the bar at the foot of the header (11c). */
   statsVariant: StatsRowVariant
@@ -348,10 +351,16 @@ export function UtilityStrip({
       )}
       {/* The walkthrough's entry (canvas 21f): the first icon of the
           strip, present only once there is something to walk through. Not
-          one of the six, so it never folds. Not in a detached window: the
-          page replaces whatever window it opens in, and a detached one holds
-          only this panel. */}
-      {session && !standalone && session.source === 'web' && walkthroughEntry && walkthroughEntry.steps > 0 && (
+          one of the six, so it never folds. A detached window holds only
+          this panel, so there it asks main to open the page in the main
+          window instead of replacing itself (spec:
+          2026-09-24-page-headers-design) — and without the bridge to ask
+          through, it is not offered. */}
+      {session &&
+        (!standalone || hasDesktopBridge()) &&
+        session.source === 'web' &&
+        walkthroughEntry &&
+        walkthroughEntry.steps > 0 && (
         <span className="ml-2.5 flex flex-none">
           <Tooltip
             title="Walkthrough"
@@ -359,7 +368,14 @@ export function UtilityStrip({
             align="right"
             delayMs={PIN_TOOLTIP_DELAY_MS}
           >
-            <UtilityButton aria-label="Walkthrough" onClick={() => window.location.assign(walkthroughPath(session.id))}>
+            <UtilityButton
+              aria-label="Walkthrough"
+              onClick={() =>
+                standalone
+                  ? openInMainWindow(walkthroughPath(session.id))
+                  : window.location.assign(walkthroughPath(session.id))
+              }
+            >
               <WalkthroughGlyph />
             </UtilityButton>
           </Tooltip>

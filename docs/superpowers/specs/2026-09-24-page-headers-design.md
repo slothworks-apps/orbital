@@ -87,11 +87,31 @@ window. It asks main, over the bridge, to load the walkthrough in the main
 window and bring the main window forward. The detached window stays as it
 was.
 
+- The message is `open-in-main-window` with an in-app path. Main lets only
+  `/walkthrough/<id>` through — the id one encoded segment, never `.` or
+  `..` — and loads it on the origin startup chose, as it builds a detached
+  window's URL. Anything else is dropped.
+- A hidden main window is shown; a missing one (crashed renderer) is rebuilt
+  on the walkthrough, while startup's URL stays the one a server restart
+  reloads.
+- In a browser a `/session/<id>` page has no bridge to ask through, so the
+  control is not offered there. The main window's control navigates itself,
+  as before.
+
 ## ⌘1
 
 A new menu item, Window → Map (⌘1), shows and focuses the main window. It
 works from any Orbital window, including a detached one. The application menu
 keeps macOS's defaults (⌘W, ⌘M, Edit, etc.).
+
+- The menu is Orbital's own, so it restates the defaults by role: the app
+  menu (Quit goes through the quit guard), File (Close Window), Edit (what
+  makes ⌘C/⌘V work in inputs), View and Window. Window uses the `window` role
+  so macOS keeps the window list and ⌘`.
+- View keeps reload and zoom in the packaged app, as Electron's default did;
+  the developer tools are there only in development. Electron's default Help
+  menu, which linked to Electron's own site, is gone.
+- Map before startup has chosen a URL does nothing, as the Dock icon does.
 
 ## Tests
 
