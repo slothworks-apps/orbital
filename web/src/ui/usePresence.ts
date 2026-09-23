@@ -10,7 +10,7 @@ export interface Presence {
 }
 
 /** True when the user has asked the OS to reduce motion. */
-function prefersReducedMotion(): boolean {
+export function prefersReducedMotion(): boolean {
   return (
     typeof window !== 'undefined' &&
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true

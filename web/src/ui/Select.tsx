@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useEscapeLayer } from './escapeLayer'
-import { usePopupPosition } from './usePopupPosition'
+import { POPUP_SHELL, usePopupPosition } from './usePopupPosition'
 
 export interface SelectOption<T> {
   value: T
@@ -414,11 +414,8 @@ export function Select<T extends string | number>({
             onMouseDown={(e) => e.preventDefault()}
             className={[
               'fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-[5px]',
-              // Canvas 1b draws this popup literally: 10px radius, a flat
-              // rgba(10,16,28,.96) fill (not the panels' gradient glass), a
-              // .16 hairline and a single soft drop shadow.
-              'rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] backdrop-blur-[12px]',
-              'shadow-[0_14px_34px_rgba(0,0,0,.55)]',
+              // Canvas 1b's shell, shared with `MenuButton` (see `POPUP_SHELL`).
+              POPUP_SHELL,
               triggerFont[font],
             ].join(' ')}
           >

@@ -1,10 +1,10 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 
 /**
  * Which of the detail header's two action boxes this is (canvas
  * `Feature - Detail header` 9d):
  *
- * - `strip` — the utility strip on row 1 (pin, clear, close).
+ * - `strip` — the utility strip on row 1 (stats, pin, clear, end, ⋯, detach, collapse).
  * - `title` — the regenerate ring beside the title on row 2. A notch smaller
  *   and a notch quieter, so three hairline squares never read as a toolbar
  *   competing with the title next to them (9c, ACTION WEIGHT).
@@ -24,8 +24,16 @@ export interface UtilityButtonProps extends ButtonHTMLAttributes<HTMLButtonEleme
    * it spins. Distinct from `:hover`, which is only the background.
    */
   active?: boolean
+  /**
+   * The "on" fill a menu trigger wears while its menu is open (canvas
+   * `Feature - Header actions` 23c form 4, the ⋯): the pressed fill and the
+   * bright ink, without `active`'s accent border — an open menu is a state of
+   * the control, not a reading in the session's hue.
+   */
+  open?: boolean
   /** Layout only, per web/CLAUDE.md — the chrome is this component's. */
   className?: string
+  ref?: Ref<HTMLButtonElement>
   children: ReactNode
 }
 
@@ -40,6 +48,7 @@ export interface UtilityButtonProps extends ButtonHTMLAttributes<HTMLButtonEleme
 export function UtilityButton({
   variant = 'strip',
   active = false,
+  open = false,
   className,
   children,
   ...rest
@@ -57,7 +66,11 @@ export function UtilityButton({
             // is active (the ring while it spins), and dimming the accent
             // would read as the opposite of running.
             'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-accent'
-          : [
+          : open
+            ? // Focus still draws its ring: closing a menu hands focus back
+              // here, and the ring is how a keyboard user sees it land.
+              'bg-[rgba(150,205,255,.14)] text-[#e8eef8] focus-visible:border-[oklch(85%_.12_205_/_.7)]'
+            : [
               v.ink,
               // The dim of a button that has nothing to open — canvas
               // `Feature - Header gauges` 11c draws NO DATA at
@@ -183,6 +196,21 @@ export function CollapseGlyph() {
   )
 }
 
+/**
+ * More: three dots in a row — the ⋯ the folded strip hides stats, clear and
+ * detach behind (canvas `Feature - Header actions` 23c form 4). Dots rather
+ * than the `⋯` character, for the same reason the other glyphs are boxes.
+ */
+export function MoreGlyph() {
+  return (
+    <span aria-hidden className="flex" style={{ gap: '2.2px' }}>
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="block rounded-full bg-current" style={{ width: '2.4px', height: '2.4px' }} />
+      ))}
+    </span>
+  )
+}
+
 /** Walkthrough: three bars stepping up — the staircase is the walkthrough's mark everywhere (canvas 21f). */
 export function WalkthroughGlyph() {
   return (
@@ -192,21 +220,6 @@ export function WalkthroughGlyph() {
           key={i}
           className="absolute block rounded-[1px] bg-current"
           style={{ width: '5px', height: STROKE, left: `${i * 3.25}px`, bottom: `${i * 3.5}px` }}
-        />
-      ))}
-    </span>
-  )
-}
-
-/** Close: two crossed bars, not the `×` glyph — 9d's ICON SET rules glyphs out. */
-export function CloseGlyph() {
-  return (
-    <span aria-hidden className="relative block" style={{ width: '9px', height: '9px' }}>
-      {[45, -45].map((deg) => (
-        <span
-          key={deg}
-          className="absolute top-0 left-1/2 block h-full rounded-[1px] bg-current"
-          style={{ width: STROKE, marginLeft: '-0.7px', transform: `rotate(${deg}deg)` }}
         />
       ))}
     </span>

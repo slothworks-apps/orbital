@@ -18,6 +18,19 @@ import type { RefObject } from 'react'
  * never re-renders anything and is safe to run on every commit.
  */
 
+/**
+ * The shell every anchored dropdown wears — `Select`'s listbox and
+ * `MenuButton`'s menu. Canvas 1b draws it literally, and `Feature - Header
+ * actions` 23c repeats it for the ⋯ menu: 10px radius, a flat
+ * rgba(10,16,28,.96) fill (not the panels' gradient glass), a .16 hairline
+ * and a single soft drop shadow. Padding stays with each caller — 1b's
+ * listbox and 23c's menu differ there.
+ */
+export const POPUP_SHELL = [
+  'rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] backdrop-blur-[12px]',
+  'shadow-[0_14px_34px_rgba(0,0,0,.55)]',
+].join(' ')
+
 /** Minimum clearance between the popup and the edge of the viewport. */
 const VIEWPORT_MARGIN = 8
 /** Never squeeze the popup below this; below it, flip instead. */

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { api } from '../lib/api'
 import type { ApiSession, SessionStatsDetail } from '../lib/types'
 import { TIME_CATEGORIES, TRACK_COLOR } from '../stats/constants'
@@ -69,7 +70,7 @@ const NO_VALUE = '—'
  * refill itself under the reader.
  */
 function useSessionStats(
-  id: string,
+  id: string | null,
   reloadKey: number,
   pollMs: number | null,
   timeline: boolean
@@ -80,6 +81,7 @@ function useSessionStats(
   const loadedId = useRef<string | null>(null)
 
   const load = useCallback(() => {
+    if (id === null) return
     const token = (request.current += 1)
     api
       // The row itself never draws the timeline, so it reads without it; only
@@ -121,16 +123,36 @@ function useSessionStats(
   return detail
 }
 
-export function SessionStatsRow({
-  session,
-  variant = 'bar',
-  className,
-}: {
-  session: ApiSession
-  variant?: StatsRowVariant
-  /** Layout only — where the row sits in the panel. */
-  className?: string
-}) {
+/**
+ * Everything the readout knows about one session, for whichever surface
+ * draws it: the row, the strip's icon, or the header's ⋯ menu (canvas
+ * `Feature - Header actions` 23c form 4, whose stats row carries the numbers
+ * inline) — and the dialog they all open.
+ */
+export interface StatsReadout {
+  /** The stored stats, or null below one measured turn (nothing to open). */
+  stats: SessionStatsDetail | null
+  busyMs: number
+  /** Busy time and cost ("2h 22m · $167.30"), or null while there is nothing to show. */
+  summary: string | null
+  /** A running turn with no tool call open: the agent is inside an API call. */
+  inApiCall: boolean
+  /** What the row's split is drawn against (see the row). */
+  denominator: number
+  /** Whether the quick dialog is open for this session. */
+  open: boolean
+  /** Open the quick dialog. Does nothing while there is nothing to show. */
+  show: () => void
+  /** The quick dialog itself — render it once, wherever the readout is used. */
+  dialog: ReactNode
+}
+
+/**
+ * The readout's state, for one session or for none (`null`: the header has
+ * no stats button, so nothing is read).
+ */
+export function useStatsReadout(session: ApiSession | null): StatsReadout {
+  const sessionId = session?.id ?? null
   // WHICH session the dialog is open for, not a bare flag. The panel swaps
   // sessions under this component — it is never remounted per session — so a
   // flag would stay true across the swap and show the outgoing session's
@@ -138,7 +160,7 @@ export function SessionStatsRow({
   // Comparing against the row's own session makes it false in the very render
   // that switched, which is also what starts the dialog's exit.
   const [openFor, setOpenFor] = useState<string | null>(null)
-  const open = openFor === session.id
+  const open = sessionId !== null && openFor === sessionId
   /** The last numbers there were — what an exiting dialog goes on drawing. */
   const shownStats = useRef<SessionStatsDetail | null>(null)
 
@@ -148,16 +170,16 @@ export function SessionStatsRow({
   // remembered one comes back true on the return trip (A → B → A) and raises
   // a dialog nobody asked for a second time.
   useEffect(() => {
-    if (openFor !== null && openFor !== session.id) setOpenFor(null)
-  }, [openFor, session.id])
+    if (openFor !== null && openFor !== sessionId) setOpenFor(null)
+  }, [openFor, sessionId])
 
   // "Numbers still moving" (10g): a session with a turn in flight.
-  const live = session.status === 'working'
+  const live = session?.status === 'working'
   // Bumped by the `stats` event on this session's topic — the server has
   // rewritten the row this reads.
-  const revision = useOrbital((s) => s.statsRevision[session.id] ?? 0)
+  const revision = useOrbital((s) => (sessionId !== null ? (s.statsRevision[sessionId] ?? 0) : 0))
   const detail = useSessionStats(
-    session.id,
+    sessionId,
     revision,
     open && live ? QUICK_STATS_REFRESH_MS : null,
     // The timeline is the dialog's alone: opening it re-reads with the
@@ -169,7 +191,7 @@ export function SessionStatsRow({
   // which is a running turn with no tool call open. Read off the transcript
   // the panel is already streaming — the same pairing the stop confirm uses to
   // name the call it would discard.
-  const messages = useOrbital((s) => s.transcripts[session.id])
+  const messages = useOrbital((s) => (sessionId !== null ? s.transcripts[sessionId] : undefined))
   const inApiCall = useMemo(
     () => live && openToolUse(messages ?? []) === undefined,
     [live, messages]
@@ -188,14 +210,115 @@ export function SessionStatsRow({
   // the bar then fills rather than overflowing.
   const denominator = live && elapsedMs !== null ? Math.max(busyMs, elapsedMs) : busyMs
 
+  // The dialog keeps the numbers it was opened on until it has finished
+  // fading out, the way the panel keeps its outgoing session — otherwise
+  // switching sessions cuts its exit short by taking its data away.
+  if (stats !== null) shownStats.current = stats
+  const dialogStats = stats ?? shownStats.current
+  const dialog = session !== null && dialogStats !== null && (
+    <QuickStatsDialog
+      open={open}
+      detail={dialogStats}
+      title={session.title}
+      live={live}
+      onClose={() => setOpenFor(null)}
+    />
+  )
+
+  return {
+    stats,
+    busyMs,
+    summary: stats !== null ? `${formatStatsDuration(busyMs)} · ${formatCost(stats.cost.total)}` : null,
+    inApiCall,
+    denominator,
+    open,
+    show: () => {
+      if (sessionId !== null && stats !== null) setOpenFor(sessionId)
+    },
+    dialog,
+  }
+}
+
+/**
+ * The readout as one 24px icon in the header's utility strip (canvas
+ * `Feature - Header gauges` 11c). The button only — the caller renders
+ * `readout.dialog` once, which lets the header's ⋯ menu open the same dialog
+ * while this button is folded away.
+ */
+export function SessionStatsButton({
+  readout,
+  className,
+}: {
+  readout: StatsReadout
+  /** Layout only. */
+  className?: string
+}) {
+  const { stats, busyMs, inApiCall, open, show } = readout
+  // 11c: the numbers leave the header, so the name of the control has to
+  // carry them — for the pointer (native `title`, which is what the
+  // artboard asks for) and for a screen reader alike.
+  const label =
+    stats !== null
+      ? `Session stats — ${formatStatsDuration(busyMs)}, ${formatCost(stats.cost.total)}`
+      : 'Session stats'
+  return (
+    <UtilityButton
+      data-session-stats-button
+      aria-label={label}
+      title={label}
+      // 11c's DIALOG OPEN state is the strip's own active fill, and
+      // NO DATA is simply a button with nothing to open.
+      active={open}
+      disabled={stats === null}
+      onClick={show}
+      className={`relative ${className ?? ''}`}
+    >
+      <StatsGlyph />
+      {/* 11c's LIVE dot. The artboard draws it 5px, inset 4px, on a 32px
+          state swatch; the strip's button is 24px, so it keeps the
+          proportion rather than the literal — any bigger and it collides
+          with the glyph's tallest bar. */}
+      {inApiCall && (
+        <span
+          aria-hidden
+          className="orbital-pulse absolute top-[3px] right-[3px] block h-1 w-1 rounded-full"
+          style={{ background: TIME_CATEGORIES[0].color }}
+        />
+      )}
+    </UtilityButton>
+  )
+}
+
+export function SessionStatsRow({
+  session,
+  variant = 'bar',
+  className,
+}: {
+  session: ApiSession
+  variant?: StatsRowVariant
+  /** Layout only — where the row sits in the panel. */
+  className?: string
+}) {
+  const readout = useStatsReadout(session)
+  const { stats, summary, inApiCall, denominator, show, dialog } = readout
+
+  if (variant === 'button') {
+    return (
+      <>
+        <SessionStatsButton readout={readout} className={className} />
+        {dialog}
+      </>
+    )
+  }
+
   const content = (
     <>
       <div className="flex items-center gap-2.5 font-mono text-[10.5px] text-[#e8eef8]">
         session stats
         <span className="flex-1" />
-        {stats !== null ? (
+        {summary !== null ? (
           <span className="text-[rgba(200,225,255,.8)] group-hover:text-[rgba(200,225,255,.9)] group-focus-visible:text-[rgba(200,225,255,.9)]">
-            {formatStatsDuration(busyMs)} · {formatCost(stats.cost.total)}
+            {summary}
           </span>
         ) : (
           <span className="text-[rgba(200,225,255,.8)]">{NO_VALUE}</span>
@@ -244,60 +367,6 @@ export function SessionStatsRow({
   const shell = `block w-full border-t pt-[13px] text-left ${className ?? ''}`
   const resting = 'border-[rgba(150,205,255,.1)]'
 
-  // The dialog keeps the numbers it was opened on until it has finished
-  // fading out, the way the panel keeps its outgoing session — otherwise
-  // switching sessions cuts its exit short by taking its data away.
-  if (stats !== null) shownStats.current = stats
-  const dialogStats = stats ?? shownStats.current
-  const dialog = dialogStats !== null && (
-    <QuickStatsDialog
-      open={open}
-      detail={dialogStats}
-      title={session.title}
-      live={live}
-      onClose={() => setOpenFor(null)}
-    />
-  )
-
-  if (variant === 'button') {
-    // 11c: the numbers leave the header, so the name of the control has to
-    // carry them — for the pointer (native `title`, which is what the
-    // artboard asks for) and for a screen reader alike.
-    const label =
-      stats !== null
-        ? `Session stats — ${formatStatsDuration(busyMs)}, ${formatCost(stats.cost.total)}`
-        : 'Session stats'
-    return (
-      <>
-        <UtilityButton
-          data-session-stats-button
-          aria-label={label}
-          title={label}
-          // 11c's DIALOG OPEN state is the strip's own active fill, and
-          // NO DATA is simply a button with nothing to open.
-          active={open}
-          disabled={stats === null}
-          onClick={() => setOpenFor(session.id)}
-          className={`relative ${className ?? ''}`}
-        >
-          <StatsGlyph />
-          {/* 11c's LIVE dot. The artboard draws it 5px, inset 4px, on a 32px
-              state swatch; the strip's button is 24px, so it keeps the
-              proportion rather than the literal — any bigger and it collides
-              with the glyph's tallest bar. */}
-          {inApiCall && (
-            <span
-              aria-hidden
-              className="orbital-pulse absolute top-[3px] right-[3px] block h-1 w-1 rounded-full"
-              style={{ background: TIME_CATEGORIES[0].color }}
-            />
-          )}
-        </UtilityButton>
-        {dialog}
-      </>
-    )
-  }
-
   if (stats === null) {
     return (
       <>
@@ -314,7 +383,7 @@ export function SessionStatsRow({
       <button
         type="button"
         data-session-stats-row
-        onClick={() => setOpenFor(session.id)}
+        onClick={show}
         // Hover and focus are one state (10g: "focus ring = hover border"),
         // which is also what makes the row legible as one tab stop. With the
         // chip gone there is no box left to fill, so the press cue is the
@@ -334,3 +403,4 @@ export function SessionStatsRow({
     </>
   )
 }
+

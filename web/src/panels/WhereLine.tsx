@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { ReactElement, Ref } from 'react'
 import { splitWhereRow } from '../lib/format'
 import { Tooltip } from '../ui/Tooltip'
 import type { GitLocation } from '../lib/types'
@@ -31,10 +31,10 @@ const CHAR_PX = 6.6
 /**
  * What the row spends on everything that is not the path and the branch: the
  * header's side padding, the icon group and the gaps between them (canvas
- * 1f's geometry). Taken off the panel's width rather than measured, so the
- * split is the same arithmetic the canvas modelled — the row's own
- * `overflow: hidden` is the safety net for the character or two the icon
- * group varies by.
+ * 1f's geometry). The fallback only, for a row nobody has measured: once the
+ * header strip can fold (canvas 23c form 5) the icon group is two different
+ * widths, and the split runs on the cell's measured width instead — which is
+ * also how the path grows into what a fold gives back (23d).
  */
 const ROW_CHROME_PX = 180
 
@@ -130,6 +130,8 @@ export function WhereLine({
   git,
   sessionId,
   panelWidthPx,
+  cellWidthPx,
+  ref,
 }: {
   /** The path as the header has always drawn it — `shortenPath(cwd)`. */
   path: string
@@ -138,8 +140,16 @@ export function WhereLine({
   git: GitLocation | null
   /** Switching sessions replaces the reading outright; only a branch switch fades. */
   sessionId: string | null
-  /** The panel's current width — what the row has to divide up. */
+  /** The panel's current width — what the row has to divide up, less `ROW_CHROME_PX`. */
   panelWidthPx: number
+  /**
+   * This row's own width as laid out, when the owner measures it; it replaces
+   * the estimate from `panelWidthPx`. The cell is `flex: 1`, so its width
+   * never depends on the text split here — measuring it cannot loop.
+   */
+  cellWidthPx?: number
+  /** The row's cell — the flex:1 box the header strip's fold watches (canvas 23d). */
+  ref?: Ref<HTMLSpanElement>
 }) {
   // The reading on screen, which lags the one from the server by the length
   // of the fade — the old branch fades out before the new one fades in.
@@ -165,7 +175,8 @@ export function WhereLine({
 
   const mark = shown ? markOf(shown) : null
   const markPx = mark ? MARK_PX[mark] + PATH_GAP_PX + MARK_GAP_PX : 0
-  const room = Math.max(0, Math.floor((panelWidthPx - ROW_CHROME_PX - markPx) / CHAR_PX))
+  const available = cellWidthPx !== undefined && cellWidthPx > 0 ? cellWidthPx : panelWidthPx - ROW_CHROME_PX
+  const room = Math.max(0, Math.floor((available - markPx) / CHAR_PX))
   const fit = splitWhereRow(path, shown?.ref ?? '', room)
   const Mark = mark ? MARKS[mark] : null
   const label = readingLabel(fullPath, shown)
@@ -186,6 +197,7 @@ export function WhereLine({
 
   return (
     <span
+      ref={ref}
       aria-label={label}
       // No `overflow-hidden` here, however much it looks like it belongs: the
       // tooltip below hangs under the row, and a clip on this element cuts

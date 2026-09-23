@@ -2,16 +2,22 @@
 id: fold-the-header-strip-when-the-branch-joins
 title: Fold the header strip behind ⋯ when a worktree branch joins the path
 type: idea
-status: backlog
+status: superseded
 domain: web
 related:
   - 2026-09-23-end-session-design
+  - the-header-strip-folds-on-the-path-width
 tags:
   - web
   - detail-panel
 ---
 
 # Fold the header strip behind ⋯ when a worktree branch joins the path
+
+**Superseded 2026-09-23:** built, see
+[[the-header-strip-folds-on-the-path-width]]. The premise below was out of
+date: the header already drew the branch (`WhereLine`, canvas 1f), so the
+fold watches path and branch together, as 23d asks.
 
 End session made the detail header's row 1 six buttons wide on the desktop
 build: stats · pin · clear · end ‖ detach · collapse. The path in front of
