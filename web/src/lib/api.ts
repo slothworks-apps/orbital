@@ -294,6 +294,11 @@ export const api = {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/interrupt`)
   },
 
+  /** Ends the session — `runner.end`, the same call `/clear` makes, without the follow-on. */
+  async endSession(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/end`)
+  },
+
   async clearSession(id: string, startNew: boolean): Promise<{ ok: boolean; sessionId?: string }> {
     return request<{ ok: boolean; sessionId?: string }>('POST', `/api/sessions/${id}/clear`, {
       startNew,

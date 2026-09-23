@@ -785,6 +785,23 @@ describe('REST routes', () => {
     expect(after.json().lineage_depth).toBe('5');
   });
 
+  it('POST /api/sessions/:id/end ends the session through the runner', async () => {
+    const ended: string[] = [];
+    runner.end = async (id: string) => { ended.push(id); };
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/end' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    expect(ended).toEqual(['s1']);
+  });
+
+  it('POST /api/sessions/:id/end 404s an unknown session without touching the runner', async () => {
+    const ended: string[] = [];
+    runner.end = async (id: string) => { ended.push(id); };
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/nope/end' });
+    expect(res.statusCode).toBe(404);
+    expect(ended).toEqual([]);
+  });
+
   it('POST /api/sessions/:id/clear with startNew uses computed permission mode', async () => {
     // Capture runner.start() calls
     const startCalls: any[] = [];

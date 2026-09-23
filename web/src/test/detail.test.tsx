@@ -937,25 +937,9 @@ describe('DetailPanel clear flow', () => {
     render(<DetailPanel />)
     await user.click(screen.getByRole('button', { name: /^clear$/i }))
 
-    expect(api.clearSession).toHaveBeenCalledWith('a', false)
+    expect(api.clearSession).toHaveBeenCalledWith('a', true)
     expect(useOrbital.getState().ui.dialog).toBe(null)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('"Clear only" calls clearSession with startNew=false and does not change selection', async () => {
-    const user = userEvent.setup()
-    vi.mocked(api.clearSession).mockResolvedValue({ ok: true })
-    resetStore({
-      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
-      ui: { selectedId: 'a', dialog: 'clear' },
-    })
-
-    render(<DetailPanel />)
-    await user.click(screen.getByRole('button', { name: /clear only/i }))
-
-    await waitFor(() => expect(api.clearSession).toHaveBeenCalledWith('a', false))
-    expect(useOrbital.getState().ui.selectedId).toBe('a')
-    expect(useOrbital.getState().ui.dialog).toBe(null)
   })
 
   it('"Clear & start new" calls clearSession with startNew=true and selects the returned sessionId', async () => {
@@ -989,7 +973,7 @@ describe('DetailPanel clear flow', () => {
 
     render(<DetailPanel />)
     await user.click(screen.getByRole('checkbox', { name: /don't ask again/i }))
-    await user.click(screen.getByRole('button', { name: /clear only/i }))
+    await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
     await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ confirm_before_clear: 'false' }))
     expect(useOrbital.getState().settings.confirm_before_clear).toBe('false')
@@ -1018,7 +1002,7 @@ describe('DetailPanel clear flow', () => {
     })
 
     render(<DetailPanel />)
-    await user.click(screen.getByRole('button', { name: /clear only/i }))
+    await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
     await waitFor(() =>
       expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'clear failed' })
@@ -1038,7 +1022,7 @@ describe('DetailPanel clear flow', () => {
 
     render(<DetailPanel />)
     await user.click(screen.getByRole('checkbox', { name: /don't ask again/i }))
-    await user.click(screen.getByRole('button', { name: /clear only/i }))
+    await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
     await waitFor(() =>
       expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'settings unreachable' })
@@ -1046,7 +1030,7 @@ describe('DetailPanel clear flow', () => {
     // The rejected PATCH must never leave the store claiming the preference stuck.
     expect(useOrbital.getState().settings.confirm_before_clear).toBeUndefined()
     // The clear itself still proceeds even though the preference failed to save.
-    expect(api.clearSession).toHaveBeenCalledWith('a', false)
+    expect(api.clearSession).toHaveBeenCalledWith('a', true)
   })
 
   it('invalidates the cached lineage for a session after clearing it, so it refetches', async () => {
@@ -1062,10 +1046,10 @@ describe('DetailPanel clear flow', () => {
     await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     const callsBeforeClear = vi.mocked(api.getSession).mock.calls.length
 
-    await user.click(screen.getByRole('button', { name: /clear only/i }))
-    await waitFor(() => expect(api.clearSession).toHaveBeenCalledWith('a', false))
+    await user.click(screen.getByRole('button', { name: /clear & start new/i }))
+    await waitFor(() => expect(api.clearSession).toHaveBeenCalledWith('a', true))
 
-    // Selection is unchanged (clear-only) and the cache entry for 'a' was
+    // Selection is unchanged (no successor id came back) and the cache entry for 'a' was
     // dropped, so DetailPanel's lineage effect must refire for the same id.
     await waitFor(() =>
       expect(vi.mocked(api.getSession).mock.calls.length).toBeGreaterThan(callsBeforeClear)
@@ -1093,9 +1077,9 @@ describe('DetailPanel clear flow', () => {
       await Promise.resolve()
     })
 
-    await user.click(screen.getByRole('button', { name: /clear only/i }))
+    await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
-    expect(api.clearSession).toHaveBeenCalledWith('a', false)
+    expect(api.clearSession).toHaveBeenCalledWith('a', true)
     expect(api.clearSession).not.toHaveBeenCalledWith('b', expect.anything())
   })
 })
@@ -1551,7 +1535,8 @@ describe('DetailPanel session stats placement', () => {
     expect(container.querySelector('[data-session-stats-row]')).not.toBeInTheDocument()
     const icon = container.querySelector('[data-session-stats-button]')
     expect(icon).toBeInTheDocument()
-    // 11c fixes the order of the strip: stats · pin · clear · close. The pin
+    // 11c/23a fix the order of the strip: stats · pin · clear · end ‖
+    // collapse (no detach outside the desktop app). The pin
     // and Clear come wrapped in their tooltips, so the buttons are read out
     // of the strip rather than off its direct children.
     // Buttons only: the row's first element is the path and its git reading,
@@ -1560,7 +1545,7 @@ describe('DetailPanel session stats placement', () => {
     const names = [...(strip?.querySelectorAll('button[aria-label]') ?? [])].map((el) =>
       el.getAttribute('aria-label')
     )
-    expect(names).toEqual(['Session stats', 'Pin session', 'Clear', 'Close panel'])
+    expect(names).toEqual(['Session stats', 'Pin session', 'Clear', 'End session', 'Collapse panel'])
   })
 })
 

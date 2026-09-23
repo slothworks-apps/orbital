@@ -989,6 +989,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
+  // End session (spec 2026-09-23-end-session-design): the header's plain
+  // "close this session" — the same `runner.end` that `/clear` makes, under
+  // a name that says what the button does.
+  app.post('/api/sessions/:id/end', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    await ctx.runner.end(id);
+    return { ok: true };
+  });
+
   app.post('/api/sessions/:id/clear', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { startNew } = (req.body ?? {}) as { startNew?: boolean };

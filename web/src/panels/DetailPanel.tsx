@@ -41,8 +41,9 @@ import { Badge } from '../ui/Badge'
 import { PinButton } from '../ui/PinButton'
 import {
   ClearGlyph,
-  CloseGlyph,
+  CollapseGlyph,
   DetachGlyph,
+  EndGlyph,
   RefreshGlyph,
   UtilityButton,
   WalkthroughGlyph,
@@ -61,6 +62,7 @@ import { Transcript } from './Transcript'
 import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
+import { EndDialog } from './EndDialog'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { WhereLine } from './WhereLine'
@@ -544,10 +546,17 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
 
   function handleClearClick() {
     if (!id) return
+    // "Don't ask again" skips straight to what the dialog's only action does:
+    // clear and start new. Ending without a successor is End session's job
+    // (spec 2026-09-23-end-session-design).
     if (settings.confirm_before_clear === 'false') {
+      const clearedId = id
       void api
-        .clearSession(id, false)
-        .then(() => invalidateLineage(id))
+        .clearSession(clearedId, true)
+        .then((result) => {
+          invalidateLineage(clearedId)
+          if (result.sessionId) void useOrbital.getState().select(result.sessionId)
+        })
         .catch((err) => reportError(err, 'Failed to clear session'))
       return
     }
@@ -813,8 +822,9 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
           )}
           {/* Button-only mode (canvas `Feature - Header gauges` 11c): the
               stats strip is gone and stats joins the strip as an icon —
-              stats · pin · clear · close, with close staying last (and the
-              walkthrough, when offered, ahead of them all). */}
+              stats · pin · clear · end ‖ detach · collapse, with collapse
+              staying last (23a; and the walkthrough, when offered, ahead of
+              them all). */}
           {session && statsVariant === 'button' && (
             <SessionStatsRow session={session} variant="button" />
           )}
@@ -842,12 +852,13 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
             </Tooltip>
           )}
           {/* Clear lost its word when it joined the strip (9d draws three
-              icons), so it gains the tooltip the pin already has — an icon
-              that wipes a conversation cannot be a guess. */}
+              icons), so it carries a tooltip — an icon that wipes a
+              conversation cannot be a guess. One line is enough for it
+              (canvas `Feature - Header actions` 23b). */}
           {session?.source === 'web' && (
             <Tooltip
-              title="Clear"
-              description="Drops the conversation and starts this session over."
+              variant="name"
+              title="Clear and start over"
               align="right"
               delayMs={PIN_TOOLTIP_DELAY_MS}
             >
@@ -856,11 +867,29 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
               </UtilityButton>
             </Tooltip>
           )}
-          {/* Detach and × are a pair of their own, set tighter than the
-              session trio before them: both are about where the panel is,
-              not about the session (canvas `Feature - Detached window` 22a).
-              Detach is desktop only — a browser cannot focus or close the
-              window it would open — so there the pair is × alone.
+          {/* End session sits with the session actions, after Clear (23a).
+              Orbital sessions only — Orbital does not own a terminal's
+              process — and gone once the session has ended. Unlike the
+              panel pair below it stays in a detached window: it is about the
+              session, not the panel. Never one click: it opens a confirm. */}
+          {session?.source === 'web' && session.status !== 'ended' && (
+            <Tooltip
+              title="End session"
+              description="Stops the agent and moves the session to history."
+              align="right"
+              delayMs={PIN_TOOLTIP_DELAY_MS}
+            >
+              <UtilityButton aria-label="End session" onClick={() => setDialog('end')}>
+                <EndGlyph />
+              </UtilityButton>
+            </Tooltip>
+          )}
+          {/* Detach and collapse are a pair of their own, set tighter than
+              the session actions before them: both are about where the panel
+              is, not about the session (canvas `Feature - Detached window`
+              22a). Detach is desktop only — a browser cannot focus or close
+              the window it would open — so there the pair is collapse alone.
+              Collapse deselects, as the × it replaced did (23a).
 
               A detached window has neither (22c): the red light and ⌘W close
               it, and closing it is the whole of "dock back". */}
@@ -882,12 +911,20 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
                   </UtilityButton>
                 </Tooltip>
               )}
-              <UtilityButton
-                aria-label="Close panel"
-                onClick={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
+              <Tooltip
+                variant="name"
+                title="Collapse panel"
+                align="right"
+                anchor="group"
+                delayMs={PIN_TOOLTIP_DELAY_MS}
               >
-                <CloseGlyph />
-              </UtilityButton>
+                <UtilityButton
+                  aria-label="Collapse panel"
+                  onClick={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
+                >
+                  <CollapseGlyph />
+                </UtilityButton>
+              </Tooltip>
             </span>
           )}
         </div>
@@ -1252,6 +1289,7 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
         onClose={() => setDialog(null)}
         onCleared={invalidateLineage}
       />
+      <EndDialog open={dialog === 'end'} sessionId={id} onClose={() => setDialog(null)} />
     </Panel>
       {/* The armed panel's chrome (canvas 9c-1 / 9e drop state): accent border
           at .45 over a matching inset ring at .12, arriving over .12s.
