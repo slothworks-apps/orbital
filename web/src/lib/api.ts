@@ -218,6 +218,26 @@ export const api = {
     })
   },
 
+  /**
+   * Settles a parked permission prompt or plan approval — the same endpoint
+   * as `answerDecision`, with the body the other two kinds take (spec
+   * 2026-09-23-permission-and-plan-decisions-design § Channel). `message` is
+   * what the model reads back from a refusal; a bare decline sends none.
+   *
+   * 404 means the same thing here as it does there: the decision is gone.
+   */
+  async resolveDecision(
+    id: string,
+    decisionId: string,
+    verdict: { approved: boolean; message?: string }
+  ): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(
+      'POST',
+      `/api/sessions/${id}/decision/${decisionId}`,
+      verdict
+    )
+  },
+
   async interrupt(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/interrupt`)
   },

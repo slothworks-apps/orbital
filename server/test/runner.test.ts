@@ -1,14 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hub } from '../src/api/hub.js';
 import {
+  APPROVED_PLAN_MODE,
   IDLE_NEVER,
   Runner,
   contextUsedFromAssistantUsage,
   contextUsedFromCompactBoundary,
   contextUsedFromContextUsage,
+  decisionKindFor,
   parseIdleTimeoutMs,
   sdkToChatMessages,
 } from '../src/runner/runner.js';
+import type { PermissionMode } from '../src/types.js';
 
 /**
  * The id the real CLI runs the session under: the one the caller pinned via
@@ -1519,19 +1522,30 @@ describe('Runner attachments', () => {
 function fakeQueryFnAsking() {
   const sent: any[] = [];
   const controller = new AbortController();
+  /** Every mode the CLI was asked to switch to, in order. */
+  const modes: string[] = [];
   let options: any;
   const fn = ({ prompt, options: o }: { prompt: AsyncIterable<any>; options: any }) => {
     options = o;
     async function* gen(): AsyncGenerator<any> {
       for await (const userMsg of prompt) sent.push(userMsg);
     }
-    return gen() as any;
+    const g = gen() as any;
+    g.setPermissionMode = async (mode: string) => {
+      modes.push(mode);
+    };
+    return g;
   };
-  const ask = (input: unknown, toolUseID = 'tu-1', toolName = 'AskUserQuestion'): Promise<any> =>
+  const ask = (
+    input: unknown,
+    toolUseID = 'tu-1',
+    toolName = 'AskUserQuestion',
+    extra: Record<string, unknown> = {},
+  ): Promise<any> =>
     options.canUseTool(toolName, input, {
-      signal: controller.signal, toolUseID, requestId: 'req-1',
+      signal: controller.signal, toolUseID, requestId: 'req-1', ...extra,
     });
-  return { fn, ask, sent, abort: () => controller.abort() };
+  return { fn, ask, sent, modes, abort: () => controller.abort() };
 }
 
 const ONE_QUESTION = {
@@ -1572,6 +1586,28 @@ async function parked(input: unknown = ONE_QUESTION) {
   const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
   const decision = ask(input);
   return { runner, id, received, decision, sent, abort, ask };
+}
+
+/**
+ * A runner parked on a `permission` or `plan` ask — the two kinds that settle
+ * with a verdict rather than with answers.
+ */
+async function parkedOn(
+  toolName: string,
+  input: Record<string, unknown>,
+  permissionMode: PermissionMode = 'plan',
+) {
+  const hub = new Hub();
+  const { fn, ask, sent, modes, abort } = fakeQueryFnAsking();
+  const modeEdges: Array<[string, string]> = [];
+  const runner = new Runner({
+    hub, queryFn: fn as any, newSessionId: () => 'web-1',
+    onPermissionMode: (sessionId, mode) => modeEdges.push([sessionId, mode]),
+  });
+  const received = subscribed(hub, 'session:web-1');
+  const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode });
+  const decision = ask(input, 'tu-1', toolName);
+  return { runner, id, received, decision, sent, modes, modeEdges, abort, ask };
 }
 
 describe('Runner decisions', () => {
@@ -1711,17 +1747,6 @@ describe('Runner decisions', () => {
     });
   });
 
-  it('denies every other tool, the way the SDK did with no canUseTool at all', async () => {
-    const hub = new Hub();
-    const { fn, ask } = fakeQueryFnAsking();
-    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
-    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
-
-    expect(await ask({ command: 'rm -rf /' }, 'tu-2', 'Bash')).toMatchObject({ behavior: 'deny' });
-    expect(runner.pendingDecision(id)).toBeNull();
-    expect(runner.status(id)).toBe('working');
-  });
-
   it('a second question while one is parked settles the first rather than dropping it', async () => {
     // Defensive: the model is blocked on the first, so this should not happen.
     // If it does, an overwritten resolver would block that tool call forever.
@@ -1731,6 +1756,254 @@ describe('Runner decisions', () => {
     expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-2' });
     await runner.end(id);
     expect(await second).toMatchObject({ behavior: 'deny' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Permission prompts and plan approval: the other two kinds on the same
+// envelope (spec: 2026-09-23-permission-and-plan-decisions-design)
+// ---------------------------------------------------------------------------
+
+const BASH_INPUT = { command: 'rm -rf build', description: 'Clear the build directory' };
+const PLAN_INPUT = { plan: '# Plan\n\n1. Do the thing' };
+
+describe('decisionKindFor', () => {
+  it('routes the two named tools and treats everything else as a permission ask', () => {
+    expect(decisionKindFor('AskUserQuestion')).toBe('question');
+    expect(decisionKindFor('ExitPlanMode')).toBe('plan');
+    // Total on purpose: a tool this build has never heard of still gets a
+    // surface rather than the synthetic denial that used to be the answer.
+    for (const tool of ['Bash', 'Write', 'mcp__linear__create_issue', 'SomeFutureTool']) {
+      expect(decisionKindFor(tool)).toBe('permission');
+    }
+  });
+});
+
+describe('Runner permission decisions', () => {
+  it('parks an ordinary tool with the bridge copy the CLI sent', async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const received = subscribed(hub, 'session:web-1');
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    void ask(BASH_INPUT, 'tu-9', 'Bash', {
+      title: 'Claude wants to run rm -rf build',
+      displayName: 'Run command',
+      description: 'Deletes the build directory',
+      defaultToNo: true,
+    });
+
+    expect(runner.status(id)).toBe('needs_input');
+    expect(runner.pendingDecision(id)).toEqual({
+      id: 'tu-9',
+      kind: 'permission',
+      toolName: 'Bash',
+      input: BASH_INPUT,
+      title: 'Claude wants to run rm -rf build',
+      displayName: 'Run command',
+      description: 'Deletes the build directory',
+      defaultToNo: true,
+      createdAt: expect.any(Number),
+    });
+    expect(received).toContainEqual({
+      topic: 'session:web-1',
+      event: 'decision_pending',
+      decision: expect.objectContaining({ id: 'tu-9', kind: 'permission' }),
+    });
+  });
+
+  it('carries only the bridge fields the CLI actually sent', async () => {
+    // An older CLI sends none of them; an absent field must stay absent
+    // rather than travel as an empty string the browser then has to test for.
+    const { runner, id } = await parkedOn('Bash', BASH_INPUT, 'acceptEdits');
+    expect(runner.pendingDecision(id)).toEqual({
+      id: 'tu-1', kind: 'permission', toolName: 'Bash',
+      input: BASH_INPUT, createdAt: expect.any(Number),
+    });
+  });
+
+  it('approving allows the tool with its input untouched', async () => {
+    const { runner, id, received, decision } = await parkedOn('Bash', BASH_INPUT, 'acceptEdits');
+    expect(runner.answerDecision(id, 'tu-1', { approved: true })).toBe(true);
+
+    // No `updatedInput`: approving a tool must not rewrite what it was asked
+    // to do, which is exactly what the question path's `answers` merge does.
+    expect(await decision).toEqual({
+      behavior: 'allow',
+      decisionClassification: 'user_temporary',
+    });
+    expect(received).toContainEqual({
+      topic: 'session:web-1', event: 'decision_resolved', decisionId: 'tu-1',
+    });
+    expect(runner.pendingDecision(id)).toBeNull();
+    expect(runner.status(id)).toBe('working');
+  });
+
+  it('declining denies with the reason, and the turn carries on', async () => {
+    const { runner, id, decision } = await parkedOn('Bash', BASH_INPUT, 'acceptEdits');
+    expect(
+      runner.answerDecision(id, 'tu-1', { approved: false, message: 'use git clean instead' }),
+    ).toBe(true);
+    expect(await decision).toMatchObject({
+      behavior: 'deny',
+      message: 'use git clean instead',
+    });
+    // A refused tool is not the end of the turn — the model reads the refusal
+    // as this tool's result and picks another route.
+    expect(runner.status(id)).toBe('working');
+  });
+
+  it('declining without a reason still says something to the model', async () => {
+    const { runner, id, decision } = await parkedOn('Bash', BASH_INPUT, 'acceptEdits');
+    runner.answerDecision(id, 'tu-1', { approved: false, message: '   ' });
+    const result = await decision;
+    expect(result.behavior).toBe('deny');
+    expect(result.message).toBeTruthy();
+  });
+
+  it('refuses a payload that does not fit the parked kind', async () => {
+    const { runner, id, decision } = await parkedOn('Bash', BASH_INPUT, 'acceptEdits');
+    // Question answers at a permission prompt: merging them would both
+    // corrupt the command and approve it.
+    expect(runner.answerDecision(id, 'tu-1', { 'Which library?': 'luxon' })).toBe(false);
+    expect(runner.pendingDecision(id)).not.toBeNull();
+
+    // And the mirror: a verdict at a parked question.
+    const q = await parked();
+    expect(q.runner.answerDecision(q.id, 'tu-1', { approved: true })).toBe(false);
+    expect(q.runner.pendingDecision(q.id)).not.toBeNull();
+
+    await runner.end(id);
+    await decision;
+    await q.runner.end(q.id);
+    await q.decision;
+  });
+
+  it('does not prompt in bypassPermissions — the mode the user chose to avoid asks', async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({
+      cwd: '/w', prompt: 'go', permissionMode: 'bypassPermissions',
+    });
+
+    expect(await ask(BASH_INPUT, 'tu-2', 'Bash')).toEqual({ behavior: 'allow' });
+    expect(runner.pendingDecision(id)).toBeNull();
+    expect(runner.status(id)).toBe('working');
+  });
+
+  it('still parks a question in bypassPermissions — no mode answers for the human', async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({
+      cwd: '/w', prompt: 'go', permissionMode: 'bypassPermissions',
+    });
+    void ask(ONE_QUESTION);
+    expect(runner.pendingDecision(id)).toMatchObject({ kind: 'question' });
+  });
+
+  it('keeps the bridge copy off a question envelope, where nothing reads it', async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
+    void ask(ONE_QUESTION, 'tu-1', 'AskUserQuestion', {
+      title: 'Claude has a question', displayName: 'Ask', defaultToNo: true,
+    });
+    expect(runner.pendingDecision(id)).toEqual({
+      id: 'tu-1', kind: 'question', input: ONE_QUESTION, createdAt: expect.any(Number),
+    });
+  });
+
+  it('interrupt and end settle a parked permission exactly once', async () => {
+    const { runner, id, decision } = await parkedOn('Bash', BASH_INPUT, 'acceptEdits');
+    await runner.interrupt(id);
+    expect(await decision).toMatchObject({ behavior: 'deny' });
+    expect(runner.pendingDecision(id)).toBeNull();
+    // Settled already: a second settle path finds nothing left, which is what
+    // makes calling it from every exit harmless.
+    expect(runner.answerDecision(id, 'tu-1', { approved: true })).toBe(false);
+    await runner.end(id);
+  });
+
+  it('composer text declines a permission with the text as the reason', async () => {
+    const { runner, id, decision, sent } = await parkedOn('Bash', BASH_INPUT, 'acceptEdits');
+    await vi.waitFor(() => expect(sent).toHaveLength(1)); // the starting prompt
+    runner.send(id, 'no, run the tests first');
+
+    expect(await decision).toMatchObject({
+      behavior: 'deny',
+      message: 'no, run the tests first',
+    });
+    // The text settled the ask instead of becoming a turn of its own — and it
+    // did NOT reach the tool's input, which would have approved it.
+    expect(sent).toHaveLength(1);
+    expect(runner.status(id)).toBe('working');
+    expect(runner.pendingDecision(id)).toBeNull();
+  });
+});
+
+describe('Runner plan approval', () => {
+  it('parks ExitPlanMode as its own kind, carrying the plan', async () => {
+    const { runner, id } = await parkedOn('ExitPlanMode', PLAN_INPUT);
+    expect(runner.pendingDecision(id)).toMatchObject({
+      id: 'tu-1', kind: 'plan', toolName: 'ExitPlanMode', input: PLAN_INPUT,
+    });
+    expect(runner.status(id)).toBe('needs_input');
+  });
+
+  it('approving leaves plan mode before it unblocks the tool', async () => {
+    const { runner, id, decision, modes, modeEdges } = await parkedOn('ExitPlanMode', PLAN_INPUT);
+    expect(runner.answerDecision(id, 'tu-1', { approved: true })).toBe(true);
+
+    // The control request is what actually takes the session out of plan
+    // mode; allowing the tool alone would leave it read-only and the approved
+    // plan unable to run a single step of itself.
+    expect(modes).toEqual([APPROVED_PLAN_MODE]);
+    expect(modeEdges).toEqual([[id, APPROVED_PLAN_MODE]]);
+    expect(await decision).toMatchObject({ behavior: 'allow' });
+  });
+
+  it('declining keeps the session in plan mode', async () => {
+    const { runner, id, decision, modes, modeEdges } = await parkedOn('ExitPlanMode', PLAN_INPUT);
+    runner.answerDecision(id, 'tu-1', { approved: false, message: 'cover the migration too' });
+    expect(await decision).toMatchObject({
+      behavior: 'deny', message: 'cover the migration too',
+    });
+    expect(modes).toEqual([]);
+    expect(modeEdges).toEqual([]);
+  });
+
+  it('does not rewrite the mode of a session that was never planning', async () => {
+    // A model can call the tool from any mode. Approving it there is approving
+    // nothing, and must not quietly downgrade an `auto` session.
+    const { runner, id, decision, modes } = await parkedOn('ExitPlanMode', PLAN_INPUT, 'auto');
+    runner.answerDecision(id, 'tu-1', { approved: true });
+    expect(modes).toEqual([]);
+    expect(await decision).toMatchObject({ behavior: 'allow' });
+  });
+
+  it('survives a CLI that cannot answer the mode control request', async () => {
+    const hub = new Hub();
+    const sent: any[] = [];
+    const controller = new AbortController();
+    let options: any;
+    // No `setPermissionMode` at all — a CLI too old to know the request.
+    const fn = ({ prompt, options: o }: any) => {
+      options = o;
+      async function* gen(): AsyncGenerator<any> {
+        for await (const m of prompt) sent.push(m);
+      }
+      return gen() as any;
+    };
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
+    const decision = options.canUseTool('ExitPlanMode', PLAN_INPUT, {
+      signal: controller.signal, toolUseID: 'tu-1', requestId: 'req-1',
+    });
+    expect(runner.answerDecision(id, 'tu-1', { approved: true })).toBe(true);
+    expect(await decision).toMatchObject({ behavior: 'allow' });
   });
 });
 

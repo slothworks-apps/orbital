@@ -141,19 +141,56 @@ export interface AskUserQuestionInput {
 }
 
 /**
- * A decision the session is blocked on. `kind` is the extension point the
- * spec leaves for permission prompts and dialogs later; today only
- * `'question'` rides this channel.
- *
- * `id` IS the `AskUserQuestion` tool_use's `toolUseId`, which is what lets a
- * transcript card recognise itself as the pending one without any extra
- * correlation state.
+ * What surface a parked decision needs. Mirrors `DecisionKind` in
+ * `server/src/runner/runner.ts` — this repo has no shared types package, so
+ * the two must move together.
  */
-export interface PendingDecision {
+export type DecisionKind = 'question' | 'permission' | 'plan';
+
+/**
+ * A decision the session is blocked on — the CLI is inside a `canUseTool`
+ * call and nothing moves until the browser answers.
+ *
+ * `id` IS the blocked tool_use's `toolUseId`, which is what lets a transcript
+ * card recognise itself as the pending one without any extra correlation
+ * state.
+ *
+ * A union rather than one widened interface: the two arms are answered
+ * through different endpoints' bodies and drawn by different components, and
+ * only the `question` arm has `input.questions` at all. Narrowing on `kind`
+ * is what stops a permission prompt being read as a question — which on the
+ * server would mean merging an `answers` key into a shell command
+ * (spec 2026-09-23-permission-and-plan-decisions-design).
+ */
+export type PendingDecision = PendingQuestionDecision | PendingVerdictDecision;
+
+export interface PendingQuestionDecision {
   id: string;
   kind: 'question';
   input: AskUserQuestionInput;
   createdAt: number;
+}
+
+/** A permission prompt or a plan approval: answered yes/no, not in words. */
+export interface PendingVerdictDecision {
+  id: string;
+  kind: 'permission' | 'plan';
+  /** The tool's own input, verbatim — `{plan}` for a plan approval. */
+  input: Record<string, unknown>;
+  createdAt: number;
+  /** The tool being asked about. */
+  toolName?: string;
+  /**
+   * The CLI bridge's own prompt copy, when it sent any. Preferred over
+   * anything reconstructed here: the bridge writes the sentence the terminal
+   * shows, and two hosts wording the same ask differently is how they come to
+   * disagree about what a tool is about to do.
+   */
+  title?: string;
+  displayName?: string;
+  description?: string;
+  /** The CLI flagged this ask as one no stray keystroke may approve. */
+  defaultToNo?: boolean;
 }
 
 export interface ChatMessage {

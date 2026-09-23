@@ -3,7 +3,8 @@ import type {
   ApiSession,
   ChatMessage,
   ErrorRecord,
-  PendingDecision,
+  PendingQuestionDecision,
+  PendingVerdictDecision,
   Subagent,
   Tag,
   TagRule,
@@ -72,6 +73,7 @@ const initialSnapshot: OrbitalState = {
   errorsUnseen: 0,
   pendingDecisions: {},
   decisionAnswers: {},
+  decisionVerdicts: {},
   sessionsTotal: 0,
   toast: null,
   ui: {
@@ -457,7 +459,9 @@ describe('sendPrompt', () => {
 const APPROACH = 'Which fix should I take for the double gutter?'
 const TESTS = 'And what should I add to the suite?'
 
-function makeDecision(overrides: Partial<PendingDecision> = {}): PendingDecision {
+function makeDecision(
+  overrides: Partial<PendingQuestionDecision> = {},
+): PendingQuestionDecision {
   return {
     id: 'tu1',
     kind: 'question',
@@ -480,7 +484,7 @@ function makeDecision(overrides: Partial<PendingDecision> = {}): PendingDecision
 }
 
 /** A two-question card — the shape the POST-once rule is actually about. */
-function makeStackedDecision(): PendingDecision {
+function makeStackedDecision(): PendingQuestionDecision {
   const single = makeDecision()
   return {
     ...single,
@@ -712,6 +716,151 @@ describe('sendPrompt while a question is pending', () => {
     ])
 
     expect(api.answerDecision).not.toHaveBeenCalled()
+    expect(api.sendMessage).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Permission prompts and plan approvals
+// (`docs/superpowers/specs/2026-09-23-permission-and-plan-decisions-design.md`).
+// ---------------------------------------------------------------------------
+
+function makeVerdictDecision(
+  overrides: Partial<PendingVerdictDecision> = {},
+): PendingVerdictDecision {
+  return {
+    id: 'tu1',
+    kind: 'permission',
+    toolName: 'Bash',
+    input: { command: 'rm -rf build' },
+    createdAt: 1,
+    ...overrides,
+  }
+}
+
+describe('resolveDecision', () => {
+  beforeEach(() => {
+    vi.mocked(api.resolveDecision).mockResolvedValue({ ok: true })
+  })
+
+  it('posts the verdict and remembers it, so the card flips on the click', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeVerdictDecision() })
+
+    useOrbital.getState().resolveDecision('s1', { approved: true })
+
+    expect(api.resolveDecision).toHaveBeenCalledWith('s1', 'tu1', { approved: true })
+    expect(useOrbital.getState().decisionVerdicts.tu1).toEqual({ approved: true })
+  })
+
+  it('keeps the refusal’s reason, which nothing else ever gets back', () => {
+    // The tool_result the client reads carries only the error flag; the
+    // reason reaches the model and is never echoed to the transcript.
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeVerdictDecision() })
+
+    useOrbital.getState().resolveDecision('s1', { approved: false, message: 'use git clean' })
+
+    expect(useOrbital.getState().decisionVerdicts.tu1).toEqual({
+      approved: false,
+      message: 'use git clean',
+    })
+  })
+
+  it('does nothing on a question — words are its answer, not a verdict', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeDecision() })
+
+    useOrbital.getState().resolveDecision('s1', { approved: true })
+
+    expect(api.resolveDecision).not.toHaveBeenCalled()
+    expect(useOrbital.getState().decisionVerdicts).toEqual({})
+  })
+
+  it('does nothing for a session with nothing parked', () => {
+    useOrbital.getState().resolveDecision('s1', { approved: true })
+    expect(api.resolveDecision).not.toHaveBeenCalled()
+  })
+
+  it('treats a 404 as resolved — the same rule the question path follows', async () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeVerdictDecision() })
+    vi.mocked(api.resolveDecision).mockRejectedValueOnce(new ApiError('gone', 404))
+
+    useOrbital.getState().resolveDecision('s1', { approved: true })
+
+    await vi.waitFor(() => {
+      expect(useOrbital.getState().pendingDecisions.s1).toBeUndefined()
+    })
+    expect(useOrbital.getState().toast).toBeNull()
+  })
+
+  it('reports any other failure', async () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeVerdictDecision() })
+    vi.mocked(api.resolveDecision).mockRejectedValueOnce(new ApiError('boom', 500))
+
+    useOrbital.getState().resolveDecision('s1', { approved: true })
+
+    await vi.waitFor(() => {
+      expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'boom' })
+    })
+  })
+})
+
+describe('sendPrompt while a permission or plan decision is pending', () => {
+  beforeEach(() => {
+    vi.mocked(api.resolveDecision).mockResolvedValue({ ok: true })
+  })
+
+  for (const kind of ['permission', 'plan'] as const) {
+    it(`declines a ${kind} ask with the typed text as the reason`, async () => {
+      useOrbital.getState().applySessionEvent('s1', {
+        event: 'decision_pending',
+        decision: makeVerdictDecision({ kind }),
+      })
+
+      await useOrbital.getState().sendPrompt('s1', 'run the tests first')
+
+      // Typing is never an approval. It is the CLI's own "no, and tell Claude
+      // what to do differently", and it starts no turn of its own.
+      expect(api.resolveDecision).toHaveBeenCalledWith('s1', 'tu1', {
+        approved: false,
+        message: 'run the tests first',
+      })
+      expect(api.sendMessage).not.toHaveBeenCalled()
+      expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+    })
+  }
+
+  it('never posts question answers at a verdict decision', async () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeVerdictDecision() })
+
+    await useOrbital.getState().sendPrompt('s1', 'anything')
+
+    // The server would 400 it, but the real damage is on the other side of
+    // that check: an `answers` key merged into a shell command's input.
+    expect(api.answerDecision).not.toHaveBeenCalled()
+  })
+
+  it('leaves an image-only turn alone here too', async () => {
+    vi.mocked(api.sendMessage).mockResolvedValueOnce({ ok: true })
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeVerdictDecision() })
+
+    await useOrbital.getState().sendPrompt('s1', '  ', [
+      { entry: { ref: 'r1', w: 1, h: 1, bytes: 2 }, name: 'a.png', source: 'file' },
+    ])
+
+    expect(api.resolveDecision).not.toHaveBeenCalled()
     expect(api.sendMessage).toHaveBeenCalled()
   })
 })

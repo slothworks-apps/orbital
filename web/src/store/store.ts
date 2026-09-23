@@ -196,6 +196,15 @@ export interface OrbitalState {
    */
   decisionAnswers: Record<string, AnswerMap>
   /**
+   * The verdict this tab sent for a `permission` or `plan` decision, keyed by
+   * DECISION id — what `decisionAnswers` is for a question, and kept for the
+   * same reason: the card flips to its settled form on the click rather than
+   * on the round trip. It also holds the refusal's reason, which is the one
+   * thing the transcript never gets back (the model sees it; the tool_result
+   * the client reads carries only the error flag).
+   */
+  decisionVerdicts: Record<string, { approved: boolean; message?: string }>
+  /**
    * How many sessions the whole index holds — the hole's label subtracts
    * the drawn planets from this (spec 2026-09-18-tag-clusters-design § 4).
    * Seeded by `GET /api/sessions/count` at load, then tracked off the
@@ -250,6 +259,12 @@ export interface OrbitalActions {
    * arrive with.
    */
   answerQuestion(sessionId: string, question: string, answer: string): void
+  /**
+   * Settles the session's pending `permission` or `plan` decision — the
+   * verdict path, and a no-op on a question, which is answered in words
+   * (spec 2026-09-23-permission-and-plan-decisions-design § Answering).
+   */
+  resolveDecision(sessionId: string, verdict: { approved: boolean; message?: string }): void
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
@@ -425,6 +440,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   errorsUnseen: 0,
   pendingDecisions: {},
   decisionAnswers: {},
+  decisionVerdicts: {},
   sessionsTotal: 0,
   toast: null,
   ui: initialUiState,
@@ -855,19 +871,30 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async sendPrompt(id, text, attachments) {
-    // "Composer text answers the question" (spec § State and lifecycle): while
-    // a question is open the typed words ARE the free-form answer, and no user
-    // turn is enqueued — the text reaches the model as the answer, which is
-    // what it meant. Empty text is not an answer, so an image-only turn still
-    // goes out the normal way.
+    // Composer text settles a parked decision instead of starting a turn, and
+    // what it MEANS depends on the kind:
+    //
+    // - `question` — the typed words ARE the free-form answer (spec
+    //   2026-09-20 § State and lifecycle);
+    // - `permission`/`plan` — they are the CLI's own "no, and tell Claude what
+    //   to do differently": a refusal with a reason in it, never an approval
+    //   (spec 2026-09-23 § Answering).
+    //
+    // Empty text is neither, so an image-only turn still goes out the normal
+    // way.
     const decision = get().pendingDecisions[id]
     if (decision && text.trim()) {
-      const open = openQuestion(
-        decision.input.questions,
-        get().decisionAnswers[decision.id] ?? {},
-      )
-      if (open) {
-        get().answerQuestion(id, open.question, text)
+      if (decision.kind === 'question') {
+        const open = openQuestion(
+          decision.input.questions,
+          get().decisionAnswers[decision.id] ?? {},
+        )
+        if (open) {
+          get().answerQuestion(id, open.question, text)
+          return
+        }
+      } else {
+        get().resolveDecision(id, { approved: false, message: text })
         return
       }
     }
@@ -924,7 +951,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   answerQuestion(sessionId, question, answer) {
     const decision = get().pendingDecisions[sessionId]
-    if (!decision) return
+    // Words only answer a question. A verdict decision parked on the same
+    // session goes through `resolveDecision`, and posting answers at it would
+    // be a 400 from the server.
+    if (decision?.kind !== 'question') return
 
     const answers: AnswerMap = {
       ...(get().decisionAnswers[decision.id] ?? {}),
@@ -946,6 +976,35 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // already showing the answer it sent; all that is left is to stop
       // treating the question as open (spec § State and lifecycle: "first
       // answer wins; the loser's POST gets 404").
+      if (err instanceof ApiError && err.status === 404) {
+        get().applySessionEvent(sessionId, {
+          event: 'decision_resolved',
+          decisionId: decision.id,
+        })
+        return
+      }
+      const message = err instanceof Error ? err.message : 'Failed to send the answer'
+      set({ toast: { kind: 'error', message } })
+    })
+  },
+
+  resolveDecision(sessionId, verdict) {
+    const decision = get().pendingDecisions[sessionId]
+    if (!decision || decision.kind === 'question') return
+
+    // Recorded before the POST for the same reason the question card records
+    // its answers: the card flips to its settled form on the click, and the
+    // refusal's reason has nowhere else to live — the tool_result that comes
+    // back carries only the error flag.
+    set((state) => ({
+      decisionVerdicts: { ...state.decisionVerdicts, [decision.id]: verdict },
+    }))
+
+    api.resolveDecision(sessionId, decision.id, verdict).catch((err) => {
+      // 404 is not a failure: someone else answered first, or the decision was
+      // settled by an interrupt or the session ending. The card already shows
+      // the verdict it sent; all that is left is to stop treating the ask as
+      // open — the same rule the question path follows.
       if (err instanceof ApiError && err.status === 404) {
         get().applySessionEvent(sessionId, {
           event: 'decision_resolved',

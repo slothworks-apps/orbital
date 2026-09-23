@@ -500,6 +500,54 @@ describe('pairMessages', () => {
     ])
   })
 
+  // Permission prompts and plan approvals (spec:
+  // 2026-09-23-permission-and-plan-decisions-design § Web UI).
+
+  it('always lifts ExitPlanMode out of a run — a plan stays worth reading', () => {
+    const messages: ChatMessage[] = [
+      { id: '1', role: 'tool_use', toolName: 'Read', toolInput: {}, toolUseId: 'tu1' },
+      {
+        id: '2',
+        role: 'tool_use',
+        toolName: 'ExitPlanMode',
+        toolInput: { plan: '# Plan' },
+        toolUseId: 'tu2',
+      },
+      { id: '3', role: 'tool_use', toolName: 'Read', toolInput: {}, toolUseId: 'tu3' },
+    ]
+    // No pending decision at all: the plan is a card from its own history.
+    expect(groupToolRuns(pairMessages(messages)).map((g) => g.kind)).toEqual([
+      'tools',
+      'decision',
+      'tools',
+    ])
+  })
+
+  it('lifts the tool the session is parked on, and only while it is parked', () => {
+    const messages: ChatMessage[] = [
+      { id: '1', role: 'tool_use', toolName: 'Bash', toolInput: {}, toolUseId: 'tu1' },
+      { id: '2', role: 'tool_use', toolName: 'Bash', toolInput: {}, toolUseId: 'tu2' },
+    ]
+    const items = pairMessages(messages)
+    expect(groupToolRuns(items, 'tu2').map((g) => g.kind)).toEqual(['tools', 'decision'])
+    // Settled: the CLI records the tool call, never the prompt, so there is
+    // nothing left to draw a card from and the run folds as usual.
+    expect(groupToolRuns(items).map((g) => g.kind)).toEqual(['tools'])
+  })
+
+  it('a parked AskUserQuestion is still a question card, not a permission one', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: '1',
+        role: 'tool_use',
+        toolName: 'AskUserQuestion',
+        toolInput: { questions: [] },
+        toolUseId: 'tu1',
+      },
+    ]
+    expect(groupToolRuns(pairMessages(messages), 'tu1').map((g) => g.kind)).toEqual(['question'])
+  })
+
   it('leaves a tool_use with no matching tool_result as a running item', () => {
     const messages: ChatMessage[] = [
       { id: '1', role: 'tool_use', toolName: 'Bash', toolInput: { command: 'x' }, toolUseId: 'tu1' },
