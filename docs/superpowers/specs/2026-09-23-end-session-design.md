@@ -2,10 +2,11 @@
 id: 2026-09-23-end-session-design
 title: End session — a plain way to close a session from the detail panel
 type: spec
-status: blocked
+status: done
 domain: sessions
 related:
   - what-a-session-waits-for-is-a-label
+  - fold-the-header-strip-when-the-branch-joins
 tags:
   - web
   - server
@@ -14,9 +15,23 @@ tags:
 
 # End session — a plain way to close a session from the detail panel
 
-Agreed with Tomin on 2026-09-23. Blocked on the Claude Design pass for the
-header (see "What Claude Design decides" below); the behaviour here is
-settled and is not for the canvas to change.
+Agreed with Tomin on 2026-09-23. The behaviour here is settled and is not
+for the canvas to change.
+
+**Design:** Claude Design, `Feature - Header actions.dc.html`, artboards
+**23a** (the header strip, the End session tooltip and the End session
+dialog) and **23b** (the Clear, End session and Collapse glyphs, their
+tooltips and states). 23c/23d, the adaptive fold behind `⋯`, are not built:
+see [[fold-the-header-strip-when-the-branch-joins]].
+
+**Built** on 2026-09-23. Where it differs from the text below, the canvas
+won on copy: the End tooltip reads "Stops the agent and moves the session
+to history.", the dialog body "`<title>` stops and moves to history — the
+transcript stays readable there.", and Clear's tooltip became the one-line
+"Clear and start over". With "Clear only" gone, the Clear dialog's body
+drops "or just clear and decide later", and the "Don't ask again" path
+now clears and starts new too (it used to clear only), so nothing in the
+web app sends `startNew: false`.
 
 ## The problem
 

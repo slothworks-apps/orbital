@@ -92,25 +92,90 @@ export function UtilityButton({
  */
 const STROKE = '1.4px'
 
-/** Clear: a left-pointing arrow, one shaft and two heads (9d). */
+/**
+ * Clear: an eraser on the baseline it just wiped (canvas `Feature - Header
+ * actions` 23b). It replaced 9d's left arrow, which read as "back".
+ */
 export function ClearGlyph() {
   return (
     // `block`: an inline box ignores width/height (web/CLAUDE.md), and the
-    // three absolute pieces need this one to be their containing block.
-    <span aria-hidden className="relative block" style={{ width: '11.5px', height: '11.5px' }}>
+    // absolute pieces need this one to be their containing block.
+    <span aria-hidden className="relative block" style={{ width: '13px', height: '12px' }}>
+      {/* The body, tilted; a band across it splits off the tip. */}
       <span
-        className="absolute top-1/2 left-px block rounded-[1px] bg-current"
-        style={{ width: '9.5px', height: STROKE, marginTop: '-0.7px' }}
-      />
-      {[42, -42].map((deg) => (
+        className="absolute box-border block"
+        style={{
+          left: '2px',
+          top: '2.75px',
+          width: '10px',
+          height: '6px',
+          border: `${STROKE} solid currentColor`,
+          borderRadius: '1.5px',
+          transform: 'rotate(-45deg)',
+        }}
+      >
         <span
-          key={deg}
-          className="absolute top-1/2 left-px block origin-left rounded-[1px] bg-current"
+          className="absolute block bg-current"
+          style={{ left: '3.2px', top: `-${STROKE}`, bottom: `-${STROKE}`, width: STROKE }}
+        />
+      </span>
+      <span
+        className="absolute bottom-0 block rounded-[1px] bg-current"
+        style={{ left: '6px', width: '7px', height: STROKE }}
+      />
+    </span>
+  )
+}
+
+/**
+ * End session: the power ring — a ring open at the top with a bar through the
+ * gap, the universal "off" (canvas 23b). Kept apart from `RefreshGlyph`'s
+ * ring, which has an arrowhead instead of a bar.
+ */
+export function EndGlyph() {
+  const gap = 'conic-gradient(from -36deg, transparent 0 72deg, #000 72deg)'
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '12px' }}>
+      <span
+        className="absolute box-border block rounded-full"
+        style={{
+          left: '1px',
+          top: '1.5px',
+          width: '10px',
+          height: '10px',
+          border: `${STROKE} solid currentColor`,
+          mask: gap,
+          WebkitMask: gap,
+        }}
+      />
+      <span
+        className="absolute top-0 left-1/2 block rounded-[1px] bg-current"
+        style={{ width: STROKE, height: '6.2px', marginLeft: '-0.7px' }}
+      />
+    </span>
+  )
+}
+
+/**
+ * Collapse: two chevrons pointing off-canvas — the sidebar rail's `»` redrawn
+ * in the strip's stroke (canvas 23b), so the header says "slide the panel
+ * away" rather than "close something".
+ */
+export function CollapseGlyph() {
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '10px' }}>
+      {[0, 5].map((left) => (
+        <span
+          key={left}
+          className="absolute box-border block"
           style={{
+            left: `${left}px`,
+            top: '2.5px',
             width: '5px',
-            height: STROKE,
-            marginTop: '-0.7px',
-            transform: `rotate(${deg}deg)`,
+            height: '5px',
+            borderTop: `${STROKE} solid currentColor`,
+            borderRight: `${STROKE} solid currentColor`,
+            transform: 'rotate(45deg)',
           }}
         />
       ))}

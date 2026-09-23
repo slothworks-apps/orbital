@@ -33,12 +33,13 @@ function LineagePreviewOrbs() {
 }
 
 /**
- * Confirms `/clear`ing a session's transcript (artboard 1g). "Clear only"
- * ends the turn and wipes history; "Clear & start new" also spawns a
- * follow-on session (server response carries the new `sessionId`), which
- * this dialog then selects. "Don't ask again" persists
+ * Confirms `/clear`ing a session's transcript (artboard 1g): "Clear & start
+ * new" ends the session and spawns a follow-on one (server response carries
+ * the new `sessionId`), which this dialog then selects. There is no "Clear
+ * only" any more — ending without a successor is the header's End session
+ * (spec 2026-09-23-end-session-design). "Don't ask again" persists
  * `confirm_before_clear: 'false'` so `DetailPanel`'s header Clear button
- * skips this dialog entirely next time (clear-only, per the task ruling).
+ * skips this dialog entirely next time and does the same clear-and-start-new.
  */
 export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialogProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
@@ -101,14 +102,14 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
   }
 
   const handleClear = useCallback(
-    async (startNew: boolean) => {
+    async () => {
       if (!targetId || pending) return
       setPending(true)
       try {
         await persistDontAskAgain()
-        const result = await api.clearSession(targetId, startNew)
+        const result = await api.clearSession(targetId, true)
         onCleared?.(targetId)
-        if (startNew && result.sessionId) {
+        if (result.sessionId) {
           void useOrbital.getState().select(result.sessionId)
         }
         onClose()
@@ -122,14 +123,15 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
     [targetId, pending, dontAskAgain, onClose, onCleared],
   )
 
-  // ⏎ starts a new session, ⇧⏎ clears only — the shortcuts the export's
-  // footer caption advertises ("esc · ⇧⏎ clear only · ⏎ new").
+  // ⏎ clears and starts a new session ("esc · ⏎ new"). Ending without a
+  // successor is the header's End session now (spec
+  // 2026-09-23-end-session-design), so ⇧⏎ no longer means "clear only".
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.metaKey || e.ctrlKey) return
+      if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.shiftKey) return
       e.preventDefault()
-      void handleClear(!e.shiftKey)
+      void handleClear()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -148,23 +150,13 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
       // Lowercase per the spec, not the export's "/CLEAR".
       eyebrow="/clear"
       onClose={onClose}
-      footerCaption="esc · ⇧⏎ clear only · ⏎ new"
+      footerCaption="esc · ⏎ new"
       footer={
         <>
           <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          {/* 1g gives "Clear only" an accent outline, a step up from Cancel's
-              neutral one and a step below the filled primary. */}
-          <Button
-            variant="accent-outline"
-            size="lg"
-            onClick={() => void handleClear(false)}
-            disabled={pending}
-          >
-            Clear only
-          </Button>
-          <Button variant="primary" size="lg" onClick={() => void handleClear(true)} disabled={pending}>
+          <Button variant="primary" size="lg" onClick={() => void handleClear()} disabled={pending}>
             <span aria-hidden className="text-sm leading-none">
               ↻
             </span>
@@ -182,8 +174,8 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
               {currentGen !== null ? ` #${currentGen}` : ''}
             </span>
           )}
-          {session?.title ? ' ends' : 'This session ends'} and moves to history. Start a new session
-          in the same project (inherits its settings), or just clear and decide later.
+          {session?.title ? ' ends' : 'This session ends'} and moves to history. A new session starts in
+          the same project and inherits its settings.
         </p>
 
         <div className="mt-3.5 flex items-center rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3">

@@ -108,7 +108,7 @@ export interface OrbitalUiState {
   search: string
   sourceFilter: 'all' | SessionSource
   wsStatus: string
-  dialog: null | 'new' | 'clear' | 'stop' | 'settings' | 'errors'
+  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'settings' | 'errors'
   /**
    * The file the read-only viewer is showing over the app, or null when it
    * is closed (spec: 2026-09-19-file-viewer-design). Plain synchronous UI
@@ -351,6 +351,13 @@ export interface OrbitalActions {
   setSessionDismissed(id: string, dismissed: boolean): Promise<void>
   /** Pins (or unpins) a session — the manual exemption from the release timer. */
   setSessionPinned(id: string, pinned: boolean): Promise<void>
+  /**
+   * Ends a session Orbital runs (spec 2026-09-23-end-session-design). Nothing
+   * is written here: the server publishes the `ended` status on the
+   * `sessions` topic like any other. Rejects when the request fails, so the
+   * confirm dialog can stay open and report it.
+   */
+  endSession(id: string): Promise<void>
   /** Moves (or, with null, clears) a tag clump's stored home on the map. */
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
@@ -1384,6 +1391,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
    * read as a bug. The rollback is wrapped too: a failed save sends the row
    * back, which is the same move in reverse.
    */
+  async endSession(id) {
+    await api.endSession(id)
+  },
+
   async setSessionPinned(id, pinned) {
     const session = get().sessions[id]
     if (!session) return
