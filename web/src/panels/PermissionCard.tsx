@@ -175,8 +175,8 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
   const live = mode === 'interactive'
   // Canvas 20b C: the bridge asked us to default to "no" on this one. The
   // guard is neutral, not hue — a brighter ink border and one double hairline
-  // ring. It is appearance only; see the module comment on why the card grows
-  // no hold-to-approve to go with it.
+  // ring — and it also puts a brake on the approve button, whose shape is the
+  // reader's setting (adr how-hard-it-is-to-say-yes-is-the-readers-choice).
   const guarded = live && decision.defaultToNo === true
   // A card nobody can answer here reads its input at the quieter weight the
   // rest of its chrome already uses (canvas 20b H).
