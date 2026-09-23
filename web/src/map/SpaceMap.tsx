@@ -1200,18 +1200,36 @@ export function SpaceMap() {
           </div>
         </div>
 
-        <Button
-          variant="cta"
-          size="lg"
-          className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2"
-          onClick={() => setDialog('new')}
+        {/* Centred on the visible strip of map — between the sidebar and the
+            open right-hand panels — not on the whole container, whose centre
+            lands under the zoom column once the panels are wide. The wrapper
+            spans the strip and lets clicks through to the map; it moves on
+            the same curve as the other overlays and drops it mid-drag. */}
+        <div
+          data-overlay="new-session"
+          style={{ left: mapInsets.left, right: mapInsets.right }}
+          className={[
+            'pointer-events-none absolute bottom-6 flex justify-center',
+            resizingPanel
+              ? ''
+              : 'transition-[left,right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
+          ]
+            .filter(Boolean)
+            .join(' ')}
         >
-          <span aria-hidden className="text-base leading-none text-accent">+</span>
-          New session
-          <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(200,220,245,.7)]">
-            ⌥N
-          </span>
-        </Button>
+          <Button
+            variant="cta"
+            size="lg"
+            className="pointer-events-auto"
+            onClick={() => setDialog('new')}
+          >
+            <span aria-hidden className="text-base leading-none text-accent">+</span>
+            New session
+            <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(200,220,245,.7)]">
+              ⌥N
+            </span>
+          </Button>
+        </div>
 
         <div
           className="orbital-sloth pointer-events-none absolute"
