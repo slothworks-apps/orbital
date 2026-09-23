@@ -176,7 +176,7 @@ export function createScroller(el: HTMLElement): Scroller {
  * The rows that just arrived at the bottom — the trailing run of keys that
  * were not in the previous render.
  *
- * Only a trailing run counts, and that is the whole point. "Load older"
+ * Only a trailing run counts, and that is the whole point. Paging older history
  * prepends a page of keys that are every bit as new to this component, and
  * lighting those up would flash a screenful of history the reader asked to
  * see, not to be shown. Walking back from the end stops at the first

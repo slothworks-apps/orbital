@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { recordedFailureFor, useOrbital } from '../store/store'
 import type { ChatMessage, Subagent } from '../lib/types'
 import { Button } from '../ui/Button'
-import { TranscriptView, pairMessages } from './TranscriptView'
+import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
 
 /** Stable empty array — a fresh `[]` fallback on every selector call would
  * defeat `useShallow`'s equality check and re-render on every store tick. */
@@ -30,6 +30,8 @@ export function openToolUse(messages: ChatMessage[]): ChatMessage | undefined {
 
 export interface TranscriptProps {
   sessionId: string
+  /** Injectable observer for the infinite scroll's sentinel (tests). */
+  observerFactory?: ScrollObserverFactory
 }
 
 /**
@@ -37,10 +39,10 @@ export interface TranscriptProps {
  * status and error state out of the store and hands them to `TranscriptView`
  * for rendering. `TranscriptView` owns everything generic over a message
  * array (pairing, folding, scroll anchoring); this component owns
- * everything that requires knowing this is a *session* — its "load older"
- * pagination and the SDK-crash error banner.
+ * everything that requires knowing this is a *session* — fetching its older
+ * history and the SDK-crash error banner.
  */
-export function Transcript({ sessionId }: TranscriptProps) {
+export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   const messages = useOrbital(useShallow((s) => s.transcripts[sessionId] ?? []))
   const loadOlder = useOrbital((s) => s.loadOlder)
   // Drives 1b's blinking caret on the turn that's still being written.
@@ -77,7 +79,6 @@ export function Transcript({ sessionId }: TranscriptProps) {
     [openSubagent, sessionId]
   )
 
-  const [loadingOlder, setLoadingOlder] = useState(false)
   const [exhausted, setExhausted] = useState(false)
 
   // `TranscriptView` resets its own windowing/scroll state off `resetKey`,
@@ -87,22 +88,19 @@ export function Transcript({ sessionId }: TranscriptProps) {
     setExhausted(false)
   }, [sessionId])
 
-  // Fetches the next page and reports back how many messages it contained,
-  // so `TranscriptView` can grow its visible window by exactly that many
-  // (bounded growth — a click reveals that page, not the whole backlog).
-  // `loadOlder` itself prepends the fetched messages into the store, which
-  // is what actually grows `messages` above.
+  // Fetches the next page and reports back how many messages it added, so
+  // `TranscriptView` can grow its visible window by exactly that many
+  // (bounded growth — one scroll to the top reveals that page, not the whole
+  // backlog). `loadOlder` itself prepends the fetched messages into the
+  // store, which is what actually grows `messages` above. An empty page ends
+  // the paging for this session; a failed one (`null`) does not, so the next
+  // scroll up tries again. The view guards against overlapping calls.
   const handleLoadOlder = useCallback(async () => {
-    if (loadingOlder) return 0
-    setLoadingOlder(true)
-    try {
-      const fetched = await loadOlder(sessionId)
-      if (fetched.length === 0) setExhausted(true)
-      return fetched.length
-    } finally {
-      setLoadingOlder(false)
-    }
-  }, [loadOlder, sessionId, loadingOlder])
+    const added = await loadOlder(sessionId)
+    if (added === null) return null
+    if (added.length === 0) setExhausted(true)
+    return added.length
+  }, [loadOlder, sessionId])
 
   return (
     <TranscriptView
@@ -113,8 +111,8 @@ export function Transcript({ sessionId }: TranscriptProps) {
       sessionId={sessionId}
       pendingDecisionId={pendingDecisionId}
       onLoadOlder={handleLoadOlder}
-      loadingOlder={loadingOlder}
       exhausted={exhausted}
+      observerFactory={observerFactory}
       subagents={subagents}
       onOpenSubagent={handleOpenSubagent}
       footer={

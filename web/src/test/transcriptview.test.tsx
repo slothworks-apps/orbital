@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import type { ChatMessage } from '../lib/types'
 import { TranscriptView } from '../panels/TranscriptView'
 
@@ -13,8 +13,9 @@ import { TranscriptView } from '../panels/TranscriptView'
 
 const messages: ChatMessage[] = [{ id: '1', role: 'user', text: 'hello' }]
 
-describe('TranscriptView — load-older is optional', () => {
-  it('renders no "load older" control when onLoadOlder is absent (a finite, unpaginated buffer)', () => {
+describe('TranscriptView — paging is optional', () => {
+  it('watches nothing for a finite, unpaginated buffer that fits its window', () => {
+    const observerFactory = vi.fn(() => ({ observe() {}, disconnect() {} }))
     render(
       <TranscriptView
         messages={messages}
@@ -22,12 +23,15 @@ describe('TranscriptView — load-older is optional', () => {
         models={[]}
         resetKey="a"
         sessionId="s1"
+        observerFactory={observerFactory}
       />
     )
-    expect(screen.queryByRole('button', { name: /load older/i })).not.toBeInTheDocument()
+    expect(observerFactory).not.toHaveBeenCalled()
   })
 
-  it('renders a "load older" control when onLoadOlder is supplied', () => {
+  it('pages through onLoadOlder when the reader reaches the top', async () => {
+    let reachTop: IntersectionObserverCallback = () => {}
+    const onLoadOlder = vi.fn(async () => 0)
     render(
       <TranscriptView
         messages={messages}
@@ -35,10 +39,17 @@ describe('TranscriptView — load-older is optional', () => {
         models={[]}
         resetKey="a"
         sessionId="s1"
-        onLoadOlder={async () => 0}
+        onLoadOlder={onLoadOlder}
+        observerFactory={(callback) => {
+          reachTop = callback
+          return { observe() {}, disconnect() {} }
+        }}
       />
     )
-    expect(screen.getByRole('button', { name: /load older/i })).toBeInTheDocument()
+    await act(async () => {
+      reachTop([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+    })
+    expect(onLoadOlder).toHaveBeenCalledTimes(1)
   })
 })
 

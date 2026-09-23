@@ -362,7 +362,7 @@ body {
    reflows its own text while you are reading it, and it moves the bottom that
    the scroller is easing toward, from both ends at once. Which rows count as
    arriving is `transcriptMotion.ts`'s `enteringKeys` — not every row that is
-   new to the DOM (a "load older" page is new too, and must not light up). */
+   new to the DOM (a page of older history is new too, and must not light up). */
 @keyframes orbital-row-enter {
   from {
     opacity: 0;

@@ -71,9 +71,39 @@ describe('launchSession', () => {
       message: { id: 'm1', role: 'assistant', text: 'first' },
     })
 
-    expect(useOrbital.getState().transcripts[id]).toEqual([
-      { id: 'm1', role: 'assistant', text: 'first' },
+    expect(useOrbital.getState().transcripts[id].map((m) => m.text)).toEqual(['go', 'first'])
+  })
+
+  /**
+   * The Runner publishes no user turn and the first REST read finds no file
+   * yet, so the prompt the session was launched with is the store's to show —
+   * the same optimistic turn `sendPrompt` appends for every later one.
+   */
+  it('shows the first prompt above whatever the session answers, even a reply that lands mid-request', async () => {
+    vi.mocked(api.createSession).mockImplementation(async (body) => {
+      handlers.get(`session:${body.sessionId}`)!({
+        event: 'message',
+        message: { id: 'm1', role: 'assistant', text: 'on it' },
+      })
+      return body.sessionId!
+    })
+
+    const id = await useOrbital.getState().launchSession({ ...LAUNCH })
+
+    const transcript = useOrbital.getState().transcripts[id]
+    expect(transcript.map((m) => [m.role, m.text])).toEqual([
+      ['user', 'go'],
+      ['assistant', 'on it'],
     ])
+    expect(transcript[0].id).toMatch(/^local:/)
+  })
+
+  it('drops the first prompt again when the launch is refused', async () => {
+    vi.mocked(api.createSession).mockRejectedValue(new Error('no such directory'))
+
+    await expect(useOrbital.getState().launchSession({ ...LAUNCH })).rejects.toThrow()
+
+    expect(useOrbital.getState().transcripts).toEqual({})
   })
 
   it('releases the subscription when the session ends', async () => {
