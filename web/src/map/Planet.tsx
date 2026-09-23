@@ -3,7 +3,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { awaitingSubagentCount, awaitingSubagentLabel, parkedLabel } from '../lib/types'
+import { asksForHuman, awaitingSubagentCount, awaitingSubagentLabel, parkedLabel } from '../lib/types'
 import {
   BODY_RADIUS,
   CONTEXT_GAUGE_OUTER,
@@ -1115,6 +1115,30 @@ export function Planet({
    */
   const pillFade = useFadeTween(pillLabel !== null, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
   const pillMounted = useLingering(pillLabel !== null, STATE_TRANSITION_MS)
+  /**
+   * The pill's dot pulses only while something is live: a question parked on
+   * the human, or a working planet listening for its agents. INTERRUPTED and
+   * DONE both mean "something stopped, nothing is happening" — steady dot.
+   */
+  const pillPulses =
+    !session.interruptedAt && (session.status !== 'needs_input' || asksForHuman(session))
+  /**
+   * Gate on the needs-input ripple ring, multiplied into the weight the state
+   * mix gives it. The ring says "you are being waited for", which a DONE
+   * planet is not (`asksForHuman`). DONE and NEEDS INPUT share the
+   * `needs_input` status, so the mix never moves when a decision parks or
+   * resolves; this tween fades the ring on that flip instead of snapping it.
+   * An interrupted planet keeps its ring, as before.
+   *
+   * It follows the decision itself rather than "not DONE": leaving
+   * `needs_input` already fades the ring out through the mix, and a gate
+   * rising against that fall (DONE → working) would flash a ghost ring.
+   */
+  const rippleFade = useFadeTween(
+    Boolean(session.interruptedAt) || asksForHuman(session),
+    STATE_TRANSITION_MS,
+    STATE_TRANSITION_MS,
+  )
   /** The last label it had, so a pill on its way out fades with its own word. */
   const lastPillLabel = useRef(pillLabel)
   if (pillLabel) lastPillLabel.current = pillLabel
@@ -1462,11 +1486,13 @@ export function Planet({
     materials.halo.opacity = b.haloOpacity * breath * hide.opacity
     materials.halo.visible = materials.halo.opacity > 0.001
 
-    if (b.ripple > 0.001) {
+    advanceTween(rippleFade, delta)
+    const ripple = b.ripple * rippleFade.value
+    if (ripple > 0.001) {
       rippleElapsed.current = (rippleElapsed.current + delta) % RIPPLE_DURATION_SEC
       const progress = easeOut(rippleElapsed.current / RIPPLE_DURATION_SEC)
       if (rippleRef.current) rippleRef.current.scale.setScalar(1 + progress * (RIPPLE_MAX_SCALE - 1))
-      materials.ripple.opacity = RIPPLE_START_OPACITY * (1 - progress) * b.ripple * hide.opacity
+      materials.ripple.opacity = RIPPLE_START_OPACITY * (1 - progress) * ripple * hide.opacity
       materials.ripple.visible = true
     } else {
       rippleElapsed.current = 0
@@ -1638,10 +1664,7 @@ export function Planet({
       {pillMounted && shownPillLabel && (
         <StatePill
           label={shownPillLabel}
-          // Nothing is happening on an interrupted planet — something
-          // stopped. The other two are both live in their own way: one is
-          // asking, one is listening for its agents.
-          pulse={!session.interruptedAt}
+          pulse={pillPulses}
           innerRef={badgeRef}
           clearsGauge={gaugeMounted && shownFill !== null}
           initialOpacity={pillFade.value * endedHideTransform(hideFade.value).opacity}

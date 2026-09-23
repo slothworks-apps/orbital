@@ -619,7 +619,19 @@ export const awaitingSubagentLabel = (count: number): string =>
  * `decision_pending` event is never heard — can answer this too.
  */
 export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision'>): string =>
-  session.pendingDecision ? 'NEEDS INPUT' : 'DONE'
+  asksForHuman(session) ? 'NEEDS INPUT' : 'DONE'
+
+/**
+ * Whether a parked session is actually blocked on the human — the NEEDS INPUT
+ * half of `parkedLabel`, as a boolean. The map draws its "you are being
+ * waited for" signals (the needs-input ripple ring, the pill's pulsing dot)
+ * only when this holds; a DONE planet goes without both, the way INTERRUPTED
+ * goes without the dot (ADR what-a-session-waits-for-is-a-label). One
+ * predicate, so the pill's word and the planet's ring cannot disagree.
+ */
+export function asksForHuman(session: Pick<ApiSession, 'pendingDecision'>): boolean {
+  return Boolean(session.pendingDecision)
+}
 
 /**
  * True for a session Orbital does not own: one it indexed from another

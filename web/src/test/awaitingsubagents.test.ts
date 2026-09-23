@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { awaitingSubagentCount, awaitingSubagentLabel, parkedLabel } from '../lib/types'
+import { asksForHuman, awaitingSubagentCount, awaitingSubagentLabel, parkedLabel } from '../lib/types'
 import type { ApiSession, Subagent } from '../lib/types'
 
 const agent = (id: string, state: Subagent['state'] = 'working'): Subagent => ({
@@ -70,5 +70,14 @@ describe('parkedLabel', () => {
     // both — this is the only thing that tells them apart.
     expect(parkedLabel({ pendingDecision: null })).toBe('DONE')
     expect(parkedLabel({ pendingDecision: undefined })).toBe('DONE')
+  })
+
+  it('agrees with asksForHuman, which gates the ring and the pulsing dot', () => {
+    // A DONE pill over a rippling planet (or the reverse) is the map
+    // contradicting itself.
+    const decision = { id: 'tu-1', kind: 'permission' } as never
+    for (const pendingDecision of [decision, null, undefined]) {
+      expect(asksForHuman({ pendingDecision })).toBe(parkedLabel({ pendingDecision }) === 'NEEDS INPUT')
+    }
   })
 })
