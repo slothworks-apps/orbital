@@ -15,9 +15,11 @@ import {
   SAME_TAG_GAP,
   SEPARATION_SAME,
   CROSS_TAG_GAP,
+  LABEL_HALF_SPAN,
   type SimInput,
   type SimState,
 } from '../map/simulation'
+import { GOLDEN_ANGLE, MIN_GAP, SPIRAL_SAFETY_MARGIN } from '../map/layout'
 
 /**
  * The spring simulation is pure and deterministic: no Math.random, no
@@ -349,11 +351,51 @@ describe('footprints and separation', () => {
   }
 
   it('measures the clearance from the footprints, leaving the canvas gap alone', () => {
-    expect(minDistance(1, 1, true)).toBeCloseTo(2 + SAME_TAG_GAP, 10)
-    expect(minDistance(1, 1, false)).toBeCloseTo(2 + CROSS_TAG_GAP, 10)
+    expect(minDistance(3, 3, true)).toBeCloseTo(6 + SAME_TAG_GAP, 10)
+    expect(minDistance(3, 3, false)).toBeCloseTo(6 + CROSS_TAG_GAP, 10)
     // Zooming out inflates the drawn bodies, so it inflates what they are
     // kept clear of — but never the empty space the canvas specifies.
-    expect(minDistance(1, 1, true, 1.7)).toBeCloseTo(3.4 + SAME_TAG_GAP, 10)
+    expect(minDistance(3, 3, true, 1.7)).toBeCloseTo(10.2 + SAME_TAG_GAP, 10)
+  })
+
+  it('never measures a body as narrower than half its label', () => {
+    // The label does not shrink with the body: an ended planet is kept as
+    // far from its neighbour as an active one, and a moon system that
+    // reaches past half a label is still measured by its moons.
+    expect(minDistance(0.44, 0.44, true)).toBe(minDistance(1, 1, true))
+    expect(minDistance(0.44, 1, true)).toBeCloseTo(2 * LABEL_HALF_SPAN + SAME_TAG_GAP, 10)
+    expect(minDistance(3, 0.44, true)).toBeCloseTo(3 + LABEL_HALF_SPAN + SAME_TAG_GAP, 10)
+  })
+
+  it('settles a mixed cluster with every pair a full label width apart', () => {
+    // Active, idle and ended planets seeded on the layout's golden-angle
+    // spiral, as the scene model seeds them. Before labels counted, the
+    // small ones settled well inside a label width of their neighbours and
+    // the names ran across each other.
+    const scales = [1, 1, 0.71, 0.71, 0.44, 0.44]
+    const k = 2 * Math.max(...scales) + MIN_GAP + SPIRAL_SAFETY_MARGIN
+    const sim = createSimulation()
+    reconcileSimulation(sim, {
+      bodies: scales.map((r, i) => ({
+        id: `m${i}`,
+        tagId: 1,
+        x: k * Math.sqrt(i) * Math.cos(i * GOLDEN_ANGLE),
+        y: k * Math.sqrt(i) * Math.sin(i * GOLDEN_ANGLE),
+        r,
+        live: r === 1,
+        released: false,
+      })),
+      anchors: [{ tagId: 1, x: 0, y: 0 }],
+      hole: { x: 100, y: -100 },
+    })
+    settleSimulation(sim)
+    const bodies = [...sim.bodies.values()]
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        const d = Math.hypot(bodies[i].x - bodies[j].x, bodies[i].y - bodies[j].y)
+        expect(d).toBeGreaterThan(2 * LABEL_HALF_SPAN)
+      }
+    }
   })
 
   it('settles bigger footprints further apart, never inside one another', () => {

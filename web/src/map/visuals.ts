@@ -411,6 +411,22 @@ const LABEL_FAMILY_PX = 9.5
 const LABEL_TITLE_FLOOR_PX = 10
 const LABEL_FAMILY_FLOOR_PX = 9.5
 
+/** The title line's `letter-spacing` in `Planet`'s label, in em. */
+export const LABEL_TITLE_TRACKING_EM = 0.06
+/** JetBrains Mono is monospaced: every glyph advances 600/1000 of an em. */
+const MONO_ADVANCE_EM = 0.6
+/**
+ * The widest a resting planet label can be, in CSS px: LABEL_MAX_CHARS
+ * glyphs of the title at LABEL_TITLE_PX, each one advance plus the tracking.
+ * The title is the wider of the two lines (the family line is a single
+ * short word), so this is the label's width at the default Appearance
+ * settings; with "Scale labels with bodies" on, the title can grow past it.
+ * Read by the simulation, which keeps neighbours far enough apart for two
+ * of these to sit side by side (`LABEL_HALF_SPAN` in `simulation.ts`).
+ */
+export const LABEL_MAX_WIDTH_PX =
+  LABEL_MAX_CHARS * LABEL_TITLE_PX * (MONO_ADVANCE_EM + LABEL_TITLE_TRACKING_EM)
+
 /**
  * Label font sizes under the Appearance settings (canvas 5a): with "Scale
  * labels with bodies" off the canvas sizes hold at every `planet_scale`;

@@ -57,3 +57,8 @@ planets rests exactly where the canvas script put it — verified as
 bit-identical in `simulation.test.ts`. Bodies smaller than the reference
 (idle, ended) now push a little more gently than the canvas did, which is
 the same rule read the other way and is what their smaller bodies want.
+
+Later: a clump of plain active planets no longer rests exactly where the
+canvas script put it — every body is now measured as at least half a
+label wide, which widens the reference pair too
+(`separation-reaches-at-least-half-a-label`).

@@ -20,7 +20,9 @@
  * React: the driver holds it in a ref and applies positions imperatively.
  */
 
+import { REFERENCE_ZOOM } from './camera'
 import { PLANET_BASE_RADIUS } from './layout'
+import { LABEL_MAX_WIDTH_PX } from './visuals'
 
 // --- Constants, canvas 4a script -------------------------------------------
 // The canvas map is pixel-based; its working planet body is r=34px while the
@@ -38,14 +40,29 @@ const HOME_K = 0.0004
 /** Velocity damping per tick (canvas: `* 0.92`). */
 const DAMPING = 0.92
 
-/** Clearance kept between same-tag bodies beyond r₁+r₂ (canvas 4a footer: "96 px same tag"). */
+/** Clearance kept between same-tag bodies beyond their two reaches (canvas 4a footer: "96 px same tag"; see `minDistance`). */
 export const SAME_TAG_GAP = 96 * PX
-/** Clearance kept between different-tag bodies beyond r₁+r₂ (canvas 4a footer: "190 px across tags"). */
+/** Clearance kept between different-tag bodies beyond their two reaches (canvas 4a footer: "190 px across tags"). */
 export const CROSS_TAG_GAP = 190 * PX
 /** Separation acceleration once the two footprints touch, same tag (canvas: `0.34` px). */
 export const SEPARATION_SAME = 0.34 * PX
 /** Separation acceleration once the two footprints touch, different tags (canvas: `0.32` px). */
 const SEPARATION_CROSS = 0.32 * PX
+
+/**
+ * Half the widest resting planet label, in world units at REFERENCE_ZOOM:
+ * the least room any body takes up sideways, whatever its footprint.
+ *
+ * NOT a canvas 4a value — a deviation from the script. The canvas measures
+ * its gaps between bare bodies because its demo planets carry no labels;
+ * the map's labels are fixed screen px (`LABEL_MAX_WIDTH_PX`) and do not
+ * shrink with the body, so an idle or ended planet's label is wider than
+ * its whole footprint pair. Measured against body radii alone, a small
+ * planet settled with its label across its neighbour's, and a selected
+ * planet's reticle across the next one's state pill (ADR
+ * `separation-reaches-at-least-half-a-label`).
+ */
+export const LABEL_HALF_SPAN = LABEL_MAX_WIDTH_PX / 2 / REFERENCE_ZOOM
 
 /** The hole's repulsion halo (canvas: `hd < 300`): bonded bodies inside get pushed out. */
 export const HOLE_REPEL_RADIUS = 300 * PX
@@ -358,16 +375,23 @@ export function settleSimulation(sim: SimState, zoomFactor = 1): SimEvents {
 }
 
 /**
- * How close two bodies' centres are allowed to get: their two footprints,
- * plus the design's empty clearance between them (96px same tag, 190px
- * across tags, canvas 4a).
+ * How close two bodies' centres are allowed to get: their two reaches, plus
+ * the design's empty clearance between them (SAME_TAG_GAP / CROSS_TAG_GAP,
+ * canvas 4a).
  *
- * The footprints — and only the footprints — are multiplied by
- * `zoomFactor`, which is `bodyZoomFactor(zoom)`: zooming out draws every
- * body up to 1.7x larger than its world radius, and separation that ignored
- * that would let two inflated moon systems grow through each other at the
- * far view. The clearance itself is left alone, so the empty space between
- * two moonless planets at the default zoom stays exactly the canvas's.
+ * A body's reach is its footprint, but never less than LABEL_HALF_SPAN:
+ * the label under a planet is wider than the planet, and wider still next
+ * to an idle or ended one, so two footprints alone let neighbouring labels
+ * settle across each other. A planet whose moons reach further than half a
+ * label is measured by its moons, exactly as before.
+ *
+ * The reaches — and only the reaches — are multiplied by `zoomFactor`,
+ * which is `bodyZoomFactor(zoom)`: zooming out draws every body up to its
+ * cap larger than its world radius, and separation that ignored that would
+ * let two inflated moon systems grow through each other at the far view.
+ * The clearance itself is left alone. The label's own growth past the
+ * counter-zoom at the far view is not tracked: that view is for finding a
+ * clump, not for reading its names.
  *
  * Pure and exported for unit tests.
  */
@@ -377,13 +401,16 @@ export function minDistance(
   sameTag: boolean,
   zoomFactor = 1
 ): number {
-  return (r1 + r2) * zoomFactor + (sameTag ? SAME_TAG_GAP : CROSS_TAG_GAP)
+  const reach = (r: number) => Math.max(r, LABEL_HALF_SPAN)
+  return (reach(r1) + reach(r2)) * zoomFactor + (sameTag ? SAME_TAG_GAP : CROSS_TAG_GAP)
 }
 
 /**
  * The pair the canvas script was tuned against: two active planets, each
- * `PLANET_BASE_RADIUS`. `separation` reproduces the canvas exactly at this
- * size and departs from it only as bodies grow past it.
+ * `PLANET_BASE_RADIUS`. `separation` reproduces the canvas formula exactly
+ * at this size and departs from it only as bodies grow past it. The pair's
+ * `min` is measured by `minDistance` like any other, so it includes the
+ * LABEL_HALF_SPAN floor — wider than the canvas's own bare-body pair.
  */
 const referenceMin = (sameTag: boolean) => minDistance(PLANET_BASE_RADIUS, PLANET_BASE_RADIUS, sameTag)
 
