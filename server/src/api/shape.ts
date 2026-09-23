@@ -4,6 +4,8 @@ import type { PendingDecision, Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '../types.js';
 import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
+import type { GitStore } from '../git/store.js';
+import type { GitLocation } from '../git/gitState.js';
 
 /**
  * Minimal context `toApiSession` needs to compute the REST session shape.
@@ -16,6 +18,7 @@ export interface ShapeContext {
   registry: SessionRegistry;
   runner: Runner;
   subagents: SubagentStore;
+  git: GitStore;
 }
 
 export interface ApiSession {
@@ -84,6 +87,14 @@ export interface ApiSession {
    * 2026-09-20-interactive-decisions-design § State and lifecycle).
    */
   pendingDecision: PendingDecision | null;
+  /**
+   * Where this session's `cwd` sits in git right now, or null when it is not
+   * inside a repository — the live state of a directory rather than a record
+   * of the session, which is why nothing about it is stored on the row (adr
+   * `git-location-is-ambient-not-recorded`). The browser picks the trunk,
+   * fork or tree mark from these facts; the mark itself is not on the wire.
+   */
+  git: GitLocation | null;
 }
 
 export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
@@ -117,5 +128,6 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     awaitingSubagents: ctx.runner.awaitingSubagents(row.id),
     subagents: ctx.subagents.get(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
+    git: ctx.git.locate(row.cwd),
   };
 }

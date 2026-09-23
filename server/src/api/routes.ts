@@ -25,6 +25,7 @@ import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { toApiSession } from './shape.js';
 import type { SubagentStore } from '../transcript/subagents.js';
+import type { GitStore } from '../git/store.js';
 import type { ChatMessage, ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
@@ -47,6 +48,9 @@ export interface RouteContext {
   imagesDir: string;
   models: ModelCatalog;
   subagents: SubagentStore;
+  /** Git readings per working tree, cached and watched (spec
+   * 2026-09-22-git-location-indicator-design). Read through `toApiSession`. */
+  git: GitStore;
   errors: ErrorLog;
   /** Names a session from its own contents; here, only ever on demand. */
   titler: SessionTitler;

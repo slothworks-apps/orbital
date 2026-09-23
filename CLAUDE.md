@@ -22,6 +22,15 @@ Three npm workspaces:
   functions under `desktop/src/lib` that vitest exercises without launching
   Electron.
 
+### Desktop version
+
+The desktop app's version is `version` in `desktop/package.json`, and it
+names the DMG. The DMG bundles `server/` and `web/` as well, so a change to
+any of the three workspaces changes what ships. When you finish such a
+change, ask whether to bump the version, and propose patch, minor or major.
+Ask on your own, before you report the work as done. Do not bump it without
+an answer.
+
 `npm run dev` starts the server and the web app. The README covers run/test commands, billing
 (`ANTHROPIC_API_KEY` is deleted from the server's environment on startup
 unless `ORBITAL_USE_API_KEY=1`) and the `~/.claude` caveats.

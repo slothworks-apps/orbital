@@ -23,6 +23,7 @@ import type { Finding } from '../src/stats/compute.js';
 import { registerRoutes } from '../src/api/routes.js';
 import { buildServer, publishLiveSession } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
+import { GitStore } from '../src/git/store.js';
 import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 import type { SessionRow } from '../src/types.js';
@@ -37,6 +38,13 @@ import { ErrorLog } from '../src/errors/log.js';
  */
 const stubTitler = () =>
   ({ retitleNow: async () => ({ title: '', changed: false }) }) as any;
+
+/**
+ * One git store for the whole suite. These tests use invented cwds like
+ * `/w/x`, so every lookup resolves to "no repository" and the cache makes
+ * that free; watching is off so no chokidar handle outlives a test.
+ */
+const gitStore = new GitStore({ watch: false });
 
 /**
  * A real retention context wired to the test's own database, so the route
@@ -123,6 +131,7 @@ function makeApp(opts: { projectsDir?: string } = {}) {
     images: imageStore, imagesDir, claudeDir,
     models: modelCatalog as any,
     subagents,
+    git: gitStore,
     errors,
     titler: stubTitler(),
     settings: {
@@ -516,7 +525,7 @@ describe('REST routes', () => {
       sessionId: 's1', pid: 1, cwd: '/w/x', name: 'auth fix',
       status: 'working' as const, kind: 'claude', startedAt: 0, updatedAt: 500,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, git: gitStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: 's1', status: 'working', tagIds: [10] });
@@ -528,7 +537,7 @@ describe('REST routes', () => {
       sessionId: 'term-9', pid: 1, cwd: '/w/z', name: 'untracked',
       status: 'idle' as const, kind: 'claude', startedAt: 0, updatedAt: 700,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, git: gitStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({
@@ -773,6 +782,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       hub,
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
+      git: gitStore,
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
@@ -882,6 +892,7 @@ describe('PATCH /api/settings propagates the idle timeout to the Runner', () => 
       hub,
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
+      git: gitStore,
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',

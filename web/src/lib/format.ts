@@ -104,6 +104,75 @@ export function shortenPath(cwd: string): string {
 }
 
 /**
+ * How few characters of the path the detail header's first row will go down
+ * to before it starts cutting the branch instead, and the floor and ceiling
+ * the branch itself gets (canvas `Feature - Git worktree` 1f).
+ *
+ * The path yields first because it does not change and is echoed in the
+ * planet label, the title and the tooltip, while the branch changes and is
+ * shown nowhere else — and in a worktree the path's leaf usually *is* the
+ * branch name, so cutting it costs almost nothing.
+ */
+export const WHERE_PATH_FLOOR_CH = 14
+export const WHERE_BRANCH_FLOOR_CH = 10
+export const WHERE_BRANCH_CAP_CH = 24
+
+/**
+ * Cuts the front off a path, snapping to a `/` so the result reads as whole
+ * segments (`…/auth-service`) rather than stopping mid-name. The snap is
+ * skipped when it would leave too little behind to identify the directory.
+ */
+export function truncateHead(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  if (maxChars < 2) return '…'
+  let tail = text.slice(-(maxChars - 1))
+  const slash = tail.indexOf('/')
+  if (slash > 0 && tail.length - slash >= 6) tail = tail.slice(slash)
+  return `…${tail}`
+}
+
+/**
+ * Cuts a branch name in the middle, keeping its prefix and its tail — the
+ * tail being the part that tells one branch from another
+ * (`feature/int…questions`).
+ */
+export function truncateMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  if (maxChars < 2) return '…'
+  const head = Math.ceil((maxChars - 1) / 2)
+  const tail = maxChars - 1 - head
+  return `${text.slice(0, head)}…${text.slice(text.length - tail)}`
+}
+
+/**
+ * Splits the header row's first line between the path and the branch.
+ * `roomChars` is what is left for the two of them together, once the mark and
+ * its gaps are taken off.
+ *
+ * Both are shown whole when they fit. Otherwise the path yields down to
+ * `WHERE_PATH_FLOOR_CH`, then the branch yields down to
+ * `WHERE_BRANCH_FLOOR_CH` — and the branch never takes more than
+ * `WHERE_BRANCH_CAP_CH` even when there is room to spare, so a long name
+ * cannot eat the path.
+ */
+export function splitWhereRow(
+  path: string,
+  branch: string,
+  roomChars: number,
+): { path: string; branch: string } {
+  if (!branch) return { path: truncateHead(path, roomChars), branch: '' }
+  if (path.length + branch.length <= roomChars) return { path, branch }
+  const forBranch = Math.max(
+    Math.min(branch.length, WHERE_BRANCH_FLOOR_CH),
+    Math.min(branch.length, WHERE_BRANCH_CAP_CH, roomChars - Math.min(path.length, WHERE_PATH_FLOOR_CH)),
+  )
+  return {
+    path: truncateHead(path, roomChars - forBranch),
+    branch: truncateMiddle(branch, forBranch),
+  }
+}
+
+/**
  * Byte counts as the transcript prints them — "512 B", "214 KB", "1.3 MB".
  * Moved here from `panels/ImageThumb.tsx` once the file viewer became its
  * second consumer; a display formatter belongs with the others.

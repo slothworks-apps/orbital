@@ -629,14 +629,14 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <Logo />
         <IconButton label="Expand sidebar" glyph="»" onClick={() => setSidebarCollapsed(false)} />
         <span aria-hidden className="h-px w-5 bg-panel-border" />
-        {/* 11d: the same glyph joins the rail's icon column, above the dots. */}
-        <StatsLink size="rail" />
         {active.slice(0, 8).map((s) => (
           <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} />
         ))}
         {/* Rail settings button (1a): 30px, and the only icon button here that
-            is not one of `IconButton`'s 28px text glyphs. */}
+            is not one of `IconButton`'s 28px text glyphs. 11d's stats glyph
+            sits with it at the foot of the rail, mirroring the footer order. */}
         <span className="flex-1" />
+        <StatsLink size="rail" />
         <button
           type="button"
           aria-label="Open settings"

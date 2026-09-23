@@ -50,6 +50,7 @@ import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
+import { WhereLine } from './WhereLine'
 import {
   shortenPath,
   formatContextWindow,
@@ -613,9 +614,16 @@ export function DetailPanel() {
             them gaining weight, and the title gets the width back (9c,
             DECISION). */}
         <div className="flex h-7 items-center gap-2.5">
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted">
-            {session ? shortenPath(session.cwd) : ''}
-          </span>
+          {/* The path, plus where that directory sits in git — one reading,
+              one element (canvas `Feature - Git worktree` 1f). The git half
+              is simply absent outside a repository. */}
+          <WhereLine
+            path={session ? shortenPath(session.cwd) : ''}
+            fullPath={session?.cwd ?? ''}
+            git={session?.git ?? null}
+            sessionId={session?.id ?? null}
+            panelWidthPx={detailWidth}
+          />
           {lineage && lineage.length > 0 && (
             <span aria-label="Lineage" className="flex shrink-0 items-center gap-1">
               {lineage.map((ancestorId) => (

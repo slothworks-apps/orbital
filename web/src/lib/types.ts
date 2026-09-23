@@ -85,6 +85,34 @@ export interface ApiSession {
    * it would rewrite every session fixture in the suite for no signal.
    */
   pendingDecision?: PendingDecision | null;
+  /**
+   * Where this session's `cwd` sits in git right now, or null when it is not
+   * inside a repository (spec 2026-09-22-git-location-indicator-design). The
+   * live state of the directory, not a record of the session — an ended
+   * session reads whatever its folder is on today (adr
+   * `git-location-is-ambient-not-recorded`). Mirrors
+   * `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `pendingDecision`: the server always
+   * sends the field, and absent and null mean the same thing to every reader.
+   */
+  git?: GitLocation | null;
+}
+
+/**
+ * The facts the header's git suffix is drawn from. The mark is not on the
+ * wire: the browser picks trunk (default branch or detached), fork (any other
+ * branch) or tree (worktree) from these three flags, so the canvas can change
+ * its vocabulary without the server moving (canvas `Feature - Git worktree`
+ * 1e, M1).
+ */
+export interface GitLocation {
+  /** Branch name, or the abbreviated sha when `detached`. */
+  ref: string;
+  detached: boolean;
+  worktree: boolean;
+  /** Always false for a worktree or a detached HEAD, which draw their own mark. */
+  defaultBranch: boolean;
 }
 
 /**

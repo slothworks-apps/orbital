@@ -29,6 +29,7 @@ import { Runner, parseIdleTimeoutMs, type QueryFn } from './runner/runner.js';
 import { runAutoheal } from './runner/autoheal.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
 import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable } from './runner/claudeCli.js';
+import { GitStore } from './git/store.js';
 import { registerRoutes } from './api/routes.js';
 import { toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
@@ -249,8 +250,25 @@ export async function buildServer(overrides: {
   const subagents = new SubagentStore();
   // Built on call, not up front: the runner it names is constructed below and
   // is itself one of the things that asks for a republish.
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents });
+  // Where each session's `cwd` sits in git, cached per working tree and kept
+  // fresh by a watch on that tree's HEAD (spec
+  // 2026-09-22-git-location-indicator-design).
+  const git = new GitStore();
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, git });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
+
+  // A branch switch changes no session row, so the change has to be turned
+  // back into the sessions sitting in that working tree and published the way
+  // every other session change is.
+  git.on('change', (_root: string, cwds: string[]) => {
+    if (cwds.length === 0) return;
+    const rows = db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(inArray(sessions.cwd, cwds))
+      .all();
+    for (const row of rows) republish(row.id);
+  });
 
   // One store for both message producers, so a live image and its reloaded
   // twin land as the same file and the same ref.
@@ -651,7 +669,7 @@ export async function buildServer(overrides: {
   }));
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, errors,
-    images, imagesDir, titler,
+    images, imagesDir, titler, git,
     settings: settingsStore,
     retention: {
       sweep: runRetentionSweep,
@@ -663,6 +681,7 @@ export async function buildServer(overrides: {
     clearImmediate(statsBackfill);
     runner.dispose();
     await registry.close();
+    git.close();
     await projectsWatcher.close();
     for (const tail of tails.values()) tail.stop();
     db.$client.close();

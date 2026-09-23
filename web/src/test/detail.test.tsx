@@ -1483,8 +1483,10 @@ describe('DetailPanel session stats placement', () => {
     // 11c fixes the order of the strip: stats · pin · clear · close. The pin
     // and Clear come wrapped in their tooltips, so the buttons are read out
     // of the strip rather than off its direct children.
+    // Buttons only: the row's first element is the path and its git reading,
+    // which carries an `aria-label` of its own and is not part of the strip.
     const strip = icon?.closest('div')
-    const names = [...(strip?.querySelectorAll('[aria-label]') ?? [])].map((el) =>
+    const names = [...(strip?.querySelectorAll('button[aria-label]') ?? [])].map((el) =>
       el.getAttribute('aria-label')
     )
     expect(names).toEqual(['Session stats', 'Pin session', 'Clear', 'Close panel'])

@@ -110,8 +110,8 @@ installed with the workspaces.
 
 ## First launch on another Mac
 
-The DMG is unsigned (spec §4 step 1 — signing and notarization come later), so
-Gatekeeper quarantines it. On the first launch the user must **right-click the
+The DMG is ad-hoc signed but not notarized (ADR desktop-app-is-ad-hoc-signed;
+Developer ID signing and notarization come later), so Gatekeeper quarantines it. On the first launch the user must **right-click the
 app → Open** and confirm, rather than double-clicking it. If macOS refuses even
 that, clear the attribute directly:
 
@@ -119,10 +119,20 @@ that, clear the attribute directly:
 xattr -d com.apple.quarantine /Applications/Orbital.app
 ```
 
-Notifications also need permission once. An unsigned app may not produce the
-system prompt, in which case enable Orbital under **System Settings →
-Notifications** before running the smoke test below — with notifications off,
-the app behaves exactly as if nothing were ever newsworthy.
+Notifications also need permission once. macOS asks when the app shows its
+first notification, not when it launches. Until then Orbital has no row under
+**System Settings → Notifications**. If the prompt never comes and the row
+never appears, check the signature:
+
+```bash
+codesign -dv /Applications/Orbital.app 2>&1 | grep -E 'Identifier|Info.plist'
+```
+
+It must say `Identifier=io.slothworks.orbital` with Info.plist bound.
+`Identifier=Electron` / `Info.plist=not bound` means the bundle was not
+signed, and macOS silently refuses its permission request. To fix an
+installed copy without rebuilding, run
+`codesign --force --deep --sign - /Applications/Orbital.app`.
 
 **Smoke-test the packaged app from outside this repo.** Copy the `.app` to
 `/Applications` or a temp directory first. Left inside `desktop/release/`, it

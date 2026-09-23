@@ -80,3 +80,8 @@ sets `mac.identity: null` on purpose: left unset, electron-builder finds this
 machine's *Apple Development* certificate and signs with it, which is not a
 distribution identity and fails on someone else's Mac in a way that is much
 harder to read than ordinary quarantine.
+
+The build no longer uses `null`: it uses `"-"` (ad-hoc), because the
+unsigned bundle could not get notification permission. See ADR
+`desktop-app-is-ad-hoc-signed`. The Developer ID step replaces `"-"` with the
+real identity.
