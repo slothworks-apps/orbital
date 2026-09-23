@@ -93,6 +93,16 @@ that means *you*.
 DONE rather than ENDED: `ended` already means the session itself is over, and
 this one is alive and can be written to.
 
+One exception to "same treatment", added later: a DONE planet is drawn without
+the expanding ripple ring and without the pill's pulsing dot — the same way
+INTERRUPTED already goes without the dot. The ring is the map's "you are being
+waited for" signal, and a turn that merely finished is not that. Everything
+else stays: the status, the size tier, the core's blink, the notification.
+`asksForHuman`, next to `parkedLabel`, is the one predicate behind the word,
+the ring and the dot, so they cannot disagree. Because DONE and NEEDS INPUT
+share a status, the flip between them does not move the planet's state mix;
+the ring fades on its own tween instead of snapping.
+
 One thing had to move on the server for it. `decision_pending` and
 `decision_resolved` go to `session:<id>`, which only a client with that session
 SELECTED is listening to — and the map, where nothing is selected, needs the
