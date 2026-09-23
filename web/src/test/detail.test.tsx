@@ -529,23 +529,6 @@ describe('DetailPanel header', () => {
     expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'tags server down' })
   })
 
-  it('shows a subagents strip with name and state when any are present', async () => {
-    resetStore({
-      sessions: {
-        a: makeSession({
-          id: 'a',
-          subagents: [{ id: 's1', name: 'researcher', state: 'working', startedAt: 0 }],
-        }),
-      },
-      ui: { selectedId: 'a' },
-    })
-
-    render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
-
-    expect(screen.getByText(/researcher/)).toBeInTheDocument()
-  })
-
   it('shows lineage dots when getSession resolves a non-empty lineage', async () => {
     vi.mocked(api.getSession).mockResolvedValue({
       session: makeSession({ id: 'a' }),

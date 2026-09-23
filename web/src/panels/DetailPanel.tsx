@@ -42,7 +42,6 @@ import { Badge } from '../ui/Badge'
 import { RefreshGlyph, UtilityButton } from '../ui/UtilityButton'
 import { Tooltip } from '../ui/Tooltip'
 import { ModeReadout } from '../ui/ModeDot'
-import { Chip } from '../ui/Chip'
 import { Select } from '../ui/Select'
 import { Button } from '../ui/Button'
 import { Composer } from './Composer'
@@ -155,7 +154,7 @@ function useWindowWidth(enabled: boolean): number {
  * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail
  * header` 9d): the header (path + actions, editable title, tag chips,
  * permission/status badges, context bar, lineage dots),
- * the session's transcript + live subagents strip, and a footer that varies
+ * the session's transcript, and a footer that varies
  * by session kind — a prompt composer for web/ended sessions, or a read-only
  * bar for a session still live in a terminal (which this UI can never take
  * over; the server's 409 on `POST .../messages` is the real backstop).
@@ -189,9 +188,6 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   )
   const session = useOrbital((s) => (id ? s.sessions[id] : undefined))
   const tags = useOrbital(useShallow((s) => s.tags))
-  // Off the session itself, like the map's moons — the server keeps it current
-  // for every session, not just the open one.
-  const subagents = useOrbital(useShallow((s) => (id ? (s.sessions[id]?.subagents ?? []) : [])))
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
   const contextWindows = useOrbital(useShallow((s) => s.contextWindows))
@@ -1001,19 +997,6 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
                 optional: button-only drew it into the utility strip above and
                 gives the transcript the 42px back. */}
             {statsVariant === 'bar' && <SessionStatsRow session={session} className="mt-3.5" />}
-
-            {subagents.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Subagents">
-                {subagents.map((agent) => (
-                  <Chip
-                    key={agent.id}
-                    label={`${agent.name} · ${agent.state}`}
-                    dot
-                    pulse={agent.state === 'working'}
-                  />
-                ))}
-              </div>
-            )}
           </>
         )}
       </div>
