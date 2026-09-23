@@ -2,16 +2,26 @@
 id: diff-hues-are-content-not-state
 title: Diff hues are content, and a third hue family
 type: adr
-status: in-force
+status: superseded
 domain: web
 related:
+  - the-diff-separates-on-luminance
   - 2026-09-23-edit-diffs-in-the-transcript
   - mode-dots-are-their-own-hue-family
+  - one-syntax-palette-for-all-code
 tags:
   - design
   - transcript
 ---
 # Diff hues are content, and a third hue family
+
+> **Superseded by [[the-diff-separates-on-luminance]] (2026-09-23).** The
+> canvas artboard this ADR was written without — `20d` of `Feature -
+> Transcript blocks.dc.html` — separates the two sides on luminance instead
+> of hue, and the code follows it. The diff body now spends no hue family at
+> all. Kept because the reasoning below is what the successor was argued
+> against, and because one piece of it survives: the `+n −m` skim keeps a
+> green and a red, for the containment reason given here.
 
 ## The problem
 
@@ -84,8 +94,21 @@ It also leaves a loose end that predates this decision: `lib/usage.ts` and
 nearer the reserved bypass red than anything here is. That is worth
 tidying, and is not tidied by this change.
 
-The values are provisional in one specific sense: no canvas artboard covers
-diffs yet (see [[2026-09-23-edit-diffs-in-the-transcript]] § Design
-status). The *reasoning* above is the decision; the six numbers are this
-decision's first draft of it, and a design pass may replace them as long as
-the three axes hold.
+The values are provisional in one specific sense: this was written before
+any canvas artboard covered diffs. The *reasoning* above is the decision;
+the six numbers are this decision's first draft of it, and a design pass
+may replace them as long as the three axes hold.
+
+**Resolved, 2026-09-23.** That pass ran. Artboard `20d` of `Feature -
+Transcript blocks.dc.html` separates added from removed on luminance rather
+than on hue, and the code now follows it, so **superseded** is the answer:
+none of the six numbers above survives in the diff body. See
+[[the-diff-separates-on-luminance]] for the values that replaced them and
+for the one part of this decision that did survive — the `+n −m` counts,
+which keep a green and a red on 20d's own instruction, at values chosen to
+clear the experiments tag.
+
+Separately, the *syntax* colours inside a diff row were never this
+decision's six numbers. They are shiki's, by
+[[one-syntax-palette-for-all-code]]; this ADR's hues were the row inks,
+signs and washes, which tokens never touch.
