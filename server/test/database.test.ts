@@ -219,6 +219,7 @@ describe('openDb', () => {
       map_show_compact_badge: 'true',
       transcript_edit_diffs: 'collapsed',
       transcript_expand_diff_on_permission: 'true',
+      permission_guard_gesture: 'hold',
       header_session_stats: 'bar',
       claude_executable_path: '',
       claude_directory: '',

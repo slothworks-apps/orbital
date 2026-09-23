@@ -446,22 +446,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   ui: initialUiState,
 
   async loadInitial() {
-    const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] = await Promise.all([
-      api.listSessions(),
-      api.listTags(),
-      api.listTagRules(),
-      api.getSettings(),
-      // Best-effort: a failed probe with nothing cached yields [], and every
-      // surface that reads the catalog has an empty state for exactly that.
-      api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {} })),
-      // Also best-effort, and for a sharper reason than the catalog's: this
-      // is the error surface. It failing must not be the thing that stops
-      // the app from mounting and showing the other errors.
-      api.listErrors({ limit: ERROR_PAGE_SIZE }).catch(() => null),
-      // Best-effort too: the hole's label reading 0 sessions is a cosmetic
-      // failure, not a reason to keep the map from mounting.
-      api.sessionCount().catch(() => 0),
-    ])
+    const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] =
+      await Promise.all([
+        api.listSessions(),
+        api.listTags(),
+        api.listTagRules(),
+        api.getSettings(),
+        // Best-effort: a failed probe with nothing cached yields [], and every
+        // surface that reads the catalog has an empty state for exactly that.
+        api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {} })),
+        // Also best-effort, and for a sharper reason than the catalog's: this
+        // is the error surface. It failing must not be the thing that stops
+        // the app from mounting and showing the other errors.
+        api.listErrors({ limit: ERROR_PAGE_SIZE }).catch(() => null),
+        // Best-effort too: the hole's label reading 0 sessions is a cosmetic
+        // failure, not a reason to keep the map from mounting.
+        api.sessionCount().catch(() => 0),
+      ])
 
     const sessionsMap: Record<string, ApiSession> = {}
     // The one AUTHORITATIVE rebuild of the pending map: this is a full
@@ -656,9 +657,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           ...state.sessions,
           [sessionId]: { ...session, status: msg.status },
         },
-        ...(crashed
-          ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } }
-          : {}),
+        ...(crashed ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } } : {}),
       })
       return
     }
@@ -930,7 +929,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // `undefined` is a different call as far as every existing assertion in
       // the suite is concerned, and a plain turn's wire shape has not changed.
       if (images && images.length > 0) {
-        await api.sendMessage(id, text, images.map((image) => image.ref))
+        await api.sendMessage(
+          id,
+          text,
+          images.map((image) => image.ref),
+        )
       } else {
         await api.sendMessage(id, text)
       }
@@ -1065,7 +1068,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     stamp(
       dismissed
         ? { mapDismissedAt: Date.now(), pinnedAt: null }
-        : { mapDismissedAt: null, pinnedAt: previous.pinnedAt }
+        : { mapDismissedAt: null, pinnedAt: previous.pinnedAt },
     )
     try {
       await api.setSessionDismissed(id, dismissed)
@@ -1088,7 +1091,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         // route clears `map_dismissed_at`, so one call brings back both the
         // pin and the planet (4d `drag.toast`).
         run: () =>
-          void (wasPinned ? get().setSessionPinned(id, true) : get().setSessionDismissed(id, false)),
+          void (wasPinned
+            ? get().setSessionPinned(id, true)
+            : get().setSessionDismissed(id, false)),
       },
     }
     set({ toast })
@@ -1128,12 +1133,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           const current = state.sessions[id]
           if (!current) return {}
           return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
-        })
+        }),
       )
     stamp(
       pinned
         ? { pinnedAt: Date.now(), mapDismissedAt: null }
-        : { pinnedAt: null, mapDismissedAt: previous.mapDismissedAt }
+        : { pinnedAt: null, mapDismissedAt: previous.mapDismissedAt },
     )
     try {
       await api.setSessionPinned(id, pinned)
@@ -1301,9 +1306,7 @@ export function visibleSessions(state: OrbitalState): ApiSession[] {
   const query = state.ui.search.trim().toLowerCase()
   if (query) {
     list = list.filter(
-      (s) =>
-        s.title.toLowerCase().includes(query) ||
-        s.cwd.toLowerCase().includes(query)
+      (s) => s.title.toLowerCase().includes(query) || s.cwd.toLowerCase().includes(query),
     )
   }
 
@@ -1336,7 +1339,8 @@ export function releaseDelayMs(settings: Record<string, string>): number | null 
   const raw = settings.map_release_ended_after_minutes
   if (raw === RELEASE_NEVER) return null
   const minutes = Number(raw)
-  if (!Number.isFinite(minutes) || minutes <= 0) return DEFAULT_RELEASE_AFTER_MINUTES * MS_PER_MINUTE
+  if (!Number.isFinite(minutes) || minutes <= 0)
+    return DEFAULT_RELEASE_AFTER_MINUTES * MS_PER_MINUTE
   return minutes * MS_PER_MINUTE
 }
 
@@ -1365,7 +1369,7 @@ export function releaseDelayMs(settings: Record<string, string>): number | null 
 export function absorptionFor(
   session: ApiSession,
   settings: Record<string, string>,
-  nowMs: number
+  nowMs: number,
 ): 'none' | 'releasing' | 'absorbed' {
   if (session.status === 'working' || session.status === 'needs_input') return 'none'
   if (session.mapDismissedAt != null) {
@@ -1422,7 +1426,7 @@ export function clampDetailPanelWidth(width: number, viewportWidth: number): num
  */
 export function parseDetailPanelWidth(
   settings: Record<string, string>,
-  viewportWidth: number
+  viewportWidth: number,
 ): number {
   const raw = Number(settings.detail_panel_width)
   return clampDetailPanelWidth(Number.isFinite(raw) ? raw : DETAIL_PANEL_DEFAULT_PX, viewportWidth)
@@ -1450,10 +1454,7 @@ export function clampSidebarWidth(width: number, viewportWidth: number): number 
  * `sidebar_width` as the layout consumes it: parsed, falling back to the
  * export's 300 for a missing or unparsable value, then clamped.
  */
-export function parseSidebarWidth(
-  settings: Record<string, string>,
-  viewportWidth: number
-): number {
+export function parseSidebarWidth(settings: Record<string, string>, viewportWidth: number): number {
   const raw = Number(settings.sidebar_width)
   return clampSidebarWidth(Number.isFinite(raw) ? raw : SIDEBAR_DEFAULT_PX, viewportWidth)
 }
@@ -1525,6 +1526,20 @@ export function expandDiffOnPermission(settings: Record<string, string>): boolea
   return settings.transcript_expand_diff_on_permission !== 'false'
 }
 
+/** How a guarded approval is given. `hold` is the canvas gesture and the
+ * shipped value; see the key's comment in `server/src/db/database.ts`. */
+export type GuardGesture = 'hold' | 'confirm' | 'single'
+
+/**
+ * `permission_guard_gesture`, for the asks the CLI flagged `defaultToNo`.
+ * Anything unreadable falls back to the guarded default rather than to the
+ * unguarded one — a broken value must not quietly remove a safety.
+ */
+export function guardGesture(settings: Record<string, string>): GuardGesture {
+  const value = settings.permission_guard_gesture
+  return value === 'confirm' || value === 'single' ? value : 'hold'
+}
+
 /**
  * How the detail header carries session stats (canvas `Feature - Header
  * gauges` 11c):
@@ -1567,10 +1582,7 @@ export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
   return list.filter((session) => absorptionFor(session, state.settings, nowMs) !== 'absorbed')
 }
 
-export function statusCounts(
-  state: OrbitalState,
-  nowMs: number
-): Record<SessionStatus, number> {
+export function statusCounts(state: OrbitalState, nowMs: number): Record<SessionStatus, number> {
   const counts: Record<SessionStatus, number> = {
     working: 0,
     idle: 0,

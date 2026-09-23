@@ -161,3 +161,11 @@ export const BUTTON_ACCENT =
   'border-accent/55 bg-accent/16 text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)] hover:border-accent/80 hover:bg-accent/26'
 export const BUTTON_QUIET =
   'border-[rgba(150,205,255,.22)] text-[rgba(220,232,248,.9)] hover:border-[rgba(150,205,255,.4)] hover:bg-[rgba(150,205,255,.06)]'
+/**
+ * A guarded approve that has been armed and is waiting for the second act
+ * (canvas `Feature - Transcript blocks` 20b C, its `guardedApprove` tweak:
+ * the border and fill both step up from the resting accent form so the
+ * changed label is not the only thing saying the button changed state).
+ */
+export const BUTTON_ACCENT_ARMED =
+  'border-accent/80 bg-accent/30 text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'

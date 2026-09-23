@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useOrbital, expandDiffOnPermission } from '../store/store'
+import { useOrbital, expandDiffOnPermission, guardGesture } from '../store/store'
 import { describeFileChange } from '../lib/fileEdit'
 import { ChangeView, changeSectionLabel } from './DiffView'
 import {
@@ -16,6 +16,7 @@ import { isReadOnly } from '../lib/types'
 import type { ChatMessage, PendingVerdictDecision } from '../lib/types'
 import {
   BUTTON_ACCENT,
+  BUTTON_ACCENT_ARMED,
   BUTTON_BASE,
   BUTTON_QUIET,
   CARD_ANSWERED,
@@ -76,12 +77,11 @@ import {
  * way to the transcript's normal tool row. Only `ExitPlanMode` is always a
  * card, because its input IS the plan and a plan is worth reading back.
  *
- * What 20b asks for and this card does not do: approving a guarded request by
- * holding Approve for 900 ms (or confirming twice). The card wears the guard's
- * chrome, but the interaction would change how a tool gets approved, which the
- * spec settles rather than the canvas — so the guard reads as emphasis here
- * and the ▲ "hold Approve" line is left undrawn rather than promising a
- * gesture that does nothing.
+ * A request the bridge flagged `defaultToNo` wears 20b C's guard chrome and
+ * approves through a brake — held, confirmed twice, or not at all. Which one
+ * is the reader's own setting (`permission_guard_gesture`), because how much
+ * friction is worth it is not something Orbital can know for someone else.
+ * See `ApproveButton`.
  */
 
 export interface PermissionCardProps {
@@ -226,7 +226,9 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
           {decisionHeadline(decision)}
         </div>
 
-        {decision.description && <div className={`pt-[3px] ${SUBTITLE}`}>{decision.description}</div>}
+        {decision.description && (
+          <div className={`pt-[3px] ${SUBTITLE}`}>{decision.description}</div>
+        )}
 
         {change && (
           <div className={`mt-[10px] ${frame}`}>
@@ -270,6 +272,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
         {live && (
           <Verdict
             kind={decision.kind}
+            guarded={guarded}
             onResolve={(verdict) => resolveDecision(sessionId, verdict)}
           />
         )}
@@ -286,11 +289,9 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
             // centred approval is not layered on top, because two
             // `align-items` utilities on one element resolve by stylesheet
             // order rather than by intent (web/CLAUDE.md).
-            className={[
-              'mt-[10px]',
-              ROW_BASE,
-              approved ? ROW_CHOSEN : ROW_VERDICT_DENIED,
-            ].join(' ')}
+            className={['mt-[10px]', ROW_BASE, approved ? ROW_CHOSEN : ROW_VERDICT_DENIED].join(
+              ' ',
+            )}
           >
             <span
               aria-hidden
@@ -301,7 +302,9 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
               {approved ? '✓' : '✕'}
             </span>
             <span className="flex min-w-0 flex-col gap-[3px]">
-              <span className={`${LABEL} text-[#e8eef8]`}>{verdictLabel(decision.kind, approved)}</span>
+              <span className={`${LABEL} text-[#e8eef8]`}>
+                {verdictLabel(decision.kind, approved)}
+              </span>
               {!approved && sentVerdict?.message && (
                 <span className="text-[12px] leading-[1.45] text-pretty text-[rgba(200,220,245,.85)]">
                   {`“${sentVerdict.message}”`}
@@ -314,7 +317,9 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
         {mode === 'terminal' && (
           // The same affordance the question card offers a watched session: it
           // says where the answer has to be typed, not here (canvas 20b H).
-          <div className={`mt-[10px] ${NOTE_DASHED} tracking-[0.06em] text-[rgba(160,190,225,.65)]`}>
+          <div
+            className={`mt-[10px] ${NOTE_DASHED} tracking-[0.06em] text-[rgba(160,190,225,.65)]`}
+          >
             <span aria-hidden className="text-[rgba(190,215,240,.75)]">
               ▸
             </span>
@@ -361,9 +366,12 @@ function planLines(plan: string): string {
  */
 function Verdict({
   kind,
+  guarded,
   onResolve,
 }: {
   kind: 'permission' | 'plan'
+  /** The bridge asked us to default to no — the approve button grows a brake. */
+  guarded: boolean
   onResolve: (verdict: { approved: boolean; message?: string }) => void
 }) {
   const [reasonOpen, setReasonOpen] = useState(false)
@@ -434,14 +442,136 @@ function Verdict({
           </span>
         )}
         <span aria-hidden className="flex-1" />
-        <button
-          type="button"
-          onClick={() => onResolve({ approved: true })}
-          className={`${BUTTON_BASE} ${BUTTON_ACCENT}`}
-        >
-          {approveLabel}
-        </button>
+        <ApproveButton
+          label={approveLabel}
+          guarded={guarded}
+          onApprove={() => onResolve({ approved: true })}
+        />
       </div>
     </div>
+  )
+}
+
+/** How long a held approval takes, and how long an armed one stays armed. */
+const GUARD_HOLD_MS = 900
+const GUARD_ARM_MS = 3000
+/** How often the fill redraws while a hold is in progress. */
+const GUARD_TICK_MS = 30
+
+/**
+ * Approve, with as much friction as the reader asked for (canvas
+ * `Feature - Transcript blocks` 20b C, and the settings row that chooses
+ * between its two gestures).
+ *
+ * Unguarded asks — every ask the CLI did not flag `defaultToNo` — ignore all
+ * of this and approve on the click, whatever the setting says. The setting is
+ * about how hard it should be to say yes to the dangerous ones, not about
+ * adding a step to the ordinary ones.
+ *
+ * `hold` is the canvas's gesture: the fill runs left to right and approves at
+ * the end, draining if the pointer leaves or lets go early. A pointer gesture
+ * has no keyboard equivalent worth inventing, so **from the keyboard `hold`
+ * behaves as `confirm`** — one press arms, a second approves. That is a
+ * deliberate difference and the reason `confirm` exists as a choice: it is
+ * the same for everyone, and a hold is a poor ask of anyone whose hands do
+ * not cooperate.
+ */
+function ApproveButton({
+  label,
+  guarded,
+  onApprove,
+}: {
+  label: string
+  guarded: boolean
+  onApprove: () => void
+}) {
+  const gesture = useOrbital((s) => guardGesture(s.settings))
+  const [armed, setArmed] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const holding = useRef<number | null>(null)
+  const armTimer = useRef<number | null>(null)
+
+  const stopHold = () => {
+    if (holding.current !== null) window.clearInterval(holding.current)
+    holding.current = null
+    setProgress(0)
+  }
+
+  // Both timers are cleared on unmount: a card settled by another window
+  // disappears mid-gesture, and a running interval would then set state on
+  // nothing.
+  useEffect(() => {
+    return () => {
+      if (holding.current !== null) window.clearInterval(holding.current)
+      if (armTimer.current !== null) window.clearTimeout(armTimer.current)
+    }
+  }, [])
+
+  const disarm = () => {
+    if (armTimer.current !== null) window.clearTimeout(armTimer.current)
+    armTimer.current = null
+    setArmed(false)
+  }
+
+  const arm = () => {
+    setArmed(true)
+    armTimer.current = window.setTimeout(() => setArmed(false), GUARD_ARM_MS)
+  }
+
+  if (!guarded || gesture === 'single') {
+    return (
+      <button type="button" onClick={onApprove} className={`${BUTTON_BASE} ${BUTTON_ACCENT}`}>
+        {label}
+      </button>
+    )
+  }
+
+  const twoStep = gesture === 'confirm'
+
+  const beginHold = () => {
+    if (twoStep) return
+    const started = Date.now()
+    holding.current = window.setInterval(() => {
+      const ratio = Math.min(1, (Date.now() - started) / GUARD_HOLD_MS)
+      setProgress(ratio)
+      if (ratio >= 1) {
+        stopHold()
+        onApprove()
+      }
+    }, GUARD_TICK_MS)
+  }
+
+  return (
+    <button
+      type="button"
+      // The keyboard path is the two-step one in both gestures — see the note
+      // above the component.
+      onClick={(e) => {
+        // A click that ends a completed hold would approve twice; the pointer
+        // path has already resolved by then and unmounted this card.
+        if (!twoStep && e.detail > 0 && progress > 0) return
+        if (armed) {
+          disarm()
+          onApprove()
+          return
+        }
+        if (twoStep || e.detail === 0) arm()
+      }}
+      onPointerDown={twoStep ? undefined : beginHold}
+      onPointerUp={twoStep ? undefined : stopHold}
+      onPointerLeave={twoStep ? undefined : stopHold}
+      onBlur={disarm}
+      aria-label={armed ? `${label} — press again to confirm` : label}
+      className={`${BUTTON_BASE} ${armed ? BUTTON_ACCENT_ARMED : BUTTON_ACCENT}`}
+      style={
+        progress > 0
+          ? {
+              backgroundImage: `linear-gradient(90deg, oklch(85% .12 205 / .34) ${progress * 100}%, transparent ${progress * 100}%)`,
+            }
+          : undefined
+      }
+    >
+      {armed ? 'Click again to approve' : twoStep ? `${label}…` : label}
+    </button>
   )
 }

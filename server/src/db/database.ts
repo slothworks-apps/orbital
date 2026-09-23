@@ -111,6 +111,19 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   transcript_expand_diff_on_permission: 'true',
   /**
+   * Settings → Permissions → how a guarded approval is given (canvas
+   * `Feature - Transcript blocks` 20b C). Only asks the CLI flags
+   * `defaultToNo` are affected; every other ask approves on one click
+   * whatever this says.
+   *
+   * `hold` is the canvas's own gesture and the default. `confirm` is its
+   * documented alternative and the one that behaves identically from the
+   * keyboard, a mouse and a trackpad. `single` removes the brake entirely —
+   * offered because how much friction is worth it is the user's call, not
+   * Orbital's.
+   */
+  permission_guard_gesture: 'hold',
+  /**
    * Settings → Appearance → "Session stats in the header" (canvas
    * `Feature - Header gauges` 11c). `bar` draws the stats strip under the
    * context gauge; `button` drops the strip and folds stats into the header's

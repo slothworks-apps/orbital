@@ -27,6 +27,7 @@ import {
   showCompactBadge,
   editDiffsExpanded,
   expandDiffOnPermission,
+  guardGesture,
   headerSessionStats,
   releaseDelayMs,
   absorptionFor,
@@ -1760,6 +1761,16 @@ describe('showContext / showCompactBadge', () => {
     expect(showContext({ map_show_context: 'false' })).toBe(false)
     expect(showCompactBadge({ map_show_compact_badge: 'false' })).toBe(false)
     expect(showContext({ map_show_context: 'true' })).toBe(true)
+  })
+})
+
+describe('guardGesture', () => {
+  it('falls back to the guarded default, never to the unguarded one', () => {
+    // An unreadable value must not quietly remove a safety.
+    expect(guardGesture({})).toBe('hold')
+    expect(guardGesture({ permission_guard_gesture: 'nonsense' })).toBe('hold')
+    expect(guardGesture({ permission_guard_gesture: 'confirm' })).toBe('confirm')
+    expect(guardGesture({ permission_guard_gesture: 'single' })).toBe('single')
   })
 })
 
