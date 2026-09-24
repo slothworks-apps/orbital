@@ -9,7 +9,7 @@ import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { command, matches } from '../lib/keymap'
 import { formatBytes, timeAgo } from '../lib/format'
-import { tokenizeCode, type CodeToken } from '../lib/highlight'
+import { languageFromPath, tokenizeCode, type CodeToken } from '../lib/highlight'
 import type {
   ApiSession,
   FilePreview,
@@ -95,43 +95,6 @@ function diagnosticsSummary(found: IdeDiagnostic[]): string | null {
     return `${n} ${s}${n === 1 ? '' : 's'}`
   })
   return parts.length === 0 ? null : parts.join(' · ')
-}
-
-/** Extension → shiki language id + the meta line's label, where the two
- * differ from the extension itself. Anything absent falls back to the
- * extension — shiki knows most of them as aliases, and an unknown one
- * degrades to plain rows via `tokenizeCode`'s null. */
-const LANGUAGE_BY_EXTENSION: Record<string, { lang: string; label: string }> = {
-  ts: { lang: 'typescript', label: 'typescript' },
-  tsx: { lang: 'tsx', label: 'typescript' },
-  js: { lang: 'javascript', label: 'javascript' },
-  jsx: { lang: 'jsx', label: 'javascript' },
-  mjs: { lang: 'javascript', label: 'javascript' },
-  cjs: { lang: 'javascript', label: 'javascript' },
-  py: { lang: 'python', label: 'python' },
-  rb: { lang: 'ruby', label: 'ruby' },
-  rs: { lang: 'rust', label: 'rust' },
-  kt: { lang: 'kotlin', label: 'kotlin' },
-  yml: { lang: 'yaml', label: 'yaml' },
-  sh: { lang: 'shellscript', label: 'shell' },
-  bash: { lang: 'shellscript', label: 'shell' },
-  zsh: { lang: 'shellscript', label: 'shell' },
-  h: { lang: 'c', label: 'c' },
-  hpp: { lang: 'cpp', label: 'c++' },
-  cc: { lang: 'cpp', label: 'c++' },
-  md: { lang: 'markdown', label: 'markdown' },
-  markdown: { lang: 'markdown', label: 'markdown' },
-}
-
-function extensionOf(path: string): string {
-  const base = path.slice(path.lastIndexOf('/') + 1)
-  const dot = base.lastIndexOf('.')
-  return dot > 0 ? base.slice(dot + 1).toLowerCase() : ''
-}
-
-function languageFor(path: string): { lang: string; label: string } {
-  const ext = extensionOf(path)
-  return LANGUAGE_BY_EXTENSION[ext] ?? { lang: ext, label: ext }
 }
 
 /** "modified 2m ago" from the file's mtime. `timeAgo` already covers the
@@ -241,7 +204,7 @@ function SourceBody({
   useEffect(() => {
     let cancelled = false
     setTokens(null)
-    void tokenizeCode(content.replace(/\n$/, ''), languageFor(path).lang).then((result) => {
+    void tokenizeCode(content.replace(/\n$/, ''), languageFromPath(path).lang).then((result) => {
       // A token line count that disagrees with ours would misalign the
       // gutter — fall back to plain rows rather than shift every number.
       if (!cancelled && result && result.length === lines.length) setTokens(result)
@@ -486,7 +449,7 @@ export function FileViewer({ session }: FileViewerProps) {
             formatBytes(preview.size),
             `${preview.lines} lines`,
             modifiedLabel(preview.mtimeMs),
-            languageFor(path).label || null,
+            languageFromPath(path).label || null,
             line !== null ? `line ${line} of ${preview.lines}` : null,
             // What the editor found, beside what the file is. Absent when
             // there is no editor, and absent when it found nothing — a

@@ -834,6 +834,50 @@ describe('App: placing the subagent panel', () => {
     expect(wrapper.style.right).toBe('406px')
   })
 
+  it('re-clamps the pair when the window shrinks, with no store write to prompt it', async () => {
+    // The pair's ceiling is a fraction of the viewport, so a narrower window
+    // has to shrink an open pair on its own. The widths used to be read off
+    // `window.innerWidth` during render and stayed at whatever the last
+    // unrelated re-render saw. The two viewports are the ones the tests above
+    // already pin: roomy (neither panel shrunk) and V=1000 (the subagent
+    // panel shrunk).
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true })
+    vi.mocked(api.listSessions).mockResolvedValue([makeSession({ id: 'a' })])
+    await renderApp()
+    act(() => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } }))
+    })
+    act(() => {
+      useOrbital.setState({
+        subagentPanel: {
+          sessionId: 'a',
+          subagent: makeSubagentFixture(),
+          messages: [],
+          droppedCount: 0,
+          found: true,
+        },
+      })
+    })
+    const subagentPanelEl = () => document.querySelector('[data-side="subagent"]') as HTMLElement
+    const wrapper = () =>
+      (document.querySelector('[data-side="right"]') as HTMLElement).parentElement
+        ?.parentElement as HTMLElement
+    expect(subagentPanelEl().style.width).toBe('380px')
+    expect(wrapper().style.right).toBe('412px')
+
+    const writes = vi.fn()
+    const unsubscribe = useOrbital.subscribe(writes)
+    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true })
+    act(() => {
+      fireEvent(window, new Event('resize'))
+    })
+
+    await waitFor(() => expect(subagentPanelEl().style.width).toBe('374px'))
+    expect(wrapper().style.right).toBe('406px')
+    expect(writes).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
   it('closing the detail panel closes the subagent panel with it, restoring the plain 16px inset', async () => {
     vi.mocked(api.listSessions).mockResolvedValue([makeSession({ id: 'a' })])
     await renderApp()

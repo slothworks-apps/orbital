@@ -16,6 +16,7 @@ import { reportError } from '../lib/errors'
 import { hasDesktopBridge } from '../lib/desktop'
 import { useWindowBand } from '../lib/windowChrome'
 import { useWindowFocused } from '../lib/useWindowFocused'
+import { useViewportWidth } from '../lib/useViewportWidth'
 import { awaitingSubagentCount, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { stateColor, stateDot, stateWord } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
@@ -406,7 +407,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   // and the map's fit/follow insets track the pointer) and the PATCH goes out
   // once, on release.
   const settings = useOrbital(useShallow((s) => s.settings))
-  const width = parseSidebarWidth(settings, window.innerWidth)
+  const viewportWidth = useViewportWidth()
+  const width = parseSidebarWidth(settings, viewportWidth)
   const widthDragRef = useRef<{ startX: number; startWidth: number } | null>(null)
   // Shared with the detail panel's handle: SpaceMap's overlays drop their
   // position transition on this flag so they track a drag 1:1.
@@ -415,7 +417,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     useOrbital.setState((state) => ({ ui: { ...state.ui, resizingPanel } }))
 
   const setWidthLocal = (next: number) => {
-    const value = String(Math.round(clampSidebarWidth(next, window.innerWidth)))
+    const value = String(Math.round(clampSidebarWidth(next, viewportWidth)))
     useOrbital.setState((state) => ({ settings: { ...state.settings, sidebar_width: value } }))
     return value
   }

@@ -12,6 +12,7 @@ import { useCommand } from './lib/commands'
 import { setMenuCommands } from './lib/desktop'
 import { menuCommands } from './lib/keymap'
 import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
+import { useViewportWidth } from './lib/useViewportWidth'
 import { STATS_PATH } from './stats/route'
 import type { ApiSession } from './lib/types'
 import { SpaceMap } from './map/SpaceMap'
@@ -92,9 +93,10 @@ export default function App() {
   // stays 0 (no offset added) whenever the subagent panel is closed, which
   // is what keeps this a no-op in the regression case (requirement 1).
   const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
-  const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, window.innerWidth))
+  const viewportWidth = useViewportWidth()
+  const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, viewportWidth))
   const subagentWidthPx = subagentPanelOpen
-    ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, window.innerWidth)
+    ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, viewportWidth)
         .subagentWidthPx
     : 0
   const detailPanelRightPx = subagentPanelOpen

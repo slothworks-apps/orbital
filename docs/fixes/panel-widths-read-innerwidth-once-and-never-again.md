@@ -1,7 +1,7 @@
 ---
 id: panel-widths-read-innerwidth-once-and-never-again
 title: The panel pair's widths read window.innerWidth during render and nothing re-reads them on resize
-status: backlog
+status: done
 type: fix
 domain: web
 related:
@@ -67,3 +67,19 @@ takes the viewport as an argument, so nothing about the math needs to
 change — only where the number comes from. `web/src/test/layout.test.ts`
 covers the math; a fix needs a test that a resize actually re-clamps, which
 jsdom can drive by dispatching `resize` after setting `window.innerWidth`.
+
+## Fixed 2026-09-24
+
+`web/src/lib/useViewportWidth.ts` is now the one source of the viewport
+width: a `resize` listener that commits at most once per animation frame.
+`App`, `SessionWindow`, `DetailPanel`, `Sidebar` and `SpaceMap` render from
+it, and their drag clamps read the same value. `SessionWindow` and
+`DetailPanel` each had a private `useWindowWidth`; both are gone. The pure
+width helpers in `store.ts` are unchanged. `app.test.tsx` ("re-clamps the
+pair when the window shrinks") shrinks the window under an open pair and
+asserts that both panels re-clamp with no store write.
+
+Left on purpose: `ui/usePopupPosition.ts` reads `innerWidth` inside an event
+handler, and `SpaceMap`'s fit falls back to `innerWidth`/`innerHeight` only
+when its container has no rect yet. Neither of them is a render-time read
+that goes stale.
