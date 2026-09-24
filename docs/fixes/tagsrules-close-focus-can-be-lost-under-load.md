@@ -67,11 +67,20 @@ but before the render it triggered had committed).
 This task ([[tags-rules-keyboard-test-is-flaky-under-the-full-suite]]) is
 scoped to a test-only change, and this is not a test problem — no amount of
 `waitFor` patience helps when the target value the effect *would* set never
-gets set. It also reproduces only under contention well past what a single
-`npx vitest run` sees (not observed in ~35 consecutive single-process runs
-during this investigation, only under three concurrent full-suite processes),
-so it is unlikely to be the whole story behind the originally reported
-flake, and did not block the five required green single-process runs.
+gets set.
+
+How often it reproduces rests on two separate measurements, taken at
+different stages, that do not agree:
+
+- during the investigation, before the test change was final: not observed in
+  ~35 consecutive single-process full runs, only under three concurrent
+  full-suite processes (the only runs where the instrumentation caught it);
+- during verification of the final test change: the keyboard test failed
+  twice in 20 single-process full runs. The five green runs quoted in the
+  commit message are separate from these 20.
+
+Whether the verification failures were this race or another cause was not
+confirmed, so do not assume it needs contention to show up.
 
 ## What to try
 

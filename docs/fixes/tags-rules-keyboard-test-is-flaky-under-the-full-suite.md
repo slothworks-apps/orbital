@@ -58,5 +58,18 @@ problem `waitFor` can wait out. Documented separately as
 [[tagsrules-close-focus-can-be-lost-under-load]], since fixing it needs a
 component change and this task's brief is test-only. Left `blocked` on that
 document rather than `done`: the test is markedly less flaky, but the
-underlying race is still there and reproduced twice in 20 single-process full
-runs during verification.
+underlying race is still there.
+
+How often it reproduces rests on two separate measurements, taken at
+different stages, that do not agree:
+
+- during the investigation, before the test change was final: not observed in
+  ~35 consecutive single-process full runs, only under three concurrent
+  full-suite processes;
+- during verification of the final test change: the keyboard test failed
+  twice in 20 single-process full runs. The five green runs quoted in the
+  commit message are separate from these 20.
+
+Whether the verification failures were this race or another cause was not
+confirmed; treat the single-process rate as unknown until the component fix
+lands.

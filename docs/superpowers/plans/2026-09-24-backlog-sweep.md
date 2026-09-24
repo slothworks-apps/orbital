@@ -1,7 +1,7 @@
 ---
 id: 2026-09-24-backlog-sweep
 title: Backlog sweep — the open fixes, the rest of the resource audit, subagent streaming
-status: active
+status: done
 type: plan
 domain: web
 related:
@@ -67,15 +67,15 @@ this choice (`docs/decisions/tool-duration-drops-seconds-past-an-hour.md`).
 as `assistant` rows, so a turn that opens with thinking gets its divider
 above the thinking block. No notion of turns is introduced.
 
-- [ ] `formatToolDuration` in `web/src/lib/format.ts`: add the hour band;
+- [x] `formatToolDuration` in `web/src/lib/format.ts`: add the hour band;
       extend `web/src/test/format.ts` (or wherever its tests live) with the
       boundary cases (59m 59s, 60m, 8h 7m).
-- [ ] `insertModelDividers`: widen the role check; add one test in
+- [x] `insertModelDividers`: widen the role check; add one test in
       `web/src/test/transcriptview.test.tsx` where a model switch's first row
       is a thinking block and the divider sits above it.
-- [ ] Update `insertModelDividers`'s own doc comment ("consecutive assistant
+- [x] Update `insertModelDividers`'s own doc comment ("consecutive assistant
       messages") to say what it anchors to now.
-- [ ] Close both fix docs, write the ADR, `atlas validate`, commit.
+- [x] Close both fix docs, write the ADR, `atlas validate`, commit.
 
 ## Task 2 — the rest of the resource audit: store memory, memoised bodies, batched socket commits
 
@@ -84,7 +84,7 @@ it, and read `select()` in `web/src/store/store.ts` — a return to a
 deselected session already refetches and replaces its transcript, so
 dropping the transcript on deselect costs nothing the user can see.
 
-- [ ] **Drop a deselected session's transcript.** When `ui.selectedId`
+- [x] **Drop a deselected session's transcript.** When `ui.selectedId`
       moves away from a session (in `select()`, and in the paths that set
       `selectedId: null` — `App.tsx`'s escape layer, `DetailPanel`'s
       collapse, `SpaceMap`'s click-away, `setDetached`), delete
@@ -96,7 +96,7 @@ dropping the transcript on deselect costs nothing the user can see.
       behind are dropped with it — the file echo is what `select()` fetches.
       Test: select A, select B, A's transcript is gone; select A again, it is
       fetched.
-- [ ] **Memoise `Planet` and `Moon`** (`web/src/map/Planet.tsx`,
+- [x] **Memoise `Planet` and `Moon`** (`web/src/map/Planet.tsx`,
       `web/src/map/Moon.tsx`) with `React.memo`. Check what props they take:
       a prop that is a fresh object or closure each render defeats the memo,
       so stabilise those at the call site (`useCallback`/`useMemo`) rather
@@ -104,7 +104,7 @@ dropping the transcript on deselect costs nothing the user can see.
       sessions-topic event on a map of ~30 planets (a quick `console.count`
       or React Profiler in a throwaway test is enough) and put the numbers in
       the commit message.
-- [ ] **Batch socket commits per animation frame.** In
+- [x] **Batch socket commits per animation frame.** In
       `web/src/lib/ws.ts`, or in the store's handlers, coalesce the
       `sessions`-topic `upsert`/`status` events that arrive within one frame
       into one store commit. Do NOT batch `session:<id>` events — the
@@ -112,33 +112,33 @@ dropping the transcript on deselect costs nothing the user can see.
       (`applySessionEvent`, `event: 'delta'`) already coalesces on the
       server. Keep `ws.test.ts` green; add a test that two `sessions` frames
       in one tick produce one store write.
-- [ ] Close the fix doc, `atlas validate`, commit.
+- [x] Close the fix doc, `atlas validate`, commit.
 
 ## Task 3 — one viewport-width source, and the file viewer's duplicate language table
 
 Closes [[panel-widths-read-innerwidth-once-and-never-again]] and
 [[file-viewer-owns-a-second-language-table]]. Read both first.
 
-- [ ] Add `useViewportWidth()` in `web/src/lib/useViewportWidth.ts`: a
+- [x] Add `useViewportWidth()` in `web/src/lib/useViewportWidth.ts`: a
       `resize` listener on `window`, updated at most once per animation
       frame, returning `window.innerWidth`. jsdom drives it by setting
       `window.innerWidth` and dispatching `resize`.
-- [ ] Replace every render-time `window.innerWidth` read in
+- [x] Replace every render-time `window.innerWidth` read in
       `web/src/App.tsx`, `web/src/SessionWindow.tsx`,
       `web/src/panels/DetailPanel.tsx`, `web/src/panels/Sidebar.tsx` and
       `web/src/map/SpaceMap.tsx` with the hook. `web/src/ui/usePopupPosition.ts`
       reads it inside an event handler, not during render — leave it. The
       pure `parse*Width`/`resolvePanelPairWidths` helpers in `store.ts` keep
       their viewport argument; only the source of the number changes.
-- [ ] Test: with a stored detail width near the ceiling, shrinking
+- [x] Test: with a stored detail width near the ceiling, shrinking
       `window.innerWidth` and dispatching `resize` re-clamps the pair
       (`resolvePanelPairWidths` output changes without any store write).
       One test, in `web/src/test/layout.test.ts` or `app.test.tsx`, whichever
       already mounts the pair.
-- [ ] `web/src/panels/FileViewer.tsx`: delete `LANGUAGE_BY_EXTENSION`,
+- [x] `web/src/panels/FileViewer.tsx`: delete `LANGUAGE_BY_EXTENSION`,
       `extensionOf` and `languageFor`; call `languageFromPath` from
       `web/src/lib/highlight.ts`. Existing file-viewer tests must stay green.
-- [ ] Close the fix doc and the chore, `atlas validate`, commit.
+- [x] Close the fix doc and the chore, `atlas validate`, commit.
 
 ## Task 4 — subagents: streaming into the panel, a completed agent stays completed, a subagent's question is refused
 
@@ -199,17 +199,20 @@ mechanism already exists in `server/src/runner/runner.ts`: `onStreamEvent`,
 Closes [[spacemap-zoom-accumulation-flakes-under-load]] and
 [[tags-rules-keyboard-test-is-flaky-under-the-full-suite]]. Read both.
 
-- [ ] `web/src/test/tagsrules.test.tsx`, "opens a row from the keyboard and
+- [x] `web/src/test/tagsrules.test.tsx`, "opens a row from the keyboard and
       Escape closes the row before the panel": find the synchronous read
       after a keypress and make it `await waitFor(...)`/`findBy…`; if that
       is not it, give the `userEvent` setup `delay: null`. Nothing in the
       component changes.
-- [ ] `web/src/test/spacemap.test.tsx`, "accumulates presses made during a
+- [x] `web/src/test/spacemap.test.tsx`, "accumulates presses made during a
       run, and stops at the end of the range": drive the clock
       deterministically (fake timers / an injected `now`) instead of counting
       elapsed ticks, so 20 is 20 under any load. If the test cannot be made
       deterministic without changing the component, report that instead of
       changing the component.
-- [ ] Prove it: run the FULL web suite (`npx vitest run` in `web/`) five
+- [x] Prove it: run the FULL web suite (`npx vitest run` in `web/`) five
       times; every run green. Put the five results in the commit message.
-- [ ] Close both fix docs, `atlas validate`, commit.
+- [x] Close both fix docs, `atlas validate`, commit.
+      [[tags-rules-keyboard-test-is-flaky-under-the-full-suite]] stays
+      `blocked`: its residual race needs a component change, tracked in
+      [[tagsrules-close-focus-can-be-lost-under-load]].
