@@ -149,7 +149,7 @@ mechanism already exists in `server/src/runner/runner.ts`: `onStreamEvent`,
 [[the-open-time-snapshot-reverts-a-completed-panel-to-running]] and
 [[subagent-question-ignores-agent-id]].
 
-- [ ] **Subagent streaming, server.** Today `pump()` drops `stream_event`
+- [x] **Subagent streaming, server.** Today `pump()` drops `stream_event`
       frames whose `parent_tool_use_id` is set. Route them into a stream
       state keyed by `parent_tool_use_id` (one `StreamState` per running
       agent, not one per session) and publish their deltas on
@@ -164,14 +164,14 @@ mechanism already exists in `server/src/runner/runner.ts`: `onStreamEvent`,
       `server/test/runner.test.ts` next to `describe('streaming output')`:
       a subagent stream publishes deltas on its own topic and nothing on
       `session:<id>`; two agents streaming at once do not mix rows.
-- [ ] **Subagent streaming, web.** `SubagentEvent` in `web/src/store/store.ts`
+- [x] **Subagent streaming, web.** `SubagentEvent` in `web/src/store/store.ts`
       gains the `delta` variant; `applySubagentEvent` applies it exactly as
       `applySessionEvent` does (create a partial row, grow by offset, ignore
       a delta behind the row, replace on the complete message with the same
       id). Reuse the `streamEnds` bookkeeping. `SubagentPanel` renders a
       partial row like any other; the caret rule is `TranscriptView`'s
       already. Tests in `web/src/test/subagentstore.test.ts`.
-- [ ] **Last known live agent.** In `web/src/panels/SubagentPanel.tsx`, keep
+- [x] **Last known live agent.** In `web/src/panels/SubagentPanel.tsx`, keep
       a `lastKnownLive` ref that is written whenever the live lookup
       resolves, and fall back to it (not to `panel.subagent`) when the live
       lookup misses. Do not add a second writer to `subagentPanel.subagent`
@@ -181,7 +181,7 @@ mechanism already exists in `server/src/runner/runner.ts`: `onStreamEvent`,
       ends it, then an `upsert` with `subagents: []`; the header stays
       `completed`. Amend that ADR with a "Consequences" note pointing at the
       new ref.
-- [ ] **A subagent's question is refused.** `Runner.decide()` reads
+- [x] **A subagent's question is refused.** `Runner.decide()` reads
       `opts.agentID`; when it is set and the tool is a question, resolve
       `{ behavior: 'deny', message: 'Orbital cannot relay a question asked
       from inside a subagent; ask the parent session instead.' }` and park
@@ -191,7 +191,7 @@ mechanism already exists in `server/src/runner/runner.ts`: `onStreamEvent`,
       renders read-only is a promise nobody can keep. Test in
       `server/test/runner.test.ts`. Write the ADR
       `docs/decisions/a-subagents-question-is-refused-not-relayed.md`.
-- [ ] Close both fix docs, add a line to the streaming spec's § 1 saying
+- [x] Close both fix docs, add a line to the streaming spec's § 1 saying
       subagents now stream, `atlas validate`, commit.
 
 ## Task 5 — two flaky tests

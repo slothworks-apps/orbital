@@ -40,6 +40,13 @@ work should read them as proposals that shipped, not as agreements.
 - **Subagents do not stream, yet.** Frames with `parent_tool_use_id` set are
   left to the subagent panel's own feed, which stays whole-message. The
   panel can take the same events later; nothing here forecloses it.
+  *Superseded 2026-09-24 (plan `2026-09-24-backlog-sweep`, task 4):
+  subagents now stream. Each running agent has its own stream state, keyed
+  by `parent_tool_use_id`, and publishes the same `delta` events on
+  `subagent:<sessionId>:<toolUseId>`, with `droppedCount` beside them. The
+  panel applies them with the rules in § 4. Its ring buffer holds complete
+  messages only, so a panel opened mid-stream sees the tail grow and then
+  the complete block replace it.*
 - **The finished block replaces the streamed one in place.** The SDK sends
   the complete assistant message after the stream, one frame per completed
   block. That frame takes over the row the stream was filling — same
