@@ -2,7 +2,7 @@
 id: spacemap-zoom-accumulation-flakes-under-load
 title: The spacemap zoom accumulation test flakes under full-suite load
 type: fix
-status: backlog
+status: done
 domain: web
 tags:
   - tests
@@ -45,3 +45,17 @@ that only load exposes, and the work it appeared during was packaging, nowhere
 near this code. Recorded so the second sighting starts from here rather than
 from a fresh diagnosis — and so that "it passed on re-run" is not quietly
 accepted a second time.
+
+## Fixed 2026-09-24
+
+The diagnosis held: the test (`web/src/test/spacemap.test.tsx`, `SpaceMap
+zoom buttons`) counted on a real `setTimeout` settle outlasting the `useZoomTo`
+tween's real `requestAnimationFrame`/`performance.now()` ticks, which is only
+true when the process gets enough real CPU time inside that window. The
+`describe` block now runs on `vi.useFakeTimers()` (which fakes
+`requestAnimationFrame` along with the rest), and `settle()` drives it with
+`vi.advanceTimersByTimeAsync(ZOOM_STEP_SETTLE_MS)` instead of waiting on the
+wall clock — the tween now converges on a virtual clock nothing else on the
+machine can starve. `SpaceMap.tsx` and `camera.ts` are unchanged. Verified
+with five full `npx vitest run` passes in `web/` (see the commit message for
+the counts).

@@ -1028,17 +1028,17 @@ describe('Settings › Tags & rules', () => {
     rowButton.focus()
     await user.keyboard('{Enter}')
 
-    expect(row(10).dataset.ruleMode).toBe('editing')
-    expect(screen.getByLabelText('Pattern for rule 1')).toHaveFocus()
+    await waitFor(() => expect(row(10).dataset.ruleMode).toBe('editing'))
+    await waitFor(() => expect(screen.getByLabelText('Pattern for rule 1')).toHaveFocus())
 
     // Escape peels the row first…
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(row(10).dataset.ruleMode).toBe('resting')
+    await waitFor(() => expect(row(10).dataset.ruleMode).toBe('resting'))
     expect(onClose).not.toHaveBeenCalled()
     // …focus lands back on the row it came from…
-    expect(screen.getByRole('button', { name: /^Edit rule 1:/ })).toHaveFocus()
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Edit rule 1:/ })).toHaveFocus())
     // …and only then the panel.
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(onClose).toHaveBeenCalled()
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 })
