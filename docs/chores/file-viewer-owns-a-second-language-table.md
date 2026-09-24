@@ -2,7 +2,7 @@
 id: file-viewer-owns-a-second-language-table
 title: The file viewer owns a second extension-to-language table
 type: chore
-status: backlog
+status: done
 domain: web
 related:
   - one-syntax-palette-for-all-code
@@ -36,3 +36,10 @@ returns both, so the call sites need no other change.
 Until then: **a new extension has to be added in two places**, and adding it
 in only one is silent. That is the whole cost, and it is the reason this is
 written down rather than left to be noticed.
+
+## Done 2026-09-24
+
+`panels/FileViewer.tsx` lost its `LANGUAGE_BY_EXTENSION`, `extensionOf` and
+`languageFor` and calls `languageFromPath` from `lib/highlight.ts`. The two
+tables were identical when the copy was deleted, so nothing the viewer shows
+changed. A new extension now goes in `lib/highlight.ts` only.
