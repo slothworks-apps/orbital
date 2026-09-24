@@ -33,6 +33,8 @@ import {
   parseSubagentPanelMessage,
   sessionWindowUrl,
   shrinkAfterSubagent,
+  toCssPx,
+  toDip,
   type SubagentGrowth,
   type SubagentPanelAnswer,
   type SubagentPanelMessage,
@@ -493,20 +495,33 @@ const subagentGrowth = new WeakMap<BrowserWindow, SubagentGrowth>();
  * 2026-09-24-subagent-list-design § 4): the grown or shrunk width, or the
  * current one when the frame stays. The renderer picks its layout from it
  * before the resize has finished.
+ *
+ * The renderer's widths are CSS px and a frame is DIP; they differ under
+ * page zoom, so the message's widths go in through `toDip` and every answer
+ * goes out through `toCssPx`.
  */
 function resizeForSubagent(target: BrowserWindow, message: SubagentPanelMessage): SubagentPanelAnswer {
-  const current: SubagentPanelAnswer = { widthPx: target.getBounds().width };
+  const zoomFactor = target.webContents.getZoomFactor();
+  const answer = (widthDip: number): SubagentPanelAnswer => ({
+    widthPx: toCssPx(widthDip, zoomFactor),
+  });
+  const current = answer(target.getBounds().width);
   if (target.isFullScreen()) return current;
   if (message.open) {
     // A repeat open (the renderer reloaded mid-agent) keeps the first grow.
     if (subagentGrowth.has(target)) return current;
     const bounds = target.getBounds();
     const { workArea } = screen.getDisplayMatching(bounds);
-    const growth = growForSubagent(bounds, workArea, message.widthPx, message.pairMinPx);
+    const growth = growForSubagent(
+      bounds,
+      workArea,
+      toDip(message.widthPx, zoomFactor),
+      toDip(message.pairMinPx, zoomFactor),
+    );
     if (!growth) return current;
     subagentGrowth.set(target, growth);
     target.setBounds(growth.after, true);
-    return { widthPx: growth.after.width };
+    return answer(growth.after.width);
   }
   const growth = subagentGrowth.get(target);
   if (!growth) return current;
@@ -514,7 +529,7 @@ function resizeForSubagent(target: BrowserWindow, message: SubagentPanelMessage)
   const bounds = shrinkAfterSubagent(target.getBounds(), growth, target.getMinimumSize()[0]);
   if (!bounds) return current;
   target.setBounds(bounds, true);
-  return { widthPx: bounds.width };
+  return answer(bounds.width);
 }
 
 /**

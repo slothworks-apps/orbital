@@ -96,6 +96,28 @@ export interface SubagentPanelAnswer {
   widthPx: number;
 }
 
+/**
+ * Units. Main measures a window in DIP (`getBounds`, `setBounds`); the
+ * renderer measures in CSS px (`innerWidth`), and the two differ by the
+ * page's zoom factor (View → Zoom In/Out). Every width crossing
+ * `session-window-subagent` goes through one of these, so a zoomed window
+ * compares like with like. A zoom factor that is not a positive finite
+ * number counts as no zoom.
+ */
+function zoom(zoomFactor: number): number {
+  return Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
+}
+
+/** A width main measured (DIP) as the renderer measures it (CSS px). */
+export function toCssPx(widthDip: number, zoomFactor: number): number {
+  return Math.round(widthDip / zoom(zoomFactor));
+}
+
+/** A width the renderer measured (CSS px) as main measures it (DIP). */
+export function toDip(widthCssPx: number, zoomFactor: number): number {
+  return Math.round(widthCssPx * zoom(zoomFactor));
+}
+
 function isWidth(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }

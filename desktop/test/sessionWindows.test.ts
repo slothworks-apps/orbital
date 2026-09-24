@@ -8,7 +8,25 @@ import {
   parseSubagentPanelMessage,
   sessionWindowUrl,
   shrinkAfterSubagent,
+  toCssPx,
+  toDip,
 } from '../src/lib/sessionWindows';
+
+describe('toCssPx / toDip', () => {
+  it('converts between window units and page pixels by the zoom factor', () => {
+    // Under View → Zoom In a window 900 wide measures fewer CSS px inside.
+    expect(toCssPx(900, 1.25)).toBe(720);
+    expect(toDip(720, 1.25)).toBe(900);
+    expect(toCssPx(901, 1.1)).toBe(819);
+    expect(toCssPx(900, 1)).toBe(900);
+  });
+
+  it('treats a zoom factor that is not a positive finite number as none', () => {
+    expect(toCssPx(900, 0)).toBe(900);
+    expect(toCssPx(900, Number.NaN)).toBe(900);
+    expect(toDip(900, -1)).toBe(900);
+  });
+});
 
 describe('parseSubagentPanelMessage', () => {
   it('reads an open with both widths, and a close', () => {
