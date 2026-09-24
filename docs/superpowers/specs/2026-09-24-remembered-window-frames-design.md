@@ -35,7 +35,8 @@ the fixed default too. Nothing about the camera is part of this.
   window was moved or resized to by the user. The grow for the subagent panel
   is not the user's: it is undone before the frame is saved, as the panel's
   close would undo it, so a window closed with the panel open leaves its
-  frame without the panel. A new detached window opens there;
+  frame without the panel. A new detached window opens there, raised to the
+  window's minimum size if the file holds less;
   with nothing remembered it opens at the default size, centred on the
   primary display.
 - **Several detached windows.** Every new one starts from the same frame, so

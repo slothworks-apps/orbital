@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  atLeast,
   cascadeFrom,
   fitToDisplays,
   parseWindowFrames,
@@ -142,6 +143,13 @@ describe('sessionFrameToRemember', () => {
     // Resized by hand while grown: the user's size wins, as on the shrink.
     const handSized = { ...growth.after, width: 1000 };
     expect(sessionFrameToRemember(handSized, opened, growth, minWidth)).toEqual(handSized);
+  });
+});
+
+describe('atLeast', () => {
+  it('raises a frame below the minimum and leaves a larger one', () => {
+    expect(atLeast({ x: 5, y: 6, width: 100, height: 900 }, 450, 520)).toEqual({ x: 5, y: 6, width: 450, height: 900 });
+    expect(atLeast(frame, 450, 520)).toEqual(frame);
   });
 });
 

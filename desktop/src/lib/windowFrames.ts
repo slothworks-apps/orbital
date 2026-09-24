@@ -172,6 +172,15 @@ export function sessionFrameToRemember(
   return sameBounds(opened, own) ? null : own;
 }
 
+/**
+ * A frame raised to a window's minimum size. The file may have been edited by
+ * hand, and a constructor handed a frame below the minimum opens the window
+ * that small anyway.
+ */
+export function atLeast(frame: Bounds, minWidth: number, minHeight: number): Bounds {
+  return { ...frame, width: Math.max(minWidth, frame.width), height: Math.max(minHeight, frame.height) };
+}
+
 function overlapArea(a: Bounds, b: Bounds): number {
   const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
   const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);

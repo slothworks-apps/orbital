@@ -51,6 +51,7 @@ import {
   type HealthInfo,
 } from './lib/startup';
 import {
+  atLeast,
   cascadeFrom,
   centredIn,
   fitToDisplays,
@@ -590,8 +591,11 @@ function openSessionWindow(sessionId: string): void {
   // It opens where the last detached window was left, or centred at the
   // default size, stepped clear of any detached window already there.
   const areas = workAreas();
-  const start =
-    windowFrames.session ?? centredIn(areas[0], SESSION_WINDOW_WIDTH, SESSION_WINDOW_HEIGHT);
+  const start = atLeast(
+    windowFrames.session ?? centredIn(areas[0], SESSION_WINDOW_WIDTH, SESSION_WINDOW_HEIGHT),
+    SESSION_WINDOW_WIDTH,
+    SESSION_WINDOW_MIN_HEIGHT,
+  );
   const open = [...sessionWindows.values()].filter((w) => !w.isDestroyed()).map((w) => w.getBounds());
   const detached = new BrowserWindow({
     ...cascadeFrom(start, open, areas, SESSION_WINDOW_CASCADE_STEP),
