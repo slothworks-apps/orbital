@@ -2,7 +2,7 @@
 id: the-open-time-snapshot-reverts-a-completed-panel-to-running
 title: The panel's open-time snapshot reverts a completed agent to RUNNING once its session's tracker is dropped
 type: fix
-status: backlog
+status: done
 domain: subagents
 related:
   - the-panel-reads-its-agent-live-not-the-snapshot-it-opened-with
@@ -117,3 +117,12 @@ governing ADR rejected for the ORIGINAL bug (a second writer to
 guards in `openSubagent`'s async continuations key off that reference being
 set exactly once by the open action itself. Whatever lands here needs its own
 field, not a second writer to that one.
+
+## Fixed 2026-09-24
+
+`SubagentPanel` keeps a `lastKnownLive` ref, written whenever the live lookup
+resolves for the open agent, and falls back to it before the open-time
+snapshot. The snapshot now only answers for an agent the live lookup never
+found. `subagentPanel.subagent` still has one writer. Test: "stays completed
+when a later republish carries no agents at all" in
+`web/src/test/subagentpanel.test.tsx`.
