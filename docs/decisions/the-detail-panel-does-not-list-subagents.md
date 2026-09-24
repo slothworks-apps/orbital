@@ -2,17 +2,25 @@
 id: the-detail-panel-does-not-list-subagents
 title: The detail panel does not list a session's subagents
 type: adr
-status: in-force
+status: superseded
 domain: web
 related:
   - 2026-09-15-orbital-web
   - subagents-in-transcripts
   - the-panel-reads-its-agent-live-not-the-snapshot-it-opened-with
+  - 2026-09-24-subagent-list-design
 tags:
   - detail-panel
   - subagents
 ---
 # The detail panel does not list a session's subagents
+
+## Superseded
+
+2026-09-24: the list came back. [[2026-09-24-subagent-list-design]] adds it
+as the canvas-designed collapsed count in the detail panel's state row —
+exactly the shape "If it comes back" below asked for. The body below stays
+as the record of why the chip strip went.
 
 The detail panel header no longer carries a strip of chips, one per
 subagent, reading `name · state`. It was part of the first cut of the

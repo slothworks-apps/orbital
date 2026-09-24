@@ -11,6 +11,7 @@ related:
   - 2026-09-18-transcript-folding-design
   - 2026-09-21-fit-honours-the-panels-design
   - 2026-09-23-detached-session-windows-design
+  - 2026-09-24-subagent-list-design
 ---
 
 # Subagent transcript panel
@@ -159,6 +160,14 @@ with the same lifetime.
   the WS increments.
 
 ## 4. Moons outlive their agents
+
+**2026-09-24: superseded on the map side.**
+[[2026-09-24-subagent-list-design]] § 5 has a moon leave the map the instant
+its agent ends, so the "an ended moon stays until the user dismisses it"
+bullet below no longer holds, and dismissal is gone. `SubagentStore.all()`
+and `running()` stand as described — the list and the `OPEN →` row still
+read `all()`, `hasLiveSubagents` still reads `running()` — and the buffer
+still outlives the agent ([[subagent-buffer-outlives-the-agent]]).
 
 Today `SubagentStore.get()` returns only running agents and
 `web/src/map/sceneModel.ts` filters `state !== 'ended'`, so a moon vanishes

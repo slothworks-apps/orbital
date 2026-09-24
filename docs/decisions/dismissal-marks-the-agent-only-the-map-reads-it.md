@@ -2,13 +2,14 @@
 id: dismissal-marks-the-agent-only-the-map-reads-it
 title: Dismissal marks an agent and only the map reads the mark
 type: adr
-status: in-force
+status: superseded
 domain: subagents
 related:
   - 2026-09-22-subagent-transcript-panel-design
   - subagentstore-splits-into-all-and-running
   - subagent-buffer-outlives-the-agent
   - subagent-messages-404-vs-empty-200
+  - 2026-09-24-subagent-list-design
 tags:
   - server
   - web
@@ -17,6 +18,13 @@ tags:
 ---
 
 # Dismissal marks an agent and only the map reads the mark
+
+## Superseded
+
+2026-09-24: [[2026-09-24-subagent-list-design]] § 5 has finished moons leave
+the map on their own when their agent ends, so there is nothing left to
+dismiss. Dismissal was removed in full — not left dead — including the mark
+this ADR is about. The body stays as the record of the bug and the decision.
 
 ## The problem
 

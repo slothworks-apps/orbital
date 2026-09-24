@@ -148,6 +148,11 @@ itself. The window sends its state on mount as well, so a reload under an
 open panel gives back what was grown. Main keeps what each grow did per
 window, and a second open while grown keeps the first.
 
+**2026-09-24:** [[2026-09-24-subagent-list-design]] § 4 builds on this — the
+subagent swaps in for the session below `WINDOW_PANEL_PAIR_MIN_PX` instead of
+opening as a pane, and the `session-window-subagent` grow above becomes an
+`invoke` that answers with the width the window will have.
+
 ### The session on the map while it is detached
 
 Canvas `Feature - Detached window` 22e.
