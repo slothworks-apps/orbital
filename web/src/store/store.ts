@@ -588,6 +588,11 @@ const turnResultSeen: Record<string, boolean | undefined> = {}
  */
 const streamEnds: Record<string, number> = {}
 
+/** Lets go of the stream bookkeeping of whatever partial rows `rows` holds. */
+function forgetStreamEnds(rows: readonly ChatMessage[]): void {
+  for (const m of rows) if (m.partial) delete streamEnds[m.id]
+}
+
 /**
  * `sessions`-topic events waiting for the next frame (`queueSessionsEvent`),
  * and the frame and fallback timer that will flush them.
@@ -1749,7 +1754,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // turns this into STREAM LOST. `subagent` is stored by reference
     // (never copied) because every async continuation below re-checks
     // identity against this exact object to tell a stale response apart
-    // from a fresh one.
+    // from a fresh one. The outgoing list's partial rows go with it, and
+    // their stream bookkeeping with them (see `closeSubagent`).
+    forgetStreamEnds(get().subagentPanel?.messages ?? [])
     set({
       subagentPanel: { sessionId, subagent, messages: [], droppedCount: 0, found: true },
     })
@@ -1814,6 +1821,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         // agent is known and simply hasn't said anything yet. Collapsing
         // the two would tell the user the agent did nothing, which here
         // would be a lie.
+        forgetStreamEnds(current.messages)
         set({ subagentPanel: { ...current, messages: [], droppedCount: 0, found: false } })
         return
       }
@@ -1824,6 +1832,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   closeSubagent() {
     releaseSubagentSubscription()
+    // Nothing on the subagent topic finalises a partial row, so its entry
+    // would otherwise outlive the panel.
+    forgetStreamEnds(get().subagentPanel?.messages ?? [])
     set({ subagentPanel: null })
   },
 
@@ -2061,7 +2072,7 @@ function dropTranscript(id: string) {
   const state = useOrbital.getState()
   if (state.ui.selectedId === id || state.subagentPanel?.sessionId === id) return
   if (!(id in state.transcripts) && !(id in state.historyLoaded)) return
-  for (const m of state.transcripts[id] ?? []) if (m.partial) delete streamEnds[m.id]
+  forgetStreamEnds(state.transcripts[id] ?? [])
   const { [id]: _transcript, ...transcripts } = state.transcripts
   const { [id]: _loaded, ...historyLoaded } = state.historyLoaded
   useOrbital.setState({ transcripts, historyLoaded })
