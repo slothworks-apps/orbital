@@ -328,6 +328,16 @@ describe('REST routes', () => {
     expect(preview.json()).toMatchObject({ tagId });
   });
 
+  it('GET /api/tags lists the default tag first, whatever its id', async () => {
+    db.update(tags).set({ isDefault: 0 }).run();
+    db.update(tags).set({ isDefault: 1 }).where(eq(tags.id, 10)).run();
+    await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } });
+    const res = await app.inject({ method: 'GET', url: '/api/tags' });
+    const ids = res.json().tags.map((t: { id: number }) => t.id);
+    expect(ids[0]).toBe(10);
+    expect(ids.slice(1)).toEqual([...ids.slice(1)].sort((a: number, b: number) => a - b));
+  });
+
   it('GET /api/tags and /api/tag-rules preserve original snake_case key order (derived projection maps)', async () => {
     const tagsRes = await app.inject({ method: 'GET', url: '/api/tags' });
     expect(Object.keys(tagsRes.json().tags[0])).toEqual([

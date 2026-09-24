@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
@@ -92,7 +92,7 @@ describe('openDb', () => {
       ]),
     );
     const def = db.select().from(tags).where(sql`${tags.isDefault} = 1`).get();
-    expect(def?.name).toBe('personal');
+    expect(def?.name).toBe('default');
     expect(def?.hue).toBe(330);
     const mode = db
       .select()
@@ -287,5 +287,64 @@ describe('cluster release-delay default', () => {
     expect(rows.map_release_ended_after_minutes).toBe('120');
     expect(rows.map_hide_ended).toBeUndefined();
     expect(rows.map_ended_max_age_days).toBeUndefined();
+  });
+});
+
+// The boot seed used to key on the name 'personal', so renaming the default
+// tag made the next boot seed another one — each undeletable, and only the
+// lowest id ever used as the fallback.
+describe('default tag', () => {
+  it('survives a rename without a second default being seeded', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-default-'));
+    const dbPath = join(dir, 'index.db');
+    const first = openDb(dbPath);
+    first.update(tags).set({ name: 'orbital' }).where(eq(tags.isDefault, 1)).run();
+    first.$client.close();
+
+    const db = openDb(dbPath);
+    const defaults = db.select().from(tags).where(eq(tags.isDefault, 1)).all();
+    expect(defaults.map((t) => t.name)).toEqual(['orbital']);
+    db.$client.close();
+  });
+
+  it('takes over a plain tag already named default rather than failing the seed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-default-'));
+    const dbPath = join(dir, 'index.db');
+    const first = openDb(dbPath);
+    first.update(tags).set({ name: 'orbital', isDefault: 0 }).run();
+    first.insert(tags).values({ name: 'default', hue: 110 }).run();
+    first.$client.close();
+
+    const db = openDb(dbPath);
+    const defaults = db.select().from(tags).where(eq(tags.isDefault, 1)).all();
+    expect(defaults).toMatchObject([{ name: 'default', hue: 110 }]);
+    db.$client.close();
+  });
+
+  it('migration keeps only the lowest-id default of several', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-default-'));
+    const dbPath = join(dir, 'index.db');
+    // Every migration before the one that adds the unique index.
+    const before = join(dir, 'drizzle-before');
+    cpSync(DEFAULT_MIGRATIONS_FOLDER, before, { recursive: true });
+    const journalPath = join(before, 'meta', '_journal.json');
+    const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
+      entries: { tag: string }[];
+    };
+    journal.entries = journal.entries.filter((e) => !e.tag.endsWith('_one_default_tag'));
+    writeFileSync(journalPath, JSON.stringify(journal));
+    const old = openDb(dbPath, before);
+    old.insert(tags).values([
+      { name: 'atlas', hue: 150, isDefault: 1 },
+      { name: 'personal-again', hue: 330, isDefault: 1 },
+    ]).run();
+    const firstDefault = old.select().from(tags).where(eq(tags.isDefault, 1)).orderBy(tags.id).get();
+    old.$client.close();
+
+    const db = openDb(dbPath);
+    const defaults = db.select().from(tags).where(eq(tags.isDefault, 1)).all();
+    expect(defaults.map((t) => t.id)).toEqual([firstDefault!.id]);
+    expect(() => db.update(tags).set({ isDefault: 1 }).where(eq(tags.name, 'atlas')).run()).toThrow();
+    db.$client.close();
   });
 });

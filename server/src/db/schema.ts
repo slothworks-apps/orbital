@@ -7,6 +7,7 @@ import {
   real,
   primaryKey,
   index,
+  uniqueIndex,
   check,
 } from 'drizzle-orm/sqlite-core';
 import type {
@@ -157,7 +158,11 @@ export const tags = sqliteTable('tags', {
    */
   anchorX: real('anchor_x'),
   anchorY: real('anchor_y'),
-});
+}, (table) => [
+  // Exactly one default tag: untagged sessions fall back to it, and a second
+  // one would be undeletable dead weight (the delete route refuses defaults).
+  uniqueIndex('tags_one_default').on(table.isDefault).where(sql`${table.isDefault} = 1`),
+]);
 
 export const sessionTags = sqliteTable(
   'session_tags',

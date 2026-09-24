@@ -1146,7 +1146,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   app.get('/api/tags', () => ({
-    tags: db.select(tagColumns).from(tags).orderBy(tags.id).all(),
+    // The default tag leads every tag list; the rest keep creation order.
+    tags: db.select(tagColumns).from(tags).orderBy(desc(tags.isDefault), tags.id).all(),
   }));
   app.post('/api/tags', (req, reply) => {
     const { name, hue } = req.body as { name: string; hue: number };

@@ -46,7 +46,8 @@ import { modelByValue } from '../lib/models'
 import type { PermissionMode } from '../lib/types'
 import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
-import pkg from '../../package.json'
+// The desktop version names the DMG, and the DMG ships this frontend.
+import { version as orbitalVersion } from '../../../desktop/package.json'
 
 export interface SettingsProps {
   open: boolean
@@ -753,7 +754,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 ))}
                 <span className="flex-1" />
                 <div className="px-3 py-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.45)]">
-                  <div>orbital {pkg.version}</div>
+                  <div>orbital {orbitalVersion}</div>
                   {claudeCodeVersion && <div>claude-code {claudeCodeVersion}</div>}
                 </div>
               </nav>

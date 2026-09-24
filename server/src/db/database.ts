@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { eq } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { mkdirSync } from 'node:fs';
@@ -179,7 +180,15 @@ export function openDb(
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
     db.insert(settings).values({ key, value }).onConflictDoNothing().run();
   }
-  db.insert(tags).values({ name: 'personal', hue: 330, isDefault: 1 }).onConflictDoNothing().run();
+  // Seeded only while no default exists, never by name: the default can be
+  // renamed, and a name-keyed seed re-created it on every boot after that.
+  const hasDefault = db.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).get();
+  if (!hasDefault) {
+    db.insert(tags)
+      .values({ name: 'default', hue: 330, isDefault: 1 })
+      .onConflictDoUpdate({ target: tags.name, set: { isDefault: 1 } })
+      .run();
+  }
   // Migration baseline (M12): a fresh or pre-Drizzle database has
   // user_version 0. Drizzle itself tracks applied migrations in its own
   // `__drizzle_migrations` table and never reads/writes this pragma — this
