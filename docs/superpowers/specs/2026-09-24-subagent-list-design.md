@@ -77,8 +77,12 @@ gains what the list needs and nothing more:
   `detail`, so the 44 px agent row can be drawn without teaching `Menu` what
   an agent is.
 
-The popup is 372 px wide and its right edge sits on the header's right edge
-(25a), dropping over the transcript. A hint strip closes it:
+The popup is 372 px wide and hangs under the chip, dropping over the
+transcript. It stays inside the header row: in a row too narrow for that (the
+450 px main-window panel 25a draws) it slides left until its right edge sits
+on the row's right edge. Only in that narrow row does "right-aligned to the
+header" hold; in a wide detached window the list must stay under the chip
+that opened it, not drift to the far side of the header. A hint strip closes it:
 `↑↓ move · ↵ open · ⎋ close`. Picking a row closes the list and opens the
 panel; the transcript does not move.
 

@@ -350,7 +350,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
               <SubagentChip
                 sessionId={parentSession.id}
                 subagents={parentSession.subagents}
-                alignRef={titleRowRef}
+                withinRef={titleRowRef}
               />
             )}
           </div>

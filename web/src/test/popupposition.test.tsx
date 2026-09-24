@@ -11,13 +11,29 @@ function Harness({
   anchor,
   natural,
   width = 200,
+  within,
   ...options
-}: PopupPositionOptions & { anchor: Partial<DOMRect>; natural: number; width?: number }) {
+}: Omit<PopupPositionOptions, 'withinRef'> & {
+  anchor: Partial<DOMRect>
+  natural: number
+  width?: number
+  within?: Partial<DOMRect>
+}) {
   const anchorRef = useRef<HTMLDivElement | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
-  usePopupPosition(true, anchorRef, popupRef, options)
+  const withinRef = useRef<HTMLDivElement | null>(null)
+  usePopupPosition(true, anchorRef, popupRef, { ...options, withinRef: within ? withinRef : undefined })
   return (
     <>
+      {within && (
+        <div
+          data-testid="within"
+          ref={(el) => {
+            withinRef.current = el
+            if (el) el.getBoundingClientRect = () => within as DOMRect
+          }}
+        />
+      )}
       <div
         data-testid="anchor"
         ref={(el) => {
@@ -123,5 +139,34 @@ describe('usePopupPosition', () => {
     el.style.top = '0px'
     fireEvent(window, new Event('resize'))
     expect(el.style.top).toBe('624px')
+  })
+})
+
+/** The subagent chip on the detail header's state row, 120px in from the left. */
+const CHIP = { left: 120, right: 210, top: 100, bottom: 122, width: 90, height: 22 }
+
+describe('usePopupPosition withinRef', () => {
+  it('hangs the popup off the anchor when the bounding element has room for it', () => {
+    // A wide header (a detached window): the list stays under the chip that opened it.
+    render(
+      <Harness anchor={CHIP} natural={100} gap={8} width={372} within={{ left: 18, right: 1000, top: 100, bottom: 122 }} />,
+    )
+    expect(popup().style.left).toBe('120px')
+  })
+
+  it('slides the popup left so it ends on the bounding element`s right edge (canvas 25a)', () => {
+    // The 450px main-window panel: 450 − 372 = 78, left of the chip.
+    render(
+      <Harness anchor={CHIP} natural={100} gap={8} width={372} within={{ left: 18, right: 450, top: 100, bottom: 122 }} />,
+    )
+    expect(popup().style.left).toBe('78px')
+  })
+
+  it('never starts left of the bounding element', () => {
+    // A bound narrower than the popup: the popup starts on its left edge and overhangs on the right.
+    render(
+      <Harness anchor={CHIP} natural={100} gap={8} width={372} within={{ left: 60, right: 400, top: 100, bottom: 122 }} />,
+    )
+    expect(popup().style.left).toBe('60px')
   })
 })

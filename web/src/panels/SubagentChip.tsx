@@ -26,8 +26,13 @@ export interface SubagentChipProps {
   sessionId: string
   /** That session's own `subagents`, every one it ever had. */
   subagents: readonly Subagent[]
-  /** The element whose right edge the list ends on (25a: "right-aligned to the header"); the chip's own without it. */
-  alignRef?: RefObject<HTMLElement | null>
+  /**
+   * The header row the list stays inside: it hangs under the chip and, when
+   * the row is too narrow for that, ends on the row's right edge instead
+   * (25a: "right-aligned to the header", drawn in a 450px panel). Without it
+   * the list hangs under the chip wherever that lands.
+   */
+  withinRef?: RefObject<HTMLElement | null>
 }
 
 /**
@@ -37,7 +42,7 @@ export interface SubagentChipProps {
  * What is counted, grouped and ordered is `lib/subagentList`'s; this only
  * draws it and wires the pick to `openSubagent`.
  */
-export function SubagentChip({ sessionId, subagents, alignRef }: SubagentChipProps) {
+export function SubagentChip({ sessionId, subagents, withinRef }: SubagentChipProps) {
   const [open, setOpen] = useState(false)
   const [nowMs, setNowMs] = useState(Date.now)
   const openSubagent = useOrbital((s) => s.openSubagent)
@@ -83,8 +88,8 @@ export function SubagentChip({ sessionId, subagents, alignRef }: SubagentChipPro
       widthPx={LIST_WIDTH_PX}
       maxRows={LIST_MAX_ROWS}
       gapPx={LIST_GAP_PX}
-      align="right"
-      alignRef={alignRef}
+      align="left"
+      withinRef={withinRef}
       onOpenChange={setOpen}
       footer={
         // 25a's hint strip, under the scroll.

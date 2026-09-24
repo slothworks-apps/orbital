@@ -901,7 +901,7 @@ export function DetailPanel({
               />
               {/* Subagent list spec § 1: the chip is as tall as the badge,
                   so the row does not grow; none at all without subagents. */}
-              <SubagentChip sessionId={session.id} subagents={session.subagents} alignRef={stateRowRef} />
+              <SubagentChip sessionId={session.id} subagents={session.subagents} withinRef={stateRowRef} />
               <span aria-hidden className="flex-1" />
               {showContext && contextNote && (
                 // 9d names the note but draws no state that carries one; it

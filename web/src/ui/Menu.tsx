@@ -62,8 +62,8 @@ export interface MenuButtonProps {
   widthPx?: number
   /** Which of the trigger's edges the popup lines up with. */
   align?: 'left' | 'right'
-  /** Line that edge up with this element's instead of the trigger's (`usePopupPosition`'s `alignRef`). */
-  alignRef?: RefObject<HTMLElement | null>
+  /** Keep the popup inside this element's horizontal extent (`usePopupPosition`'s `withinRef`). */
+  withinRef?: RefObject<HTMLElement | null>
   /** Trigger to popup, where the canvas draws it other than `POPUP_GAP`. */
   gapPx?: number
   /** Drawn in the shell under the list, outside its scroll and outside `role="menu"`: a key-hint strip. */
@@ -119,7 +119,7 @@ export function MenuButton({
   onOpenChange,
   widthPx,
   align = 'right',
-  alignRef,
+  withinRef,
   gapPx = POPUP_GAP,
   footer,
   maxRows,
@@ -182,7 +182,7 @@ export function MenuButton({
     list.style.maxHeight = last ? `${last.offsetTop + last.offsetHeight}px` : ''
   })
 
-  usePopupPosition(open, triggerRef, popupRef, { gap: gapPx, align, alignRef })
+  usePopupPosition(open, triggerRef, popupRef, { gap: gapPx, align, withinRef })
 
   // Into the menu on open. A layout effect, so the first row already holds
   // focus in the frame the menu appears.
