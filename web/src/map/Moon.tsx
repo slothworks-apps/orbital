@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Subagent } from '../lib/types'
@@ -564,7 +564,7 @@ export function moonInteraction(
   return { openable, inert, effectiveState: inert ? 'ended' : subagent.state }
 }
 
-export function Moon({
+function MoonBody({
   subagent,
   hue,
   parentX,
@@ -951,3 +951,10 @@ export function Moon({
     </group>
   )
 }
+
+/**
+ * Memoised for the same reason as `Planet`: a `sessions` event re-renders
+ * `SpaceMap`, and only the moons of the session that changed should follow.
+ * Keep new props stable at the call site rather than adding a comparator.
+ */
+export const Moon = memo(MoonBody)

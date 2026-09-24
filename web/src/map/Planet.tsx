@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
@@ -1156,7 +1156,7 @@ function usePlanetMaterials(): PlanetMaterials {
   return materials
 }
 
-export function Planet({
+function PlanetBody({
   session,
   hue,
   x,
@@ -1976,3 +1976,13 @@ export function Planet({
     </group>
   )
 }
+
+/**
+ * Memoised because every `sessions` event rebuilds the scene model and
+ * re-renders `SpaceMap`, and a busy turn sends many: without it the whole
+ * map re-rendered for one planet's change. Shallow props only — `SpaceMap`
+ * passes stable callbacks and `useSceneModel` keeps an unchanged
+ * `contextFill` object, so keep any new prop stable too rather than
+ * reaching for a custom comparator.
+ */
+export const Planet = memo(PlanetBody)
