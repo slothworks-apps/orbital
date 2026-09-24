@@ -196,6 +196,27 @@ export interface SceneModel {
 }
 
 /**
+ * Hands each planet of a freshly built `model` the `contextFill` object the
+ * `previous` model gave it, wherever the two say the same thing. `Planet` is
+ * memoised on shallow props, and `buildSceneModel` allocates a new fill for
+ * every gauged planet on every build — so without this one session's event
+ * re-rendered every gauged planet on the map. Writes into `model`, which the
+ * caller has only just built and nobody else holds yet.
+ */
+export function reuseContextFills(model: SceneModel, previous: SceneModel | null): SceneModel {
+  if (!previous) return model
+  const held = new Map<string, ContextFill>()
+  for (const p of previous.planets) if (p.contextFill) held.set(p.session.id, p.contextFill)
+  for (const p of model.planets) {
+    const before = held.get(p.session.id)
+    if (before && p.contextFill && before.fraction === p.contextFill.fraction && before.level === p.contextFill.level) {
+      p.contextFill = before
+    }
+  }
+  return model
+}
+
+/**
  * Sorts each cluster's sessions by stable id (not the recency order
  * `visibleSessions` returns them in) before layout. `layoutClusters`
  * places a cluster's sessions on a golden-angle spiral purely by each

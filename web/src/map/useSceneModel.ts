@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAP_LEAVE_GRACE_MS, useOrbital } from '../store/store'
-import { buildSceneModel, type SceneModel } from './sceneModel'
+import { buildSceneModel, reuseContextFills, type SceneModel } from './sceneModel'
 
 /**
  * `<SpaceMap>`'s scene-model subscription. Deliberately NOT
@@ -54,7 +54,12 @@ export function useSceneModel(): SceneModel {
     return () => clearTimeout(timer)
   }, [leavingSince])
 
-  return useMemo(
+  // The model this hook returned last, so an unchanged planet keeps its
+  // prop identities across a rebuild (`reuseContextFills`) and its memoised
+  // `Planet` skips the render.
+  const previous = useRef<SceneModel | null>(null)
+
+  const model = useMemo(
     () =>
       // `buildSceneModel` takes a full `OrbitalState` (so it can reuse
       // `mapSessions`/`statusCounts` unmodified), but only ever reads the
@@ -62,7 +67,7 @@ export function useSceneModel(): SceneModel {
       // type — if `buildSceneModel` (or the store selectors it calls)
       // starts reading one of them, it must be added to both this object
       // and the `useMemo` dependency array above.
-      buildSceneModel(
+      reuseContextFills(buildSceneModel(
         {
           sessions,
           order,
@@ -100,7 +105,7 @@ export function useSceneModel(): SceneModel {
           },
         },
         nowMs
-      ),
+      ), previous.current),
     [
       sessions,
       order,
@@ -117,4 +122,8 @@ export function useSceneModel(): SceneModel {
       nowMs,
     ]
   )
+  useEffect(() => {
+    previous.current = model
+  }, [model])
+  return model
 }

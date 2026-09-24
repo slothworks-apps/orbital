@@ -221,6 +221,43 @@ describe('applySessionsEvent', () => {
   })
 })
 
+// fix: a-reopened-session-shows-the-transcript-it-was-left-with
+describe('queueSessionsEvent', () => {
+  let frames: FrameRequestCallback[] = []
+  beforeEach(() => {
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+  const runFrame = () => frames.splice(0).forEach((cb) => cb(0))
+
+  it('lands two sessions frames of one tick as one store write, in order', () => {
+    let writes = 0
+    const unsubscribe = useOrbital.subscribe(() => { writes++ })
+    useOrbital.getState().queueSessionsEvent({ event: 'upsert', session: makeSession({ id: 's1', status: 'idle' }) })
+    useOrbital.getState().queueSessionsEvent({ event: 'status', sessionId: 's1', status: 'working' })
+    expect(writes).toBe(0)
+
+    runFrame()
+    unsubscribe()
+
+    expect(writes).toBe(1)
+    expect(useOrbital.getState().sessions.s1.status).toBe('working')
+  })
+
+  it('catches up before a session-topic event, which reads the row the sessions topic brought', () => {
+    useOrbital.getState().queueSessionsEvent({ event: 'upsert', session: makeSession({ id: 's1', status: 'idle' }) })
+    useOrbital.getState().applySessionEvent('s1', { event: 'status', status: 'working' })
+
+    expect(useOrbital.getState().sessions.s1.status).toBe('working')
+    runFrame()
+    expect(useOrbital.getState().sessions.s1.status).toBe('working')
+  })
+})
+
 describe('applySessionEvent', () => {
   it('message appends new messages and dedupes by id (WS replay safe)', () => {
     const m1: ChatMessage = { id: 'm1', role: 'user', text: 'hi' }
@@ -2341,18 +2378,43 @@ describe('select, coming back to a session', () => {
     expect(useOrbital.getState().transcripts.s1).toEqual([m1, reply, live])
   })
 
-  it('keeps an optimistic prompt the refetched history has not echoed yet', async () => {
+  it('drops the transcript of the session it left, and fetches it again on the way back', async () => {
     vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
     await useOrbital.getState().select('s1')
-    vi.mocked(api.sendMessage).mockResolvedValueOnce(undefined as never)
-    await useOrbital.getState().sendPrompt('s1', 'still in flight')
     vi.mocked(api.getMessages).mockResolvedValueOnce([])
     await useOrbital.getState().select('s2')
+
+    expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+    expect(useOrbital.getState().historyLoaded.s1).toBeUndefined()
+
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1, reply])
+    await useOrbital.getState().select('s1')
+    expect(api.getMessages).toHaveBeenLastCalledWith('s1')
+    expect(useOrbital.getState().transcripts.s1).toEqual([m1, reply])
+  })
+
+  it('drops the transcript when the selection is cleared outside select()', async () => {
     vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
     await useOrbital.getState().select('s1')
+    useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))
 
-    const texts = useOrbital.getState().transcripts.s1.map((m) => m.text)
-    expect(texts).toEqual(['first', 'still in flight'])
+    expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+    expect(useOrbital.getState().historyLoaded.s1).toBeUndefined()
+  })
+
+  it('does not seat a history that resolves after its session was left', async () => {
+    let resolveFetch: (m: ChatMessage[]) => void = () => {}
+    vi.mocked(api.getMessages).mockImplementationOnce(
+      () => new Promise<ChatMessage[]>((resolve) => { resolveFetch = resolve }),
+    )
+    const selecting = useOrbital.getState().select('s1')
+    vi.mocked(api.getMessages).mockResolvedValueOnce([])
+    await useOrbital.getState().select('s2')
+    resolveFetch([m1])
+    await selecting
+
+    expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+    expect(useOrbital.getState().historyLoaded.s1).toBeUndefined()
   })
 
   it('drops the optimistic prompt once the refetched history carries its echo', async () => {
