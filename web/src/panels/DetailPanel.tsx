@@ -56,6 +56,7 @@ import { ClearDialog } from './ClearDialog'
 import { EndDialog } from './EndDialog'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
+import { SubagentChip } from './SubagentChip'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
 import { endedFootnote, formatContextWindow } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
@@ -387,6 +388,8 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   // drawing the outgoing session while it slides away, and that one is no
   // longer the one the keys are about.
   const tagSelectRef = useRef<SelectHandle>(null)
+  /** Row 4, the header's full content width: the subagent list ends on its right edge (canvas 25a). */
+  const stateRowRef = useRef<HTMLDivElement | null>(null)
   const shown = selectedId != null ? session : undefined
   // Stop sits in the composer, which a terminal-live session does not get.
   useCommand(
@@ -895,7 +898,7 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
                 docs/decisions/models-come-from-the-sdk.md). A terminal
                 session never gets either (see `canShowContext`); 9d ends its
                 row with a TERMINAL chip instead. */}
-            <div className="mt-3 flex items-center gap-2.5">
+            <div ref={stateRowRef} className="mt-3 flex items-center gap-2.5">
               <Badge
                 variant="status"
                 // The panel has the live question in the store as well as on
@@ -907,6 +910,9 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
                 })}
                 awaiting={awaitingSubagentCount(session)}
               />
+              {/* Subagent list spec § 1: the chip is as tall as the badge,
+                  so the row does not grow; none at all without subagents. */}
+              <SubagentChip sessionId={session.id} subagents={session.subagents} alignRef={stateRowRef} />
               <span aria-hidden className="flex-1" />
               {showContext && contextNote && (
                 // 9d names the note but draws no state that carries one; it

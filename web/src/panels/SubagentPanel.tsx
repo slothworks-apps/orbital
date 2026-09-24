@@ -37,8 +37,9 @@ function primaryTag(tagIds: number[], tags: Tag[]): Tag | undefined {
 
 /** How often the RUNNING elapsed reading advances (canvas 11c: "the only
  * state that animates"). A mono reading that never shows sub-second
- * precision has no use for anything finer. */
-const ELAPSED_TICK_MS = 1000
+ * precision has no use for anything finer. The subagent list's running
+ * rows tick at the same rate. */
+export const ELAPSED_TICK_MS = 1000
 
 /**
  * STREAM LOST's body (canvas 11c): the reason block sits where the first

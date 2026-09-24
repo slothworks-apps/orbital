@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode, Ref } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode, Ref, RefObject } from 'react'
 import { useEscapeLayer } from './escapeLayer'
 import { POPUP_SHELL, usePopupPosition } from './usePopupPosition'
 
@@ -62,6 +62,12 @@ export interface MenuButtonProps {
   widthPx?: number
   /** Which of the trigger's edges the popup lines up with. */
   align?: 'left' | 'right'
+  /** Line that edge up with this element's instead of the trigger's (`usePopupPosition`'s `alignRef`). */
+  alignRef?: RefObject<HTMLElement | null>
+  /** Trigger to popup, where the canvas draws it other than `POPUP_GAP`. */
+  gapPx?: number
+  /** Drawn in the shell under the list, outside its scroll and outside `role="menu"`: a key-hint strip. */
+  footer?: ReactNode
   /**
    * At most this many items visible; past it the list scrolls inside the
    * shell. The ceiling is measured off the rendered rows, so it holds for
@@ -113,6 +119,9 @@ export function MenuButton({
   onOpenChange,
   widthPx,
   align = 'right',
+  alignRef,
+  gapPx = POPUP_GAP,
+  footer,
   maxRows,
   ...aria
 }: MenuButtonProps) {
@@ -170,7 +179,7 @@ export function MenuButton({
     list.style.maxHeight = last ? `${last.offsetTop + last.offsetHeight}px` : ''
   })
 
-  usePopupPosition(open, triggerRef, popupRef, { gap: POPUP_GAP, align })
+  usePopupPosition(open, triggerRef, popupRef, { gap: gapPx, align, alignRef })
 
   // Into the menu on open. A layout effect, so the first row already holds
   // focus in the frame the menu appears.
@@ -391,6 +400,7 @@ export function MenuButton({
                 )
               })}
             </div>
+            {footer}
           </div>,
           document.body,
         )}

@@ -48,6 +48,12 @@ export interface PopupPositionOptions {
   prefer?: 'below' | 'above'
   /** `right` hangs the popup off the anchor's right edge (canvas 3a's origin filter). */
   align?: 'left' | 'right'
+  /**
+   * Line the popup's horizontal edge up with this element instead of the
+   * anchor: the subagent list hangs under its chip but ends on the header's
+   * right edge (canvas 25a). The anchor still decides above or below.
+   */
+  alignRef?: RefObject<HTMLElement | null>
   /** Width floor, over and above the anchor's own width. */
   minWidth?: number
   /** Pin the popup to the anchor's width exactly (canvas 9e: popup width = the well's). */
@@ -58,7 +64,7 @@ export function usePopupPosition(
   open: boolean,
   anchorRef: RefObject<HTMLElement | null>,
   popupRef: RefObject<HTMLElement | null>,
-  { gap, prefer = 'below', align = 'left', minWidth = 0, matchAnchorWidth = false }: PopupPositionOptions,
+  { gap, prefer = 'below', align = 'left', alignRef, minWidth = 0, matchAnchorWidth = false }: PopupPositionOptions,
 ): void {
   const reposition = useCallback(() => {
     const anchor = anchorRef.current
@@ -92,9 +98,10 @@ export function usePopupPosition(
     popup.style.minWidth = `${Math.max(rect.width, minWidth)}px`
     const width = popup.offsetWidth
     const maxLeft = window.innerWidth - width - VIEWPORT_MARGIN
-    const wanted = align === 'right' ? rect.right - width : rect.left
+    const edges = alignRef?.current?.getBoundingClientRect() ?? rect
+    const wanted = align === 'right' ? edges.right - width : edges.left
     popup.style.left = `${Math.max(VIEWPORT_MARGIN, Math.min(wanted, maxLeft))}px`
-  }, [anchorRef, popupRef, gap, prefer, align, minWidth, matchAnchorWidth])
+  }, [anchorRef, popupRef, gap, prefer, align, alignRef, minWidth, matchAnchorWidth])
 
   // Every commit while open, so a list whose rows changed is re-measured
   // without the caller having to declare its own content as a dependency.

@@ -75,7 +75,8 @@ function runningTone(hue: number) {
   }
 }
 
-const TASK_TONE: Record<
+/** Also the subagent list's row dots and state words (canvas 25c), so the list and the panel's badge read one table. */
+export const TASK_TONE: Record<
   SubagentTaskState,
   {
     border: string
