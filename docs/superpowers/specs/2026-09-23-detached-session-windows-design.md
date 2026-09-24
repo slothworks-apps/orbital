@@ -84,7 +84,10 @@ selects the session as today.
 - It never receives the detached list, so its own `select` is never
   redirected to focusing itself.
 - It opens at the docked panel's width and a fixed height (constants in
-  `desktop/src/main.ts`). It has a minimum width and height and no maximum.
+  `desktop/src/main.ts`) until a detached window has been moved or resized;
+  from then on it opens at that frame, stepped clear of any detached window
+  already there ([[2026-09-24-remembered-window-frames-design]]). It has a
+  minimum width and height and no maximum.
   When it is wider than the docked panel, the transcript reflows.
 - Window chrome (22b–22d): a hidden inset title bar. The traffic lights sit
   on the header's row 1, which doubles as the title bar: it drags the window

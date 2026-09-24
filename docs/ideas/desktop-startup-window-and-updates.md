@@ -1,7 +1,7 @@
 ---
 id: desktop-startup-window-and-updates
 title: Remember the window's size, place and URL between launches — the main window and the detached ones
-status: backlog
+status: done
 type: idea
 domain: desktop
 related:
@@ -10,6 +10,7 @@ related:
   - 2026-09-22-desktop-background-mode-design
   - 2026-09-23-detached-session-windows-design
   - the-main-process-owns-the-detached-windows
+  - 2026-09-24-remembered-window-frames-design
 tags:
   - desktop
   - settings
@@ -33,6 +34,8 @@ tags:
 > so it is the natural place to store the frames, in its own file under
 > Electron's user-data directory rather than in the server's settings table.
 > The rows below are the original survey, kept for the reasoning.
+
+**Done 2026-09-24** — built as [[2026-09-24-remembered-window-frames-design]].
 
 ## The original four rows
 
