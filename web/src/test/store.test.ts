@@ -43,6 +43,7 @@ import {
   SUBAGENT_PANEL_DEFAULT_PX,
   SUBAGENT_PANEL_MIN_PX,
   type OrbitalState,
+  type SessionEvent,
 } from '../store/store'
 
 /** Fixed clock for the ended-age cutoff. Never Date.now() — these must be deterministic. */
@@ -2371,7 +2372,7 @@ describe('select, coming back to a session', () => {
 
 // spec: 2026-09-24-streaming-output-design
 describe('applySessionEvent: delta', () => {
-  const apply = (msg: Parameters<OrbitalState['applySessionEvent']>[1]) =>
+  const apply = (msg: SessionEvent) =>
     useOrbital.getState().applySessionEvent('s1', msg)
   const delta = (id: string, offset: number, text: string, role: 'assistant' | 'thinking' = 'assistant') =>
     ({ event: 'delta', id, role, offset, text, model: 'claude-x' }) as const
