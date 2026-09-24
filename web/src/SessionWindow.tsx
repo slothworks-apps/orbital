@@ -11,6 +11,7 @@ import { api } from './lib/api'
 import { openInMainWindow, setSubagentPanel } from './lib/desktop'
 import { answeredWidthReached, resolveWindowLayout } from './lib/sessionWindowLayout'
 import { useCommand } from './lib/commands'
+import { useViewportWidth } from './lib/useViewportWidth'
 import { STATS_PATH } from './stats/route'
 import { DetailPanel } from './panels/DetailPanel'
 import { SubagentPanel } from './panels/SubagentPanel'
@@ -40,17 +41,6 @@ async function seatSession(id: string): Promise<void> {
     }
   }
   await useOrbital.getState().select(id)
-}
-
-/** The window's width, followed through every resize — main's grow included. */
-function useWindowWidth(): number {
-  const [width, setWidth] = useState(() => window.innerWidth)
-  useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-  return width
 }
 
 /**
@@ -163,7 +153,7 @@ export function SessionWindow({ id }: { id: string }) {
     }
   }, [subagentPanelOpen])
 
-  const windowWidth = useWindowWidth()
+  const windowWidth = useViewportWidth()
   const answeredWidth = answer?.widthPx
   useEffect(() => {
     if (answeredWidth !== undefined && answeredWidthReached(windowWidth, answeredWidth)) {

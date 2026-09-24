@@ -24,6 +24,7 @@ import { openQuestion } from '../lib/questionCard'
 import { composerHintFor, composerPlaceholderFor } from '../lib/decisionCard'
 import { reportError } from '../lib/errors'
 import { useWindowFocused } from '../lib/useWindowFocused'
+import { useViewportWidth } from '../lib/useViewportWidth'
 import { Panel, WINDOW_STRIP_INSET_PX } from '../ui/Panel'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { useCommand } from '../lib/commands'
@@ -131,22 +132,6 @@ export function formatTokens(n: number): string {
 }
 
 /**
- * The window's width, tracked only while `enabled` — what a standalone panel
- * is as wide as, and what the path line budgets its characters against in
- * place of the docked panel's stored width.
- */
-function useWindowWidth(enabled: boolean): number {
-  const [width, setWidth] = useState(() => window.innerWidth)
-  useEffect(() => {
-    if (!enabled) return
-    const onResize = () => setWidth(window.innerWidth)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [enabled])
-  return width
-}
-
-/**
  * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail
  * header` 9d): the header (path + actions, editable title, tag chips,
  * permission/status badges, context bar),
@@ -171,7 +156,9 @@ export function DetailPanel({
   hidden = false,
 }: { standalone?: boolean; hidden?: boolean } = {}) {
   const selectedId = useOrbital((s) => s.ui.selectedId)
-  const windowWidth = useWindowWidth(standalone)
+  // What a standalone panel is as wide as, what the path line budgets its
+  // characters against, and the viewport every docked width is clamped to.
+  const windowWidth = useViewportWidth()
   const windowFocused = useWindowFocused(standalone)
   // The panel keeps rendering the OUTGOING session while it slides away —
   // deselecting clears `selectedId` immediately, and without holding the last
@@ -251,10 +238,10 @@ export function DetailPanel({
   // pair's 75% ceiling can pull it narrower than `detailWidth` says, which
   // is exactly what keeps a drag that requests more room than the ceiling
   // allows from ever widening the panel past it (spec § 8 "Layout").
-  const detailWidth = parseDetailPanelWidth(settings, window.innerWidth)
+  const detailWidth = parseDetailPanelWidth(settings, windowWidth)
   const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
   const renderedDetailWidth = subagentPanelOpen
-    ? resolvePanelPairWidths(detailWidth, SUBAGENT_PANEL_DEFAULT_PX, window.innerWidth).detailWidthPx
+    ? resolvePanelPairWidths(detailWidth, SUBAGENT_PANEL_DEFAULT_PX, windowWidth).detailWidthPx
     : detailWidth
   // A standalone panel is the window's width, or its share of it once the
   // subagent panel sits beside it (`SessionWindow`).
@@ -270,7 +257,7 @@ export function DetailPanel({
     useOrbital.setState((state) => ({ ui: { ...state.ui, resizingPanel } }))
 
   const setWidthLocal = (width: number) => {
-    const value = String(Math.round(clampDetailPanelWidth(width, window.innerWidth)))
+    const value = String(Math.round(clampDetailPanelWidth(width, windowWidth)))
     useOrbital.setState((state) => ({
       settings: { ...state.settings, detail_panel_width: value },
     }))

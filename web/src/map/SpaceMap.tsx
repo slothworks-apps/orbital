@@ -23,6 +23,7 @@ import { isReadOnly, sessionStateKey, type SessionStateKey } from '../lib/types'
 import { stateColor, stateDot } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
 import { reportError } from '../lib/errors'
+import { useViewportWidth } from '../lib/useViewportWidth'
 import { EndDialog } from '../panels/EndDialog'
 import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
 import type { Subagent } from '../lib/types'
@@ -555,17 +556,18 @@ export function SpaceMap() {
   // is that resolved value, unchanged from `rawDetailPanelWidth` whenever
   // the subagent panel is closed (requirement 1: the single-panel case does
   // not regress).
-  const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, window.innerWidth))
+  const viewportWidth = useViewportWidth()
+  const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, viewportWidth))
   const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
   const pairWidths = useMemo(
     () =>
       subagentPanelOpen
-        ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, window.innerWidth)
+        ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, viewportWidth)
         : { detailWidthPx: rawDetailPanelWidth, subagentWidthPx: 0 },
-    [subagentPanelOpen, rawDetailPanelWidth]
+    [subagentPanelOpen, rawDetailPanelWidth, viewportWidth]
   )
   const detailPanelWidth = pairWidths.detailWidthPx
-  const sidebarWidth = useOrbital((s) => parseSidebarWidth(s.settings, window.innerWidth))
+  const sidebarWidth = useOrbital((s) => parseSidebarWidth(s.settings, viewportWidth))
   const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   // Replaced wholesale by every push from main, so the reference is stable
