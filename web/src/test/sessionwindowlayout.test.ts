@@ -40,3 +40,25 @@ describe('answeredWidthReached', () => {
     expect(answeredWidthReached(900, 880)).toBe(true)
   })
 })
+
+describe('resolveWindowLayout while main has not answered', () => {
+  it('is pending whatever the widths, so neither layout shows before the answer', () => {
+    expect(resolveWindowLayout({ windowWidth: 500, pending: true, thresholdPx: THRESHOLD })).toBe(
+      'pending',
+    )
+    expect(resolveWindowLayout({ windowWidth: 900, pending: true, thresholdPx: THRESHOLD })).toBe(
+      'pending',
+    )
+  })
+
+  it('decides from the width alone once answered with nothing (the browser)', () => {
+    expect(
+      resolveWindowLayout({
+        windowWidth: 500,
+        pending: false,
+        answeredWidth: undefined,
+        thresholdPx: THRESHOLD,
+      }),
+    ).toBe('swap')
+  })
+})

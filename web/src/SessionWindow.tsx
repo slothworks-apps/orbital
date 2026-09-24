@@ -131,41 +131,55 @@ export function SessionWindow({ id }: { id: string }) {
   // give back what it grew.
   //
   // Main answers with the width the window will have (spec:
-  // 2026-09-24-subagent-list-design § 4), kept until the window reaches it so
-  // a window about to grow shows the pane from the first frame. A close, or
-  // an answer that lands after the panel closed again, leaves none.
+  // 2026-09-24-subagent-list-design § 4). Until it has, the window goes on
+  // showing the session alone, so a window about to grow never shows the
+  // swap; the answer is then kept until the window reaches it. `null` is
+  // "not answered yet"; `widthPx` undefined is an answer with no width (the
+  // browser, or one already reached). A close forgets it, in the same
+  // render, and an answer that lands after a close is discarded.
   const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
-  const [answeredWidth, setAnsweredWidth] = useState<number | undefined>(undefined)
+  const [answer, setAnswer] = useState<{ widthPx: number | undefined } | null>(null)
+  if (!subagentPanelOpen && answer !== null) setAnswer(null)
   useEffect(() => {
     if (!subagentPanelOpen) {
-      setAnsweredWidth(undefined)
       void setSubagentPanel({ open: false })
       return
     }
     let current = true
-    void setSubagentPanel({
+    const settle = (widthPx: number | undefined) => {
+      if (current) setAnswer({ widthPx })
+    }
+    setSubagentPanel({
       open: true,
       widthPx: SUBAGENT_PANEL_DEFAULT_PX,
       pairMinPx: WINDOW_PANEL_PAIR_MIN_PX,
-    }).then((answer) => {
-      if (current && answer) setAnsweredWidth(answer.widthPx)
-    })
+    }).then(
+      (answered) => settle(answered?.widthPx),
+      // A main that cannot answer must not keep the panel from ever showing.
+      () => settle(undefined)
+    )
     return () => {
       current = false
     }
   }, [subagentPanelOpen])
 
   const windowWidth = useWindowWidth()
+  const answeredWidth = answer?.widthPx
   useEffect(() => {
     if (answeredWidth !== undefined && answeredWidthReached(windowWidth, answeredWidth)) {
-      setAnsweredWidth(undefined)
+      setAnswer({ widthPx: undefined })
     }
   }, [windowWidth, answeredWidth])
 
   const { detailWidthPx, subagentWidthPx } = resolveWindowPanelWidths(windowWidth)
-  const swap =
-    subagentPanelOpen &&
-    resolveWindowLayout({ windowWidth, answeredWidth, thresholdPx: WINDOW_PANEL_PAIR_MIN_PX }) === 'swap'
+  const layout = resolveWindowLayout({
+    windowWidth,
+    pending: answer === null,
+    answeredWidth,
+    thresholdPx: WINDOW_PANEL_PAIR_MIN_PX,
+  })
+  const showSubagent = subagentPanelOpen && layout !== 'pending'
+  const swap = showSubagent && layout === 'swap'
 
   return (
     <EscapeBoundary>
@@ -176,14 +190,14 @@ export function SessionWindow({ id }: { id: string }) {
             are there when the session comes back. */}
         <div
           className={swap ? 'invisible absolute inset-0' : 'h-full shrink-0'}
-          style={swap ? undefined : { width: subagentPanelOpen ? detailWidthPx : '100%' }}
+          style={swap ? undefined : { width: showSubagent ? detailWidthPx : '100%' }}
           inert={swap || undefined}
         >
           <ErrorBoundary label="Detail panel">
             <DetailPanel standalone />
           </ErrorBoundary>
         </div>
-        {subagentPanelOpen && (
+        {showSubagent && (
           <div className="h-full shrink-0" style={{ width: swap ? '100%' : subagentWidthPx }}>
             <ErrorBoundary label="Subagent panel">
               <SubagentPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
