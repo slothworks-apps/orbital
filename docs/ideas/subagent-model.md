@@ -1,7 +1,7 @@
 ---
 id: subagent-model
 title: Subagent model — the Settings row and the model label on moons
-status: backlog
+status: archived
 type: idea
 domain: sessions
 related:
@@ -11,6 +11,13 @@ tags:
   - space-map
 ---
 # Subagent model — the Settings row and the model label on moons
+
+> **Ruled out 2026-09-24** by Tomin. Which model a subagent runs on stays
+> with the session: the developer tells the agent what to use for its
+> subagents, and no Orbital setting overrides that. The label on a moon is
+> not wanted either — the subagent panel already shows the agent's model,
+> and that is enough. Kept for the notes on `CLAUDE_CODE_SUBAGENT_MODEL` and
+> on what a `Task` block does and does not say about the model.
 
 Artboard `4c` of `Feature - Agent model.dc.html` has a **Subagent model** row
 ("Model moons launch with unless the agent asks for a specific one":
