@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  atLeast,
   cascadeFrom,
   fitToDisplays,
   parseWindowFrames,
   pathOnOrigin,
   restorablePath,
   serializeWindowFrames,
+  sessionFrameToRemember,
   withMainFrame,
   withSessionFrame,
   type WindowFrames,
@@ -114,6 +116,40 @@ describe('withMainFrame / withSessionFrame', () => {
     expect(withMainFrame(frames, frame, '/')).toEqual({ main: { bounds: frame, path: '/' }, session });
     const moved = { ...session, x: 50 };
     expect(withSessionFrame(frames, moved)).toEqual({ main: { bounds: frame }, session: moved });
+  });
+});
+
+describe('sessionFrameToRemember', () => {
+  const opened = { x: 222, y: 122, width: 450, height: 820 };
+  const minWidth = 450;
+  // What the subagent panel's grow did to a window at the right edge: wider,
+  // and shifted left to stay on screen.
+  const growth = { before: opened, after: { ...opened, x: 100, width: 900 } };
+
+  it("undoes the subagent panel's grow before remembering", () => {
+    const moved = { ...opened, x: 300, y: 200 };
+    const grown = { ...moved, x: moved.x - (opened.x - growth.after.x), width: growth.after.width };
+    expect(sessionFrameToRemember(grown, opened, growth, minWidth)).toEqual(moved);
+  });
+
+  it('remembers nothing for a window left where it opened', () => {
+    expect(sessionFrameToRemember({ ...opened }, opened, undefined, minWidth)).toBeNull();
+    expect(sessionFrameToRemember(growth.after, opened, growth, minWidth)).toBeNull();
+  });
+
+  it('remembers a frame the user chose', () => {
+    const resized = { ...opened, width: 600 };
+    expect(sessionFrameToRemember(resized, opened, undefined, minWidth)).toEqual(resized);
+    // Resized by hand while grown: the user's size wins, as on the shrink.
+    const handSized = { ...growth.after, width: 1000 };
+    expect(sessionFrameToRemember(handSized, opened, growth, minWidth)).toEqual(handSized);
+  });
+});
+
+describe('atLeast', () => {
+  it('raises a frame below the minimum and leaves a larger one', () => {
+    expect(atLeast({ x: 5, y: 6, width: 100, height: 900 }, 450, 520)).toEqual({ x: 5, y: 6, width: 450, height: 900 });
+    expect(atLeast(frame, 450, 520)).toEqual(frame);
   });
 });
 

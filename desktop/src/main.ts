@@ -36,6 +36,7 @@ import {
   shrinkAfterSubagent,
   toCssPx,
   toDip,
+  type Bounds,
   type SubagentGrowth,
   type SubagentPanelAnswer,
   type SubagentPanelMessage,
@@ -50,12 +51,14 @@ import {
   type HealthInfo,
 } from './lib/startup';
 import {
+  atLeast,
   cascadeFrom,
   centredIn,
   fitToDisplays,
   parseWindowFrames,
   pathOnOrigin,
   serializeWindowFrames,
+  sessionFrameToRemember,
   WINDOW_FRAMES_FILE,
   withMainFrame,
   withSessionFrame,
@@ -223,9 +226,23 @@ function rememberMainWindow(when: 'soon' | 'now'): void {
   updateWindowFrames(withMainFrame(windowFrames, frameOf(win), path), when);
 }
 
+/**
+ * The frame each detached window opened at, which `sessionFrameToRemember`
+ * compares against. Weak, so a closed window takes its entry with it.
+ */
+const sessionWindowOpenedAt = new WeakMap<BrowserWindow, Bounds>();
+
 function rememberSessionWindow(target: BrowserWindow): void {
   if (target.isDestroyed()) return;
-  updateWindowFrames(withSessionFrame(windowFrames, frameOf(target)), 'soon');
+  const opened = sessionWindowOpenedAt.get(target);
+  if (!opened) return;
+  const frame = sessionFrameToRemember(
+    frameOf(target),
+    opened,
+    subagentGrowth.get(target),
+    target.getMinimumSize()[0],
+  );
+  if (frame) updateWindowFrames(withSessionFrame(windowFrames, frame), 'soon');
 }
 
 /** Every display's work area, the primary one first. */
@@ -574,8 +591,11 @@ function openSessionWindow(sessionId: string): void {
   // It opens where the last detached window was left, or centred at the
   // default size, stepped clear of any detached window already there.
   const areas = workAreas();
-  const start =
-    windowFrames.session ?? centredIn(areas[0], SESSION_WINDOW_WIDTH, SESSION_WINDOW_HEIGHT);
+  const start = atLeast(
+    windowFrames.session ?? centredIn(areas[0], SESSION_WINDOW_WIDTH, SESSION_WINDOW_HEIGHT),
+    SESSION_WINDOW_WIDTH,
+    SESSION_WINDOW_MIN_HEIGHT,
+  );
   const open = [...sessionWindows.values()].filter((w) => !w.isDestroyed()).map((w) => w.getBounds());
   const detached = new BrowserWindow({
     ...cascadeFrom(start, open, areas, SESSION_WINDOW_CASCADE_STEP),
@@ -588,11 +608,11 @@ function openSessionWindow(sessionId: string): void {
   });
   confineToOrbital(detached.webContents);
   sessionWindows.set(sessionId, detached);
-  // Whatever it is moved or resized to — by hand, or grown for the subagent
-  // panel — is where the next detached window opens. The frame it opened at
-  // is not taken on its own: a cascade step is not the user's choice, and
-  // taking it would walk the remembered frame down the screen one step per
-  // untouched window. A close only writes what is already remembered.
+  // Whatever the user moves or resizes it to is where the next detached
+  // window opens; `sessionFrameToRemember` leaves out the subagent panel's
+  // grow and the frame it opened at. A close only writes what is already
+  // remembered.
+  sessionWindowOpenedAt.set(detached, frameOf(detached));
   detached.on('move', () => rememberSessionWindow(detached));
   detached.on('resize', () => rememberSessionWindow(detached));
   detached.on('close', () => flushWindowFrames());
