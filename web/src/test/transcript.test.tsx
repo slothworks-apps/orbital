@@ -903,6 +903,10 @@ const assistant = (id: string, model?: string, timestamp?: string): ChatMessage 
   id, role: 'assistant', text: `m-${id}`, model, timestamp,
 })
 
+const thinking = (id: string, model?: string, timestamp?: string): ChatMessage => ({
+  id, role: 'thinking', text: `t-${id}`, model, timestamp,
+})
+
 describe('insertModelDividers', () => {
   const groupsOf = (messages: ChatMessage[]) => groupToolRuns(pairMessages(messages))
 
@@ -955,6 +959,24 @@ describe('insertModelDividers', () => {
     )
     expect(groups.some((g) => g.kind === 'model-divider')).toBe(false)
     expect(groups.map((g) => g.kind)).toEqual(['message', 'message', 'message'])
+  })
+
+  // A turn that opens with reasoning carries the new model on its `thinking`
+  // row, one row before the prose that used to be the earliest place the
+  // switch could be seen — the divider has to land there too, or the new
+  // model's own reasoning renders above a divider that hasn't announced it
+  // yet (fix a-thinking-block-opens-a-turn-above-its-own-model-divider).
+  it('marks a change that a turn opening with thinking carries on its thinking row', () => {
+    const groups = insertModelDividers(
+      groupsOf([
+        assistant('a1', 'claude-sonnet-5'),
+        thinking('t1', 'claude-opus-5', '2026-09-16T14:02:00Z'),
+        assistant('a2', 'claude-opus-5'),
+      ]),
+    )
+    expect(groups.map((g) => g.kind)).toEqual(['message', 'model-divider', 'message', 'message'])
+    const divider = groups.find((g) => g.kind === 'model-divider')
+    expect(divider).toMatchObject({ from: 'claude-sonnet-5', to: 'claude-opus-5' })
   })
 })
 
