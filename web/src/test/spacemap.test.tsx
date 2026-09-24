@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, it, expect, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { PLANET_SCALE_MAX, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
@@ -1400,6 +1400,21 @@ describe('SpaceMap zoom buttons', () => {
     global.ResizeObserver = NoopObserver
   })
 
+  // The tween is driven by real `requestAnimationFrame`/`performance.now()`
+  // elapsed-time deltas, so counting on wall-clock ticks to land it exactly on
+  // MIN_ZOOM is load-sensitive (docs/fixes/spacemap-zoom-accumulation-flakes-under-load.md):
+  // under CPU contention a real `setTimeout` settle can resolve before every
+  // rAF the run scheduled has actually run. Fake timers make the clock (and
+  // rAF, which vitest fakes along with it) deterministic, so `settle` below
+  // advances a virtual clock instead of waiting on the real one.
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   async function renderMap() {
     useOrbital.setState({
       sessions: { a: makeSession({ id: 'a', tagIds: [1], lastAt: Date.now() }) },
@@ -1422,10 +1437,10 @@ describe('SpaceMap zoom buttons', () => {
     return Number(readout.textContent?.match(/^(\d+)%/)?.[1])
   }
 
-  /** Lets the rAF-driven tween run to completion. */
+  /** Lets the rAF-driven tween run to completion, on the fake clock. */
   async function settle() {
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, ZOOM_STEP_SETTLE_MS))
+      await vi.advanceTimersByTimeAsync(ZOOM_STEP_SETTLE_MS)
     })
   }
 

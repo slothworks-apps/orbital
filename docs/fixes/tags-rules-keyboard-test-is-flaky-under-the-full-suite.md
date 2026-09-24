@@ -2,7 +2,7 @@
 id: tags-rules-keyboard-test-is-flaky-under-the-full-suite
 title: The Tags & rules keyboard test is flaky under the full suite
 type: fix
-status: backlog
+status: done
 domain: settings
 tags:
   - web
@@ -37,3 +37,12 @@ runs, not the file alone — alone it never fails.
 
 It was found while merging unrelated map and transcript work, and the fix is
 a test change with its own verification loop. Nothing it guards is broken.
+
+## Fixed 2026-09-24
+
+`web/src/test/tagsrules.test.tsx`, "opens a row from the keyboard and Escape
+closes the row before the panel": the three synchronous `row(10).dataset.
+ruleMode` / `onClose` reads that followed a keypress now go through `await
+waitFor(...)`, matching the pattern already used elsewhere in the file. The
+component (`TagsRules.tsx`) is unchanged. Verified with five full `npx
+vitest run` passes in `web/` (see the commit message for the counts).
