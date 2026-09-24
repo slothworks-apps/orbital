@@ -22,6 +22,7 @@ const { subscribeSpy, releaseSpy, handlers } = vi.hoisted(() => {
 vi.mock('../lib/socket', () => ({ getSocket: () => ({ subscribe: subscribeSpy }) }))
 
 import { api } from '../lib/api'
+import type { ChatMessage } from '../lib/types'
 import { useOrbital } from '../store/store'
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -31,7 +32,13 @@ const LAUNCH = { cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' } as con
 beforeEach(() => {
   vi.clearAllMocks()
   handlers.clear()
-  useOrbital.setState({ sessions: {}, order: [], transcripts: {}, historyLoaded: {} })
+  useOrbital.setState((state) => ({
+    sessions: {},
+    order: [],
+    transcripts: {},
+    historyLoaded: {},
+    ui: { ...state.ui, selectedId: null },
+  }))
 })
 
 // ---------------------------------------------------------------------------
@@ -96,6 +103,35 @@ describe('launchSession', () => {
       ['assistant', 'on it'],
     ])
     expect(transcript[0].id).toMatch(/^local:/)
+  })
+
+  /**
+   * The launch subscription outlives the selection until the first turn
+   * settles. Rows it delivers while the session is not shown have nowhere to
+   * go: the return refetches the file, whose ids differ from the runner's, so
+   * anything held from the time away would show a second time.
+   */
+  it('keeps nothing the launch subscription delivers while the session is left, so the return shows each reply once', async () => {
+    vi.mocked(api.createSession).mockImplementation(async (body) => body.sessionId!)
+    const id = await useOrbital.getState().launchSession({ ...LAUNCH })
+    vi.mocked(api.getMessages).mockResolvedValueOnce([])
+    await useOrbital.getState().select(id)
+    vi.mocked(api.getMessages).mockResolvedValueOnce([])
+    await useOrbital.getState().select('elsewhere')
+
+    const deliver = handlers.get(`session:${id}`)!
+    deliver({ event: 'delta', id: `${id}:7:0`, role: 'assistant', offset: 0, text: 'wor' })
+    deliver({ event: 'message', message: { id: `${id}:7:0`, role: 'assistant', text: 'worked away' } })
+    expect(useOrbital.getState().transcripts[id]).toBeUndefined()
+
+    const file: ChatMessage[] = [
+      { id: 'u1:0', role: 'user', text: 'go' },
+      { id: 'a1:0', role: 'assistant', text: 'worked away' },
+    ]
+    vi.mocked(api.getMessages).mockResolvedValueOnce(file)
+    await useOrbital.getState().select(id)
+
+    expect(useOrbital.getState().transcripts[id]).toEqual(file)
   })
 
   it('drops the first prompt again when the launch is refused', async () => {

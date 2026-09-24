@@ -260,6 +260,7 @@ describe('queueSessionsEvent', () => {
 
 describe('applySessionEvent', () => {
   it('message appends new messages and dedupes by id (WS replay safe)', () => {
+    useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 's1' } }))
     const m1: ChatMessage = { id: 'm1', role: 'user', text: 'hi' }
     const m2: ChatMessage = { id: 'm2', role: 'assistant', text: 'hello' }
     useOrbital.getState().applySessionEvent('s1', { event: 'message', message: m1 })
@@ -2438,6 +2439,8 @@ describe('applySessionEvent: delta', () => {
     useOrbital.getState().applySessionEvent('s1', msg)
   const delta = (id: string, offset: number, text: string, role: 'assistant' | 'thinking' = 'assistant') =>
     ({ event: 'delta', id, role, offset, text, model: 'claude-x' }) as const
+  // Rows land only for a session that is shown or held.
+  beforeEach(() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 's1' } })))
 
   it('creates a partial row on the first delta and grows it on the next', () => {
     apply(delta('r1', 0, 'Hel'))

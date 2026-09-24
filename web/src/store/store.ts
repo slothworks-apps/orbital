@@ -887,6 +887,22 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     flushSessionsEvents()
     const state = get()
 
+    // A transcript row for a session that is neither shown nor held has
+    // nowhere to go. `launchSession`'s subscription outlives the selection
+    // until the first turn settles, and `dropTranscript` has already let go
+    // of the rows; seating new ones here would put them after the history
+    // `select()` fetches on the way back — under runner ids the file does
+    // not share, so each reply from the time away would show twice. The file
+    // carries them. A fresh launch is not caught by this: its optimistic
+    // prompt creates the entry before anything is delivered.
+    if (
+      (msg.event === 'message' || msg.event === 'delta') &&
+      state.ui.selectedId !== sessionId &&
+      !(sessionId in state.transcripts)
+    ) {
+      return
+    }
+
     if (msg.event === 'message') {
       const existing = state.transcripts[sessionId] ?? []
       const heldIdx = existing.findIndex((m) => m.id === msg.message.id)
