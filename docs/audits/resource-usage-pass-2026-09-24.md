@@ -186,8 +186,11 @@ to 3 ms after the first. A repeated walkthrough summary went from
 
 ### 6. Re-render and memory costs while sessions are active (web)
 
-**Open.** Carried to [[a-reopened-session-shows-the-transcript-it-was-left-with]]
-with the rest of this finding; the audit itself is closed.
+**Fixed 2026-09-24** in [[a-reopened-session-shows-the-transcript-it-was-left-with]]:
+a deselected session's transcript leaves the store, `Planet` and `Moon` are
+memoised (one sessions event on a 30-planet map: 30 planet renders to 1),
+and socket `sessions` events land once per frame
+([[sessions-topic-events-land-once-per-frame]]).
 
 - There is no `React.memo` on `Planet` or `Moon`, so every sessions event
   re-renders all of them.

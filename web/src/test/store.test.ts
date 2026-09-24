@@ -221,6 +221,43 @@ describe('applySessionsEvent', () => {
   })
 })
 
+// fix: a-reopened-session-shows-the-transcript-it-was-left-with
+describe('queueSessionsEvent', () => {
+  let frames: FrameRequestCallback[] = []
+  beforeEach(() => {
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+  const runFrame = () => frames.splice(0).forEach((cb) => cb(0))
+
+  it('lands two sessions frames of one tick as one store write, in order', () => {
+    let writes = 0
+    const unsubscribe = useOrbital.subscribe(() => { writes++ })
+    useOrbital.getState().queueSessionsEvent({ event: 'upsert', session: makeSession({ id: 's1', status: 'idle' }) })
+    useOrbital.getState().queueSessionsEvent({ event: 'status', sessionId: 's1', status: 'working' })
+    expect(writes).toBe(0)
+
+    runFrame()
+    unsubscribe()
+
+    expect(writes).toBe(1)
+    expect(useOrbital.getState().sessions.s1.status).toBe('working')
+  })
+
+  it('catches up before a session-topic event, which reads the row the sessions topic brought', () => {
+    useOrbital.getState().queueSessionsEvent({ event: 'upsert', session: makeSession({ id: 's1', status: 'idle' }) })
+    useOrbital.getState().applySessionEvent('s1', { event: 'status', status: 'working' })
+
+    expect(useOrbital.getState().sessions.s1.status).toBe('working')
+    runFrame()
+    expect(useOrbital.getState().sessions.s1.status).toBe('working')
+  })
+})
+
 describe('applySessionEvent', () => {
   it('message appends new messages and dedupes by id (WS replay safe)', () => {
     const m1: ChatMessage = { id: 'm1', role: 'user', text: 'hi' }

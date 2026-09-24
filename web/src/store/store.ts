@@ -345,6 +345,15 @@ export interface OrbitalActions {
    */
   resyncAfterReconnect(): Promise<void>
   applySessionsEvent(msg: SessionsEvent): void
+  /**
+   * The socket's way in for the `sessions` topic: events that arrive within
+   * one animation frame land in the store as ONE write, where each used to
+   * notify every subscriber on its own (fix
+   * a-reopened-session-shows-the-transcript-it-was-left-with). Everything
+   * else that applies a sessions event wants it applied now, and calls
+   * `applySessionsEvent`.
+   */
+  queueSessionsEvent(msg: SessionsEvent): void
   applySessionEvent(sessionId: string, msg: SessionEvent): void
   applyErrorsEvent(msg: ErrorsEvent): void
   markErrorsSeen(target: number[] | 'all'): Promise<void>
@@ -580,6 +589,20 @@ const turnResultSeen: Record<string, boolean | undefined> = {}
 const streamEnds: Record<string, number> = {}
 
 /**
+ * `sessions`-topic events waiting for the next frame (`queueSessionsEvent`),
+ * and the frame and fallback timer that will flush them.
+ */
+let queuedSessionsEvents: SessionsEvent[] = []
+let sessionsFlush: { frame: number; timer: ReturnType<typeof setTimeout> } | null = null
+
+/**
+ * How long a queued sessions event may wait when no frame comes — a hidden
+ * window draws none. Long enough that a visible window always flushes on its
+ * frame first.
+ */
+const SESSIONS_FLUSH_FALLBACK_MS = 100
+
+/**
  * Unsubscribe functions for the `session:<id>` topics `launchSession` opened
  * before their session existed.
  *
@@ -766,6 +789,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       if (session.pendingDecision) pendingDecisions[session.id] = session.pendingDecision
     }
 
+    // Anything still queued goes in first and the snapshot overwrites it —
+    // the order it had when every event landed on arrival. Applied after,
+    // an event older than the snapshot would undo part of it.
+    flushSessionsEvents()
     set((state) => ({
       sessions: sessionsMap,
       order: sortIdsByLastAtDesc(sessionsMap),
@@ -841,74 +868,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   applySessionsEvent(msg) {
-    const state = get()
+    applySessionsEvents([msg])
+  },
 
-    if (msg.event === 'upsert') {
-      const isNew = !(msg.session.id in state.sessions)
-      const sessions = { ...state.sessions, [msg.session.id]: msg.session }
-      set({
-        sessions,
-        order: sortIdsByLastAtDesc(sessions),
-        ...leavingStamp(state, state.sessions[msg.session.id], msg.session),
-        ...seedDecision(state, msg.session),
-        // An upsert of an unknown id is a new index row, so the hole's total
-        // moves with it. A re-upsert of a known session is just a change.
-        ...(isNew ? { sessionsTotal: state.sessionsTotal + 1 } : {}),
-      })
-      return
-    }
-
-    if (msg.event === 'status') {
-      const existing = state.sessions[msg.sessionId]
-      if (!existing) {
-        // Unknown session: refetch it from the API rather than dropping
-        // the event, since we don't have a row to merge the status into.
-        api
-          .getSession(msg.sessionId)
-          .then(({ session }) => {
-            get().applySessionsEvent({ event: 'upsert', session })
-          })
-          .catch(() => {
-            // Session may have been deleted server-side between the event
-            // and the refetch; nothing sensible to do here.
-          })
-        return
-      }
-      const next = { ...existing, status: msg.status }
-      set({
-        sessions: { ...state.sessions, [msg.sessionId]: next },
-        ...leavingStamp(state, existing, next),
-      })
-      return
-    }
-
-    if (msg.event === 'remove') {
-      if (!(msg.sessionId in state.sessions)) return
-      const sessions = { ...state.sessions }
-      delete sessions[msg.sessionId]
-      const composerDrafts = { ...state.composerDrafts }
-      delete composerDrafts[msg.sessionId]
-      set({
-        sessions,
-        composerDrafts,
-        order: state.order.filter((id) => id !== msg.sessionId),
-        sessionsTotal: Math.max(0, state.sessionsTotal - 1),
-      })
-      // An open agent panel goes with its parent. The close guard at the
-      // bottom of this file only watches `ui.selectedId`, and a removal does
-      // not necessarily move it — a session removed while some OTHER planet
-      // is selected, or while the same one stays selected as a now-missing
-      // id, both leave `selectedId` exactly where it was. The panel would
-      // then keep rendering: header with no parent name (the session is
-      // gone from `sessions`), a transcript of an agent belonging to
-      // nothing, and — because the server drops both subagent stores at the
-      // same moment (`server/src/index.ts`, `onStatus` / `ended`) — no way
-      // to refetch it either.
-      if (get().subagentPanel?.sessionId === msg.sessionId) get().closeSubagent()
-    }
+  queueSessionsEvent(msg) {
+    queuedSessionsEvents.push(msg)
+    if (sessionsFlush) return
+    // Whichever comes first. A frame is the point — nothing is drawn between
+    // two events inside one — but a hidden window gets no frames at all, and
+    // the queue must not grow for as long as it stays hidden.
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(flushSessionsEvents) : 0
+    const timer = setTimeout(flushSessionsEvents, SESSIONS_FLUSH_FALLBACK_MS)
+    sessionsFlush = { frame, timer }
   },
 
   applySessionEvent(sessionId, msg) {
+    // The two topics are one stream on the server; this keeps them one here.
+    flushSessionsEvents()
     const state = get()
 
     if (msg.event === 'message') {
@@ -1881,6 +1857,121 @@ useOrbital.subscribe((state, prevState) => {
   const left = prevState.ui.selectedId
   if (left) dropTranscript(left)
 })
+
+/**
+ * What one `sessions`-topic event changes, computed against `state` — which,
+ * for a batch, is the store as the events before it in the batch left it.
+ * Null when it changes nothing. Anything that must run once the change is in
+ * the store is pushed to `after`.
+ */
+function sessionsEventPatch(
+  state: OrbitalStore,
+  msg: SessionsEvent,
+  after: (() => void)[],
+): Partial<OrbitalState> | null {
+  if (msg.event === 'upsert') {
+    const isNew = !(msg.session.id in state.sessions)
+    const sessions = { ...state.sessions, [msg.session.id]: msg.session }
+    return {
+      sessions,
+      order: sortIdsByLastAtDesc(sessions),
+      ...leavingStamp(state, state.sessions[msg.session.id], msg.session),
+      ...seedDecision(state, msg.session),
+      // An upsert of an unknown id is a new index row, so the hole's total
+      // moves with it. A re-upsert of a known session is just a change.
+      ...(isNew ? { sessionsTotal: state.sessionsTotal + 1 } : {}),
+    }
+  }
+
+  if (msg.event === 'status') {
+    const existing = state.sessions[msg.sessionId]
+    if (!existing) {
+      // Unknown session: refetch it from the API rather than dropping
+      // the event, since we don't have a row to merge the status into.
+      after.push(() => {
+        api
+          .getSession(msg.sessionId)
+          .then(({ session }) => {
+            useOrbital.getState().applySessionsEvent({ event: 'upsert', session })
+          })
+          .catch(() => {
+            // Session may have been deleted server-side between the event
+            // and the refetch; nothing sensible to do here.
+          })
+      })
+      return null
+    }
+    const next = { ...existing, status: msg.status }
+    return {
+      sessions: { ...state.sessions, [msg.sessionId]: next },
+      ...leavingStamp(state, existing, next),
+    }
+  }
+
+  if (msg.event === 'remove') {
+    if (!(msg.sessionId in state.sessions)) return null
+    const sessions = { ...state.sessions }
+    delete sessions[msg.sessionId]
+    const composerDrafts = { ...state.composerDrafts }
+    delete composerDrafts[msg.sessionId]
+    // An open agent panel goes with its parent. The close guard at the
+    // bottom of this file only watches `ui.selectedId`, and a removal does
+    // not necessarily move it — a session removed while some OTHER planet
+    // is selected, or while the same one stays selected as a now-missing
+    // id, both leave `selectedId` exactly where it was. The panel would
+    // then keep rendering: header with no parent name (the session is
+    // gone from `sessions`), a transcript of an agent belonging to
+    // nothing, and — because the server drops both subagent stores at the
+    // same moment (`server/src/index.ts`, `onStatus` / `ended`) — no way
+    // to refetch it either.
+    after.push(() => {
+      const store = useOrbital.getState()
+      if (store.subagentPanel?.sessionId === msg.sessionId) store.closeSubagent()
+    })
+    return {
+      sessions,
+      composerDrafts,
+      order: state.order.filter((id) => id !== msg.sessionId),
+      sessionsTotal: Math.max(0, state.sessionsTotal - 1),
+    }
+  }
+
+  return null
+}
+
+/** Applies `msgs` in order, as one store write. */
+function applySessionsEvents(msgs: SessionsEvent[]) {
+  const after: (() => void)[] = []
+  let state = useOrbital.getState()
+  let patch: Partial<OrbitalState> | null = null
+  for (const msg of msgs) {
+    const next = sessionsEventPatch(state, msg, after)
+    if (!next) continue
+    state = { ...state, ...next }
+    patch = { ...(patch ?? {}), ...next }
+  }
+  if (patch) useOrbital.setState(patch)
+  for (const run of after) run()
+}
+
+/**
+ * Applies whatever `queueSessionsEvent` is holding, now. Also called ahead
+ * of anything whose correctness depends on the sessions topic being caught
+ * up: a `session:<id>` event (its `status` handler reads the row, and the
+ * server published the row's upsert first) and the snapshot `loadInitial`
+ * seats (an event queued before it is older than it).
+ */
+function flushSessionsEvents() {
+  if (sessionsFlush) {
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(sessionsFlush.frame)
+    clearTimeout(sessionsFlush.timer)
+    sessionsFlush = null
+  }
+  if (queuedSessionsEvents.length === 0) return
+  const msgs = queuedSessionsEvents
+  queuedSessionsEvents = []
+  applySessionsEvents(msgs)
+}
 
 /**
  * Forgets the transcript of a session the selection just left (fix

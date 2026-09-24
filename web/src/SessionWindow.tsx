@@ -69,7 +69,7 @@ function useWindowWidth(): number {
  */
 export function SessionWindow({ id }: { id: string }) {
   const loadInitial = useOrbital((s) => s.loadInitial)
-  const applySessionsEvent = useOrbital((s) => s.applySessionsEvent)
+  const queueSessionsEvent = useOrbital((s) => s.queueSessionsEvent)
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const applyErrorsEvent = useOrbital((s) => s.applyErrorsEvent)
   const setWsStatus = useOrbital((s) => s.setWsStatus)
@@ -92,8 +92,8 @@ export function SessionWindow({ id }: { id: string }) {
 
   // The session row itself (title, status, context) arrives on `sessions`.
   useEffect(() => {
-    return socket.subscribe('sessions', (msg: SessionsEvent) => applySessionsEvent(msg))
-  }, [applySessionsEvent])
+    return socket.subscribe('sessions', (msg: SessionsEvent) => queueSessionsEvent(msg))
+  }, [queueSessionsEvent])
 
   // The toast's Detail and the transcript's error row both open the error
   // log, so the window carries it and the topic that feeds it.

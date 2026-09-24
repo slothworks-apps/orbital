@@ -56,7 +56,7 @@ const socket = getSocket()
  */
 export default function App() {
   const loadInitial = useOrbital((s) => s.loadInitial)
-  const applySessionsEvent = useOrbital((s) => s.applySessionsEvent)
+  const queueSessionsEvent = useOrbital((s) => s.queueSessionsEvent)
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const applyErrorsEvent = useOrbital((s) => s.applyErrorsEvent)
   const setWsStatus = useOrbital((s) => s.setWsStatus)
@@ -157,8 +157,8 @@ export default function App() {
 
   // `sessions` topic feeds the sidebar/map for the app's whole lifetime.
   useEffect(() => {
-    return socket.subscribe('sessions', (msg: SessionsEvent) => applySessionsEvent(msg))
-  }, [applySessionsEvent])
+    return socket.subscribe('sessions', (msg: SessionsEvent) => queueSessionsEvent(msg))
+  }, [queueSessionsEvent])
 
   // `errors` topic — the shared error log, subscribed for the app's whole
   // lifetime exactly like `sessions`, with the returned unsubscribe as this
