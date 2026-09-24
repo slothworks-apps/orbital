@@ -19,6 +19,8 @@ export interface ModelSwitcherProps {
   defaultValue: string | null
   /** When set, the badge is inert and carries this as its tooltip. */
   disabledReason?: string
+  /** The panel holding it is mounted but not on screen: the key does not open it. */
+  hidden?: boolean
 }
 
 /**
@@ -30,7 +32,7 @@ export interface ModelSwitcherProps {
  * written here: `Transcript` derives it from the messages themselves, so it
  * survives a reload and also shows switches Orbital never performed.
  */
-export function ModelSwitcher({ session, models, defaultValue, disabledReason }: ModelSwitcherProps) {
+export function ModelSwitcher({ session, models, defaultValue, disabledReason, hidden = false }: ModelSwitcherProps) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
@@ -85,7 +87,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
       triggerRef.current?.focus()
       setOpen(true)
     },
-    !inertReason && onScreen
+    !inertReason && onScreen && !hidden
   )
 
   if (inertReason) {

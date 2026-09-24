@@ -7,6 +7,7 @@ import { dotMotionClass, stateColor, stateDot } from '../lib/stateStyle'
 import { formatToolDuration } from '../lib/format'
 import { modelNameForId } from '../lib/models'
 import {
+  ELAPSED_TICK_MS,
   elapsedMsFor,
   subagentModelFrom,
   subagentTypeFrom,
@@ -37,12 +38,6 @@ function primaryTag(tagIds: number[], tags: Tag[]): Tag | undefined {
   }
   return tags.find((t) => t.is_default === 1)
 }
-
-/** How often the RUNNING elapsed reading advances (canvas 11c: "the only
- * state that animates"). A mono reading that never shows sub-second
- * precision has no use for anything finer. The subagent list's running
- * rows tick at the same rate. */
-export const ELAPSED_TICK_MS = 1000
 
 /**
  * STREAM LOST's body (canvas 11c): the reason block sits where the first
@@ -294,15 +289,18 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           DASHED one instead — same position, same 1px height, different
           stroke — so the pair is tellable apart by the seam alone, with no
           colour difference required. Values verbatim from 11b/11d's own
-          `repeating-linear-gradient`, not eyeballed (web/CLAUDE.md). */}
-      <div
-        aria-hidden
-        className="absolute inset-x-0 top-0 h-px"
-        style={{
-          background:
-            'repeating-linear-gradient(90deg, rgba(150,205,255,.4) 0 4px, transparent 4px 10px)',
-        }}
-      />
+          `repeating-linear-gradient`, not eyeballed (web/CLAUDE.md). Swap
+          has no panel beside it to be told apart from, and 25b draws none. */}
+      {!swap && (
+        <div
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-px"
+          style={{
+            background:
+              'repeating-linear-gradient(90deg, rgba(150,205,255,.4) 0 4px, transparent 4px 10px)',
+          }}
+        />
+      )}
 
       {/* Header — canvas 11b: 16px/18px padding, one step tighter than the
           detail panel's 12px/22px/16px at every level. Docked in the main

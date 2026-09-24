@@ -161,8 +161,15 @@ function useWindowWidth(enabled: boolean): number {
  * resize handle and no slide-in (the window's own opening is the entrance),
  * its row 1 is the title bar, and it has no close control — the window's is
  * the only one.
+ *
+ * `hidden` is a standalone panel kept mounted under a swapped-in subagent
+ * panel (spec: 2026-09-24-subagent-list-design § 4): nothing of it is on
+ * screen, so none of its session commands answer a key.
  */
-export function DetailPanel({ standalone = false }: { standalone?: boolean } = {}) {
+export function DetailPanel({
+  standalone = false,
+  hidden = false,
+}: { standalone?: boolean; hidden?: boolean } = {}) {
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const windowWidth = useWindowWidth(standalone)
   const windowFocused = useWindowFocused(standalone)
@@ -383,7 +390,8 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   const tagSelectRef = useRef<SelectHandle>(null)
   /** Row 4, the header's full content width: the subagent list ends on its right edge (canvas 25a). */
   const stateRowRef = useRef<HTMLDivElement | null>(null)
-  const shown = selectedId != null ? session : undefined
+  // A hidden panel draws no control, so it serves no key either.
+  const shown = selectedId != null && !hidden ? session : undefined
   // Stop sits in the composer, which a terminal-live session does not get.
   useCommand(
     'session.interrupt',
@@ -874,6 +882,7 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
                   session={session}
                   models={models}
                   defaultValue={settings.default_model ?? null}
+                  hidden={hidden}
                   disabledReason={
                     isTerminalLive ? 'Live in a terminal — Orbital does not own this session' : undefined
                   }

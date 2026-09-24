@@ -194,7 +194,7 @@ export function SessionWindow({ id }: { id: string }) {
           inert={swap || undefined}
         >
           <ErrorBoundary label="Detail panel">
-            <DetailPanel standalone />
+            <DetailPanel standalone hidden={swap} />
           </ErrorBoundary>
         </div>
         {showSubagent && (

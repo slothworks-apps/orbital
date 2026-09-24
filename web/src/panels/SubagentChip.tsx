@@ -3,13 +3,12 @@ import type { RefObject } from 'react'
 import { useOrbital } from '../store/store'
 import type { ChatMessage, Subagent } from '../lib/types'
 import { chipSegments, isOpenable, listGroups, rowElapsedMs, rowStateWord } from '../lib/subagentList'
-import { subagentTypeFrom, taskStateFor } from '../lib/subagentPanel'
+import { ELAPSED_TICK_MS, subagentTypeFrom, taskStateFor } from '../lib/subagentPanel'
 import { formatToolDuration } from '../lib/format'
 import { STATE_DOT_RING_PX } from '../lib/stateStyle'
 import { TASK_TONE } from '../ui/Badge'
 import { MENU_SEPARATOR, MenuButton } from '../ui/Menu'
 import type { MenuEntry } from '../ui/Menu'
-import { ELAPSED_TICK_MS } from './SubagentPanel'
 
 /** Canvas 25a: the dropdown's width. */
 const LIST_WIDTH_PX = 372
