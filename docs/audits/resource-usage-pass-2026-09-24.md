@@ -2,7 +2,7 @@
 id: resource-usage-pass-2026-09-24
 title: "Resource usage pass: what Orbital costs while nobody is looking at it"
 type: audit
-status: active
+status: done
 related:
   - every-openable-moon-mounts-an-html-portal-and-they-accumulate
   - 2026-09-22-desktop-background-mode-design
@@ -186,6 +186,9 @@ to 3 ms after the first. A repeated walkthrough summary went from
 
 ### 6. Re-render and memory costs while sessions are active (web)
 
+**Open.** Carried to [[a-reopened-session-shows-the-transcript-it-was-left-with]]
+with the rest of this finding; the audit itself is closed.
+
 - There is no `React.memo` on `Planet` or `Moon`, so every sessions event
   re-renders all of them.
 - Each WS message commits separately. Batching per animation frame would help.
@@ -209,7 +212,7 @@ to 3 ms after the first. A repeated walkthrough summary went from
   2026-09-24:** the sloth pauses while the window is unfocused or hidden.
   `orbital-pulse` keeps running, as the spec decided, and now has a
   reduced-motion guard.
-- **Orphaned forked server.** It survives a force-quit or crash of the desktop
+- **Orphaned forked server** (carried to [[desktop-follow-ups]]). It survives a force-quit or crash of the desktop
   main process, because only `before-quit` kills it. The next launch attaches
   to it, so orphans do not multiply.
 - **Stack overflow risk.** `entries.push(...parseTranscript(...))` in

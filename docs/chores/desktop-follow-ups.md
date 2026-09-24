@@ -47,6 +47,10 @@ when their files are next open.
 - **Boot can serialise the login-shell and `--version` timeouts** (~8 s
   worst case) before `listen()`; the desktop's 15 s health poll absorbs
   it.
+- **Orphaned forked server** (`desktop/src/main.ts`) — only `before-quit`
+  kills the child, so a force-quit or crash of the main process leaves it
+  running. The next launch attaches to it, so orphans do not multiply.
+  From [[resource-usage-pass-2026-09-24]].
 - **Notification polish**: empty `session_failed` message drops the
   notification (pinned by test); the click handler has no
   `isDestroyed()`/`isMinimized()` guard; a dead `?? message` fallback in

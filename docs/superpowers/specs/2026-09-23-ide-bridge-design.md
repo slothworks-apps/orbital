@@ -1,7 +1,7 @@
 ---
 id: 2026-09-23-ide-bridge-design
 title: The IDE bridge
-status: active
+status: done
 type: spec
 domain: sessions
 related:

@@ -2,7 +2,7 @@
 id: 2026-09-22-subagent-transcript-panel-design
 title: Subagent transcript panel
 type: spec
-status: draft
+status: done
 domain: subagents
 related:
   - 2026-09-16-subagents-everywhere-design

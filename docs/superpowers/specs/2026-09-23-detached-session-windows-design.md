@@ -2,7 +2,7 @@
 id: 2026-09-23-detached-session-windows-design
 title: Detached session windows — a session's detail panel in its own desktop window
 type: spec
-status: active
+status: done
 domain: desktop
 related:
   - 2026-09-16-electron-wrapper-design

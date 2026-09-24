@@ -2,7 +2,7 @@
 id: 2026-09-24-page-headers-design
 title: Page headers — one bar for the sub-pages, esc to the map, ⌘1
 type: spec
-status: active
+status: done
 domain: web
 related:
   - 2026-09-24-main-window-chrome-design

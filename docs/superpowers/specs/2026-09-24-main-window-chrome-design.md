@@ -2,7 +2,7 @@
 id: 2026-09-24-main-window-chrome-design
 title: Main window chrome — no grey title bar, a top drag band, lights in the sidebar
 type: spec
-status: active
+status: done
 domain: desktop
 related:
   - 2026-09-16-electron-wrapper-design
