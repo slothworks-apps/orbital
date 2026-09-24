@@ -2,7 +2,7 @@
 id: 2026-09-24-subagent-list-design
 title: Subagent list — every subagent of the session, one click from the header
 type: spec
-status: active
+status: done
 domain: web
 related:
   - 2026-09-22-subagent-transcript-panel-design

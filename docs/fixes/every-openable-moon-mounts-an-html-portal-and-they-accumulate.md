@@ -1,13 +1,14 @@
 ---
 id: every-openable-moon-mounts-an-html-portal-and-they-accumulate
 title: "Every openable moon mounts an <Html> portal, and ended moons accumulate without a cap"
-status: backlog
+status: done
 type: fix
 domain: subagents
 related:
   - 2026-09-22-subagent-transcript-panel-design
   - moon-button-is-a-plain-dom-child-for-testability
   - map-ended-declutter
+  - 2026-09-24-subagent-list-design
 tags:
   - web
   - map
@@ -15,6 +16,12 @@ tags:
 ---
 
 # Every openable moon mounts an `<Html>` portal, and ended moons accumulate without a cap
+
+**Done 2026-09-24**, by the second candidate below taken to its limit:
+[[2026-09-24-subagent-list-design]] § 5 has a moon leave the map the moment
+its agent ends, so portals no longer accumulate — there is one per running
+agent, bounded by how many run at once. The per-portal cost is still
+unmeasured; reopen only if a map with many running agents shows it.
 
 Found by the whole-branch review of `feat/subagent-panel`. Filed rather than
 fixed: it is a cost that grows with usage rather than a wrong result, and

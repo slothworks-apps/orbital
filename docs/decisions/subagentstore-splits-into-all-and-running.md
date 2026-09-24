@@ -8,12 +8,25 @@ related:
   - 2026-09-22-subagent-transcript-panel-design
   - subagent-liveness-from-sdk-task-events
   - dismissal-marks-the-agent-only-the-map-reads-it
+  - 2026-09-24-subagent-list-design
 tags:
   - server
   - subagents
 ---
 
 # `SubagentStore.get()` splits into `all()` and `running()`, because a moon and `hasLiveSubagents` want different answers
+
+## Amended 2026-09-24: dismissal is gone
+
+[[2026-09-24-subagent-list-design]] § 5 has a moon leave the map the moment
+its agent ends, so there is nothing left to dismiss, and dismissal was
+removed in full. What this file says about `SubagentStore.dismiss()`, the
+`dismissed` flag, `dismissed` in the `sameAgents` compare and the section
+"`all()` marks dismissed agents" no longer describes the code. The split
+itself stands: `all()` is every agent the session ever had (the subagent
+list and the `OPEN →` row read it), `running()` still drives
+`hasLiveSubagents`. The map now filters ended agents out of `all()` itself.
+The body below stays as the record.
 
 ## The problem
 

@@ -6,6 +6,7 @@ status: in-force
 domain: subagents
 related:
   - 2026-09-22-subagent-transcript-panel-design
+  - 2026-09-24-subagent-list-design
 tags:
   - server
   - transcript
@@ -13,6 +14,16 @@ tags:
 ---
 
 # A subagent's transcript buffer dies with the session, not the agent
+
+## Amended 2026-09-24: dismissal is gone
+
+[[2026-09-24-subagent-list-design]] § 5 removed moon dismissal: a finished
+moon leaves the map on its own, and the subagent list and the `OPEN →` row
+are how a finished agent is reached. The paragraphs below about dismissal,
+and the rejected option's "until the user dismisses it", describe code that
+no longer exists. The decision itself is unchanged, and matters more now:
+the buffer outliving the agent is what lets the list open a finished one.
+The body below stays as the record.
 
 ## The problem
 
