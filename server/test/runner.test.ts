@@ -1944,6 +1944,25 @@ async function parkedOn(
 }
 
 describe('Runner decisions', () => {
+  it("refuses a subagent's question and parks nothing, not even over the parent's own", async () => {
+    const { runner, id, received, ask } = await parked();
+    const refused = await ask(ONE_QUESTION, 'tu-sub', 'AskUserQuestion', { agentID: 'agent-7' });
+    expect(refused).toEqual({ behavior: 'deny', message: expect.stringContaining('subagent') });
+    // The parent's question is still the parked one, and nothing new was announced.
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-1' });
+    expect(received.filter((e) => e.event === 'decision_pending')).toHaveLength(1);
+    expect(received.some((e) => e.event === 'decision_resolved')).toBe(false);
+  });
+
+  it("still parks a subagent's permission ask on the parent session", async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    void ask({ command: 'ls' }, 'tu-sub', 'Bash', { agentID: 'agent-7' });
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-sub', kind: 'permission' });
+  });
+
   it('parks an AskUserQuestion, announces it, and waits in needs_input', async () => {
     const { runner, id, received } = await parked();
     expect(runner.status(id)).toBe('needs_input');
@@ -3153,5 +3172,83 @@ describe('streaming output', () => {
 
     script.push(stream({ type: 'message_start', message: { id: 'msg_4', model: 'claude-x' } }));
     await vi.waitFor(() => expect(runner.status('web-1')).toBe('working'));
+  });
+
+  it("a subagent's stream publishes deltas on its own topic, and its complete block reuses the row's id", async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const sessionEvents = subscribed(hub, 'session:web-1');
+    const agentEvents = subscribed(hub, 'subagent:web-1:toolu_9');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    const sub = { parent_tool_use_id: 'toolu_9' };
+    script.push(stream({ type: 'message_start', message: { id: 'msg_s', model: 'claude-y' } }, sub));
+    script.push(stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, sub));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'age' } }, sub));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'nt' } }, sub));
+    script.push(stream({ type: 'content_block_stop', index: 0 }, sub));
+    script.push({
+      type: 'assistant',
+      ...sub,
+      message: { id: 'msg_s', model: 'claude-y', role: 'assistant', content: [{ type: 'text', text: 'agent' }] },
+    });
+    script.push(stream({ type: 'message_stop' }, sub));
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(sessionEvents.some((e) => e.event === 'turn_result')).toBe(true));
+
+    const deltas = agentEvents.filter((e) => e.event === 'delta');
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(deltas.map((d) => d.text).join('')).toBe('agent');
+    expect(
+      deltas.every((d) => d.role === 'assistant' && d.model === 'claude-y' && typeof d.droppedCount === 'number'),
+    ).toBe(true);
+    const message = agentEvents.find((e) => e.event === 'message');
+    expect(message.message).toMatchObject({ role: 'assistant', text: 'agent', id: deltas[0].id });
+    expect(agentEvents.indexOf(deltas[deltas.length - 1])).toBeLessThan(agentEvents.indexOf(message));
+    expect(sessionEvents.filter((e) => e.event === 'delta' || e.event === 'message')).toEqual([]);
+  });
+
+  it('two agents streaming at once keep their rows apart', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const sessionEvents = subscribed(hub, 'session:web-1');
+    const a = subscribed(hub, 'subagent:web-1:toolu_a');
+    const b = subscribed(hub, 'subagent:web-1:toolu_b');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    const subA = { parent_tool_use_id: 'toolu_a' };
+    const subB = { parent_tool_use_id: 'toolu_b' };
+    script.push(stream({ type: 'message_start', message: { id: 'msg_a', model: 'claude-x' } }, subA));
+    script.push(stream({ type: 'message_start', message: { id: 'msg_b', model: 'claude-x' } }, subB));
+    // The same block index in both: only the agent tells the rows apart.
+    script.push(stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, subA));
+    script.push(stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, subB));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'one' } }, subA));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'two' } }, subB));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: ' more' } }, subA));
+    script.push(stream({ type: 'content_block_stop', index: 0 }, subB));
+    script.push({
+      type: 'assistant', ...subB,
+      message: { id: 'msg_b', role: 'assistant', content: [{ type: 'text', text: 'two' }] },
+    });
+    script.push(stream({ type: 'content_block_stop', index: 0 }, subA));
+    script.push({
+      type: 'assistant', ...subA,
+      message: { id: 'msg_a', role: 'assistant', content: [{ type: 'text', text: 'one more' }] },
+    });
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(sessionEvents.some((e) => e.event === 'turn_result')).toBe(true));
+
+    const textOf = (events: any[]) => events.filter((e) => e.event === 'delta').map((d) => d.text).join('');
+    expect(textOf(a)).toBe('one more');
+    expect(textOf(b)).toBe('two');
+    const rowIds = (events: any[]) => new Set(events.map((e) => (e.event === 'delta' ? e.id : e.message?.id)));
+    const idsA = rowIds(a);
+    const idsB = rowIds(b);
+    expect(idsA.size).toBe(1);
+    expect(idsB.size).toBe(1);
+    expect([...idsA][0]).not.toBe([...idsB][0]);
   });
 });

@@ -455,6 +455,24 @@ describe('the agent ending under an open panel (C1)', () => {
     expect(container.querySelector('[data-task-state="failed"]')).toBeInTheDocument()
   })
 
+  it('stays completed when a later republish carries no agents at all', () => {
+    // The parent ended, the server dropped its agent tracker, and a pin (or
+    // a title, a model change, a map-dismiss) republished the session with
+    // `subagents: []`. `found` is still true — nothing 404ed — so only the
+    // last live reading keeps the header from reverting to the open-time
+    // `working` snapshot (fix: the-open-time-snapshot-reverts-a-completed-panel-to-running).
+    const { container } = renderPanel({ subagent: makeSubagent({ id: 'agent-1', state: 'working' }) })
+
+    endTheAgent(makeSubagent({ id: 'agent-1', state: 'ended', status: 'completed' }))
+    expect(container.querySelector('[data-task-state="completed"]')).toBeInTheDocument()
+
+    act(() => {
+      useOrbital.getState().applySessionsEvent({ event: 'upsert', session: makeSession({ subagents: [] }) })
+    })
+    expect(container.querySelector('[data-task-state="completed"]')).toBeInTheDocument()
+    expect(container.querySelector('[data-task-state="running"]')).not.toBeInTheDocument()
+  })
+
   it('falls back to the stored snapshot when the session no longer carries the agent', () => {
     // The server-restarted shape: `loadInitial` repopulates `sessions` with
     // `subagents: []`. The header must still name the agent the user opened

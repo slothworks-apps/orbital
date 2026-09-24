@@ -74,7 +74,9 @@ export type SessionEvent =
  * Events delivered on the `subagent:<sessionId>:<toolUseId>` topic — one
  * `message` per live append to that agent's buffer, mirroring `session:<id>`'s
  * own event exactly (spec: 2026-09-22-subagent-transcript-panel-design.md
- * § 9). Nothing else rides this topic: the panel is frozen by its
+ * § 9), and the `delta`s of a block the agent is still writing, shaped as on
+ * `session:<id>` (spec: 2026-09-24-streaming-output-design § 1). Nothing
+ * else rides this topic: the panel is frozen by its
  * `Subagent.state`/`status` (read live off the parent session — see
  * `SubagentPanel`), not by a WS event, and STREAM LOST is read off the
  * messages fetch's 404, not off anything published here.
@@ -85,11 +87,9 @@ export type SessionEvent =
  * older server (or by a `Runner` wired without `subagentTranscripts`) still
  * parses.
  */
-export type SubagentEvent = {
-  event: 'message'
-  message: ChatMessage
-  droppedCount?: number
-}
+export type SubagentEvent =
+  | { event: 'message'; message: ChatMessage; droppedCount?: number }
+  | (Extract<SessionEvent, { event: 'delta' }> & { droppedCount?: number })
 
 /**
  * Events delivered on the `errors` topic — the shared error log
@@ -1859,7 +1859,55 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // synchronously before a new subscribe, so a handler for a topic this
     // panel no longer owns should never fire at all.
     if (!panel || panel.sessionId !== sessionId || panel.subagent.toolUseId !== toolUseId) return
-    if (panel.messages.some((m) => m.id === msg.message.id)) return
+    const droppedCount = msg.droppedCount ?? panel.droppedCount
+
+    // The same rules as `applySessionEvent`'s `delta`, over the panel's list
+    // instead of a session transcript, and sharing `streamEnds` with it — row
+    // ids are minted by one server counter, so the two never collide.
+    if (msg.event === 'delta') {
+      const idx = panel.messages.findIndex((m) => m.id === msg.id)
+      if (idx < 0) {
+        streamEnds[msg.id] = msg.offset + msg.text.length
+        const row: ChatMessage = {
+          id: msg.id,
+          role: msg.role,
+          text: msg.text,
+          timestamp: new Date().toISOString(),
+          partial: true,
+          ...(msg.model ? { model: msg.model } : {}),
+        }
+        // Held against the cap like a complete message. The block that
+        // replaces it takes its slot rather than adding one, so the list is
+        // ahead of the server's buffer only by the rows still being written.
+        const appended = [...panel.messages, row]
+        const messages =
+          appended.length > MAX_SUBAGENT_MESSAGES
+            ? appended.slice(appended.length - MAX_SUBAGENT_MESSAGES)
+            : appended
+        set({ subagentPanel: { ...panel, messages, droppedCount } })
+        return
+      }
+      const row = panel.messages[idx]
+      const end = streamEnds[msg.id]
+      if (!row.partial || end === undefined || msg.offset < end) return
+      streamEnds[msg.id] = msg.offset + msg.text.length
+      const messages = panel.messages.slice()
+      messages[idx] = { ...row, text: (row.text ?? '') + msg.text }
+      set({ subagentPanel: { ...panel, messages, droppedCount } })
+      return
+    }
+
+    const heldIdx = panel.messages.findIndex((m) => m.id === msg.message.id)
+    if (heldIdx >= 0) {
+      // The streamed twin of this block is replaced in place; a message
+      // delivered twice stays deduped.
+      if (!panel.messages[heldIdx].partial) return
+      delete streamEnds[msg.message.id]
+      const messages = panel.messages.slice()
+      messages[heldIdx] = msg.message
+      set({ subagentPanel: { ...panel, messages, droppedCount } })
+      return
+    }
     // Capped at the SERVER's own cap, and evicted from the front the same
     // way. The list started as a copy of the server's buffer (the fetch in
     // `openSubagent`) and grows by exactly the appends the server makes, so
@@ -1877,7 +1925,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       subagentPanel: {
         ...panel,
         messages,
-        droppedCount: msg.droppedCount ?? panel.droppedCount,
+        droppedCount,
       },
     })
   },

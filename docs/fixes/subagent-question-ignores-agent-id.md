@@ -1,12 +1,13 @@
 ---
 id: subagent-question-ignores-agent-id
 title: decide() cannot tell a subagent's AskUserQuestion from the parent's own
-status: backlog
+status: done
 type: fix
 domain: subagents
 related:
   - 2026-09-22-subagent-transcript-panel-design
   - subagent-liveness-from-sdk-task-events
+  - a-subagents-question-is-refused-not-relayed
 tags:
   - server
   - runner
@@ -104,3 +105,14 @@ read (deny outright? route it somewhere new? surface it as its own kind of
 because `AskUserQuestion` inside a subagent's own toolset was not part of
 its scope. Worth revisiting if a subagent build ever actually reaches for
 that tool — nothing observed on this machine has yet.
+
+## Fixed 2026-09-24
+
+`decide()` reads `opts.agentID`. A question from inside a subagent is denied
+with a message telling the model to ask from the parent session, and nothing
+is parked or superseded. A subagent's permission ask keeps its old path: the
+parent's card answers it. The choice is recorded in
+[[a-subagents-question-is-refused-not-relayed]]. Tests: "refuses a
+subagent's question and parks nothing, not even over the parent's own" and
+"still parks a subagent's permission ask on the parent session" in
+`server/test/runner.test.ts`.

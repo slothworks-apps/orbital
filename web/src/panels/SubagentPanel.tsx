@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
-import type { ApiSession, Tag } from '../lib/types'
+import type { ApiSession, Subagent, Tag } from '../lib/types'
 import { sessionStateKey } from '../lib/types'
 import { dotMotionClass, stateColor, stateDot } from '../lib/stateStyle'
 import { formatToolDuration } from '../lib/format'
@@ -201,7 +201,29 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
   const liveSubagent = useOrbital((s) =>
     panel ? s.sessions[panel.sessionId]?.subagents.find((a) => a.id === panel.subagent.id) : undefined
   )
-  const subagent = panel ? (liveSubagent ?? panel.subagent) : null
+  /**
+   * The last agent the live lookup resolved to, for THIS panel's agent. The
+   * lookup also misses when the parent session is still known but its list
+   * has gone empty — its tracker was dropped when it ended, and any later
+   * republish (a pin, a title, a model change) carries `subagents: []` with
+   * `found` still true. Falling back to the open-time snapshot there would
+   * un-complete an ended agent; the last live reading cannot, because once
+   * it says ended it stays ended
+   * (fix: the-open-time-snapshot-reverts-a-completed-panel-to-running).
+   *
+   * A ref of the component's own rather than a write to
+   * `subagentPanel.subagent`: the identity guards in `openSubagent` depend on
+   * that field having exactly one writer (adr:
+   * the-panel-reads-its-agent-live-not-the-snapshot-it-opened-with).
+   */
+  const lastKnownLive = useRef<{ sessionId: string; agent: Subagent } | null>(null)
+  if (panel && liveSubagent) lastKnownLive.current = { sessionId: panel.sessionId, agent: liveSubagent }
+  const remembered = lastKnownLive.current
+  const lastLive =
+    panel && remembered?.sessionId === panel.sessionId && remembered.agent.id === panel.subagent.id
+      ? remembered.agent
+      : undefined
+  const subagent = panel ? (liveSubagent ?? lastLive ?? panel.subagent) : null
 
   // Two pre-return, hook-safe values (every hook here must run on every
   // render regardless of whether a panel is open, so nothing driving them
@@ -449,13 +471,13 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
             // of its own to give it.
             sessionId={panel.sessionId}
             compact
-            // NOT inferred from ids: `decide()` (`server/src/runner/runner.ts`)
-            // does not read the SDK's `opts.agentID`, so a subagent-originated
-            // `AskUserQuestion` can land in `pendingDecisions[panel.sessionId]`
-            // keyed by the subagent's own toolUseId — exactly the id
-            // `QuestionCard`'s `isPending` check would otherwise match. This
-            // prop is what makes the panel read-only regardless of whether
-            // that ever happens (fix: subagent-question-ignores-agent-id).
+            // NOT inferred from ids. `decide()` (`server/src/runner/runner.ts`)
+            // now refuses a subagent's `AskUserQuestion` outright, but a
+            // subagent's PERMISSION ask still parks in
+            // `pendingDecisions[panel.sessionId]` keyed by its own toolUseId.
+            // This prop keeps the panel read-only whatever the server parks,
+            // rather than trusting ids never to collide (adr:
+            // a-subagents-question-is-refused-not-relayed).
             readOnly
           />
         )}

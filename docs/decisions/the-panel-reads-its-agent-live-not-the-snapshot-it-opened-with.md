@@ -118,3 +118,13 @@ something about.
   running agent, deliver a `sessions` upsert that ends it — which is the
   lifecycle test spec § 11 asked for ("freeze on `task_notification`") and
   which no seeded-fixture test can stand in for.
+- Amended 2026-09-24: the open-time snapshot is no longer the first
+  fallback. `SubagentPanel` keeps a `lastKnownLive` ref, written on every
+  render where the live lookup resolves, and falls back to it before
+  `panel.subagent`. An ended agent therefore stays ended when a later
+  republish of its session carries `subagents: []`
+  ([[the-open-time-snapshot-reverts-a-completed-panel-to-running]]). It is
+  the component's own ref, not a second writer to `subagentPanel.subagent`,
+  for the reason under "What was rejected". The snapshot still answers for
+  an agent the live lookup never resolved, such as the server-restart case
+  above.
