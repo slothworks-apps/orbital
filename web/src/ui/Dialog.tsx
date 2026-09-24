@@ -180,10 +180,11 @@ export function Dialog({
   const ruledHeader = size === 'lg' || size === 'xl'
 
   // Portalled to <body> on purpose. `StopDialog`/`ClearDialog` are rendered
-  // from inside `DetailPanel`, whose glass uses `backdrop-filter` — and a
-  // filtered ancestor becomes the containing block for `position: fixed`
-  // descendants, which would trap the overlay (scrim included) inside the
-  // 450px panel instead of covering the viewport.
+  // from inside `DetailPanel`, and any ancestor with a `backdrop-filter`,
+  // `transform` or `filter` becomes the containing block for `position:
+  // fixed` descendants, which would trap the overlay (scrim included) inside
+  // the 450px panel instead of covering the viewport. The docked panels no
+  // longer blur, but the portal keeps that from depending on their chrome.
   return createPortal(
     <EscapeBoundary>
     <div

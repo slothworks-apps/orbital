@@ -86,6 +86,7 @@ export function useSceneModel(): SceneModel {
           decisionAnswers: {},
           decisionVerdicts: {},
           ideDismissed: {},
+          composerDrafts: {},
           detachedIds: [],
           sessionsTotal,
           toast: null,

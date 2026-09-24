@@ -221,6 +221,7 @@ describe('openDb', () => {
       transcript_expand_diff_on_permission: 'true',
       permission_guard_gesture: 'hold',
       header_session_stats: 'bar',
+      map_state_pills: 'dot',
       claude_executable_path: '',
       claude_directory: '',
       notify_needs_input: 'true',
@@ -331,7 +332,9 @@ describe('default tag', () => {
     const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
       entries: { tag: string }[];
     };
-    journal.entries = journal.entries.filter((e) => !e.tag.endsWith('_one_default_tag'));
+    // Drizzle skips any migration older than the newest one applied, so every
+    // later migration has to go too, not just this one.
+    journal.entries = journal.entries.slice(0, journal.entries.findIndex((e) => e.tag.endsWith('_one_default_tag')));
     writeFileSync(journalPath, JSON.stringify(journal));
     const old = openDb(dbPath, before);
     old.insert(tags).values([

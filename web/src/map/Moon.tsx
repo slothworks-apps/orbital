@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
-import { useFrame } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Subagent } from '../lib/types'
 import { REFERENCE_ZOOM, bodyDesignPxToScreenPx, bodyZoomFactor } from './camera'
+import { useFrameOnRender, useFrameScheduler, useMapFrame } from './FrameBudget'
 import { oklchCss, type Oklch } from '../lib/usage'
 import {
   MAT_RING_MAX_SCALE,
@@ -459,7 +459,7 @@ export interface MoonProps {
    */
   onOpen?: (sessionId: string, subagent: Subagent) => void
   /**
-   * The parent planet is muted by the sidebar search — the moon mutes with
+   * The parent planet is muted by the sidebar filters — the moon mutes with
    * it: whole-body opacity down to `MUTED_OPACITY`, hue toward the ended
    * grey, on the same tween as the planet's.
    */
@@ -660,10 +660,13 @@ export function Moon({
   // `applyState()` even when the state mix itself isn't moving (a settled
   // `idle` moon hovered by a motionless pointer would otherwise never
   // repaint its rim/core white at all).
+  const scheduler = useFrameScheduler()
   const hoveredRef = useRef(false)
   const handleHoverChange = (next: boolean) => {
     hoveredRef.current = next
     settled.current = false
+    // No render follows a hover, so nothing else would ask for the frame.
+    scheduler?.request()
   }
   // Seeded from the `phase` prop once on mount, then advanced every frame in
   // useFrame — this is the moon's own running angle, not `phase` re-read
@@ -731,7 +734,11 @@ export function Moon({
     if (matRingRef.current) matRingRef.current.material.color.copy(hueC)
   }
 
-  useFrame((state, delta) => {
+  useFrameOnRender()
+
+  // Always moving: a moon orbits for as long as it is on the map, whatever
+  // its state, so a map with any moon draws at the cap.
+  useMapFrame((state, delta) => {
     if (parentBody) {
       // The sim owns the parent's motion — the moon rides it 1:1, so a
       // dragged or walking planet never leaves its moons behind.
@@ -840,6 +847,7 @@ export function Moon({
       if (shellLineRef.current) shellLineRef.current.visible = false
       if (matRingRef.current) matRingRef.current.visible = false
     }
+    return true
   })
 
   return (

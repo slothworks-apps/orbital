@@ -197,10 +197,10 @@ So the editor gets its own **slot on the composer well's edge**, not a chip in
 the well. It slides up from behind the edge when there is something to read and
 back down when there is not, as an overlay — nothing reflows.
 
-- **Cursor only** (`text` is null): a read-out line, no border, no ×. It names
-  the file and line and attaches nothing.
-- **Selection**: a lip rises out of the well over the cursor line, carrying the
-  count and the file, with a × that drops it.
+- **Cursor only** (`text` is null): a read-out, no ×. It names the file and
+  line and attaches nothing.
+- **Selection**: the read-out gives way to the count and the file, with a ×
+  that drops it.
 - **No editor, or an editor on another project**: nothing. The panel is
   shipped 1b exactly.
 - **An editor that has not said where the caret is**: also nothing. The canvas
@@ -212,6 +212,11 @@ back down when there is not, as an overlay — nothing reflows.
   that says nothing and cannot be dismissed. It is therefore tied to having a
   reading instead, which is also what makes the slide mean something: it
   arrives when the editor first has something to say.
+
+Both reading states sit in one tab-shaped card on the well's edge, and only
+its contents cross-fade. The canvas (20b-2) draws the cursor state as a bare
+line and only the selection as a tab; a frame that appears the moment you
+select something read as two different components, so the frame is shared.
 
 A lip and an attachment chip never share a row — the chip stays in the well,
 the lip sits on its edge.

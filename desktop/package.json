@@ -1,6 +1,6 @@
 {
   "name": "@orbital/desktop",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Orbital as a macOS desktop app: the window, the notifications and the server's lifecycle.",
   "author": "SlothWorks s.r.o.",
   "private": true,
@@ -9,6 +9,7 @@
     "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/main.cjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs",
     "dev": "npm run build && ORBITAL_DESKTOP_DEV=1 electron .",
     "dist": "npm run build && APPLE_KEYCHAIN_PROFILE=${APPLE_KEYCHAIN_PROFILE:-orbital-notary} electron-builder --mac --arm64",
+    "dist:local": "npm run build && electron-builder --mac --arm64 -c.mac.notarize=false -c.directories.output=release/local '-c.dmg.artifactName=${productName}-${version}-${arch}-local.${ext}'",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

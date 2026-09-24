@@ -17,6 +17,7 @@ import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
 import { CustomModelField } from '../ui/CustomModelField'
 import { modelByValue, modelByAnyId } from '../lib/models'
+import { permissionMode as permissionModeDescriptor } from '../lib/permissionModes'
 import type { PermissionMode } from '../lib/types'
 
 export interface NewSessionDialogProps {
@@ -27,6 +28,47 @@ export interface NewSessionDialogProps {
 /** Delay before firing `previewRule` after cwd/mode settle — avoids a
  * request per keystroke while typing a path. */
 const PREVIEW_DEBOUNCE_MS = 300
+
+/**
+ * What the dialog opens with: the previous launch's choices, read back from
+ * the settings table (`new_session_last_*`), falling back to the Settings
+ * defaults until something has been launched. The model needs no key of its
+ * own — it already follows the directory through `remember_model_per_project`.
+ * See `docs/decisions/the-new-session-dialog-remembers-the-last-launch.md`.
+ *
+ * `bypassPermissions` is never carried over: a mode that never asks is picked
+ * on purpose each time, not inherited from the last sandbox. The tag is only
+ * stored when it was a manual pick, and belongs to the directory it was picked
+ * for — anywhere else the rules decide.
+ */
+export function lastLaunch(settings: Record<string, string | undefined>): {
+  cwd: string
+  permissionMode: PermissionMode
+  tag: { cwd: string; tagId: number } | null
+} {
+  const fallbackMode = (settings.default_permission_mode as PermissionMode) || 'acceptEdits'
+  const storedMode = settings.new_session_last_mode as PermissionMode | undefined
+  const lastCwd = settings.new_session_last_cwd || ''
+  const tagId = Number(settings.new_session_last_tag)
+  return {
+    cwd: lastCwd || settings.default_project_dir || '',
+    permissionMode:
+      storedMode && storedMode !== 'bypassPermissions' && permissionModeDescriptor(storedMode)
+        ? storedMode
+        : fallbackMode,
+    tag: lastCwd && settings.new_session_last_tag && Number.isInteger(tagId) ? { cwd: lastCwd, tagId } : null,
+  }
+}
+
+/**
+ * Stores a launch's choices for the next open. Fire-and-forget, like the
+ * Settings panel's last section: a failed write costs the next open its
+ * prefill and nothing else.
+ */
+function rememberLaunch(patch: Record<string, string>) {
+  useOrbital.setState((state) => ({ settings: { ...state.settings, ...patch } }))
+  void api.patchSettings(patch).catch(() => {})
+}
 
 /** Group kicker from canvas 1d: mono 10px, .16em tracking, 8px to the control. */
 function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) {
@@ -50,6 +92,7 @@ function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: stri
  * cwd/mode changes until the user manually picks a different tag — after
  * that, the manual choice wins over any further auto-match. The MODEL group
  * (canvas 4b) mirrors that same manual-override pattern for the model pick.
+ * Each open starts from the previous launch's choices — see `lastLaunch`.
  */
 export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
@@ -78,6 +121,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [customInitial, setCustomInitial] = useState<string | null>(null)
   const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null }>>([])
   const [pending, setPending] = useState(false)
+  /** The previous launch's manual tag pick and the directory it belongs to. */
+  const [rememberedTag, setRememberedTag] = useState<{ cwd: string; tagId: number } | null>(null)
 
   // Image intake, the same pair the detail panel mounts (spec:
   // 2026-09-20-composer-design § Image intake; canvas 9d-D). `null` is the
@@ -98,10 +143,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const wasOpenRef = useRef(false)
   useEffect(() => {
     if (open && !wasOpenRef.current) {
-      setCwd(settings.default_project_dir ?? '')
-      setPermissionMode(((settings.default_permission_mode as PermissionMode) || 'acceptEdits'))
+      const last = lastLaunch(settings)
+      // A tag deleted since the launch is not preselected.
+      const tagHere = last.tag && tags.some((t) => t.id === last.tag!.tagId) ? last.tag : null
+      setCwd(last.cwd)
+      setPermissionMode(last.permissionMode)
       setPrompt('')
-      setTagId(null)
+      setRememberedTag(tagHere)
+      setTagId(tagHere?.tagId ?? null)
       setManualOverride(false)
       setMatchedTagId(null)
       setMatchedRuleId(null)
@@ -123,7 +172,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     // waiting on its uploads is untouched by this.
     if (!open && wasOpenRef.current) resetAttachments()
     wasOpenRef.current = open
-  }, [open, settings.default_project_dir, settings.default_permission_mode, resetAttachments])
+    // Settings and tags are read on the open transition only: a launch writes
+    // its choices back while the dialog is closing, and that must not re-run
+    // the reset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, resetAttachments])
 
   // Preselection, in the order 4b describes: this project's last model when
   // the toggle allows it, otherwise the Settings default, otherwise the first
@@ -168,14 +221,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         .then(({ tagId: matched, ruleId }) => {
           setMatchedTagId(matched)
           setMatchedRuleId(ruleId)
-          if (!manualOverride) setTagId(matched)
+          if (manualOverride) return
+          setTagId(rememberedTag?.cwd === cwd.trim() ? rememberedTag.tagId : matched)
         })
         .catch(() => {
           // Preview is best-effort; leave whatever tag selection stands.
         })
     }, PREVIEW_DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [open, cwd, permissionMode, manualOverride])
+  }, [open, cwd, permissionMode, manualOverride, rememberedTag])
 
   function handleSelectTag(id: number) {
     setManualOverride(true)
@@ -211,6 +265,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         // the server, and every existing body assertion stays true.
         ...(refs.length > 0 ? { attachments: refs } : {}),
       }, images)
+      // A tag is remembered only when it was the user's pick — this launch's,
+      // or the previous one's left standing — never a rule's match.
+      const pickedTag =
+        tagId != null && (manualOverride || (rememberedTag?.cwd === cwd.trim() && rememberedTag.tagId === tagId))
+      rememberLaunch({
+        new_session_last_cwd: cwd.trim(),
+        new_session_last_mode: permissionMode,
+        new_session_last_tag: pickedTag ? String(tagId) : '',
+      })
       onClose()
       await select(sessionId)
     } catch (err) {
@@ -218,7 +281,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, model, pending, awaitingCustomModel, onClose, select, launchSession, attachments])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, pending, awaitingCustomModel, onClose, select, launchSession, attachments])
 
   // `composer.start` launches from anywhere in the dialog.
   useEffect(() => {

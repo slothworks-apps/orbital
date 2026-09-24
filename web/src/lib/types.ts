@@ -623,40 +623,66 @@ export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision'>): strin
 
 /**
  * Whether a parked session is actually blocked on the human — the NEEDS INPUT
- * half of `parkedLabel`, as a boolean. The map draws its "you are being
- * waited for" signals (the needs-input ripple ring, the pill's pulsing dot)
- * only when this holds; a DONE planet goes without both, the way INTERRUPTED
- * goes without the dot (ADR what-a-session-waits-for-is-a-label). One
- * predicate, so the pill's word and the planet's ring cannot disagree.
+ * half of `parkedLabel`, as a boolean, and the test `sessionStateKey` splits
+ * NEEDS INPUT from DONE with. The map's "you are being waited for" signals
+ * (the amber ripple ring, the breathing dot) follow that key, so a DONE or
+ * an interrupted planet goes without both (ADR
+ * what-a-session-waits-for-is-a-label). One predicate, so the pill's word
+ * and the planet's ring cannot disagree.
  */
 export function asksForHuman(session: Pick<ApiSession, 'pendingDecision'>): boolean {
   return Boolean(session.pendingDecision)
 }
 
 /**
- * The map's state pill for a session: its word and whether its dot pulses,
- * or null when the planet wears none. One function for the pill `Planet`
- * draws and the room the simulation keeps around it.
+ * Which of the seven state words a session wears — the one answer every
+ * state surface reads (the map pill, the summary line, the sidebar row, the
+ * detail chip, the needs-input ripple). How each is drawn lives in
+ * `lib/stateStyle.ts`; this only decides which state it is.
  *
- * Four answers compete for one pill, most specific first. INTERRUPTED,
- * NEEDS INPUT and DONE are all a stopped session, told apart by WHY it
- * stopped (`parkedLabel`); `WAITING FOR AGENT` is the opposite — a `working`
- * planet whose work is all happening in its moons, labelled so the map does
- * not read as "something is going on here" when the only thing going on is
- * out in orbit.
+ * Most specific first. INTERRUPTED displaces whatever status the session
+ * has: a restart cut its turn short, and that is the thing to say. A
+ * `needs_input` session splits by WHY it stopped (`parkedLabel`): NEEDS INPUT
+ * when something is parked on the human, DONE when the turn merely finished.
+ * A `working` session whose work is all happening in its moons is WAITING —
+ * labelled so the map does not read as "something is going on here" when the
+ * only thing going on is out in orbit.
+ */
+export type SessionStateKey = 'needs_input' | 'waiting' | 'interrupted' | 'done' | 'working' | 'idle' | 'ended'
+
+export function sessionStateKey(
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents'>,
+): SessionStateKey {
+  if (session.interruptedAt) return 'interrupted'
+  if (session.status === 'needs_input') return asksForHuman(session) ? 'needs_input' : 'done'
+  if (session.status === 'working') return awaitingSubagentCount(session) > 0 ? 'waiting' : 'working'
+  return session.status
+}
+
+/**
+ * The map's state pill for a session: which state it is and its word, or
+ * null when the planet wears none. One function for the pill `Planet` draws
+ * and the room the simulation keeps around it.
  *
- * The dot pulses only while something is live: a question parked on the
- * human, or a working planet listening for its agents. INTERRUPTED and DONE
- * both mean "something stopped, nothing is happening" — steady, no dot.
+ * Only the four states that say something the planet's own body does not
+ * get a pill: NEEDS INPUT, DONE, INTERRUPTED and WAITING. WORKING, IDLE and
+ * ENDED are already told by the planet's pulse, rings and dimming (canvas 24c).
  */
 export function statePill(
   session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents'>,
-): { label: string; pulse: boolean } | null {
-  const pulse = !session.interruptedAt && (session.status !== 'needs_input' || asksForHuman(session))
-  if (session.interruptedAt) return { label: 'INTERRUPTED', pulse }
-  if (session.status === 'needs_input') return { label: parkedLabel(session), pulse }
-  const awaiting = awaitingSubagentCount(session)
-  return awaiting > 0 ? { label: awaitingSubagentLabel(awaiting), pulse } : null
+): { key: SessionStateKey; label: string } | null {
+  const key = sessionStateKey(session)
+  switch (key) {
+    case 'interrupted':
+      return { key, label: 'INTERRUPTED' }
+    case 'needs_input':
+    case 'done':
+      return { key, label: parkedLabel(session) }
+    case 'waiting':
+      return { key, label: awaitingSubagentLabel(awaitingSubagentCount(session)) }
+    default:
+      return null
+  }
 }
 
 /**

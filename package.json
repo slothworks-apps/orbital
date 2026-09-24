@@ -14,6 +14,7 @@
     "dev:server": "ORBITAL_PORT=4838 ORBITAL_DATA_DIR=\"$HOME/Library/Application Support/orbital-dev\" npm run dev -w server",
     "dev:web": "ORBITAL_PORT=4838 npm run dev -w web",
     "dev:desktop": "ORBITAL_PORT=4838 npm run dev -w desktop",
+    "desktop:build": "npm run build -w server && npm run build -w web && npm run dist:local -w desktop",
     "desktop:release": "npm run build -w server && npm run build -w web && npm run dist -w desktop",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

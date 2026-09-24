@@ -7,6 +7,7 @@ import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
 import type { ContextThresholds } from '../lib/usage'
+import type { MapStatePills } from '../lib/stateStyle'
 import type {
   ApiSession,
   AttachmentSource,
@@ -270,6 +271,14 @@ export interface OrbitalState {
    */
   ideDismissed: Record<string, string>
   /**
+   * What is typed in each session's composer and not yet sent, by session
+   * id. In the store rather than the detail panel so that switching to
+   * another session — to answer its question, say — and back finds the
+   * half-written message where it was left. Memory only: a reload loses it.
+   * An empty draft is not kept.
+   */
+  composerDrafts: Record<string, string>
+  /**
    * Sessions whose detail panel lives in its own desktop window right now
    * (spec: 2026-09-23-detached-session-windows-design). The desktop main
    * process owns the list and pushes it whole; only the main window ever
@@ -345,6 +354,7 @@ export interface OrbitalActions {
    * different one and raises the lip again by itself.
    */
   dismissIdeSelection(sessionId: string, selectionId: string): void
+  setComposerDraft(sessionId: string, text: string): void
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
@@ -621,6 +631,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   decisionAnswers: {},
   decisionVerdicts: {},
   ideDismissed: {},
+  composerDrafts: {},
   detachedIds: [],
   sessionsTotal: 0,
   toast: null,
@@ -776,8 +787,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       if (!(msg.sessionId in state.sessions)) return
       const sessions = { ...state.sessions }
       delete sessions[msg.sessionId]
+      const composerDrafts = { ...state.composerDrafts }
+      delete composerDrafts[msg.sessionId]
       set({
         sessions,
+        composerDrafts,
         order: state.order.filter((id) => id !== msg.sessionId),
         sessionsTotal: Math.max(0, state.sessionsTotal - 1),
       })
@@ -1288,6 +1302,15 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     set((state) => ({ ideDismissed: { ...state.ideDismissed, [sessionId]: selectionId } }))
   },
 
+  setComposerDraft(sessionId, text) {
+    set((state) => {
+      const composerDrafts = { ...state.composerDrafts }
+      if (text) composerDrafts[sessionId] = text
+      else delete composerDrafts[sessionId]
+      return { composerDrafts }
+    })
+  },
+
   setFilterTag(filterTagId) {
     set((state) => ({ ui: { ...state.ui, filterTagId } }))
   },
@@ -1780,26 +1803,29 @@ export function matchesSearch(session: ApiSession, query: string): boolean {
   return session.title.toLowerCase().includes(q) || session.cwd.toLowerCase().includes(q)
 }
 
-/** The tag filter alone, newest first — what both the sidebar and the map start from. */
-function tagFilteredSessions(state: Pick<OrbitalState, 'sessions' | 'ui'>): ApiSession[] {
-  let list = Object.values(state.sessions)
+/**
+ * Whether a session passes both sidebar filters, the tag chip and the search
+ * box — the one predicate the sidebar's lists and the map's muting both read.
+ */
+export function matchesSidebarFilters(
+  session: ApiSession,
+  ui: Pick<OrbitalUiState, 'filterTagId' | 'search'>
+): boolean {
+  const tagOk = ui.filterTagId === 'all' || session.tagIds.includes(ui.filterTagId)
+  return tagOk && matchesSearch(session, ui.search)
+}
 
-  if (state.ui.filterTagId !== 'all') {
-    const tagId = state.ui.filterTagId
-    list = list.filter((s) => s.tagIds.includes(tagId))
-  }
-
-  return list.sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
+function newestFirst(sessions: Record<string, ApiSession>): ApiSession[] {
+  return Object.values(sessions).sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
 }
 
 /**
- * What the sidebar lists: the tag filter, then the search. The map does NOT
- * derive from this — it keeps non-matching sessions in place and mutes them
- * (see `mapSessions`, ADR `search-mutes-planets-instead-of-hiding-them`).
+ * What the sidebar lists: the tag filter and the search, newest first. The
+ * map does NOT derive from this — it keeps non-matching sessions in place and
+ * mutes them (see `mapSessions`, ADR `search-mutes-planets-instead-of-hiding-them`).
  */
 export function visibleSessions(state: Pick<OrbitalState, 'sessions' | 'ui'>): ApiSession[] {
-  const query = state.ui.search
-  return tagFilteredSessions(state).filter((s) => matchesSearch(s, query))
+  return newestFirst(state.sessions).filter((s) => matchesSidebarFilters(s, state.ui))
 }
 
 /** Sentinel for the release delay's "Never" preset: bonds are never cut by time. */
@@ -2176,9 +2202,18 @@ export function headerSessionStats(settings: Record<string, string>): HeaderSess
 }
 
 /**
- * What the space map draws: the tag-filtered sessions minus the ones the
- * origin filter excludes, minus everything the hole has absorbed
- * (`absorptionFor`). The search is deliberately NOT applied: typing a query
+ * `map_state_pills` (Settings → Appearance → MAP, ADR
+ * state-labels-are-dots-first-on-the-map). Dot-first is the default, so only
+ * the literal `label` spells the words out — an unreadable value draws dots.
+ */
+export function mapStatePills(settings: Record<string, string>): MapStatePills {
+  return settings.map_state_pills === 'label' ? 'label' : 'dot'
+}
+
+/**
+ * What the space map draws: every session minus the ones the origin filter
+ * excludes, minus everything the hole has absorbed (`absorptionFor`). The
+ * sidebar's tag filter and search are deliberately NOT applied: narrowing
  * must not reflow the layout, so a non-matching session stays on the map and
  * `buildSceneModel` mutes it (ADR `search-mutes-planets-instead-of-hiding-them`).
  * A session that is `releasing` is still returned — the scene keeps it as a
@@ -2196,10 +2231,8 @@ export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
   // it to ended planets too: it filters everything it draws, or the control
   // means nothing here.
   const origin = state.ui.sourceFilter
-  const list =
-    origin === 'all'
-      ? tagFilteredSessions(state)
-      : tagFilteredSessions(state).filter((session) => session.source === origin)
+  const all = newestFirst(state.sessions)
+  const list = origin === 'all' ? all : all.filter((session) => session.source === origin)
 
   return list.filter((session) => absorptionFor(session, state.settings, nowMs) !== 'absorbed')
 }
@@ -2211,14 +2244,13 @@ export function statusCounts(state: OrbitalState, nowMs: number): Record<Session
     needs_input: 0,
     ended: 0,
   }
-  // Aggregates over mapSessions (post tag/source filters and post
-  // absorption), since the aggregate describes what's currently on the map —
-  // but only the planets matching the search. A muted planet is there to
-  // hold its place, not to be counted, and the sidebar's lists already leave
-  // it out.
-  const query = state.ui.search
+  // Aggregates over mapSessions (post origin filter and post absorption),
+  // since the aggregate describes what's currently on the map — but only the
+  // planets matching the tag filter and the search. A muted planet is there
+  // to hold its place, not to be counted, and the sidebar's lists already
+  // leave it out.
   for (const session of mapSessions(state, nowMs)) {
-    if (matchesSearch(session, query)) counts[session.status] += 1
+    if (matchesSidebarFilters(session, state.ui)) counts[session.status] += 1
   }
   return counts
 }

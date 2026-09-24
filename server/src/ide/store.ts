@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import chokidar, { type FSWatcher } from 'chokidar';
+import { watchDir, type DirWatch } from '../watcher/watchDir.js';
 import { IdeSocket, NO_TIMEOUT, type IdeConnection } from './client.js';
 import {
   CLOSE_TAB_TOOL,
@@ -90,7 +90,7 @@ export class IdeStore extends EventEmitter {
   private cwdsByRoot = new Map<string, Set<string>>();
   /** Every `cwd` ever asked about — re-resolved when the editors change. */
   private seenCwds = new Set<string>();
-  private watcher: FSWatcher | null = null;
+  private watcher: DirWatch | null = null;
 
   constructor(opts: IdeStoreOptions) {
     super();
@@ -109,16 +109,21 @@ export class IdeStore extends EventEmitter {
   start(): void {
     for (const name of this.listLocks()) this.applyLockEvent(name, 'add');
     if (!this.watch || this.watcher) return;
-    // `depth: 0` because the extension writes flat into this directory, and
-    // a missing directory is not an error: chokidar picks it up if it ever
-    // appears, and a machine with no editor never creates it.
-    const watcher = chokidar.watch(this.lockDir, { ignoreInitial: true, depth: 0 });
-    watcher.on('all', (event, path) => {
-      if (event === 'add' || event === 'change') this.applyLockEvent(basename(path), event);
-      else if (event === 'unlink') this.applyLockEvent(basename(path), 'unlink');
+    // Not recursive because the extension writes flat into this directory, and
+    // a missing directory is not an error: the watch picks it up if it ever
+    // appears, and a machine with no editor never creates it. An event does
+    // not say what happened to the file, so its existence decides; `add` and
+    // `change` are handled alike.
+    this.watcher = watchDir(this.lockDir, {
+      onEvent: (name) => {
+        if (name === null) return;
+        const fileName = basename(name);
+        this.applyLockEvent(fileName, existsSync(join(this.lockDir, fileName)) ? 'change' : 'unlink');
+      },
+      onAppear: () => {
+        for (const name of this.listLocks()) this.applyLockEvent(name, 'add');
+      },
     });
-    watcher.on('error', () => {});
-    this.watcher = watcher;
   }
 
   /** The editor open on this `cwd`'s workspace, or null when there is none. */
@@ -294,7 +299,7 @@ export class IdeStore extends EventEmitter {
   }
 
   close(): void {
-    void this.watcher?.close();
+    this.watcher?.close();
     this.watcher = null;
     // Emptied before the sockets go, so the drops have no resolution left to
     // invalidate: a server shutting down does not want a republish per

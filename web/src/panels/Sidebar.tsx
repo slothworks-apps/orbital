@@ -16,7 +16,9 @@ import { reportError } from '../lib/errors'
 import { hasDesktopBridge } from '../lib/desktop'
 import { useWindowBand } from '../lib/windowChrome'
 import { useWindowFocused } from '../lib/useWindowFocused'
-import { isReadOnly, parkedLabel, tagColor } from '../lib/types'
+import { awaitingSubagentCount, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { stateColor, stateDot, stateWord } from '../lib/stateStyle'
+import { StateDot } from '../ui/StateDot'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
@@ -213,38 +215,25 @@ function IconButton({
 }
 
 /**
- * Mono uppercase status column per canvas 1a: hue-colored while working,
- * muted otherwise.
+ * Mono uppercase state column per canvas 24c: the word in its state colour
+ * (`lib/stateStyle`), with NEEDS INPUT's breathing dot and WAITING's pulsing
+ * hollow one. The row has room for about eleven characters, so NEEDS INPUT
+ * reads `INPUT` and WAITING carries the moon count (`WAITING · 2`).
  *
- * `interrupted` displaces the word rather than adding one: a session whose
- * turn a restart cut short is waiting for input, and INTERRUPTED says that
- * and why (spec 2026-09-21-session-autoheal-design). It goes unhued, like
- * the map's pill, so the two surfaces agree.
+ * The row's leading tag dot keeps the tag hue — a row can wear an amber tag
+ * dot and an amber INPUT, and the word's text and dot keep them apart.
  */
-function RowStatus({
-  status,
-  hue,
-  interrupted,
-  parked,
-}: {
-  status: ApiSession['status']
-  hue: number | undefined
-  interrupted?: boolean
-  /** What a `needs_input` row says (`parkedLabel`) — NEEDS INPUT or DONE. */
-  parked?: string
-}) {
-  const busy = status === 'working' || status === 'needs_input'
-  const color = busy && !interrupted && hue !== undefined ? tagColor(hue) : undefined
+function RowStatus({ session }: { session: ApiSession }) {
+  const key = sessionStateKey(session)
+  const color = stateColor(key)
   return (
     <span
-      className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em]"
-      style={{ color: color ?? 'rgba(160,190,225,.6)' }}
+      data-state={key}
+      className="flex shrink-0 items-center gap-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em]"
+      style={{ color }}
     >
-      {interrupted
-        ? 'INTERRUPTED'
-        : status === 'needs_input'
-          ? (parked ?? 'NEEDS INPUT')
-          : status.toUpperCase()}
+      <StateDot dot={stateDot(key, 'label')} color={color} solidPx={5} hollowPx={6} />
+      {stateWord(key, awaitingSubagentCount(session), true)}
     </span>
   )
 }
@@ -740,7 +729,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
                         {timeAgo(s.lastAt ?? Date.now())}
                       </span>
                     ) : (
-                      <RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} parked={parkedLabel(s)} />
+                      <RowStatus session={s} />
                     )
                   }
                 />
@@ -772,7 +761,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               detached={detachedIds.includes(s.id)}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
-              right={<RowStatus status={s.status} hue={rowHue(s, tags)} interrupted={Boolean(s.interruptedAt)} parked={parkedLabel(s)} />}
+              right={<RowStatus session={s} />}
             />
           ))}
         </ul>

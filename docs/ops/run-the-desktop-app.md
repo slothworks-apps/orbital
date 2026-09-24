@@ -87,6 +87,17 @@ npm run desktop:release        # from the repo root, always
 The artifact lands in `desktop/release/` as `Orbital-<version>-arm64.dmg`,
 beside its `.blockmap` and the unpacked `mac-arm64/Orbital.app`.
 
+For a build you only run yourself, skip the notarization upload:
+
+```bash
+npm run desktop:build          # signed with Developer ID, not notarized
+```
+
+It signs with the same identity, so privacy grants and notification
+permission survive it just as they survive a release. Only Gatekeeper on
+another Mac would refuse it. It writes to `desktop/release/local/` as
+`Orbital-<version>-arm64-local.dmg`, so it never replaces a release.
+
 **Run it from the root, not from the workspace.** `npm run dist -w desktop`
 builds only the desktop workspace and then packages whatever happens to be
 sitting in `server/dist` and `web/dist` — stale output, or a build that fails

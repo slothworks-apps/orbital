@@ -6,6 +6,11 @@ import { entriesToMessages, parseTranscript, type ImageWriter } from '../transcr
 const SUBAGENT_DIR = 'subagents';
 const META_FILE = /^(agent-.*)\.meta\.json$/;
 
+/** Where the CLI puts a session's subagent files, beside its transcript. */
+export function subagentDirOf(transcriptPath: string): string {
+  return join(dirname(transcriptPath), basename(transcriptPath, '.jsonl'), SUBAGENT_DIR);
+}
+
 /**
  * Each dispatched subagent's messages, keyed by the `toolUseId` of the
  * `Agent` call that dispatched it — the join the walkthrough needs to make
@@ -17,7 +22,7 @@ const META_FILE = /^(agent-.*)\.meta\.json$/;
  * that agent only.
  */
 export function readSubagentMessages(transcriptPath: string, images?: ImageWriter): Map<string, ChatMessage[]> {
-  const dir = join(dirname(transcriptPath), basename(transcriptPath, '.jsonl'), SUBAGENT_DIR);
+  const dir = subagentDirOf(transcriptPath);
   const out = new Map<string, ChatMessage[]>();
   let files: string[];
   try { files = readdirSync(dir); } catch { return out; }

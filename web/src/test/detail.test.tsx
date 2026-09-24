@@ -108,6 +108,9 @@ function resetStore(
     // again would otherwise leak it into whatever test runs next in this
     // file.
     subagentPanel: null,
+    // Same reason: a draft typed in one test would sit in the next one's
+    // composer.
+    composerDrafts: {},
     ...overrides,
     ui: { ...defaultUi, ...overrides.ui },
   })
@@ -474,6 +477,29 @@ describe('DetailPanel header', () => {
 
     await waitFor(() => expect(useOrbital.getState().sessions.a.title).toBe('New title'))
     expect(promptBox).toHaveValue('a prompt in progress')
+  })
+
+  it('keeps each session its own prompt draft across switching away and back', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: {
+        a: makeSession({ id: 'a', source: 'web', status: 'idle' }),
+        b: makeSession({ id: 'b', source: 'web', status: 'idle' }),
+      },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+    await user.type(screen.getByRole('textbox', { name: /prompt/i }), 'half a thought')
+
+    act(() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'b' } })))
+    const promptBox = screen.getByRole('textbox', { name: /prompt/i })
+    expect(promptBox).toHaveValue('')
+    await user.type(promptBox, 'yes')
+
+    act(() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } })))
+    expect(screen.getByRole('textbox', { name: /prompt/i })).toHaveValue('half a thought')
+    expect(useOrbital.getState().composerDrafts.b).toBe('yes')
   })
 
   // 1b: the tag row is a dropdown, not a row of toggles — a session wears

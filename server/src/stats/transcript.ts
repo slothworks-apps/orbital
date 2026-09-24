@@ -25,7 +25,9 @@ export function readSubagentEntries(transcriptPath: string): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
   for (const file of files) {
     try {
-      entries.push(...parseTranscript(readFileSync(join(dir, file), 'utf8')));
+      // A loop rather than `push(...)`: spreading a large file's entries as
+      // arguments overflows the call stack.
+      for (const entry of parseTranscript(readFileSync(join(dir, file), 'utf8'))) entries.push(entry);
     } catch {
       // One agent's file being unreadable costs that agent's tokens, not the
       // whole session's stats.
@@ -42,8 +44,5 @@ export function readSubagentEntries(transcriptPath: string): TranscriptEntry[] {
  * pairing reads. Throws if the session transcript itself cannot be read.
  */
 export function readSessionEntries(transcriptPath: string): TranscriptEntry[] {
-  return [
-    ...parseTranscript(readFileSync(transcriptPath, 'utf8')),
-    ...readSubagentEntries(transcriptPath),
-  ];
+  return parseTranscript(readFileSync(transcriptPath, 'utf8')).concat(readSubagentEntries(transcriptPath));
 }

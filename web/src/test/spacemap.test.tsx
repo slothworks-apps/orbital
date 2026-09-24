@@ -104,6 +104,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     decisionAnswers: {},
     decisionVerdicts: {},
     ideDismissed: {},
+    composerDrafts: {},
     detachedIds: [],
     errors: [],
     errorsUnseen: 0,
@@ -208,16 +209,35 @@ describe('buildSceneModel', () => {
     expect(searched.counts).toEqual({ working: 1, idle: 1, needs_input: 0, ended: 0 })
   })
 
-  it('respects the tag filter (it excludes non-matching sessions, unlike the search)', () => {
+  it('keeps every planet in place under a tag filter, muting the other tags', () => {
     const sessions = [
-      makeSession({ id: 'a', tagIds: [1] }),
-      makeSession({ id: 'b', tagIds: [2] }),
+      makeSession({ id: 'a', tagIds: [1], status: 'working' }),
+      makeSession({ id: 'b', tagIds: [2], status: 'working', subagents: [makeSubagent({ id: 'sb' })] }),
+    ]
+    const plain = sceneModelAt(withSessions(sessions))
+    const filtered = sceneModelAt(withSessions(sessions, { ui: { ...defaultUi, filterTagId: 1 } }))
+
+    const place = (m: SceneModel) => m.planets.map((p) => ({ id: p.session.id, x: p.x, y: p.y }))
+    expect(place(filtered)).toEqual(place(plain))
+    expect(filtered.labels).toEqual(plain.labels)
+
+    const muted = Object.fromEntries(filtered.planets.map((p) => [p.session.id, p.muted]))
+    expect(muted).toEqual({ a: false, b: true })
+    expect(filtered.moons.map((m) => m.muted)).toEqual([true])
+    expect(filtered.counts).toEqual({ working: 1, idle: 0, needs_input: 0, ended: 0 })
+  })
+
+  it('mutes a session the tag filter passes when the search does not', () => {
+    const sessions = [
+      makeSession({ id: 'a', tagIds: [1], title: 'Alpha' }),
+      makeSession({ id: 'b', tagIds: [1], title: 'Beta' }),
+      makeSession({ id: 'c', tagIds: [2], title: 'Alpha too' }),
     ]
     const model = sceneModelAt(
-      withSessions(sessions, { ui: { ...defaultUi, filterTagId: 1 } })
+      withSessions(sessions, { ui: { ...defaultUi, filterTagId: 1, search: 'alpha' } })
     )
-
-    expect(model.planets.map((p) => p.session.id)).toEqual(['a'])
+    const muted = Object.fromEntries(model.planets.map((p) => [p.session.id, p.muted]))
+    expect(muted).toEqual({ a: false, b: true, c: true })
   })
 
   it('composes cluster labels as "NAME · count", uppercased', () => {
@@ -399,18 +419,6 @@ describe('buildSceneModel', () => {
     for (const id of ['a', 'b', 'c']) {
       expect(positionsAfter.get(id)).toEqual(positionsBefore.get(id))
     }
-  })
-
-  it('produces no moons for a session the filter hides, however many it is running', () => {
-    const sessions = [
-      makeSession({ id: 'a', tagIds: [1] }),
-      makeSession({ id: 'hidden', tagIds: [2], subagents: [makeSubagent({ id: 'sub-1' })] }),
-    ]
-    const model = sceneModelAt(
-      withSessions(sessions, { ui: { ...defaultUi, filterTagId: 1 } })
-    )
-    expect(model.planets.map((p) => p.session.id)).toEqual(['a'])
-    expect(model.moons).toHaveLength(0)
   })
 
   it('returns empty planets/moons/labels/zeroed counts for no sessions', () => {

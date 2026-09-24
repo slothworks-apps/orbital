@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
-import chokidar, { type FSWatcher } from 'chokidar';
+import { existsSync, watch, type FSWatcher } from 'node:fs';
+import { basename, dirname } from 'node:path';
 import { headPathOf, locateGit, readGitLocation, type GitDirs, type GitLocation } from './gitState.js';
 
 /**
@@ -77,7 +78,7 @@ export class GitStore extends EventEmitter {
   }
 
   close(): void {
-    for (const entry of this.byRoot.values()) void entry.watcher?.close();
+    for (const entry of this.byRoot.values()) entry.watcher?.close();
     this.byRoot.clear();
     this.rootByCwd.clear();
     this.cwdsByRoot.clear();
@@ -92,12 +93,29 @@ export class GitStore extends EventEmitter {
    * means the worktree was removed or the repository deleted: the entry is
    * dropped rather than refreshed, and the next `locate` resolves from
    * scratch — which is how a removed worktree stops reporting a branch.
+   *
+   * The watch is on the git directory, filtered to `HEAD`, rather than on the
+   * file: on macOS a watched directory is an FSEvents stream and a watched
+   * file a kqueue descriptor, one per repository (adr
+   * `recursive-fs-watch-instead-of-chokidar`). It also survives git
+   * replacing `HEAD` by renaming `HEAD.lock` over it, which a watch on the
+   * old file's inode does not.
    */
   private startWatch(root: string, dirs: GitDirs): FSWatcher | null {
     if (!this.watch) return null;
-    const watcher = chokidar.watch(headPathOf(dirs), { ignoreInitial: true });
-    watcher.on('all', (event) => this.applyHeadEvent(root, event === 'unlink' ? 'unlink' : 'change'));
-    return watcher;
+    const head = headPathOf(dirs);
+    const name = basename(head);
+    try {
+      const watcher = watch(dirname(head), (_event, filename) => {
+        if (filename && String(filename) !== name) return;
+        this.applyHeadEvent(root, existsSync(head) ? 'change' : 'unlink');
+      });
+      // The directory itself went away: as good as `HEAD` being removed.
+      watcher.on('error', () => this.applyHeadEvent(root, 'unlink'));
+      return watcher;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -116,7 +134,7 @@ export class GitStore extends EventEmitter {
 
   private forget(root: string): void {
     const entry = this.byRoot.get(root);
-    if (entry) void entry.watcher?.close();
+    if (entry) entry.watcher?.close();
     this.byRoot.delete(root);
     for (const cwd of this.cwdsByRoot.get(root) ?? []) this.rootByCwd.delete(cwd);
     this.cwdsByRoot.delete(root);

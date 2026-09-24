@@ -10,12 +10,24 @@ import {
   showContext,
   showCompactBadge,
   headerSessionStats,
+  mapStatePills,
   expandDiffOnPermission,
   guardGesture,
   type HeaderSessionStats,
   CONTEXT_THRESHOLD_MIN,
   CONTEXT_THRESHOLD_MAX,
 } from '../store/store'
+import {
+  MAP_FPS_BACKGROUND_DEFAULT,
+  MAP_FPS_BACKGROUND_MAX,
+  MAP_FPS_BACKGROUND_MIN,
+  MAP_FPS_BACKGROUND_STEP,
+  MAP_FPS_FOCUSED_DEFAULT,
+  MAP_FPS_FOCUSED_MAX,
+  MAP_FPS_FOCUSED_MIN,
+  MAP_FPS_FOCUSED_STEP,
+  parseMapFps,
+} from '../map/frameSchedule'
 import { api, type ServerHealth } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { SCOPES, bindingCount, chordLabel, command } from '../lib/keymap'
@@ -44,6 +56,7 @@ import { Checkbox, Toggle } from '../ui/Checkbox'
 import { Segmented } from '../ui/Segmented'
 import { modelByValue } from '../lib/models'
 import type { PermissionMode } from '../lib/types'
+import type { MapStatePills } from '../lib/stateStyle'
 import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
 // The desktop version names the DMG, and the DMG ships this frontend.
@@ -100,6 +113,12 @@ const RETENTION_OPTIONS: Array<{ value: string; label: string }> = [
 const HEADER_STATS_OPTIONS: Array<{ value: HeaderSessionStats; label: string }> = [
   { value: 'bar', label: 'bar + numbers' },
   { value: 'button', label: 'button only' },
+]
+
+/** Settings → Appearance → MAP → "State on the map" (canvas 24e / 24a). Dot first: it is the default. */
+const STATE_PILL_OPTIONS: Array<{ value: MapStatePills; label: string }> = [
+  { value: 'dot', label: 'Dot' },
+  { value: 'label', label: 'Label' },
 ]
 
 const RELEASE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -278,6 +297,62 @@ function PreviewTier({ tier, scale }: { tier: (typeof PREVIEW_TIERS)[number]; sc
   )
 }
 
+/**
+ * A map frame-rate cap: the "Default planet size" slider's shape (readout,
+ * RESET, range, and ticks at the minimum, the default and the maximum), in
+ * frames a second. The background cap's 0 reads "paused".
+ */
+function FpsSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  fallback,
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  fallback: number
+  onChange: (next: number) => void
+}) {
+  const format = (fps: number) => (fps === 0 ? 'paused' : `${fps} fps`)
+  return (
+    <div className="flex w-full flex-col gap-[9px]">
+      <div className="flex items-baseline gap-2">
+        <span className="font-mono text-[15px] text-text-bright">{format(value)}</span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          aria-label={`Reset ${label.toLowerCase()}`}
+          onClick={() => onChange(fallback)}
+          className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+        >
+          RESET
+        </button>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-label={label}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-[18px] w-full cursor-grab accent-accent"
+      />
+      <div className="flex justify-between font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+        <span>{format(min)}</span>
+        <span>{format(fallback)}</span>
+        <span>{format(max)}</span>
+      </div>
+    </div>
+  )
+}
+
 /** Orb sizes/opacities of the lineage chain illustration, verbatim from
  * canvas 1h (oldest → current, the current one accent-ringed with a core). */
 const CHAIN_ORBS = [
@@ -429,6 +504,28 @@ export function Settings({ open, onClose }: SettingsProps) {
     if (scaleTimerRef.current) clearTimeout(scaleTimerRef.current)
     scaleTimerRef.current = setTimeout(() => {
       void patchAndSet({ planet_scale: value })
+    }, DEBOUNCE_MS)
+  }
+
+  /**
+   * The two frame-rate caps follow the planet-size slider's rule: the store
+   * first, so the map behind the dialog picks the cap up live, and a
+   * debounced PATCH per key.
+   */
+  const fpsTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  useEffect(
+    () => () => {
+      for (const timer of Object.values(fpsTimersRef.current)) clearTimeout(timer)
+    },
+    [],
+  )
+
+  function setMapFps(key: 'map_fps_focused' | 'map_fps_background', next: number) {
+    const value = String(next)
+    useOrbital.setState((state) => ({ settings: { ...state.settings, [key]: value } }))
+    clearTimeout(fpsTimersRef.current[key])
+    fpsTimersRef.current[key] = setTimeout(() => {
+      void patchAndSet({ [key]: value })
     }, DEBOUNCE_MS)
   }
 
@@ -609,11 +706,13 @@ export function Settings({ open, onClose }: SettingsProps) {
   const notifySound = settings.notify_sound !== 'false'
   // Appearance (canvas 5a).
   const headerStats = headerSessionStats(settings)
+  const statePills = mapStatePills(settings)
   const editDiffs = settings.transcript_edit_diffs === 'expanded' ? 'expanded' : 'collapsed'
   const expandDiffOnPermissionRow = expandDiffOnPermission(settings)
   const guard = guardGesture(settings)
   const planetScale = parsePlanetScale(settings)
   const mapScaleLabels = settings.map_scale_labels === 'true'
+  const mapFps = parseMapFps(settings)
   const scaleNote =
     planetScale === 1
       ? 'default'
@@ -1212,6 +1311,27 @@ export function Settings({ open, onClose }: SettingsProps) {
                           )}
                         </div>
                       </Row>
+                      {/* ADR state-labels-are-dots-first-on-the-map: dot-first
+                  (24e) is the default, the always-spelled-out pills (24a)
+                  are the alternative. The sidebar, the detail chip and the
+                  summary line spell the word out either way. */}
+                      <Row
+                        title="State on the map"
+                        desc="Dot keeps the map calm: each planet's state is a small coloured dot, spelled out when you point at the planet. Label always spells it out."
+                      >
+                        <Segmented
+                          label="State on the map"
+                          size="row"
+                          options={STATE_PILL_OPTIONS}
+                          value={statePills}
+                          onChange={(next) => void patchAndSet({ map_state_pills: next })}
+                        />
+                        <span className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
+                          {statePills === 'dot'
+                            ? 'the word slides out on hover'
+                            : 'every state pill spells its word'}
+                        </span>
+                      </Row>
                       {/* Also moved out of Sessions. It governs how much of a chain
                   stays drawn and nothing else — the sidebar's history is
                   unlimited whatever this says. */}
@@ -1270,6 +1390,38 @@ export function Settings({ open, onClose }: SettingsProps) {
                             </span>
                           )}
                         </div>
+                      </Row>
+
+                      {/* Frame budget (spec 2026-09-24-map-frame-budget-design):
+                  in the planet-size pattern until Claude Design gives these
+                  rows an artboard of their own. */}
+                      <Row
+                        title="Frame rate while focused"
+                        desc="Most frames a second the map draws while something on it moves and the window has focus. A still map draws nothing."
+                      >
+                        <FpsSlider
+                          label="Frame rate while focused"
+                          value={mapFps.focused}
+                          min={MAP_FPS_FOCUSED_MIN}
+                          max={MAP_FPS_FOCUSED_MAX}
+                          step={MAP_FPS_FOCUSED_STEP}
+                          fallback={MAP_FPS_FOCUSED_DEFAULT}
+                          onChange={(next) => setMapFps('map_fps_focused', next)}
+                        />
+                      </Row>
+                      <Row
+                        title="Frame rate in the background"
+                        desc="The same cap while another window has focus. At 0 the map pauses until you come back. A hidden window never draws."
+                      >
+                        <FpsSlider
+                          label="Frame rate in the background"
+                          value={mapFps.background}
+                          min={MAP_FPS_BACKGROUND_MIN}
+                          max={MAP_FPS_BACKGROUND_MAX}
+                          step={MAP_FPS_BACKGROUND_STEP}
+                          fallback={MAP_FPS_BACKGROUND_DEFAULT}
+                          onChange={(next) => setMapFps('map_fps_background', next)}
+                        />
                       </Row>
 
                       {/* Its own kicker rather than three more rows under MAP: the

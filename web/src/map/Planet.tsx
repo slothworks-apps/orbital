@@ -1,9 +1,17 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react'
-import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import type { ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { asksForHuman, statePill } from '../lib/types'
+import { sessionStateKey, statePill, type SessionStateKey } from '../lib/types'
+import {
+  STATE_INPUT_HEX,
+  stateBorder,
+  stateColor,
+  stateDot,
+  type MapStatePills,
+} from '../lib/stateStyle'
+import { StateDot } from '../ui/StateDot'
 import {
   BADGE_OFFSET_X,
   BADGE_OFFSET_Y,
@@ -19,9 +27,13 @@ import {
   LABEL_FAMILY_TRACKING_EM,
   LABEL_TITLE_TRACKING_EM,
   STATE_PILL_BORDER_PX,
+  STATE_DISC_DOT_PX,
+  STATE_DISC_HEIGHT_PX,
+  STATE_DISC_PAD_X_PX,
   STATE_PILL_DOT_PX,
   STATE_PILL_FONT_PX,
   STATE_PILL_GAP_PX,
+  STATE_PILL_HOLLOW_DOT_PX,
   STATE_PILL_PAD_X_PX,
   STATE_PILL_PAD_Y_PX,
   STATE_PILL_TRACKING_EM,
@@ -62,6 +74,7 @@ import {
 import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
 import { bodyZoomFactor } from './camera'
 import type { SimBody } from './simulation'
+import { useFrameOnRender, useMapFrame } from './FrameBudget'
 import type { ContextFill } from './sceneModel'
 import { DetachGlyph } from '../ui/UtilityButton'
 import {
@@ -160,7 +173,10 @@ const ARC_PITCH_DEG = 90
 /** `orb-blink` keyframes: opacity 1 → .3 → 1. */
 const BLINK_DEPTH = 0.7
 
-/** `orb-pulse-out 2.4s ease-out`: scale 1 → 1.9, opacity .9 → 0, at the idle tick ring's radius (inset -21). */
+/** `orb-pulse-out 2.4s ease-out`: scale 1 → 1.9, opacity .9 → 0, at the idle tick ring's radius (inset -21).
+ * Amber `--state-input` (`STATE_INPUT_HEX`), not white: the ring says "you are
+ * being waited for", a state signal, so it takes the state colour rather than
+ * the tag hue (spec 2026-09-24-state-colours-design). */
 const RIPPLE_MAX_SCALE = 1.9
 const RIPPLE_DURATION_SEC = 2.4
 const RIPPLE_START_OPACITY = 0.9
@@ -392,7 +408,7 @@ export interface PlanetProps {
    */
   hidden?: boolean
   /**
-   * The session does not match the sidebar search. Drawn in place at
+   * The session does not match the sidebar tag filter or search. Drawn in place at
    * `MUTED_OPACITY` and desaturated toward the ended grey, faded on the
    * state-change curve (ADR `search-mutes-planets-instead-of-hiding-them`).
    */
@@ -430,6 +446,17 @@ export interface PlanetProps {
    */
   onCompact?: (sessionId: string) => void
   onClick?: (sessionId: string) => void
+  /**
+   * How the state pill is drawn (`map_state_pills`): a resting dot that
+   * spells its word out on hover, or the word always (canvas 24e / 24a).
+   */
+  statePills?: MapStatePills
+  /**
+   * A click on the dot-mode disc. The disc takes the pointer so it can be
+   * hovered, which keeps the click away from the canvas underneath — this is
+   * how it still selects its planet.
+   */
+  onPillClick?: (sessionId: string) => void
   /**
    * The session is open in a detached window (spec:
    * 2026-09-23-detached-session-windows-design) — the planet wears the badge
@@ -791,32 +818,54 @@ function SelectionReticle({
 }
 
 /**
- * The pill badge right of the planet — mono, one line (state sheet artboard
- * 1f). A planet with a context gauge uses 1i's pill position instead
+ * The state pill right of the planet (canvas `Feature - State colours` 24a,
+ * 24e). A planet with a context gauge uses 1i's pill position instead
  * (`clearsGauge` — the same offsets as the `/compact` pill), because 1f's
  * sits inside the band the gauge ring occupies.
  *
- * Two labels ride it. `NEEDS INPUT` is 1f's own, blinking dot and all.
- * `INTERRUPTED` is the same pill with the dot dropped (spec
- * 2026-09-21-session-autoheal-design): the canvas draws no interrupted state,
- * and reusing an element it does draw is honest where inventing planet
- * geometry would not be. A blink would be wrong for it anyway — nothing is
- * happening, something already stopped.
+ * Colour and dot come from the one state mapping (`lib/stateStyle`), so the
+ * pill says what the sidebar, the chip and the summary line say. Two modes
+ * (`map_state_pills`, ADR state-labels-are-dots-first-on-the-map):
+ *
+ * - `label` (24a): the dot, if the state has one, and the word, always.
+ * - `dot` (24e): at rest a small disc holding only the dot. Hovering the
+ *   planet (`expanded`) or the disc itself slides the word out and
+ *   strengthens the border; leaving slides it back. Plain CSS transitions on
+ *   DOM — nothing here asks the canvas for a frame.
+ *
+ * The disc takes the pointer so it can be hovered, and keeps its presses to
+ * itself: they would otherwise bubble into the canvas's raycaster with
+ * offsets measured against the disc, not the canvas, and hit whatever planet
+ * sits at the matching corner of the map. A click selects its own planet
+ * instead (`onClick`). A map pan cannot start on the disc; it is small
+ * enough that that costs nothing.
  */
 function StatePill({
+  stateKey,
   label,
-  pulse,
+  mode,
+  expanded,
   innerRef,
   clearsGauge,
   initialOpacity,
+  onClick,
 }: {
+  stateKey: SessionStateKey
   label: string
-  pulse: boolean
+  mode: MapStatePills
+  /** The planet under it is hovered — dot mode spells the word out. */
+  expanded: boolean
   innerRef: RefObject<HTMLSpanElement | null>
   clearsGauge: boolean
   /** Where the fade stands at mount — see the `opacity` line below. */
   initialOpacity: number
+  onClick?: () => void
 }) {
+  const [discHovered, setDiscHovered] = useState(false)
+  const color = stateColor(stateKey)
+  const dotMode = mode === 'dot'
+  const open = !dotMode || expanded || discHovered
+  const stop = (event: { stopPropagation: () => void }) => event.stopPropagation()
   // zIndexRange keeps map text under the z-10 side panels and z-50 dialogs
   // (drei's default range is in the millions).
   return (
@@ -831,19 +880,48 @@ function StatePill({
     >
       <span
         ref={innerRef}
+        data-state-pill={stateKey}
+        data-mode={mode}
+        onPointerEnter={dotMode ? () => setDiscHovered(true) : undefined}
+        onPointerLeave={dotMode ? () => setDiscHovered(false) : undefined}
+        onPointerDown={dotMode ? stop : undefined}
+        onPointerMove={dotMode ? stop : undefined}
+        onPointerUp={dotMode ? stop : undefined}
+        onClick={
+          dotMode
+            ? (event) => {
+                event.stopPropagation()
+                onClick?.()
+              }
+            : undefined
+        }
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: STATE_PILL_GAP_PX,
-          padding: `${STATE_PILL_PAD_Y_PX}px ${STATE_PILL_PAD_X_PX}px`,
+          boxSizing: 'border-box',
           borderRadius: 999,
-          background: 'rgba(6,10,20,.85)',
-          border: `${STATE_PILL_BORDER_PX}px solid rgba(240,248,255,.6)`,
+          background: 'var(--state-pill-bg)',
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: STATE_PILL_FONT_PX,
           letterSpacing: `${STATE_PILL_TRACKING_EM}em`,
-          color: '#fff',
+          color,
           whiteSpace: 'nowrap',
+          ...(dotMode
+            ? {
+                // 24e: `height: 20px; padding: 0 6px`; the border goes from
+                // .3 to .75 as the word slides out.
+                height: STATE_DISC_HEIGHT_PX,
+                padding: `0 ${STATE_DISC_PAD_X_PX}px`,
+                border: `${STATE_PILL_BORDER_PX}px solid ${stateBorder(color, open ? 'map' : 'map-rest')}`,
+                transition: 'border-color .18s ease',
+                pointerEvents: 'auto',
+                cursor: 'pointer',
+              }
+            : {
+                gap: STATE_PILL_GAP_PX,
+                padding: `${STATE_PILL_PAD_Y_PX}px ${STATE_PILL_PAD_X_PX}px`,
+                border: `${STATE_PILL_BORDER_PX}px solid ${stateBorder(color, 'map')}`,
+              }),
           // Where the fade stands right now, exactly like the label's own
           // seed — and for a sharper reason. `applyState` is the only thing
           // that writes this opacity, and it runs while the state mix is
@@ -858,14 +936,41 @@ function StatePill({
           opacity: initialOpacity,
         }}
       >
-        {pulse && (
-          <span
-            aria-hidden
-            className="orbital-pulse"
-            style={{ width: STATE_PILL_DOT_PX, height: STATE_PILL_DOT_PX, borderRadius: '50%', background: '#fff' }}
-          />
+        {dotMode ? (
+          <>
+            <StateDot
+              dot={stateDot(stateKey, 'dot')}
+              color={color}
+              solidPx={STATE_DISC_DOT_PX}
+              hollowPx={STATE_DISC_DOT_PX}
+            />
+            {/* 24e: the word stays in the document (and in the accessible
+                name) and slides out from zero width. */}
+            <span
+              style={{
+                display: 'block',
+                overflow: 'hidden',
+                maxWidth: open ? 200 : 0,
+                opacity: open ? 1 : 0,
+                marginLeft: open ? STATE_PILL_GAP_PX : 0,
+                transition:
+                  'max-width .22s cubic-bezier(.2,.8,.2,1), opacity .16s ease, margin-left .22s ease',
+              }}
+            >
+              {label}
+            </span>
+          </>
+        ) : (
+          <>
+            <StateDot
+              dot={stateDot(stateKey, 'label')}
+              color={color}
+              solidPx={STATE_PILL_DOT_PX}
+              hollowPx={STATE_PILL_HOLLOW_DOT_PX}
+            />
+            {label}
+          </>
         )}
-        {label}
       </span>
     </Html>
   )
@@ -1033,7 +1138,7 @@ function usePlanetMaterials(): PlanetMaterials {
       coreGlowHue: soft(undefined, glowMap),
       coreGlowWhite: soft(WHITE, glowMap),
       core,
-      ripple: soft(WHITE),
+      ripple: soft(STATE_INPUT_HEX),
     }
   }, [])
 
@@ -1068,6 +1173,8 @@ export function Planet({
   showCompactBadge = false,
   onCompact,
   onClick,
+  statePills = 'dot',
+  onPillClick,
   detached = false,
   simBody,
   onBodyPointerDown,
@@ -1106,8 +1213,9 @@ export function Planet({
   // exit, which is the thing the exit exists to avoid.
   const reticleMounted = useLingering(selected, RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS)
 
-  /** The state pill's word, or null for a planet that needs none (`statePill`). */
-  const pillLabel = statePill(session)?.label ?? null
+  /** The state pill's state and word, or null for a planet that needs none (`statePill`). */
+  const pill = statePill(session)
+  const pillLabel = pill?.label ?? null
   /**
    * The pill's own fade, rather than a weight read off the state mix.
    *
@@ -1123,32 +1231,27 @@ export function Planet({
   const pillFade = useFadeTween(pillLabel !== null, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
   const pillMounted = useLingering(pillLabel !== null, STATE_TRANSITION_MS)
   /**
-   * Whether the pill's dot pulses — `statePill`'s rule, read off the session
-   * directly so a pill on its way out keeps deciding it while it fades.
-   */
-  const pillPulses =
-    !session.interruptedAt && (session.status !== 'needs_input' || asksForHuman(session))
-  /**
    * Gate on the needs-input ripple ring, multiplied into the weight the state
-   * mix gives it. The ring says "you are being waited for", which a DONE
-   * planet is not (`asksForHuman`). DONE and NEEDS INPUT share the
-   * `needs_input` status, so the mix never moves when a decision parks or
-   * resolves; this tween fades the ring on that flip instead of snapping it.
-   * An interrupted planet keeps its ring, as before.
+   * mix gives it. The ring says "you are being waited for", which only a
+   * NEEDS INPUT planet is (`sessionStateKey`): not a DONE one, and not an
+   * interrupted one either — its coral pill says enough. DONE and NEEDS INPUT
+   * share the `needs_input` status, so the mix never moves when a decision
+   * parks or resolves; this tween fades the ring on that flip instead of
+   * snapping it.
    *
    * It follows the decision itself rather than "not DONE": leaving
    * `needs_input` already fades the ring out through the mix, and a gate
    * rising against that fall (DONE → working) would flash a ghost ring.
    */
   const rippleFade = useFadeTween(
-    Boolean(session.interruptedAt) || asksForHuman(session),
+    sessionStateKey(session) === 'needs_input',
     STATE_TRANSITION_MS,
     STATE_TRANSITION_MS,
   )
-  /** The last label it had, so a pill on its way out fades with its own word. */
-  const lastPillLabel = useRef(pillLabel)
-  if (pillLabel) lastPillLabel.current = pillLabel
-  const shownPillLabel = pillLabel ?? lastPillLabel.current
+  /** The last pill it had, so a pill on its way out fades with its own word and colour. */
+  const lastPill = useRef(pill)
+  if (pill) lastPill.current = pill
+  const shownPill = pill ?? lastPill.current
 
   /**
    * The context gauge (artboard 1i). `contextFill` going null — the session
@@ -1382,7 +1485,12 @@ export function Planet({
     }
   }
 
-  useFrame((state, delta) => {
+  // Hover, the detach flash and every prop change arrive as a render; each
+  // one asks for a frame, and the loop below keeps them coming while it
+  // reports motion (`moving`).
+  useFrameOnRender()
+
+  useMapFrame((state, delta) => {
     const mixMoved = advanceStateMix(mix, delta)
     const hueMoved = advanceTween(hueTween, delta)
     const hideMoved = advanceTween(hideFade, delta)
@@ -1396,6 +1504,9 @@ export function Planet({
     const applied = mixMoved || hueMoved || hideMoved || muteMoved || !settled.current
     if (applied) applyState()
     settled.current = !(mixMoved || hueMoved || hideMoved || muteMoved)
+    // Whether anything this frame writes will differ next frame. The body's
+    // position is the simulation's, and `SimStepper` reports that.
+    let moving = mixMoved || hueMoved || hideMoved || muteMoved
 
     if (simBody) {
       // The simulation owns the position outright — walks, drags and falls
@@ -1431,12 +1542,15 @@ export function Planet({
           )
         }
       }
-    } else if (advancePointTween(move, delta) && groupRef.current) {
-      groupRef.current.position.x = move.x.value
-      groupRef.current.position.y = move.y.value
+    } else if (advancePointTween(move, delta)) {
+      moving = true
+      if (groupRef.current) {
+        groupRef.current.position.x = move.x.value
+        groupRef.current.position.y = move.y.value
+      }
     }
 
-    advanceTween(scaleTween, delta)
+    if (advanceTween(scaleTween, delta)) moving = true
     const hide = endedHideTransform(hideFade.value)
     if (groupRef.current) {
       // Counter-zoom: planets shrink more slowly than the map when zooming
@@ -1459,25 +1573,25 @@ export function Planet({
     // one pass at a freshly mounted planet lands before `<Html>` has
     // committed the node to write to.
     if (pillMounted) {
-      advanceTween(pillFade, delta)
+      if (advanceTween(pillFade, delta)) moving = true
       if (badgeRef.current) {
         badgeRef.current.style.opacity = String(pillFade.value * whole)
       }
     }
     if (compactMounted) {
-      advanceTween(compactFade, delta)
+      if (advanceTween(compactFade, delta)) moving = true
       if (compactBadgeRef.current) {
         compactBadgeRef.current.style.opacity = String(compactFade.value * whole)
       }
     }
     if (detachedMounted) {
-      advanceTween(detachedFade, delta)
+      if (advanceTween(detachedFade, delta)) moving = true
       if (detachedBadgeRef.current) {
         detachedBadgeRef.current.style.opacity = String(detachedFade.value * whole)
       }
     }
 
-    if (!(hide.opacity > 0.001)) return
+    if (!(hide.opacity > 0.001)) return moving
 
     // Context gauge (1i). Past the second threshold the ring pulses on the
     // canvas's `orb-ring` keyframe at 1.6s — the same .55 ↔ 1 swing the halo
@@ -1489,6 +1603,7 @@ export function Planet({
     // no per-frame work.
     const gaugeMoved = advanceTween(gaugeFade, delta)
     const critical = shownFill?.level === 'critical'
+    if (gaugeMoved || (gaugeMounted && critical)) moving = true
     if (gaugeMounted && (gaugeMoved || applied || critical)) {
       const pulse = critical
         ? HALO_BREATH_MIN + (1 - HALO_BREATH_MIN) * oscillate(state.clock.elapsedTime, CONTEXT_PULSE_SEC)
@@ -1502,6 +1617,10 @@ export function Planet({
         (shownFill?.level === 'ok' ? CONTEXT_OK_OPACITY : 1) * pulse * gauge
       materials.contextFill.visible = materials.contextFill.opacity > 0.001
     }
+
+    // The ambient motion: spins, the blink, the breath and the ripple never
+    // settle while their state wears them.
+    if (b.tickSpin !== 0 || b.arcSpin !== 0 || b.corePulse > 0 || b.haloBreath > 0) moving = true
 
     if (b.tickSpin !== 0 && tickGroupRef.current) {
       tickGroupRef.current.rotation.z += b.tickSpin * delta
@@ -1523,9 +1642,10 @@ export function Planet({
     materials.halo.opacity = b.haloOpacity * breath * whole
     materials.halo.visible = materials.halo.opacity > 0.001
 
-    advanceTween(rippleFade, delta)
+    if (advanceTween(rippleFade, delta)) moving = true
     const ripple = b.ripple * rippleFade.value
     if (ripple > 0.001) {
+      moving = true
       rippleElapsed.current = (rippleElapsed.current + delta) % RIPPLE_DURATION_SEC
       const progress = easeOut(rippleElapsed.current / RIPPLE_DURATION_SEC)
       if (rippleRef.current) rippleRef.current.scale.setScalar(1 + progress * (RIPPLE_MAX_SCALE - 1))
@@ -1536,12 +1656,16 @@ export function Planet({
       materials.ripple.visible = false
     }
 
+    const reticleMoved = advanceTween(reticleFade, delta)
+    if (reticleMoved) moving = true
     if (reticleGroupRef.current) {
       // The canvas spins the dashed ring (`orb-spin 160s`); the bracket spans
       // are its unanimated siblings and stay put.
       reticleGroupRef.current.rotation.z += RETICLE_SPIN_SPEED * delta
+      // It spins for as long as it is mounted.
+      moving = true
     }
-    if (advanceTween(reticleFade, delta) || reticleFade.value > 0) {
+    if (reticleMoved || reticleFade.value > 0) {
       if (reticleRingRef.current) reticleRingRef.current.material.opacity = RETICLE_OPACITY * reticleFade.value * whole
       for (const bracket of bracketRefs.current) {
         if (bracket) bracket.material.opacity = reticleFade.value * whole
@@ -1572,7 +1696,7 @@ export function Planet({
     // no React re-render per character.
     if (overlayMounted) {
       if (hoverActive) hoverTypeElapsed.current += delta * 1000
-      advanceTween(hoverFade, delta)
+      if (advanceTween(hoverFade, delta)) moving = true
       if (overlayRef.current) {
         // The ENDED suppression only, not the search mute: hovering is asking
         // to read the title, and a muted planet's name is no less worth
@@ -1587,8 +1711,11 @@ export function Planet({
           overlayCursorRef.current.style.display =
             hoverActive && text !== session.title ? 'inline' : 'none'
         }
+        // Still typing the title out.
+        if (hoverActive && text !== session.title) moving = true
       }
     }
+    return moving
   })
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
@@ -1707,10 +1834,13 @@ export function Planet({
         />
       )}
 
-      {pillMounted && shownPillLabel && (
+      {pillMounted && shownPill && (
         <StatePill
-          label={shownPillLabel}
-          pulse={pillPulses}
+          stateKey={shownPill.key}
+          label={shownPill.label}
+          mode={statePills}
+          expanded={labelHovered && !hidden}
+          onClick={onPillClick ? () => onPillClick(session.id) : undefined}
           innerRef={badgeRef}
           clearsGauge={gaugeMounted && shownFill !== null}
           initialOpacity={pillFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value)}

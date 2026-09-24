@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from 'react'
-import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import type { SceneHole } from './sceneModel'
 import { bodyZoomFactor } from './camera'
+import { useMapFrame } from './FrameBudget'
 import { holeDropState, HOLE_DROP_RADIUS, type SimState } from './simulation'
 import {
   HOLE_COUNT_FONT_PX,
@@ -61,6 +61,8 @@ const HALO_ELIGIBLE_BOOST = 2
 const HALO_ARMED_BOOST = 4
 /** How fast the drop-target emphasis eases in and out, per second. */
 const SIGNAL_EASE = 10
+/** An eased emphasis this close to its target has arrived, and snaps to it so the map can stop drawing. */
+const SIGNAL_SETTLED = 0.001
 /** Hint colours per drop state; the copy (`HOLE_HINT_REST`/`_ARMED`) is written imperatively, no re-render per frame. */
 const HINT_COLOR_REST = 'rgba(160,190,225,.42)'
 const HINT_COLOR_ELIGIBLE = 'rgba(200,225,255,.75)'
@@ -132,8 +134,9 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
   const armedLevel = useRef(0)
   const hintRef = useRef<HTMLDivElement>(null)
 
-  useFrame((state, delta) => {
-    if (advancePointTween(move, delta) && groupRef.current) {
+  useMapFrame((state, delta) => {
+    const moved = advancePointTween(move, delta)
+    if (moved && groupRef.current) {
       groupRef.current.position.set(move.x.value, move.y.value, 0)
     }
     const zoomFactor = bodyZoomFactor(state.camera.zoom)
@@ -155,8 +158,12 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
       ? holeDropState(simRef.current, dragRef?.current?.id ?? null, zoomFactor)
       : 'none'
     const ease = Math.min(1, delta * SIGNAL_EASE)
-    eligibleLevel.current += ((drop === 'none' ? 0 : 1) - eligibleLevel.current) * ease
-    armedLevel.current += ((drop === 'armed' ? 1 : 0) - armedLevel.current) * ease
+    const eligibleTarget = drop === 'none' ? 0 : 1
+    const armedTarget = drop === 'armed' ? 1 : 0
+    eligibleLevel.current += (eligibleTarget - eligibleLevel.current) * ease
+    armedLevel.current += (armedTarget - armedLevel.current) * ease
+    if (Math.abs(eligibleTarget - eligibleLevel.current) < SIGNAL_SETTLED) eligibleLevel.current = eligibleTarget
+    if (Math.abs(armedTarget - armedLevel.current) < SIGNAL_SETTLED) armedLevel.current = armedTarget
     const eligible = eligibleLevel.current
     const armed = armedLevel.current
 
@@ -171,6 +178,14 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
       hintRef.current.style.color =
         drop === 'armed' ? HINT_COLOR_ARMED : drop === 'eligible' ? HINT_COLOR_ELIGIBLE : HINT_COLOR_REST
     }
+    // A drag in hand keeps the sim awake, which draws frames anyway; the
+    // emphasis easing back out after the drop does not.
+    return (
+      moved ||
+      flashRef.current > 0 ||
+      eligibleLevel.current !== eligibleTarget ||
+      armedLevel.current !== armedTarget
+    )
   })
 
   return (

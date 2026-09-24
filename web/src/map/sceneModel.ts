@@ -6,7 +6,7 @@ import type { OrbitalState } from '../store/store'
 import {
   absorptionFor,
   mapSessions,
-  matchesSearch,
+  matchesSidebarFilters,
   parseContextThresholds,
   PLANET_SCALE_MAX,
   showContext,
@@ -99,10 +99,11 @@ export interface ScenePlanet {
    * all", never "an empty one".
    */
   /**
-   * The session does not match the sidebar search (`matchesSearch`). It stays
-   * on the map in its place — the layout never sees the search, so typing
-   * moves nothing — and is drawn muted instead (ADR
-   * `search-mutes-planets-instead-of-hiding-them`). Always false with no query.
+   * The session does not match the sidebar's tag filter or search
+   * (`matchesSidebarFilters`). It stays on the map in its place — the layout
+   * never sees either, so narrowing moves nothing — and is drawn muted
+   * instead (ADR `search-mutes-planets-instead-of-hiding-them`). Always
+   * false with no tag chosen and no query.
    */
   muted: boolean
   contextFill: ContextFill | null
@@ -155,7 +156,7 @@ export interface SceneMoon {
   parentY: number
   orbitRadius: number
   phase: number
-  /** Its parent planet is muted by the search — a muted planet's moons mute with it. */
+  /** Its parent planet is muted by the sidebar filters — a muted planet's moons mute with it. */
   muted: boolean
 }
 
@@ -218,10 +219,10 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
 
 /**
  * Builds the render model for the space map: the map's sessions
- * (`mapSessions` — the search does not narrow them, it only mutes planets)
- * laid out into clusters, their moons, cluster labels (`NAME · count`,
- * uppercase, counting the layout — muted planets included), and status
- * counts (search matches only — `statusCounts`).
+ * (`mapSessions` — the tag filter and search do not narrow them, they only
+ * mute planets) laid out into clusters, their moons, cluster labels
+ * (`NAME · count`, uppercase, counting the layout — muted planets included),
+ * and status counts (filter matches only — `statusCounts`).
  *
  * Moons are drawn for EVERY subagent the session carries, ended ones
  * included (spec 2026-09-22-subagent-transcript-panel-design.md § 4:
@@ -259,8 +260,6 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
   const isReleased = (session: ApiSession) =>
     absorptionFor(session, state.settings, nowMs) === 'releasing'
   const showModel = state.settings.map_show_model !== 'false'
-  const query = state.ui.search
-
   const planets: ScenePlanet[] = []
   const moons: SceneMoon[] = []
 
@@ -274,7 +273,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
       // The dismissal filter is the map's alone and no `state !== 'ended'`
       // filter belongs here at all — see this function's own doc.
       const subagents = session.subagents.filter((a) => !a.dismissed)
-      const muted = !matchesSearch(session, query)
+      const muted = !matchesSidebarFilters(session, state.ui)
 
       // Moons first: the planet's footprint is the outermost shell they
       // reach, and that is what the planet is then placed by.

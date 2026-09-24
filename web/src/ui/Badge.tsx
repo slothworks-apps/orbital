@@ -1,38 +1,19 @@
-import { awaitingSubagentLabel, tagColor } from '../lib/types'
-import type { SessionStatus } from '../lib/types'
+import type { SessionStateKey } from '../lib/types'
+import { stateBorder, stateColor, stateDot, stateWord } from '../lib/stateStyle'
+import { StateDot } from './StateDot'
 import type { SubagentTaskState } from '../lib/subagentPanel'
 
 export type BadgeProps =
   | {
       variant: 'status'
-      value: SessionStatus
-      /** Tag hue tinting a working status's dot (canvas 9d). */
-      hue?: number
+      /** Which state to show (`sessionStateKey`) — its word, colour and dot follow from it. */
+      state: SessionStateKey
       /**
-       * A server restart cut this session's turn short (spec
-       * 2026-09-21-session-autoheal-design). A modifier rather than a status
-       * of its own: the session really is waiting for input, and this says
-       * why. It reads `INTERRUPTED`, keeps the needs-input label's treatment,
-       * and drops the blinking dot — nothing is happening; something stopped.
-       */
-      interrupted?: boolean
-      /**
-       * How many subagents this session is waiting on, when that is the only
-       * reason it is working (`awaitingSubagentCount`). A modifier on
-       * `working` for the same reason `interrupted` is one on `needs_input`:
-       * the state is right, and this says what is filling it. It keeps the
-       * working label's tint and its blinking dot — something IS happening,
-       * just not here.
+       * How many subagents a WAITING session waits on
+       * (`awaitingSubagentCount`), for the word's grammar. Ignored for every
+       * other state.
        */
       awaiting?: number
-      /**
-       * What a `needs_input` label should say (`parkedLabel`): NEEDS INPUT
-       * when something is actually parked on the human, DONE when the turn
-       * merely finished. Ignored for every other status. Absent, the label
-       * keeps the blunt NEEDS INPUT — the answer for a caller that has no
-       * session to ask, such as a legend.
-       */
-      parked?: string
     }
   | { variant: 'count'; value: number; label?: string }
   | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
@@ -62,13 +43,6 @@ export type BadgeProps =
        */
       hue?: number
     }
-
-const statusLabel: Record<SessionStatus, string> = {
-  working: 'WORKING',
-  needs_input: 'NEEDS INPUT',
-  idle: 'IDLE',
-  ended: 'ENDED',
-}
 
 // Canvas 1b: squared-off mono chips (radius 5px), quiet dark fill.
 const baseClass =
@@ -158,46 +132,36 @@ const TASK_TONE: Record<
 
 export function Badge(props: BadgeProps) {
   if (props.variant === 'status') {
-    const { value, hue, interrupted, awaiting = 0, parked } = props
-    const busy = value === 'working' || value === 'needs_input'
-    // The interrupted label keeps needs-input's white treatment (which is
-    // what `tint === undefined` selects below), so the hue tint is dropped
-    // along with the dot.
-    const tint = busy && !interrupted && hue !== undefined ? tagColor(hue) : undefined
-    // The tag hue goes on the DOT only — the label stays the fixed accent, so
-    // it reads as one family across tags rather than restating the hue twice.
-    const stateClass = tint
-      ? 'text-accent'
-      : interrupted || value === 'needs_input'
-        ? 'text-white'
-        : value === 'ended'
-          ? 'text-text-muted opacity-60'
-          : busy
-            ? 'text-text-soft'
-            : 'text-text-muted'
-
+    const { state, awaiting = 0 } = props
+    const color = stateColor(state)
+    // 24c draws the two neutral chips in their own quiet literals rather than
+    // the state colour mixed toward transparent: IDLE a shade brighter, with
+    // a dimmer steady dot; ENDED the faintest of all.
+    const tone =
+      state === 'idle'
+        ? { ink: 'rgba(200,220,245,.7)', dot: 'rgba(160,190,225,.5)', border: 'rgba(150,205,255,.2)' }
+        : state === 'ended'
+          ? { ink: color, dot: color, border: 'rgba(150,205,255,.14)' }
+          : { ink: color, dot: color, border: stateBorder(color, 'chip') }
     return (
-      // Canvas `Feature - Detail header` 9d, row 4: a dot and a mono label as
-      // plain text — no border, fill or padding. It replaced canvas 1b's chip.
+      // Canvas `Feature - State colours` 24c: an outlined chip in the state's
+      // colour, never filled. Colour and dot come from the one state mapping
+      // (`lib/stateStyle`), so the chip says what the map and the sidebar say.
       <span
         data-variant="status"
-        data-status={interrupted ? 'interrupted' : awaiting > 0 ? 'awaiting_subagents' : value}
-        className={`inline-flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.08em] ${stateClass}`}
+        data-status={state}
+        className="inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em]"
+        style={{ color: tone.ink, borderColor: tone.border }}
       >
-        {busy && !interrupted && (
-          <span
-            aria-hidden
-            className="orbital-pulse h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ background: tint ?? 'currentColor', boxShadow: tint ? `0 0 8px ${tint}` : undefined }}
-          />
-        )}
-        {interrupted
-          ? 'INTERRUPTED'
-          : awaiting > 0
-            ? awaitingSubagentLabel(awaiting)
-            : value === 'needs_input' && parked
-              ? parked
-              : statusLabel[value]}
+        <StateDot
+          dot={stateDot(state, 'chip')}
+          color={tone.dot}
+          solidPx={6}
+          hollowPx={7}
+          // WORKING keeps its glow; its dot is the state cyan now, not the tag hue.
+          glow={state === 'working'}
+        />
+        {stateWord(state, awaiting)}
       </span>
     )
   }

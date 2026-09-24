@@ -111,22 +111,36 @@ export function createImageStore(
   const maxBytes = opts.maxBytes ?? IMAGE_STORE_MAX_BYTES;
   mkdirSync(dir, { recursive: true });
 
-  function prune(keep: string) {
-    const files = readdirSync(dir).map((name) => {
+  /**
+   * Bytes in the directory, or null until the first write asks. Kept in
+   * memory so a put does not list and stat the whole directory; `prune`
+   * re-measures from disk whenever it runs, which also corrects any drift
+   * (a file removed behind the store's back).
+   */
+  let total: number | null = null;
+
+  function measure(): { name: string; size: number; mtimeMs: number }[] {
+    return readdirSync(dir).map((name) => {
       const st = statSync(join(dir, name));
       return { name, size: st.size, mtimeMs: st.mtimeMs };
     });
-    let total = files.reduce((sum, f) => sum + f.size, 0);
-    if (total <= maxBytes) return;
-    files.sort((a, b) => a.mtimeMs - b.mtimeMs);
-    for (const f of files) {
-      if (total <= maxBytes) break;
-      // The file just written is the newest and never the right victim —
-      // pruning it would turn the put into a silent no-op.
-      if (f.name === keep) continue;
-      rmSync(join(dir, f.name), { force: true });
-      total -= f.size;
+  }
+
+  function prune(keep: string) {
+    const files = measure();
+    let bytes = files.reduce((sum, f) => sum + f.size, 0);
+    if (bytes > maxBytes) {
+      files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+      for (const f of files) {
+        if (bytes <= maxBytes) break;
+        // The file just written is the newest and never the right victim —
+        // pruning it would turn the put into a silent no-op.
+        if (f.name === keep) continue;
+        rmSync(join(dir, f.name), { force: true });
+        bytes -= f.size;
+      }
     }
+    total = bytes;
   }
 
   const store: ImageStore = {
@@ -136,12 +150,21 @@ export function createImageStore(
       if (bytes.length === 0) return null;
 
       const ref = `${createHash('sha256').update(bytes).digest('hex')}.${ext}`;
+      let written = true;
       try {
         writeFileSync(join(dir, ref), bytes, { flag: 'wx' });
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        // Already stored, so the directory did not grow and there is nothing
+        // to prune. A reloaded transcript's images all land here.
+        written = false;
       }
-      prune(ref);
+      if (written) {
+        // The first write measures the directory (inside `prune`); after that
+        // the running total decides whether pruning has anything to do.
+        if (total === null) prune(ref);
+        else if ((total += bytes.length) > maxBytes) prune(ref);
+      }
 
       const dims = sniffDims(bytes);
       return { ref, w: dims?.[0] ?? null, h: dims?.[1] ?? null, bytes: bytes.length };

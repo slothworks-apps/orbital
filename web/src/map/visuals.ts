@@ -1,4 +1,5 @@
 import type { SessionStatus, Subagent } from '../lib/types'
+import type { DotShape, MapStatePills } from '../lib/stateStyle'
 
 /**
  * Parametric visual state for planets/moons. Pure and deterministic: the
@@ -555,22 +556,51 @@ export function holeLabelSizePx(count: number): { width: number; height: number 
   }
 }
 
-/** The state pill's type and box, CSS px (artboard 1f): mono 9.5px / .1em, `padding: 3px 8px`, 1px border. */
+/** The state pill's type and box, CSS px (artboards 1f, 24a): mono 9.5px / .1em, `padding: 3px 8px`, 1px border. */
 export const STATE_PILL_FONT_PX = 9.5
 export const STATE_PILL_TRACKING_EM = 0.1
 export const STATE_PILL_PAD_X_PX = 8
 export const STATE_PILL_PAD_Y_PX = 3
 export const STATE_PILL_BORDER_PX = 1
-/** The pulsing dot in front of the word, and the flex gap after it (1f: 5px dot, `gap: 6px`). */
+/**
+ * The dot in front of the word, and the flex gap after it (24a): NEEDS
+ * INPUT's solid dot is 5px, WAITING's hollow one 6px (ring: `STATE_DOT_RING_PX`).
+ */
 export const STATE_PILL_DOT_PX = 5
+export const STATE_PILL_HOLLOW_DOT_PX = 6
 export const STATE_PILL_GAP_PX = 6
+/**
+ * Dot mode's resting disc (24e: "resting: 20px disc + 7px dot"): a 20px-high
+ * pill, `padding: 0 6px`, holding only the dot. The word slides out of it on
+ * hover, `margin-left` opening to the same 6px gap as label mode.
+ */
+export const STATE_DISC_HEIGHT_PX = 20
+export const STATE_DISC_PAD_X_PX = 6
+export const STATE_DISC_DOT_PX = 7
 
-/** The state pill's box, CSS px, for a given word, with or without its dot. */
-export function statePillSizePx(label: string, dot: boolean): { width: number; height: number } {
+/**
+ * The state pill's box, CSS px, as it rests on the map — the room the
+ * simulation keeps for it. Label mode is the whole pill with its word and
+ * dot (if any); dot mode is the resting disc, whatever the word, because the
+ * hover-expanded word is allowed to overlap a neighbour (spec
+ * 2026-09-24-state-colours-design § 3).
+ */
+export function statePillSizePx(
+  label: string,
+  dot: DotShape,
+  mode: MapStatePills
+): { width: number; height: number } {
+  if (mode === 'dot') {
+    return {
+      width: STATE_DISC_DOT_PX + 2 * (STATE_DISC_PAD_X_PX + STATE_PILL_BORDER_PX),
+      height: STATE_DISC_HEIGHT_PX,
+    }
+  }
   const text = monoWidthPx(label.length, STATE_PILL_FONT_PX, STATE_PILL_TRACKING_EM)
   const chrome = 2 * (STATE_PILL_PAD_X_PX + STATE_PILL_BORDER_PX)
+  const dotPx = dot === 'solid' ? STATE_PILL_DOT_PX : dot === 'hollow' ? STATE_PILL_HOLLOW_DOT_PX : 0
   return {
-    width: text + chrome + (dot ? STATE_PILL_DOT_PX + STATE_PILL_GAP_PX : 0),
+    width: text + chrome + (dotPx > 0 ? dotPx + STATE_PILL_GAP_PX : 0),
     height: STATE_PILL_FONT_PX * MONO_LINE_HEIGHT_EM + 2 * (STATE_PILL_PAD_Y_PX + STATE_PILL_BORDER_PX),
   }
 }

@@ -88,6 +88,70 @@ describe('NewSessionDialog', () => {
     expect(screen.getByRole('radio', { name: /^plan$/i })).toHaveAttribute('aria-checked', 'true')
   })
 
+  it('opens on the previous launch`s directory, mode and manual tag instead of the defaults', async () => {
+    vi.mocked(api.previewRule).mockResolvedValue({ tagId: 2, ruleId: 10 })
+    resetStore({
+      settings: {
+        default_project_dir: '/home/tomin/default',
+        default_permission_mode: 'acceptEdits',
+        new_session_last_cwd: '/home/tomin/orbital',
+        new_session_last_mode: 'plan',
+        new_session_last_tag: '1',
+      },
+    })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.previewRule).toHaveBeenCalled())
+
+    expect(screen.getByLabelText(/project directory/i)).toHaveValue('/home/tomin/orbital')
+    expect(screen.getByRole('radio', { name: /^plan$/i })).toHaveAttribute('aria-checked', 'true')
+    // The remembered pick beats the rule's match in its own directory…
+    expect(chip('work')).toHaveAttribute('data-active', 'true')
+
+    // …and nowhere else.
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/elsewhere' } })
+    await waitFor(() => expect(chip('default')).toHaveAttribute('data-active', 'true'))
+  })
+
+  it('never carries bypassPermissions over to the next open', async () => {
+    resetStore({
+      settings: { default_permission_mode: 'acceptEdits', new_session_last_mode: 'bypassPermissions' },
+    })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+
+    expect(screen.getByRole('radio', { name: /^acceptEdits$/i })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('remembers the launch, storing the tag only when it was picked by hand', async () => {
+    vi.mocked(api.previewRule).mockResolvedValue({ tagId: 1, ruleId: 10 })
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    resetStore()
+
+    const { unmount } = render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: ' /home/tomin/orbital ' } })
+    fireEvent.click(screen.getByRole('radio', { name: /^plan$/i }))
+    await waitFor(() => expect(chip('work')).toHaveAttribute('data-active', 'true'))
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith({
+        new_session_last_cwd: '/home/tomin/orbital',
+        new_session_last_mode: 'plan',
+        new_session_last_tag: '',
+      })
+    )
+    unmount()
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.click(chip('default'))
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenLastCalledWith(expect.objectContaining({ new_session_last_tag: '2' }))
+    )
+  })
+
   it('fetches recent directories on open and renders them as clickable chips', async () => {
     vi.mocked(api.listProjects).mockResolvedValue([
       { cwd: '/a/proj', lastModel: null },

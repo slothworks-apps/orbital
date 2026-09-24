@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
@@ -22,7 +22,7 @@ import {
 } from '../src/db/schema.js';
 import type { Finding } from '../src/stats/compute.js';
 import { registerRoutes } from '../src/api/routes.js';
-import { buildServer, publishLiveSession } from '../src/index.js';
+import { buildServer, publishLiveSession, republishCwds } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
 import { GitStore } from '../src/git/store.js';
 import { IdeStore } from '../src/ide/store.js';
@@ -44,7 +44,7 @@ const stubTitler = () =>
 /**
  * One git store for the whole suite. These tests use invented cwds like
  * `/w/x`, so every lookup resolves to "no repository" and the cache makes
- * that free; watching is off so no chokidar handle outlives a test.
+ * that free; watching is off so no watch handle outlives a test.
  */
 const gitStore = new GitStore({ watch: false });
 
@@ -416,6 +416,21 @@ describe('REST routes', () => {
       expect(texts(res)).toEqual(['turn 1', 'turn 2']);
     });
 
+    // Parsed transcripts are cached between pages; a line the CLI appends has
+    // to show up on the next read, not be hidden behind the cached parse.
+    it('serves what was appended to the transcript since the last read', async () => {
+      const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-msg-routes-'));
+      mkdirSync(join(projectsDir, 'p'), { recursive: true });
+      const path = join(projectsDir, 'p', 's1.jsonl');
+      const turn = (i: number) =>
+        JSON.stringify({ type: 'user', uuid: `u${i}`, message: { role: 'user', content: `turn ${i}` } }) + '\n';
+      writeFileSync(path, turn(0));
+      const { app } = makeApp({ projectsDir });
+      expect(texts(await app.inject({ method: 'GET', url: '/api/sessions/s1/messages' }))).toEqual(['turn 0']);
+      appendFileSync(path, turn(1));
+      expect(texts(await app.inject({ method: 'GET', url: '/api/sessions/s1/messages' }))).toEqual(['turn 0', 'turn 1']);
+    });
+
     // The cursor a launched session's client holds oldest is a live id or the
     // optimistic `local:` first prompt — never a file id. The tail it used to
     // get back was the whole transcript again, under ids its dedupe could not
@@ -740,6 +755,33 @@ describe('REST routes', () => {
       id: 'term-9', cwd: '/w/z', title: 'untracked', source: 'terminal',
       status: 'idle', tagIds: [], lastAt: 700,
     });
+  });
+
+  // A selection drag in a big workspace used to republish every session ever
+  // run there (audit resource-usage-pass-2026-09-24, finding 4).
+  it('a directory change republishes live sessions and open ones, not every ended one', () => {
+    const ctx = { hub, db, registry, runner, subagents, git: gitStore, ide: ideStore };
+    db.insert(sessions)
+      .values({ id: 's3', projectDir: 'p', cwd: '/w/x', title: 'ended', lastAt: 50, source: 'web' })
+      .run();
+    const received = subscribeFake(hub, 'sessions');
+    const upserted = () => received.filter((r) => r.event === 'upsert').map((r) => r.session.id).sort();
+
+    // s1 is live in the registry fake; s2 and s3 ended long ago.
+    republishCwds(ctx, ['/w/x', '/w/y']);
+    expect(upserted()).toEqual(['s1']);
+
+    // A window with s3 open shows its branch and sends its selection.
+    received.length = 0;
+    subscribeFake(hub, 'session:s3');
+    republishCwds(ctx, ['/w/x', '/w/y']);
+    expect(upserted()).toEqual(['s1', 's3']);
+
+    // A session Orbital's runner owns counts as live without the registry.
+    received.length = 0;
+    runner.status = (id: string) => (id === 's2' ? 'idle' : undefined);
+    republishCwds(ctx, ['/w/y']);
+    expect(upserted()).toEqual(['s2']);
   });
 
   it('GET /api/models serves the catalog', async () => {

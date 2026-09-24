@@ -136,6 +136,14 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   header_session_stats: 'bar',
   /**
+   * Settings → Appearance → MAP → "State on the map" (canvas `Feature - State
+   * colours` 24a / 24e, ADR state-labels-are-dots-first-on-the-map). `dot`
+   * draws each planet's state pill as a small coloured disc that spells the
+   * word out on hover; `label` spells it out always. Read client-side as
+   * `=== 'label'`, so anything unrecognised draws dots — the default.
+   */
+  map_state_pills: 'dot',
+  /**
    * Absolute path to the Claude Code CLI the runner should spawn. Empty means
    * autodetect: the SDK's bundled binary in dev, the first `claude` on PATH in
    * the packaged app (spec 2026-09-16-electron-wrapper-design §3).

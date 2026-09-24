@@ -72,20 +72,23 @@ const sideRounding: Record<NonNullable<PanelProps['side']>, string> = {
 }
 
 /**
- * Glass recipe verbatim from the design export. The two docked panels do NOT
- * share one recipe: the sidebar (1a/1b/1g) is lighter and blurred less so the
- * map reads through it, while the detail panel (1b/1g) sits denser, blurs
- * harder and carries a brighter edge and a deeper drop shadow.
+ * The two docked panels do NOT share one recipe: the sidebar (1a/1b/1g) is
+ * the lighter of the two, while the detail panel (1b/1g) sits denser and
+ * carries a brighter edge and a deeper drop shadow. Neither blurs the map,
+ * although the canvas draws them as frosted glass: a `backdrop-filter` over
+ * the WebGL canvas is recomputed on every map frame, and at the fill's
+ * opacity the blurred map barely showed through (adr
+ * docked-panels-are-opaque-not-frosted-glass).
  */
 const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
   left: [
-    'bg-gradient-to-b from-[rgba(14,20,34,.72)] to-[rgba(8,12,22,.78)]',
-    'border border-[rgba(150,205,255,.16)] backdrop-blur-[22px]',
+    'bg-gradient-to-b from-[rgba(14,20,34,.92)] to-[rgba(8,12,22,.95)]',
+    'border border-[rgba(150,205,255,.16)]',
     'shadow-[0_30px_80px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.06)]',
   ].join(' '),
   right: [
-    'bg-gradient-to-b from-[rgba(14,20,34,.78)] to-[rgba(8,12,22,.84)]',
-    'border border-[rgba(150,205,255,.18)] backdrop-blur-[24px]',
+    'bg-gradient-to-b from-[rgba(14,20,34,.95)] to-[rgba(8,12,22,.97)]',
+    'border border-[rgba(150,205,255,.18)]',
     'shadow-[0_30px_80px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.06)]',
   ].join(' '),
   // Canvas 11b, verbatim: no blur at all (it is meant to read as flatter and

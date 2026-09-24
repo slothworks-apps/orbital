@@ -311,9 +311,9 @@ export function CompletionPopup({
       data-completion-popup
       // Canvas 9b draws the popup literally: 10px radius, a flat
       // rgba(10,16,28,.96) fill, a .16 hairline and one soft drop shadow.
-      // Portalled to <body> for the same reason ui/Select is — a Panel's
-      // backdrop-filter becomes the containing block for fixed children, and
-      // the panel clips its own overflow.
+      // Portalled to <body> for the same reason ui/Select is — a filtered
+      // ancestor becomes the containing block for fixed children, and the
+      // panel clips its own overflow.
       className={[
         'orbital-no-drag fixed z-[60] flex flex-col overflow-hidden',
         'rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]',

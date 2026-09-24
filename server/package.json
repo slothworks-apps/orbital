@@ -15,7 +15,6 @@
     "@fastify/static": "^10.1.4",
     "@fastify/websocket": "^11.0.0",
     "better-sqlite3": "^13.0.3",
-    "chokidar": "^4.0.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.2.0",
     "ws": "^8.18.0"

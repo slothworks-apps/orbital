@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject, RefObject } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
+import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import type { Group, OrthographicCamera } from 'three'
 import {
   useOrbital,
   parsePlanetScale,
+  mapStatePills,
   parseDetailPanelWidth,
   parseSidebarWidth,
   parseContextThresholds,
@@ -16,7 +17,9 @@ import {
   PANEL_GUTTER_PX,
   SUBAGENT_PANEL_DEFAULT_PX,
 } from '../store/store'
-import { isReadOnly } from '../lib/types'
+import { isReadOnly, sessionStateKey, type SessionStateKey } from '../lib/types'
+import { stateColor, stateDot } from '../lib/stateStyle'
+import { StateDot } from '../ui/StateDot'
 import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
 import type { Subagent } from '../lib/types'
 import { holeLabelSizePx, labelFontPx } from './visuals'
@@ -27,6 +30,9 @@ import { COMPACT_COMMAND, Planet } from './Planet'
 import { Moon } from './Moon'
 import { Hole } from './Hole'
 import { useSceneModel } from './useSceneModel'
+import { FrameBudget, useMapFrame } from './FrameBudget'
+import { FrameScheduler, frameCap, parseMapFps } from './frameSchedule'
+import { useDocumentHidden, useWindowFocused } from '../lib/useWindowFocused'
 import type { SceneLabel } from './sceneModel'
 import { LABEL_MARGIN } from './layout'
 import {
@@ -39,6 +45,7 @@ import {
   rehomeTarget,
   reconcileSimulation,
   settleSimulation,
+  simulationAwake,
   stepSimulation,
   type SimBody,
   type SimInput,
@@ -141,7 +148,9 @@ const FOLLOW_MIN_DISTANCE = 1.5
 function CameraRig({ camera: camState }: { camera: CameraState }) {
   const { camera } = useThree()
 
-  useFrame(() => {
+  // Never moving by itself: every camera change is a `setCamera`, and the
+  // render that brings it here asks for a frame (`FrameBudget`).
+  useMapFrame(() => {
     camera.position.x = camState.x
     camera.position.y = camState.y
     const ortho = camera as unknown as OrthographicCamera
@@ -149,6 +158,7 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
       ortho.zoom = camState.zoom
       ortho.updateProjectionMatrix()
     }
+    return false
   })
 
   return null
@@ -168,8 +178,9 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
 function ClusterLabel({ label, simRef }: { label: SceneLabel; simRef: RefObject<SimState> }) {
   const groupRef = useRef<Group>(null)
 
-  useFrame(() => {
-    if (!groupRef.current) return
+  // Moves only with the bodies, whose motion `SimStepper` already reports.
+  useMapFrame(() => {
+    if (!groupRef.current) return false
     let top: SimBody | null = null
     for (const body of simRef.current.bodies.values()) {
       if (body.tagId !== label.tagId || body.mode !== 'hold') continue
@@ -177,6 +188,7 @@ function ClusterLabel({ label, simRef }: { label: SceneLabel; simRef: RefObject<
     }
     if (top) groupRef.current.position.set(top.x, top.y + top.extent.top + LABEL_MARGIN, 0)
     else groupRef.current.position.set(label.x, label.y, 0)
+    return false
   })
 
   return (
@@ -208,6 +220,10 @@ const ABSORB_FLASH_SEC = 0.45
  * frame callback (negative priority), and turns absorption events into the
  * hole's ring flash. Under reduced motion the sim was already settled
  * synchronously at reconcile time, so there is nothing to animate here.
+ *
+ * Steps even when every body sleeps, so a reconcile that changed a home
+ * without waking anyone still wakes the bodies it pulls on; reports motion
+ * only while something is awake or falling.
  */
 function SimStepper({
   simRef,
@@ -218,12 +234,13 @@ function SimStepper({
   flashRef: MutableRefObject<number>
   reduced: boolean
 }) {
-  useFrame((_, delta) => {
-    if (reduced) return
+  useMapFrame((_, delta) => {
+    if (reduced) return false
     // No camera zoom: the springs measure every outline at OUTLINE_ZOOM,
     // so zooming never moves anything.
     const events = stepSimulation(simRef.current, delta)
     if (events.absorbed.length > 0) flashRef.current = ABSORB_FLASH_SEC
+    return simulationAwake(simRef.current)
   }, -1)
   return null
 }
@@ -482,6 +499,10 @@ export function SpaceMap() {
   const planetScale = useOrbital((s) => parsePlanetScale(s.settings))
   const scaleLabels = useOrbital((s) => s.settings.map_scale_labels === 'true')
   const labelFont = labelFontPx(planetScale, scaleLabels)
+  // Appearance → MAP → state on the map (ADR state-labels-are-dots-first-on-the-map).
+  // Read by the pills AND by the outlines below, so switching it respaces
+  // the map live around the pills it now draws.
+  const pillMode = useOrbital((s) => mapStatePills(s.settings))
   // Context arc settings (spec `context-fill-arc`). The fill itself is
   // already settings-gated in the scene model; these two are what only the
   // drawing needs — where the threshold marks sit, and whether the
@@ -494,6 +515,30 @@ export function SpaceMap() {
   const settings = useOrbital((s) => s.settings)
   const contextThresholds = useMemo(() => parseContextThresholds(settings), [settings])
   const compactBadgeAllowed = showContext(settings) && showCompactBadge(settings)
+
+  // Frame budget (spec 2026-09-24-map-frame-budget-design): the canvas draws
+  // only while something moves, capped by the focused or background rate,
+  // and not at all while the window is hidden. Created once; the settings
+  // and the window state only move its cap.
+  const [scheduler] = useState(
+    () =>
+      new FrameScheduler({
+        now: () => performance.now(),
+        requestFrame: (tick) => requestAnimationFrame(tick),
+        cancelFrame: (handle) => cancelAnimationFrame(handle),
+      })
+  )
+  useEffect(() => () => scheduler.dispose(), [scheduler])
+  const windowFocused = useWindowFocused(true)
+  const documentHidden = useDocumentHidden()
+  const mapFps = useMemo(() => parseMapFps(settings), [settings])
+  const cap = frameCap(mapFps, { focused: windowFocused, hidden: documentHidden })
+  useEffect(() => scheduler.setCap(cap), [scheduler, cap])
+  // Coming back to the window gets a frame even when the cap did not change
+  // (both rates equal): whatever changed while nobody looked is drawn now.
+  useEffect(() => {
+    if (windowFocused && !documentHidden) scheduler.request()
+  }, [scheduler, windowFocused, documentHidden])
   const sendPrompt = useOrbital((s) => s.sendPrompt)
   // Live panel width for the follow inset and the right-anchored overlays —
   // the drag handle moves it, and while it is held (`resizingPanel`) the
@@ -595,7 +640,7 @@ export function SpaceMap() {
         // What the planet draws around itself, sized by the same Appearance
         // settings `Planet` is drawn with below, so the springs keep
         // neighbours clear of the actual label and pill.
-        outline: planetOutline({ ...p, gauged: p.contextFill !== null }, planetScale, font),
+        outline: planetOutline({ ...p, gauged: p.contextFill !== null }, planetScale, font, pillMode),
         live: p.session.status === 'working' || p.session.status === 'needs_input',
         released: p.released,
       })),
@@ -607,7 +652,7 @@ export function SpaceMap() {
     reconcileSimulation(simRef.current, input)
     if (reduced) settleSimulation(simRef.current)
     return simRef.current
-  }, [model, reduced, planetScale, scaleLabels])
+  }, [model, reduced, planetScale, scaleLabels, pillMode])
 
   const { panTo, cancel: cancelPan } = usePanTo(setCamera)
   const { zoomBy, cancel: cancelZoom } = useZoomTo(setCamera)
@@ -644,6 +689,10 @@ export function SpaceMap() {
     },
     [select]
   )
+  // The dot-mode pill's click. No drag guard: the disc keeps its presses from
+  // the map, so no pan can have started on it, and `draggedRef` would only
+  // hold whatever the previous gesture left there.
+  const handlePillSelect = useCallback((id: string) => void select(id), [select])
 
   // The moon's own click (task 9, spec § 5 "The moon"). `Moon` never imports
   // the store — this is the same "plain callback prop" shape as `onClick`
@@ -749,6 +798,8 @@ export function SpaceMap() {
         // Reduced motion renders the sim statically, so a drag converges the
         // field synchronously instead of animating toward it.
         if (reduced) settleSimulation(simRef.current)
+        // The sim moves under the pointer without a render to ask for it.
+        scheduler.request()
         return
       }
 
@@ -773,7 +824,7 @@ export function SpaceMap() {
       drag.lastY = e.clientY
       setCamera((cam) => applyPan(cam, dx, dy))
     },
-    [pointerToWorld, reduced]
+    [pointerToWorld, reduced, scheduler]
   )
 
   const handlePointerUp = useCallback(
@@ -801,6 +852,7 @@ export function SpaceMap() {
           if (drop === 'armed') void setSessionDismissed(bodyDrag.id, true)
           else if (rehome) void setTagAnchor(rehome.tagId, { x: rehome.x, y: rehome.y })
           if (reduced) settleSimulation(simRef.current)
+          scheduler.request()
         }
         return
       }
@@ -810,7 +862,7 @@ export function SpaceMap() {
       if (drag.captured) e.currentTarget.releasePointerCapture(e.pointerId)
       dragRef.current = null
     },
-    [reduced, setSessionDismissed, setTagAnchor]
+    [reduced, setSessionDismissed, setTagAnchor, scheduler]
   )
 
   const handleWheel = useCallback(
@@ -963,28 +1015,41 @@ export function SpaceMap() {
    * toggle is gone — hiding ended sessions is the hole's job now (they fall
    * in after the release delay), so a second hide control would compete with
    * it (spec 2026-09-18-tag-clusters-design § 6).
+   *
+   * Each `N WORD` segment wears its state colour, count and word as one token
+   * (canvas 24b); NEEDS INPUT carries its breathing dot here too. WAITING
+   * sessions stay counted in WORKING — they are still working, through their
+   * moons, so the line does not grow a sixth word.
    */
-  const aggregateLine = useMemo(() => {
+  const aggregateSegments = useMemo(() => {
     const { working, needs_input: needsInput, idle, ended } = model.counts
-    // The `needs_input` column splits the same way the pills do: only the
-    // planets with a question parked on them are NEEDS INPUT, the rest merely
-    // finished (`parkedLabel`). Counted off the drawn planets rather than
-    // `model.counts`, which knows the status and not the reason — a line
-    // reading "3 NEEDS INPUT" over three planets all saying DONE is the very
-    // mismatch the pills were fixed to stop telling.
+    // The `needs_input` column splits the same way the pills do
+    // (`sessionStateKey`): only the planets with a question parked on them
+    // are NEEDS INPUT, an interrupted one says INTERRUPTED, the rest merely
+    // finished. Counted off the drawn planets rather than `model.counts`,
+    // which knows the status and not the reason — a line reading "3 NEEDS
+    // INPUT" over three planets all saying DONE is the very mismatch the
+    // pills were fixed to stop telling.
     // Muted planets are left out, as `statusCounts` leaves them out: the
-    // readout counts what matches the search, not what holds its place.
-    const asking = model.planets.filter(
-      (p) => !p.muted && p.session.status === 'needs_input' && p.session.pendingDecision
-    ).length
-    const segments = [
-      `${working} WORKING`,
-      ...(asking > 0 ? [`${asking} NEEDS INPUT`] : []),
-      ...(needsInput - asking > 0 ? [`${needsInput - asking} DONE`] : []),
-      `${idle} IDLE`,
-      `${ended} ENDED`,
+    // readout counts what matches the sidebar filters, not what holds its place.
+    let asking = 0
+    let interrupted = 0
+    for (const p of model.planets) {
+      if (p.muted || p.session.status !== 'needs_input') continue
+      const key = sessionStateKey(p.session)
+      if (key === 'needs_input') asking++
+      else if (key === 'interrupted') interrupted++
+    }
+    const done = needsInput - asking - interrupted
+    const segments: Array<{ key: SessionStateKey; text: string }> = [
+      { key: 'working', text: `${working} WORKING` },
+      ...(asking > 0 ? [{ key: 'needs_input' as const, text: `${asking} NEEDS INPUT` }] : []),
+      ...(interrupted > 0 ? [{ key: 'interrupted' as const, text: `${interrupted} INTERRUPTED` }] : []),
+      ...(done > 0 ? [{ key: 'done' as const, text: `${done} DONE` }] : []),
+      { key: 'idle', text: `${idle} IDLE` },
+      { key: 'ended', text: `${ended} ENDED` },
     ]
-    return segments.join(' · ')
+    return segments
   }, [model.counts, model.planets])
 
   return (
@@ -1005,73 +1070,80 @@ export function SpaceMap() {
           canvas specifies (the export is plain CSS in a browser, tone-mapped
           by nothing). See `docs/fixes/aces-tone-mapping-desaturates-the-map.md`.
           Do NOT add `linear` alongside it: that switches the output colour
-          space, and the oklch → linear-sRGB path is already correct. */}
+          space, and the oklch → linear-sRGB path is already correct.
+          `demand`: the canvas draws only when `FrameBudget` or a prop change
+          asks for a frame. */}
       <Canvas
         flat
         orthographic
+        frameloop="demand"
         camera={{ zoom: INITIAL_CAMERA.zoom, position: [0, 0, 100] }}
         onPointerMissed={handlePointerMissed}
       >
-        <CameraRig camera={camera} />
-        <SimStepper simRef={simRef} flashRef={holeFlashRef} reduced={reduced} />
-        <ambientLight intensity={0.6} />
+        <FrameBudget scheduler={scheduler}>
+          <CameraRig camera={camera} />
+          <SimStepper simRef={simRef} flashRef={holeFlashRef} reduced={reduced} />
+          <ambientLight intensity={0.6} />
 
-        {model.planets.map((planet) => (
-          <Planet
-            key={planet.session.id}
-            session={planet.session}
-            hue={planet.hue}
-            x={planet.x}
-            y={planet.y}
-            // Split, not premultiplied: the tier half tweens on a state
-            // change, the slider half must track a drag 1:1 (see PlanetProps).
-            scale={planet.scale}
-            scaleMultiplier={planetScale}
-            selected={planet.selected}
-            muted={planet.muted}
-            modelFamily={planet.modelFamily}
-            labelTitlePx={labelFont.title}
-            labelFamilyPx={labelFont.family}
-            contextFill={planet.contextFill}
-            contextThresholds={contextThresholds}
-            showCompactBadge={compactBadgeAllowed}
-            onCompact={handleCompact}
-            onClick={handleSelect}
-            detached={detachedIds.includes(planet.session.id)}
-            simBody={sim.bodies.get(planet.session.id)}
-            onBodyPointerDown={handleBodyPointerDown}
+          {model.planets.map((planet) => (
+            <Planet
+              key={planet.session.id}
+              session={planet.session}
+              hue={planet.hue}
+              x={planet.x}
+              y={planet.y}
+              // Split, not premultiplied: the tier half tweens on a state
+              // change, the slider half must track a drag 1:1 (see PlanetProps).
+              scale={planet.scale}
+              scaleMultiplier={planetScale}
+              selected={planet.selected}
+              muted={planet.muted}
+              modelFamily={planet.modelFamily}
+              labelTitlePx={labelFont.title}
+              labelFamilyPx={labelFont.family}
+              contextFill={planet.contextFill}
+              contextThresholds={contextThresholds}
+              showCompactBadge={compactBadgeAllowed}
+              onCompact={handleCompact}
+              onClick={handleSelect}
+              statePills={pillMode}
+              onPillClick={handlePillSelect}
+              detached={detachedIds.includes(planet.session.id)}
+              simBody={sim.bodies.get(planet.session.id)}
+              onBodyPointerDown={handleBodyPointerDown}
+            />
+          ))}
+
+          {model.moons.map((moon) => (
+            <Moon
+              key={`${moon.sessionId}:${moon.subagent.id}`}
+              subagent={moon.subagent}
+              hue={moon.hue}
+              parentX={moon.parentX}
+              parentY={moon.parentY}
+              orbitRadius={moon.orbitRadius}
+              phase={moon.phase}
+              bodyScale={planetScale}
+              parentBody={sim.bodies.get(moon.sessionId)}
+              sessionId={moon.sessionId}
+              active={`${moon.sessionId}:${moon.subagent.id}` === activePanelKey}
+              onOpen={handleOpenSubagent}
+              muted={moon.muted}
+            />
+          ))}
+
+          {model.labels.map((label) => (
+            <ClusterLabel key={label.tagId} label={label} simRef={simRef} />
+          ))}
+
+          <Hole
+            hole={model.hole}
+            flashRef={holeFlashRef}
+            simRef={simRef}
+            dragRef={bodyDragRef}
+            onOpen={handleHoleOpen}
           />
-        ))}
-
-        {model.moons.map((moon) => (
-          <Moon
-            key={`${moon.sessionId}:${moon.subagent.id}`}
-            subagent={moon.subagent}
-            hue={moon.hue}
-            parentX={moon.parentX}
-            parentY={moon.parentY}
-            orbitRadius={moon.orbitRadius}
-            phase={moon.phase}
-            bodyScale={planetScale}
-            parentBody={sim.bodies.get(moon.sessionId)}
-            sessionId={moon.sessionId}
-            active={`${moon.sessionId}:${moon.subagent.id}` === activePanelKey}
-            onOpen={handleOpenSubagent}
-            muted={moon.muted}
-          />
-        ))}
-
-        {model.labels.map((label) => (
-          <ClusterLabel key={label.tagId} label={label} simRef={simRef} />
-        ))}
-
-        <Hole
-          hole={model.hole}
-          flashRef={holeFlashRef}
-          simRef={simRef}
-          dragRef={bodyDragRef}
-          onOpen={handleHoleOpen}
-        />
+        </FrameBudget>
       </Canvas>
 
       {/* Plain-DOM HUD overlay, outside the Canvas. `z-6` is load-bearing: the
@@ -1095,7 +1167,19 @@ export function SpaceMap() {
           style={{ right: overlayRightPx }}
         >
           <div className="flex items-center gap-2 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
-            <span>{aggregateLine}</span>
+            {aggregateSegments.map(({ key, text }, i) => {
+              const color = stateColor(key)
+              return (
+                <Fragment key={key}>
+                  {/* 24b: the separators stay muted, at .28. */}
+                  {i > 0 && <span className="text-[rgba(160,190,225,.28)]">·</span>}
+                  <span data-state={key} className="flex items-center gap-[5px]" style={{ color }}>
+                    <StateDot dot={stateDot(key, 'label')} color={color} solidPx={5} hollowPx={6} />
+                    {text}
+                  </span>
+                </Fragment>
+              )
+            })}
           </div>
         </div>
 
@@ -1143,7 +1227,7 @@ export function SpaceMap() {
             title={`Error log · ${shortcutLabel('global.errors')}`}
             onClick={() => setDialog('errors')}
             className={[
-              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-[rgba(10,14,24,.7)] text-base font-bold leading-none backdrop-blur-[16px] transition-colors',
+              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-[rgba(10,14,24,.92)] text-base font-bold leading-none transition-colors',
               errorLogOpen
                 ? 'border-accent/50 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
                 : [
@@ -1167,7 +1251,7 @@ export function SpaceMap() {
             )}
           </button>
 
-          <div className="flex flex-col overflow-hidden rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,14,24,.7)] backdrop-blur-[16px]">
+          <div className="flex flex-col overflow-hidden rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,14,24,.92)]">
             <button
               type="button"
               aria-label="Zoom in"
@@ -1229,6 +1313,7 @@ export function SpaceMap() {
 
         <div
           className="orbital-sloth pointer-events-none absolute"
+          data-paused={windowFocused && !documentHidden ? undefined : ''}
           style={{ left: `${SLOTH_LEFT_PERCENT}%`, top: `${SLOTH_TOP_PERCENT}%`, width: 16, opacity: 0.7 }}
         >
           <div className="orbital-sloth-bob">

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, utimesSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openDb } from '../src/db/database.js';
-import { sessions, sessionColumns, sweptSessions, sessionStats } from '../src/db/schema.js';
-import { indexProjects } from '../src/indexer/indexer.js';
+import { DEFAULT_MIGRATIONS_FOLDER, openDb } from '../src/db/database.js';
+import { sessions, sessionColumns, sessionTags, sweptSessions, sessionStats, tagRules, tags } from '../src/db/schema.js';
+import { indexPaths, indexProjects } from '../src/indexer/indexer.js';
 import { retentionCutoff, sweepSessions } from '../src/retention.js';
 import { STATS_VERSION, CHARS_PER_TOKEN, OBESE_RESULT_TOKENS } from '../src/stats/constants.js';
 import type { SessionRow } from '../src/types.js';
@@ -90,42 +90,68 @@ describe('indexProjects', () => {
       .get()!;
     expect(row.messageCount).toBe(4);
   });
-  it('re-derives titles stranded on a bare slash command, but leaves ones with arguments', () => {
-    const { db, projects } = setup();
-    indexProjects(db, projects);
-
-    // A row indexed before extractMeta learned to skip "/clear".
-    db.update(sessions).set({ title: '/clear' }).where(eq(sessions.id, 'aaaa-bbbb')).run();
-    indexProjects(db, projects);
+  // The pass used to blank bare-command titles at its top, while extractMeta
+  // still falls back to one when a transcript has nothing else: every pass
+  // re-parsed those sessions and titled them "/clear" again, forever.
+  it('does not re-parse a session whose only prompt is a bare command', () => {
+    const { db, projects } = setupEmpty();
+    writeTranscriptFile(projects, 'proj', 'sess-clear', [
+      { type: 'user', timestamp: '2026-09-16T10:00:00Z', cwd: '/w/x', message: { role: 'user', content: '/clear' } },
+    ]);
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
     expect(
-      db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!
+      db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'sess-clear')).get()!
         .title,
-    ).toBe('Fix the login bug in the auth service please');
+    ).toBe('/clear');
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0 });
+  });
+});
 
-    // A command with arguments is a real title and survives untouched.
-    db.update(sessions)
-      .set({ title: '/clickup-branch CU-8180' })
-      .where(eq(sessions.id, 'aaaa-bbbb'))
-      .run();
+// The one-off title cleanup that used to open every pass (migration 0013).
+describe('stranded titles migration', () => {
+  /** A database migrated up to, but not including, 0013 — then the rest. */
+  function migrateAcross(dirtyTitle: string) {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-idx-mig-'));
+    const projects = join(dir, 'projects');
+    mkdirSync(join(projects, 'proj'), { recursive: true });
+    writeFileSync(
+      join(projects, 'proj', 'aaaa-bbbb.jsonl'),
+      readFileSync(join(import.meta.dirname, 'fixtures/transcript-basic.jsonl'), 'utf8'),
+    );
+    const before = join(dir, 'drizzle-before');
+    cpSync(DEFAULT_MIGRATIONS_FOLDER, before, { recursive: true });
+    const journalPath = join(before, 'meta', '_journal.json');
+    const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: { tag: string }[] };
+    // Everything from 0013 on: Drizzle skips a migration older than the newest applied.
+    journal.entries = journal.entries.slice(0, journal.entries.findIndex((e) => e.tag.endsWith('_reset_stranded_titles')));
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    const dbPath = join(dir, 'index.db');
+    const old = openDb(dbPath, before);
+    indexProjects(old, projects);
+    old.update(sessions).set({ title: dirtyTitle }).where(eq(sessions.id, 'aaaa-bbbb')).run();
+    old.$client.close();
+
+    const db = openDb(dbPath);
     indexProjects(db, projects);
-    expect(
-      db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!
-        .title,
-    ).toBe('/clickup-branch CU-8180');
+    return db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!
+      .title;
+  }
+
+  it('re-derives a title stranded on a bare slash command', () => {
+    expect(migrateAcross('/clear')).toBe('Fix the login bug in the auth service please');
   });
   it('re-derives a title that was a skill body from an isMeta entry', () => {
-    const { db, projects } = setup();
-    indexProjects(db, projects);
-    db.update(sessions)
-      .set({ title: 'Base directory for this skill: /Users/x/.claude/skills/ask' })
-      .where(eq(sessions.id, 'aaaa-bbbb'))
-      .run();
-    indexProjects(db, projects);
-    expect(
-      db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!
-        .title,
-    ).toBe('Fix the login bug in the auth service please');
+    expect(migrateAcross('Base directory for this skill: /Users/x/.claude/skills/ask')).toBe(
+      'Fix the login bug in the auth service please',
+    );
   });
+  it('leaves a command with arguments alone: it is a real title', () => {
+    expect(migrateAcross('/clickup-branch CU-8180')).toBe('/clickup-branch CU-8180');
+  });
+});
+
+describe('indexProjects', () => {
   it('returns zeros for a missing dir', () => {
     const { db } = setup();
     expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0 });
@@ -454,5 +480,61 @@ describe('indexProjects and session_stats', () => {
     onStats.mockClear();
     indexProjects(db, projects, onStats);
     expect(onStats).not.toHaveBeenCalled();
+  });
+});
+
+// A watcher event names a path, and only that path is indexed (audit
+// resource-usage-pass-2026-09-24, finding 2).
+describe('indexPaths', () => {
+  const userTurn = (cwd: string, content: string) => ({
+    type: 'user', timestamp: '2026-09-16T10:00:00Z', cwd, message: { role: 'user', content },
+  });
+  const ids = (db: ReturnType<typeof openDb>) =>
+    db.select({ id: sessions.id }).from(sessions).all().map((r) => r.id).sort();
+
+  it('indexes the named transcript and nothing else', () => {
+    const { db, projects } = setupEmpty();
+    writeTranscriptFile(projects, 'proj', 'one', [userTurn('/w/x', 'first')]);
+    writeTranscriptFile(projects, 'proj', 'two', [userTurn('/w/x', 'second')]);
+    expect(indexPaths(db, projects, ['proj/one.jsonl'])).toEqual({ scanned: 1, indexed: 1 });
+    expect(ids(db)).toEqual(['one']);
+  });
+
+  it('indexes every transcript of a project directory the event named alone', () => {
+    const { db, projects } = setupEmpty();
+    writeTranscriptFile(projects, 'proj', 'one', [userTurn('/w/x', 'first')]);
+    writeTranscriptFile(projects, 'proj', 'two', [userTurn('/w/x', 'second')]);
+    writeTranscriptFile(projects, 'other', 'three', [userTurn('/w/y', 'third')]);
+    indexPaths(db, projects, ['proj']);
+    expect(ids(db)).toEqual(['one', 'two']);
+  });
+
+  it('skips paths that are not a session transcript, and files already gone', () => {
+    const { db, projects } = setupEmpty();
+    writeTranscriptFile(projects, 'proj', 'one', [userTurn('/w/x', 'first')]);
+    writeSubagentFile(projects, 'proj', 'one', 'aaa', [userTurn('/w/x', 'sub')]);
+    mkdirSync(join(projects, 'proj', 'memory'), { recursive: true });
+    writeFileSync(join(projects, 'proj', 'memory', 'MEMORY.md'), '# memory');
+    const result = indexPaths(db, projects, [
+      'proj/one/subagents/agent-aaa.jsonl',
+      'proj/memory/MEMORY.md',
+      'proj/sessions-index.json',
+      'proj/deleted.jsonl',
+    ]);
+    expect(result).toEqual({ scanned: 1, indexed: 0 });
+    expect(ids(db)).toEqual([]);
+  });
+
+  it('gives a session its rule tag when it is first indexed', () => {
+    const { db, projects } = setupEmpty();
+    db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
+    db.insert(tagRules)
+      .values({ tagId: 10, position: 0, enabled: 1, condition: 'path_matches', pattern: '^/w/x$' })
+      .run();
+    writeTranscriptFile(projects, 'proj', 'one', [userTurn('/w/x', 'first')]);
+    indexPaths(db, projects, ['proj/one.jsonl']);
+    expect(
+      db.select().from(sessionTags).where(eq(sessionTags.sessionId, 'one')).all(),
+    ).toEqual([{ sessionId: 'one', tagId: 10, origin: 'rule' }]);
   });
 });

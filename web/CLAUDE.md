@@ -77,6 +77,10 @@ the component as a variant, so every caller gets it and it stays testable.
   they appear in the `class` string. Two sources both setting a radius (a
   variant and a size, say) pick a winner arbitrarily — resolve it in the
   component instead of concatenating both.
+- A background with both an image and a colour cannot go in one arbitrary
+  value: `bg-[linear-gradient(…),#070b16]` is emitted as `background-color`
+  and is invalid, so the element has no fill at all. Split it into
+  `bg-[#070b16] bg-[image:linear-gradient(…)]`.
 - Tests do not compile CSS. After introducing an unusual utility, confirm it
   is actually emitted by a real `vite build`.
 

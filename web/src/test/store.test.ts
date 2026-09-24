@@ -30,6 +30,7 @@ import {
   expandDiffOnPermission,
   guardGesture,
   headerSessionStats,
+  mapStatePills,
   releaseDelayMs,
   absorptionFor,
   resolvePanelPairWidths,
@@ -86,6 +87,7 @@ const initialSnapshot: OrbitalState = {
   decisionAnswers: {},
   decisionVerdicts: {},
   ideDismissed: {},
+  composerDrafts: {},
   detachedIds: [],
   sessionsTotal: 0,
   toast: null,
@@ -1179,12 +1181,12 @@ describe('statusCounts (pure)', () => {
     })
   })
 
-  it('aggregates over the map, not the full session map — a tag filter excludes non-matching sessions', () => {
+  it('counts tag-filter matches only, although the map keeps the rest', () => {
     const sessions: Record<string, ApiSession> = {
       a: makeSession({ id: 'a', status: 'working', tagIds: [1] }),
-      b: makeSession({ id: 'b', status: 'working', tagIds: [2] }), // filtered out
+      b: makeSession({ id: 'b', status: 'working', tagIds: [2] }), // muted
       c: makeSession({ id: 'c', status: 'idle', tagIds: [1] }),
-      d: makeSession({ id: 'd', status: 'needs_input', tagIds: [2] }), // filtered out
+      d: makeSession({ id: 'd', status: 'needs_input', tagIds: [2] }), // muted
       e: makeSession({ id: 'e', status: 'ended', tagIds: [1] }),
     }
     const state: OrbitalState = {
@@ -1195,6 +1197,7 @@ describe('statusCounts (pure)', () => {
     }
     // Only sessions a, c, e (tagIds includes 1) should be counted.
     expect(statusCounts(state, NOW)).toEqual({ working: 1, idle: 1, needs_input: 0, ended: 1 })
+    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['a', 'b', 'c', 'd', 'e'])
   })
 
   // The map keeps non-matching planets (muted), but the readout counts what
@@ -1367,7 +1370,9 @@ describe('mapSessions (pure)', () => {
     expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['inside'])
   })
 
-  it('composes with the tag filter rather than replacing it', () => {
+  // The tag filter mutes on the map rather than hiding — ADR
+  // `search-mutes-planets-instead-of-hiding-them`. Absorption still drops.
+  it('ignores the tag filter, but still drops what the hole absorbed', () => {
     const sessions: Record<string, ApiSession> = {
       keep: makeSession({ id: 'keep', status: 'idle', tagIds: [1] }),
       otherTag: makeSession({ id: 'otherTag', status: 'idle', tagIds: [2] }),
@@ -1383,7 +1388,7 @@ describe('mapSessions (pure)', () => {
       sessions,
       ui: { ...initialSnapshot.ui, filterTagId: 1 },
     }
-    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['keep'])
+    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['keep', 'otherTag'])
   })
 
   // The origin filter is applied here rather than in `visibleSessions`, so
@@ -2075,6 +2080,15 @@ describe('headerSessionStats', () => {
     // A value from a future build, or a hand-edited database, must not empty
     // the header of its only readout.
     expect(headerSessionStats({ header_session_stats: 'sparkline' })).toBe('bar')
+  })
+})
+
+describe('mapStatePills', () => {
+  it('draws dots unless the setting literally says label', () => {
+    expect(mapStatePills({})).toBe('dot')
+    expect(mapStatePills({ map_state_pills: 'label' })).toBe('label')
+    expect(mapStatePills({ map_state_pills: 'dot' })).toBe('dot')
+    expect(mapStatePills({ map_state_pills: 'words' })).toBe('dot')
   })
 })
 

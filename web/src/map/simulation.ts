@@ -24,6 +24,8 @@
 
 import type { ApiSession } from '../lib/types'
 import { statePill } from '../lib/types'
+import { stateDot, type MapStatePills } from '../lib/stateStyle'
+import { MAX_FRAME_DELTA_SEC } from './frameSchedule'
 import { bodyZoomFactor } from './camera'
 import { PLANET_BASE_RADIUS } from './layout'
 import {
@@ -179,8 +181,20 @@ const FALL_SHRINK_MIN = 0.2
 
 /** Fixed timestep — the canvas script runs at 60Hz and the constants are per-tick. */
 const TICK_SEC = 1 / 60
-/** Substep cap per stepSimulation call, so a background-tab hiccup never runs a long catch-up loop. */
-const MAX_SUBSTEPS = 4
+/**
+ * Substep cap per stepSimulation call: enough to cover the longest frame the
+ * map's frame budget hands out (MAX_FRAME_DELTA_SEC, so the lowest background
+ * cap still runs the sim at full speed), and no more, so a hitch never runs a
+ * long catch-up loop.
+ */
+const MAX_SUBSTEPS = Math.ceil(MAX_FRAME_DELTA_SEC / TICK_SEC)
+/**
+ * How far past a whole tick the accumulated time may be spent early. A 60Hz
+ * display whose frames arrive a hair under TICK_SEC apart would otherwise
+ * alternate zero ticks and two; with the slack every frame still gets one,
+ * and the debt is paid back from the next.
+ */
+const TICK_SLACK = 0.25
 /** settleSimulation's runaway guard, far above any real convergence (~60 s of sim time). */
 const SETTLE_MAX_TICKS = 3600
 
@@ -309,6 +323,12 @@ export interface SimState {
    */
   homes: Map<number, { x: number; y: number }>
   hole: SimHole
+  /**
+   * Time handed to stepSimulation and not yet spent on a tick, in seconds —
+   * what makes the sim's speed independent of the frame rate. May dip below
+   * zero by TICK_SLACK of a tick.
+   */
+  accumulator: number
 }
 
 /** What one stepSimulation call reports back to the driver. */
@@ -325,6 +345,7 @@ export function createSimulation(): SimState {
     anchors: new Map(),
     homes: new Map(),
     hole: { x: 0, y: 0, labelWidthPx: 0, labelHeightPx: 0 },
+    accumulator: 0,
   }
 }
 
@@ -628,16 +649,32 @@ export function dragSimBody(
 }
 
 /**
- * Advances the simulation by `dtSeconds`, in fixed 60Hz substeps (capped, so
- * a hitched frame catches up smoothly instead of exploding the springs).
+ * Advances the simulation by `dtSeconds`, in fixed 60Hz ticks. Time
+ * accumulates across calls, so a 120Hz display runs one tick every other
+ * frame rather than one every frame (which ran the sim at double speed), and
+ * a 30 fps cap runs two a frame. Capped at MAX_SUBSTEPS per call, so a
+ * hitched frame catches up smoothly instead of exploding the springs.
  * Deterministic: same state + same dt sequence = bit-identical results. The
  * camera does not enter: everything is measured at OUTLINE_ZOOM.
  */
 export function stepSimulation(sim: SimState, dtSeconds: number): SimEvents {
   const events: SimEvents = { absorbed: [] }
-  const substeps = Math.max(1, Math.min(MAX_SUBSTEPS, Math.round(dtSeconds / TICK_SEC)))
+  sim.accumulator += Math.min(Math.max(0, dtSeconds), MAX_SUBSTEPS * TICK_SEC)
+  const substeps = Math.min(MAX_SUBSTEPS, Math.floor(sim.accumulator / TICK_SEC + TICK_SLACK))
+  sim.accumulator -= substeps * TICK_SEC
   for (let i = 0; i < substeps; i++) tick(sim, events)
   return events
+}
+
+/**
+ * Whether anything in the sim still moves: a bonded body awake, or a body
+ * falling. The map keeps drawing frames while this is true.
+ */
+export function simulationAwake(sim: SimState): boolean {
+  for (const body of sim.bodies.values()) {
+    if (body.mode === 'fall' || (body.mode === 'hold' && !body.asleep)) return true
+  }
+  return false
 }
 
 /**
@@ -720,7 +757,8 @@ const OUTLINE_BODY_FACTOR = bodyZoomFactor(OUTLINE_ZOOM)
 /**
  * Builds a planet's outline from what it will draw. Pure; the map calls it
  * with the scene planet and the Appearance settings that size the drawing
- * (`planetScale`, `labelFontPx`).
+ * (`planetScale`, `labelFontPx`) and the pill mode (`map_state_pills`): a
+ * dot-mode pill keeps room only for its resting disc.
  *
  * Selection is deliberately not an input: selecting a planet must not move
  * anything on the map. `Planet` still drops the label under the reticle's
@@ -741,11 +779,14 @@ export function planetOutline(
     gauged: boolean
   },
   planetScale: number,
-  labelFont: { title: number; family: number }
+  labelFont: { title: number; family: number },
+  pillMode: MapStatePills
 ): PlanetOutline {
   const label = restingLabelSizePx(planet.session.title, planet.modelFamily?.toUpperCase() ?? null, labelFont)
   const state = statePill(planet.session)
-  const pill = state ? statePillSizePx(state.label, state.pulse) : { width: 0, height: 0 }
+  const pill = state
+    ? statePillSizePx(state.label, stateDot(state.key, pillMode).shape, pillMode)
+    : { width: 0, height: 0 }
   return {
     scale: planet.scale * planetScale,
     labelTop: -labelRestY(planet.gauged, true),

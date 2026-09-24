@@ -38,9 +38,10 @@ Sessions that do not match are drawn **muted**:
   ended grey. They use their own tween on the state-change curve, so the
   bodies fade rather than snap.
 
-The rule for what matches is one exported predicate, `matchesSearch` in
-`store.ts`. `visibleSessions` uses it too, so the sidebar and the map can
-never disagree about what matches.
+The rule for what matches is one exported predicate in `store.ts`
+(`matchesSearch`, since the amendment below wrapped in
+`matchesSidebarFilters`). `visibleSessions` uses it too, so the sidebar and
+the map can never disagree about what matches.
 
 What each surface counts:
 
@@ -53,10 +54,19 @@ What each surface counts:
   layout, which no longer changes with the search. They count muted planets
   too.
 
-What still hides: the **tag filter** and the **origin filter** remove bodies
-from the map exactly as before. Those are standing choices about which part
-of your work the map shows, not a quick look for one session. Absorption
-into the hole is unchanged too.
+What still hides: the **origin filter** removes bodies from the map exactly
+as before. Absorption into the hole is unchanged too.
+
+### Amended 2026-09-24: the tag filter mutes too
+
+The tag filter used to hide, on the reasoning that it is a standing choice
+about which part of your work the map shows, not a quick look for one
+session. In use it behaved like the search: you pick a tag to find
+something, and the map reflowing around the survivors cost the same sense of
+place. So the tag filter now mutes as well. `mapSessions` no longer applies
+it, and one predicate, `matchesSidebarFilters` (tag chip and search
+together), drives `visibleSessions`, the planets' `muted` flag and
+`statusCounts`. The sidebar still lists only the matches.
 
 A planet's hover-expanded title and a moon's hover and active marks are not
 muted. Hovering asks to read the name, and a muted planet's name is still

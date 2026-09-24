@@ -60,7 +60,7 @@ import { SessionStatsRow } from './SessionStatsRow'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
 import { formatContextWindow, releaseFootnote } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
-import { awaitingSubagentCount, isReadOnly, parkedLabel, tagColor } from '../lib/types'
+import { awaitingSubagentCount, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import type { ApiSession, Tag, WalkthroughSummary } from '../lib/types'
 
 /**
@@ -218,7 +218,13 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   // cancel that never produced a blur cannot poison the next edit.
   const titleAbandoned = useRef(false)
   const [retitling, setRetitling] = useState(false)
-  const [prompt, setPrompt] = useState('')
+  // Per session and in the store, so leaving for another session and coming
+  // back does not lose a half-written message.
+  const prompt = useOrbital((s) => (id ? (s.composerDrafts[id] ?? '') : ''))
+  const setComposerDraft = useOrbital((s) => s.setComposerDraft)
+  const setPrompt = (text: string) => {
+    if (id) setComposerDraft(id, text)
+  }
   const [lineageCache, setLineageCache] = useState<Record<string, string[]>>({})
 
   // Image intake (spec: 2026-09-20-composer-design § Image intake). The chips
@@ -305,11 +311,9 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
     saveWidth(setWidthLocal(DETAIL_PANEL_DEFAULT_PX))
   }
 
-  // Prompt draft is reset ONLY when the selected session actually changes —
-  // never on a title/session update for the SAME session (a rename firing
-  // mid-draft used to wipe whatever the user had typed; see fix round 2).
+  // The prompt draft is keyed by session in the store, so a change of
+  // session swaps it rather than clearing it.
   useEffect(() => {
-    setPrompt('')
     setIsEditingTitle(false)
     // The chips belong to the draft, so they go with it — and the refs they
     // would have carried are this session's, not the next one's.
@@ -924,8 +928,9 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
             </div>
 
             {/* Row 4 — status + context (canvas `Feature - Detail header`
-                9d): the status as a dot and plain mono text on the left, the
-                context read-out pushed right. The read-out, and the bar under
+                9d): the state chip on the left — outlined in its state colour
+                since `Feature - State colours` 24c — and the context read-out
+                pushed right. The read-out, and the bar under
                 this row, are drawn only when the window is actually known — a
                 bar scaled to a made-up denominator is worse than no bar (per
                 docs/decisions/models-come-from-the-sdk.md). A terminal
@@ -934,14 +939,14 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
             <div className="mt-3 flex items-center gap-2.5">
               <Badge
                 variant="status"
-                value={session.status}
-                hue={headerHue}
-                interrupted={Boolean(session.interruptedAt)}
-                awaiting={awaitingSubagentCount(session)}
                 // The panel has the live question in the store as well as on
                 // the snapshot, and the store's copy is the fresher of the
                 // two — it hears `decision_pending` directly.
-                parked={parkedLabel({ pendingDecision: pendingDecision ?? session.pendingDecision })}
+                state={sessionStateKey({
+                  ...session,
+                  pendingDecision: pendingDecision ?? session.pendingDecision,
+                })}
+                awaiting={awaitingSubagentCount(session)}
               />
               <span aria-hidden className="flex-1" />
               {showContext && contextNote && (

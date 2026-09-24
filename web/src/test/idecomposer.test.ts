@@ -51,6 +51,7 @@ function seed(sessions: ApiSession[]) {
     order: sessions.map((s) => s.id),
     transcripts: {},
     ideDismissed: {},
+    composerDrafts: {},
   })
 }
 

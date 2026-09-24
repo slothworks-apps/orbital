@@ -13,7 +13,7 @@ beforeEach(() => {
   writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
   writeFileSync(join(dir, '.git', 'refs/heads/main'), `${'a'.repeat(40)}\n`);
   // Watching is off: these tests drive invalidation directly, and a real
-  // chokidar watch would leave the suite waiting on filesystem events.
+  // file watch would leave the suite waiting on filesystem events.
   store = new GitStore({ watch: false });
 });
 

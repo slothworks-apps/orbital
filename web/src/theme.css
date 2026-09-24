@@ -18,6 +18,33 @@
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
+/* Session state colours (canvas `Feature - State colours` 24d). Colour
+   follows urgency: four hues cover the seven state words. They go on state
+   LABELS only — the map pill, the summary line, the sidebar row's word and
+   the detail chip — never on planets, rings, moons or tag dots, which keep
+   the tag hue (spec 2026-09-24-state-colours-design). Which state takes which
+   token is decided in one place, `lib/stateStyle.ts`. */
+:root {
+  --state-input: var(--color-warning);
+  /* oklch(75% .14 25) — hue 25, not red at 0–10, so it never reads as the
+     context gauge's critical red. */
+  --state-interrupted: #fa8880;
+  /* oklch(84% .12 160) */
+  --state-done: #7fe3b0;
+  --state-active: var(--color-accent);
+  --state-neutral: rgba(160, 190, 225, 0.6);
+
+  /* The map pill's own dark fill, so a glow never shows through its text. */
+  --state-pill-bg: rgba(6, 10, 20, 0.88);
+  /* Border strength, as the state colour's share in
+     `color-mix(in oklch, var(--state-x) <share>, transparent)`: the chips
+     inside panels, the pill over open space, and the dot-mode disc at rest
+     (24e; it rises to the map share on hover). */
+  --state-border-a: 50%;
+  --state-border-a-map: 75%;
+  --state-border-a-map-rest: 30%;
+}
+
 body {
   background: var(--color-space);
   color: var(--color-text-bright);
@@ -153,6 +180,35 @@ body {
   animation: orbital-pulse 1.6s ease-in-out infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .orbital-pulse {
+    animation: none;
+  }
+}
+
+/* NEEDS INPUT's dot (canvas 24a–24e `orb-breathe`): slower than the pulse and
+   fading only to .45, so it breathes instead of blinking — noticed, not
+   demanding a click. */
+@keyframes orbital-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.orbital-breathe {
+  animation: orbital-breathe 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-breathe {
+    animation: none;
+  }
+}
+
 /* Streaming caret on the last assistant turn (1b): a hard terminal blink
    (`orb-cursor 1s steps(1)`), deliberately unlike the smooth status pulse. */
 @keyframes orbital-caret {
@@ -241,6 +297,14 @@ body {
 
 .orbital-sloth-bob {
   animation: orbital-bob 5s ease-in-out infinite;
+}
+
+/* Parked while the window is unfocused or hidden (spec
+   2026-09-24-map-frame-budget-design § 3): nobody is watching it, and an
+   endless animation keeps the compositor awake. */
+.orbital-sloth[data-paused],
+.orbital-sloth[data-paused] .orbital-sloth-bob {
+  animation-play-state: paused;
 }
 
 /* ---------------------------------------------------------------------------

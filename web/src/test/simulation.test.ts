@@ -4,6 +4,7 @@ import {
   reconcileSimulation,
   stepSimulation,
   settleSimulation,
+  simulationAwake,
   dragSimBody,
   holeDropState,
   minDistance,
@@ -49,6 +50,7 @@ import {
 } from '../map/visuals'
 import { moonOrbitRadius } from '../map/sceneModel'
 import { statePill, type ApiSession, type SessionStatus } from '../lib/types'
+import { stateDot, type MapStatePills } from '../lib/stateStyle'
 
 /**
  * The spring simulation is pure and deterministic: no Math.random, no
@@ -158,6 +160,33 @@ describe('stepSimulation', () => {
       expect(b.vx).toBe(a.vx)
       expect(b.vy).toBe(a.vy)
     }
+  })
+
+  it('runs at the same speed whatever the frame rate: time accumulates across frames', () => {
+    const positions = (sim: SimState) => [...sim.bodies.values()].map((b) => [b.x, b.y, b.vx, b.vy])
+    const reference = makeSim()
+    for (let i = 0; i < 60; i++) stepSimulation(reference, TICK)
+    // 120Hz: a tick every other frame, not one per frame (the old double speed).
+    const fast = makeSim()
+    for (let i = 0; i < 120; i++) stepSimulation(fast, TICK / 2)
+    // A 30 fps cap: two ticks a frame.
+    const slow = makeSim()
+    for (let i = 0; i < 30; i++) stepSimulation(slow, TICK * 2)
+    // A 60Hz display whose frames jitter around the tick still gets one per frame.
+    const jittery = makeSim()
+    for (let i = 0; i < 60; i++) stepSimulation(jittery, TICK + (i % 2 ? -0.0004 : 0.0004))
+    expect(positions(fast)).toEqual(positions(reference))
+    expect(positions(slow)).toEqual(positions(reference))
+    expect(positions(jittery)).toEqual(positions(reference))
+  })
+
+  it('reports itself awake while anything moves, and asleep once everything rests', () => {
+    const sim = makeSim()
+    expect(simulationAwake(sim)).toBe(true)
+    settleSimulation(sim)
+    expect(simulationAwake(sim)).toBe(false)
+    dragSimBody(sim, [...sim.bodies.keys()][0], { x: 0, y: 0 })
+    expect(simulationAwake(sim)).toBe(true)
   })
 
   it('settles to rest: every body ends asleep and stays put', () => {
@@ -585,7 +614,7 @@ describe('bodyExtent', () => {
 describe('settled clusters keep labels and pills clear', () => {
   const AIR_PX = 8
 
-  function rects(sim: SimState, zoom: number, specs: ClusterSpec[]) {
+  function rects(sim: SimState, zoom: number, specs: ClusterSpec[], mode: MapStatePills) {
     const out: Array<{ id: string; kind: string; x0: number; x1: number; y0: number; y1: number }> = []
     const perPx = 1 / zoom
     const zf = bodyZoomFactor(zoom)
@@ -608,7 +637,7 @@ describe('settled clusters keep labels and pills clear', () => {
       })
       const pill = statePill(session(spec))
       if (pill) {
-        const size = statePillSizePx(pill.label, pill.pulse)
+        const size = statePillSizePx(pill.label, stateDot(pill.key, mode).shape, mode)
         const x = b.x + BADGE_OFFSET_X * s
         const y = b.y + BADGE_OFFSET_Y * s
         out.push({ id: spec.id, kind: pill.label, x0: x, x1: x + size.width * perPx, y0: y - size.height * perPx, y1: y })
@@ -617,22 +646,26 @@ describe('settled clusters keep labels and pills clear', () => {
     return out
   }
 
-  for (const [name, specs] of Object.entries(CLUSTERS)) {
-    for (const zoom of [REFERENCE_ZOOM, 40, OUTLINE_ZOOM]) {
-      it(`${name}, zoom ${zoom}`, () => {
-        const sim = settledCluster(specs)
-        const drawn = rects(sim, zoom, specs)
-        const touching: string[] = []
-        for (const a of drawn) {
-          if (a.kind === 'body') continue
-          for (const b of drawn) {
-            if (b.id === a.id) continue
-            const gapPx = Math.max(a.x0 - b.x1, b.x0 - a.x1, a.y0 - b.y1, b.y0 - a.y1) * zoom
-            if (gapPx < AIR_PX) touching.push(`${a.id} ${a.kind} / ${b.id} ${b.kind}: ${gapPx.toFixed(1)}px`)
+  // Both pill modes: a dot-mode map keeps room only for the resting disc,
+  // which must still clear every neighbour.
+  for (const mode of ['label', 'dot'] as const) {
+    for (const [name, specs] of Object.entries(CLUSTERS)) {
+      for (const zoom of [REFERENCE_ZOOM, 40, OUTLINE_ZOOM]) {
+        it(`${name}, zoom ${zoom}, ${mode} pills`, () => {
+          const sim = settledCluster(specs, mode)
+          const drawn = rects(sim, zoom, specs, mode)
+          const touching: string[] = []
+          for (const a of drawn) {
+            if (a.kind === 'body') continue
+            for (const b of drawn) {
+              if (b.id === a.id) continue
+              const gapPx = Math.max(a.x0 - b.x1, b.x0 - a.x1, a.y0 - b.y1, b.y0 - a.y1) * zoom
+              if (gapPx < AIR_PX) touching.push(`${a.id} ${a.kind} / ${b.id} ${b.kind}: ${gapPx.toFixed(1)}px`)
+            }
           }
-        }
-        expect(touching).toEqual([])
-      })
+          expect(touching).toEqual([])
+        })
+      }
     }
   }
 })
@@ -644,8 +677,8 @@ describe('selection moves nothing', () => {
     const spec: ClusterSpec = { id: 'p', status: 'working', title: LONG }
     for (const gauged of [false, true]) {
       const planet = { session: session(spec), scale: ACTIVE_SCALE, modelFamily: 'Opus', gauged }
-      const plain = planetOutline({ ...planet, selected: false } as typeof planet, 1, FONT)
-      const selected = planetOutline({ ...planet, selected: true } as typeof planet, 1, FONT)
+      const plain = planetOutline({ ...planet, selected: false } as typeof planet, 1, FONT, 'label')
+      const selected = planetOutline({ ...planet, selected: true } as typeof planet, 1, FONT, 'label')
       expect(selected).toEqual(plain)
 
       // The box reaches down past the dropped label's bottom edge.
@@ -870,7 +903,8 @@ describe('the hole keeps bodies off its label', () => {
           outline: planetOutline(
             { session: session(spec), scale: ACTIVE_SCALE, modelFamily: 'Opus', gauged: false },
             1,
-            FONT
+            FONT,
+            'label'
           ),
           live: true,
           released: false,
@@ -1005,9 +1039,9 @@ function session(spec: ClusterSpec) {
  * scene model seeds one, and settled. A planet with moons is
  * measured by its moon shell, as `buildSceneModel` measures it.
  */
-function settledCluster(specs: ClusterSpec[]): SimState {
+function settledCluster(specs: ClusterSpec[], mode: MapStatePills = 'label'): SimState {
   const sim = createSimulation()
-  reconcileSimulation(sim, clusterInput(specs))
+  reconcileSimulation(sim, clusterInput(specs, mode))
   settleSimulation(sim)
   return sim
 }
@@ -1016,7 +1050,7 @@ function settledCluster(specs: ClusterSpec[]): SimState {
  * The sim input for a cluster, built the way `SpaceMap` builds it: the
  * outline from the scene planet as a whole, `selected` flag and all.
  */
-function clusterInput(specs: ClusterSpec[]): SimInput {
+function clusterInput(specs: ClusterSpec[], mode: MapStatePills = 'label'): SimInput {
   const k = 2 * ACTIVE_SCALE + MIN_GAP + SPIRAL_SAFETY_MARGIN
   return {
     bodies: specs.map((spec, i) => {
@@ -1035,7 +1069,7 @@ function clusterInput(specs: ClusterSpec[]): SimInput {
         x: k * Math.sqrt(i) * Math.cos(i * GOLDEN_ANGLE),
         y: k * Math.sqrt(i) * Math.sin(i * GOLDEN_ANGLE),
         r: moons > 0 ? moonOrbitRadius(scale, moons - 1, false) + moonVisuals('working').discRadius : scale,
-        outline: planetOutline(planet, 1, FONT),
+        outline: planetOutline(planet, 1, FONT, mode),
         live: spec.status === 'working' || spec.status === 'needs_input',
         released: false,
       }

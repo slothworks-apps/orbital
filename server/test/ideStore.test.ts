@@ -17,7 +17,7 @@ import type { IdeConnection } from '../src/ide/client.js';
 /**
  * The store without an editor. Every test here writes real lock files and
  * drives `applyLockEvent` directly, the way `gitStore.test.ts` drives
- * `applyHeadEvent` — the chokidar watch that normally raises those events is
+ * `applyHeadEvent` — the file watch that normally raises those events is
  * glue, and a suite waiting on filesystem notifications is a flaky one.
  *
  * The socket is the one part of this feature a test cannot own, so it is

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import chokidar, { type FSWatcher } from 'chokidar';
+import { watchDir, type DirWatch } from './watchDir.js';
 import type { SessionStatus } from '../types.js';
 
 /**
@@ -46,7 +46,7 @@ function defaultIsPidAlive(pid: number): boolean {
 
 export class SessionRegistry extends EventEmitter {
   private sessions = new Map<string, LiveSession>();
-  private watcher: FSWatcher | null = null;
+  private watcher: DirWatch | null = null;
   private debounce: ReturnType<typeof setTimeout> | null = null;
   private isPidAlive: (pid: number) => boolean;
 
@@ -105,16 +105,18 @@ export class SessionRegistry extends EventEmitter {
   }
 
   watch(): void {
-    this.watcher = chokidar.watch(this.sessionsDir, { ignoreInitial: true });
-    this.watcher.on('all', () => {
+    // Any event rescans the directory, so the name it carries does not matter,
+    // and a directory that appears later rescans on arrival.
+    const rescan = () => {
       if (this.debounce) clearTimeout(this.debounce);
       this.debounce = setTimeout(() => this.scan(), 200);
-    });
+    };
+    this.watcher = watchDir(this.sessionsDir, { onEvent: rescan, onAppear: rescan });
   }
 
-  async close(): Promise<void> {
+  close(): void {
     if (this.debounce) clearTimeout(this.debounce);
-    await this.watcher?.close();
+    this.watcher?.close();
   }
 
   get(sessionId: string): LiveSession | undefined {

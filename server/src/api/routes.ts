@@ -40,7 +40,8 @@ import type { ImageStore } from '../images/store.js';
 import type { SessionTitler } from '../titler/titler.js';
 import { registerStatsRoutes } from './stats.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
-import { readSubagentMessages } from '../walkthrough/subagents.js';
+import { readSubagentMessages, subagentDirOf } from '../walkthrough/subagents.js';
+import { StampedCache, dirStamp, fileStamp } from '../transcript/stampedCache.js';
 import { buildAskText, buildNarrateText } from '../walkthrough/tag.js';
 import type { Step, StepCall, Walkthrough } from '../walkthrough/types.js';
 
@@ -139,6 +140,14 @@ const IMAGE_REF_RE = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/;
 export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
+ * How many sessions' parsed transcripts (and, separately, walkthroughs) the
+ * server keeps. A count rather than bytes, and a small one: the parsed form
+ * of the largest transcripts runs to hundreds of megabytes of heap, and what
+ * the cache is for is the session being paged through right now.
+ */
+export const TRANSCRIPT_CACHE_SESSIONS = 3;
+
+/**
  * Whether a body's `attachments` is anything other than a list of refs the
  * image store could have written. Absent is fine — most turns have none.
  *
@@ -159,6 +168,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * (spec 2026-09-23-ide-bridge-design § Open files, for `@` completion).
    */
   const openTabs = new OpenTabsReader(ctx.ide);
+  /** Parsed transcripts by path, so paging back does not re-parse per page. */
+  const transcriptMessages = new StampedCache<ChatMessage[]>(TRANSCRIPT_CACHE_SESSIONS);
+  /** Walkthroughs by transcript path; selecting a session asks for one. */
+  const walkthroughs = new StampedCache<Walkthrough>(TRANSCRIPT_CACHE_SESSIONS);
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -237,12 +250,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .where(eq(sessions.id, id))
       .get();
     if (!row) return null;
-    try {
-      const text = readFileSync(join(ctx.projectsDir, row.project_dir, `${id}.jsonl`), 'utf8');
-      return entriesToMessages(parseTranscript(text), ctx.images);
-    } catch {
-      return [];
-    }
+    const path = join(ctx.projectsDir, row.project_dir, `${id}.jsonl`);
+    const stamp = fileStamp(path);
+    if (stamp === null) return [];
+    // Cached as finished wire messages rather than raw entries, so a page
+    // also skips `entriesToMessages` and the image decoding inside it.
+    return transcriptMessages.get(path, stamp, () => {
+      try {
+        return entriesToMessages(parseTranscript(readFileSync(path, 'utf8')), ctx.images);
+      } catch {
+        return [];
+      }
+    });
   }
 
   app.get('/api/sessions/:id/messages', (req, reply) => {
@@ -794,10 +813,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   function walkthroughFor(id: string): { row: SessionRow; walkthrough: Walkthrough } | null {
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
     if (!row) return null;
-    const messages = readTranscriptMessages(id) ?? [];
     const transcriptPath = join(ctx.projectsDir, row.project_dir, `${id}.jsonl`);
-    const subagents = readSubagentMessages(transcriptPath, ctx.images);
-    return { row, walkthrough: buildWalkthrough(messages, subagents) };
+    // The subagents' files feed the walkthrough too, so they are part of the
+    // stamp: an agent that writes on changes it while the parent file sits
+    // still.
+    const stamp = `${fileStamp(transcriptPath) ?? '-'}#${dirStamp(subagentDirOf(transcriptPath))}`;
+    const walkthrough = walkthroughs.get(transcriptPath, stamp, () =>
+      buildWalkthrough(readTranscriptMessages(id) ?? [], readSubagentMessages(transcriptPath, ctx.images)),
+    );
+    return { row, walkthrough };
   }
 
   /** A step's writing calls, a subagent step's sub-steps included. */

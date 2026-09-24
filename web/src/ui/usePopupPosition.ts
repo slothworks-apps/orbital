@@ -8,8 +8,9 @@ import type { RefObject } from 'react'
  *
  * Why the popup is portalled to `<body>` and positioned from the anchor's rect
  * rather than absolutely positioned next to it — two things that have both
- * already bitten this codebase: a `backdrop-filter` ancestor (every `Panel`)
- * becomes the containing block for `position: fixed` descendants, and the
+ * already bitten this codebase: a `backdrop-filter` ancestor (every `Panel`,
+ * back when the docked ones were frosted glass) becomes the containing block
+ * for `position: fixed` descendants, and the
  * rules table, the settings body and the detail panel are overflow containers
  * that would clip an absolutely-positioned popup.
  *

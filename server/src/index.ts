@@ -20,7 +20,8 @@ import {
 } from './retention.js';
 import { openDb } from './db/database.js';
 import { sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
-import { indexProjects } from './indexer/indexer.js';
+import { indexPaths, indexProjects } from './indexer/indexer.js';
+import { watchProjects } from './watcher/projects.js';
 import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { LiveSessionStats } from './watcher/liveStats.js';
@@ -41,7 +42,6 @@ import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import type { PermissionMode, SessionRow } from './types.js';
-import chokidar from 'chokidar';
 
 /**
  * Publishes a REST-shaped `ApiSession` on the `sessions` topic for a live
@@ -97,6 +97,46 @@ export function publishSession(ctx: PublishContext, sessionId: string): void {
     .get() as SessionRow | undefined;
   if (!row) return;
   ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+}
+
+/**
+ * Whether a session has to hear about a change to its directory's ambient
+ * state — a `HEAD` that moved, an editor selection, an editor opening or
+ * closing — as it happens.
+ *
+ * A live session does: the map and the composer act on it now. So does any
+ * session a window has open (`session:<id>` has a subscriber), ended ones
+ * included, because the header shows its branch and its composer sends the
+ * editor selection along with a continued conversation. Every other ended
+ * session is skipped. A workspace can hold well over a hundred of them, and
+ * a selection drag would otherwise republish all of them per flush (audit
+ * resource-usage-pass-2026-09-24, finding 4). The first subscriber to a
+ * session's topic republishes it, so opening one later picks up whatever it
+ * missed.
+ */
+export function wantsAmbientUpdates(ctx: PublishContext, sessionId: string): boolean {
+  const owned = ctx.runner.status(sessionId);
+  if (owned !== undefined && owned !== 'ended') return true;
+  if (ctx.registry.get(sessionId)) return true;
+  return ctx.hub.subscriberCount(`session:${sessionId}`) > 0;
+}
+
+/**
+ * Republishes the sessions sitting in these directories whose ambient state
+ * anyone is looking at (`wantsAmbientUpdates`). Neither a branch switch nor a
+ * selection changes a session row, so both are turned back into sessions
+ * here and published the way every other session change is.
+ */
+export function republishCwds(ctx: PublishContext, cwds: string[]): void {
+  if (cwds.length === 0) return;
+  const rows = ctx.db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(inArray(sessions.cwd, cwds))
+    .all();
+  for (const row of rows) {
+    if (wantsAmbientUpdates(ctx, row.id)) publishSession(ctx, row.id);
+  }
 }
 
 /**
@@ -284,20 +324,8 @@ export async function buildServer(overrides: {
   const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, git, ide });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
 
-  // Neither a branch switch nor a selection changes a session row, so both
-  // have to be turned back into the sessions sitting in that directory and
-  // published the way every other session change is.
-  const republishCwds = (cwds: string[]) => {
-    if (cwds.length === 0) return;
-    const rows = db
-      .select({ id: sessions.id })
-      .from(sessions)
-      .where(inArray(sessions.cwd, cwds))
-      .all();
-    for (const row of rows) republish(row.id);
-  };
-  git.on('change', (_root: string, cwds: string[]) => republishCwds(cwds));
-  ide.on('change', (_root: string, cwds: string[]) => republishCwds(cwds));
+  git.on('change', (_root: string, cwds: string[]) => republishCwds(publishCtx(), cwds));
+  ide.on('change', (_root: string, cwds: string[]) => republishCwds(publishCtx(), cwds));
 
   // One store for both message producers, so a live image and its reloaded
   // twin land as the same file and the same ref.
@@ -599,7 +627,12 @@ export async function buildServer(overrides: {
     tail.start(from);
     tails.set(topic, tail);
   };
-  hub.onFirstSubscriber(startTail);
+  hub.onFirstSubscriber((topic) => {
+    startTail(topic);
+    // An ended session nobody had open was skipped by `republishCwds`, so its
+    // branch and editor selection may be stale in the browser by now.
+    if (topic.startsWith('session:')) republish(topic.slice('session:'.length));
+  });
   hub.onLastUnsubscriber((topic) => {
     stopTail(topic);
     if (topic.startsWith('session:')) liveStats.drop(topic.slice('session:'.length));
@@ -622,11 +655,12 @@ export async function buildServer(overrides: {
   runRetentionSweep();
   console.log('orbital: backfilling the session-stats index (first pass, may take a while on a large ~/.claude)…');
   const statsBackfill = setImmediate(() => indexProjects(db, projectsDir, statsWritten));
-  const projectsWatcher = chokidar.watch(projectsDir, { ignoreInitial: true, depth: 2 });
-  let indexTimer: ReturnType<typeof setTimeout> | null = null;
-  projectsWatcher.on('all', () => {
-    if (indexTimer) clearTimeout(indexTimer);
-    indexTimer = setTimeout(() => indexProjects(db, projectsDir, statsWritten), 500);
+  // After boot, an event indexes the transcripts it named, not the tree: the
+  // full pass stats every transcript on the machine, and a working session
+  // writes several times a second.
+  const projectsWatcher = watchProjects(projectsDir, (batch) => {
+    if (batch.all) indexProjects(db, projectsDir, statsWritten);
+    else indexPaths(db, projectsDir, batch.paths, statsWritten);
   });
 
   // Live registry → 'sessions' topic, REST-shaped (final-review ruling).
@@ -759,15 +793,16 @@ export async function buildServer(overrides: {
         countSweepable(db, retentionCutoff(parseRetentionDays(value), Date.now())),
     },
   });
-  app.addHook('onClose', async () => {
+  app.addHook('onClose', (_instance, done) => {
     clearImmediate(statsBackfill);
     runner.dispose();
-    await registry.close();
+    registry.close();
     git.close();
     ide.close();
-    await projectsWatcher.close();
+    projectsWatcher.close();
     for (const tail of tails.values()) tail.stop();
     db.$client.close();
+    done();
   });
   return app;
 }

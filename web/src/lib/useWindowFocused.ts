@@ -21,3 +21,18 @@ export function useWindowFocused(enabled: boolean): boolean {
   }, [enabled])
   return focused
 }
+
+/**
+ * Whether the document is hidden (`document.hidden`): a minimised window, a
+ * background tab, or the desktop window after the red button, which only
+ * hides it. The map draws nothing while this is true.
+ */
+export function useDocumentHidden(): boolean {
+  const [hidden, setHidden] = useState(() => document.hidden)
+  useEffect(() => {
+    const onChange = () => setHidden(document.hidden)
+    document.addEventListener('visibilitychange', onChange)
+    return () => document.removeEventListener('visibilitychange', onChange)
+  }, [])
+  return hidden
+}
