@@ -9,7 +9,7 @@
  * back what comes out. Nothing here may import electron
  * (spec 2026-09-16-electron-wrapper-design § 4 "Testing").
  */
-import type { Bounds } from './sessionWindows';
+import { shrinkAfterSubagent, type Bounds, type SubagentGrowth } from './sessionWindows';
 
 /** The file's name inside `app.getPath('userData')`. */
 export const WINDOW_FRAMES_FILE = 'window-frames.json';
@@ -149,6 +149,27 @@ export function withMainFrame(frames: WindowFrames, bounds: Bounds, path: string
 export function withSessionFrame(frames: WindowFrames, bounds: Bounds): WindowFrames | null {
   if (sameBounds(frames.session, bounds)) return null;
   return { ...frames, session: bounds };
+}
+
+/**
+ * The frame a detached window contributes as the one the next detached window
+ * opens at, or null when it contributes nothing.
+ *
+ * Only the user's own choice counts. The subagent panel's grow is main's
+ * doing and lasts only while the agent is open, so it is undone first — as
+ * the panel's close would undo it, which leaves a size the user set by hand
+ * in the meantime as it is. A window still at the frame it opened at has not
+ * been touched: that frame is a cascade step at most, and taking it would
+ * walk the remembered frame down the screen one step per untouched window.
+ */
+export function sessionFrameToRemember(
+  frame: Bounds,
+  opened: Bounds,
+  growth: SubagentGrowth | undefined,
+  minWidth: number,
+): Bounds | null {
+  const own = growth ? (shrinkAfterSubagent(frame, growth, minWidth) ?? frame) : frame;
+  return sameBounds(opened, own) ? null : own;
 }
 
 function overlapArea(a: Bounds, b: Bounds): number {

@@ -32,8 +32,10 @@ the fixed default too. Nothing about the camera is part of this.
   Main never loads the detached window's route (`/session/<id>`) into the
   main window, and never a path that would leave the origin.
 - **Detached windows** share one remembered frame: the one the last detached
-  window was moved or resized to. That includes the grow and shrink for the
-  subagent panel, since those are resizes. A new detached window opens there;
+  window was moved or resized to by the user. The grow for the subagent panel
+  is not the user's: it is undone before the frame is saved, as the panel's
+  close would undo it, so a window closed with the panel open leaves its
+  frame without the panel. A new detached window opens there;
   with nothing remembered it opens at the default size, centred on the
   primary display.
 - **Several detached windows.** Every new one starts from the same frame, so
@@ -44,8 +46,10 @@ the fixed default too. Nothing about the camera is part of this.
   another.
 - **What a detached window remembers.** Only a move or a resize is taken. The
   frame a window opened at is not: a cascade step is not the user's choice,
-  and taking it on close would walk the remembered frame down the screen one
-  step for every untouched window.
+  and taking it would walk the remembered frame down the screen one step for
+  every untouched window. A window whose frame, with the panel's grow undone,
+  is still the one it opened at writes nothing — including one whose panel
+  grew it and shrank it back.
 - **Displays.** A remembered frame goes back to the display whose work area
   it overlaps most, and is shrunk and moved just enough to sit wholly inside
   it. A frame on a display that is no longer connected is centred on the
