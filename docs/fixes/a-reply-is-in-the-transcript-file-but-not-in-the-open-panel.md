@@ -2,7 +2,7 @@
 id: a-reply-is-in-the-transcript-file-but-not-in-the-open-panel
 title: A reply reaches the transcript file but not the open panel until View > Reload
 type: fix
-status: active
+status: done
 domain: web
 related:
   - 2026-09-22-ws-reconnect-resync-design
@@ -23,6 +23,32 @@ has it; what failed is the live path from the server to the open panel.
 
 Not reproduced. This records what was checked, so the next look starts
 from the evidence rather than from the code.
+
+## Root cause, found 2026-09-24
+
+The reply arrived while ANOTHER session was selected, and coming back did
+not fetch it. `App` subscribes to `session:<id>` only for the selected
+session, so while you work in session B nothing listens to A; A's reply
+reaches the transcript file and the `sessions` topic (which is why the
+planet moved), but never the store. Then `select(A)` saw `historyLoaded[A]`
+and returned without asking the server again, so the panel showed A exactly
+as it was left: the typed prompt, no reply. Reload rebuilt the store from
+the file and it appeared.
+
+That is why it read as "regularly": switching between sessions is what
+Orbital is for, and every reply that landed while its session was
+deselected was lost to the panel until a reload. Not a socket fault at all
+— every candidate below was looking at the wrong hop.
+
+**Fix.** `select()` treats a return to a deselected session as a fresh
+open: it fetches the history and replaces the held transcript, carrying
+over only an optimistic prompt the file has not echoed yet and whatever the
+re-taken subscription delivered while the fetch was in flight. Re-selecting
+the session already open still does not refetch, because its subscription
+never lapsed. Tests in `web/src/test/store.test.ts` ("select, coming back
+to a session"). The resource audit had flagged the same stale cache as a
+memory item ([[a-reopened-session-shows-the-transcript-it-was-left-with]]);
+the memoisation and batching in that document remain open.
 
 ## Verified working
 

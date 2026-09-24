@@ -2301,3 +2301,70 @@ describe('setWsStatus', () => {
     expect(api.listSessions).toHaveBeenCalledTimes(1)
   })
 })
+
+// fix: a-reply-is-in-the-transcript-file-but-not-in-the-open-panel
+describe('select, coming back to a session', () => {
+  const m1: ChatMessage = { id: 'm1', role: 'user', text: 'first' }
+  const reply: ChatMessage = { id: 'm2', role: 'assistant', text: 'answered while away' }
+
+  it('refetches the history, because nothing listened while it was deselected', async () => {
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
+    await useOrbital.getState().select('s1')
+    vi.mocked(api.getMessages).mockResolvedValueOnce([])
+    await useOrbital.getState().select('s2')
+    // The reply landed in the transcript file while s2 was selected; no
+    // `session:s1` subscription existed to carry it here.
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1, reply])
+    await useOrbital.getState().select('s1')
+
+    expect(api.getMessages).toHaveBeenCalledTimes(3)
+    expect(useOrbital.getState().transcripts.s1).toEqual([m1, reply])
+  })
+
+  it('keeps a live message that arrives during the refetch, after the fetched history', async () => {
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
+    await useOrbital.getState().select('s1')
+    vi.mocked(api.getMessages).mockResolvedValueOnce([])
+    await useOrbital.getState().select('s2')
+
+    const live: ChatMessage = { id: 's1:9:0', role: 'assistant', text: 'live' }
+    let resolveFetch: (m: ChatMessage[]) => void = () => {}
+    vi.mocked(api.getMessages).mockImplementationOnce(
+      () => new Promise<ChatMessage[]>((resolve) => { resolveFetch = resolve }),
+    )
+    const selecting = useOrbital.getState().select('s1')
+    useOrbital.getState().applySessionEvent('s1', { event: 'message', message: live })
+    resolveFetch([m1, reply])
+    await selecting
+
+    expect(useOrbital.getState().transcripts.s1).toEqual([m1, reply, live])
+  })
+
+  it('keeps an optimistic prompt the refetched history has not echoed yet', async () => {
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
+    await useOrbital.getState().select('s1')
+    vi.mocked(api.sendMessage).mockResolvedValueOnce(undefined as never)
+    await useOrbital.getState().sendPrompt('s1', 'still in flight')
+    vi.mocked(api.getMessages).mockResolvedValueOnce([])
+    await useOrbital.getState().select('s2')
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
+    await useOrbital.getState().select('s1')
+
+    const texts = useOrbital.getState().transcripts.s1.map((m) => m.text)
+    expect(texts).toEqual(['first', 'still in flight'])
+  })
+
+  it('drops the optimistic prompt once the refetched history carries its echo', async () => {
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
+    await useOrbital.getState().select('s1')
+    vi.mocked(api.sendMessage).mockResolvedValueOnce(undefined as never)
+    await useOrbital.getState().sendPrompt('s1', 'echoed')
+    vi.mocked(api.getMessages).mockResolvedValueOnce([])
+    await useOrbital.getState().select('s2')
+    const echo: ChatMessage = { id: 'u2:0', role: 'user', text: 'echoed' }
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1, echo, reply])
+    await useOrbital.getState().select('s1')
+
+    expect(useOrbital.getState().transcripts.s1).toEqual([m1, echo, reply])
+  })
+})

@@ -503,6 +503,30 @@ function imageRefKey(images: readonly ImageRefEntry[] | undefined): string {
     .join('\0')
 }
 
+/** Whether `message` is a user turn this tab appended optimistically and the
+ * transcript file has not echoed back yet. */
+function isPendingTurn(message: ChatMessage): boolean {
+  return message.id.startsWith('local:') && message.role === 'user'
+}
+
+/**
+ * Whether `echo` is the transcript's copy of the optimistic `pending` turn:
+ * the same trimmed text AND the same image refs. The refs are part of the
+ * match because text alone stopped being distinguishing once a turn could be
+ * image-only: two pasted screenshots are two turns with identical (empty)
+ * text, and matching on text would have the second echo overwrite the first
+ * bubble. The store is content-addressed, so same bytes mean the same ref on
+ * both sides — there is nothing to normalise (spec: 2026-09-20-composer-design
+ * § Store + wire).
+ */
+function echoes(echo: ChatMessage, pending: ChatMessage): boolean {
+  return (
+    echo.role === 'user' &&
+    (echo.text ?? '').trim() === (pending.text ?? '').trim() &&
+    imageRefKey(echo.images) === imageRefKey(pending.images)
+  )
+}
+
 /**
  * Non-reactive bookkeeping (not store state — nothing needs to re-render off
  * this changing, only off the `transcriptErrors` flag it feeds) tracking
@@ -873,24 +897,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // message in place (same trimmed text AND the same image refs) instead
       // of appending, so the transcript doesn't show two copies of the same
       // user bubble.
-      //
-      // The refs are part of the match because text alone stopped being
-      // distinguishing once a turn could be image-only: two pasted screenshots
-      // are two turns with identical (empty) text, and matching on text would
-      // have the second echo overwrite the first bubble. The store is
-      // content-addressed, so same bytes mean the same ref on both sides —
-      // there is nothing to normalise (spec: 2026-09-20-composer-design
-      // § Store + wire).
       if (msg.message.role === 'user') {
-        const incomingText = (msg.message.text ?? '').trim()
-        const incomingRefs = imageRefKey(msg.message.images)
-        const pendingIdx = existing.findIndex(
-          (m) =>
-            m.id.startsWith('local:') &&
-            m.role === 'user' &&
-            (m.text ?? '').trim() === incomingText &&
-            imageRefKey(m.images) === incomingRefs,
-        )
+        const echo = msg.message
+        const pendingIdx = existing.findIndex((m) => isPendingTurn(m) && echoes(echo, m))
         if (pendingIdx >= 0) {
           const updated = existing.slice()
           // The echo wins on everything the server owns, but the captions are
@@ -1124,6 +1133,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const selected = get().sessions[id]
     if (selected) set((state) => seedDecision(state, selected))
 
+    // Read before the selection moves: whether this is a return to a session
+    // that was deselected, which decides what the fetch below is for.
+    const returning = get().ui.selectedId !== id && get().historyLoaded[id] === true
+
     set((state) => ({
       ui: {
         ...state.ui,
@@ -1134,19 +1147,50 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       },
     }))
 
-    if (get().historyLoaded[id]) return
+    // Re-selecting the session already open: its subscription never lapsed,
+    // so the transcript held is complete.
+    if (get().historyLoaded[id] && !returning) return
+
+    // What the transcript held when the fetch was asked for. Only the
+    // `session:<id>` subscription appends to it, and App's effect takes that
+    // subscription on the selection above — so anything in it AFTER the fetch
+    // resolves that was not here now arrived live during the fetch.
+    const held = get().transcripts[id] ?? []
 
     try {
       const fetched = await api.getMessages(id)
       set((state) => {
         const existing = state.transcripts[id] ?? []
-        const existingIds = new Set(existing.map((m) => m.id))
-        const toPrepend = fetched.filter((m) => !existingIds.has(m.id))
+        const fetchedIds = new Set(fetched.map((m) => m.id))
+        if (!returning) {
+          // First open: the file's history goes in front of whatever the
+          // subscription delivered before the fetch resolved.
+          const existingIds = new Set(existing.map((m) => m.id))
+          const toPrepend = fetched.filter((m) => !existingIds.has(m.id))
+          return {
+            transcripts: { ...state.transcripts, [id]: [...toPrepend, ...existing] },
+            historyLoaded: { ...state.historyLoaded, [id]: true },
+          }
+        }
+        // Coming back: nothing listened on `session:<id>` while it was
+        // deselected, so the held transcript ends wherever the selection
+        // left it and every reply since is only in the file. The file's
+        // history REPLACES it (fix
+        // a-reply-is-in-the-transcript-file-but-not-in-the-open-panel), and
+        // two things are carried over from the held copy: an optimistic turn
+        // the file has not echoed yet (the CLI writes a prompt when its
+        // process takes it, which for a sleeping session is seconds away),
+        // and what the re-taken subscription delivered while the fetch was
+        // in flight. Both belong after the history — they are the newest
+        // things this tab knows.
+        const heldIds = new Set(held.map((m) => m.id))
+        const carried = existing.filter((m) => {
+          if (fetchedIds.has(m.id)) return false
+          if (!heldIds.has(m.id)) return true
+          return isPendingTurn(m) && !fetched.some((f) => echoes(f, m))
+        })
         return {
-          transcripts: {
-            ...state.transcripts,
-            [id]: [...toPrepend, ...existing],
-          },
+          transcripts: { ...state.transcripts, [id]: [...fetched, ...carried] },
           historyLoaded: { ...state.historyLoaded, [id]: true },
         }
       })
