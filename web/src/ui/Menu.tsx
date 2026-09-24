@@ -13,13 +13,32 @@ export interface MenuItem {
   detail?: ReactNode
   /** Still in the list and still focusable (a menu keeps its shape), but it does nothing. */
   disabled?: boolean
+  /**
+   * The row stands for what is already open (the subagent list's agent in the
+   * panel): `aria-current` and a trailing ✓. Once any row in the menu sets
+   * this — true or false — every row reserves the ✓ column, so marking one
+   * does not shift the others.
+   */
+  selected?: boolean
+  /**
+   * Drawn as the row's content in place of icon, label and detail, so a caller
+   * can draw a row `Menu` knows nothing about. The row keeps focus, keys,
+   * `disabled`, `selected` and `onSelect`; `label` still drives type-ahead and
+   * becomes the row's accessible name.
+   */
+  body?: ReactNode
   onSelect: () => void
+}
+
+/** A group title over the rows that follow it — not focusable, not an item. */
+export interface MenuHeading {
+  heading: string
 }
 
 /** A hairline between groups of rows. */
 export const MENU_SEPARATOR = 'separator'
 
-export type MenuEntry = MenuItem | typeof MENU_SEPARATOR
+export type MenuEntry = MenuItem | MenuHeading | typeof MENU_SEPARATOR
 
 /** What the trigger has to carry — spread it onto the button that opens the menu. */
 export interface MenuTriggerProps {
@@ -43,6 +62,13 @@ export interface MenuButtonProps {
   widthPx?: number
   /** Which of the trigger's edges the popup lines up with. */
   align?: 'left' | 'right'
+  /**
+   * At most this many items visible; past it the list scrolls inside the
+   * shell. The ceiling is measured off the rendered rows, so it holds for
+   * any row height — a custom `body` included. Without it the list takes
+   * its content's height.
+   */
+  maxRows?: number
 }
 
 /** Trigger to popup, the same 4px as `Select`'s (23c: the menu starts 4px under the ⋯). */
@@ -50,7 +76,15 @@ const POPUP_GAP = 4
 /** Type-ahead buffer lifetime, the same as `Select`'s. */
 const TYPEAHEAD_MS = 500
 
-const isItem = (entry: MenuEntry): entry is MenuItem => entry !== MENU_SEPARATOR
+const isItem = (entry: MenuEntry): entry is MenuItem => entry !== MENU_SEPARATOR && !('heading' in entry)
+
+/** Focus a row and bring it into the list's scrolled view, as little as it takes. */
+function focusRow(row: HTMLElement | null | undefined) {
+  if (!row) return
+  row.focus({ preventScroll: true })
+  // Optional: jsdom does not implement it.
+  row.scrollIntoView?.({ block: 'nearest' })
+}
 
 /**
  * A menu button: a trigger, and a `role="menu"` of actions under it. The
@@ -66,6 +100,12 @@ const isItem = (entry: MenuEntry): entry is MenuItem => entry !== MENU_SEPARATOR
  * ArrowUp on the last. In the menu: arrows move and wrap, Home/End jump,
  * Enter/Space run the row, a letter jumps to the next row starting with it,
  * Escape and Tab close back to the trigger.
+ *
+ * Besides rows, `entries` can hold hairlines (`MENU_SEPARATOR`) and group
+ * headings (`MenuHeading`); neither is an item, so the keys above — arrows,
+ * Home/End, type-ahead — never land on one. A row can mark itself `selected`
+ * and draw its own `body`; `maxRows` caps the list and scrolls it inside the
+ * shell, the focused row kept in view.
  */
 export function MenuButton({
   entries,
@@ -73,6 +113,7 @@ export function MenuButton({
   onOpenChange,
   widthPx,
   align = 'right',
+  maxRows,
   ...aria
 }: MenuButtonProps) {
   const menuId = useId()
@@ -84,7 +125,10 @@ export function MenuButton({
   /** Which row takes focus when the menu has just opened. */
   const [initial, setInitial] = useState<'first' | 'last'>('first')
 
+  const listRef = useRef<HTMLDivElement | null>(null)
+
   const items = entries.filter(isItem)
+  const marksSelection = items.some((item) => item.selected !== undefined)
 
   const latestOnOpenChange = useRef(onOpenChange)
   latestOnOpenChange.current = onOpenChange
@@ -110,13 +154,29 @@ export function MenuButton({
 
   useEscapeLayer(open, () => close(true))
 
+  // The ceiling: the bottom edge of the `maxRows`-th item, headings and
+  // hairlines above it included, so it holds for any row height. The list is
+  // the rows' offset parent, so its own scroll does not move the number.
+  // Written straight onto the list, the way `usePopupPosition` writes the
+  // shell, and on every commit, since rows can change under an open list.
+  // Declared before the positioning and the focus-on-open effects, which
+  // run in this order: the shell is placed at its capped height, and the
+  // row focused on opening (the last one, from ArrowUp) is scrolled into a
+  // list that is already capped.
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const last = maxRows === undefined || items.length <= maxRows ? null : itemRefs.current[maxRows - 1]
+    list.style.maxHeight = last ? `${last.offsetTop + last.offsetHeight}px` : ''
+  })
+
   usePopupPosition(open, triggerRef, popupRef, { gap: POPUP_GAP, align })
 
   // Into the menu on open. A layout effect, so the first row already holds
   // focus in the frame the menu appears.
   useLayoutEffect(() => {
     if (!open || items.length === 0) return
-    itemRefs.current[initial === 'first' ? 0 : items.length - 1]?.focus()
+    focusRow(itemRefs.current[initial === 'first' ? 0 : items.length - 1])
     // Only on opening: re-running on every render would yank focus back to
     // the first row under a pointer that has moved on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -143,7 +203,7 @@ export function MenuButton({
   }
 
   const focusedIndex = () => itemRefs.current.findIndex((el) => el === document.activeElement)
-  const focusAt = (index: number) => itemRefs.current[(index + items.length) % items.length]?.focus()
+  const focusAt = (index: number) => focusRow(itemRefs.current[(index + items.length) % items.length])
 
   function typeahead(char: string): number {
     const now = Date.now()
@@ -226,67 +286,111 @@ export function MenuButton({
       {trigger}
       {open &&
         createPortal(
+          // The shell is what `usePopupPosition` places and caps against the
+          // viewport; the list inside it is the menu, and the part that
+          // scrolls — under `maxRows`, or when the viewport is the tighter cap.
           <div
             ref={popupRef}
-            id={menuId}
-            role="menu"
-            aria-label={aria['aria-label']}
-            onKeyDown={handleMenuKeyDown}
-            // 23c form 4: 6px padding, rows 2px apart, and the popup shell
-            // Select's listbox wears (10px radius, .96 fill, .16 hairline).
-            className={['orbital-no-drag fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col gap-0.5 p-1.5', POPUP_SHELL].join(' ')}
+            // 23c form 4: 6px padding, and the popup shell Select's listbox
+            // wears (10px radius, .96 fill, .16 hairline).
+            className={['orbital-no-drag fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-1.5', POPUP_SHELL].join(' ')}
             style={widthPx === undefined ? undefined : { width: `${widthPx}px` }}
           >
-            {entries.map((entry, i) => {
-              if (!isItem(entry)) {
+            <div
+              ref={listRef}
+              id={menuId}
+              role="menu"
+              aria-label={aria['aria-label']}
+              onKeyDown={handleMenuKeyDown}
+              // 23c form 4: rows 2px apart. `relative` makes the list the
+              // rows' offset parent, which the ceiling is measured against.
+              className="relative flex min-h-0 flex-col gap-0.5 overflow-y-auto"
+            >
+              {entries.map((entry, i) => {
+                if (entry === MENU_SEPARATOR) {
+                  return (
+                    <div
+                      key={`separator-${i}`}
+                      role="separator"
+                      className="mx-0.5 my-1 h-px shrink-0 bg-[rgba(150,205,255,.1)]"
+                    />
+                  )
+                }
+                if (!isItem(entry)) {
+                  return (
+                    <div
+                      key={`heading-${i}`}
+                      role="presentation"
+                      // 25a's group titles: mono 9.5px caps at .18em in the
+                      // soft ink, 10px in; the first one sits 8px from the
+                      // top, the ones between groups 6px.
+                      className={[
+                        'shrink-0 px-2.5 font-mono text-[9.5px] uppercase tracking-[.18em] text-[rgba(160,190,225,.6)]',
+                        i === 0 ? 'pt-2 pb-1.5' : 'py-1.5',
+                      ].join(' ')}
+                    >
+                      {entry.heading}
+                    </div>
+                  )
+                }
+                const index = itemIndex++
                 return (
                   <div
-                    key={`separator-${i}`}
-                    role="separator"
-                    className="mx-0.5 my-1 h-px shrink-0 bg-[rgba(150,205,255,.1)]"
-                  />
-                )
-              }
-              const index = itemIndex++
-              return (
-                <div
-                  key={entry.key}
-                  ref={(el) => {
-                    itemRefs.current[index] = el
-                  }}
-                  role="menuitem"
-                  tabIndex={-1}
-                  aria-disabled={entry.disabled || undefined}
-                  onClick={() => run(entry)}
-                  // Pointer and keyboard share one highlight: the row under
-                  // the pointer IS the focused row, so arrowing on from a
-                  // hover starts where the eye is.
-                  onMouseMove={(e) => {
-                    if (document.activeElement !== e.currentTarget) e.currentTarget.focus()
-                  }}
-                  // 23c form 4's rows: 7px/8px in a 7px radius, 10px gap, a
-                  // 20px icon column, a 12.5px/600 label. The canvas lights
-                  // the first row at the strip's hover fill — that is the
-                  // focused row.
-                  className={[
-                    'group flex shrink-0 cursor-pointer items-center gap-2.5 rounded-[7px] px-2 py-[7px] outline-none',
-                    'text-[rgba(220,235,255,.9)] focus:bg-[rgba(150,205,255,.09)] focus:text-[#e8eef8]',
-                    'aria-disabled:cursor-default aria-disabled:opacity-50',
-                  ].join(' ')}
-                >
-                  <span
-                    aria-hidden
-                    className="grid w-5 shrink-0 place-items-center text-[rgba(200,220,245,.7)] group-focus:text-[rgba(200,220,245,.85)]"
+                    key={entry.key}
+                    ref={(el) => {
+                      itemRefs.current[index] = el
+                    }}
+                    role="menuitem"
+                    tabIndex={-1}
+                    aria-label={entry.body === undefined ? undefined : entry.label}
+                    aria-disabled={entry.disabled || undefined}
+                    aria-current={entry.selected ? 'true' : undefined}
+                    onClick={() => run(entry)}
+                    // Pointer and keyboard share one highlight: the row under
+                    // the pointer IS the focused row, so arrowing on from a
+                    // hover starts where the eye is. Without scrolling: a
+                    // list that moved under the pointer would hand the
+                    // highlight to the next row.
+                    onMouseMove={(e) => {
+                      if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true })
+                    }}
+                    // 23c form 4's rows: 7px/8px in a 7px radius, 10px gap, a
+                    // 20px icon column, a 12.5px/600 label. The canvas lights
+                    // the first row at the strip's hover fill — that is the
+                    // focused row.
+                    className={[
+                      'group flex shrink-0 cursor-pointer items-center gap-2.5 rounded-[7px] px-2 py-[7px] outline-none',
+                      'text-[rgba(220,235,255,.9)] focus:bg-[rgba(150,205,255,.09)] focus:text-[#e8eef8]',
+                      'aria-disabled:cursor-default aria-disabled:opacity-50',
+                    ].join(' ')}
                   >
-                    {entry.icon}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] font-semibold">{entry.label}</span>
-                  {entry.detail !== undefined && (
-                    <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{entry.detail}</span>
-                  )}
-                </div>
-              )
-            })}
+                    {entry.body !== undefined ? (
+                      <div className="min-w-0 flex-1">{entry.body}</div>
+                    ) : (
+                      <>
+                        <span
+                          aria-hidden
+                          className="grid w-5 shrink-0 place-items-center text-[rgba(200,220,245,.7)] group-focus:text-[rgba(200,220,245,.85)]"
+                        >
+                          {entry.icon}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] font-semibold">{entry.label}</span>
+                        {entry.detail !== undefined && (
+                          <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{entry.detail}</span>
+                        )}
+                      </>
+                    )}
+                    {marksSelection && (
+                      // 25a's mark: a 12px column at 11px in the accent, kept
+                      // on every row so marking one shifts none.
+                      <span aria-hidden className="block w-3 shrink-0 text-[11px] text-accent">
+                        {entry.selected ? '✓' : null}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>,
           document.body,
         )}

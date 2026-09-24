@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MENU_SEPARATOR, MenuButton } from '../ui/Menu'
 import type { MenuEntry } from '../ui/Menu'
@@ -134,5 +134,119 @@ describe('MenuButton', () => {
     fireEvent.click(trigger)
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  describe('group headings, the selected mark, custom row bodies and the row ceiling', () => {
+    function setupGrouped(maxRows?: number) {
+      const run = vi.fn()
+      const done = vi.fn()
+      const entries: MenuEntry[] = [
+        { heading: 'Running · 2' },
+        { key: 'a', label: 'Alpha task', onSelect: run },
+        { key: 'b', label: 'Beta task', onSelect: run, selected: true },
+        { heading: 'Done · 2' },
+        { key: 'c', label: 'Crunch numbers', body: <span>custom body C</span>, onSelect: done, selected: false },
+        { key: 'd', label: 'Delta task', onSelect: done },
+      ]
+      render(
+        <MenuButton
+          aria-label="Subagents"
+          entries={entries}
+          maxRows={maxRows}
+          renderTrigger={(props) => (
+            <button type="button" aria-label="Subagents" {...props}>
+              agents
+            </button>
+          )}
+        />,
+      )
+      const trigger = screen.getByRole('button', { name: 'Subagents' })
+      return { trigger, run, done }
+    }
+
+    /** A body row's text is its body, so name the focused row the way a screen reader would. */
+    const focusedName = () => document.activeElement?.getAttribute('aria-label') ?? focusedLabel()?.replace('✓', '')
+
+    // jsdom has no scrollIntoView; the ceiling test lends it one.
+    const jsdomScrollIntoView = Element.prototype.scrollIntoView
+    afterEach(() => {
+      vi.restoreAllMocks()
+      Element.prototype.scrollIntoView = jsdomScrollIntoView
+    })
+
+    it('skips headings with the arrows, Home and End, and does not count them as items', () => {
+      const { trigger } = setupGrouped()
+      fireEvent.keyDown(trigger, { key: 'Enter' })
+      const menu = screen.getByRole('menu')
+      expect(screen.getAllByRole('menuitem')).toHaveLength(4)
+      expect(focusedName()).toBe('Alpha task')
+
+      fireEvent.keyDown(menu, { key: 'ArrowDown' })
+      expect(focusedName()).toBe('Beta task')
+      fireEvent.keyDown(menu, { key: 'ArrowDown' })
+      expect(focusedName()).toBe('Crunch numbers')
+      fireEvent.keyDown(menu, { key: 'ArrowUp' })
+      expect(focusedName()).toBe('Beta task')
+      fireEvent.keyDown(menu, { key: 'End' })
+      expect(focusedName()).toBe('Delta task')
+      fireEvent.keyDown(menu, { key: 'Home' })
+      expect(focusedName()).toBe('Alpha task')
+      // Wrapping up from the first item passes over the heading above it.
+      fireEvent.keyDown(menu, { key: 'ArrowUp' })
+      expect(focusedName()).toBe('Delta task')
+    })
+
+    it('leaves headings out of type-ahead', () => {
+      const { trigger } = setupGrouped()
+      fireEvent.click(trigger)
+      // "d" would match the "Done · 2" heading first, but only items are candidates.
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'd' })
+      expect(focusedName()).toBe('Delta task')
+    })
+
+    it('marks the selected row, and only that one, with aria-current', () => {
+      const { trigger } = setupGrouped()
+      fireEvent.click(trigger)
+      const current = screen.getAllByRole('menuitem').filter((row) => row.getAttribute('aria-current') === 'true')
+      expect(current).toHaveLength(1)
+      expect(current[0]).toHaveAccessibleName('Beta task')
+    })
+
+    it('draws a custom body, named by its label, reachable by type-ahead and run on Enter', () => {
+      const { trigger, done } = setupGrouped()
+      fireEvent.click(trigger)
+      const row = screen.getByRole('menuitem', { name: 'Crunch numbers' })
+      expect(row).toHaveTextContent('custom body C')
+
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'c' })
+      expect(document.activeElement).toBe(row)
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Enter' })
+      expect(done).toHaveBeenCalledOnce()
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    })
+
+    it('caps its height under maxRows and scrolls the focused row into view', () => {
+      // jsdom does no layout: give every element a height and a position so
+      // the ceiling has something to measure.
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(10)
+      vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockReturnValue(10)
+      const scrollIntoView = vi.fn()
+      Element.prototype.scrollIntoView = scrollIntoView
+
+      const { trigger } = setupGrouped(2)
+      fireEvent.click(trigger)
+      const menu = screen.getByRole('menu')
+      expect(menu.style.maxHeight).not.toBe('')
+
+      fireEvent.keyDown(menu, { key: 'End' })
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest' })
+      expect(scrollIntoView.mock.instances.at(-1)).toBe(document.activeElement)
+    })
+
+    it('sets no ceiling without maxRows', () => {
+      const { trigger } = setupGrouped()
+      fireEvent.click(trigger)
+      expect(screen.getByRole('menu').style.maxHeight).toBe('')
+    })
   })
 })
