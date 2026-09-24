@@ -395,6 +395,14 @@ export async function buildServer(overrides: {
     // back (spec 2026-09-21-session-autoheal-design).
     onOwnership: (sessionId, status) => {
       db.update(sessions).set({ runnerStatus: status }).where(eq(sessions.id, sessionId)).run();
+      // The session's live feed changes hands with its owner: the Runner's
+      // stream while it holds the session, a transcript tail while it does
+      // not (adr: the-tail-yields-to-the-runner). `startTail`/`stopTail` are
+      // declared below, like `liveStats`; the first claim is autoheal's, and
+      // that runs after them.
+      const topic = `session:${sessionId}`;
+      if (status !== null) stopTail(topic);
+      else if (hub.subscriberCount(topic) > 0) startTail(topic);
     },
     onTurnUsage: (modelUsage) => models.recordContextWindows(modelUsage),
     // How full the session's context is, stored on the row and republished on
@@ -543,6 +551,60 @@ export async function buildServer(overrides: {
   // writes a final rollup when a session ends.
   const liveStats = new LiveSessionStats({ db, transcriptPathOf, onStats: statsWritten });
 
+  // The live feed for a session the Runner does not own: a transcript tail
+  // per subscribed `session:<id>` topic, publishing whatever a CLI appends to
+  // the file. A session the Runner owns publishes off the SDK stream instead,
+  // so a tail runs exactly while the topic has a subscriber AND nobody in
+  // this process owns the session. Both edges hand over — the Runner
+  // claiming a session (a launch, a revive, a heal) stops its tail, and the
+  // Runner releasing one (its end) starts a tail for whoever is still
+  // watching (adr: the-tail-yields-to-the-runner). Declared before autoheal,
+  // whose claims are the first to reach `stopTail`.
+  const tails = new Map<string, TranscriptTail>();
+  const stopTail = (topic: string) => {
+    tails.get(topic)?.stop();
+    tails.delete(topic);
+  };
+  const startTail = (topic: string) => {
+    if (!topic.startsWith('session:') || tails.has(topic)) return;
+    const id = topic.slice('session:'.length);
+    // `status()`, not `active()`: on the release edge the Runner still lists
+    // the session for one more call, but already reads it as `ended`.
+    const owned = runner.status(id);
+    if (owned !== undefined && owned !== 'ended') return; // web sessions publish directly
+    const transcriptPath = transcriptPathOf(id);
+    if (!transcriptPath) return;
+    const tail = new TranscriptTail(transcriptPath);
+    tail.on('entries', (entries) => {
+      liveStats.feed(id, entries);
+      for (const msg of entriesToMessages(entries, images)) {
+        hub.publish(topic, { event: 'message', message: msg });
+      }
+    });
+    // Start at EOF, not byte 0: history is served over REST, and the first WS
+    // subscriber replaying the entire transcript on every (re)subscribe is
+    // both wasteful and duplicative of what GET /api/sessions/:id/messages
+    // already returned. TranscriptTail holds back a trailing partial line, so
+    // starting exactly at the current size is safe even mid-write.
+    //
+    // No subagent reading happens here. Scanning the transcript would cost a
+    // multi-megabyte parse per session opened to answer "none running", which
+    // is the only answer a transcript can give.
+    let from = 0;
+    try {
+      from = statSync(transcriptPath).size;
+    } catch {
+      /* file doesn't exist yet; start at 0 */
+    }
+    tail.start(from);
+    tails.set(topic, tail);
+  };
+  hub.onFirstSubscriber(startTail);
+  hub.onLastUnsubscriber((topic) => {
+    stopTail(topic);
+    if (topic.startsWith('session:')) liveStats.drop(topic.slice('session:'.length));
+  });
+
   // Initial index + re-index on transcript changes (debounced).
   //
   // The first pass reparses every transcript (+ its subagent files) to backfill
@@ -629,45 +691,6 @@ export async function buildServer(overrides: {
         detail: null,
         context: summary as unknown as Record<string, unknown>,
       }),
-  });
-
-  // On-demand transcript tails per subscribed session topic.
-  const tails = new Map<string, TranscriptTail>();
-  hub.onFirstSubscriber((topic) => {
-    if (!topic.startsWith('session:')) return;
-    const id = topic.slice('session:'.length);
-    if (runner.active().includes(id)) return; // web sessions publish directly
-    const transcriptPath = transcriptPathOf(id);
-    if (!transcriptPath) return;
-    const tail = new TranscriptTail(transcriptPath);
-    tail.on('entries', (entries) => {
-      liveStats.feed(id, entries);
-      for (const msg of entriesToMessages(entries, images)) {
-        hub.publish(topic, { event: 'message', message: msg });
-      }
-    });
-    // Start at EOF, not byte 0: history is served over REST, and the first WS
-    // subscriber replaying the entire transcript on every (re)subscribe is
-    // both wasteful and duplicative of what GET /api/sessions/:id/messages
-    // already returned. TranscriptTail holds back a trailing partial line, so
-    // starting exactly at the current size is safe even mid-write.
-    //
-    // No subagent reading happens here. Scanning the transcript would cost a
-    // multi-megabyte parse per session opened to answer "none running", which
-    // is the only answer a transcript can give.
-    let from = 0;
-    try {
-      from = statSync(transcriptPath).size;
-    } catch {
-      /* file doesn't exist yet; start at 0 */
-    }
-    tail.start(from);
-    tails.set(topic, tail);
-  });
-  hub.onLastUnsubscriber((topic) => {
-    tails.get(topic)?.stop();
-    tails.delete(topic);
-    if (topic.startsWith('session:')) liveStats.drop(topic.slice('session:'.length));
   });
 
   const app = Fastify();
