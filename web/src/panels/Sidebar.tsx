@@ -9,7 +9,7 @@ import {
   visibleSessions,
 } from '../store/store'
 import { api } from '../lib/api'
-import { chordLabel, command } from '../lib/keymap'
+import { shortcutLabel } from '../lib/keymap'
 import { useCommand } from '../lib/commands'
 import { partitionSessions } from '../lib/sidebarOrder'
 import { reportError } from '../lib/errors'
@@ -169,7 +169,7 @@ function StatsLink({ size }: { size: 'footer' | 'rail' }) {
     <a
       href={STATS_PATH}
       aria-label={label}
-      title={label}
+      title={`${label} · ${shortcutLabel('global.stats')}`}
       className={[
         'grid shrink-0 place-items-center bg-[rgba(150,205,255,.05)] no-underline',
         'text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:text-text-bright',
@@ -189,10 +189,13 @@ function StatsLink({ size }: { size: 'footer' | 'rail' }) {
 
 function IconButton({
   label,
+  title,
   glyph,
   onClick,
 }: {
   label: string
+  /** Hover title, when it says more than the label — the shortcut, say. */
+  title?: string
   glyph: string
   onClick: () => void
 }) {
@@ -200,6 +203,7 @@ function IconButton({
     <button
       type="button"
       aria-label={label}
+      title={title}
       onClick={onClick}
       className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
     >
@@ -609,7 +613,12 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         ].join(' ')}
       >
         <Logo dimmed={!windowFocused} />
-        <IconButton label="Expand sidebar" glyph="»" onClick={() => setSidebarCollapsed(false)} />
+        <IconButton
+          label="Expand sidebar"
+          title={`Expand sidebar · ${shortcutLabel('global.sidebar')}`}
+          glyph="»"
+          onClick={() => setSidebarCollapsed(false)}
+        />
         <span aria-hidden className="h-px w-5 bg-panel-border" />
         {active.slice(0, 8).map((s) => (
           <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} />
@@ -622,6 +631,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <button
           type="button"
           aria-label="Open settings"
+          title={`Settings · ${shortcutLabel('global.settings')}`}
           onClick={() => setDialog('settings')}
           className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg border border-panel-border bg-[rgba(150,205,255,.05)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.13)]"
         >
@@ -663,7 +673,12 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <Logo dimmed={!windowFocused} />
         <span className="text-[13px] font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
         <span className="flex-1" />
-        <IconButton label="Collapse sidebar" glyph="«" onClick={() => setSidebarCollapsed(true)} />
+        <IconButton
+          label="Collapse sidebar"
+          title={`Collapse sidebar · ${shortcutLabel('global.sidebar')}`}
+          glyph="«"
+          onClick={() => setSidebarCollapsed(true)}
+        />
       </div>
 
       {/* Search field verbatim from canvas 1a: dark inset container with a ⌕ glyph and a ⌘K keycap. */}
@@ -679,7 +694,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           className="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-text-bright outline-none placeholder:text-[rgba(160,190,225,.6)]"
         />
         <span className="rounded border border-[rgba(150,205,255,.18)] px-[5px] py-0.5 font-mono text-[10px] text-text-muted">
-          {chordLabel(command('global.search').chords[0])}
+          {shortcutLabel('global.search')}
         </span>
       </label>
 
@@ -811,6 +826,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <button
           type="button"
           aria-label="Open settings"
+          title={`Settings · ${shortcutLabel('global.settings')}`}
           onClick={() => setDialog('settings')}
           className="flex h-6 items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
         >

@@ -469,6 +469,15 @@ export function chordLabel(chord: Chord): string {
   return chordGlyphs(chord).join('')
 }
 
+/**
+ * The primary chord of a command as a keycap hint ('⌘⇧N'), for the tooltip
+ * or title of the control that triggers it. Going through `command` means a
+ * hint can only name a binding the app listens for.
+ */
+export function shortcutLabel(id: string): string {
+  return chordLabel(command(id).chords[0])
+}
+
 /** Electron accelerator modifier order: CmdOrCtrl/Ctrl, then Alt, then Shift, then the key. */
 const ACCELERATOR_MODIFIER_ORDER: readonly Modifier[] = ['meta', 'ctrl', 'alt', 'shift']
 

@@ -28,6 +28,7 @@ import { useWindowFocused } from '../lib/useWindowFocused'
 import { Panel } from '../ui/Panel'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { useCommand } from '../lib/commands'
+import { shortcutLabel } from '../lib/keymap'
 import { usePresence } from '../ui/usePresence'
 import {
   PANEL_CLOSED,
@@ -897,6 +898,7 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
                   variant="tag"
                   font="sans"
                   aria-label="Change tag"
+                  title={`Change tag · ${shortcutLabel('session.tag')}`}
                   value={sessionTag.id}
                   options={tags.map((tag) => ({
                     value: tag.id,
@@ -1122,7 +1124,12 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
             actions={
               <>
                 {session?.status === 'working' && (
-                  <Button variant="warning-outline" size="sm" onClick={() => setDialog('stop')}>
+                  <Button
+                    variant="warning-outline"
+                    size="sm"
+                    title={`Interrupt the run · ${shortcutLabel('session.interrupt')}`}
+                    onClick={() => setDialog('stop')}
+                  >
                     <span aria-hidden className="h-2 w-2 rounded-[1px] bg-current" />
                     Stop
                   </Button>

@@ -29,6 +29,8 @@ export interface SelectProps<T> {
   id?: string
   'aria-label'?: string
   'aria-labelledby'?: string
+  /** Native hover title on the trigger — where a control names the shortcut that opens it. */
+  title?: string
   disabled?: boolean
   /** Typeface: mono for technical values (rules), sans for prose options (settings, canvas 1h). */
   font?: 'mono' | 'sans'
@@ -118,6 +120,7 @@ export function Select<T extends string | number>({
   footer,
   className,
   ref,
+  title,
   ...aria
 }: SelectProps<T>) {
   const baseId = useId()
@@ -346,6 +349,7 @@ export function Select<T extends string | number>({
         aria-label={aria['aria-label']}
         aria-labelledby={aria['aria-labelledby']}
         aria-describedby={open && footer ? footerId : undefined}
+        title={title}
         disabled={disabled}
         data-value={String(value)}
         data-variant={variant}

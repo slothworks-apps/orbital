@@ -417,6 +417,7 @@ export function UtilityStrip({
             'pin',
             <Tooltip
               title={pinned ? 'Unpin' : 'Pin'}
+              shortcut="session.pin"
               description={
                 pinned
                   ? releaseAfterMs == null
@@ -437,7 +438,13 @@ export function UtilityStrip({
         {present.clear &&
           seat(
             'clear',
-            <Tooltip variant="name" title="Clear and start over" align="right" delayMs={PIN_TOOLTIP_DELAY_MS}>
+            <Tooltip
+              variant="name"
+              title="Clear and start over"
+              shortcut="session.clear"
+              align="right"
+              delayMs={PIN_TOOLTIP_DELAY_MS}
+            >
               <UtilityButton aria-label="Clear" onClick={onClear}>
                 <ClearGlyph />
               </UtilityButton>
@@ -453,6 +460,7 @@ export function UtilityStrip({
             'end',
             <Tooltip
               title="End session"
+              shortcut="session.end"
               description="Stops the agent and moves the session to history."
               align="right"
               delayMs={PIN_TOOLTIP_DELAY_MS}
@@ -495,6 +503,7 @@ export function UtilityStrip({
                 <Tooltip
                   variant="name"
                   title="Open in new window"
+                  shortcut="session.detach"
                   align="right"
                   anchor="group"
                   delayMs={PIN_TOOLTIP_DELAY_MS}
@@ -510,6 +519,7 @@ export function UtilityStrip({
                 <Tooltip
                   variant="name"
                   title="Collapse panel"
+                  shortcut="map.deselect"
                   align="right"
                   anchor="group"
                   delayMs={PIN_TOOLTIP_DELAY_MS}

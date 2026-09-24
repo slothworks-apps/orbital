@@ -3,6 +3,7 @@ import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { useCommand } from '../lib/commands'
+import { shortcutLabel } from '../lib/keymap'
 import { matchModel, modelChipLabel, isExactModelMatch } from '../lib/models'
 import { Badge } from '../ui/Badge'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
@@ -125,7 +126,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`Change model (currently ${label})`}
-        title="Change model (from next turn)"
+        title={`Change model (from next turn) · ${shortcutLabel('session.model')}`}
         onClick={() => setOpen((v) => !v)}
         className="rounded-[5px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
       >

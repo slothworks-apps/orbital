@@ -21,7 +21,7 @@ import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
 import type { Subagent } from '../lib/types'
 import { holeLabelSizePx, labelFontPx } from './visuals'
 import { Button } from '../ui/Button'
-import { chordLabel, command } from '../lib/keymap'
+import { shortcutLabel } from '../lib/keymap'
 import { useCommand } from '../lib/commands'
 import { COMPACT_COMMAND, Planet } from './Planet'
 import { Moon } from './Moon'
@@ -1140,7 +1140,7 @@ export function SpaceMap() {
           <button
             type="button"
             aria-label={errorsUnseen > 0 ? `Error log — ${errorsUnseen} unseen` : 'Error log'}
-            title="Error log"
+            title={`Error log · ${shortcutLabel('global.errors')}`}
             onClick={() => setDialog('errors')}
             className={[
               'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-[rgba(10,14,24,.7)] text-base font-bold leading-none backdrop-blur-[16px] transition-colors',
@@ -1187,7 +1187,7 @@ export function SpaceMap() {
             <button
               type="button"
               aria-label="Fit view"
-              title={`Fit view · ${chordLabel(command('map.fit').chords[0])}`}
+              title={`Fit view · ${shortcutLabel('map.fit')}`}
               onClick={handleFit}
               className="grid h-[34px] w-[34px] place-items-center text-sm text-text-bright hover:bg-white/5"
             >
@@ -1222,7 +1222,7 @@ export function SpaceMap() {
             <span aria-hidden className="text-base leading-none text-accent">+</span>
             New session
             <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(200,220,245,.7)]">
-              {chordLabel(command('global.new-session').chords[0])}
+              {shortcutLabel('global.new-session')}
             </span>
           </Button>
         </div>

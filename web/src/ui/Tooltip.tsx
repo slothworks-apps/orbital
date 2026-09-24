@@ -1,10 +1,18 @@
 import { cloneElement, useEffect, useId, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useEscapeLayer } from './escapeLayer'
+import { shortcutLabel } from '../lib/keymap'
 
 interface TooltipBase {
   /** Mono first line — the exact name of the thing. */
   title: string
+  /**
+   * The id of the keymap command the trigger fires, printed muted after the
+   * title (`End session  ⌘⌫`). A control that can be reached from the
+   * keyboard says so where the pointer already is, which is how the binding
+   * gets learned; the pane in Settings is the index, not the teacher.
+   */
+  shortcut?: string
   /**
    * Which edge of the trigger the bubble hangs from. A trigger at the right
    * end of a 450px panel with a bubble aligned to its LEFT edge puts the
@@ -67,6 +75,7 @@ export type TooltipProps =
  */
 export function Tooltip({
   title,
+  shortcut,
   description,
   variant = 'card',
   align = 'left',
@@ -161,6 +170,11 @@ export function Tooltip({
             }
           >
             {title}
+            {shortcut && (
+              <span className="ml-2 whitespace-nowrap text-[rgba(160,190,225,.55)]">
+                {shortcutLabel(shortcut)}
+              </span>
+            )}
           </span>
           {variant === 'card' && (
             <span className="mt-1 block text-[11.5px] leading-[1.45] text-[rgba(160,190,225,.8)] [text-wrap:pretty]">
