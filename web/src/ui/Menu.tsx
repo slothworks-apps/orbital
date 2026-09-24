@@ -130,6 +130,8 @@ export function MenuButton({
   const popupRef = useRef<HTMLDivElement | null>(null)
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const search = useRef({ query: '', at: 0 })
+  /** The key of the row that last took focus while open; see the re-focus effect. */
+  const focusedKey = useRef<string | null>(null)
   const [open, setOpen] = useState(false)
   /** Which row takes focus when the menu has just opened. */
   const [initial, setInitial] = useState<'first' | 'last'>('first')
@@ -158,6 +160,7 @@ export function MenuButton({
   const close = useCallback((restoreFocus: boolean) => {
     setOpen(false)
     search.current = { query: '', at: 0 }
+    focusedKey.current = null
     if (restoreFocus) triggerRef.current?.focus()
   }, [])
 
@@ -190,6 +193,21 @@ export function MenuButton({
     // the first row under a pointer that has moved on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // Focus that falls out of an open list. An agent that ends while the list
+  // is open moves its row to another group; React moves the node, and
+  // Chromium blurs a focused node it moves, dropping focus to <body> and the
+  // arrows with it (spec 2026-09-24-subagent-list-design § 2: keyboard focus
+  // stays where it was). After every commit while open, focus that fell to
+  // <body> goes back to the row that last had it (`focusedKey`). Focus the
+  // user moved somewhere else is left there.
+  useLayoutEffect(() => {
+    if (!open || focusedKey.current === null) return
+    const active = document.activeElement
+    if (active !== null && active !== document.body) return
+    const index = items.findIndex((item) => item.key === focusedKey.current)
+    if (index >= 0) focusRow(itemRefs.current[index])
+  })
 
   // `pointerdown`, not `click`, like `Select`: closing on click would land
   // after the next control had already been pressed.
@@ -300,8 +318,8 @@ export function MenuButton({
           // scrolls — under `maxRows`, or when the viewport is the tighter cap.
           <div
             ref={popupRef}
-            // 23c form 4: 6px padding, and the popup shell Select's listbox
-            // wears (10px radius, .96 fill, .16 hairline).
+            // 23c form 4: the shell's inset around the list, and the popup
+            // shell Select's listbox wears (`POPUP_SHELL`).
             className={['orbital-no-drag fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-1.5', POPUP_SHELL].join(' ')}
             style={widthPx === undefined ? undefined : { width: `${widthPx}px` }}
           >
@@ -311,7 +329,7 @@ export function MenuButton({
               role="menu"
               aria-label={aria['aria-label']}
               onKeyDown={handleMenuKeyDown}
-              // 23c form 4: rows 2px apart. `relative` makes the list the
+              // 23c form 4's gap between rows. `relative` makes the list the
               // rows' offset parent, which the ceiling is measured against.
               className="relative flex min-h-0 flex-col gap-0.5 overflow-y-auto"
             >
@@ -330,9 +348,9 @@ export function MenuButton({
                     <div
                       key={`heading-${i}`}
                       role="presentation"
-                      // 25a's group titles: mono 9.5px caps at .18em in the
-                      // soft ink, 10px in; the first one sits 8px from the
-                      // top, the ones between groups 6px.
+                      // 25a's group titles: mono caps in the soft ink, set in
+                      // from the rows' edge; the first one gets more room
+                      // above it than the ones between groups.
                       className={[
                         'shrink-0 px-2.5 font-mono text-[9.5px] uppercase tracking-[.18em] text-[rgba(160,190,225,.6)]',
                         i === 0 ? 'pt-2 pb-1.5' : 'py-1.5',
@@ -355,6 +373,9 @@ export function MenuButton({
                     aria-disabled={entry.disabled || undefined}
                     aria-current={entry.selected ? 'true' : undefined}
                     onClick={() => run(entry)}
+                    onFocus={() => {
+                      focusedKey.current = entry.key
+                    }}
                     // Pointer and keyboard share one highlight: the row under
                     // the pointer IS the focused row, so arrowing on from a
                     // hover starts where the eye is. Without scrolling: a
@@ -363,13 +384,16 @@ export function MenuButton({
                     onMouseMove={(e) => {
                       if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true })
                     }}
-                    // 23c form 4's rows: 7px/8px in a 7px radius, 10px gap, a
-                    // 20px icon column, a 12.5px/600 label. The canvas lights
-                    // the first row at the strip's hover fill — that is the
-                    // focused row.
+                    // 23c form 4's rows: padding, radius, gap, the icon column
+                    // and the label's type. The canvas lights the first row at
+                    // the strip's hover fill — that is the focused row. 25a/25c
+                    // give the selected row a fill of its own; a focused
+                    // selected row reads as focused, so it only applies while
+                    // the row is not focused.
                     className={[
                       'group flex shrink-0 cursor-pointer items-center gap-2.5 rounded-[7px] px-2 py-[7px] outline-none',
                       'text-[rgba(220,235,255,.9)] focus:bg-[rgba(150,205,255,.09)] focus:text-[#e8eef8]',
+                      'aria-[current=true]:not-focus:bg-[rgba(150,205,255,.1)]',
                       'aria-disabled:cursor-default aria-disabled:opacity-50',
                     ].join(' ')}
                   >
@@ -390,8 +414,8 @@ export function MenuButton({
                       </>
                     )}
                     {marksSelection && (
-                      // 25a's mark: a 12px column at 11px in the accent, kept
-                      // on every row so marking one shifts none.
+                      // 25a's mark: a fixed column in the accent, kept on
+                      // every row so marking one shifts none.
                       <span aria-hidden className="block w-3 shrink-0 text-[11px] text-accent">
                         {entry.selected ? '✓' : null}
                       </span>

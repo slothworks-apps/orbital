@@ -243,6 +243,43 @@ describe('MenuButton', () => {
       expect(scrollIntoView.mock.instances.at(-1)).toBe(document.activeElement)
     })
 
+    it('keeps focus on the focused row when the list reorders under it', () => {
+      const entries = (bInDone: boolean): MenuEntry[] => [
+        { heading: 'Running' },
+        { key: 'a', label: 'Alpha task', onSelect: () => {} },
+        ...(bInDone ? [] : [{ key: 'b', label: 'Beta task', onSelect: () => {} }]),
+        { heading: 'Done' },
+        ...(bInDone ? [{ key: 'b', label: 'Beta task', onSelect: () => {} }] : []),
+        { key: 'c', label: 'Crunch numbers', onSelect: () => {} },
+      ]
+      const menu = (bInDone: boolean) => (
+        <MenuButton
+          aria-label="Subagents"
+          entries={entries(bInDone)}
+          renderTrigger={(props) => (
+            <button type="button" aria-label="Subagents" {...props}>
+              agents
+            </button>
+          )}
+        />
+      )
+      const { rerender } = render(menu(false))
+      fireEvent.click(screen.getByRole('button', { name: 'Subagents' }))
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' })
+      expect(focusedName()).toBe('Beta task')
+
+      // Chromium blurs a focused node React moves with insertBefore; jsdom
+      // does not, so drop focus to <body> the way Chromium would.
+      ;(document.activeElement as HTMLElement).blur()
+      expect(document.activeElement).toBe(document.body)
+      rerender(menu(true))
+      expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Beta task' }))
+
+      // Arrows go on from there, in the new order.
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' })
+      expect(focusedName()).toBe('Crunch numbers')
+    })
+
     it('sets no ceiling without maxRows', () => {
       const { trigger } = setupGrouped()
       fireEvent.click(trigger)
