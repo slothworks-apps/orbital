@@ -17,7 +17,8 @@ describe('toCssPx / toDip', () => {
     // Under View → Zoom In a window 900 wide measures fewer CSS px inside.
     expect(toCssPx(900, 1.25)).toBe(720);
     expect(toDip(720, 1.25)).toBe(900);
-    expect(toCssPx(901, 1.1)).toBe(819);
+    // Chromium truncates innerWidth, so a fractional result rounds down.
+    expect(toCssPx(901, 1.25)).toBe(720);
     expect(toCssPx(900, 1)).toBe(900);
   });
 

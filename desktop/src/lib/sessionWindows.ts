@@ -108,9 +108,13 @@ function zoom(zoomFactor: number): number {
   return Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
 }
 
-/** A width main measured (DIP) as the renderer measures it (CSS px). */
+/**
+ * A width main measured (DIP) as the renderer measures it (CSS px). Floored,
+ * not rounded: Chromium truncates `innerWidth` when it scales by the zoom, and
+ * an answer a pixel above what the renderer measures would never be reached.
+ */
 export function toCssPx(widthDip: number, zoomFactor: number): number {
-  return Math.round(widthDip / zoom(zoomFactor));
+  return Math.floor(widthDip / zoom(zoomFactor));
 }
 
 /** A width the renderer measured (CSS px) as main measures it (DIP). */
