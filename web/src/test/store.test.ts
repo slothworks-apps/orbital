@@ -42,6 +42,7 @@ import {
   PANEL_GUTTER_PX,
   SUBAGENT_PANEL_DEFAULT_PX,
   SUBAGENT_PANEL_MIN_PX,
+  type OrbitalActions,
   type OrbitalState,
 } from '../store/store'
 
@@ -2340,18 +2341,43 @@ describe('select, coming back to a session', () => {
     expect(useOrbital.getState().transcripts.s1).toEqual([m1, reply, live])
   })
 
-  it('keeps an optimistic prompt the refetched history has not echoed yet', async () => {
+  it('drops the transcript of the session it left, and fetches it again on the way back', async () => {
     vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
     await useOrbital.getState().select('s1')
-    vi.mocked(api.sendMessage).mockResolvedValueOnce(undefined as never)
-    await useOrbital.getState().sendPrompt('s1', 'still in flight')
     vi.mocked(api.getMessages).mockResolvedValueOnce([])
     await useOrbital.getState().select('s2')
+
+    expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+    expect(useOrbital.getState().historyLoaded.s1).toBeUndefined()
+
+    vi.mocked(api.getMessages).mockResolvedValueOnce([m1, reply])
+    await useOrbital.getState().select('s1')
+    expect(api.getMessages).toHaveBeenLastCalledWith('s1')
+    expect(useOrbital.getState().transcripts.s1).toEqual([m1, reply])
+  })
+
+  it('drops the transcript when the selection is cleared outside select()', async () => {
     vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
     await useOrbital.getState().select('s1')
+    useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))
 
-    const texts = useOrbital.getState().transcripts.s1.map((m) => m.text)
-    expect(texts).toEqual(['first', 'still in flight'])
+    expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+    expect(useOrbital.getState().historyLoaded.s1).toBeUndefined()
+  })
+
+  it('does not seat a history that resolves after its session was left', async () => {
+    let resolveFetch: (m: ChatMessage[]) => void = () => {}
+    vi.mocked(api.getMessages).mockImplementationOnce(
+      () => new Promise<ChatMessage[]>((resolve) => { resolveFetch = resolve }),
+    )
+    const selecting = useOrbital.getState().select('s1')
+    vi.mocked(api.getMessages).mockResolvedValueOnce([])
+    await useOrbital.getState().select('s2')
+    resolveFetch([m1])
+    await selecting
+
+    expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+    expect(useOrbital.getState().historyLoaded.s1).toBeUndefined()
   })
 
   it('drops the optimistic prompt once the refetched history carries its echo', async () => {
@@ -2371,7 +2397,7 @@ describe('select, coming back to a session', () => {
 
 // spec: 2026-09-24-streaming-output-design
 describe('applySessionEvent: delta', () => {
-  const apply = (msg: Parameters<OrbitalState['applySessionEvent']>[1]) =>
+  const apply = (msg: Parameters<OrbitalActions['applySessionEvent']>[1]) =>
     useOrbital.getState().applySessionEvent('s1', msg)
   const delta = (id: string, offset: number, text: string, role: 'assistant' | 'thinking' = 'assistant') =>
     ({ event: 'delta', id, role, offset, text, model: 'claude-x' }) as const

@@ -1215,10 +1215,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const selected = get().sessions[id]
     if (selected) set((state) => seedDecision(state, selected))
 
-    // Read before the selection moves: whether this is a return to a session
-    // that was deselected, which decides what the fetch below is for.
-    const returning = get().ui.selectedId !== id && get().historyLoaded[id] === true
-
     set((state) => ({
       ui: {
         ...state.ui,
@@ -1230,49 +1226,28 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }))
 
     // Re-selecting the session already open: its subscription never lapsed,
-    // so the transcript held is complete.
-    if (get().historyLoaded[id] && !returning) return
-
-    // What the transcript held when the fetch was asked for. Only the
-    // `session:<id>` subscription appends to it, and App's effect takes that
-    // subscription on the selection above — so anything in it AFTER the fetch
-    // resolves that was not here now arrived live during the fetch.
-    const held = get().transcripts[id] ?? []
+    // so the transcript held is complete. A session coming back after it was
+    // left has no history here — the store subscription at the bottom of
+    // this file dropped it on the way out — so it always fetches: nothing
+    // listened on `session:<id>` while it was away, and every reply since is
+    // only in the file (fix
+    // a-reply-is-in-the-transcript-file-but-not-in-the-open-panel).
+    if (get().historyLoaded[id]) return
 
     try {
       const fetched = await api.getMessages(id)
       set((state) => {
+        // Left again while the fetch was in flight: seating the history now
+        // would mark a session nobody listens to as loaded, and the next
+        // return would show it as it stood here.
+        if (state.ui.selectedId !== id) return {}
+        // The file's history goes in front of whatever the subscription
+        // delivered before the fetch resolved.
         const existing = state.transcripts[id] ?? []
-        const fetchedIds = new Set(fetched.map((m) => m.id))
-        if (!returning) {
-          // First open: the file's history goes in front of whatever the
-          // subscription delivered before the fetch resolved.
-          const existingIds = new Set(existing.map((m) => m.id))
-          const toPrepend = fetched.filter((m) => !existingIds.has(m.id))
-          return {
-            transcripts: { ...state.transcripts, [id]: [...toPrepend, ...existing] },
-            historyLoaded: { ...state.historyLoaded, [id]: true },
-          }
-        }
-        // Coming back: nothing listened on `session:<id>` while it was
-        // deselected, so the held transcript ends wherever the selection
-        // left it and every reply since is only in the file. The file's
-        // history REPLACES it (fix
-        // a-reply-is-in-the-transcript-file-but-not-in-the-open-panel), and
-        // two things are carried over from the held copy: an optimistic turn
-        // the file has not echoed yet (the CLI writes a prompt when its
-        // process takes it, which for a sleeping session is seconds away),
-        // and what the re-taken subscription delivered while the fetch was
-        // in flight. Both belong after the history — they are the newest
-        // things this tab knows.
-        const heldIds = new Set(held.map((m) => m.id))
-        const carried = existing.filter((m) => {
-          if (fetchedIds.has(m.id)) return false
-          if (!heldIds.has(m.id)) return true
-          return isPendingTurn(m) && !fetched.some((f) => echoes(f, m))
-        })
+        const existingIds = new Set(existing.map((m) => m.id))
+        const toPrepend = fetched.filter((m) => !existingIds.has(m.id))
         return {
-          transcripts: { ...state.transcripts, [id]: [...fetched, ...carried] },
+          transcripts: { ...state.transcripts, [id]: [...toPrepend, ...existing] },
           historyLoaded: { ...state.historyLoaded, [id]: true },
         }
       })
@@ -1903,7 +1878,31 @@ useOrbital.subscribe((state, prevState) => {
   if (state.ui.selectedId === prevState.ui.selectedId) return
   const panel = state.subagentPanel
   if (panel && panel.sessionId !== state.ui.selectedId) useOrbital.getState().closeSubagent()
+  const left = prevState.ui.selectedId
+  if (left) dropTranscript(left)
 })
+
+/**
+ * Forgets the transcript of a session the selection just left (fix
+ * a-reopened-session-shows-the-transcript-it-was-left-with). Its
+ * `session:<id>` subscription lapses with the selection, so what is held
+ * would only go stale, and `select()` refetches it from the file on the
+ * way back anyway. Same seam as the panel guard above, for the same reason:
+ * it sees every writer of `ui.selectedId`.
+ *
+ * An optimistic `local:` turn goes with it; the file's echo of it is what
+ * the refetch finds. A session still shown in the subagent panel keeps its
+ * transcript — the panel reads its parent's rows.
+ */
+function dropTranscript(id: string) {
+  const state = useOrbital.getState()
+  if (state.ui.selectedId === id || state.subagentPanel?.sessionId === id) return
+  if (!(id in state.transcripts) && !(id in state.historyLoaded)) return
+  for (const m of state.transcripts[id] ?? []) if (m.partial) delete streamEnds[m.id]
+  const { [id]: _transcript, ...transcripts } = state.transcripts
+  const { [id]: _loaded, ...historyLoaded } = state.historyLoaded
+  useOrbital.setState({ transcripts, historyLoaded })
+}
 
 // ---------------------------------------------------------------------------
 // Pure selector helpers (exported directly for testing). Do NOT call these
