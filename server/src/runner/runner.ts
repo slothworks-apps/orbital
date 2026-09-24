@@ -322,11 +322,13 @@ interface StreamRow {
 }
 
 /**
- * The assistant message the CLI is streaming right now — what
- * `SDKPartialAssistantMessage` frames of the main loop are folded into.
- * Opened at `message_start`, rows are claimed by the complete blocks that
- * follow the stream (`idFor` in `pump()`), and whatever is left is dropped
- * at the next `message_start` (spec: 2026-09-24-streaming-output-design § 3).
+ * The assistant message one loop is streaming right now — what its
+ * `SDKPartialAssistantMessage` frames are folded into. The main loop has one
+ * and every running subagent has its own, because agents run side by side and
+ * their block indexes collide. Opened at `message_start`, rows are claimed by
+ * the complete blocks that follow the stream (`idFor` in `pump()`), and
+ * whatever is left is dropped at the next `message_start` of the same loop
+ * (spec: 2026-09-24-streaming-output-design § 3).
  */
 interface StreamState {
   /** The API message id, `event.message.id` at `message_start`. */
@@ -337,14 +339,23 @@ interface StreamState {
   /** Text received since the row's last publish, and where it starts. */
   pending: Map<number, { offset: number; text: string }>;
   flushTimer: ReturnType<typeof setTimeout> | null;
+  /** `message_stop` has been seen: no row will be added any more. */
+  stopped: boolean;
 }
 
 interface ManagedSession {
   status: SessionStatus;
   queue: Array<(msg: InputMessage) => void>;
   pending: Array<InputMessage>;
-  /** The message being streamed, or `null` between streams. */
+  /** The main loop's message being streamed, or `null` between streams. */
   stream: StreamState | null;
+  /**
+   * Each subagent's message being streamed, by the `parent_tool_use_id` its
+   * frames carry. An entry leaves once its message is stopped and every row
+   * has been claimed, so a finished agent does not hold one for the session's
+   * lifetime.
+   */
+  agentStreams: Map<string, StreamState>;
   /**
    * The decision this session's CLI is blocked on, with the resolver of the
    * `canUseTool` promise that block *is*. One at a time: the model cannot ask
@@ -821,6 +832,10 @@ export class Runner {
     // A flush after the release would publish for a session nobody holds.
     if (state.stream?.flushTimer) clearTimeout(state.stream.flushTimer);
     state.stream = null;
+    for (const stream of state.agentStreams.values()) {
+      if (stream.flushTimer) clearTimeout(stream.flushTimer);
+    }
+    state.agentStreams.clear();
     // Gone before the release is announced, so whoever hears it and asks
     // `status()` already finds nobody holding the session.
     this.sessions.delete(sessionId);
@@ -871,7 +886,7 @@ export class Runner {
       throw new Error(`resume collision: session ${sessionId} already active`);
     }
     const state: ManagedSession = {
-      status: 'working', queue: [], pending: [], stream: null, generator: null, sleepTimer: null,
+      status: 'working', queue: [], pending: [], stream: null, agentStreams: new Map(), generator: null, sleepTimer: null,
       lastCall: null, turnEnded: false,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
@@ -1013,11 +1028,11 @@ export class Runner {
           if (row) this.hub.publish(topic, { event: 'message', message: row });
           continue;
         }
-        // The answer as it is written. Only the main loop's: a subagent's
-        // stream events are left to its own feed, which stays whole-message
+        // The answer as it is written — the main loop's on `session:<id>`, a
+        // subagent's on its own topic, each in a stream state of its own
         // (spec: 2026-09-24-streaming-output-design § 1).
         if (msg.type === 'stream_event') {
-          if (msg.parent_tool_use_id == null && msg.event) this.onStreamEvent(sessionId, state, msg.event);
+          if (msg.event) this.onStreamEvent(sessionId, state, msg.event, msg.parent_tool_use_id ?? null);
           continue;
         }
         if (msg.type === 'assistant' || msg.type === 'user') {
@@ -1090,12 +1105,19 @@ export class Runner {
             // Every delta of a block goes out before the block itself, so
             // the client never sees a complete row grow afterwards.
             this.flushStream(sessionId, state);
-            const idFor = this.streamedIdFor(state, msg);
+            const idFor = this.streamedIdFor(state.stream, msg);
             for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images, idFor)) {
               this.hub.publish(topic, { event: 'message', message: chat });
             }
           } else {
-            const chats = sdkToChatMessages(msg, () => ++this.seq, this.images);
+            const agent: string = msg.parent_tool_use_id;
+            // The same order as the main loop: the agent's deltas first, then
+            // the block, which takes over the row they were filling. The
+            // buffer below only ever holds complete messages.
+            this.flushStream(sessionId, state, agent);
+            const agentStream = state.agentStreams.get(agent);
+            const chats = sdkToChatMessages(msg, () => ++this.seq, this.images, this.streamedIdFor(agentStream, msg));
+            if (agentStream?.stopped && agentStream.rows.size === 0) state.agentStreams.delete(agent);
             this.subagentTranscripts?.append(sessionId, msg.parent_tool_use_id, chats);
             const subagentTopic = `subagent:${sessionId}:${msg.parent_tool_use_id}`;
             // Read AFTER the append, so it already counts whatever this
@@ -1147,32 +1169,39 @@ export class Runner {
   }
 
   /**
-   * Folds one Messages API stream event of the main loop into the session's
-   * stream state, and publishes the text it carries as coalesced `delta`
-   * events (spec: 2026-09-24-streaming-output-design § 3).
+   * Folds one Messages API stream event into its loop's stream state — the
+   * main loop's when `agent` is `null`, otherwise that subagent's — and
+   * publishes the text it carries as coalesced `delta` events
+   * (spec: 2026-09-24-streaming-output-design § 3).
    */
-  private onStreamEvent(sessionId: string, state: ManagedSession, event: any): void {
+  private onStreamEvent(sessionId: string, state: ManagedSession, event: any, agent: string | null): void {
     if (event.type === 'message_start') {
       // A new message: whatever the last one left unclaimed is stale now.
-      this.flushStream(sessionId, state);
-      if (state.stream?.flushTimer) clearTimeout(state.stream.flushTimer);
+      this.flushStream(sessionId, state, agent);
       const model = typeof event.message?.model === 'string' ? event.message.model : undefined;
-      state.stream = {
+      const fresh: StreamState = {
         messageId: typeof event.message?.id === 'string' ? event.message.id : '',
         model,
         rows: new Map(),
         pending: new Map(),
         flushTimer: null,
+        stopped: false,
       };
+      if (agent !== null) {
+        state.agentStreams.set(agent, fresh);
+        return;
+      }
+      state.stream = fresh;
       // The first frame of a turn, ahead of any complete message — the same
-      // edge the assistant/user branch of `pump()` marks, moved earlier.
+      // edge the assistant/user branch of `pump()` marks, moved earlier. A
+      // subagent's message is not this edge, as its complete frames are not.
       const began = state.turnEnded === true;
       state.turnEnded = false;
       this.settleStatus(sessionId);
       if (began) this.onTurnBoundary?.(sessionId, false);
       return;
     }
-    const stream = state.stream;
+    const stream = this.streamOf(state, agent);
     if (!stream) return;
     if (event.type === 'content_block_start') {
       const kind = event.content_block?.type;
@@ -1202,28 +1231,47 @@ export class Runner {
       if (!stream.flushTimer) {
         const timer = setTimeout(() => {
           stream.flushTimer = null;
-          this.flushStream(sessionId, state);
+          this.flushStream(sessionId, state, agent);
         }, STREAM_FLUSH_MS);
         (timer as unknown as { unref?: () => void }).unref?.();
         stream.flushTimer = timer;
       }
       return;
     }
-    if (event.type === 'content_block_stop' || event.type === 'message_stop') {
-      this.flushStream(sessionId, state);
+    if (event.type === 'content_block_stop') {
+      this.flushStream(sessionId, state, agent);
+      return;
+    }
+    if (event.type === 'message_stop') {
+      this.flushStream(sessionId, state, agent);
+      stream.stopped = true;
+      // The complete blocks may all have landed already; if not, the last of
+      // them drops the entry in `pump()`.
+      if (agent !== null && stream.rows.size === 0) state.agentStreams.delete(agent);
     }
   }
 
-  /** Publishes every row's pending text as one `delta` each, and clears it. */
-  private flushStream(sessionId: string, state: ManagedSession): void {
-    const stream = state.stream;
+  /** The stream state of the main loop (`agent` null) or of one subagent. */
+  private streamOf(state: ManagedSession, agent: string | null): StreamState | null {
+    return agent === null ? state.stream : (state.agentStreams.get(agent) ?? null);
+  }
+
+  /**
+   * Publishes every row's pending text as one `delta` each, and clears it. A
+   * subagent's go to its own topic and carry the buffer's `droppedCount`, as
+   * its `message` events do, so a panel learns of an overflow from either.
+   */
+  private flushStream(sessionId: string, state: ManagedSession, agent: string | null = null): void {
+    const stream = this.streamOf(state, agent);
     if (!stream) return;
     if (stream.flushTimer) {
       clearTimeout(stream.flushTimer);
       stream.flushTimer = null;
     }
     if (stream.pending.size === 0) return;
-    const topic = `session:${sessionId}`;
+    const topic = agent === null ? `session:${sessionId}` : `subagent:${sessionId}:${agent}`;
+    const dropped =
+      agent === null ? {} : { droppedCount: this.subagentTranscripts?.get(sessionId, agent)?.droppedCount ?? 0 };
     for (const [index, pending] of stream.pending) {
       const row = stream.rows.get(index);
       if (!row) continue;
@@ -1234,6 +1282,7 @@ export class Runner {
         offset: pending.offset,
         text: pending.text,
         ...(stream.model ? { model: stream.model } : {}),
+        ...dropped,
       });
     }
     stream.pending.clear();
@@ -1241,17 +1290,16 @@ export class Runner {
 
   /**
    * The id resolver a complete assistant frame converts with: a `text` or
-   * `thinking` block whose text equals an unclaimed streamed row's takes that
-   * row's id, and the row leaves the stream. Text equality rather than block
-   * order — the deltas concatenate to the final text exactly, and one frame
-   * per block is the SDK's habit, not its contract
-   * (adr: streamed-text-rides-as-offset-deltas-on-the-rows-id).
+   * `thinking` block whose text equals an unclaimed row of the frame's own
+   * loop's stream takes that row's id, and the row leaves the stream. Text
+   * equality rather than block order — the deltas concatenate to the final
+   * text exactly, and one frame per block is the SDK's habit, not its
+   * contract (adr: streamed-text-rides-as-offset-deltas-on-the-rows-id).
    */
   private streamedIdFor(
-    state: ManagedSession,
+    stream: StreamState | null | undefined,
     msg: any,
   ): ((block: { type: 'text' | 'thinking'; text: string }) => string | undefined) | undefined {
-    const stream = state.stream;
     if (!stream || msg.type !== 'assistant' || msg.message?.id !== stream.messageId) return undefined;
     return (block) => {
       const role = block.type === 'text' ? 'assistant' : 'thinking';
