@@ -1,12 +1,13 @@
 ---
 id: a-thinking-block-opens-a-turn-above-its-own-model-divider
 title: A turn that opens with thinking renders its reasoning above its own model divider
-status: backlog
+status: done
 type: fix
 domain: transcript
 related:
   - 2026-09-22-subagent-transcript-panel-design
   - thinking-is-its-own-chatmessage-role
+  - 2026-09-24-backlog-sweep
 tags:
   - web
   - transcript
@@ -59,3 +60,15 @@ Two things are unclear and neither is this branch's call:
 `insertModelDividers` and its tests in `web/src/test/transcriptview.test.tsx`.
 The narrow version is widening the role check to include `'thinking'`; the
 honest version is deciding what a divider is anchored to first.
+
+## Fixed 2026-09-24
+
+Ruled in `docs/superpowers/plans/2026-09-24-backlog-sweep.md` Task 1: the
+narrow version. `insertModelDividers` now reads `model` off `thinking` rows
+as well as `assistant` rows, so a turn that opens with thinking gets its
+divider above the thinking block rather than one row down at the first
+prose. No notion of turns was introduced — that question is still open, but
+narrower now that the one-row misplacement it was filed for is gone.
+(Tests actually live in `web/src/test/transcript.test.tsx`, where the rest of
+`insertModelDividers`'s suite already was — not
+`transcriptview.test.tsx`, which the "where to start" note above named.)

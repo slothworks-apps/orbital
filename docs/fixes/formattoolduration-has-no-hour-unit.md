@@ -1,12 +1,13 @@
 ---
 id: formattoolduration-has-no-hour-unit
 title: formatToolDuration has no hour unit, so a long agent run reads "120m 3s"
-status: backlog
+status: done
 type: fix
 domain: transcript
 related:
   - 2026-09-22-subagent-transcript-panel-design
   - folded-tool-run-duration-needs-every-item-timed
+  - tool-duration-drops-seconds-past-an-hour
 tags:
   - web
   - transcript
@@ -60,3 +61,11 @@ layout.
 (`Feature - Subagent panel.dc.html`, 11b/11c) for a long-run header before
 picking a form; if it does not draw one, that is the design question to put
 to Tomin rather than to answer in code.
+
+## Fixed 2026-09-24
+
+Ruled rather than designed, in `docs/superpowers/plans/2026-09-24-backlog-sweep.md`
+Task 1: `formatToolDuration` gains a fourth band past an hour, two units,
+seconds dropped (`2h 0m`, `2h 14m`, `8h 7m`) — see
+[[tool-duration-drops-seconds-past-an-hour]] for the reasoning. Below an hour
+nothing changed.

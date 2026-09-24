@@ -196,11 +196,21 @@ export function formatContextWindow(tokens: number): string {
  * hand this the same optional value for exactly that reason: a fabricated
  * `0s` would claim a duration for a call that may have taken a minute (spec
  * `2026-09-22-subagent-transcript-panel-design.md` § 7).
+ *
+ * Past an hour, this is also the subagent panel's elapsed header and a
+ * folded run's summed duration, not just a tool call — so it gains a fourth
+ * band, `2h 14m`, rather than reading `120m 3s` or `487m 12s`. Seconds are
+ * dropped past an hour, the same way `formatDuration` above drops seconds
+ * past a minute (ADR `tool-duration-drops-seconds-past-an-hour`).
  */
 export function formatToolDuration(ms: number | undefined): string | undefined {
   if (ms === undefined) return undefined
   if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`
-  const totalSeconds = Math.round(ms / 1000)
-  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`
+  if (ms < HOUR_MS) {
+    const totalSeconds = Math.round(ms / 1000)
+    return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`
+  }
+  const totalMinutes = Math.round(ms / MINUTE_MS)
+  return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`
 }

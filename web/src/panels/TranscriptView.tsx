@@ -99,7 +99,7 @@ export function pairMessages(messages: ChatMessage[]): TranscriptItem[] {
 
 /** A run of consecutive tool rows, a decision card (a question, a permission
  * prompt or a plan), a single message row, or a model-switch marker inserted
- * between two assistant messages (see `insertModelDividers`). */
+ * between two assistant or thinking messages (see `insertModelDividers`). */
 export type TranscriptGroup =
   | { kind: 'tools'; key: string; items: Extract<TranscriptItem, { kind: 'tool' }>[] }
   | { kind: 'question'; key: string; item: Extract<TranscriptItem, { kind: 'tool' }> }
@@ -198,8 +198,8 @@ export function summarizeToolRun(
 }
 
 /**
- * Inserts a divider wherever the model behind consecutive assistant messages
- * changes (canvas 4a).
+ * Inserts a divider wherever the model behind consecutive assistant or
+ * thinking messages changes (canvas 4a).
  *
  * Derived from the messages rather than recorded at switch time, so it
  * survives a reload, needs no storage, and also shows a switch made in a
@@ -207,13 +207,20 @@ export function summarizeToolRun(
  * turns, tool rows, transcripts from a CLI too old to record one) are
  * skipped, never treated as a change — an absent model is unknown, not
  * different.
+ *
+ * `thinking` carries the same `model` field as `assistant` (both set from
+ * the same SDK frame), and a turn frequently opens with a thinking block
+ * before its first prose — so the divider reads it too, rather than only
+ * landing on the text that follows it one row down (fix
+ * `a-thinking-block-opens-a-turn-above-its-own-model-divider`).
  */
 export function insertModelDividers(groups: TranscriptGroup[]): TranscriptGroup[] {
   const out: TranscriptGroup[] = []
   let previousModel: string | undefined
   for (const group of groups) {
     const message = group.kind === 'message' ? group.item.message : undefined
-    const model = message?.role === 'assistant' ? message.model : undefined
+    const model =
+      message?.role === 'assistant' || message?.role === 'thinking' ? message.model : undefined
     if (model && previousModel && model !== previousModel) {
       out.push({
         kind: 'model-divider',

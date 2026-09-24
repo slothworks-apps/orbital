@@ -47,6 +47,15 @@ describe('formatToolDuration', () => {
     expect(formatToolDuration(3 * MINUTE + 5_000)).toBe('3m 5s')
   })
 
+  it('stays "Nm Ns" right up to an hour', () => {
+    expect(formatToolDuration(59 * MINUTE + 59_000)).toBe('59m 59s')
+  })
+
+  it('formats an hour and over as "Nh Nm", dropping seconds', () => {
+    expect(formatToolDuration(60 * MINUTE)).toBe('1h 0m')
+    expect(formatToolDuration(487 * MINUTE + 12_000)).toBe('8h 7m')
+  })
+
   it('renders no duration at all for a missing value — never "0s" or "—"', () => {
     expect(formatToolDuration(undefined)).toBeUndefined()
   })
