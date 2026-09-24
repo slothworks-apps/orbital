@@ -542,6 +542,24 @@ describe('loadOlder', () => {
     expect(await useOrbital.getState().loadOlder('s1')).toEqual([])
   })
 
+  // Seating the older page after the session was left would recreate its
+  // transcript holding only that page, and the next return would put the
+  // newest history in front of it.
+  it('does not seat a page that resolves after its session was left', async () => {
+    vi.mocked(api.getMessages).mockResolvedValueOnce([{ id: 'm5', role: 'user', text: 'fifth' }])
+    await useOrbital.getState().select('s1')
+    let resolveOlder: (m: ChatMessage[]) => void = () => {}
+    vi.mocked(api.getMessages).mockImplementationOnce(
+      () => new Promise<ChatMessage[]>((resolve) => { resolveOlder = resolve }),
+    )
+    const loading = useOrbital.getState().loadOlder('s1')
+    useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))
+    resolveOlder([{ id: 'm4', role: 'assistant', text: 'fourth' }])
+
+    expect(await loading).toEqual([])
+    expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+  })
+
   it('resolves to null (leaving the transcript untouched) when the fetch fails', async () => {
     useOrbital.setState({ transcripts: { s1: [{ id: 'm5', role: 'user', text: 'fifth' }] } })
     vi.mocked(api.getMessages).mockRejectedValueOnce(new Error('network error'))

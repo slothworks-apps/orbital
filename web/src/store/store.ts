@@ -1272,7 +1272,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
     let prepended: ChatMessage[] = []
     set((state) => {
-      const current = state.transcripts[id] ?? []
+      // Left while the page was in flight, and `dropTranscript` let go of the
+      // rest. Seating the page alone would give the next `select()` a
+      // transcript to prepend the newest history in front of.
+      if (!(id in state.transcripts)) return {}
+      const current = state.transcripts[id]
       const currentIds = new Set(current.map((m) => m.id))
       prepended = fetched.filter((m) => !currentIds.has(m.id))
       return {
