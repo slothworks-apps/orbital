@@ -1,10 +1,11 @@
 ---
 id: more-than-one-session-open
 title: Keep more than one session open at a time
-status: backlog
+status: superseded
 type: idea
 domain: web
 related:
+  - 2026-09-23-detached-session-windows-design
   - selected-session-lives-in-the-url-query
   - resizable-detail-panel
   - desktop-wrapper-electron
@@ -13,6 +14,10 @@ tags:
   - space-map
 ---
 # Keep more than one session open at a time
+
+> **Superseded 2026-09-24** by [[2026-09-23-detached-session-windows-design]]:
+> a session opens in its own desktop window, so several can be watched at
+> once, each with its own transcript stream. The docked panel stays single.
 
 One session is open at a time, so watching a long run means either sitting on
 it or losing its transcript stream the moment you look at anything else.
