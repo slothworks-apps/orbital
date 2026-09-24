@@ -13,6 +13,7 @@ import {
   type UtilityProcess,
   type WebContents,
 } from 'electron';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
@@ -48,6 +49,18 @@ import {
   VITE_URL,
   type HealthInfo,
 } from './lib/startup';
+import {
+  cascadeFrom,
+  centredIn,
+  fitToDisplays,
+  parseWindowFrames,
+  pathOnOrigin,
+  serializeWindowFrames,
+  WINDOW_FRAMES_FILE,
+  withMainFrame,
+  withSessionFrame,
+  type WindowFrames,
+} from './lib/windowFrames';
 
 const PORT = Number(process.env.ORBITAL_PORT ?? 4737);
 const DEV = process.env.ORBITAL_DESKTOP_DEV === '1';
@@ -58,8 +71,8 @@ const HEALTH_POLL_INTERVAL_MS = 200;
 const HEALTH_POLL_TIMEOUT_MS = 15_000;
 
 // A detached window holds one detail panel, not the map beside it: it opens
-// at the docked panel's own width, never shrinks below it, and has no maximum
-// (canvas `Feature - Detached window` 22b; spec:
+// at the docked panel's own width until a frame is remembered, never shrinks
+// below it, and has no maximum (canvas `Feature - Detached window` 22b; spec:
 // 2026-09-23-detached-session-windows-design).
 const SESSION_WINDOW_WIDTH = 450;
 const SESSION_WINDOW_HEIGHT = 820;
@@ -75,6 +88,18 @@ const SESSION_WINDOW_TRAFFIC_LIGHTS = { x: 14, y: 20 };
 // chrome` 24a; spec: 2026-09-24-main-window-chrome-design): the lights sit
 // centred on the expanded sidebar's row 1, whose left padding clears them.
 const MAIN_WINDOW_TRAFFIC_LIGHTS = { x: 30, y: 32 };
+// The main window's size before it has a remembered frame.
+const MAIN_WINDOW_WIDTH = 1440;
+const MAIN_WINDOW_HEIGHT = 900;
+
+// A drag or a resize fires its events continuously; the remembered frame is
+// written once they have settled for this long (spec:
+// 2026-09-24-remembered-window-frames-design).
+const FRAME_WRITE_DELAY_MS = 500;
+// Detached windows all open from the one remembered frame, so a second one
+// steps this far down and to the right of the first rather than hiding it —
+// roughly the offset macOS cascades its own windows by.
+const SESSION_WINDOW_CASCADE_STEP = 22;
 
 // Packaged, the three things the forked server needs sit beside the app's
 // resources; unpackaged (running `electron .` in the repo) they sit in the
@@ -128,6 +153,86 @@ let windowTargetUrl = '';
 let awaitingStart = false;
 /** Exit code of a child that died during a fork-and-wait, for the one dialog. */
 let startExit: number | null = null;
+
+/**
+ * The remembered frames, read once at launch. Main is the file's only writer,
+ * so this copy is always what the file holds, or what it is about to.
+ */
+let windowFrames: WindowFrames = {};
+/** True when `windowFrames` holds something the file does not yet. */
+let windowFramesDirty = false;
+let windowFramesTimer: ReturnType<typeof setTimeout> | null = null;
+
+function windowFramesPath(): string {
+  return join(app.getPath('userData'), WINDOW_FRAMES_FILE);
+}
+
+function loadWindowFrames(): void {
+  let text: string | null = null;
+  try {
+    text = readFileSync(windowFramesPath(), 'utf8');
+  } catch {
+    /* no file yet: every window opens at its default */
+  }
+  windowFrames = parseWindowFrames(text);
+}
+
+/**
+ * Write the remembered frames now, if anything changed. Through a temporary
+ * file and a rename, so a quit mid-write leaves the old file rather than half
+ * of the new one. A failed write costs a remembered frame and nothing else.
+ */
+function flushWindowFrames(): void {
+  if (windowFramesTimer) clearTimeout(windowFramesTimer);
+  windowFramesTimer = null;
+  if (!windowFramesDirty) return;
+  windowFramesDirty = false;
+  const path = windowFramesPath();
+  try {
+    writeFileSync(`${path}.tmp`, serializeWindowFrames(windowFrames));
+    renameSync(`${path}.tmp`, path);
+  } catch (err) {
+    console.error('Orbital could not save the window frames:', err);
+  }
+}
+
+function updateWindowFrames(next: WindowFrames | null, when: 'soon' | 'now'): void {
+  if (next) {
+    windowFrames = next;
+    windowFramesDirty = true;
+  }
+  if (when === 'now') {
+    flushWindowFrames();
+    return;
+  }
+  if (windowFramesTimer) clearTimeout(windowFramesTimer);
+  windowFramesTimer = setTimeout(flushWindowFrames, FRAME_WRITE_DELAY_MS);
+}
+
+/**
+ * The frame a window is left at. The normal frame, not the current one: a
+ * window in full screen or zoomed comes back at the size it had before.
+ */
+function frameOf(target: BrowserWindow) {
+  return target.getNormalBounds();
+}
+
+function rememberMainWindow(when: 'soon' | 'now'): void {
+  if (!win || win.isDestroyed()) return;
+  const path = pathOnOrigin(win.webContents.getURL(), windowTargetUrl);
+  updateWindowFrames(withMainFrame(windowFrames, frameOf(win), path), when);
+}
+
+function rememberSessionWindow(target: BrowserWindow): void {
+  if (target.isDestroyed()) return;
+  updateWindowFrames(withSessionFrame(windowFrames, frameOf(target)), 'soon');
+}
+
+/** Every display's work area, the primary one first. */
+function workAreas() {
+  const primary = screen.getPrimaryDisplay();
+  return [primary, ...screen.getAllDisplays().filter((d) => d.id !== primary.id)].map((d) => d.workArea);
+}
 
 /**
  * `startExit` read without control-flow narrowing. Every read of it follows a
@@ -342,9 +447,10 @@ function openWindow(url: string, page: string = url): void {
   // `title` is pinned and the page's own ignored below: the window is
   // "Orbital" in Mission Control, the Dock and ⌘` whatever page it shows
   // (spec: 2026-09-24-main-window-chrome-design).
+  // The frame it was last left at, put back on a display that still exists.
+  const remembered = windowFrames.main ? fitToDisplays(windowFrames.main.bounds, workAreas()) : null;
   const main = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...(remembered ?? { width: MAIN_WINDOW_WIDTH, height: MAIN_WINDOW_HEIGHT }),
     title: 'Orbital',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: MAIN_WINDOW_TRAFFIC_LIGHTS,
@@ -379,7 +485,17 @@ function openWindow(url: string, page: string = url): void {
   // Closing is hiding: the renderer stays alive, so reopening is instant and
   // the map is exactly where it was, and the server it would have taken with
   // it keeps running (spec: 2026-09-22-desktop-background-mode-design).
+  // Its frame and page are remembered for the next launch: as they change,
+  // and at once when the window goes away, whether hidden or closed on quit.
+  main.on('move', () => rememberMainWindow('soon'));
+  main.on('resize', () => rememberMainWindow('soon'));
+  main.webContents.on('did-navigate', () => rememberMainWindow('soon'));
+  main.webContents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
+    if (isMainFrame) rememberMainWindow('soon');
+  });
+  main.on('hide', () => rememberMainWindow('now'));
   main.on('close', (event) => {
+    rememberMainWindow('now');
     if (decideWindowClose({ quitting }) === 'close') return;
     event.preventDefault();
     win?.hide();
@@ -439,7 +555,8 @@ function focusSessionWindow(sessionId: string): void {
  * one it already has — at most one window per session.
  *
  * Unlike the main window, closing this one is a real close: that is how the
- * session comes back to the docked panel, and nothing about it is kept.
+ * session comes back to the docked panel. Only its frame outlives it, as the
+ * one the next detached window opens at.
  */
 function openSessionWindow(sessionId: string): void {
   if (decideDetach(sessionId, sessionWindows) === 'focus') {
@@ -453,9 +570,15 @@ function openSessionWindow(sessionId: string): void {
   // of its own either — the application menu carries Close Window on ⌘W,
   // which with the red light is how this window closes (22c draws no × of
   // ours).
+  //
+  // It opens where the last detached window was left, or centred at the
+  // default size, stepped clear of any detached window already there.
+  const areas = workAreas();
+  const start =
+    windowFrames.session ?? centredIn(areas[0], SESSION_WINDOW_WIDTH, SESSION_WINDOW_HEIGHT);
+  const open = [...sessionWindows.values()].filter((w) => !w.isDestroyed()).map((w) => w.getBounds());
   const detached = new BrowserWindow({
-    width: SESSION_WINDOW_WIDTH,
-    height: SESSION_WINDOW_HEIGHT,
+    ...cascadeFrom(start, open, areas, SESSION_WINDOW_CASCADE_STEP),
     minWidth: SESSION_WINDOW_WIDTH,
     minHeight: SESSION_WINDOW_MIN_HEIGHT,
     titleBarStyle: 'hiddenInset',
@@ -465,6 +588,14 @@ function openSessionWindow(sessionId: string): void {
   });
   confineToOrbital(detached.webContents);
   sessionWindows.set(sessionId, detached);
+  // Whatever it is moved or resized to — by hand, or grown for the subagent
+  // panel — is where the next detached window opens. The frame it opened at
+  // is not taken on its own: a cascade step is not the user's choice, and
+  // taking it would walk the remembered frame down the screen one step per
+  // untouched window. A close only writes what is already remembered.
+  detached.on('move', () => rememberSessionWindow(detached));
+  detached.on('resize', () => rememberSessionWindow(detached));
+  detached.on('close', () => flushWindowFrames());
   detached.on('closed', () => {
     sessionWindows.delete(sessionId);
     sendDetachedChanged();
@@ -733,7 +864,11 @@ async function start(): Promise<void> {
     return;
   }
 
-  openWindow(target.url);
+  // Back on the page it was last on. Whatever that page named may be gone by
+  // now; the page itself deals with that (spec:
+  // 2026-09-24-remembered-window-frames-design).
+  const rememberedPath = windowFrames.main?.path;
+  openWindow(target.url, rememberedPath ? mainWindowUrl(target.url, rememberedPath) : target.url);
   // Once, and only once there is a window for it to open. Every path above
   // this line ends in `app.quit()`, where a menu bar item would be a leak.
   createTray();
@@ -781,6 +916,7 @@ void app.whenReady().then(() => {
   // Before `start`, so ⌘Q and the Edit roles already work in its dialogs.
   // Map does nothing until startup has chosen a URL, as the Dock icon does not.
   rebuildMenu();
+  loadWindowFrames();
   return start();
 });
 
@@ -875,3 +1011,7 @@ app.on('before-quit', (event) => {
     child = null;
   }
 });
+
+// Last, after every window has had its `close`: a move still waiting out its
+// delay is written rather than lost.
+app.on('will-quit', () => flushWindowFrames());
