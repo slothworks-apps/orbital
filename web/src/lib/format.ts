@@ -205,10 +205,14 @@ export function formatContextWindow(tokens: number): string {
  */
 export function formatToolDuration(ms: number | undefined): string | undefined {
   if (ms === undefined) return undefined
-  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
-  if (ms < HOUR_MS) {
-    const totalSeconds = Math.round(ms / 1000)
+  // Each band is picked from the rounded value, not the raw one: a duration
+  // just under a boundary that rounds up to it must read the way the next
+  // band writes it, not as that boundary in the smaller unit.
+  const tenths = (ms / 1000).toFixed(1)
+  if (Number(tenths) < 10) return `${tenths}s`
+  const totalSeconds = Math.round(ms / 1000)
+  if (totalSeconds < MINUTE_MS / 1000) return `${totalSeconds}s`
+  if (totalSeconds < HOUR_MS / 1000) {
     return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`
   }
   const totalMinutes = Math.round(ms / MINUTE_MS)

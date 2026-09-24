@@ -38,7 +38,14 @@ describe('formatToolDuration', () => {
   it('formats 10s up to a minute as whole seconds', () => {
     expect(formatToolDuration(10_000)).toBe('10s')
     expect(formatToolDuration(42_000)).toBe('42s')
-    expect(formatToolDuration(59_600)).toBe('60s')
+  })
+
+  // Each band is picked from the value as it will be shown, so a duration
+  // that rounds up to the next band reads the way that band writes it.
+  it('moves to the next band when rounding reaches it', () => {
+    expect(formatToolDuration(9_960)).toBe('10s')
+    expect(formatToolDuration(59_600)).toBe('1m 0s')
+    expect(formatToolDuration(60 * MINUTE - 400)).toBe('1h 0m')
   })
 
   it('formats a minute and over as "Nm Ns"', () => {
