@@ -305,10 +305,46 @@ export function decisionQuestions(input: Record<string, unknown>): string[] {
  */
 type InputMessage = unknown;
 
+/**
+ * How long the runner holds a row's streamed text before publishing it as
+ * one `delta`. Bounds the wire and the transcript's re-renders to a few per
+ * second per row whatever the token rate; the block's end and any complete
+ * message flush it at once (spec: 2026-09-24-streaming-output-design § 2).
+ */
+export const STREAM_FLUSH_MS = 50;
+
+/** One text or thinking block being streamed: the row the client is filling. */
+interface StreamRow {
+  id: string;
+  role: 'assistant' | 'thinking';
+  /** Everything received for the block so far. */
+  text: string;
+}
+
+/**
+ * The assistant message the CLI is streaming right now — what
+ * `SDKPartialAssistantMessage` frames of the main loop are folded into.
+ * Opened at `message_start`, rows are claimed by the complete blocks that
+ * follow the stream (`idFor` in `pump()`), and whatever is left is dropped
+ * at the next `message_start` (spec: 2026-09-24-streaming-output-design § 3).
+ */
+interface StreamState {
+  /** The API message id, `event.message.id` at `message_start`. */
+  messageId: string;
+  model?: string;
+  /** Rows by content block index; a row leaves when a complete block claims it. */
+  rows: Map<number, StreamRow>;
+  /** Text received since the row's last publish, and where it starts. */
+  pending: Map<number, { offset: number; text: string }>;
+  flushTimer: ReturnType<typeof setTimeout> | null;
+}
+
 interface ManagedSession {
   status: SessionStatus;
   queue: Array<(msg: InputMessage) => void>;
   pending: Array<InputMessage>;
+  /** The message being streamed, or `null` between streams. */
+  stream: StreamState | null;
   /**
    * The decision this session's CLI is blocked on, with the resolver of the
    * `canUseTool` promise that block *is*. One at a time: the model cannot ask
@@ -375,8 +411,19 @@ interface ManagedSession {
  * `nextSeq` must return a monotonically increasing number per call — callers
  * (Runner) bind it to a per-instance counter so ids can't collide when two
  * messages land in the same millisecond with the same block index.
+ *
+ * `idFor` lets the caller hand a `text` or `thinking` block an id it already
+ * published under — the row its stream filled — so the complete block
+ * replaces the streamed one in the client instead of landing beside it
+ * (adr: streamed-text-rides-as-offset-deltas-on-the-rows-id). Answering
+ * `undefined` mints a fresh id as before.
  */
-export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: ImageWriter): ChatMessage[] {
+export function sdkToChatMessages(
+  sdkMsg: any,
+  nextSeq: () => number,
+  images?: ImageWriter,
+  idFor?: (block: { type: 'text' | 'thinking'; text: string }) => string | undefined,
+): ChatMessage[] {
   // `isSynthetic` is how the SDK stream carries the transcript's `isMeta`:
   // the CLI stamps it on a user frame that is `isMeta`,
   // `isVisibleInTranscriptOnly` or `isCompactSummary` — the harness speaking,
@@ -403,7 +450,8 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: I
         const split = splitUserText(block.text);
         out.push({ id, role: 'user', text: split.text, ...(split.command ? { command: split.command } : {}), timestamp });
       } else {
-        out.push({ id, role: 'assistant', text: block.text, model, timestamp });
+        const streamed = idFor?.({ type: 'text', text: block.text });
+        out.push({ id: streamed ?? id, role: 'assistant', text: block.text, model, timestamp });
       }
     } else if (block.type === 'thinking') {
       // The SDK carries the reasoning text in `thinking`, not `text` — the
@@ -417,7 +465,8 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: I
       // `for await`, where the catch logs a warning and then calls
       // `release()` — one malformed frame would stop the whole session.
       if (typeof block.thinking === 'string' && block.thinking.trim()) {
-        out.push({ id, role: 'thinking', text: block.thinking, model, timestamp });
+        const streamed = idFor?.({ type: 'thinking', text: block.thinking });
+        out.push({ id: streamed ?? id, role: 'thinking', text: block.thinking, model, timestamp });
       }
     } else if (block.type === 'tool_use') {
       out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id, timestamp });
@@ -769,6 +818,9 @@ export class Runner {
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
     if (state.sleepTimer) clearTimeout(state.sleepTimer);
     state.sleepTimer = null;
+    // A flush after the release would publish for a session nobody holds.
+    if (state.stream?.flushTimer) clearTimeout(state.stream.flushTimer);
+    state.stream = null;
     // Gone before the release is announced, so whoever hears it and asks
     // `status()` already finds nobody holding the session.
     this.sessions.delete(sessionId);
@@ -819,7 +871,7 @@ export class Runner {
       throw new Error(`resume collision: session ${sessionId} already active`);
     }
     const state: ManagedSession = {
-      status: 'working', queue: [], pending: [], generator: null, sleepTimer: null,
+      status: 'working', queue: [], pending: [], stream: null, generator: null, sleepTimer: null,
       lastCall: null, turnEnded: false,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
@@ -859,6 +911,10 @@ export class Runner {
       // accepted, not an error (spec
       // `2026-09-22-subagent-transcript-panel-design.md` § 1).
       forwardSubagentText: true,
+      // The streamed answer: `stream_event` frames as each block is written,
+      // ahead of the complete message that still follows
+      // (spec: 2026-09-24-streaming-output-design § 3).
+      includePartialMessages: true,
       // Without this the SDK treats every "ask" decision as terminal and
       // auto-denies it, which is what used to push `AskUserQuestion` into
       // plain prose (spec 2026-09-20-interactive-decisions-design).
@@ -957,6 +1013,13 @@ export class Runner {
           if (row) this.hub.publish(topic, { event: 'message', message: row });
           continue;
         }
+        // The answer as it is written. Only the main loop's: a subagent's
+        // stream events are left to its own feed, which stays whole-message
+        // (spec: 2026-09-24-streaming-output-design § 1).
+        if (msg.type === 'stream_event') {
+          if (msg.parent_tool_use_id == null && msg.event) this.onStreamEvent(sessionId, state, msg.event);
+          continue;
+        }
         if (msg.type === 'assistant' || msg.type === 'user') {
           // A main-loop frame means the turn is running, whoever started it.
           // Orbital used to learn that only from its own `send()`, so every
@@ -1024,7 +1087,11 @@ export class Runner {
               ? { ...msg, isMeta: true }
               : msg) as TranscriptEntry;
             this.onEntries?.(sessionId, [entry]);
-            for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images)) {
+            // Every delta of a block goes out before the block itself, so
+            // the client never sees a complete row grow afterwards.
+            this.flushStream(sessionId, state);
+            const idFor = this.streamedIdFor(state, msg);
+            for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images, idFor)) {
               this.hub.publish(topic, { event: 'message', message: chat });
             }
           } else {
@@ -1077,6 +1144,125 @@ export class Runner {
     // stream. Harmless after an explicit stop() — the session is already
     // released, so release() does nothing a second time.
     this.release(sessionId, state);
+  }
+
+  /**
+   * Folds one Messages API stream event of the main loop into the session's
+   * stream state, and publishes the text it carries as coalesced `delta`
+   * events (spec: 2026-09-24-streaming-output-design § 3).
+   */
+  private onStreamEvent(sessionId: string, state: ManagedSession, event: any): void {
+    if (event.type === 'message_start') {
+      // A new message: whatever the last one left unclaimed is stale now.
+      this.flushStream(sessionId, state);
+      if (state.stream?.flushTimer) clearTimeout(state.stream.flushTimer);
+      const model = typeof event.message?.model === 'string' ? event.message.model : undefined;
+      state.stream = {
+        messageId: typeof event.message?.id === 'string' ? event.message.id : '',
+        model,
+        rows: new Map(),
+        pending: new Map(),
+        flushTimer: null,
+      };
+      // The first frame of a turn, ahead of any complete message — the same
+      // edge the assistant/user branch of `pump()` marks, moved earlier.
+      const began = state.turnEnded === true;
+      state.turnEnded = false;
+      this.settleStatus(sessionId);
+      if (began) this.onTurnBoundary?.(sessionId, false);
+      return;
+    }
+    const stream = state.stream;
+    if (!stream) return;
+    if (event.type === 'content_block_start') {
+      const kind = event.content_block?.type;
+      if (kind !== 'text' && kind !== 'thinking') return;
+      const index = Number(event.index);
+      stream.rows.set(index, {
+        id: `${sessionId}:${++this.seq}:${index}`,
+        role: kind === 'text' ? 'assistant' : 'thinking',
+        text: '',
+      });
+      return;
+    }
+    if (event.type === 'content_block_delta') {
+      const index = Number(event.index);
+      const row = stream.rows.get(index);
+      if (!row) return;
+      const delta = event.delta;
+      const text =
+        delta?.type === 'text_delta' && typeof delta.text === 'string' ? delta.text
+        : delta?.type === 'thinking_delta' && typeof delta.thinking === 'string' ? delta.thinking
+        : '';
+      if (!text) return;
+      const pending = stream.pending.get(index);
+      if (pending) pending.text += text;
+      else stream.pending.set(index, { offset: row.text.length, text });
+      row.text += text;
+      if (!stream.flushTimer) {
+        const timer = setTimeout(() => {
+          stream.flushTimer = null;
+          this.flushStream(sessionId, state);
+        }, STREAM_FLUSH_MS);
+        (timer as unknown as { unref?: () => void }).unref?.();
+        stream.flushTimer = timer;
+      }
+      return;
+    }
+    if (event.type === 'content_block_stop' || event.type === 'message_stop') {
+      this.flushStream(sessionId, state);
+    }
+  }
+
+  /** Publishes every row's pending text as one `delta` each, and clears it. */
+  private flushStream(sessionId: string, state: ManagedSession): void {
+    const stream = state.stream;
+    if (!stream) return;
+    if (stream.flushTimer) {
+      clearTimeout(stream.flushTimer);
+      stream.flushTimer = null;
+    }
+    if (stream.pending.size === 0) return;
+    const topic = `session:${sessionId}`;
+    for (const [index, pending] of stream.pending) {
+      const row = stream.rows.get(index);
+      if (!row) continue;
+      this.hub.publish(topic, {
+        event: 'delta',
+        id: row.id,
+        role: row.role,
+        offset: pending.offset,
+        text: pending.text,
+        ...(stream.model ? { model: stream.model } : {}),
+      });
+    }
+    stream.pending.clear();
+  }
+
+  /**
+   * The id resolver a complete assistant frame converts with: a `text` or
+   * `thinking` block whose text equals an unclaimed streamed row's takes that
+   * row's id, and the row leaves the stream. Text equality rather than block
+   * order — the deltas concatenate to the final text exactly, and one frame
+   * per block is the SDK's habit, not its contract
+   * (adr: streamed-text-rides-as-offset-deltas-on-the-rows-id).
+   */
+  private streamedIdFor(
+    state: ManagedSession,
+    msg: any,
+  ): ((block: { type: 'text' | 'thinking'; text: string }) => string | undefined) | undefined {
+    const stream = state.stream;
+    if (!stream || msg.type !== 'assistant' || msg.message?.id !== stream.messageId) return undefined;
+    return (block) => {
+      const role = block.type === 'text' ? 'assistant' : 'thinking';
+      for (const [index, row] of stream.rows) {
+        if (row.role === role && row.text === block.text) {
+          stream.rows.delete(index);
+          return row.id;
+        }
+      }
+      return undefined;
+    };
   }
 
   /**

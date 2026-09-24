@@ -38,6 +38,20 @@ export type SessionsEvent =
 /** Events delivered on the `session:<id>` topic. */
 export type SessionEvent =
   | { event: 'message'; message: ChatMessage }
+  /**
+   * A slice of a row still being written (spec:
+   * 2026-09-24-streaming-output-design § 2). `offset` is where `text` goes
+   * in the row; the complete block arrives later as a `message` under the
+   * same `id` and replaces the row.
+   */
+  | {
+      event: 'delta'
+      id: string
+      role: 'assistant' | 'thinking'
+      offset: number
+      text: string
+      model?: string
+    }
   | { event: 'status'; status: SessionStatus }
   /** A turn ended. The `usage` payload rides along on the wire but nothing
    * reads it any more — the context gauge is fed by `contextUsedTokens` on
@@ -556,6 +570,16 @@ function echoes(echo: ChatMessage, pending: ChatMessage): boolean {
 const turnResultSeen: Record<string, boolean | undefined> = {}
 
 /**
+ * Where the next `delta` of a streaming row should start — the length of
+ * everything applied to it so far, by row id. Non-reactive bookkeeping like
+ * `turnResultSeen`: nothing renders off it, it only decides whether a delta
+ * is new (offset here), a duplicate (behind it) or a mid-stream join (ahead
+ * of it, on a row this tab never saw the head of). Dropped when the row is
+ * finalised (adr: streamed-text-rides-as-offset-deltas-on-the-rows-id).
+ */
+const streamEnds: Record<string, number> = {}
+
+/**
  * Unsubscribe functions for the `session:<id>` topics `launchSession` opened
  * before their session existed.
  *
@@ -889,7 +913,18 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
     if (msg.event === 'message') {
       const existing = state.transcripts[sessionId] ?? []
-      if (existing.some((m) => m.id === msg.message.id)) return
+      const heldIdx = existing.findIndex((m) => m.id === msg.message.id)
+      if (heldIdx >= 0) {
+        // A row already held under this id is either the streamed twin of
+        // this block — replaced in place, same position, same key — or the
+        // same message delivered twice, which stays deduped.
+        if (!existing[heldIdx].partial) return
+        delete streamEnds[msg.message.id]
+        const updated = existing.slice()
+        updated[heldIdx] = msg.message
+        set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
+        return
+      }
 
       // The server echo of a user message we already appended optimistically
       // (see `sendPrompt`) arrives with its own, server-issued id — dedup by
@@ -920,6 +955,37 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           [sessionId]: [...existing, msg.message],
         },
       })
+      return
+    }
+
+    if (msg.event === 'delta') {
+      const existing = state.transcripts[sessionId] ?? []
+      const idx = existing.findIndex((m) => m.id === msg.id)
+      const end = streamEnds[msg.id]
+      if (idx < 0) {
+        // A row this tab has not seen: the block's first delta, or a join
+        // mid-stream (offset ahead of zero), in which case the row starts
+        // at the tail it can see and the complete block fills in the rest.
+        streamEnds[msg.id] = msg.offset + msg.text.length
+        const row: ChatMessage = {
+          id: msg.id,
+          role: msg.role,
+          text: msg.text,
+          timestamp: new Date().toISOString(),
+          partial: true,
+          ...(msg.model ? { model: msg.model } : {}),
+        }
+        set({ transcripts: { ...state.transcripts, [sessionId]: [...existing, row] } })
+        return
+      }
+      const row = existing[idx]
+      // Behind the row: the same delta delivered twice. Not a partial row:
+      // the block has already landed complete, and nothing may grow it.
+      if (!row.partial || end === undefined || msg.offset < end) return
+      streamEnds[msg.id] = msg.offset + msg.text.length
+      const updated = existing.slice()
+      updated[idx] = { ...row, text: (row.text ?? '') + msg.text }
+      set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
       return
     }
 
@@ -996,7 +1062,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const transcriptErrors = state.transcriptErrors[sessionId]
         ? { ...state.transcriptErrors, [sessionId]: false }
         : state.transcriptErrors
+      // A row still partial when the turn ends keeps its streamed text as
+      // final: the complete block never claimed it, and the file has the
+      // same words (spec: 2026-09-24-streaming-output-design § 1).
+      const held = state.transcripts[sessionId]
+      const transcripts = held?.some((m) => m.partial)
+        ? {
+            ...state.transcripts,
+            [sessionId]: held.map((m) => {
+              if (!m.partial) return m
+              delete streamEnds[m.id]
+              const { partial: _partial, ...final } = m
+              return final
+            }),
+          }
+        : state.transcripts
       set({
+        transcripts,
         transcriptErrors,
         // Same clearing, for the recorded error. The flag above cannot cover
         // it: the record is a database row that outlives this transition, so

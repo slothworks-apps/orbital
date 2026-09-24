@@ -113,6 +113,13 @@ export interface ChatMessage {
    * A pasted user image is its own message (no text); a tool_result keeps
    * its text beside them. Spec: 2026-09-18-transcript-images-design. */
   images?: ImageRefEntry[];
+  /**
+   * The row is still being streamed: its text is what the `delta` events
+   * have delivered so far. Cleared when the complete block replaces it or
+   * the turn ends. Never set on a message read from the file (spec:
+   * 2026-09-24-streaming-output-design).
+   */
+  partial?: true;
 }
 
 export interface TagRule {

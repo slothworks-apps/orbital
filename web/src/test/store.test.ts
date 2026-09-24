@@ -2368,3 +2368,53 @@ describe('select, coming back to a session', () => {
     expect(useOrbital.getState().transcripts.s1).toEqual([m1, echo, reply])
   })
 })
+
+// spec: 2026-09-24-streaming-output-design
+describe('applySessionEvent: delta', () => {
+  const apply = (msg: Parameters<OrbitalState['applySessionEvent']>[1]) =>
+    useOrbital.getState().applySessionEvent('s1', msg)
+  const delta = (id: string, offset: number, text: string, role: 'assistant' | 'thinking' = 'assistant') =>
+    ({ event: 'delta', id, role, offset, text, model: 'claude-x' }) as const
+
+  it('creates a partial row on the first delta and grows it on the next', () => {
+    apply(delta('r1', 0, 'Hel'))
+    apply(delta('r1', 3, 'lo'))
+    const [row] = useOrbital.getState().transcripts.s1
+    expect(row).toMatchObject({ id: 'r1', role: 'assistant', text: 'Hello', model: 'claude-x', partial: true })
+    expect(typeof row.timestamp).toBe('string')
+  })
+
+  it('ignores a delta delivered twice', () => {
+    apply(delta('r1', 0, 'Hel'))
+    apply(delta('r1', 3, 'lo'))
+    apply(delta('r1', 3, 'lo'))
+    expect(useOrbital.getState().transcripts.s1[0].text).toBe('Hello')
+  })
+
+  it('joins mid-stream from the tail it can see', () => {
+    apply(delta('r1', 40, 'the end'))
+    apply(delta('r1', 47, '.'))
+    expect(useOrbital.getState().transcripts.s1[0].text).toBe('the end.')
+  })
+
+  it('replaces the partial row in place when the complete block arrives, and dedupes a second copy', () => {
+    const before: ChatMessage = { id: 'm0', role: 'user', text: 'hi' }
+    apply({ event: 'message', message: before })
+    apply(delta('r1', 0, 'Hel'))
+    apply(delta('r1', 3, 'lo'))
+    const complete: ChatMessage = { id: 'r1', role: 'assistant', text: 'Hello', model: 'claude-x', timestamp: 't' }
+    apply({ event: 'message', message: complete })
+    apply({ event: 'message', message: complete })
+    // A late delta cannot grow a finished row.
+    apply(delta('r1', 5, '!'))
+    expect(useOrbital.getState().transcripts.s1).toEqual([before, complete])
+  })
+
+  it('finalises a leftover partial row when the turn ends', () => {
+    apply(delta('r1', 0, 'unclaimed', 'thinking'))
+    apply({ event: 'turn_result', usage: {} })
+    const [row] = useOrbital.getState().transcripts.s1
+    expect(row).toMatchObject({ id: 'r1', role: 'thinking', text: 'unclaimed' })
+    expect(row.partial).toBeUndefined()
+  })
+})

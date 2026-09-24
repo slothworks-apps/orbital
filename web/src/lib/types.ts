@@ -302,6 +302,13 @@ export interface ChatMessage {
    * § The transcript side).
    */
   imageProvenance?: Record<string, ImageProvenance>
+  /**
+   * The row is still being streamed: its text is what the `delta` events
+   * have delivered so far. Cleared when the complete block replaces it or
+   * the turn ends. Never set on a message read from the file (spec:
+   * 2026-09-24-streaming-output-design). Mirrors `server/src/types.ts`.
+   */
+  partial?: true
 }
 
 /** Walkthrough wire shape — mirrors server/src/walkthrough/types.ts (spec: 2026-09-23-walkthrough-design). */

@@ -3034,3 +3034,124 @@ describe('Runner ownership reporting', () => {
     expect(seen.at(-1)).toEqual(['web-1', null]);
   });
 });
+
+// spec: 2026-09-24-streaming-output-design
+describe('streaming output', () => {
+  const stream = (event: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    type: 'stream_event',
+    parent_tool_use_id: null,
+    event,
+    ...extra,
+  });
+
+  it('asks the SDK for partial messages', async () => {
+    const seen: any[] = [];
+    const queryFn = ({ options }: any) => {
+      seen.push(options);
+      return (async function* () {})() as any;
+    };
+    const runner = new Runner({ hub: new Hub(), queryFn, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    expect(seen[0].includePartialMessages).toBe(true);
+  });
+
+  it('publishes a block as deltas that concatenate to its text, then the block under the same id', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push(stream({ type: 'message_start', message: { id: 'msg_1', model: 'claude-x' } }));
+    script.push(stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hel' } }));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'lo' } }));
+    script.push(stream({ type: 'content_block_stop', index: 0 }));
+    script.push({
+      type: 'assistant',
+      message: { id: 'msg_1', model: 'claude-x', role: 'assistant', content: [{ type: 'text', text: 'Hello' }] },
+    });
+    script.push(stream({ type: 'message_stop' }));
+    await vi.waitFor(() => expect(events.some((e) => e.event === 'message')).toBe(true));
+
+    const deltas = events.filter((e) => e.event === 'delta');
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(deltas.every((d) => d.role === 'assistant' && d.model === 'claude-x')).toBe(true);
+    // Offsets chain: each delta starts where the previous one ended.
+    let end = 0;
+    for (const d of deltas) {
+      expect(d.offset).toBe(end);
+      end += d.text.length;
+    }
+    expect(deltas.map((d) => d.text).join('')).toBe('Hello');
+
+    const message = events.find((e) => e.event === 'message');
+    expect(message.message).toMatchObject({ role: 'assistant', text: 'Hello', model: 'claude-x' });
+    expect(message.message.id).toBe(deltas[0].id);
+    expect(message.message.partial).toBeUndefined();
+    // Every delta of the block precedes the block.
+    expect(events.indexOf(deltas[deltas.length - 1])).toBeLessThan(events.indexOf(message));
+  });
+
+  it('streams thinking as its own row, and a tool call not at all', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push(stream({ type: 'message_start', message: { id: 'msg_2', model: 'claude-x' } }));
+    script.push(stream({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'hmm' } }));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig' } }));
+    script.push(stream({ type: 'content_block_stop', index: 0 }));
+    script.push({
+      type: 'assistant',
+      message: { id: 'msg_2', role: 'assistant', content: [{ type: 'thinking', thinking: 'hmm', signature: 'sig' }] },
+    });
+    script.push(stream({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'Read', input: {} } }));
+    script.push(stream({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"file_path":' } }));
+    script.push(stream({ type: 'content_block_stop', index: 1 }));
+    script.push({
+      type: 'assistant',
+      message: { id: 'msg_2', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: '/a' } }] },
+    });
+    await vi.waitFor(() => expect(events.filter((e) => e.event === 'message')).toHaveLength(2));
+
+    const deltas = events.filter((e) => e.event === 'delta');
+    expect(deltas.map((d) => [d.role, d.text])).toEqual([['thinking', 'hmm']]);
+    const [thinking, toolUse] = events.filter((e) => e.event === 'message').map((e) => e.message);
+    expect(thinking).toMatchObject({ role: 'thinking', text: 'hmm', id: deltas[0].id });
+    expect(toolUse).toMatchObject({ role: 'tool_use', toolName: 'Read' });
+  });
+
+  it("a subagent's stream publishes nothing on the session topic", async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    const sub = { parent_tool_use_id: 'toolu_9' };
+    script.push(stream({ type: 'message_start', message: { id: 'msg_3', model: 'claude-x' } }, sub));
+    script.push(stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, sub));
+    script.push(stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'agent' } }, sub));
+    script.push(stream({ type: 'content_block_stop', index: 0 }, sub));
+    // The fence: a result behind the stream, so it has been drained when read.
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(events.some((e) => e.event === 'turn_result')).toBe(true));
+    expect(events.filter((e) => e.event === 'delta')).toHaveLength(0);
+  });
+
+  it('a stream the CLI starts by itself puts the session back to working', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+
+    script.push(stream({ type: 'message_start', message: { id: 'msg_4', model: 'claude-x' } }));
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('working'));
+  });
+});
