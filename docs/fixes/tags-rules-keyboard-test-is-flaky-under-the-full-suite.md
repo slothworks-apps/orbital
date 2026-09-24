@@ -2,8 +2,10 @@
 id: tags-rules-keyboard-test-is-flaky-under-the-full-suite
 title: The Tags & rules keyboard test is flaky under the full suite
 type: fix
-status: done
+status: blocked
 domain: settings
+related:
+  - tagsrules-close-focus-can-be-lost-under-load
 tags:
   - web
   - tests
@@ -38,11 +40,23 @@ runs, not the file alone — alone it never fails.
 It was found while merging unrelated map and transcript work, and the fix is
 a test change with its own verification loop. Nothing it guards is broken.
 
-## Fixed 2026-09-24
+## Partially fixed 2026-09-24
 
 `web/src/test/tagsrules.test.tsx`, "opens a row from the keyboard and Escape
-closes the row before the panel": the three synchronous `row(10).dataset.
-ruleMode` / `onClose` reads that followed a keypress now go through `await
+closes the row before the panel": the synchronous `row(10).dataset.ruleMode`
+/ focus / `onClose` reads that followed a keypress now go through `await
 waitFor(...)`, matching the pattern already used elsewhere in the file. The
-component (`TagsRules.tsx`) is unchanged. Verified with five full `npx
-vitest run` passes in `web/` (see the commit message for the counts).
+component (`TagsRules.tsx`) is unchanged, and five full `npx vitest run`
+passes in `web/` came back green (see the commit message for the counts).
+
+That is not the whole story, though: instrumenting the component (temporary
+`console.error`s, not committed) under heavier contention than a normal full
+run showed a genuine race in `TagsRules.tsx`'s close-focus effect, where the
+ref that carries "focus this row on close" can be cleared before its target
+is confirmed to exist, permanently losing the handoff — not a read-too-early
+problem `waitFor` can wait out. Documented separately as
+[[tagsrules-close-focus-can-be-lost-under-load]], since fixing it needs a
+component change and this task's brief is test-only. Left `blocked` on that
+document rather than `done`: the test is markedly less flaky, but the
+underlying race is still there and reproduced twice in 20 single-process full
+runs during verification.
