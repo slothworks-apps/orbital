@@ -24,7 +24,7 @@ import { openQuestion } from '../lib/questionCard'
 import { composerHintFor, composerPlaceholderFor } from '../lib/decisionCard'
 import { reportError } from '../lib/errors'
 import { useWindowFocused } from '../lib/useWindowFocused'
-import { Panel } from '../ui/Panel'
+import { Panel, WINDOW_STRIP_INSET_PX } from '../ui/Panel'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { useCommand } from '../lib/commands'
 import { shortcutLabel } from '../lib/keymap'
@@ -88,13 +88,6 @@ const ACCENT_HUE = 205
  * the background is still a session worth reading.
  */
 const INACTIVE_GLINT_OPACITY = 0.45
-
-/**
- * Row 1's left inset in a detached window, where the row doubles as the
- * title bar: wide enough to clear the traffic lights main places on it
- * (22b). Rows below keep the header's own padding.
- */
-const WINDOW_STRIP_INSET_PX = 80
 
 /**
  * The title's type, from `Feature - Detail header` 9d's row 2. One object

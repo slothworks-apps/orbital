@@ -38,9 +38,11 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   // A detached window's subagent panel opened or closed: main grows the
   // window to make room, and shrinks it back (spec:
   // 2026-09-23-detached-session-windows-design § The subagent panel in the
-  // window). Main validates the payload; the main window's is ignored.
-  setSubagentPanel(state: unknown) {
-    ipcRenderer.send('session-window-subagent', state);
+  // window). Main validates the payload; the main window's is ignored. The
+  // promise resolves to `{ widthPx }`, the window's width once the resize
+  // lands, or undefined when main did not take the message.
+  setSubagentPanel(state: unknown): Promise<unknown> {
+    return ipcRenderer.invoke('session-window-subagent', state);
   },
   // The main window's chrome (spec: 2026-09-24-main-window-chrome-design):
   // the sidebar hides the traffic lights while it is collapsed, and main says

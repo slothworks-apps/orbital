@@ -34,6 +34,7 @@ import {
   sessionWindowUrl,
   shrinkAfterSubagent,
   type SubagentGrowth,
+  type SubagentPanelAnswer,
   type SubagentPanelMessage,
 } from './lib/sessionWindows';
 import {
@@ -487,25 +488,33 @@ const subagentGrowth = new WeakMap<BrowserWindow, SubagentGrowth>();
  *
  * A full-screen window is its own space and keeps its size; the panel opens
  * inside it.
+ *
+ * Answers the width the window will have once the animation lands (spec:
+ * 2026-09-24-subagent-list-design § 4): the grown or shrunk width, or the
+ * current one when the frame stays. The renderer picks its layout from it
+ * before the resize has finished.
  */
-function resizeForSubagent(target: BrowserWindow, message: SubagentPanelMessage): void {
-  if (target.isFullScreen()) return;
+function resizeForSubagent(target: BrowserWindow, message: SubagentPanelMessage): SubagentPanelAnswer {
+  const current: SubagentPanelAnswer = { widthPx: target.getBounds().width };
+  if (target.isFullScreen()) return current;
   if (message.open) {
     // A repeat open (the renderer reloaded mid-agent) keeps the first grow.
-    if (subagentGrowth.has(target)) return;
+    if (subagentGrowth.has(target)) return current;
     const bounds = target.getBounds();
     const { workArea } = screen.getDisplayMatching(bounds);
     const growth = growForSubagent(bounds, workArea, message.widthPx, message.pairMinPx);
-    if (!growth) return;
+    if (!growth) return current;
     subagentGrowth.set(target, growth);
     target.setBounds(growth.after, true);
-    return;
+    return { widthPx: growth.after.width };
   }
   const growth = subagentGrowth.get(target);
-  if (!growth) return;
+  if (!growth) return current;
   subagentGrowth.delete(target);
   const bounds = shrinkAfterSubagent(target.getBounds(), growth, target.getMinimumSize()[0]);
-  if (bounds) target.setBounds(bounds, true);
+  if (!bounds) return current;
+  target.setBounds(bounds, true);
+  return { widthPx: bounds.width };
 }
 
 /**
@@ -793,12 +802,13 @@ ipcMain.on('set-menu-commands', (event, payload: unknown) => {
   rebuildMenu();
 });
 // The subagent panel opening or closing inside a detached window. Only a
-// detached window's own renderer is heard, and only about itself.
-ipcMain.on('session-window-subagent', (event, payload: unknown) => {
+// detached window's own renderer is heard, and only about itself; it is
+// answered with its resulting width, anything else with undefined.
+ipcMain.handle('session-window-subagent', (event, payload: unknown) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
-  if (!sender || ![...sessionWindows.values()].includes(sender)) return;
+  if (!sender || ![...sessionWindows.values()].includes(sender)) return undefined;
   const message = parseSubagentPanelMessage(payload);
-  if (message) resizeForSubagent(sender, message);
+  return message ? resizeForSubagent(sender, message) : undefined;
 });
 
 // There is deliberately no `window-all-closed` handler: closing the window no

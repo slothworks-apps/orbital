@@ -88,6 +88,14 @@ export type SubagentPanelMessage =
   | { open: true; widthPx: number; pairMinPx: number }
   | { open: false };
 
+/**
+ * Main's answer to a `session-window-subagent` message: the width the window
+ * will have once its resize lands (spec: 2026-09-24-subagent-list-design § 4).
+ */
+export interface SubagentPanelAnswer {
+  widthPx: number;
+}
+
 function isWidth(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }

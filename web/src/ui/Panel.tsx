@@ -120,6 +120,14 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
 const windowChrome = 'bg-gradient-to-b from-[#0f1524] to-[#080c16]'
 
 /**
+ * Row 1's left inset in a detached window, where the row doubles as the
+ * title bar: wide enough to clear the traffic lights main places on it
+ * (22b). Rows below keep the header's own padding. The detail panel's row 1
+ * and the swapped subagent panel's (canvas 25b) both use it.
+ */
+export const WINDOW_STRIP_INSET_PX = 80
+
+/**
  * The subagent panel beside the detail panel in a detached window (spec:
  * 2026-09-23-detached-session-windows-design § The subagent panel in the
  * window). No gutter and no glass, so of 11b's cues between the two panels it

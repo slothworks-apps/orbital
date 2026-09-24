@@ -10,7 +10,7 @@ type DesktopBridge = {
   focusSession?: (id: string) => void
   onDetachedChanged?: (cb: (ids: string[]) => void) => void
   openInMainWindow?: (path: string) => void
-  setSubagentPanel?: (state: SubagentPanelState) => void
+  setSubagentPanel?: (state: SubagentPanelState) => Promise<SubagentPanelAnswer | undefined>
   setWindowButtonsVisible?: (visible: boolean) => void
   onFullScreenChanged?: (cb: (fullScreen: boolean) => void) => void
   setMenuCommands?: (items: MenuCommand[]) => void
@@ -40,6 +40,9 @@ export type MenuCommand = {
 export type SubagentPanelState =
   | { open: true; widthPx: number; pairMinPx: number }
   | { open: false }
+
+/** Main's answer: the width the window will have once its resize lands. */
+export type SubagentPanelAnswer = { widthPx: number }
 
 function bridge(): DesktopBridge | undefined {
   return (window as { orbitalDesktop?: DesktopBridge }).orbitalDesktop
@@ -126,10 +129,13 @@ export function openInMainWindow(path: string): void {
  * Tells main that this detached window's subagent panel opened or closed, so
  * the window grows to make room and shrinks back (spec:
  * 2026-09-23-detached-session-windows-design § The subagent panel in the
- * window). A no-op in the browser.
+ * window). Resolves to the width the window will have once the resize lands
+ * (spec: 2026-09-24-subagent-list-design § 4), or undefined in the browser.
  */
-export function setSubagentPanel(state: SubagentPanelState): void {
-  bridge()?.setSubagentPanel?.(state)
+export async function setSubagentPanel(
+  state: SubagentPanelState,
+): Promise<SubagentPanelAnswer | undefined> {
+  return bridge()?.setSubagentPanel?.(state)
 }
 
 /**

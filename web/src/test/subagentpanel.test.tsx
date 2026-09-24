@@ -64,6 +64,8 @@ function renderPanel(opts: {
    * stored snapshot.
    */
   sessionSubagents?: Subagent[]
+  /** In the session's place in a detached window (subagent list spec § 4). */
+  swap?: boolean
 }) {
   useOrbital.setState((s) => ({
     subagentPanel: {
@@ -78,7 +80,7 @@ function renderPanel(opts: {
     },
     transcripts: { ...s.transcripts, [SESSION_ID]: opts.parentMessages ?? [] },
   }))
-  return render(<SubagentPanel widthPx={380} />)
+  return render(<SubagentPanel widthPx={380} swap={opts.swap} />)
 }
 
 beforeEach(() => {
@@ -503,6 +505,16 @@ describe('⎋ closes the panel (task 9 brief item 9)', () => {
     // `pressEscape` — it propagates up to the shared capture-phase listener
     // on `window`, the way a real keystroke does.
     fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(useOrbital.getState().subagentPanel).toBeNull()
+  })
+})
+
+describe("swap: the subagent in the session's place (subagent list spec § 4)", () => {
+  it('`← session` closes the subagent, as ⎋ does', () => {
+    renderPanel({ subagent: makeSubagent({ state: 'working' }), swap: true })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the session' }))
 
     expect(useOrbital.getState().subagentPanel).toBeNull()
   })

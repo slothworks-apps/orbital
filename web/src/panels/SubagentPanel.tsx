@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
-import type { Tag } from '../lib/types'
+import type { ApiSession, Tag } from '../lib/types'
+import { sessionStateKey } from '../lib/types'
+import { dotMotionClass, stateColor, stateDot } from '../lib/stateStyle'
 import { formatToolDuration } from '../lib/format'
 import { modelNameForId } from '../lib/models'
 import {
@@ -11,7 +13,7 @@ import {
   taskStateFor,
   withoutLeadingUserFrame,
 } from '../lib/subagentPanel'
-import { Panel } from '../ui/Panel'
+import { Panel, WINDOW_STRIP_INSET_PX } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
 import { Badge } from '../ui/Badge'
 import { CollapseGlyph, UtilityButton } from '../ui/UtilityButton'
@@ -19,6 +21,7 @@ import { Tooltip } from '../ui/Tooltip'
 import { PIN_TOOLTIP_DELAY_MS } from './UtilityStrip'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { TranscriptView } from './TranscriptView'
+import { SubagentChip } from './SubagentChip'
 
 /**
  * The one tag a session wears, resolved the same way `DetailPanel`,
@@ -110,6 +113,41 @@ export interface SubagentPanelProps {
    * the column its caller sizes, and its header row drags the window.
    */
   inWindow?: boolean
+  /**
+   * In the session's place in a detached window too narrow for both panels
+   * (spec: 2026-09-24-subagent-list-design § 4, canvas 25b); implies
+   * `inWindow`. Row 1 becomes the title bar, with `← session` and the
+   * session's subagent chip, and there is no collapse chevron: `← session`
+   * and ⎋ both go back.
+   */
+  swap?: boolean
+}
+
+/**
+ * Swap's way back (canvas 25b): `← session`, its dot in the parent's state
+ * colour, so a session that is working or waiting on you shows it from here.
+ * The dot moves as the detail header's chip dot does for that state.
+ */
+function BackToSession({ parent, onBack }: { parent: ApiSession | undefined; onBack: () => void }) {
+  const key = parent ? sessionStateKey(parent) : undefined
+  return (
+    <button
+      type="button"
+      aria-label="Back to the session"
+      onClick={onBack}
+      className="flex h-6 min-w-0 items-center gap-[7px] rounded-md border border-[rgba(150,205,255,.14)] px-[9px] font-mono text-[10.5px] text-text-bright transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.08)]"
+    >
+      <span aria-hidden>←</span>
+      {key && (
+        <span
+          aria-hidden
+          className={['block size-1.5 shrink-0 rounded-full', dotMotionClass(stateDot(key, 'chip').motion) ?? ''].join(' ')}
+          style={{ background: stateColor(key) }}
+        />
+      )}
+      <span className="whitespace-nowrap">session</span>
+    </button>
+  )
 }
 
 /**
@@ -121,7 +159,9 @@ export interface SubagentPanelProps {
  * does, because how the two panels enter and leave TOGETHER is explicitly
  * the next task's layout concern, not this one's.
  */
-export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps) {
+export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = false }: SubagentPanelProps) {
+  const inWindow = inWindowProp || swap
+  const titleRowRef = useRef<HTMLDivElement | null>(null)
   const panel = useOrbital((s) => s.subagentPanel)
   const closeSubagent = useOrbital((s) => s.closeSubagent)
   const models = useOrbital(useShallow((s) => s.models))
@@ -241,7 +281,9 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
 
   return (
     <Panel
-      side="subagent"
+      // Swap fills the window alone, so it wears the window's own chrome, not
+      // the edge that separates it from a detail panel beside it (25b).
+      side={swap ? 'right' : 'subagent'}
       widthPx={widthPx}
       fill={inWindow}
       className="relative flex h-full flex-col overflow-hidden"
@@ -266,7 +308,33 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
           detail panel's 12px/22px/16px at every level. Docked in the main
           window, its top lies under the drag band (canvas `Feature - Main
           window chrome` 24a), so its controls opt out of it. */}
-      <div className="orbital-band-controls border-b border-[rgba(150,205,255,.1)] px-[18px] pb-4 pt-4">
+      <div
+        className={[
+          'orbital-band-controls border-b border-[rgba(150,205,255,.1)] px-[18px] pb-4 pt-4',
+          // 25b's header step over the window fill.
+          swap ? 'bg-[image:linear-gradient(180deg,rgba(10,15,27,.6),rgba(5,8,16,.3))]' : '',
+        ].join(' ')}
+      >
+        {/* In swap (25b) the window's title bar is this panel's own row 1,
+            at the detail panel's row-1 geometry so the traffic lights sit
+            where they sat, and the chip's list ends on the row's right edge. */}
+        {swap && (
+          <div
+            ref={titleRowRef}
+            className="orbital-drag-region -mx-[18px] -mt-4 flex h-10 items-center gap-2.5 pt-3 pr-[18px]"
+            style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
+          >
+            <BackToSession parent={parentSession} onBack={closeSubagent} />
+            <span aria-hidden className="flex-1" />
+            {parentSession && (
+              <SubagentChip
+                sessionId={parentSession.id}
+                subagents={parentSession.subagents}
+                alignRef={titleRowRef}
+              />
+            )}
+          </div>
+        )}
         {/* In a detached window the row carries on the detail panel's title
             bar (22b): it reaches out over the header's top and side padding
             so the whole top band drags the window, and collapse stays clickable
@@ -274,7 +342,11 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
         <div
           className={[
             'flex items-center gap-2',
-            inWindow ? 'orbital-drag-region -mx-[18px] -mt-4 h-[38px] px-[18px] pt-4' : 'h-[22px]',
+            swap
+              ? 'mt-3'
+              : inWindow
+                ? 'orbital-drag-region -mx-[18px] -mt-4 h-[38px] px-[18px] pt-4'
+                : 'h-[22px]',
           ].join(' ')}
         >
           <span className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]">
@@ -285,12 +357,15 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
               actions` 23b), so both panels say "slide away" the same way
               rather than one of them "close something". Its own name for a
               screen reader: with both panels open, two "Collapse panel"
-              buttons would not say which is which. */}
-          <Tooltip variant="name" title="Collapse panel" align="right" delayMs={PIN_TOOLTIP_DELAY_MS}>
-            <UtilityButton aria-label="Collapse the subagent panel" onClick={closeSubagent}>
-              <CollapseGlyph />
-            </UtilityButton>
-          </Tooltip>
+              buttons would not say which is which. Swap has `← session`
+              instead (25b). */}
+          {!swap && (
+            <Tooltip variant="name" title="Collapse panel" align="right" delayMs={PIN_TOOLTIP_DELAY_MS}>
+              <UtilityButton aria-label="Collapse the subagent panel" onClick={closeSubagent}>
+                <CollapseGlyph />
+              </UtilityButton>
+            </Tooltip>
+          )}
         </div>
 
         {/* The parent session's name (task 7 brief's own anatomy list) —
@@ -395,9 +470,10 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
         data-subagent-footer
         className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]"
       >
-        <span>read-only · a subagent takes no input</span>
+        {/* Swap (25b): the composer is the session's, one ⎋ away. */}
+        <span>{swap ? 'read-only · the composer is one step back' : 'read-only · a subagent takes no input'}</span>
         <span aria-hidden className="flex-1" />
-        <span>⎋ close</span>
+        <span>{swap ? '⎋ back to session' : '⎋ close'}</span>
       </div>
     </Panel>
   )

@@ -9,6 +9,7 @@ import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
 import { getSocket } from './lib/socket'
 import { api } from './lib/api'
 import { openInMainWindow, setSubagentPanel } from './lib/desktop'
+import { answeredWidthReached, resolveWindowLayout } from './lib/sessionWindowLayout'
 import { useCommand } from './lib/commands'
 import { STATS_PATH } from './stats/route'
 import { DetailPanel } from './panels/DetailPanel'
@@ -128,34 +129,64 @@ export function SessionWindow({ id }: { id: string }) {
   // 2026-09-23-detached-session-windows-design § The subagent panel in the
   // window). Sent on mount too, closed: a reload under an open panel lets main
   // give back what it grew.
+  //
+  // Main answers with the width the window will have (spec:
+  // 2026-09-24-subagent-list-design § 4), kept until the window reaches it so
+  // a window about to grow shows the pane from the first frame. A close, or
+  // an answer that lands after the panel closed again, leaves none.
   const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  const [answeredWidth, setAnsweredWidth] = useState<number | undefined>(undefined)
   useEffect(() => {
-    setSubagentPanel(
-      subagentPanelOpen
-        ? { open: true, widthPx: SUBAGENT_PANEL_DEFAULT_PX, pairMinPx: WINDOW_PANEL_PAIR_MIN_PX }
-        : { open: false }
-    )
+    if (!subagentPanelOpen) {
+      setAnsweredWidth(undefined)
+      void setSubagentPanel({ open: false })
+      return
+    }
+    let current = true
+    void setSubagentPanel({
+      open: true,
+      widthPx: SUBAGENT_PANEL_DEFAULT_PX,
+      pairMinPx: WINDOW_PANEL_PAIR_MIN_PX,
+    }).then((answer) => {
+      if (current && answer) setAnsweredWidth(answer.widthPx)
+    })
+    return () => {
+      current = false
+    }
   }, [subagentPanelOpen])
 
   const windowWidth = useWindowWidth()
+  useEffect(() => {
+    if (answeredWidth !== undefined && answeredWidthReached(windowWidth, answeredWidth)) {
+      setAnsweredWidth(undefined)
+    }
+  }, [windowWidth, answeredWidth])
+
   const { detailWidthPx, subagentWidthPx } = resolveWindowPanelWidths(windowWidth)
+  const swap =
+    subagentPanelOpen &&
+    resolveWindowLayout({ windowWidth, answeredWidth, thresholdPx: WINDOW_PANEL_PAIR_MIN_PX }) === 'swap'
 
   return (
     <EscapeBoundary>
       <div className="relative flex h-screen w-screen overflow-hidden bg-space">
-        {/* Flush, no gutter: the window is the two panels. */}
+        {/* Flush, no gutter: the window is the two panels. In swap the
+            subagent takes the whole window and the detail panel stays mounted
+            underneath, hidden and inert, so its scroll and composer draft
+            are there when the session comes back. */}
         <div
-          className="h-full shrink-0"
-          style={{ width: subagentPanelOpen ? detailWidthPx : '100%' }}
+          className={swap ? 'invisible absolute inset-0' : 'h-full shrink-0'}
+          style={swap ? undefined : { width: subagentPanelOpen ? detailWidthPx : '100%' }}
+          inert={swap || undefined}
         >
           <ErrorBoundary label="Detail panel">
             <DetailPanel standalone />
           </ErrorBoundary>
         </div>
         {subagentPanelOpen && (
-          <div className="h-full shrink-0" style={{ width: subagentWidthPx }}>
+          <div className="h-full shrink-0" style={{ width: swap ? '100%' : subagentWidthPx }}>
             <ErrorBoundary label="Subagent panel">
-              <SubagentPanel widthPx={subagentWidthPx} inWindow />
+              <SubagentPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
             </ErrorBoundary>
           </div>
         )}
