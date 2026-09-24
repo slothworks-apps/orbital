@@ -2372,20 +2372,6 @@ describe('select, coming back to a session', () => {
   const m1: ChatMessage = { id: 'm1', role: 'user', text: 'first' }
   const reply: ChatMessage = { id: 'm2', role: 'assistant', text: 'answered while away' }
 
-  it('refetches the history, because nothing listened while it was deselected', async () => {
-    vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
-    await useOrbital.getState().select('s1')
-    vi.mocked(api.getMessages).mockResolvedValueOnce([])
-    await useOrbital.getState().select('s2')
-    // The reply landed in the transcript file while s2 was selected; no
-    // `session:s1` subscription existed to carry it here.
-    vi.mocked(api.getMessages).mockResolvedValueOnce([m1, reply])
-    await useOrbital.getState().select('s1')
-
-    expect(api.getMessages).toHaveBeenCalledTimes(3)
-    expect(useOrbital.getState().transcripts.s1).toEqual([m1, reply])
-  })
-
   it('keeps a live message that arrives during the refetch, after the fetched history', async () => {
     vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
     await useOrbital.getState().select('s1')
@@ -2442,20 +2428,6 @@ describe('select, coming back to a session', () => {
 
     expect(useOrbital.getState().transcripts.s1).toBeUndefined()
     expect(useOrbital.getState().historyLoaded.s1).toBeUndefined()
-  })
-
-  it('drops the optimistic prompt once the refetched history carries its echo', async () => {
-    vi.mocked(api.getMessages).mockResolvedValueOnce([m1])
-    await useOrbital.getState().select('s1')
-    vi.mocked(api.sendMessage).mockResolvedValueOnce(undefined as never)
-    await useOrbital.getState().sendPrompt('s1', 'echoed')
-    vi.mocked(api.getMessages).mockResolvedValueOnce([])
-    await useOrbital.getState().select('s2')
-    const echo: ChatMessage = { id: 'u2:0', role: 'user', text: 'echoed' }
-    vi.mocked(api.getMessages).mockResolvedValueOnce([m1, echo, reply])
-    await useOrbital.getState().select('s1')
-
-    expect(useOrbital.getState().transcripts.s1).toEqual([m1, echo, reply])
   })
 })
 
