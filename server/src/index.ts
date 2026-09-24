@@ -77,10 +77,10 @@ export type PublishContext = ShapeContext & { hub: Hub };
  * Republishes one session because something about it changed that lives
  * outside its DB row — today, its subagents. Not just the RUNNING ones,
  * which is what this said while `SubagentStore` had a single `get()`:
- * `toApiSession` carries `all()` now (ended agents included, dismissed ones
- * marked), so an agent FINISHING is itself one of the changes this exists to
- * publish — the moon has to go grey rather than disappear (spec § 4, adr:
- * subagentstore-splits-into-all-and-running).
+ * `toApiSession` carries `all()` now (ended agents included), so an agent
+ * FINISHING is itself one of the changes this exists to publish — its row in
+ * the subagent list needs the `status` and `endedAt` it ended with (subagent
+ * list spec § 3, adr: subagentstore-splits-into-all-and-running).
  *
  * Subagents ride along in the session shape rather than on a topic of their
  * own, so the map sees them for every session (not only the selected one)
@@ -276,8 +276,8 @@ export async function buildServer(overrides: {
     claudeExecutablePath: claudeCli.path,
   });
 
-  // Every session's subagents, keyed by session — running, ended and
-  // dismissed alike, since a moon outlives its agent (spec § 4). Read back
+  // Every session's subagents, keyed by session — running and ended alike,
+  // since the subagent list keeps finished rows (subagent list spec § 5). Read back
   // out through `toApiSession`, so a change means "republish the session".
   //
   // Only the runner ever feeds this, from the SDK's task events, i.e. only

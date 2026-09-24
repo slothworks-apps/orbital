@@ -79,11 +79,10 @@ export interface ApiSession {
    */
   awaitingSubagents: boolean;
   /**
-   * Every subagent this session has ever seen, ended included, minus
-   * whatever the user has dismissed — not just the running ones, so an
-   * ended agent's moon (and its transcript) survives on the map until it is
-   * dismissed (spec § "Moons outlive their agents"). Empty for every
-   * session that has never launched one.
+   * Every subagent this session has ever seen, ended included — not just
+   * the running ones, so a finished agent keeps its row in the subagent list
+   * and its transcript stays reachable (subagent list spec §§ 3, 5). Empty
+   * for every session that has never launched one.
    */
   subagents: SubagentInfo[];
   /**

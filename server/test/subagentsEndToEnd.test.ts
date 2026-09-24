@@ -90,7 +90,7 @@ async function sessionOf(app: any, id: string) {
 }
 
 describe("a subagent in one of orbital's own sessions, end to end", () => {
-  it('survives its own launch tool_result, and its moon stays on the map — ended, not gone — once its notification arrives', async () => {
+  it('survives its own launch tool_result, and stays in the session shape — ended, not gone — once its notification arrives', async () => {
     const { claudeDir, dbPath } = tempClaudeDir();
     const sdk = fakeQueryFnWithSubagent();
     const app = await buildServer({ claudeDir, dbPath, queryFn: sdk.fn as any });
@@ -119,14 +119,14 @@ describe("a subagent in one of orbital's own sessions, end to end", () => {
       sdk.release();
 
       // The session stops waiting on the agent — that reads off
-      // `running()`, which the notification empties — but the moon itself
-      // does not vanish: `all()` (what the REST shape reports) keeps the
-      // agent, now ended with the notification's own status, until the user
-      // dismisses it (spec § "Moons outlive their agents"; task-3 brief).
+      // `running()`, which the notification empties — but the agent itself
+      // is not forgotten: `all()` (what the REST shape reports) keeps it,
+      // now ended with the notification's own status and the moment it
+      // ended, for the subagent list (subagent list spec § 3).
       await vi.waitFor(async () => {
         const session = await sessionOf(app, sessionId);
         expect(session?.subagents).toEqual([
-          { id: 'k1', name: 'reviewer', state: 'ended', status: 'completed', toolUseId: 'ag1', startedAt: expect.any(Number) },
+          { id: 'k1', name: 'reviewer', state: 'ended', status: 'completed', toolUseId: 'ag1', startedAt: expect.any(Number), endedAt: expect.any(Number) },
         ]);
       }, { timeout: 3000 });
       // And only now, with nothing of its own left running, does it ask.

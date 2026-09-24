@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, type TranscriptEntry } from '../src/transcript/parser.js';
@@ -8,6 +8,8 @@ import {
   SubagentStore,
   SubagentTranscripts,
   MAX_SUBAGENT_MESSAGES,
+  sameAgents,
+  type SubagentInfo,
   type TaskEvent,
 } from '../src/transcript/subagents.js';
 import type { ChatMessage } from '../src/types.js';
@@ -165,7 +167,7 @@ describe('SubagentStore', () => {
     store.feed('s1', [taskResult('t2')]);
 
     expect(store.running('s1')).toEqual([]); // hasLiveSubagents(s1) would now be false
-    expect(store.all('s1')).toHaveLength(2); // but both moons are still on the map
+    expect(store.all('s1')).toHaveLength(2); // but both are still listed
   });
 
   it('reports whether all() changed, so callers publish only on a real change', () => {
@@ -291,6 +293,7 @@ describe('SubagentTracker task events', () => {
     expect(resumed.startedAt).toBe(first.startedAt);
     expect(resumed.state).toBe('working');
     expect(resumed.status).toBeUndefined(); // going back to work drops the stale terminal status
+    expect(resumed.endedAt).toBeUndefined(); // ...and the stale end with it
   });
 
   it('is not retired by the launch tool_result, which arrives while the agent still runs', () => {
@@ -318,7 +321,7 @@ describe('SubagentTracker task events', () => {
     const tracker = new SubagentTracker();
     tracker.feedTask(started());
     expect(tracker.feedTask(notification({ status: 'failed' }))).toEqual([
-      { id: 'k1', name: 'reviewer', state: 'ended', status: 'failed', toolUseId: 'toolu_1', startedAt: expect.any(Number) },
+      { id: 'k1', name: 'reviewer', state: 'ended', status: 'failed', toolUseId: 'toolu_1', startedAt: expect.any(Number), endedAt: expect.any(Number) },
     ]);
     expect(tracker.running()).toEqual([]);
   });
@@ -382,7 +385,7 @@ describe('SubagentTracker task events', () => {
     tracker.feedTask(started());
     tracker.feedTask(started({ task_id: 'k2' }));
     expect(tracker.feedTask(backgroundTasks(['k2']))).toEqual([
-      { id: 'k1', name: 'reviewer', state: 'ended', toolUseId: 'toolu_1', startedAt: expect.any(Number) },
+      { id: 'k1', name: 'reviewer', state: 'ended', toolUseId: 'toolu_1', startedAt: expect.any(Number), endedAt: expect.any(Number) },
     ]);
     expect(tracker.running().map((a) => a.id)).toEqual(['k2']);
   });
@@ -396,6 +399,54 @@ describe('SubagentTracker task events', () => {
     const [retired] = tracker.feedTask(backgroundTasks([]));
     expect(retired.state).toBe('ended');
     expect(retired.status).toBeUndefined();
+  });
+
+  describe('endedAt', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('is absent while the agent runs and stamped when its notification ends it', () => {
+      const tracker = new SubagentTracker();
+      vi.spyOn(Date, 'now').mockReturnValue(1000);
+      const [running] = tracker.feedTask(started());
+      expect(running.endedAt).toBeUndefined();
+      vi.spyOn(Date, 'now').mockReturnValue(5000);
+      const [ended] = tracker.feedTask(notification());
+      expect(ended.endedAt).toBe(5000);
+    });
+
+    it('is stamped by the background_tasks_changed retirement too, though status stays unset', () => {
+      const tracker = new SubagentTracker();
+      tracker.feedTask(started());
+      vi.spyOn(Date, 'now').mockReturnValue(7000);
+      const [retired] = tracker.feedTask(backgroundTasks([]));
+      expect(retired.endedAt).toBe(7000);
+      expect(retired.status).toBeUndefined();
+    });
+
+    // Frozen, because the list shows a finished row's duration off it: a
+    // repeated or corrected notification must not make the agent look
+    // like it ran longer than it did.
+    it('stays at the first end when a later notification repeats or corrects the status', () => {
+      const tracker = new SubagentTracker();
+      tracker.feedTask(started());
+      vi.spyOn(Date, 'now').mockReturnValue(5000);
+      tracker.feedTask(notification({ status: 'completed' }));
+      vi.spyOn(Date, 'now').mockReturnValue(9000);
+      const [again] = tracker.feedTask(notification({ status: 'failed' }));
+      expect(again.status).toBe('failed');
+      expect(again.endedAt).toBe(5000);
+    });
+
+    it('is stamped afresh when a resumed agent ends again', () => {
+      const tracker = new SubagentTracker();
+      tracker.feedTask(started());
+      vi.spyOn(Date, 'now').mockReturnValue(5000);
+      tracker.feedTask(notification());
+      tracker.feedTask(started());
+      vi.spyOn(Date, 'now').mockReturnValue(9000);
+      const [ended] = tracker.feedTask(notification());
+      expect(ended.endedAt).toBe(9000);
+    });
   });
 
   it('leaves a foreground agent alone — the payload only ever lists background tasks', () => {
@@ -494,84 +545,28 @@ describe('SubagentStore task events', () => {
     store.feedTask('s1', start('s1', 'k1', 'reviewer'));
     store.feedTask('s1', finish('s1', 'k1', 'completed'));
     expect(store.all('s1')).toEqual([
-      { id: 'k1', name: 'reviewer', state: 'ended', status: 'completed', toolUseId: 'toolu-k1', startedAt: expect.any(Number) },
+      { id: 'k1', name: 'reviewer', state: 'ended', status: 'completed', toolUseId: 'toolu-k1', startedAt: expect.any(Number), endedAt: expect.any(Number) },
     ]);
 
     expect(store.feedTask('s1', finish('s1', 'k1', 'failed'))).toBe(true);
     expect(store.all('s1')).toEqual([
-      { id: 'k1', name: 'reviewer', state: 'ended', status: 'failed', toolUseId: 'toolu-k1', startedAt: expect.any(Number) },
+      { id: 'k1', name: 'reviewer', state: 'ended', status: 'failed', toolUseId: 'toolu-k1', startedAt: expect.any(Number), endedAt: expect.any(Number) },
     ]);
   });
+});
 
-  describe('dismissal', () => {
-    // task-3 brief §4, test 7 — rewritten by the whole-branch review (C2).
-    it('dismiss() MARKS the agent in all() and reports a change, rather than removing it', () => {
-      const store = new SubagentStore();
-      store.feedTask('s1', start('s1', 'k1', 'reviewer'));
-      store.feedTask('s1', finish('s1', 'k1'));
-      expect(store.all('s1')).toHaveLength(1);
-      expect(store.all('s1')[0].dismissed).toBeUndefined();
+// Through the store's public surface `endedAt` never moves on its own — it
+// changes together with `state` — so the compare is pinned here directly:
+// dropping it would let a future path that restamps an end go unpublished.
+describe('sameAgents', () => {
+  const agent: SubagentInfo = {
+    id: 'k1', name: 'reviewer', state: 'ended', status: 'completed', startedAt: 1000, endedAt: 5000,
+  };
 
-      expect(store.dismiss('s1', 'k1')).toBe(true);
-      // Still here. Subtracting it took the parent transcript's `OPEN →`
-      // control and the messages route's `known` check with it, which the
-      // spec forbids twice (§§ 5, 8) — `map/sceneModel.ts` is the only
-      // reader of the mark.
-      expect(store.all('s1')).toHaveLength(1);
-      expect(store.all('s1')[0].dismissed).toBe(true);
-    });
-
-    it('the mark survives a later state change and does not leak onto the tracker itself', () => {
-      const store = new SubagentStore();
-      store.feedTask('s1', start('s1', 'k1', 'reviewer'));
-      store.dismiss('s1', 'k1');
-      store.feedTask('s1', finish('s1', 'k1'));
-
-      const [agent] = store.all('s1');
-      expect(agent.state).toBe('ended');
-      expect(agent.dismissed).toBe(true);
-      // `running()` reads the tracker's own objects, which dismissal never
-      // touches — the mark is applied by `all()` on a copy.
-      expect(store.running('s1')).toEqual([]);
-    });
-
-    it('dismissing an unknown id is a no-op that reports no change, not an error', () => {
-      const store = new SubagentStore();
-      store.feedTask('s1', start('s1', 'k1', 'reviewer'));
-
-      expect(store.dismiss('s1', 'not-a-real-id')).toBe(false);
-      expect(() => store.dismiss('no-such-session', 'x')).not.toThrow();
-      expect(store.dismiss('no-such-session', 'x')).toBe(false);
-      // The real agent is untouched.
-      expect(store.all('s1')).toHaveLength(1);
-    });
-
-    it('a still-running agent can be dismissed too, and running() stays unaffected', () => {
-      const store = new SubagentStore();
-      store.feedTask('s1', start('s1', 'k1', 'reviewer'));
-
-      expect(store.dismiss('s1', 'k1')).toBe(true);
-      expect(store.all('s1')[0].dismissed).toBe(true);
-      // dismiss() only ever marks what all() reports; running() answers
-      // "is the session still waiting", which dismissing the moon does not
-      // change — the agent is, in fact, still working.
-      expect(store.running('s1')).toHaveLength(1);
-      expect(store.running('s1')[0].dismissed).toBeUndefined();
-    });
-
-    // task-3 brief §4, test 8.
-    it('drop(sessionId) clears dismissals too — a fresh agent with a previously-dismissed id in a new session is visible', () => {
-      const store = new SubagentStore();
-      store.feedTask('s1', start('s1', 'k1', 'reviewer'));
-      store.dismiss('s1', 'k1');
-      store.drop('s1');
-
-      // A brand new session, coincidentally reusing the task id.
-      store.feedTask('s1', start('s1', 'k1', 'reviewer'));
-      expect(store.all('s1')).toEqual([
-        { id: 'k1', name: 'reviewer', state: 'working', toolUseId: 'toolu-k1', startedAt: expect.any(Number) },
-      ]);
-    });
+  it('treats a change of endedAt alone as a change, so the republish fires', () => {
+    expect(sameAgents([agent], [{ ...agent }])).toBe(true);
+    expect(sameAgents([agent], [{ ...agent, endedAt: 6000 }])).toBe(false);
+    expect(sameAgents([agent], [{ ...agent, endedAt: undefined }])).toBe(false);
   });
 });
 

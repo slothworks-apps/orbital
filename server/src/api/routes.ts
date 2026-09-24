@@ -289,10 +289,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    *    404, STREAM LOST. This is the server-restarted case: `SubagentStore`
    *    and `SubagentTranscripts` are both in-memory and die together, so a
    *    session that used to have this agent but no longer does really has
-   *    lost the stream. A DISMISSED agent is not that case and never was —
-   *    `all()` marks it rather than dropping it precisely so this check
-   *    keeps answering "known" for it (spec § 5: still reachable "after the
-   *    moon has been dismissed"; the buffer was never touched by dismissal).
+   *    lost the stream. An ENDED agent is not that case — `all()` keeps it
+   *    precisely so this check keeps answering "known" once its moon has
+   *    left the map (subagent list spec § 5).
    * 2. The agent IS known but has never been appended to — it started and
    *    has not produced a message yet — → 200, `{ messages: [],
    *    droppedCount: 0 }`. This is deliberately NOT the same as case 1: a
@@ -313,32 +312,6 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const transcript = ctx.subagentTranscripts.get(id, toolUseId);
     if (!transcript) return { messages: [], droppedCount: 0 };
     return { messages: transcript.messages, droppedCount: transcript.droppedCount };
-  });
-
-  /**
-   * Dismisses one moon (spec `2026-09-22-subagent-transcript-panel-design.md`
-   * § 9, task-3 brief §4). Keyed by `SubagentInfo.id` — the task id, which
-   * always exists — not `toolUseId`, which the SDK only sets on task events
-   * and which the route above uses instead.
-   *
-   * Always 204, even for an id `SubagentStore` has never seen or has already
-   * dismissed: dismissal means "I do not want to see this", and an agent
-   * already invisible has already met that intent — no client error, and
-   * nothing to retry.
-   *
-   * Republishes the session only when `dismiss()` reports an actual change,
-   * the same before/after diff every other subagent mutation goes through —
-   * a no-op dismissal must not send the map an upsert for nothing.
-   */
-  app.post('/api/sessions/:id/subagents/:agentId/dismiss', (req, reply) => {
-    const { id, agentId } = req.params as { id: string; agentId: string };
-    if (ctx.subagents.dismiss(id, agentId)) {
-      const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
-        | SessionRow
-        | undefined;
-      if (row) ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
-    }
-    return reply.code(204).send();
   });
 
   // Transcript images, served straight from the content-addressed store.

@@ -30,22 +30,13 @@ export interface SubagentInfo {
    */
   status?: 'completed' | 'failed' | 'stopped';
   /**
-   * The user dismissed this agent's MOON. Set (and only ever set to `true`)
-   * by `SubagentStore.all()` as it reads the dismissal set beside the
-   * tracker — never by `SubagentTracker`, which stays a pure record of what
-   * the SDK said happened.
-   *
-   * A marker, not a subtraction, because dismissal is a fact about the MAP
-   * and nothing else (spec § 4: "a set of subagent ids held beside the
-   * buffer"). `all()` used to filter these agents out, which also took the
-   * parent transcript's `OPEN →` control away and 404'd the messages route
-   * — both of which the spec says the opposite of, twice (§ 5 "still
-   * reachable … after the moon has been dismissed", § 8 "Moon dismissed |
-   * That moon leaves the map; the row's `OPEN →` still works"). The buffer
-   * was never gone; it was only walled off. `web/src/map/sceneModel.ts` is
-   * now the one place that reads this flag.
+   * Epoch ms when this agent ended, stamped by the tracker on both paths that
+   * end it — the `task_notification` and the `background_tasks_changed`
+   * retirement. Absent while it runs; a resume drops it along with `status`.
+   * Frozen at the first end, so the subagent list can show a finished row's
+   * duration without opening its buffer (subagent list spec § 3).
    */
-  dismissed?: boolean;
+  endedAt?: number;
 }
 
 /**
@@ -192,8 +183,9 @@ export class SubagentTracker {
       // `startedAt` is carried over rather than restamped, because a resume
       // is the same agent's clock still running, not a new one starting.
       // Building a fresh object (rather than mutating the old one) is also
-      // what drops a stale `status`: an agent going back to work has, by
-      // definition, not ended the way its last notification said it did.
+      // what drops a stale `status` and `endedAt`: an agent going back to
+      // work has, by definition, not ended the way its last notification
+      // said it did.
       const existing = this.agents.get(msg.task_id);
       const agent: SubagentInfo = {
         id: msg.task_id,
@@ -209,16 +201,17 @@ export class SubagentTracker {
     }
 
     if (msg.subtype === 'task_notification') {
-      // Any status ends the moon: failed and stopped are just as finished as
-      // completed, and `state` folds all three into the same `'ended'` — but
-      // `status` keeps the distinction the notification actually reported,
-      // because that is exactly what a dismissed-vs-still-there moon needs
-      // to show once ended agents stop vanishing from `all()` (task-3 brief
-      // §§1, 3).
+      // Any status ends the agent: failed and stopped are just as finished
+      // as completed, and `state` folds all three into the same `'ended'` —
+      // but `status` keeps the distinction the notification actually
+      // reported, and `endedAt` the moment it did, because a finished row in
+      // the subagent list shows both (subagent list spec § 3). A repeated
+      // notification may correct `status` but keeps the first `endedAt`.
       const agent = this.agents.get(msg.task_id) ?? this.byToolUseId(msg.tool_use_id);
       if (!agent) return [];
       agent.state = 'ended';
       agent.status = msg.status;
+      agent.endedAt ??= Date.now();
       return [agent];
     }
 
@@ -232,6 +225,7 @@ export class SubagentTracker {
       if (agent.state !== 'working') continue;
       if (!this.backgrounded.has(agent.id) || live.has(agent.id)) continue;
       agent.state = 'ended';
+      agent.endedAt = Date.now();
       // Deliberately no `status` write here. This branch exists because a
       // `task_notification` never arrived — that message is the only source
       // `status` has — so leaving it unset is the honest answer; writing a
@@ -275,27 +269,17 @@ export function trackSubagents(entries: TranscriptEntry[]): SubagentInfo[] {
  * `running()` is "is this session still waiting on an agent" —
  * `hasLiveSubagents` in index.ts is built on it, and ended agents must never
  * leak into it, or a session whose agents all finished would hang at
- * `working` forever. `all()` is "every agent this session has ever had" — a
- * moon outlives its agent until the user dismisses it (spec § "Moons
- * outlive their agents"), so it includes ended agents, and it includes
- * DISMISSED ones too, MARKED rather than removed: dismissal is a fact about
- * the map alone, and the map is the only reader entitled to act on it (adr:
- * dismissal-marks-the-agent-only-the-map-reads-it).
+ * `working` forever. `all()` is "every agent this session has ever had",
+ * ended ones included: the subagent list shows finished rows and the parent
+ * transcript's `OPEN →` row still opens their buffers (subagent list spec
+ * § 5).
  *
- * Every mutator — the two feeders and `dismiss()` — returns whether `all()`
- * changed rather than which agents were touched: callers turn that into
- * "republish this session", and a message that moves nothing must not cause
- * a publish.
+ * Both feeders return whether `all()` changed rather than which agents were
+ * touched: callers turn that into "republish this session", and a message
+ * that moves nothing must not cause a publish.
  */
 export class SubagentStore {
   private trackers = new Map<string, SubagentTracker>();
-  /**
-   * Ids the user has dismissed, per session. Kept as its own map rather than
-   * inside `SubagentTracker` because dismissal is a fact about what the UI
-   * has already shown, not about the agent's own lifecycle — the tracker
-   * stays a pure record of what the SDK said happened.
-   */
-  private dismissed = new Map<string, Set<string>>();
 
   /** Feed one batch of entries for a session; true if `all()` would now answer differently. */
   feed(sessionId: string, entries: TranscriptEntry[]): boolean {
@@ -313,57 +297,21 @@ export class SubagentStore {
   }
 
   /**
-   * Every agent the session has ever seen, ended included — dismissed ones
-   * among them, MARKED with `dismissed: true` rather than subtracted.
-   *
-   * The subtraction was the bug: this list is what `toApiSession` puts on
-   * the wire, and the client reads it for three different things — the map's
-   * moons, the parent transcript's `OPEN →` control, and (server-side, via
-   * the messages route's `known` check) whether a buffer may be served at
-   * all. Dismissal is only ever about the first of the three. Filtering here
-   * took all three away at once, so a dismissed agent's transcript became
-   * unreachable and the route answered 404 — "the server lost this agent's
-   * buffer", about a buffer still sitting in memory.
-   *
-   * `SubagentTranscripts` is untouched by dismissal and always was; this
-   * method is now the only thing that ever stood between it and a reader.
+   * Every agent the session has ever seen, ended included. This list is what
+   * `toApiSession` puts on the wire, and it answers three readers: the
+   * subagent list, the parent transcript's `OPEN →` control, and
+   * (server-side, via the messages route's `known` check) whether a buffer
+   * may be served at all. None of them may lose an agent because it ended —
+   * the map drops finished moons on the client side, not here (subagent list
+   * spec § 5).
    */
   all(sessionId: string): SubagentInfo[] {
-    const agents = this.trackers.get(sessionId)?.all() ?? [];
-    const dismissed = this.dismissed.get(sessionId);
-    if (!dismissed || dismissed.size === 0) return agents;
-    return agents.map((a) => (dismissed.has(a.id) ? { ...a, dismissed: true } : a));
+    return this.trackers.get(sessionId)?.all() ?? [];
   }
 
-  /**
-   * Marks one agent dismissed for the rest of the session's life — the user
-   * dismissed its moon. Keyed by `SubagentInfo.id` (the task id), not
-   * `toolUseId`: the SDK makes `toolUseId` optional (only task events carry
-   * it at all), while `id` always exists (task-3 brief §4). Goes through the
-   * same before/after diff as the feeders so the caller learns to republish
-   * and the moon actually leaves the map.
-   *
-   * Dismissing an id the session has never seen is a no-op — not an error,
-   * and not recorded, so it cannot pre-emptively swallow some future agent
-   * that happens to reuse the id.
-   */
-  dismiss(sessionId: string, agentId: string): boolean {
-    const tracker = this.trackers.get(sessionId);
-    if (!tracker || !tracker.all().some((a) => a.id === agentId)) return false;
-    const before = this.all(sessionId);
-    let ids = this.dismissed.get(sessionId);
-    if (!ids) {
-      ids = new Set();
-      this.dismissed.set(sessionId, ids);
-    }
-    ids.add(agentId);
-    return !sameAgents(before, this.all(sessionId));
-  }
-
-  /** Forget a session entirely — it ended, so nothing of it, running or dismissed, still applies. */
+  /** Forget a session entirely — it ended, so nothing of it still applies. */
   drop(sessionId: string): void {
     this.trackers.delete(sessionId);
-    this.dismissed.delete(sessionId);
   }
 
   private apply(sessionId: string, mutate: (tracker: SubagentTracker) => unknown): boolean {
@@ -391,19 +339,16 @@ export class SubagentStore {
  * past id-only membership — which was correct back when this only ever
  * compared `running()` — because ended agents now live in `all()` too: an
  * agent finishing changes no member of the set (same id, same length), so an
- * id-only compare would call that "no change" and the map would never learn
- * the moon went grey. Comparing `state` and `status` as well means that
- * exact transition — id present before and after, only its state and status
- * moved — IS a change (task-3 brief §3, the republish-detection bug this
- * exists to catch).
+ * id-only compare would call that "no change" and the client would never
+ * learn the agent ended. Comparing `state`, `status` and `endedAt` as well
+ * means that exact transition — id present before and after, only how and
+ * when it ended moved — IS a change, because a finished row in the subagent
+ * list shows all three (task-3 brief §3; subagent list spec § 3).
  *
- * `dismissed` is compared for the same reason one step later: now that
- * `all()` MARKS a dismissed agent instead of dropping it, dismissal no
- * longer changes the list's length either, and an id+state+status compare
- * would call it "no change" — the map would keep drawing a moon the user
- * just dismissed.
+ * Exported for its own test: through the store, `endedAt` only ever moves
+ * together with `state`, so that compare cannot be observed on its own.
  */
-function sameAgents(a: SubagentInfo[], b: SubagentInfo[]): boolean {
+export function sameAgents(a: SubagentInfo[], b: SubagentInfo[]): boolean {
   return (
     a.length === b.length &&
     a.every(
@@ -411,7 +356,7 @@ function sameAgents(a: SubagentInfo[], b: SubagentInfo[]): boolean {
         agent.id === b[i].id &&
         agent.state === b[i].state &&
         agent.status === b[i].status &&
-        Boolean(agent.dismissed) === Boolean(b[i].dismissed),
+        agent.endedAt === b[i].endedAt,
     )
   );
 }

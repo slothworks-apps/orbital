@@ -454,8 +454,7 @@ describe('REST routes', () => {
   });
 
   // ---------------------------------------------------------------------
-  // GET /api/sessions/:id/subagents/:toolUseId/messages and
-  // POST /api/sessions/:id/subagents/:agentId/dismiss (task-4 brief).
+  // GET /api/sessions/:id/subagents/:toolUseId/messages (task-4 brief).
   // ---------------------------------------------------------------------
 
   /** Registers `s1`'s agent `k1` (toolUseId `tu1`) as known to `SubagentStore`,
@@ -523,63 +522,14 @@ describe('REST routes', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it('POST .../subagents/:agentId/dismiss 204s and marks the agent dismissed in subsequent GET /api/sessions/:id reads', async () => {
+  // Moon dismissal is gone (subagent list spec § 5): a finished moon leaves
+  // the map on its own, so there is nothing left for the user to dismiss.
+  it('no longer serves POST .../subagents/:agentId/dismiss', async () => {
     knownAgent();
-    let body = (await app.inject({ method: 'GET', url: '/api/sessions/s1' })).json();
-    expect(body.session.subagents.map((a: any) => a.id)).toEqual(['k1']);
-    expect(body.session.subagents[0].dismissed).toBeUndefined();
-
-    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/k1/dismiss' });
-    expect(res.statusCode).toBe(204);
-
-    // Marked, not withheld. The web filters on this exactly once, in
-    // `map/sceneModel.ts`, so the moon goes and nothing else does — this is
-    // the wire half of spec § 8's "Moon dismissed | That moon leaves the
-    // map; the row's `OPEN →` still works".
-    body = (await app.inject({ method: 'GET', url: '/api/sessions/s1' })).json();
-    expect(body.session.subagents.map((a: any) => a.id)).toEqual(['k1']);
-    expect(body.session.subagents[0].dismissed).toBe(true);
-  });
-
-  /**
-   * C2, the whole-branch review's own named regression: dismissing used to
-   * subtract the agent from `all()`, and the messages route's "is this agent
-   * known" check reads `all()` — so dismissing a moon 404'd its transcript
-   * and the panel rendered "the Orbital server lost this agent's buffer",
-   * about a buffer that had never been touched.
-   */
-  it('GET .../subagents/:toolUseId/messages still 200s with the buffer AFTER the moon is dismissed', async () => {
-    knownAgent();
-    subagentTranscripts.append('s1', 'tu1', [{ id: 'm1', role: 'assistant', text: 'looking' }]);
-
-    await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/k1/dismiss' });
-
-    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/subagents/tu1/messages' });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({
-      messages: [{ id: 'm1', role: 'assistant', text: 'looking' }],
-      droppedCount: 0,
-    });
-  });
-
-  it('POST .../subagents/:agentId/dismiss 204s an unknown id and publishes nothing — dismissal is idempotent', async () => {
     const received = subscribeFake(hub, 'sessions');
-    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/does-not-exist/dismiss' });
-    expect(res.statusCode).toBe(204);
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/k1/dismiss' });
+    expect(res.statusCode).toBe(404);
     expect(received).toEqual([]);
-  });
-
-  it('POST .../subagents/:agentId/dismiss publishes a sessions upsert when it actually changes something', async () => {
-    knownAgent();
-    const received = subscribeFake(hub, 'sessions');
-    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/subagents/k1/dismiss' });
-    expect(res.statusCode).toBe(204);
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({ event: 'upsert', session: { id: 's1' } });
-    // The upsert is what takes the moon off the map, so it has to carry the
-    // mark — `sameAgents` compares `dismissed` for exactly this reason: the
-    // list's length and every agent's state are unchanged by a dismissal.
-    expect(received[0].session.subagents[0]).toMatchObject({ id: 'k1', dismissed: true });
   });
 
   it('POST /api/sessions starts a web session via the runner', async () => {
