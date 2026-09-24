@@ -265,6 +265,54 @@ describe('live messages', () => {
   })
 })
 
+describe('streamed text', () => {
+  const topic = `subagent:${SESSION_ID}:tool-1`
+  const delta = (id: string, offset: number, text: string, extra: Record<string, unknown> = {}) =>
+    handlers.get(topic)!({ event: 'delta', id, role: 'assistant', offset, text, model: 'claude-x', ...extra })
+
+  async function open() {
+    vi.mocked(api.subagentMessages).mockResolvedValue({ messages: [makeMessage('m1')], droppedCount: 0 })
+    await useOrbital.getState().openSubagent(SESSION_ID, makeSubagent())
+  }
+
+  it('a delta creates a partial row, the next grows it, and a repeat is ignored', async () => {
+    await open()
+    delta('s1', 0, 'Hel')
+    delta('s1', 3, 'lo')
+    delta('s1', 3, 'lo')
+    const messages = useOrbital.getState().subagentPanel!.messages
+    expect(messages.map((m) => m.id)).toEqual(['m1', 's1'])
+    expect(messages[1]).toMatchObject({ role: 'assistant', text: 'Hello', partial: true, model: 'claude-x' })
+  })
+
+  it('the complete message replaces the partial row in place, and a second copy is dropped', async () => {
+    await open()
+    delta('s1', 0, 'Hel')
+    handlers.get(topic)!({ event: 'message', message: makeMessage('m2') })
+    const final = makeMessage('s1', { text: 'Hello' })
+    handlers.get(topic)!({ event: 'message', message: final })
+    handlers.get(topic)!({ event: 'message', message: makeMessage('s1', { text: 'other' }) })
+    // A delta behind a finished row must not grow it either.
+    delta('s1', 3, 'lo')
+    const messages = useOrbital.getState().subagentPanel!.messages
+    expect(messages.map((m) => m.id)).toEqual(['m1', 's1', 'm2'])
+    expect(messages[1]).toEqual(final)
+  })
+
+  it('a join mid-stream starts the row at the tail it can see and keeps tracking', async () => {
+    await open()
+    delta('s1', 10, 'tail')
+    delta('s1', 14, ' more')
+    expect(useOrbital.getState().subagentPanel!.messages[1]).toMatchObject({ text: 'tail more', partial: true })
+  })
+
+  it('takes droppedCount off a delta as it does off a message', async () => {
+    await open()
+    delta('s1', 0, 'x', { droppedCount: 7 })
+    expect(useOrbital.getState().subagentPanel!.droppedCount).toBe(7)
+  })
+})
+
 /**
  * I6. `SpaceMap` used to call `openSubagent` alone, so a moon click could
  * leave the agent panel docked with nothing selected (`mapInsets.right` and
