@@ -178,6 +178,10 @@ export interface SessionAttempt {
 /** The tool whose call becomes a question card rather than a permission prompt. */
 const QUESTION_TOOL = 'AskUserQuestion';
 
+/** What a subagent that asked the human a question is told instead of an answer. */
+const SUBAGENT_QUESTION_REFUSAL =
+  'Orbital cannot relay a question asked from inside a subagent; ask the parent session instead.';
+
 /**
  * The tool that asks to leave plan mode. It is a permission request as far as
  * the SDK is concerned, but approving it does something no other approval
@@ -1385,6 +1389,15 @@ export class Runner {
       return Promise.resolve({ behavior: 'deny', message: `session ${sessionId} is not active` });
     }
     const kind = decisionKindFor(toolName);
+    // A question from inside a subagent (`agentID` set) is refused, not
+    // parked: the only surface that shows it is the read-only subagent panel,
+    // so a card for it would be a promise nobody can keep — and parking it
+    // would also supersede whatever the parent itself is waiting on. A
+    // subagent's permission ask is unaffected: the parent's card answers it
+    // (adr: a-subagents-question-is-refused-not-relayed).
+    if (kind === 'question' && typeof opts.agentID === 'string' && opts.agentID !== '') {
+      return Promise.resolve({ behavior: 'deny', message: SUBAGENT_QUESTION_REFUSAL });
+    }
     // `bypassPermissions` is the user saying "do not ask me". The CLI normally
     // honours that before the callback is reached, but a rule or a safety
     // check can still route one here — and a session launched to run

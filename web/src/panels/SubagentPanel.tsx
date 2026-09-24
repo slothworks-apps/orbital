@@ -471,13 +471,13 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
             // of its own to give it.
             sessionId={panel.sessionId}
             compact
-            // NOT inferred from ids: `decide()` (`server/src/runner/runner.ts`)
-            // does not read the SDK's `opts.agentID`, so a subagent-originated
-            // `AskUserQuestion` can land in `pendingDecisions[panel.sessionId]`
-            // keyed by the subagent's own toolUseId — exactly the id
-            // `QuestionCard`'s `isPending` check would otherwise match. This
-            // prop is what makes the panel read-only regardless of whether
-            // that ever happens (fix: subagent-question-ignores-agent-id).
+            // NOT inferred from ids. `decide()` (`server/src/runner/runner.ts`)
+            // now refuses a subagent's `AskUserQuestion` outright, but a
+            // subagent's PERMISSION ask still parks in
+            // `pendingDecisions[panel.sessionId]` keyed by its own toolUseId.
+            // This prop keeps the panel read-only whatever the server parks,
+            // rather than trusting ids never to collide (adr:
+            // a-subagents-question-is-refused-not-relayed).
             readOnly
           />
         )}

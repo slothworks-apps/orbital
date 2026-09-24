@@ -1944,6 +1944,25 @@ async function parkedOn(
 }
 
 describe('Runner decisions', () => {
+  it("refuses a subagent's question and parks nothing, not even over the parent's own", async () => {
+    const { runner, id, received, ask } = await parked();
+    const refused = await ask(ONE_QUESTION, 'tu-sub', 'AskUserQuestion', { agentID: 'agent-7' });
+    expect(refused).toEqual({ behavior: 'deny', message: expect.stringContaining('subagent') });
+    // The parent's question is still the parked one, and nothing new was announced.
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-1' });
+    expect(received.filter((e) => e.event === 'decision_pending')).toHaveLength(1);
+    expect(received.some((e) => e.event === 'decision_resolved')).toBe(false);
+  });
+
+  it("still parks a subagent's permission ask on the parent session", async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    void ask({ command: 'ls' }, 'tu-sub', 'Bash', { agentID: 'agent-7' });
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-sub', kind: 'permission' });
+  });
+
   it('parks an AskUserQuestion, announces it, and waits in needs_input', async () => {
     const { runner, id, received } = await parked();
     expect(runner.status(id)).toBe('needs_input');
