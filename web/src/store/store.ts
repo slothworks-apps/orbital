@@ -868,6 +868,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   applySessionsEvent(msg) {
+    // A direct update is newer than anything the socket queued before it, so
+    // the queue goes first — flushed after, an older upsert of the same row
+    // would overwrite it.
+    flushSessionsEvents()
     applySessionsEvents([msg])
   },
 

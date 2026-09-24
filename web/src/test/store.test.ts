@@ -256,6 +256,14 @@ describe('queueSessionsEvent', () => {
     runFrame()
     expect(useOrbital.getState().sessions.s1.status).toBe('working')
   })
+
+  it('catches up before a direct update, so an older queued upsert cannot overwrite it', () => {
+    useOrbital.getState().queueSessionsEvent({ event: 'upsert', session: makeSession({ id: 's1', title: 'old' }) })
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: makeSession({ id: 's1', title: 'new' }) })
+    runFrame()
+
+    expect(useOrbital.getState().sessions.s1.title).toBe('new')
+  })
 })
 
 describe('applySessionEvent', () => {
