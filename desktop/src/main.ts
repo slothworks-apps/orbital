@@ -14,7 +14,7 @@ import {
   type WebContents,
 } from 'electron';
 import { join } from 'node:path';
-import { appMenuTemplate } from './lib/appMenu';
+import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import {
   decideWindowButtons,
@@ -716,10 +716,47 @@ async function start(): Promise<void> {
   startNotifications();
 }
 
+/**
+ * The keymap's menu-worthy commands, as the main window's renderer last sent
+ * them (spec: 2026-09-23-shortcuts-design § 5). Empty until it does, which
+ * leaves the menu as it was before the keymap.
+ */
+let menuCommands: MenuCommand[] = [];
+
+function rebuildMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      appMenuTemplate({
+        dev: DEV,
+        showMap: showWindow,
+        commands: menuCommands,
+        run: runCommand,
+        runInMain: runCommandInMain,
+      }),
+    ),
+  );
+}
+
+/**
+ * A menu item's command runs in the window that has focus, so ⌘. in a
+ * detached window interrupts that window's session. With no window focused
+ * (the menu bar stays up after the last one lost focus), the main window
+ * takes it.
+ */
+function runCommand(id: string): void {
+  const target = BrowserWindow.getFocusedWindow() ?? win;
+  target?.webContents.send('command', id);
+}
+
+/** Window → Map's command, which belongs to the main window wherever focus is. */
+function runCommandInMain(id: string): void {
+  win?.webContents.send('command', id);
+}
+
 void app.whenReady().then(() => {
   // Before `start`, so ⌘Q and the Edit roles already work in its dialogs.
   // Map does nothing until startup has chosen a URL, as the Dock icon does not.
-  Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate({ dev: DEV, showMap: showWindow })));
+  rebuildMenu();
   return start();
 });
 
@@ -746,6 +783,14 @@ ipcMain.on('set-window-buttons-visible', (event, payload: unknown) => {
   if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return;
   const visible = parseWindowButtonsVisible(payload);
   if (visible !== null) setMainWindowButtons(visible);
+});
+// The keymap's menu commands (spec: 2026-09-23-shortcuts-design § 5). Only
+// the main window's list is heard, and the list comes from a page, so it is
+// validated before it reaches the menu bar.
+ipcMain.on('set-menu-commands', (event, payload: unknown) => {
+  if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return;
+  menuCommands = parseMenuCommands(payload);
+  rebuildMenu();
 });
 // The subagent panel opening or closing inside a detached window. Only a
 // detached window's own renderer is heard, and only about itself.

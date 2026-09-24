@@ -1,11 +1,12 @@
 ---
 id: new-session-shortcut-moves-to-option-n
 title: Move the new-session shortcut off ⌘N, which the browser keeps for itself
-status: done
+status: superseded
 type: idea
 domain: web
 related:
   - desktop-wrapper-electron
+  - 2026-09-23-shortcuts-design
 tags:
   - space-map
   - shortcuts

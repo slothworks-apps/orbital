@@ -707,18 +707,19 @@ describe('Settings — remembered section', () => {
     expect(initialSection({ settings_last_section: 'appearance' })).toBe('appearance')
   })
 
-  // The three cases that must not strand the user on a blank or inert page:
-  // a key from a future build, junk, and a section that was live when it was
-  // stored and has since been disabled.
-  it('falls back for an unknown, empty or disabled stored section', () => {
+  // The cases that must not strand the user on a blank page: a key from a
+  // future build, and junk. (A section disabled after it was stored takes the
+  // same path, but no nav row is disabled today to exercise it with.)
+  it('falls back for an unknown or empty stored section', () => {
     expect(initialSection({ settings_last_section: 'telemetry' })).toBe('general')
     expect(initialSection({ settings_last_section: '' })).toBe('general')
-    expect(initialSection({ settings_last_section: 'shortcuts' })).toBe('general')
   })
 
   it('remembers a section across a close and reopen, without claiming a save', async () => {
     resetStore()
     const { rerender } = render(<Settings open onClose={vi.fn()} />)
+    // Shortcuts shipped as a real section, not a nav placeholder.
+    expect(screen.getByRole('button', { name: 'Shortcuts', hidden: true })).not.toBeDisabled()
     openSection('Appearance')
     expect(screen.getByLabelText(/default planet size/i)).toBeInTheDocument()
     // Navigation is not a preference change, so the header must stay quiet.

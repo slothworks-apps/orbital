@@ -8,6 +8,12 @@ import {
 } from './store/store'
 import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
 import { getSocket } from './lib/socket'
+import { useCommand } from './lib/commands'
+import { setMenuCommands } from './lib/desktop'
+import { menuCommands } from './lib/keymap'
+import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
+import { STATS_PATH } from './stats/route'
+import type { ApiSession } from './lib/types'
 import { SpaceMap } from './map/SpaceMap'
 import { Sidebar } from './panels/Sidebar'
 import { DetailPanel } from './panels/DetailPanel'
@@ -44,9 +50,9 @@ const socket = getSocket()
  * itself, so they're deliberately NOT repeated here), a single `Toasts`
  * surface, and the WS status banner. Owns the data lifecycle
  * (`loadInitial` + the `sessions`/`session:<id>` WS subscriptions) and the
- * one keyboard shortcut not already owned by a panel (`Esc`) — `Sidebar`
- * owns ⌘K, `SpaceMap` owns ⌥N (see its own comment), so neither is
- * duplicated here.
+ * keymap commands no panel owns (the dialogs, the pages and the session
+ * cycling), plus `Esc` — `Sidebar`, `SpaceMap` and the detail panel register
+ * their own.
  */
 export default function App() {
   const loadInitial = useOrbital((s) => s.loadInitial)
@@ -65,6 +71,15 @@ export default function App() {
   // sidebar. Nothing in a browser or in full screen.
   const windowBand = useWindowBand()
   useSidebarWindowButtons(sidebarCollapsed)
+
+  // The desktop menu is built from the keymap, and the main window is the
+  // one that sends it (spec: 2026-09-23-shortcuts-design § 5); `App` never
+  // mounts in a detached window. Sending it again (StrictMode, a hot update)
+  // only rebuilds the same menu. The commands come back through the
+  // `onCommand` listener in `main.tsx`.
+  useEffect(() => {
+    setMenuCommands(menuCommands())
+  }, [])
 
   // Task 8 (spec § 8 "Layout"): with the subagent panel open, it docks at
   // the right edge and the detail panel is pushed left to make room —
@@ -109,6 +124,36 @@ export default function App() {
     window.history.replaceState(null, '', withoutNewSessionParam())
     setDialog('new')
   }, [setDialog])
+
+  useCommand('global.new-session', () => setDialog('new'))
+  useCommand('global.settings', () => setDialog('settings'))
+  useCommand('global.errors', () => setDialog('errors'))
+  // `App` only ever mounts on the map (`main.tsx` branches every other page
+  // away before it), so `global.map` has nothing to do here — `PageBar`
+  // serves it on the pages that are not the map. Stats is a page load, and
+  // under an open dialog that would throw away whatever it holds (the
+  // new-session draft), so it waits for the dialog to close.
+  const noDialog = dialog === null
+  useCommand('global.stats', () => window.location.assign(STATS_PATH), noDialog)
+
+  // Cycling reads the store at the moment of the key rather than subscribing
+  // to it: the order is the sidebar's, which changes on every session event,
+  // and nothing here renders from it. They stand down under an open dialog:
+  // Stop, Clear and End act on the selected session, so moving the selection
+  // behind one would retarget its confirm onto a session nobody looked at.
+  const select = useOrbital((s) => s.select)
+  const cycleTo = (pick: (order: ApiSession[], selectedId: string | null) => string | null) => {
+    const state = useOrbital.getState()
+    const id = pick(sidebarOrder(state), state.ui.selectedId)
+    if (id != null) void select(id)
+  }
+  useCommand('global.next-session', () => cycleTo((order, at) => stepSession(order, at, 1)), noDialog)
+  useCommand(
+    'global.previous-session',
+    () => cycleTo((order, at) => stepSession(order, at, -1)),
+    noDialog
+  )
+  useCommand('global.next-needs-input', () => cycleTo(nextNeedingInput), noDialog)
 
   // `sessions` topic feeds the sidebar/map for the app's whole lifetime.
   useEffect(() => {

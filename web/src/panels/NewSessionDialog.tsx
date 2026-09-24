@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
+import { command, matches } from '../lib/keymap'
 import { reportError } from '../lib/errors'
 import { shortenPath } from '../lib/format'
 import { Dialog } from '../ui/Dialog'
@@ -219,11 +220,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     }
   }, [cwd, prompt, permissionMode, tagId, model, pending, awaitingCustomModel, onClose, select, launchSession, attachments])
 
-  // ⌘↵ / Ctrl+↵ launches from anywhere in the dialog.
+  // `composer.start` launches from anywhere in the dialog.
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      if (matches(command('composer.start').chords[0], e)) {
         e.preventDefault()
         void handleLaunch()
       }

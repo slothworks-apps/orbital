@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
+import { useCommand } from '../lib/commands'
 import { matchModel, modelChipLabel, isExactModelMatch } from '../lib/models'
 import { Badge } from '../ui/Badge'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
@@ -70,6 +71,21 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason }:
   // with the reason as its tooltip, rather than a popover that opens onto
   // just a kicker and a footer.
   const inertReason = disabledReason ?? (models.length === 0 ? EMPTY_CATALOG_REASON : undefined)
+
+  // Registered here rather than by the panel, so the key is live exactly
+  // while a switcher that can open is on screen — never for the inert badge
+  // below, and never for the session the panel is still drawing as it slides
+  // away. Focus goes to the trigger so the popover's own keyboard (and
+  // Escape back to the trigger) works the way it does after a click.
+  const onScreen = useOrbital((s) => s.ui.selectedId === session.id)
+  useCommand(
+    'session.model',
+    () => {
+      triggerRef.current?.focus()
+      setOpen(true)
+    },
+    !inertReason && onScreen
+  )
 
   if (inertReason) {
     return (

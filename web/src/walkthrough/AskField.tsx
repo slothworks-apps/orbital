@@ -54,16 +54,18 @@ export function AskField({ id, step, session, onSent }: AskFieldProps) {
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // ⌘[ is the page bar's, typing or not (canvas `Feature - Page headers` 25h).
-    if (e.metaKey && e.key === '[') return
-    // The page steps on arrows; typing is not stepping. Escape only lets go of
-    // the field, and the next one goes to the map (25h).
-    e.stopPropagation()
+    // Only the keys the field handles itself stop here; everything else
+    // bubbles to the window, where the page's arrow handler already ignores a
+    // caret in a textarea and the app's one keydown listener decides whether
+    // a chord fires while typing. Escape only lets go of the field, and the
+    // next one goes to the map (25h).
     if (e.key === 'Escape') {
+      e.stopPropagation()
       e.currentTarget.blur()
       return
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.stopPropagation()
       e.preventDefault()
       send()
     }

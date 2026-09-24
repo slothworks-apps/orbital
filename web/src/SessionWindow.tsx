@@ -8,7 +8,9 @@ import {
 import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
 import { getSocket } from './lib/socket'
 import { api } from './lib/api'
-import { setSubagentPanel } from './lib/desktop'
+import { openInMainWindow, setSubagentPanel } from './lib/desktop'
+import { useCommand } from './lib/commands'
+import { STATS_PATH } from './stats/route'
 import { DetailPanel } from './panels/DetailPanel'
 import { SubagentPanel } from './panels/SubagentPanel'
 import { ErrorLog } from './panels/ErrorLog'
@@ -107,6 +109,12 @@ export function SessionWindow({ id }: { id: string }) {
   useEffect(() => {
     return socket.subscribe(`session:${id}`, (msg: SessionEvent) => applySessionEvent(id, msg))
   }, [id, applySessionEvent])
+
+  // The two app-level commands a detached window can serve (spec:
+  // 2026-09-23-shortcuts-design § 7). Stats is a main-window page, so it goes
+  // there rather than replacing the one session this window exists to hold.
+  useCommand('global.errors', () => setDialog('errors'))
+  useCommand('global.stats', () => openInMainWindow(STATS_PATH))
 
   // The window's title is the session's, and follows a rename. Until the row
   // arrives it keeps the page's own.

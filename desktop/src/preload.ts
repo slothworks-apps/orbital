@@ -53,4 +53,15 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   onFullScreenChanged(cb: (fullScreen: boolean) => void) {
     ipcRenderer.on('full-screen-changed', (_e, fullScreen) => cb(parseFullScreen(fullScreen)));
   },
+  // The keymap's menu (spec: 2026-09-23-shortcuts-design § 5): the main
+  // window sends its menu-worthy commands once, and main rebuilds the menu
+  // bar from them after validating the list; a detached window's list is
+  // ignored. A menu item then comes back as `command` to whichever window
+  // has focus, detached ones included, which runs it through its dispatcher.
+  setMenuCommands(items: unknown) {
+    ipcRenderer.send('set-menu-commands', items);
+  },
+  onCommand(cb: (id: string) => void) {
+    ipcRenderer.on('command', (_e, id) => cb(String(id)));
+  },
 });

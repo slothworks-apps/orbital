@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { api } from '../lib/api'
+import { chordLabel, command, matches } from '../lib/keymap'
 import {
   commandNameSet,
   completionContext,
@@ -351,24 +352,22 @@ export function Composer({
     const armed = chips.filter((chip) => chip.state !== 'failed').length
     const images = armed > 0 ? `, ${armed} image${armed === 1 ? '' : 's'}` : ''
     const carries = `${lineCountLabel(ideLip)}${images}`
+    // In the dialog the bare key is a newline, so `composer.send`'s chord
+    // names it in both mounts.
+    const bare = chordLabel(command('composer.send').chords[0])
     return enter === 'send'
-      ? `⏎ send with ${carries} · ⇧⏎ newline`
-      : `⏎ newline · ⌘⏎ start session with ${carries}`
+      ? `${bare} send with ${carries} · ${chordLabel(command('composer.newline').chords[0])} newline`
+      : `${bare} newline · ${chordLabel(command('composer.start').chords[0])} start session with ${carries}`
   }, [ideStanding, ideLip, chips, enter])
 
   function handleKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
     // The list gets first refusal on every key — it owns ↑↓, ⏎ and Tab while
     // it is on screen, and nothing else (spec § Completion popup).
     if (popupRef.current?.handleKeyDown(e)) return
-    if (
-      enter === 'send' &&
-      e.key === 'Enter' &&
-      !e.shiftKey &&
-      // ⌘⏎ belongs to whoever is listening further out — the dialog's launch.
-      !e.metaKey &&
-      !e.ctrlKey &&
-      !e.altKey
-    ) {
+    // `matches` wants the exact modifier set, so `composer.newline` (the
+    // browser's own newline) and ⌘⏎ — which belongs to whoever is listening
+    // further out, the dialog's `composer.start` — are never a send.
+    if (enter === 'send' && matches(command('composer.send').chords[0], e)) {
       e.preventDefault()
       const text = value.trim()
       // An armed chip is a sendable turn on its own — an image with no words is

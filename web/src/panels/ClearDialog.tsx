@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
+import { command, matches } from '../lib/keymap'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Checkbox } from '../ui/Checkbox'
@@ -129,7 +130,7 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.shiftKey) return
+      if (!matches(command('dialogs.confirm').chords[0], e)) return
       e.preventDefault()
       void handleClear()
     }

@@ -23,8 +23,8 @@ export function WalkthroughPage({ id }: { id: string }) {
   // page): the screen names its step by id and the index follows it.
   const screen = settleScreen(chosen, stepIds)
 
-  // ⏎ start · → / ← step (canvas 21a); esc and ⌘[ are the page bar's. The
-  // question field stops propagation, so typing never steps; Enter on a
+  // ⏎ start · → / ← step (canvas 21a); esc and `global.up` are the page bar's. The
+  // question field's keys are skipped below, so typing never steps; Enter on a
   // focused control is that control's own press, not a start. A chord (⌘←,
   // ⌥→) is the browser's or the system's, never a step.
   useEffect(() => {
@@ -42,9 +42,9 @@ export function WalkthroughPage({ id }: { id: string }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [screen.kind, stepIds])
 
-  // One bar over every screen, the notices included, so esc and ⌘[ work from
+  // One bar over every screen, the notices included, so esc and `global.up` work from
   // all of them (canvas `Feature - Page headers` 25d). WALKTHROUGH is the
-  // cover, which is page state rather than a path: a plain click or ⌘[ goes
+  // cover, which is page state rather than a path: a plain click or `global.up` goes
   // there without a reload. Until the session is known, its crumb reads the
   // head of its id.
   const crumbScreen: WalkthroughCrumbScreen =

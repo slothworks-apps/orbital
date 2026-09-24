@@ -149,7 +149,7 @@ export function SessionDrilldown({ id }: { id: string }) {
 }
 
 /**
- * The way up, by the STATS crumb or ⌘[ (canvas `Feature - Page headers` 25c).
+ * The way up, by the STATS crumb or `global.up` (canvas `Feature - Page headers` 25c).
  * When the feed is the previous entry it goes back through history, which is
  * what restores the scroll position the user left it at (10e "click
  * finding"); otherwise it loads `/stats`. The crumb stays a real link, so a

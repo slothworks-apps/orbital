@@ -21,6 +21,7 @@ import {
   type FitBody,
 } from '../map/camera'
 import { PLANET_BASE_RADIUS } from '../map/layout'
+import { installKeyListener } from '../lib/commands'
 import { CONTEXT_GAUGE_OUTER, moonVisuals } from '../map/visuals'
 
 // ---------------------------------------------------------------------------
@@ -1508,6 +1509,8 @@ describe('SpaceMap zoom buttons', () => {
 // Fit is the map's "show me everything": it has to survive a reload, answer
 // to a shortcut, and account for the panels sitting on top of the map.
 describe('SpaceMap fit', () => {
+  let uninstallKeys: () => void
+
   beforeAll(() => {
     class NoopObserver {
       observe() {}
@@ -1530,9 +1533,12 @@ describe('SpaceMap fit', () => {
       height: 900,
       toJSON: () => ({}),
     })
+    // `main.tsx` installs the app's one keydown listener; SpaceMap alone does not.
+    uninstallKeys = installKeyListener()
   })
 
   afterAll(() => {
+    uninstallKeys()
     vi.restoreAllMocks()
   })
 
@@ -1626,14 +1632,14 @@ describe('SpaceMap fit', () => {
     expect(cameraX()).toBeLessThan(narrow)
   })
 
-  it('⌥F fits, from wherever the camera has been left', async () => {
+  it('⌘F fits, from wherever the camera has been left', async () => {
     await renderMap()
     const fitted = zoomPercent()
 
     fireEvent.wheel(screen.getByTestId('map-surface'), { deltaY: -400 })
     expect(zoomPercent()).toBeGreaterThan(fitted)
 
-    fireEvent.keyDown(window, { code: 'KeyF', altKey: true })
+    fireEvent.keyDown(window, { key: 'f', code: 'KeyF', metaKey: true })
     await settleFit()
     expect(zoomPercent()).toBe(fitted)
   })
@@ -1644,7 +1650,7 @@ describe('SpaceMap fit', () => {
     fireEvent.wheel(screen.getByTestId('map-surface'), { deltaY: -400 })
     const zoomed = zoomPercent()
 
-    fireEvent.keyDown(window, { code: 'KeyF', altKey: true })
+    fireEvent.keyDown(window, { key: 'f', code: 'KeyF', metaKey: true })
     // A few frames in, the camera has left where it was without arriving —
     // the whole point of the flight, and what a plain `setCamera` cannot do.
     await act(async () => {
@@ -1658,22 +1664,5 @@ describe('SpaceMap fit', () => {
     // from this number.
     await settleFit()
     expect(zoomPercent()).toBe(fitted)
-  })
-
-  it('ignores ⌥F while the user is typing — it is an f they meant to enter', async () => {
-    await renderMap()
-    const fitted = zoomPercent()
-    fireEvent.wheel(screen.getByTestId('map-surface'), { deltaY: -400 })
-    const zoomed = zoomPercent()
-    // Without this the assertion below passes even if the wheel did nothing:
-    // ⌥F would have no fit to return to, and "the zoom did not change" would
-    // be true for the wrong reason.
-    expect(zoomed).not.toBe(fitted)
-
-    const input = document.createElement('input')
-    document.body.appendChild(input)
-    fireEvent.keyDown(input, { code: 'KeyF', altKey: true })
-    expect(zoomPercent()).toBe(zoomed)
-    input.remove()
   })
 })

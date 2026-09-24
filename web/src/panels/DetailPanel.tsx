@@ -27,6 +27,7 @@ import { reportError } from '../lib/errors'
 import { useWindowFocused } from '../lib/useWindowFocused'
 import { Panel } from '../ui/Panel'
 import { useEscapeLayer } from '../ui/escapeLayer'
+import { useCommand } from '../lib/commands'
 import { usePresence } from '../ui/usePresence'
 import {
   PANEL_CLOSED,
@@ -43,6 +44,7 @@ import { RefreshGlyph, UtilityButton } from '../ui/UtilityButton'
 import { Tooltip } from '../ui/Tooltip'
 import { ModeReadout } from '../ui/ModeDot'
 import { Select } from '../ui/Select'
+import type { SelectHandle } from '../ui/Select'
 import { Button } from '../ui/Button'
 import { Composer } from './Composer'
 import { useAttachments } from './useAttachments'
@@ -395,6 +397,39 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   // While the title is being edited, Escape belongs to the field — without
   // this it reaches `App` and closes the whole panel mid-rename.
   useEscapeLayer(isEditingTitle, () => abandonTitleEdit())
+
+  // The session commands (spec: 2026-09-23-shortcuts-design § 4), each enabled
+  // exactly while the control it stands for is on screen — so a key never
+  // does what no button offers. `selectedId`, not `session`: the panel keeps
+  // drawing the outgoing session while it slides away, and that one is no
+  // longer the one the keys are about.
+  const tagSelectRef = useRef<SelectHandle>(null)
+  const shown = selectedId != null ? session : undefined
+  // Stop sits in the composer, which a terminal-live session does not get.
+  useCommand(
+    'session.interrupt',
+    () => setDialog('stop'),
+    shown?.status === 'working' && !isReadOnly(shown)
+  )
+  // Clear and End are Orbital's own, as the strip draws them (`UtilityStrip`).
+  useCommand('session.clear', () => handleClearClick(), shown?.source === 'web')
+  useCommand(
+    'session.end',
+    () => setDialog('end'),
+    shown?.source === 'web' && shown.status !== 'ended'
+  )
+  useCommand(
+    'session.pin',
+    () => {
+      if (shown) void setSessionPinned(shown.id, shown.pinnedAt == null)
+    },
+    shown != null
+  )
+  useCommand(
+    'session.tag',
+    () => tagSelectRef.current?.open(),
+    shown != null && primaryTag(shown, tags) !== undefined
+  )
 
   // Standalone has nothing to slide away to: it shows whenever its session is
   // selected, which is from the moment the window seats it.
@@ -858,6 +893,7 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
             <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
               {sessionTag && (
                 <Select
+                  ref={tagSelectRef}
                   variant="tag"
                   font="sans"
                   aria-label="Change tag"

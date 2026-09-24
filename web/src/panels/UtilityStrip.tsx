@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { detachSession, hasDesktopBridge, openInMainWindow } from '../lib/desktop'
 import { formatDuration, shortenPath } from '../lib/format'
+import { useCommand } from '../lib/commands'
+import { useOrbital } from '../store/store'
 import type { ApiSession, WalkthroughSummary } from '../lib/types'
 import { MENU_SEPARATOR, MenuButton } from '../ui/Menu'
 import type { MenuEntry } from '../ui/Menu'
@@ -275,6 +277,18 @@ export function UtilityStrip({
     // A detached window has neither (22c): the red light and ⌘W close it.
     collapse: !standalone,
   }
+  // `session.detach` follows the detach control itself, folded into the ⋯ or
+  // not. Also only for the selected session: the panel keeps drawing the
+  // outgoing one while it slides away, and that one is not the key's target.
+  const onScreen = useOrbital((s) => session != null && s.ui.selectedId === session.id)
+  useCommand(
+    'session.detach',
+    () => {
+      if (session) detachSession(session.id)
+    },
+    present.detach && onScreen
+  )
+
   const presenceKey = (Object.keys(present) as (keyof StripPresence)[])
     .filter((button) => present[button])
     .join(' ')

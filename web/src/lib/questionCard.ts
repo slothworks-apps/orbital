@@ -1,4 +1,5 @@
 import type { QuestionOption, QuestionSpec } from './types'
+import { digitFromEvent, type KeyboardEventLike } from './keymap'
 
 /**
  * The `QuestionCard`'s state machine, extracted from the component so the
@@ -131,10 +132,18 @@ export function moveFocus(current: number, delta: number, count: number): number
  * The option a `1`–`4` keypress names, or null when the key is not a digit
  * in range (canvas 9d: "1 – 4 · answer that option"). Never resolves to the
  * Other… row — that one is `↩`, not a number.
+ *
+ * The digit is read by position (`digitFromEvent`, keymap rule 2): on a
+ * Czech layout the top row prints `+ ě š č …` without Shift, and the "1" key
+ * is what the card's hint means. Shift is allowed for the same reason — a
+ * Czech typist may hold it out of habit, and the position does not change.
+ * Any other modifier makes the key somebody else's chord, never an answer.
  */
-export function optionIndexForDigit(key: string, optionCount: number): number | null {
-  if (!/^[1-9]$/.test(key)) return null
-  const index = Number(key) - 1
+export function optionIndexForDigit(e: KeyboardEventLike, optionCount: number): number | null {
+  if (e.metaKey || e.ctrlKey || e.altKey) return null
+  const digit = digitFromEvent(e)
+  if (digit === null) return null
+  const index = digit - 1
   return index < optionCount ? index : null
 }
 

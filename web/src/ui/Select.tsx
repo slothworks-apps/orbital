@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, Ref } from 'react'
 import { useEscapeLayer } from './escapeLayer'
 import { POPUP_SHELL, usePopupPosition } from './usePopupPosition'
 
@@ -57,6 +57,13 @@ export interface SelectProps<T> {
   footer?: string
   /** Layout-only passthrough (width, margin). Never use to override control styling. */
   className?: string
+  /** For a keyboard shortcut that opens the control from outside it (`session.tag`). */
+  ref?: Ref<SelectHandle>
+}
+
+export interface SelectHandle {
+  /** Focuses the trigger and opens the popup, exactly as pressing ↓ on it would. */
+  open(): void
 }
 
 /** Gap between the trigger and the popup. The viewport margin and the height
@@ -110,6 +117,7 @@ export function Select<T extends string | number>({
   placeholder,
   footer,
   className,
+  ref,
   ...aria
 }: SelectProps<T>) {
   const baseId = useId()
@@ -137,6 +145,20 @@ export function Select<T extends string | number>({
       setOpen(true)
     },
     [disabled, selectedIndex],
+  )
+
+  // Focus first: the popup's keyboard (arrows, type-ahead, ⏎) is the
+  // trigger's own `onKeyDown`, so an open popup without a focused trigger
+  // could only be driven by the mouse.
+  useImperativeHandle(
+    ref,
+    () => ({
+      open() {
+        triggerRef.current?.focus()
+        openPopup()
+      },
+    }),
+    [openPopup],
   )
 
   const closePopup = useCallback((restoreFocus: boolean) => {

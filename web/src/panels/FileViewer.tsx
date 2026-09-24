@@ -7,6 +7,7 @@ import { usePresence } from '../ui/usePresence'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
+import { command, matches } from '../lib/keymap'
 import { formatBytes, timeAgo } from '../lib/format'
 import { tokenizeCode, type CodeToken } from '../lib/highlight'
 import type {
@@ -445,7 +446,7 @@ export function FileViewer({ session }: FileViewerProps) {
   useEffect(() => {
     if (!open || ideName === null || openPath === null) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Enter' || !event.altKey) return
+      if (!matches(command('files.open-in-ide').chords[0], event)) return
       event.preventDefault()
       void openInIde(openPath, target?.line ?? null)
     }

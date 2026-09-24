@@ -149,16 +149,32 @@ describe('rows and focus', () => {
 })
 
 describe('optionIndexForDigit', () => {
+  /** A bare keypress on the physical key `code`, printing `key`. */
+  function press(code: string, key: string, mods: Partial<Record<'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey', boolean>> = {}) {
+    return { code, key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods }
+  }
+
   it('maps 1–4 onto the options in range', () => {
-    expect(optionIndexForDigit('1', 3)).toBe(0)
-    expect(optionIndexForDigit('3', 3)).toBe(2)
+    expect(optionIndexForDigit(press('Digit1', '1'), 3)).toBe(0)
+    expect(optionIndexForDigit(press('Digit3', '3'), 3)).toBe(2)
+  })
+
+  it('reads the digit by position, so a Czech layout’s top row picks too', () => {
+    expect(optionIndexForDigit(press('Digit1', '+'), 3)).toBe(0)
+    expect(optionIndexForDigit(press('Digit1', '1', { shiftKey: true }), 3)).toBe(0)
+  })
+
+  it('does not pick while ⌘, ⌃ or ⌥ is held — that digit is somebody else’s chord', () => {
+    expect(optionIndexForDigit(press('Digit1', '1', { metaKey: true }), 3)).toBeNull()
+    expect(optionIndexForDigit(press('Digit1', '1', { ctrlKey: true }), 3)).toBeNull()
+    expect(optionIndexForDigit(press('Digit1', '¡', { altKey: true }), 3)).toBeNull()
   })
 
   it('ignores a digit past the last option and anything that is not one', () => {
-    expect(optionIndexForDigit('4', 3)).toBeNull()
-    expect(optionIndexForDigit('0', 3)).toBeNull()
-    expect(optionIndexForDigit('Enter', 3)).toBeNull()
-    expect(optionIndexForDigit('a', 3)).toBeNull()
+    expect(optionIndexForDigit(press('Digit4', '4'), 3)).toBeNull()
+    expect(optionIndexForDigit(press('Digit0', '0'), 3)).toBeNull()
+    expect(optionIndexForDigit(press('Enter', 'Enter'), 3)).toBeNull()
+    expect(optionIndexForDigit(press('KeyA', 'a'), 3)).toBeNull()
   })
 })
 

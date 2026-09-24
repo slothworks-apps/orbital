@@ -7,6 +7,11 @@ vi.mock('../lib/socket', () => ({ getSocket: () => ({ subscribe: () => () => {},
 
 import { api } from '../lib/api'
 import { WalkthroughPage } from '../walkthrough/WalkthroughPage'
+import { installKeyListener } from '../lib/commands'
+import { MAP_PATH } from '../lib/pageCrumbs'
+import { STATS_PATH } from '../stats/route'
+import { walkthroughPath } from '../walkthrough/route'
+import { stubLocationAssign } from './stubLocationAssign'
 
 const session = (patch: Partial<ApiSession> = {}) =>
   ({ id: 'w1', title: 'auth-refactor', status: 'idle', source: 'web', cwd: '/w/auth', ide: null, subagents: [], ...patch }) as unknown as ApiSession
@@ -43,14 +48,38 @@ describe('WalkthroughPage', () => {
     expect(screen.getByText('Because.')).toBeInTheDocument()
   })
 
-  it('goes up to the cover on ⌘[ from a step, without leaving the page', async () => {
-    render(<WalkthroughPage id="w1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /start/i }))
-    await screen.findAllByText(/step 1 of 2/i)
-    expect(document.title).toBe('step 1 · auth-refactor · Orbital')
-    fireEvent.keyDown(window, { key: '[', metaKey: true })
-    expect(await screen.findByRole('button', { name: /start/i })).toBeInTheDocument()
-    expect(document.title).toBe('auth-refactor · Walkthrough · Orbital')
+  it('goes up to the cover on ⌘↑ from a step, without leaving the page', async () => {
+    const uninstall = installKeyListener()
+    try {
+      render(<WalkthroughPage id="w1" />)
+      fireEvent.click(await screen.findByRole('button', { name: /start/i }))
+      await screen.findAllByText(/step 1 of 2/i)
+      expect(document.title).toBe('step 1 · auth-refactor · Orbital')
+      fireEvent.keyDown(window, { key: 'ArrowUp', code: 'ArrowUp', metaKey: true })
+      expect(await screen.findByRole('button', { name: /start/i })).toBeInTheDocument()
+      expect(document.title).toBe('auth-refactor · Walkthrough · Orbital')
+    } finally {
+      uninstall()
+    }
+  })
+
+  it('⌘1 loads the map and ⌘2 the stats page', async () => {
+    const uninstall = installKeyListener()
+    const { assign, restore } = stubLocationAssign()
+    window.history.replaceState(null, '', walkthroughPath('w1'))
+    try {
+      render(<WalkthroughPage id="w1" />)
+      await screen.findByRole('heading', { name: 'auth-refactor' })
+
+      fireEvent.keyDown(window, { key: '1', code: 'Digit1', metaKey: true })
+      expect(assign).toHaveBeenLastCalledWith(MAP_PATH)
+      fireEvent.keyDown(window, { key: '2', code: 'Digit2', metaKey: true })
+      expect(assign).toHaveBeenLastCalledWith(STATS_PATH)
+    } finally {
+      restore()
+      uninstall()
+      window.history.replaceState(null, '', '/')
+    }
   })
 
   it('asks the session from a step', async () => {

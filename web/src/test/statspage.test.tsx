@@ -6,6 +6,9 @@ vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 import { StatsPage } from '../stats/StatsPage'
+import { installKeyListener } from '../lib/commands'
+import { MAP_PATH } from '../lib/pageCrumbs'
+import { stubLocationAssign } from './stubLocationAssign'
 
 const totals: StatsTotals = {
   inputTokens: 400_000,
@@ -156,5 +159,24 @@ describe('StatsPage', () => {
 
     const card = await screen.findByRole('link', { name: /Prompt cache invalidated/ })
     expect(card).toHaveAttribute('href', '/stats/session/sess-1?turn=uuid-12')
+  })
+
+  it('stays put on ⌘2, since it is already the stats page, while ⌘1 still leaves for the map', async () => {
+    vi.mocked(api.statsOverview).mockResolvedValue(overview())
+    const uninstall = installKeyListener()
+    const { assign, restore } = stubLocationAssign()
+    try {
+      render(<StatsPage route={{ kind: 'dashboard' }} />)
+      await screen.findByLabelText('Findings')
+
+      fireEvent.keyDown(window, { key: '2', code: 'Digit2', metaKey: true })
+      expect(assign).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(window, { key: '1', code: 'Digit1', metaKey: true })
+      expect(assign).toHaveBeenCalledWith(MAP_PATH)
+    } finally {
+      restore()
+      uninstall()
+    }
   })
 })

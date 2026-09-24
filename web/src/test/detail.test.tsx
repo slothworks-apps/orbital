@@ -15,6 +15,7 @@ vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 import { api } from '../lib/api'
 import { DetailPanel } from '../panels/DetailPanel'
 import { ModelSwitcher } from '../panels/ModelSwitcher'
+import { installKeyListener } from '../lib/commands'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1684,5 +1685,93 @@ describe('DetailPanel — the subagent pairing (task 8)', () => {
     })
 
     expect(panelWidthPx(container)).toBe(450)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Session shortcuts (spec 2026-09-23-shortcuts-design § 2): each one does what
+// the header or composer control it stands for does, and only while that
+// control is on screen.
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel session shortcuts', () => {
+  let uninstallKeys: () => void
+  beforeEach(() => {
+    uninstallKeys = installKeyListener()
+  })
+  afterEach(() => {
+    uninstallKeys()
+    delete (window as { orbitalDesktop?: unknown }).orbitalDesktop
+  })
+
+  /** Dispatches a keydown and reports whether a command took it. */
+  function press(init: KeyboardEventInit): boolean {
+    const event = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true })
+    act(() => {
+      document.body.dispatchEvent(event)
+    })
+    return event.defaultPrevented
+  }
+
+  it('⌘. opens the Stop dialog only while the session is working, as the Stop button does', async () => {
+    await renderDetail({ session: makeSession({ id: 'a', status: 'idle' }) })
+    expect(press({ key: '.', code: 'Period', metaKey: true })).toBe(false)
+    expect(useOrbital.getState().ui.dialog).toBeNull()
+
+    await act(async () => {
+      useOrbital.setState((s) => ({
+        sessions: { ...s.sessions, a: { ...s.sessions.a, status: 'working' } },
+      }))
+    })
+    press({ key: '.', code: 'Period', metaKey: true })
+    expect(useOrbital.getState().ui.dialog).toBe('stop')
+  })
+
+  it('⌘⌫ opens the End dialog for an Orbital session, never for a terminal one', async () => {
+    await renderDetail({ session: webSession })
+    press({ key: 'Backspace', code: 'Backspace', metaKey: true })
+    expect(useOrbital.getState().ui.dialog).toBe('end')
+
+    cleanup()
+    await renderDetail({ session: makeSession({ id: 't', source: 'terminal' }) })
+    expect(press({ key: 'Backspace', code: 'Backspace', metaKey: true })).toBe(false)
+    expect(useOrbital.getState().ui.dialog).toBeNull()
+  })
+
+  it('⌘P toggles the pin', async () => {
+    // Spied before the render, as the pin toggle's own test does: the panel
+    // reads the action off the store when it renders.
+    resetStore({ sessions: { a: webSession }, ui: { selectedId: 'a' } })
+    const pinSpy = vi.spyOn(useOrbital.getState(), 'setSessionPinned').mockResolvedValue(undefined)
+    render(<DetailPanel />)
+    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
+
+    press({ key: 'p', code: 'KeyP', metaKey: true })
+    expect(pinSpy).toHaveBeenCalledWith('a', true)
+  })
+
+  it('⌘T opens the tag select, focused, so the arrows pick', async () => {
+    await renderDetail({ session: makeSession({ id: 'a', tagIds: [1] }) })
+
+    press({ key: 't', code: 'KeyT', metaKey: true })
+
+    const trigger = screen.getByRole('combobox', { name: 'Change tag' })
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    expect(trigger).toHaveFocus()
+    expect(screen.getByRole('listbox', { name: 'Change tag' })).toBeInTheDocument()
+  })
+
+  it('⌘⇧D opens the session in a window of its own when the desktop bridge is there', async () => {
+    const detachSession = vi.fn()
+    ;(window as { orbitalDesktop?: unknown }).orbitalDesktop = { detachSession }
+    await renderDetail({ session: webSession })
+
+    press({ key: 'D', code: 'KeyD', metaKey: true, shiftKey: true })
+    expect(detachSession).toHaveBeenCalledWith('a')
+  })
+
+  it('⌘⇧D leaves the key alone in a browser, where there is no detach control', async () => {
+    await renderDetail({ session: webSession })
+    expect(press({ key: 'D', code: 'KeyD', metaKey: true, shiftKey: true })).toBe(false)
   })
 })

@@ -14,7 +14,9 @@ import {
 import { tagColor, type ApiSession, type Tag } from '../lib/types'
 import { useWindowBand } from '../lib/windowChrome'
 import { useWindowFocused } from '../lib/useWindowFocused'
+import { useCommand } from '../lib/commands'
 import { statusWord } from '../walkthrough/derive'
+import { STATS_PATH } from '../stats/route'
 import { Logo } from './Logo'
 
 /**
@@ -22,8 +24,8 @@ import { Logo } from './Logo'
  * drilldown, and the walkthrough's cover, steps and close screen (spec:
  * 2026-09-24-page-headers-design; canvas `Feature - Page headers` 25a–25j).
  * Left, the breadcrumb; right, in this order, the session's path, its status
- * chip and the esc button. It owns the page's two keys as well: esc to the
- * map, ⌘[ up one crumb.
+ * chip and the esc button. It owns the page's keys as well: esc to the map,
+ * `global.up` (the keymap's) up one crumb, and `global.map` / `global.stats`.
  */
 
 /**
@@ -64,7 +66,7 @@ interface PageBarProps {
   /**
    * Crumbs whose navigation the page does itself, by the crumb's key: the
    * walkthrough's cover is page state, and the drilldown goes back through
-   * history to keep the findings' scroll. Taken for a plain click and for ⌘[;
+   * history to keep the findings' scroll. Taken for a plain click and for `global.up`;
    * a modified click still follows the href.
    */
   onCrumb?: Partial<Record<CrumbKey, () => void>>
@@ -92,9 +94,19 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
   // esc: the map, in one press, from anywhere on the page (25h). An overlay
   // registered with the escape-layer stack takes the key first, in the
   // capture phase, and it never reaches here; a focused field only lets go of
-  // the focus. ⌘[: the parent crumb, overlay or not. Both are on `window` in
-  // the bubble phase, so a control that handled the key itself keeps it.
+  // the focus. It is on `window` in the bubble phase, so a control that
+  // handled the key itself keeps it. The way up one crumb is the keymap's
+  // `global.up`, which every page bar route has a parent crumb for.
   const up = upCrumb(route)
+  useCommand('global.up', () => follow(up))
+  // The bar is on every page that is not the map, so it is where ⌘1 and ⌘2
+  // are served away from `App`. Each stays put on the page it names.
+  useCommand('global.map', () => {
+    if (window.location.pathname !== MAP_PATH) window.location.assign(MAP_PATH)
+  })
+  useCommand('global.stats', () => {
+    if (window.location.pathname !== STATS_PATH) window.location.assign(STATS_PATH)
+  })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
@@ -103,11 +115,6 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
         const target = e.target as HTMLElement | null
         if (target?.closest('input, textarea, [contenteditable="true"]')) target.blur()
         else window.location.assign(MAP_PATH)
-        return
-      }
-      if (e.key === '[' && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        e.preventDefault()
-        follow(up)
       }
     }
     window.addEventListener('keydown', onKey)

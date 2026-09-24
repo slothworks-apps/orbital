@@ -17,6 +17,7 @@ import {
   type AnswerMap,
 } from '../lib/questionCard'
 import { useEscapeLayer } from '../ui/escapeLayer'
+import { command, matches } from '../lib/keymap'
 // Every value below was transcribed from canvas 9b/9d and now lives beside
 // the permission card that shares it — see `decisionCardStyles`.
 import {
@@ -522,7 +523,8 @@ function LiveBody({
     // The expanded Other… field owns every key it gets — digits have to type.
     if (e.target instanceof HTMLTextAreaElement) return
 
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    // `dialogs.move` wants the bare arrow: ⌘↑ is somebody else's chord.
+    if (command('dialogs.move').chords.some((chord) => matches(chord, e))) {
       e.preventDefault()
       focusRow(moveFocus(focus, e.key === 'ArrowDown' ? 1 : -1, rows))
       return
@@ -532,7 +534,7 @@ function LiveBody({
       e.preventDefault()
       return
     }
-    const digit = optionIndexForDigit(e.key, question.options.length)
+    const digit = optionIndexForDigit(e, question.options.length)
     if (digit !== null) {
       e.preventDefault()
       pick(digit)

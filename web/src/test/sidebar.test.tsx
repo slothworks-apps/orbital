@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ApiSession, Tag } from '../lib/types'
@@ -8,9 +8,10 @@ import { timeAgo, shortenPath } from '../lib/format'
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
+import { installKeyListener } from '../lib/commands'
+import { partitionSessions } from '../lib/sidebarOrder'
 import {
   Sidebar,
-  partitionSessions,
   type ObserverFactory,
   type ObserverLike,
 } from '../panels/Sidebar'
@@ -660,16 +661,45 @@ describe('Sidebar', () => {
     expect(api.listSessions).toHaveBeenLastCalledWith(expect.objectContaining({ tag: 1 }))
   })
 
-  it('⌘K focuses the search input', () => {
-    resetStore({ sessions: {} })
-    render(<Sidebar observerFactory={noopObserverFactory} />)
+  describe('⌘K', () => {
+    // `main.tsx` installs the app's one keydown listener; Sidebar alone does not.
+    let uninstall: () => void
+    beforeEach(() => {
+      uninstall = installKeyListener()
+    })
+    afterEach(() => uninstall())
 
-    const search = screen.getByRole('searchbox', { name: /search sessions/i })
-    expect(search).not.toHaveFocus()
+    const pressCmdK = (target: EventTarget = window) =>
+      target.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }))
 
-    const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true })
-    window.dispatchEvent(event)
+    it('focuses the search input, from another field too', () => {
+      resetStore({ sessions: {} })
+      render(<Sidebar observerFactory={noopObserverFactory} />)
 
-    expect(search).toHaveFocus()
+      const search = screen.getByRole('searchbox', { name: /search sessions/i })
+      expect(search).not.toHaveFocus()
+
+      pressCmdK()
+      expect(search).toHaveFocus()
+
+      // `global.search` is a whileTyping command: a caret elsewhere does not keep it.
+      const other = document.createElement('input')
+      document.body.appendChild(other)
+      try {
+        other.focus()
+        pressCmdK(other)
+        expect(search).toHaveFocus()
+      } finally {
+        other.remove()
+      }
+    })
+
+    it('does not pull focus behind an open dialog', () => {
+      resetStore({ sessions: {}, ui: { dialog: 'new' } })
+      render(<Sidebar observerFactory={noopObserverFactory} />)
+
+      pressCmdK()
+      expect(screen.getByRole('searchbox', { name: /search sessions/i })).not.toHaveFocus()
+    })
   })
 })

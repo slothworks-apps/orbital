@@ -4,7 +4,7 @@ import { mapHref, walkthroughPath } from '../walkthrough/route'
 /**
  * Where a sub-page of the main window sits, as its bar spells it out (spec:
  * 2026-09-24-page-headers-design § Breadcrumbs; canvas `Feature - Page
- * headers` 25b–25f). The crumbs, the ⌘[ target and the document title are all
+ * headers` 25b–25f). The crumbs, the `global.up` target and the document title are all
  * read off the same list, so the key cannot go somewhere the bar does not
  * show.
  */
@@ -65,7 +65,7 @@ export function pageCrumbs(route: PageBarRoute): PageCrumb[] {
 }
 
 /**
- * Where ⌘[ goes: the parent crumb, never history (25h — "you can read where
+ * Where `global.up` goes: the parent crumb, never history (25h — "you can read where
  * it goes before you press it"). Every page has at least ORBITAL above it.
  */
 export function upCrumb(route: PageBarRoute): PageCrumb {

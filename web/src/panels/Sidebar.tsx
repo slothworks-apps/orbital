@@ -9,6 +9,9 @@ import {
   visibleSessions,
 } from '../store/store'
 import { api } from '../lib/api'
+import { chordLabel, command } from '../lib/keymap'
+import { useCommand } from '../lib/commands'
+import { partitionSessions } from '../lib/sidebarOrder'
 import { reportError } from '../lib/errors'
 import { hasDesktopBridge } from '../lib/desktop'
 import { useWindowBand } from '../lib/windowChrome'
@@ -29,14 +32,6 @@ import { timeAgo, shortenPath } from '../lib/format'
 const PAGE_SIZE = 20
 
 const SEARCH_INPUT_ID = 'sidebar-search'
-
-/** True while focus sits in a text input/textarea/contenteditable — global
- * shortcuts should not fire there. Duplicated (not imported) from
- * `map/SpaceMap.tsx`, which doesn't export it — see task-10 report. */
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
-}
 
 /**
  * Minimal shape `Sidebar` needs from an `IntersectionObserver` — lets tests
@@ -381,42 +376,6 @@ function SectionHeading({
   )
 }
 
-export interface SidebarSections {
-  /** Pinned rows, oldest pin first — PINNED keeps pin order (spec § Sidebar). */
-  pinned: ApiSession[]
-  /** Unpinned live rows before the origin filter, which is what ACTIVE counts. */
-  live: ApiSession[]
-  active: ApiSession[]
-  history: ApiSession[]
-}
-
-/**
- * The sidebar's three sections. A pinned session appears under PINNED only —
- * never in two places — which is why the pinned rows come out of the list
- * before ACTIVE and HISTORY are cut from what is left (spec
- * 2026-09-20-pinned-sessions-design).
- *
- * The origin filter still narrows ACTIVE alone: it says where a LIVE session
- * is driven from, and a pinned row is in PINNED whoever drives it.
- */
-export function partitionSessions(
-  visible: ApiSession[],
-  sourceFilter: 'all' | SessionSource
-): SidebarSections {
-  const pinned: ApiSession[] = []
-  const rest: ApiSession[] = []
-  for (const session of visible) (session.pinnedAt != null ? pinned : rest).push(session)
-  pinned.sort((a, b) => (a.pinnedAt ?? 0) - (b.pinnedAt ?? 0))
-
-  const live = rest.filter((s) => s.status !== 'ended')
-  return {
-    pinned,
-    live,
-    active: sourceFilter === 'all' ? live : live.filter((s) => s.source === sourceFilter),
-    history: rest.filter((s) => s.status === 'ended'),
-  }
-}
-
 /**
  * Left rail per artboard 1a: wordmark + collapse toggle, search (⌘K), tag
  * filter chips, ACTIVE/HISTORY session lists with infinite scroll — ACTIVE
@@ -550,19 +509,19 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     [setSessionPinned]
   )
 
-  // ⌘K focuses search — unless the user is already typing somewhere else
-  // (a dialog field, say), in which case it's just a letter.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return
-      const input = document.getElementById(SEARCH_INPUT_ID)
-      if (isTypingTarget(e.target) && e.target !== input) return
-      e.preventDefault()
-      ;(input as HTMLInputElement | null)?.focus()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  // `global.search` reaches past an open dialog (it is a global command), but
+  // pulling focus into the sidebar behind a modal would strand the keyboard
+  // there, so the handler stands down while one is up.
+  const dialogOpen = useOrbital((s) => s.ui.dialog !== null)
+  useCommand(
+    'global.search',
+    () => {
+      document.getElementById(SEARCH_INPUT_ID)?.focus()
+    },
+    !dialogOpen
+  )
+
+  useCommand('global.sidebar', () => setSidebarCollapsed(!collapsed))
 
   // A filter switch invalidates whatever offset/end-of-list state the
   // previous filter combination had accumulated — the server applies the
@@ -720,7 +679,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           className="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-text-bright outline-none placeholder:text-[rgba(160,190,225,.6)]"
         />
         <span className="rounded border border-[rgba(150,205,255,.18)] px-[5px] py-0.5 font-mono text-[10px] text-text-muted">
-          ⌘K
+          {chordLabel(command('global.search').chords[0])}
         </span>
       </label>
 

@@ -18,6 +18,7 @@ import {
 } from '../store/store'
 import { api, type ServerHealth } from '../lib/api'
 import { reportError } from '../lib/errors'
+import { SCOPES, bindingCount, chordLabel, command } from '../lib/keymap'
 import { notifyDesktopSettingsChanged } from '../lib/desktop'
 import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
@@ -44,6 +45,7 @@ import { Segmented } from '../ui/Segmented'
 import { modelByValue } from '../lib/models'
 import type { PermissionMode } from '../lib/types'
 import { TagsRulesSection } from './TagsRules'
+import { ShortcutsSection } from './ShortcutsSection'
 import pkg from '../../package.json'
 
 export interface SettingsProps {
@@ -113,7 +115,8 @@ const RELEASE_OPTIONS: Array<{ value: string; label: string }> = [
  * after Sessions because every event it governs is a session event, and
  * every other row keeps the position 1h gives it.
  *
- * Only "Permissions" and "Shortcuts" are still inert. General is missing its
+ * Every row is live; `disabled` stays so a section can be switched off again
+ * without `initialSection` stranding a stored visit on it. General is missing its
  * STARTUP & WINDOW group, which waits on behaviour `desktop/` does not have
  * yet ([[desktop-startup-window-and-updates]]), and its retention row, which
  * waits on a design question the indexer raises — see the spec's § 4.
@@ -125,7 +128,7 @@ const NAV_ITEMS = [
   { key: 'permissions', label: 'Permissions', disabled: false },
   { key: 'tags', label: 'Tags & rules', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
-  { key: 'shortcuts', label: 'Shortcuts', disabled: true },
+  { key: 'shortcuts', label: 'Shortcuts', disabled: false },
 ] as const
 
 type SectionKey = (typeof NAV_ITEMS)[number]['key']
@@ -705,6 +708,13 @@ export function Settings({ open, onClose }: SettingsProps) {
                   saved · just now
                 </span>
               )}
+              {/* Shortcuts saves nothing, so its slot on the right is the
+              keymap's size instead (canvas Feature - Shortcuts, artboard A). */}
+              {section === 'shortcuts' && (
+                <span className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+                  {bindingCount()} bindings · {SCOPES.length} scopes
+                </span>
+              )}
             </div>
 
             {/* Tags & rules brings a second fixed column with it (1e: nav 240 ·
@@ -748,14 +758,17 @@ export function Settings({ open, onClose }: SettingsProps) {
                 </div>
               </nav>
 
-              {/* Tags & rules brings its own two columns; every other section is
-              a list of rows in the one content column below (8/32/20 padding,
-              canvas 1h). Flat `&&` blocks rather than a ternary chain: with
-              five sections a nested conditional stops being readable, and
-              only one of them is ever mounted, so their order here is not the
-              nav's. */}
+              {/* Tags & rules brings its own two columns, and Shortcuts pins a
+              filter bar above a list that scrolls on its own, so both own
+              their frame; every other section is a list of rows in the one
+              content column below (8/32/20 padding, canvas 1h). Flat `&&`
+              blocks rather than a ternary chain there: with five sections a
+              nested conditional stops being readable, and only one of them
+              is ever mounted, so their order here is not the nav's. */}
               {section === 'tags' ? (
                 <TagsRulesSection active onSaved={() => setSaved(true)} />
+              ) : section === 'shortcuts' ? (
+                <ShortcutsSection />
               ) : (
                 <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
                   {section === 'general' && (
@@ -1452,7 +1465,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       <SectionLabel>CLEAR &amp; LIFECYCLE</SectionLabel>
                       <Row
                         title="Confirm before Clear"
-                        desc="Show the confirmation dialog when running /clear or ⌘⇧N."
+                        desc={`Show the confirmation dialog when running /clear or ${chordLabel(command('session.clear').chords[0])}.`}
                       >
                         <Toggle
                           aria-label="Confirm before clear"

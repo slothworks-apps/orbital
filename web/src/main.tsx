@@ -4,7 +4,8 @@ import '@fontsource/jetbrains-mono/latin-400.css'
 import './theme.css'
 import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
-import { initDesktopBridge } from './lib/desktop'
+import { dispatchFromMenu, installKeyListener } from './lib/commands'
+import { initDesktopBridge, onCommand } from './lib/desktop'
 import { setWindowFullScreen } from './lib/windowChrome'
 import { useOrbital } from './store/store'
 import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
@@ -123,6 +124,31 @@ const stats = parseStatsRoute(window.location.pathname)
  * (spec: 2026-09-23-walkthrough-design § The page).
  */
 const walkthroughId = parseWalkthroughRoute(window.location.pathname)
+
+/**
+ * One call for every branch below: `App` and `SessionWindow` (the detached
+ * session window) both mount from this same file, and installing ahead of
+ * the branch — rather than inside each of them — is what keeps a second
+ * mount (a hot update, say) from adding a second listener; `installKeyListener`
+ * is a no-op past the first call anyway (spec: 2026-09-23-shortcuts-design § 4).
+ */
+installKeyListener()
+
+/**
+ * The desktop menu's other half: a picked item (or its accelerator) arrives
+ * here as a command id (spec: 2026-09-23-shortcuts-design § 5). It obeys
+ * the key's dialog rule: while a dialog is open only a global command runs
+ * (`dispatchFromMenu`). Here rather than in `App` and
+ * `SessionWindow` for the same reason as the key listener — an effect runs
+ * twice under StrictMode and again on a hot update, and each run would add
+ * one more IPC listener, so one click would dispatch twice — and because
+ * the main window's other pages (stats, walkthrough) have handlers too, e.g.
+ * `PageBar`'s `global.map`. Main sends to the focused window, and Map to
+ * the main window.
+ */
+onCommand((id) => {
+  dispatchFromMenu(id)
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

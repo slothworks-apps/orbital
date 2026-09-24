@@ -1,5 +1,5 @@
 import { StrictMode } from 'react'
-import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import type { ApiSession, Subagent } from '../lib/types'
 
@@ -127,7 +127,10 @@ vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 import { useOrbital } from '../store/store'
+import { installKeyListener } from '../lib/commands'
 import App from '../App'
+import { STATS_PATH } from '../stats/route'
+import { stubLocationAssign } from './stubLocationAssign'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -325,22 +328,26 @@ describe('App: session subscription follows selection', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Keyboard: Esc (⌥N is SpaceMap's own — verified not duplicated here)
+// Keyboard: ⌘N (App's `global.new-session`) and Esc
 // ---------------------------------------------------------------------------
 
 describe('App: keyboard', () => {
-  it('⌥N opens the new-session dialog via SpaceMap\'s own handler (not duplicated by App)', async () => {
+  // `main.tsx` installs the app's one keydown listener; App alone does not.
+  let uninstallKeys: () => void
+  beforeAll(() => {
+    uninstallKeys = installKeyListener()
+  })
+  afterAll(() => uninstallKeys())
+
+  it('⌘N opens the new-session dialog', async () => {
     await renderApp()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
-    // On a US layout ⌥N is a dead key, so e.key arrives as '˜' — the
-    // handler must match on e.code, which names the physical key.
-    fireEvent.keyDown(document, { key: '˜', code: 'KeyN', altKey: true })
+    fireEvent.keyDown(document, { key: 'n', code: 'KeyN', metaKey: true })
 
     expect(useOrbital.getState().ui.dialog).toBe('new')
-    // Exactly one dialog node — a duplicate ⌥N registration in App would
-    // still set the same value (idempotent), but this also guards against
-    // NewSessionDialog being rendered twice in the tree.
+    // Exactly one dialog node — guards against NewSessionDialog being
+    // rendered twice in the tree.
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
 
     // Let NewSessionDialog's own recent-dirs fetch (fired by opening it)
@@ -348,15 +355,15 @@ describe('App: keyboard', () => {
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
   })
 
-  it('⌘N no longer opens the dialog (the browser reserves it for a new window)', async () => {
+  it('⌥N no longer opens the dialog — the binding moved to ⌘N', async () => {
     await renderApp()
 
-    fireEvent.keyDown(document, { key: 'n', code: 'KeyN', metaKey: true })
+    fireEvent.keyDown(document, { key: '˜', code: 'KeyN', altKey: true })
 
     expect(useOrbital.getState().ui.dialog).toBeNull()
   })
 
-  it('⌘⌥N does not open the dialog — the binding is ⌥N alone', async () => {
+  it('⌘⌥N does not open the dialog — the binding is ⌘N alone', async () => {
     await renderApp()
 
     fireEvent.keyDown(document, { key: '˜', code: 'KeyN', altKey: true, metaKey: true })
@@ -408,6 +415,140 @@ describe('App: keyboard', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(useOrbital.getState().ui.selectedId).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Keyboard: the app-level commands App registers (spec 2026-09-23-shortcuts
+// § 2) — dialogs, pages and cycling through the sidebar's order
+// ---------------------------------------------------------------------------
+
+describe('App: navigation shortcuts', () => {
+  let uninstallKeys: () => void
+  beforeAll(() => {
+    uninstallKeys = installKeyListener()
+  })
+  afterAll(() => uninstallKeys())
+
+  /** Presses a chord and lets `select`'s async tail (the transcript fetch) settle inside act. */
+  async function press(init: KeyboardEventInit) {
+    await act(async () => {
+      fireEvent.keyDown(document, init)
+    })
+  }
+  const ctrlTab = { key: 'Tab', code: 'Tab', ctrlKey: true }
+  const ctrlShiftTab = { key: 'Tab', code: 'Tab', ctrlKey: true, shiftKey: true }
+  const selected = () => useOrbital.getState().ui.selectedId
+
+  it('⌃⇥ walks the sidebar order top to bottom — PINNED first — and wraps', async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([
+      makeSession({ id: 'newer', lastAt: 300 }),
+      makeSession({ id: 'older', lastAt: 200 }),
+      makeSession({ id: 'pinned', lastAt: 100, pinnedAt: 1 }),
+      makeSession({ id: 'history', lastAt: 400, status: 'ended' }),
+    ])
+    await renderApp()
+    await waitFor(() => expect(useOrbital.getState().sessions.newer).toBeDefined())
+
+    await press(ctrlTab)
+    expect(selected()).toBe('pinned')
+    await press(ctrlTab)
+    expect(selected()).toBe('newer')
+    await press(ctrlTab)
+    expect(selected()).toBe('older')
+    await press(ctrlTab)
+    expect(selected()).toBe('pinned')
+  })
+
+  it('⌃⇧⇥ walks it bottom to top, starting from the last row with nothing selected', async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([
+      makeSession({ id: 'a', lastAt: 300 }),
+      makeSession({ id: 'b', lastAt: 200 }),
+    ])
+    await renderApp()
+    await waitFor(() => expect(useOrbital.getState().sessions.a).toBeDefined())
+
+    await press(ctrlShiftTab)
+    expect(selected()).toBe('b')
+    await press(ctrlShiftTab)
+    expect(selected()).toBe('a')
+    await press(ctrlShiftTab)
+    expect(selected()).toBe('b')
+  })
+
+  it('does not move the selection under an open dialog, which may be acting on it', async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([
+      makeSession({ id: 'a', lastAt: 300 }),
+      makeSession({ id: 'b', lastAt: 200 }),
+    ])
+    await renderApp()
+    await waitFor(() => expect(useOrbital.getState().sessions.a).toBeDefined())
+    act(() => {
+      useOrbital.setState((s) => ({ ui: { ...s.ui, dialog: 'settings' } }))
+    })
+
+    await press(ctrlTab)
+    expect(selected()).toBeNull()
+  })
+
+  it('⌘J jumps to the next session waiting on input, skipping the one already open', async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([
+      makeSession({ id: 'a', lastAt: 400, status: 'needs_input' }),
+      makeSession({ id: 'b', lastAt: 300, status: 'working' }),
+      makeSession({ id: 'c', lastAt: 200, status: 'needs_input' }),
+    ])
+    await renderApp()
+    await waitFor(() => expect(useOrbital.getState().sessions.a).toBeDefined())
+
+    await press({ key: 'j', code: 'KeyJ', metaKey: true })
+    expect(selected()).toBe('a')
+    await press({ key: 'j', code: 'KeyJ', metaKey: true })
+    expect(selected()).toBe('c')
+    await press({ key: 'j', code: 'KeyJ', metaKey: true })
+    expect(selected()).toBe('a')
+  })
+
+  it('⌘J does nothing when no session is waiting on input', async () => {
+    vi.mocked(api.listSessions).mockResolvedValue([
+      makeSession({ id: 'a', lastAt: 400, status: 'working' }),
+      makeSession({ id: 'b', lastAt: 300, status: 'idle' }),
+    ])
+    await renderApp()
+    await waitFor(() => expect(useOrbital.getState().sessions.a).toBeDefined())
+
+    await press({ key: 'j', code: 'KeyJ', metaKey: true })
+    expect(selected()).toBeNull()
+  })
+
+  it('⌘, opens Settings and ⌘⇧E the error log', async () => {
+    await renderApp()
+
+    await press({ key: ',', code: 'Comma', metaKey: true })
+    expect(useOrbital.getState().ui.dialog).toBe('settings')
+
+    await press({ key: 'E', code: 'KeyE', metaKey: true, shiftKey: true })
+    expect(useOrbital.getState().ui.dialog).toBe('errors')
+  })
+
+  it('⌘2 loads /stats, but not from under a dialog, whose draft leaving would drop', async () => {
+    const { assign, restore } = stubLocationAssign()
+    try {
+      await renderApp()
+      act(() => {
+        useOrbital.setState((s) => ({ ui: { ...s.ui, dialog: 'settings' } }))
+      })
+
+      await press({ key: '2', code: 'Digit2', metaKey: true })
+      expect(assign).not.toHaveBeenCalled()
+
+      act(() => {
+        useOrbital.setState((s) => ({ ui: { ...s.ui, dialog: null } }))
+      })
+      await press({ key: '2', code: 'Digit2', metaKey: true })
+      expect(assign).toHaveBeenCalledWith(STATS_PATH)
+    } finally {
+      restore()
+    }
   })
 })
 

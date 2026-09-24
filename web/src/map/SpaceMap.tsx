@@ -21,6 +21,8 @@ import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
 import type { Subagent } from '../lib/types'
 import { labelFontPx } from './visuals'
 import { Button } from '../ui/Button'
+import { chordLabel, command } from '../lib/keymap'
+import { useCommand } from '../lib/commands'
 import { COMPACT_COMMAND, Planet } from './Planet'
 import { Moon } from './Moon'
 import { Hole } from './Hole'
@@ -460,12 +462,6 @@ function SpaceBackdrop() {
       <div className="orbital-stars-near absolute inset-0" />
     </div>
   )
-}
-
-/** True while focus sits in a text input/textarea/contenteditable — global shortcuts should not fire there. */
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
 }
 
 export function SpaceMap() {
@@ -921,18 +917,7 @@ export function SpaceMap() {
     setCamera(fitCamera())
   }, [urlRestored, model.planets.length, fitCamera])
 
-  // ⌥F / Alt+F fits the map — same key handling as ⌥N below (physical key via
-  // e.code, ignored while typing), because on a US layout ⌥F arrives as 'ƒ'.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!e.altKey || e.metaKey || e.ctrlKey || e.code !== 'KeyF') return
-      if (isTypingTarget(e.target)) return
-      e.preventDefault()
-      handleFit()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleFit])
+  useCommand('map.fit', handleFit)
 
   const handleHoleOpen = useCallback(() => {
     // The click a drag-release produces must not also open the sidebar.
@@ -976,24 +961,6 @@ export function SpaceMap() {
     const target = centerOn(cam, { x: followedX, y: followedY }, mapInsets)
     panTo({ x: cam.x, y: cam.y }, { x: target.x, y: target.y })
   }, [followedId, followedX, followedY, panTo, cancelFly, mapInsets])
-
-  // ⌥N / Alt+N opens the new-session dialog, matching the floating
-  // button's shortcut hint. Not ⌘N: browsers reserve that for a new window
-  // at the application level, so the page never sees it. Matched on e.code
-  // because on a US layout ⌥N is the dead key for a combining tilde and
-  // e.key arrives as '˜' — the physical key is what is meant. Ignored while
-  // the user is typing somewhere (a search box, a dialog field), where ⌥N
-  // is a character someone may genuinely be entering.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!e.altKey || e.metaKey || e.ctrlKey || e.code !== 'KeyN') return
-      if (isTypingTarget(e.target)) return
-      e.preventDefault()
-      setDialog('new')
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [setDialog])
 
   const zoomPercent = Math.round(camera.zoom)
   const camX = Math.round(camera.x)
@@ -1228,7 +1195,7 @@ export function SpaceMap() {
             <button
               type="button"
               aria-label="Fit view"
-              title="Fit view · ⌥F"
+              title={`Fit view · ${chordLabel(command('map.fit').chords[0])}`}
               onClick={handleFit}
               className="grid h-[34px] w-[34px] place-items-center text-sm text-text-bright hover:bg-white/5"
             >
@@ -1263,7 +1230,7 @@ export function SpaceMap() {
             <span aria-hidden className="text-base leading-none text-accent">+</span>
             New session
             <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(200,220,245,.7)]">
-              ⌥N
+              {chordLabel(command('global.new-session').chords[0])}
             </span>
           </Button>
         </div>

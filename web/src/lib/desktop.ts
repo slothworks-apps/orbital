@@ -13,6 +13,23 @@ type DesktopBridge = {
   setSubagentPanel?: (state: SubagentPanelState) => void
   setWindowButtonsVisible?: (visible: boolean) => void
   onFullScreenChanged?: (cb: (fullScreen: boolean) => void) => void
+  setMenuCommands?: (items: MenuCommand[]) => void
+  onCommand?: (cb: (id: string) => void) => void
+}
+
+/**
+ * One keymap command as the desktop menu lists it (`menuCommands` in
+ * `keymap.ts` builds the list; `desktop/src/lib/appMenu.ts` has the same type
+ * and validates it). `accelerator` is in Electron's syntax;
+ * `registerAccelerator` is the command's `whileTyping`.
+ */
+export type MenuCommand = {
+  id: string
+  label: string
+  accelerator: string
+  menu: 'File' | 'Session' | 'View' | 'Window'
+  order: number
+  registerAccelerator: boolean
 }
 
 /**
@@ -64,6 +81,25 @@ export function initDesktopBridge(handlers: {
  */
 export function setWindowButtonsVisible(visible: boolean): void {
   bridge()?.setWindowButtonsVisible?.(visible)
+}
+
+/**
+ * Hands main the keymap's menu-worthy commands, which it builds the menu bar
+ * from (spec: 2026-09-23-shortcuts-design § 5). Sent by the main window
+ * only; main ignores a detached window's. A no-op in the browser.
+ */
+export function setMenuCommands(items: MenuCommand[]): void {
+  bridge()?.setMenuCommands?.(items)
+}
+
+/**
+ * A menu item picked, or its accelerator pressed, while this window had
+ * focus: `cb` gets the command id. Every window listens, a detached one
+ * included. Registers a listener for the page's lifetime, so it is called
+ * once per page load. A no-op in the browser.
+ */
+export function onCommand(cb: (id: string) => void): void {
+  bridge()?.onCommand?.(cb)
 }
 
 /** Opens the session in its own window, or focuses the one it already has. */

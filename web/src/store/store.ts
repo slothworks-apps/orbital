@@ -1781,7 +1781,7 @@ export function matchesSearch(session: ApiSession, query: string): boolean {
 }
 
 /** The tag filter alone, newest first — what both the sidebar and the map start from. */
-function tagFilteredSessions(state: OrbitalState): ApiSession[] {
+function tagFilteredSessions(state: Pick<OrbitalState, 'sessions' | 'ui'>): ApiSession[] {
   let list = Object.values(state.sessions)
 
   if (state.ui.filterTagId !== 'all') {
@@ -1797,7 +1797,7 @@ function tagFilteredSessions(state: OrbitalState): ApiSession[] {
  * derive from this — it keeps non-matching sessions in place and mutes them
  * (see `mapSessions`, ADR `search-mutes-planets-instead-of-hiding-them`).
  */
-export function visibleSessions(state: OrbitalState): ApiSession[] {
+export function visibleSessions(state: Pick<OrbitalState, 'sessions' | 'ui'>): ApiSession[] {
   const query = state.ui.search
   return tagFilteredSessions(state).filter((s) => matchesSearch(s, query))
 }

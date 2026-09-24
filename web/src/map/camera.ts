@@ -32,7 +32,7 @@ export interface Viewport {
  * insets exist to fix.
  *
  * It is wide rather than merely wide enough on purpose. The limits do not
- * have to keep anyone oriented: fit (the zoom stack's ⌖, ⌥F) reframes the
+ * have to keep anyone oriented: fit (the zoom stack's ⌖, `map.fit`) reframes the
  * whole map from wherever the camera has been left, so overshooting in
  * either direction costs one keystroke. What a tight range costs instead is
  * a view the map genuinely needs and cannot reach.

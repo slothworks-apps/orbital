@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOrbital } from '../store/store'
 import { reportError } from '../lib/errors'
+import { command, matches } from '../lib/keymap'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 
@@ -55,7 +56,7 @@ export function EndDialog({ open, sessionId, onClose }: EndDialogProps) {
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.shiftKey) return
+      if (!matches(command('dialogs.confirm').chords[0], e)) return
       e.preventDefault()
       void handleEnd()
     }
