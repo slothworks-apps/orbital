@@ -1,5 +1,7 @@
 appId: io.slothworks.orbital
 productName: Orbital
+# Fails the build when signing was skipped — electron-builder only warns.
+afterSign: build/verify-signature.cjs
 directories:
   output: release
 files:
@@ -50,12 +52,22 @@ mac:
     - target: dmg
       arch: [arm64]
   category: public.app-category.developer-tools
-  # Ad-hoc signed, not unsigned (ADR desktop-app-is-ad-hoc-signed). `null`
-  # skipped signing and left only the linker's signature on the Electron
-  # binary — not bound to Info.plist or the appId — and macOS then silently
-  # refuses notification permission: no prompt, no row in System Settings.
-  # "-" seals the whole bundle without a certificate. Left unset instead,
-  # electron-builder picks the keychain's Apple Development certificate, which
-  # is not valid for distribution and fails on another Mac in a way harder to
-  # read than Gatekeeper's ordinary quarantine prompt.
-  identity: "-"
+  # Developer ID, named explicitly (ADR desktop-app-is-developer-id-signed).
+  # macOS keys privacy grants (Downloads, Documents, media…) to the signing
+  # identity; an ad-hoc signature changed with every build, so each update
+  # asked for them all over again. Left unset, electron-builder could fall
+  # back to the keychain's Apple Development certificate, which is not a
+  # distribution identity. Notarization runs when APPLE_KEYCHAIN_PROFILE is
+  # set, which the `dist` script does.
+  identity: "SlothWorks s.r.o. (XTAS72W86T)"
+  hardenedRuntime: true
+  # The prompts name Orbital, but what asks is a Claude session it runs: the
+  # CLI and every command it spawns are Orbital's children, so macOS charges
+  # their file access to Orbital.app.
+  extendInfo:
+    NSDownloadsFolderUsageDescription: A Claude session you run from Orbital wants to read or write files in Downloads.
+    NSDocumentsFolderUsageDescription: A Claude session you run from Orbital wants to read or write files in Documents.
+    NSDesktopFolderUsageDescription: A Claude session you run from Orbital wants to read or write files on the Desktop.
+    NSRemovableVolumesUsageDescription: A Claude session you run from Orbital wants to read or write files on a removable volume.
+    NSNetworkVolumesUsageDescription: A Claude session you run from Orbital wants to read or write files on a network volume.
+    NSAppleMusicUsageDescription: A Claude session you run from Orbital touched your media library. Orbital itself never needs it.

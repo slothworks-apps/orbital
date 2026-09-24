@@ -2,12 +2,13 @@
 id: desktop-app-is-ad-hoc-signed
 title: The desktop app is ad-hoc signed, not unsigned
 type: adr
-status: in-force
+status: superseded
 domain: desktop
 related:
   - 2026-09-16-electron-wrapper-design
   - trim-and-sign-the-desktop-package
   - run-the-desktop-app
+  - desktop-app-is-developer-id-signed
 tags:
   - desktop
   - electron
@@ -15,6 +16,9 @@ tags:
   - notifications
 ---
 # The desktop app is ad-hoc signed, not unsigned
+
+> Superseded by `desktop-app-is-developer-id-signed`. The ad-hoc signature
+> changed with every build, so macOS forgot every privacy grant on update.
 
 ## Context
 

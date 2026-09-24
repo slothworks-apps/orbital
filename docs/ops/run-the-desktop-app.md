@@ -7,6 +7,7 @@ domain: desktop
 related:
   - 2026-09-16-electron-wrapper-design
   - trim-and-sign-the-desktop-package
+  - desktop-app-is-developer-id-signed
 tags:
   - desktop
   - electron
@@ -92,6 +93,54 @@ sitting in `server/dist` and `web/dist` — stale output, or a build that fails
 outright on `extraResources` when those directories do not exist yet. The root
 script exists because it builds the server and the web app first.
 
+### Signing and notarization: one-time setup
+
+Packaging signs with the Developer ID of SlothWorks s.r.o. and notarizes (ADR
+`desktop-app-is-developer-id-signed`). Two things must be in the login
+keychain first.
+
+1. **The Developer ID Application certificate.** In Xcode → Settings →
+   Accounts, select the team *SlothWorks s.r.o.* → Manage Certificates → `+` →
+   *Developer ID Application*. Only the account holder can create it. Check
+   that it is there:
+
+   ```bash
+   security find-identity -v -p codesigning | grep "Developer ID Application: SlothWorks"
+   ```
+
+2. **The notary credentials,** stored under the profile name the `dist`
+   script uses. Create an app-specific password at account.apple.com →
+   Sign-In and Security → App-Specific Passwords, then run:
+
+   ```bash
+   xcrun notarytool store-credentials orbital-notary \
+     --apple-id <your Apple ID> --team-id XTAS72W86T --password <app-specific password>
+   ```
+
+   To use a different profile, set `APPLE_KEYCHAIN_PROFILE` before
+   `npm run desktop:release`.
+
+Notarization uploads the app to Apple and waits for the result, which usually
+takes a few minutes. Afterwards, check the app:
+
+```bash
+spctl -a -vv desktop/release/mac-arm64/Orbital.app   # source=Notarized Developer ID
+```
+
+**On a machine without the certificate,** the build fails in the `afterSign`
+hook with *"is not signed as configured"*. It is not a skipped warning:
+without the hook, electron-builder would ship an unsigned bundle whose
+notifications macOS refuses. For a local ad-hoc build, override the identity
+and skip notarization:
+
+```bash
+npm run build -w server && npm run build -w web && npm run build -w desktop
+cd desktop && npx electron-builder --mac --arm64 -c.mac.identity=- -c.mac.notarize=false
+```
+
+An ad-hoc build loses every privacy grant on each rebuild. That is why it is
+not the default.
+
 ### After a `node_modules` wipe: Electron's binary is missing
 
 This machine's npm policy does not run install scripts it has not been told to
@@ -110,14 +159,26 @@ installed with the workspaces.
 
 ## First launch on another Mac
 
-The DMG is ad-hoc signed but not notarized (ADR desktop-app-is-ad-hoc-signed;
-Developer ID signing and notarization come later), so Gatekeeper quarantines it. On the first launch the user must **right-click the
-app → Open** and confirm, rather than double-clicking it. If macOS refuses even
-that, clear the attribute directly:
+The DMG is signed with Developer ID and notarized, so it opens with a double
+click. If Gatekeeper still refuses it, the build was not notarized. Check it
+with `spctl -a -vv /Applications/Orbital.app`.
+
+### Privacy prompts: Downloads, Documents, Apple Music…
+
+They come from Claude sessions, not from Orbital. The CLI and the commands it
+runs are Orbital's children, so macOS names Orbital in the prompt. The text
+under the question says so. Allow what your sessions work with. Declining
+Apple Music breaks nothing. With the Developer ID signature, each answer
+survives updates. Only the first signed build asks again, because it is a new
+identity to macOS. If the prompts return after every update, the build is
+ad-hoc:
 
 ```bash
-xattr -d com.apple.quarantine /Applications/Orbital.app
+codesign -dvv /Applications/Orbital.app 2>&1 | grep -E 'Authority|TeamIdentifier'
 ```
+
+It must show `Authority=Developer ID Application: SlothWorks s.r.o.` and
+`TeamIdentifier=XTAS72W86T`.
 
 Notifications also need permission once. macOS asks when the app shows its
 first notification, not when it launches. Until then Orbital has no row under
@@ -130,9 +191,11 @@ codesign -dv /Applications/Orbital.app 2>&1 | grep -E 'Identifier|Info.plist'
 
 It must say `Identifier=io.slothworks.orbital` with Info.plist bound.
 `Identifier=Electron` / `Info.plist=not bound` means the bundle was not
-signed, and macOS silently refuses its permission request. To fix an
-installed copy without rebuilding, run
-`codesign --force --deep --sign - /Applications/Orbital.app`.
+signed, and macOS silently refuses its permission request. The `afterSign`
+hook stops such a build, so an unsigned bundle means one packaged some other
+way. Rebuild with `npm run desktop:release`. Re-signing the installed copy
+ad-hoc also works, but it replaces the Developer ID signature and breaks
+notarization.
 
 **Smoke-test the packaged app from outside this repo.** Copy the `.app` to
 `/Applications` or a temp directory first. Left inside `desktop/release/`, it

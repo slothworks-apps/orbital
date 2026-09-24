@@ -7,6 +7,7 @@ domain: desktop
 related:
   - 2026-09-16-electron-wrapper-design
   - run-the-desktop-app
+  - desktop-app-is-developer-id-signed
 tags:
   - desktop
   - electron
@@ -61,9 +62,9 @@ end up in the artifact deserves the same treatment for the same reason: a
 packaging tool that can change under you between two builds of the same commit
 makes every "it built yesterday" report unfalsifiable.
 
-## `desktop/package.json` has no `author`
+## ~~`desktop/package.json` has no `author`~~ — done
 
-electron-builder warns about it on every build and falls back to the product
+Added with the Developer ID signing (`SlothWorks s.r.o.`). electron-builder warned about it on every build and falls back to the product
 name. Harmless while the DMG is unsigned and handed over directly. It stops
 being harmless at the signing and Homebrew-cask steps, where the field feeds
 real metadata — so add it before starting those, not during.
@@ -85,3 +86,8 @@ The build no longer uses `null`: it uses `"-"` (ad-hoc), because the
 unsigned bundle could not get notification permission. See ADR
 `desktop-app-is-ad-hoc-signed`. The Developer ID step replaces `"-"` with the
 real identity.
+
+Signing and notarization are now configured (ADR
+`desktop-app-is-developer-id-signed`, setup in runbook `run-the-desktop-app`).
+This section is done once the first notarized DMG has passed
+`spctl -a -vv`. The Homebrew cask is still open.
