@@ -30,9 +30,11 @@ export interface SubagentInfo {
    */
   status?: 'completed' | 'failed' | 'stopped';
   /**
-   * Epoch ms when this agent ended, stamped by the tracker on both paths that
-   * end it — the `task_notification` and the `background_tasks_changed`
-   * retirement. Absent while it runs; a resume drops it along with `status`.
+   * Epoch ms when this agent ended, stamped by the tracker wherever it sets
+   * `state` to `'ended'` — the `task_notification`, the
+   * `background_tasks_changed` retirement, and `feed()`'s `tool_result` on
+   * the transcript path. Absent while it runs; a resume drops it along with
+   * `status`.
    * Frozen at the first end, so the subagent list can show a finished row's
    * duration without opening its buffer (subagent list spec § 3).
    */
@@ -166,6 +168,7 @@ export class SubagentTracker {
           const existing = this.agents.get(id);
           if (existing) {
             existing.state = 'ended';
+            existing.endedAt ??= Date.now();
             touched.add(id);
           }
         }
@@ -225,7 +228,7 @@ export class SubagentTracker {
       if (agent.state !== 'working') continue;
       if (!this.backgrounded.has(agent.id) || live.has(agent.id)) continue;
       agent.state = 'ended';
-      agent.endedAt = Date.now();
+      agent.endedAt ??= Date.now();
       // Deliberately no `status` write here. This branch exists because a
       // `task_notification` never arrived — that message is the only source
       // `status` has — so leaving it unset is the honest answer; writing a

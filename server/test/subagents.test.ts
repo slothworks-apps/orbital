@@ -20,7 +20,7 @@ describe('trackSubagents', () => {
       readFileSync(join(import.meta.dirname, 'fixtures/transcript-subagents.jsonl'), 'utf8'),
     );
     expect(trackSubagents(entries)).toEqual([
-      { id: 'task1', name: 'test-runner', state: 'ended', startedAt: expect.any(Number) },
+      { id: 'task1', name: 'test-runner', state: 'ended', startedAt: expect.any(Number), endedAt: expect.any(Number) },
       { id: 'task2', name: 'docs-writer', state: 'working', startedAt: expect.any(Number) },
     ]);
   });
@@ -53,7 +53,7 @@ describe('trackSubagents', () => {
       },
     ];
     expect(trackSubagents(entries)).toEqual([
-      { id: 'task3', name: 'code-reviewer', state: 'ended', startedAt: expect.any(Number) },
+      { id: 'task3', name: 'code-reviewer', state: 'ended', startedAt: expect.any(Number), endedAt: expect.any(Number) },
       { id: 'task4', name: 'subagent', state: 'working', startedAt: expect.any(Number) },
     ]);
   });
@@ -93,7 +93,7 @@ describe('SubagentTracker', () => {
       },
     ];
     expect(tracker.feed(toolResultBatch)).toEqual([
-      { id: 'task1', name: 'test-runner', state: 'ended', startedAt: expect.any(Number) },
+      { id: 'task1', name: 'test-runner', state: 'ended', startedAt: expect.any(Number), endedAt: expect.any(Number) },
     ]);
 
     const unrelatedBatch: TranscriptEntry[] = [
@@ -108,6 +108,29 @@ describe('SubagentTracker', () => {
       },
     ];
     expect(tracker.feed(unrelatedBatch)).toEqual([]);
+  });
+
+  it('stamps endedAt when a tool_result ends the agent, and keeps it when the result is replayed', () => {
+    const tracker = new SubagentTracker();
+    const use: TranscriptEntry = {
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'task1', name: 'Task', input: { description: 'x' } }] },
+    };
+    const result: TranscriptEntry = {
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'task1', content: 'done' }] },
+    };
+    try {
+      vi.spyOn(Date, 'now').mockReturnValue(1000);
+      const [running] = tracker.feed([use]);
+      expect(running.endedAt).toBeUndefined();
+      vi.spyOn(Date, 'now').mockReturnValue(5000);
+      expect(tracker.feed([result])[0].endedAt).toBe(5000);
+      vi.spyOn(Date, 'now').mockReturnValue(9000);
+      expect(tracker.feed([result])[0].endedAt).toBe(5000);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
 
@@ -151,7 +174,7 @@ describe('SubagentStore', () => {
 
     expect(store.running('s1')).toEqual([]);
     expect(store.all('s1')).toEqual([
-      { id: 't1', name: 'reviewer', state: 'ended', startedAt: expect.any(Number) },
+      { id: 't1', name: 'reviewer', state: 'ended', startedAt: expect.any(Number), endedAt: expect.any(Number) },
     ]);
   });
 
