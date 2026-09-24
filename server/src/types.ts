@@ -29,9 +29,6 @@ export interface SessionRow {
   permission_mode: PermissionMode | null;
   model: string | null;
   resolved_model: string | null;
-  parent_id: string | null;
-  /** Map-only dismissal stamp (epoch ms), or null. See db/schema.ts. */
-  map_dismissed_at: number | null;
   indexed_mtime: number;
   indexed_size: number;
   /** Context tokens at the end of the last turn, or null if never measured.
@@ -43,6 +40,8 @@ export interface SessionRow {
   runner_status: SessionStatus | null;
   /** When a restart cut a turn short (epoch ms), null otherwise. See db/schema.ts. */
   interrupted_at: number | null;
+  /** When the user ended this session (epoch ms), or null. See db/schema.ts. */
+  ended_at: number | null;
 }
 
 /**
@@ -136,7 +135,13 @@ export interface TagRule {
  */
 export type ErrorSource = 'server' | 'web';
 
-/** What kind of thing failed. A short machine label, not a message. */
+/**
+ * What kind of thing failed. A short machine label, not a message.
+ *
+ * `sessions_healed` is legacy: the boot-time resume that recorded it is gone
+ * (spec 2026-09-24-sessions-end-only-by-hand-design § 5) and nothing produces
+ * it now, but rows written before still carry it.
+ */
 export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash' | 'sessions_healed';
 
 export interface ErrorRecord {

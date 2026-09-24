@@ -106,14 +106,16 @@ describe('launchSession', () => {
     expect(useOrbital.getState().transcripts).toEqual({})
   })
 
-  it('releases the subscription when the session ends', async () => {
+  // A process that let go reads `idle` now, not `ended` (spec
+  // 2026-09-24-sessions-end-only-by-hand-design § 1), so either settles it.
+  it.each(['ended', 'idle'] as const)('releases the subscription when the session goes %s', async (status) => {
     vi.mocked(api.createSession).mockImplementation(async (body) => body.sessionId!)
     const id = await useOrbital.getState().launchSession({ ...LAUNCH })
     useOrbital.setState({
       sessions: { [id]: { id, status: 'working' } as never },
     })
 
-    useOrbital.getState().applySessionEvent(id, { event: 'status', status: 'ended' })
+    useOrbital.getState().applySessionEvent(id, { event: 'status', status })
 
     expect(releaseSpy).toHaveBeenCalledWith(`session:${id}`)
   })

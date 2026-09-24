@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { MutableRefObject, RefObject } from 'react'
+import type { RefObject } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
@@ -14,12 +14,16 @@ import {
   resolvePanelPairWidths,
   showCompactBadge,
   showContext,
+  showTrash,
+  trashDropFor,
   PANEL_GUTTER_PX,
   SUBAGENT_PANEL_DEFAULT_PX,
 } from '../store/store'
 import { isReadOnly, sessionStateKey, type SessionStateKey } from '../lib/types'
 import { stateColor, stateDot } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
+import { reportError } from '../lib/errors'
+import { EndDialog } from '../panels/EndDialog'
 import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
 import type { Subagent } from '../lib/types'
 import { holeLabelSizePx, labelFontPx } from './visuals'
@@ -166,16 +170,25 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
 
 /**
  * A cluster's label, tracking the clump per frame: anchored above the
- * topmost BONDED body of its tag, read straight off the simulation the same
- * way the planets read their own positions. Measured from the top of the
- * body's drawn box (`extent`), so the label clears a reticle or a pill
- * rather than the bare planet. Falls back to the scene model's
- * anchor when the sim has no bodies for the tag yet (first frame).
+ * topmost body of its tag that stays (not one fading off the map, `leaving`),
+ * read straight off the simulation the same way the planets read their own
+ * positions. Measured from the top of the body's drawn box (`extent`), so
+ * the label clears a reticle or a pill rather than the bare planet. Falls
+ * back to the scene model's anchor when the sim has no bodies for the tag
+ * yet (first frame).
  *
  * `Html` reprojects from its parent's world matrix every frame, so writing
  * the wrapping group's position is all it takes.
  */
-function ClusterLabel({ label, simRef }: { label: SceneLabel; simRef: RefObject<SimState> }) {
+function ClusterLabel({
+  label,
+  simRef,
+  leaving,
+}: {
+  label: SceneLabel
+  simRef: RefObject<SimState>
+  leaving: ReadonlySet<string>
+}) {
   const groupRef = useRef<Group>(null)
 
   // Moves only with the bodies, whose motion `SimStepper` already reports.
@@ -183,7 +196,7 @@ function ClusterLabel({ label, simRef }: { label: SceneLabel; simRef: RefObject<
     if (!groupRef.current) return false
     let top: SimBody | null = null
     for (const body of simRef.current.bodies.values()) {
-      if (body.tagId !== label.tagId || body.mode !== 'hold') continue
+      if (body.tagId !== label.tagId || leaving.has(body.id)) continue
       if (!top || body.y + body.extent.top > top.y + top.extent.top) top = body
     }
     if (top) groupRef.current.position.set(top.x, top.y + top.extent.top + LABEL_MARGIN, 0)
@@ -212,34 +225,25 @@ function ClusterLabel({ label, simRef }: { label: SceneLabel; simRef: RefObject<
   )
 }
 
-/** The ring-flash duration on absorption (canvas 4a script: `this.flash = 0.45`). */
-const ABSORB_FLASH_SEC = 0.45
+/** The trash's ring flash when a drop ends a session (canvas 4a script: `this.flash = 0.45`). */
+const TRASH_FLASH_SEC = 0.45
 
 /**
  * Steps the spring simulation once per frame, ahead of every planet's own
- * frame callback (negative priority), and turns absorption events into the
- * hole's ring flash. Under reduced motion the sim was already settled
- * synchronously at reconcile time, so there is nothing to animate here.
+ * frame callback (negative priority). Under reduced motion the sim was
+ * already settled synchronously at reconcile time, so there is nothing to
+ * animate here.
  *
  * Steps even when every body sleeps, so a reconcile that changed a home
  * without waking anyone still wakes the bodies it pulls on; reports motion
- * only while something is awake or falling.
+ * only while something is awake.
  */
-function SimStepper({
-  simRef,
-  flashRef,
-  reduced,
-}: {
-  simRef: RefObject<SimState>
-  flashRef: MutableRefObject<number>
-  reduced: boolean
-}) {
+function SimStepper({ simRef, reduced }: { simRef: RefObject<SimState>; reduced: boolean }) {
   useMapFrame((_, delta) => {
     if (reduced) return false
     // No camera zoom: the springs measure every outline at OUTLINE_ZOOM,
     // so zooming never moves anything.
-    const events = stepSimulation(simRef.current, delta)
-    if (events.absorbed.length > 0) flashRef.current = ABSORB_FLASH_SEC
+    stepSimulation(simRef.current, delta)
     return simulationAwake(simRef.current)
   }, -1)
   return null
@@ -606,9 +610,23 @@ export function SpaceMap() {
   const overlayLeftTransition = resizingPanel
     ? ''
     : 'transition-[left] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]'
-  const setSessionDismissed = useOrbital((s) => s.setSessionDismissed)
+  const trashSession = useOrbital((s) => s.trashSession)
   const setTagAnchor = useOrbital((s) => s.setTagAnchor)
   const revealHistory = useOrbital((s) => s.revealHistory)
+  // Appearance → Show trash (spec 2026-09-24-sessions-end-only-by-hand-design
+  // § 3). Off: no trash drawn, no halo in the physics, no drop-to-end.
+  const trashShown = showTrash(settings)
+  /** The session a drop on the trash wants to end mid-turn — its End dialog is open. */
+  const [confirmEndId, setConfirmEndId] = useState<string | null>(null)
+  const closeConfirmEnd = useCallback(() => setConfirmEndId(null), [])
+  const endFromConfirm = useCallback(
+    (id: string) => trashSession(id, { undo: false }),
+    [trashSession]
+  )
+  const leavingIds = useMemo(
+    () => new Set(model.planets.filter((p) => p.leaving).map((p) => p.session.id)),
+    [model]
+  )
 
   // --- Spring simulation (spec 2026-09-18-tag-clusters-design § 1-2) --------
   // The sim state lives in a ref and is reconciled against every fresh scene
@@ -641,18 +659,19 @@ export function SpaceMap() {
         // settings `Planet` is drawn with below, so the springs keep
         // neighbours clear of the actual label and pill.
         outline: planetOutline({ ...p, gauged: p.contextFill !== null }, planetScale, font, pillMode),
-        live: p.session.status === 'working' || p.session.status === 'needs_input',
-        released: p.released,
+        trash: trashDropFor(p.session.source, p.session.status),
       })),
       anchors: model.anchors.map(({ tagId, x, y }) => ({ tagId, x, y })),
-      // The label column too, so bonded bodies are kept off it as well as
-      // out of the round halo.
-      hole: { x: model.hole.x, y: model.hole.y, label: holeLabelSizePx(model.hole.count) },
+      // The label column too, so resting bodies are kept off it as well as
+      // out of the round halo. None at all while the trash is hidden.
+      hole: trashShown
+        ? { x: model.hole.x, y: model.hole.y, label: holeLabelSizePx(model.hole.count) }
+        : null,
     }
     reconcileSimulation(simRef.current, input)
     if (reduced) settleSimulation(simRef.current)
     return simRef.current
-  }, [model, reduced, planetScale, scaleLabels, pillMode])
+  }, [model, reduced, planetScale, scaleLabels, pillMode, trashShown])
 
   const { panTo, cancel: cancelPan } = usePanTo(setCamera)
   const { zoomBy, cancel: cancelZoom } = useZoomTo(setCamera)
@@ -835,21 +854,29 @@ export function SpaceMap() {
         if (bodyDrag.engaged) {
           e.currentTarget.releasePointerCapture(e.pointerId)
           const sim = simRef.current
-          // Releasing an idle/ended body inside the halo cuts its bond —
-          // absorption, with the 10s undo toast. A working body is never
-          // absorbable: it just springs back (the halo repels it). The same
-          // predicate drives the hole's armed drop-target signal, so what
-          // the hole promises on release is exactly what happens. Any other
-          // drop re-homes the clump: the tag's anchor moves to the release
-          // point (persisted), so the dragged body stays put and its mates
-          // fly to it — except near the hole, where `rehomeTarget` declines
-          // and the clump drifts back to its old home. Both read BEFORE
-          // dragSimBody(null): they require an active drag.
+          // Letting go inside the trash's halo (`armed`) does what
+          // `trashDropFor` says: an Orbital session with nothing in flight
+          // ends at once, with the undo toast; one mid-turn opens the End
+          // dialog first and springs back meanwhile. A terminal session's
+          // body (`refused`) just springs back. The same predicate drives the
+          // trash's drop-target signal, so what it promises on release is
+          // exactly what happens. Any other drop re-homes the clump: the
+          // tag's anchor moves to the release point (persisted), so the
+          // dragged body stays put and its mates fly to it — except near the
+          // trash, where `rehomeTarget` declines and the clump drifts back to
+          // its old home. Both read BEFORE dragSimBody(null): they require an
+          // active drag.
           const factor = bodyZoomFactor(cameraRef.current.zoom)
           const drop = holeDropState(sim, bodyDrag.id, factor)
           const rehome = rehomeTarget(sim, bodyDrag.id, factor)
+          const trash = sim.bodies.get(bodyDrag.id)?.trash
           dragSimBody(sim, bodyDrag.id, null)
-          if (drop === 'armed') void setSessionDismissed(bodyDrag.id, true)
+          if (drop === 'armed' && trash === 'end') {
+            holeFlashRef.current = TRASH_FLASH_SEC
+            trashSession(bodyDrag.id, { undo: true }).catch((err: unknown) =>
+              reportError(err, 'Failed to end the session')
+            )
+          } else if (drop === 'armed' && trash === 'confirm') setConfirmEndId(bodyDrag.id)
           else if (rehome) void setTagAnchor(rehome.tagId, { x: rehome.x, y: rehome.y })
           if (reduced) settleSimulation(simRef.current)
           scheduler.request()
@@ -862,7 +889,7 @@ export function SpaceMap() {
       if (drag.captured) e.currentTarget.releasePointerCapture(e.pointerId)
       dragRef.current = null
     },
-    [reduced, setSessionDismissed, setTagAnchor, scheduler]
+    [reduced, trashSession, setTagAnchor, scheduler]
   )
 
   const handleWheel = useCallback(
@@ -902,20 +929,20 @@ export function SpaceMap() {
     // fit runs on the first frame, before the clumps have walked out of
     // their spiral seeds. The layout does not follow the camera (outlines
     // are measured at OUTLINE_ZOOM), so one settled copy serves every zoom
-    // the solve tries; only the hole's counter-zoomed halo changes with it.
-    // The hole is part of the map — fit frames it with the planets, so the
-    // history landmark is never fitted out of view.
+    // the solve tries; only the trash's counter-zoomed halo changes with it.
+    // The trash is part of the map when it is shown — fit frames it with the
+    // planets, so the history landmark is never fitted out of view.
     const planets: FitBody[] = []
     for (const body of settledCopy(sim).bodies.values()) {
-      if (body.mode !== 'hold') continue
+      if (leavingIds.has(body.id)) continue
       // A planet's box enters as its two opposite corners.
       const { left, right, bottom, top } = body.extent
       planets.push({ x: body.x + left, y: body.y + bottom }, { x: body.x + right, y: body.y + top })
     }
-    const bodiesAt = (zoom: number): FitBody[] => [
-      { x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) },
-      ...planets,
-    ]
+    const bodiesAt = (zoom: number): FitBody[] =>
+      trashShown
+        ? [{ x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) }, ...planets]
+        : planets
     const rect = containerRef.current?.getBoundingClientRect()
     const viewport = {
       width: rect?.width ?? window.innerWidth,
@@ -925,7 +952,7 @@ export function SpaceMap() {
     // everything" that parks half the sessions under the sidebar or the
     // detail panel has not shown them.
     return fitViewTo(bodiesAt, viewport, mapInsets)
-  }, [sim, model.hole.x, model.hole.y, mapInsets])
+  }, [sim, model.hole.x, model.hole.y, mapInsets, leavingIds, trashShown])
 
   const handleFit = useCallback(() => {
     cancelCameraMotion()
@@ -980,7 +1007,7 @@ export function SpaceMap() {
    * see, and hauling the camera there would take the rest of the map away
    * from them for no reason.
    */
-  const followed = model.planets.find((p) => p.selected && !p.released)
+  const followed = model.planets.find((p) => p.selected && !p.leaving)
   const followedId = followed?.session.id
   const followedX = followed?.x
   const followedY = followed?.y
@@ -1012,9 +1039,9 @@ export function SpaceMap() {
 
   /**
    * The aggregate readout. ENDED is plain text again: the 2a/2b suppression
-   * toggle is gone — hiding ended sessions is the hole's job now (they fall
-   * in after the release delay), so a second hide control would compete with
-   * it (spec 2026-09-18-tag-clusters-design § 6).
+   * toggle is gone — an ended session leaves the map on its own unless it is
+   * pinned (spec 2026-09-24-sessions-end-only-by-hand-design § 3), so the
+   * ENDED count is the pinned ones and those still fading out.
    *
    * Each `N WORD` segment wears its state colour, count and word as one token
    * (canvas 24b); NEEDS INPUT carries its breathing dot here too. WAITING
@@ -1082,7 +1109,7 @@ export function SpaceMap() {
       >
         <FrameBudget scheduler={scheduler}>
           <CameraRig camera={camera} />
-          <SimStepper simRef={simRef} flashRef={holeFlashRef} reduced={reduced} />
+          <SimStepper simRef={simRef} reduced={reduced} />
           <ambientLight intensity={0.6} />
 
           {model.planets.map((planet) => (
@@ -1097,6 +1124,7 @@ export function SpaceMap() {
               scale={planet.scale}
               scaleMultiplier={planetScale}
               selected={planet.selected}
+              hidden={planet.leaving}
               muted={planet.muted}
               modelFamily={planet.modelFamily}
               labelTitlePx={labelFont.title}
@@ -1133,18 +1161,31 @@ export function SpaceMap() {
           ))}
 
           {model.labels.map((label) => (
-            <ClusterLabel key={label.tagId} label={label} simRef={simRef} />
+            <ClusterLabel key={label.tagId} label={label} simRef={simRef} leaving={leavingIds} />
           ))}
 
-          <Hole
-            hole={model.hole}
-            flashRef={holeFlashRef}
-            simRef={simRef}
-            dragRef={bodyDragRef}
-            onOpen={handleHoleOpen}
-          />
+          {trashShown && (
+            <Hole
+              hole={model.hole}
+              flashRef={holeFlashRef}
+              simRef={simRef}
+              dragRef={bodyDragRef}
+              onOpen={handleHoleOpen}
+            />
+          )}
         </FrameBudget>
       </Canvas>
+
+      {/* A drop on the trash of a session mid-turn asks first (spec
+          2026-09-24-sessions-end-only-by-hand-design § 3): the header's own
+          End dialog, aimed at the dropped session rather than the selected
+          one, and ending it the trash's way — its pin goes with it. */}
+      <EndDialog
+        open={confirmEndId !== null}
+        sessionId={confirmEndId}
+        onClose={closeConfirmEnd}
+        onEnd={endFromConfirm}
+      />
 
       {/* Plain-DOM HUD overlay, outside the Canvas. `z-6` is load-bearing: the
           map's own labels are positioned with `zIndexRange` up to 5, and a

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { detachSession, hasDesktopBridge, openInMainWindow } from '../lib/desktop'
-import { formatDuration, shortenPath } from '../lib/format'
+import { shortenPath } from '../lib/format'
 import { useCommand } from '../lib/commands'
 import { useOrbital } from '../store/store'
 import type { ApiSession, WalkthroughSummary } from '../lib/types'
@@ -231,12 +231,10 @@ export interface UtilityStripProps {
   /** Whether stats is a strip button or the bar at the foot of the header (11c). */
   statsVariant: StatsRowVariant
   pinned: boolean
-  releaseAfterMs: number | null
   onTogglePin: () => void
   onClear: () => void
   onEnd: () => void
   onCollapse: () => void
-  lineage: string[] | undefined
   walkthroughEntry: WalkthroughSummary | null
   /** What the path line budgets against before its cell has been measured. */
   pathBudgetPx: number
@@ -254,12 +252,10 @@ export function UtilityStrip({
   standalone,
   statsVariant,
   pinned,
-  releaseAfterMs,
   onTogglePin,
   onClear,
   onEnd,
   onCollapse,
-  lineage,
   walkthroughEntry,
   pathBudgetPx,
 }: UtilityStripProps) {
@@ -355,14 +351,6 @@ export function UtilityStrip({
         panelWidthPx={pathBudgetPx}
         cellWidthPx={cellPx}
       />
-      {lineage && lineage.length > 0 && (
-        <span aria-label="Lineage" className="ml-2.5 flex shrink-0 items-center gap-1">
-          {lineage.map((ancestorId) => (
-            <span key={ancestorId} aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-muted" />
-          ))}
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-bright" />
-        </span>
-      )}
       {/* The walkthrough's entry (canvas 21f): the first icon of the
           strip, present only once there is something to walk through. Not
           one of the six, so it never folds. A detached window holds only
@@ -420,10 +408,8 @@ export function UtilityStrip({
               shortcut="session.pin"
               description={
                 pinned
-                  ? releaseAfterMs == null
-                    ? 'The release timer is off.'
-                    : `Releases into history ${formatDuration(releaseAfterMs)} after it ended.`
-                  : 'Keeps the session on the map — it is never released into history.'
+                  ? 'Unpinned, it leaves the map once it has ended.'
+                  : 'Keeps the session on the map after it has ended.'
               }
               align="right"
               delayMs={PIN_TOOLTIP_DELAY_MS}

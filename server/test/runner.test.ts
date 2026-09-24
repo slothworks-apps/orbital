@@ -2,16 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hub } from '../src/api/hub.js';
 import {
   APPROVED_PLAN_MODE,
-  IDLE_NEVER,
   Runner,
   contextUsedFromAssistantUsage,
   contextUsedFromCompactBoundary,
   contextUsedFromContextUsage,
   decisionKindFor,
-  parseIdleTimeoutMs,
   sdkToChatMessages,
 } from '../src/runner/runner.js';
-import type { PermissionMode } from '../src/types.js';
+import type { PermissionMode, SessionRow, SessionStatus } from '../src/types.js';
+import { statusOf, type ShapeContext } from '../src/api/shape.js';
 import { entriesToMessages } from '../src/transcript/parser.js';
 import { MAX_SUBAGENT_MESSAGES, SubagentTranscripts } from '../src/transcript/subagents.js';
 
@@ -121,7 +120,7 @@ function subscribed(hub: Hub, topic: string) {
   return received;
 }
 
-/** Fake SDK whose generator ends on its own after one turn — no end() call, simulating the SDK process exiting. */
+/** Fake SDK whose generator ends on its own after one turn — no stop() call, simulating the SDK process exiting. */
 function fakeQueryFnSelfEnding() {
   const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
     const sid = sessionIdOf(options);
@@ -146,7 +145,7 @@ function fakeQueryFnSelfEnding() {
  * Fake SDK that stalls mid-turn on the second message: it yields an assistant
  * message but never yields a `result`, and it parks on a test-controlled gate
  * instead of looping back to request the next prompt value — so at the moment
- * end() is called, no dequeue() waiter is registered on Runner's input queue.
+ * stop() is called, no dequeue() waiter is registered on Runner's input queue.
  */
 function fakeQueryFnMidTurnStall() {
   let releaseGate!: () => void;
@@ -340,7 +339,7 @@ describe('Runner', () => {
     expect(msg.message.text).toBe('echo:first real message');
   });
 
-  it('send() runs another turn; end() closes the session', async () => {
+  it('send() runs another turn; stop() lets the session go', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
     const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
@@ -352,8 +351,8 @@ describe('Runner', () => {
     await vi.waitFor(() =>
       expect(received.filter((r) => r.event === 'turn_result')).toHaveLength(2),
     );
-    await runner.end('web-1');
-    expect(runner.status('web-1')).toBe('ended');
+    await runner.stop('web-1');
+    expect(runner.status('web-1')).toBeUndefined();
     expect(runner.active()).toEqual([]);
   });
 
@@ -561,19 +560,20 @@ describe('Runner', () => {
     expect(without.options()).not.toHaveProperty('pathToClaudeCodeExecutable');
   });
 
-  it('ends the session cleanly when the SDK generator finishes on its own (no end() call)', async () => {
+  it('releases the session when the SDK generator finishes on its own (no stop() call)', async () => {
     const hub = new Hub();
     const { fn } = fakeQueryFnSelfEnding();
     const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
     const received = subscribed(hub, 'session:web-1');
     await runner.start({ cwd: '/p', prompt: 'hi', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.active()).toEqual([]));
-    expect(runner.status('web-1')).toBe('ended');
-    const endedEvents = received.filter((r) => r.event === 'status' && r.status === 'ended');
-    expect(endedEvents).toHaveLength(1);
+    expect(runner.status('web-1')).toBeUndefined();
+    // A process exiting does not end a session, so the Runner says nothing
+    // of the kind — the owner of the row announces what it reads now.
+    expect(received.filter((r) => r.event === 'status' && r.status === 'ended')).toEqual([]);
   });
 
-  it('end() while working with no waiter parked still terminates the input stream (not a hang)', async () => {
+  it('stop() while working with no waiter parked still terminates the input stream (not a hang)', async () => {
     const hub = new Hub();
     const { fn, releaseGate, finishedPromise } = fakeQueryFnMidTurnStall();
     const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
@@ -588,8 +588,8 @@ describe('Runner', () => {
     );
     expect(runner.status('web-1')).toBe('working');
 
-    await runner.end('web-1');
-    expect(runner.status('web-1')).toBe('ended');
+    await runner.stop('web-1');
+    expect(runner.status('web-1')).toBeUndefined();
 
     releaseGate();
     await Promise.race([
@@ -918,145 +918,196 @@ describe('sdkToChatMessages / entriesToMessages agree on thinking', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Idle timeout: live setting changes + the "never" sentinel
+// Sleep: a stopped process is not an ended session
+// (spec 2026-09-24-sessions-end-only-by-hand-design § 1, § 2)
 // ---------------------------------------------------------------------------
 
-describe('parseIdleTimeoutMs', () => {
-  it('maps minute counts to milliseconds', () => {
-    expect(parseIdleTimeoutMs('15')).toBe(15 * 60_000);
-    expect(parseIdleTimeoutMs('120')).toBe(120 * 60_000);
-    expect(parseIdleTimeoutMs(60)).toBe(60 * 60_000);
-  });
+/** `statusOf` with the real Runner in it; nothing is live in a terminal. */
+function shapeCtx(runner: Runner): ShapeContext {
+  return { runner, registry: { get: () => undefined } } as unknown as ShapeContext;
+}
 
-  it('maps the sentinel to null (case/whitespace tolerant)', () => {
-    expect(parseIdleTimeoutMs(IDLE_NEVER)).toBeNull();
-    expect(parseIdleTimeoutMs('never')).toBeNull();
-    expect(parseIdleTimeoutMs('  Never  ')).toBeNull();
-  });
+function webRow(id: string, endedAt: number | null): SessionRow {
+  return { id, source: 'web', ended_at: endedAt } as SessionRow;
+}
 
-  it('never yields NaN or a non-positive delay for junk, missing or zero values', () => {
-    // The destructive edge: `Number('banana')`/`Number('')` reaching
-    // setTimeout would fire on the next tick and end every session at once.
-    for (const raw of ['banana', '', '0', '-5', null, undefined, NaN]) {
-      const ms = parseIdleTimeoutMs(raw);
-      expect(ms).toBe(30 * 60_000);
-    }
-  });
-});
-
-describe('Runner idle timer', () => {
+describe('Runner sleep timer', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  /** Starts a session and drives it to `needs_input` (idle timer armed). */
-  async function idlingRunner(idleTimeoutMs: number | null) {
+  const SLEEP_MS = 15 * 60_000;
+
+  /** Starts a session and drives it to `needs_input`, where the sleep timer is armed. */
+  async function waitingRunner() {
     const hub = new Hub();
     const { fn } = fakeQueryFn();
-    const runner = new Runner({ hub, queryFn: fn as any, idleTimeoutMs, newSessionId: () => 'web-1' });
+    const owned: Array<[string, SessionStatus | null]> = [];
+    const runner = new Runner({
+      hub, queryFn: fn as any, sleepAfterMs: SLEEP_MS, newSessionId: () => 'web-1',
+      onOwnership: (id, status) => owned.push([id, status]),
+    });
     const id = await runner.start({ cwd: '/p', prompt: 'hi', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
-    return { runner, id };
+    return { runner, hub, id, owned };
   }
 
-  it('arms a timer that ends the session after the configured timeout', async () => {
-    const { runner, id } = await idlingRunner(15 * 60_000);
-    expect(vi.getTimerCount()).toBe(1);
-    vi.advanceTimersByTime(15 * 60_000);
-    expect(runner.status(id)).toBe('ended');
-  });
-
-  it('a null timeout ("never") arms NO timer at all', async () => {
-    const { runner, id } = await idlingRunner(null);
-    // Not "a very long timer" — no timer: nothing pending, and no amount of
-    // elapsed time ends the session.
-    expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(365 * 24 * 60 * 60_000);
-    expect(runner.status(id)).toBe('needs_input');
-  });
-
-  it('a null timeout keeps arming nothing across further turns', async () => {
-    const { runner, id } = await idlingRunner(null);
-    runner.send(id, 'again');
-    await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
-    expect(vi.getTimerCount()).toBe(0);
-    await runner.interrupt(id);
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('setIdleTimeoutMs re-arms an already-idling session immediately', async () => {
-    const { runner, id } = await idlingRunner(60 * 60_000);
-    // Switch to 15 min while the session is already idling: the old 60-min
-    // timer must be replaced, not left running alongside the new value.
-    runner.setIdleTimeoutMs(15 * 60_000);
-    expect(vi.getTimerCount()).toBe(1);
-    vi.advanceTimersByTime(15 * 60_000);
-    expect(runner.status(id)).toBe('ended');
-  });
-
-  it('setIdleTimeoutMs(null) disarms a timer that was already counting down', async () => {
-    const { runner, id } = await idlingRunner(15 * 60_000);
-    vi.advanceTimersByTime(14 * 60_000);
-    runner.setIdleTimeoutMs(null);
-    expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(60 * 60_000);
-    expect(runner.status(id)).toBe('needs_input');
-  });
-
-  it('switching back from "never" to a timed value re-arms an already-idling session', async () => {
-    const { runner, id } = await idlingRunner(null);
-    expect(vi.getTimerCount()).toBe(0);
-    runner.setIdleTimeoutMs(15 * 60_000);
-    // Re-arms even though the session will never be touched again — that is
-    // exactly the state the setting governs.
-    expect(vi.getTimerCount()).toBe(1);
-    vi.advanceTimersByTime(15 * 60_000);
-    expect(runner.status(id)).toBe('ended');
-  });
-
-  it('re-arming starts a full new interval rather than counting elapsed idle time', async () => {
-    const { runner, id } = await idlingRunner(60 * 60_000);
-    vi.advanceTimersByTime(30 * 60_000); // 30 min already idle
-    runner.setIdleTimeoutMs(15 * 60_000); // shorter than the time already elapsed
-    // A "remaining time" implementation would have ended it instantly here.
-    vi.advanceTimersByTime(14 * 60_000);
+  it('stops the process of a session left waiting, and stops answering for it', async () => {
+    const { runner, hub, id, owned } = await waitingRunner();
+    const received = subscribed(hub, `session:${id}`);
+    // Short of the full delay by more than `vi.waitFor` above may already
+    // have advanced the fake clock.
+    vi.advanceTimersByTime(SLEEP_MS - 60_000);
     expect(runner.status(id)).toBe('needs_input');
     vi.advanceTimersByTime(60_000);
-    expect(runner.status(id)).toBe('ended');
+    // Not `ended`: the Runner no longer holds it, which is all it can say.
+    expect(runner.status(id)).toBeUndefined();
+    expect(runner.active()).toEqual([]);
+    expect(owned.at(-1)).toEqual([id, null]);
+    expect(received.filter((r) => r.event === 'status' && r.status === 'ended')).toEqual([]);
+  });
+
+  it('a slept session reads idle, and ended only once the user stamped it', async () => {
+    const { runner, id } = await waitingRunner();
+    expect(statusOf(shapeCtx(runner), webRow(id, null))).toBe('needs_input');
+    vi.advanceTimersByTime(SLEEP_MS);
+    expect(statusOf(shapeCtx(runner), webRow(id, null))).toBe('idle');
+    expect(statusOf(shapeCtx(runner), webRow(id, 1234))).toBe('ended');
+  });
+
+  it('a stop reads ended through the stamp, and reads idle again once the stamp is cleared', async () => {
+    const { runner, id } = await waitingRunner();
+    await runner.stop(id);
+    // What `/end` writes, then what `/reopen` clears: the Runner's own record
+    // of the stop must not mask either.
+    expect(statusOf(shapeCtx(runner), webRow(id, 1234))).toBe('ended');
+    expect(statusOf(shapeCtx(runner), webRow(id, null))).toBe('idle');
+  });
+
+  it('a slept session can be resumed under its own id', async () => {
+    const { runner, id } = await waitingRunner();
+    vi.advanceTimersByTime(SLEEP_MS);
+    await runner.start({ cwd: '/p', prompt: 'back', permissionMode: 'plan', resume: id });
+    await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
+    expect(runner.active()).toEqual([id]);
   });
 
   it('does not arm a timer on a session that is mid-turn', async () => {
     const hub = new Hub();
     const { fn, releaseGate, finishedPromise } = fakeQueryFnMidTurnStall();
-    const runner = new Runner({ hub, queryFn: fn as any, idleTimeoutMs: 15 * 60_000, newSessionId: () => 'web-1' });
+    const runner = new Runner({ hub, queryFn: fn as any, sleepAfterMs: SLEEP_MS, newSessionId: () => 'web-1' });
     const id = await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
     expect(vi.getTimerCount()).toBe(1);
 
     runner.send(id, 'two'); // back to working; the fake stalls without a result
     expect(runner.status(id)).toBe('working');
-    expect(vi.getTimerCount()).toBe(0); // send() disarmed the idle timer
-
-    runner.setIdleTimeoutMs(15 * 60_000);
-    expect(vi.getTimerCount()).toBe(0); // working sessions are left alone
-    vi.advanceTimersByTime(60 * 60_000);
+    expect(vi.getTimerCount()).toBe(0); // send() disarmed the sleep timer
+    vi.advanceTimersByTime(4 * SLEEP_MS);
     expect(runner.status(id)).toBe('working');
 
-    await runner.end(id);
+    await runner.stop(id);
     releaseGate();
     await finishedPromise;
   });
 
-  it('leaves no pending timer once a session ends, and dispose() clears the rest', async () => {
-    const { runner, id } = await idlingRunner(15 * 60_000);
-    await runner.end(id);
+  it('leaves no pending timer once a session stops, and dispose() clears the rest', async () => {
+    const { runner, id } = await waitingRunner();
+    await runner.stop(id);
     expect(vi.getTimerCount()).toBe(0);
 
-    const second = await idlingRunner(15 * 60_000);
+    const second = await waitingRunner();
     expect(vi.getTimerCount()).toBe(1);
     second.runner.dispose();
     expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(60 * 60_000);
+    vi.advanceTimersByTime(4 * SLEEP_MS);
     expect(second.runner.status(second.id)).toBe('needs_input');
+  });
+});
+
+describe('Runner release', () => {
+  /** Fake SDK whose every generator ends only when the test says so. */
+  function gatedQueryFn() {
+    const finish: Array<() => void> = [];
+    const fn = () => {
+      const done = new Promise<void>((resolve) => finish.push(resolve));
+      async function* gen() {
+        await done;
+        yield* [];
+      }
+      return gen() as any;
+    };
+    return { fn, finish };
+  }
+
+  it('an old generator draining after a revive does not release the revived session', async () => {
+    const hub = new Hub();
+    const { fn, finish } = gatedQueryFn();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({ cwd: '/p', prompt: '', permissionMode: 'plan' });
+    await runner.stop(id);
+    // Revived before the first process has finished exiting.
+    await runner.start({ cwd: '/p', prompt: '', permissionMode: 'plan', resume: id });
+    finish[0]();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runner.status(id)).toBe('needs_input');
+    expect(runner.active()).toEqual([id]);
+    finish[1]();
+  });
+
+  it('a stopped CLI flushing late frames after a revive leaves the revived session alone', async () => {
+    const hub = new Hub();
+    const received = subscribed(hub, 'session:web-1');
+    const finish: Array<() => void> = [];
+    let calls = 0;
+    // The first process holds a finished turn back until the test lets it go;
+    // the second never says anything.
+    const fn = ({ options }: { options: any }) => {
+      const sid = sessionIdOf(options);
+      const first = calls++ === 0;
+      const done = new Promise<void>((resolve) => finish.push(resolve));
+      async function* gen() {
+        await done;
+        if (!first) return;
+        yield {
+          type: 'assistant', session_id: sid,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'late' }] },
+        };
+        yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
+      }
+      return gen() as any;
+    };
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({ cwd: '/p', prompt: '', permissionMode: 'plan' });
+    await runner.stop(id);
+    await runner.start({ cwd: '/p', prompt: 'hi', permissionMode: 'plan', resume: id });
+    expect(runner.status(id)).toBe('working');
+    finish[0]();
+    await new Promise((r) => setTimeout(r, 0));
+    // The old turn's result would have settled the new session out of `working`.
+    expect(runner.status(id)).toBe('working');
+    expect(JSON.stringify(received)).not.toContain('late');
+    finish[1]();
+  });
+
+  it('a CLI that exits on its own leaves the session idle, not ended', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFnSelfEnding();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const id = await runner.start({ cwd: '/p', prompt: 'hi', permissionMode: 'plan' });
+    await vi.waitFor(() => expect(runner.active()).toEqual([]));
+    expect(runner.status(id)).toBeUndefined();
+    expect(statusOf(shapeCtx(runner), webRow(id, null))).toBe('idle');
+  });
+
+  it('remembers every id it has run, stopped or not', async () => {
+    const hub = new Hub();
+    const { fn } = fakeQueryFn();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    expect(runner.hasRun('web-1')).toBe(false);
+    const id = await runner.start({ cwd: '/p', prompt: '', permissionMode: 'plan' });
+    expect(runner.hasRun(id)).toBe(true);
+    await runner.stop(id);
+    expect(runner.hasRun(id)).toBe(true);
   });
 });
 
@@ -1108,7 +1159,7 @@ describe('Runner subagent reporting', () => {
       expect.objectContaining({ type: 'tool_use', id: 't1', name: 'Task' }),
     );
     expect(blocks).toContainEqual(expect.objectContaining({ type: 'tool_result', tool_use_id: 't1' }));
-    await runner.end(id);
+    await runner.stop(id);
   });
 
   /**
@@ -1165,7 +1216,7 @@ describe('Runner subagent reporting', () => {
       'background_tasks_changed',
       'task_notification',
     ]);
-    await runner.end(id);
+    await runner.stop(id);
   });
 });
 
@@ -1388,37 +1439,37 @@ describe('Runner error reporting', () => {
     // what decides how to render a stack.
     expect(seen[0].err).toBe(boom);
 
-    // The session still ends the ordinary way: no new status, no stuck planet.
-    await vi.waitFor(() => expect(runner.status(id)).toBe('ended'), { timeout: 3000 });
+    // The process is still released the ordinary way: no new status, no
+    // stuck planet.
+    await vi.waitFor(() => expect(runner.active()).toEqual([]), { timeout: 3000 });
+    expect(runner.status(id)).toBeUndefined();
     expect(runner.active()).not.toContain(id);
     // And the terminal keeps saying it too.
     expect(warn).toHaveBeenCalledWith('orbital: runner pump error:', boom);
   });
 
-  it('publishes the ended status even with no onError wired at all', async () => {
-    const hub = new Hub();
-    const received = subscribed(hub, 'session:pinned');
+  it('releases the session even with no onError wired at all', async () => {
+    const released: string[] = [];
     const runner = new Runner({
-      hub,
+      hub: new Hub(),
       queryFn: fakeQueryFnThrowing(new Error('nope')) as any,
       newSessionId: () => 'pinned',
+      onOwnership: (id, status) => { if (status === null) released.push(id); },
     });
     const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
-    await vi.waitFor(() => expect(runner.status(id)).toBe('ended'), { timeout: 3000 });
-    expect(received).toContainEqual({
-      topic: 'session:pinned', event: 'status', status: 'ended',
-    });
+    await vi.waitFor(() => expect(released).toEqual([id]), { timeout: 3000 });
+    expect(runner.status(id)).toBeUndefined();
   });
 
-  it('a reporter that throws does not stop the session from ending', async () => {
+  it('a reporter that throws does not stop the session from being released', async () => {
     const hub = new Hub();
     const runner = new Runner({
       hub,
       queryFn: fakeQueryFnThrowing(new Error('first')) as any,
       onError: () => { throw new Error('the reporter itself broke'); },
     });
-    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
-    await vi.waitFor(() => expect(runner.status(id)).toBe('ended'), { timeout: 3000 });
+    await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    await vi.waitFor(() => expect(runner.active()).toEqual([]), { timeout: 3000 });
   });
 });
 
@@ -1563,7 +1614,7 @@ describe('Runner commands', () => {
     expect(await runner.commands('never-heard-of-it')).toBeNull();
 
     await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
-    await runner.end('web-1');
+    await runner.stop('web-1');
     expect(await runner.commands('web-1')).toBeNull();
   });
 
@@ -1579,7 +1630,7 @@ describe('Runner commands', () => {
     const runner = new Runner({ hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1' });
     await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
     expect((await runner.commands('web-1'))!.map((c) => c.name)).toEqual(['first']);
-    await runner.end('web-1');
+    await runner.stop('web-1');
 
     commands = [{ name: 'second', description: 'two', argumentHint: '' }];
     await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan', sessionId: 'web-1' });
@@ -1906,21 +1957,19 @@ describe('Runner decisions', () => {
     expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-1', kind: 'question' });
   });
 
-  it('arms no idle timer for a parked question, whatever the setting says', async () => {
+  it('arms no sleep timer for a parked question', async () => {
     vi.useFakeTimers();
     try {
       const hub = new Hub();
       const { fn, ask } = fakeQueryFnAsking();
       const runner = new Runner({
-        hub, queryFn: fn as any, idleTimeoutMs: 15 * 60_000, newSessionId: () => 'web-1',
+        hub, queryFn: fn as any, sleepAfterMs: 15 * 60_000, newSessionId: () => 'web-1',
       });
       const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'plan' });
       void ask(ONE_QUESTION);
       expect(runner.status(id)).toBe('needs_input');
-      expect(vi.getTimerCount()).toBe(0);
-      // Not even a live setting change hands it one: an unanswered question
-      // has no deadline, mirroring the SDK's own promise.
-      runner.setIdleTimeoutMs(5 * 60_000);
+      // An unanswered question has no deadline, mirroring the SDK's own
+      // promise — and a sleep would stop the process it is parked in.
       expect(vi.getTimerCount()).toBe(0);
       vi.advanceTimersByTime(60 * 60_000);
       expect(runner.status(id)).toBe('needs_input');
@@ -2007,9 +2056,9 @@ describe('Runner decisions', () => {
     expect(runner.pendingDecision(id)).toBeNull();
   });
 
-  it('end() settles a parked question as deny — no promise outlives its session', async () => {
+  it('stop() settles a parked question as deny — no promise outlives its session', async () => {
     const { runner, id, received, decision } = await parked();
-    await runner.end(id);
+    await runner.stop(id);
     expect(await decision).toMatchObject({ behavior: 'deny' });
     expect(received).toContainEqual({
       topic: 'session:web-1', event: 'decision_resolved', decisionId: 'tu-1',
@@ -2036,7 +2085,7 @@ describe('Runner decisions', () => {
     const second = ask(TWO_QUESTIONS, 'tu-2');
     expect(await decision).toMatchObject({ behavior: 'deny' });
     expect(runner.pendingDecision(id)).toMatchObject({ id: 'tu-2' });
-    await runner.end(id);
+    await runner.stop(id);
     expect(await second).toMatchObject({ behavior: 'deny' });
   });
 });
@@ -2155,9 +2204,9 @@ describe('Runner permission decisions', () => {
     expect(q.runner.answerDecision(q.id, 'tu-1', { approved: true })).toBe(false);
     expect(q.runner.pendingDecision(q.id)).not.toBeNull();
 
-    await runner.end(id);
+    await runner.stop(id);
     await decision;
-    await q.runner.end(q.id);
+    await q.runner.stop(q.id);
     await q.decision;
   });
 
@@ -2206,7 +2255,7 @@ describe('Runner permission decisions', () => {
     // Settled already: a second settle path finds nothing left, which is what
     // makes calling it from every exit harmless.
     expect(runner.answerDecision(id, 'tu-1', { approved: true })).toBe(false);
-    await runner.end(id);
+    await runner.stop(id);
   });
 
   it('composer text declines a permission with the text as the reason', async () => {
@@ -2481,7 +2530,7 @@ describe('Runner decisions — the editor as a second route', () => {
 
   it('ending the session settles once and drops the tab', async () => {
     const { runner, id, received, decision, editor } = await parkedWithEditor();
-    await runner.end(id);
+    await runner.stop(id);
     expect(await decision).toMatchObject({ behavior: 'deny', message: 'The session ended.' });
     expect(editor.aborted[0]).toBe(true);
     expect(resolvedCount(received)).toBe(1);
@@ -2965,11 +3014,11 @@ describe('Runner ownership reporting', () => {
     expect(seen.map(([, s]) => s)).toEqual(['working', 'needs_input', 'working', 'needs_input']);
   });
 
-  it('releases the session when it ends, so a later boot does not heal it', async () => {
+  it('releases the session when it stops, so a later boot does not mark it interrupted', async () => {
     const { runner, seen } = owning();
     await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
     await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
-    await runner.end('web-1');
+    await runner.stop('web-1');
     expect(seen.at(-1)).toEqual(['web-1', null]);
   });
 
@@ -2981,7 +3030,7 @@ describe('Runner ownership reporting', () => {
       onOwnership: (id, status) => seen.push([id, status]),
     });
     await runner.start({ cwd: '/p', prompt: 'one', permissionMode: 'plan' });
-    await vi.waitFor(() => expect(runner.status('web-1')).toBe('ended'));
+    await vi.waitFor(() => expect(runner.active()).toEqual([]));
     expect(seen.at(-1)).toEqual(['web-1', null]);
   });
 });

@@ -39,8 +39,6 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     permissionMode: null,
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -68,7 +66,7 @@ const defaultUi: OrbitalUiState = {
   fileViewer: null,
 }
 
-/** Fixed clock for the timed release — never Date.now(), the model is pure. */
+/** Fixed clock for the leaving grace — never Date.now(), the model is pure. */
 const NOW = 1_800_000_000_000
 const DAY = 86_400_000
 /** Comfortably past the zoom tween's duration, so a click has finished arriving. */
@@ -76,12 +74,7 @@ const ZOOM_STEP_SETTLE_MS = 900
 /** Same, for the fit flight, which runs on the longer `FIT_FLIGHT_MS`. */
 const FIT_SETTLE_MS = 1200
 
-/**
- * `buildSceneModel` at a fixed clock. Most tests here predate the timed
- * release and carry a 1970 `lastAt`; `makeState` opts them out of it with the
- * "never" preset, so they keep asserting what they were written to assert.
- * Tests about the release itself call `buildSceneModel` directly.
- */
+/** `buildSceneModel` at a fixed clock. */
 function sceneModelAt(state: OrbitalState, nowMs: number = NOW): SceneModel {
   return buildSceneModel(state, nowMs)
 }
@@ -94,7 +87,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     rules: [],
     models: [],
     contextWindows: {},
-    settings: { map_release_ended_after_minutes: 'never' },
+    settings: {},
     transcripts: {},
     historyLoaded: {},
     transcriptErrors: {},
@@ -109,6 +102,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     errors: [],
     errorsUnseen: 0,
     sessionsTotal: 0,
+    leavingSince: {},
     toast: null,
     subagentPanel: null,
     ui: defaultUi,
@@ -152,7 +146,7 @@ describe('buildSceneModel', () => {
   it('applies active/ended scale from the layout to each planet', () => {
     const sessions = [
       makeSession({ id: 'a', tagIds: [1], status: 'working' }),
-      makeSession({ id: 'b', tagIds: [1], status: 'ended' }),
+      makeSession({ id: 'b', tagIds: [1], status: 'ended', pinnedAt: 1 }),
     ]
     const model = sceneModelAt(withSessions(sessions))
 
@@ -184,7 +178,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'a', tagIds: [1], title: 'Alpha', status: 'working', subagents: [makeSubagent({ id: 'sa' })] }),
       makeSession({ id: 'b', tagIds: [1], title: 'Beta', status: 'working', subagents: [makeSubagent({ id: 'sb' })] }),
       makeSession({ id: 'c', tagIds: [2], title: 'Gamma', cwd: '/home/alpha-tools', status: 'idle' }),
-      makeSession({ id: 'd', tagIds: [2], title: 'Delta', status: 'ended' }),
+      makeSession({ id: 'd', tagIds: [2], title: 'Delta', status: 'ended', pinnedAt: 1 }),
     ]
     const plain = sceneModelAt(withSessions(sessions))
     const searched = sceneModelAt(withSessions(sessions, { ui: { ...defaultUi, search: '  ALPHA ' } }))
@@ -261,7 +255,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'a', tagIds: [1], status: 'working' }),
       makeSession({ id: 'b', tagIds: [1], status: 'working' }),
       makeSession({ id: 'c', tagIds: [1], status: 'idle' }),
-      makeSession({ id: 'd', tagIds: [1], status: 'ended' }),
+      makeSession({ id: 'd', tagIds: [1], status: 'ended', pinnedAt: 1 }),
     ]
     const model = sceneModelAt(withSessions(sessions))
 
@@ -592,57 +586,42 @@ describe('moon orbits around a gauged planet', () => {
     const toggledOff = sceneModelAt(
       withSessions(
         [makeSession({ id: 's1', model: 'sonnet', contextUsedTokens: 100_000, subagents: [makeSubagent({ id: 'a' })] })],
-        { models: MODELS, settings: { map_show_context: 'false', map_release_ended_after_minutes: 'never' } }
+        { models: MODELS, settings: { map_show_context: 'false' } }
       )
     )
     expect(toggledOff.moons[0].orbitRadius).toBe(plain.moon.orbitRadius)
   })
 })
 
-// ---------------------------------------------------------------------------
-// tag clusters — timed release, the hole, anchors (canvas 4a/4b)
-// ---------------------------------------------------------------------------
-
-describe('buildSceneModel and the timed release', () => {
-  it('draws no planet at all for an absorbed ended session, and flags a releasing one', () => {
+// spec 2026-09-24-sessions-end-only-by-hand-design § 3.
+describe('buildSceneModel and ended sessions', () => {
+  it('draws no planet for an ended, unpinned session, a pinned one as usual, and flags a leaving one', () => {
     const sessions = [
-      makeSession({ id: 'live', tagIds: [1], status: 'idle', lastAt: NOW - 90 * DAY }),
-      makeSession({ id: 'fresh', tagIds: [1], status: 'ended', lastAt: NOW - 1_000 }),
-      makeSession({ id: 'releasing', tagIds: [1], status: 'ended', lastAt: NOW - 2 * 3_600_000 - 1_000 }),
-      makeSession({ id: 'absorbed', tagIds: [1], status: 'ended', lastAt: NOW - 30 * DAY }),
+      makeSession({ id: 'idle', tagIds: [1], status: 'idle', lastAt: NOW - 90 * DAY }),
+      makeSession({ id: 'pinned', tagIds: [1], status: 'ended', pinnedAt: NOW - DAY }),
+      makeSession({ id: 'leaving', tagIds: [1], status: 'ended' }),
+      makeSession({ id: 'gone', tagIds: [1], status: 'ended', lastAt: NOW - 1_000 }),
     ]
-    const state = withSessions(sessions, { settings: {} }) // 2h default delay
-    const model = buildSceneModel(state, NOW)
+    const model = buildSceneModel(withSessions(sessions, { leavingSince: { leaving: NOW - 1 } }), NOW)
 
     const byId = new Map(model.planets.map((p) => [p.session.id, p]))
-    expect([...byId.keys()].sort()).toEqual(['fresh', 'live', 'releasing'])
-    expect(byId.get('releasing')?.released).toBe(true)
-    expect(byId.get('fresh')?.released).toBe(false)
+    expect([...byId.keys()].sort()).toEqual(['idle', 'leaving', 'pinned'])
+    expect(byId.get('leaving')?.leaving).toBe(true)
+    expect(byId.get('pinned')?.leaving).toBe(false)
+    expect(byId.get('idle')?.leaving).toBe(false)
   })
 
-  it('flags a manually dismissed session as released while its fall grace runs', () => {
-    const sessions = [
-      makeSession({ id: 'dismissed', tagIds: [1], status: 'idle', mapDismissedAt: NOW - 1_000 }),
-      makeSession({ id: 'kept', tagIds: [1], status: 'idle' }),
-    ]
-    const model = buildSceneModel(withSessions(sessions), NOW)
-
-    const byId = new Map(model.planets.map((p) => [p.session.id, p]))
-    expect(byId.get('dismissed')?.released).toBe(true)
-    expect(byId.get('kept')?.released).toBe(false)
-  })
-
-  // A released body's bond is cut — it is no longer part of the clump the
-  // label describes (canvas 4a's chips count bonded bodies).
-  it('drops released planets from the cluster label count, and the label entirely when none remain', () => {
+  // A leaving body is already gone as far as its clump is concerned.
+  it('drops leaving planets from the cluster label count, and the label entirely when none remain', () => {
     const sessions = [
       makeSession({ id: 'a', tagIds: [1], status: 'working' }),
-      makeSession({ id: 'b', tagIds: [1], status: 'idle', mapDismissedAt: NOW - 1_000 }),
-      makeSession({ id: 'c', tagIds: [2], status: 'idle', mapDismissedAt: NOW - 1_000 }),
+      makeSession({ id: 'b', tagIds: [1], status: 'ended' }),
+      makeSession({ id: 'c', tagIds: [2], status: 'ended' }),
     ]
-    const model = buildSceneModel(withSessions(sessions), NOW)
+    const state = withSessions(sessions, { leavingSince: { b: NOW - 1, c: NOW - 1 } })
+    const model = buildSceneModel(state, NOW)
     expect(model.labels.map((l) => l.text)).toEqual(['WORK · 1'])
-    // The released planets themselves stay, so their fall can play.
+    // The leaving planets themselves stay, so their fade can play.
     expect(model.planets).toHaveLength(3)
   })
 })
@@ -686,14 +665,14 @@ describe('buildSceneModel anchors and hole', () => {
     expect(model.hole.count).toBe(47)
   })
 
-  it('counts the sessions in the index that are not drawn (released ones already count)', () => {
+  it('counts the sessions in the index that are not drawn (leaving ones already count)', () => {
     const sessions = [
       makeSession({ id: 'a', tagIds: [1] }),
-      makeSession({ id: 'b', tagIds: [1], status: 'idle', mapDismissedAt: NOW - 1_000 }),
+      makeSession({ id: 'b', tagIds: [1], status: 'ended' }),
     ]
-    // 10 in the index, 1 drawn-and-bonded ('a') — the falling 'b' is already
-    // the hole's, so only the bonded body subtracts.
-    const model = sceneModelAt(withSessions(sessions, { sessionsTotal: 10 }))
+    // 10 in the index, 1 drawn to stay ('a') — the fading 'b' already counts
+    // as not drawn, so only the body that stays subtracts.
+    const model = sceneModelAt(withSessions(sessions, { sessionsTotal: 10, leavingSince: { b: NOW - 1 } }))
     expect(model.hole.count).toBe(9)
   })
 

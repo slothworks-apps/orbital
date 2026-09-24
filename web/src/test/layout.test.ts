@@ -24,8 +24,6 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     permissionMode: null,
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],

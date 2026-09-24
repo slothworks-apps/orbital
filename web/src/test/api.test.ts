@@ -71,8 +71,6 @@ describe('request helper', () => {
       permissionMode: 'plan',
       model: null,
       resolvedModel: null,
-      parentId: null,
-      mapDismissedAt: null,
       tagIds: [],
       status: 'idle',
       subagents: [],
@@ -80,7 +78,7 @@ describe('request helper', () => {
 
     fetchMock.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ session: mockSession, lineage: [] }),
+        JSON.stringify({ session: mockSession }),
         { status: 200 }
       )
     )
@@ -149,8 +147,6 @@ describe('Sessions API', () => {
         permissionMode: 'plan',
         model: null,
         resolvedModel: null,
-        parentId: null,
-        mapDismissedAt: null,
         tagIds: [],
         status: 'idle',
         subagents: [],
@@ -178,7 +174,7 @@ describe('Sessions API', () => {
     expect(call).toContain('tag=5')
   })
 
-  it('getSession should return object with session and lineage', async () => {
+  it('getSession should return object with session', async () => {
     const session: ApiSession = {
       id: 's1',
       cwd: '/home',
@@ -190,19 +186,17 @@ describe('Sessions API', () => {
       permissionMode: 'plan',
       model: null,
       resolvedModel: null,
-      parentId: 's0',
-      mapDismissedAt: null,
       tagIds: [1, 2],
       status: 'working',
       subagents: [],
     }
 
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ session, lineage: ['s0'] }), { status: 200 })
+      new Response(JSON.stringify({ session }), { status: 200 })
     )
 
     const result = await api.getSession('s1')
-    expect(result).toEqual({ session, lineage: ['s0'] })
+    expect(result).toEqual({ session })
   })
 
   it('createSession should POST body and return sessionId', async () => {

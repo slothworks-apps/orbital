@@ -115,7 +115,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
     // that is not waiting on one. Tests that want a decision replace both.
     pendingDecision: (_id: string): any => null,
     answerDecision: (_id: string, _decisionId: string, _answers: Record<string, string>) => false,
-    interrupt: async () => {}, end: async () => {},
+    interrupt: async () => {}, stop: async () => {}, hasRun: (_id: string) => false,
   };
   const hub = new Hub();
   const modelCatalog = {
@@ -634,7 +634,8 @@ describe('REST routes', () => {
     expect(res.statusCode).toBe(201);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
-    expect(upserts[0].session).toMatchObject({ id: 'web-9', status: 'ended' });
+    // The fake Runner holds no process, and nobody has ended it: `idle`.
+    expect(upserts[0].session).toMatchObject({ id: 'web-9', status: 'idle' });
   });
 
   it('stores the requested model when launching a session', async () => {
@@ -831,24 +832,41 @@ describe('REST routes', () => {
     const res = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(res.json().default_permission_mode).toBe('acceptEdits');
     await app.inject({
-      method: 'PATCH', url: '/api/settings', payload: { lineage_depth: '5' },
+      method: 'PATCH', url: '/api/settings', payload: { confirm_before_clear: 'false' },
     });
     const after = await app.inject({ method: 'GET', url: '/api/settings' });
-    expect(after.json().lineage_depth).toBe('5');
+    expect(after.json().confirm_before_clear).toBe('false');
   });
 
-  it('POST /api/sessions/:id/end ends the session through the runner', async () => {
-    const ended: string[] = [];
-    runner.end = async (id: string) => { ended.push(id); };
+  it('POST /api/sessions/:id/end stops the process, with the stamp already written', async () => {
+    // What the row says at the moment of the stop is what the release gets
+    // announced with, so the stamp has to be there first.
+    const stampAtStop: Array<number | null> = [];
+    runner.stop = async (id: string) => {
+      const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+      stampAtStop.push(row.ended_at);
+    };
     const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/end' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
-    expect(ended).toEqual(['s1']);
+    expect(stampAtStop).toEqual([expect.any(Number)]);
+  });
+
+  it('POST /api/sessions/:id/end stamps ended_at and publishes the session as ended', async () => {
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's2')).run();
+    const received = subscribeFake(hub, 'sessions');
+    const before = Date.now();
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/end' });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.ended_at).toBeGreaterThanOrEqual(before);
+    expect(received).toContainEqual(
+      expect.objectContaining({ event: 'upsert', session: expect.objectContaining({ id: 's2', status: 'ended' }) }),
+    );
   });
 
   it('POST /api/sessions/:id/end 404s an unknown session without touching the runner', async () => {
     const ended: string[] = [];
-    runner.end = async (id: string) => { ended.push(id); };
+    runner.stop = async (id: string) => { ended.push(id); };
     const res = await app.inject({ method: 'POST', url: '/api/sessions/nope/end' });
     expect(res.statusCode).toBe(404);
     expect(ended).toEqual([]);
@@ -886,12 +904,11 @@ describe('REST routes', () => {
 
     // Verify new session in DB has the default mode
     const newSession = db
-      .select({ permissionMode: sessions.permissionMode, parentId: sessions.parentId })
+      .select({ permissionMode: sessions.permissionMode })
       .from(sessions)
       .where(eq(sessions.id, 'web-10'))
       .get()!;
     expect(newSession.permissionMode).toBe('plan');
-    expect(newSession.parentId).toBe('s1');
 
     // Verify manual tags are NOT copied (inherit_tags=false)
     const newTags = db
@@ -934,7 +951,31 @@ describe('REST routes', () => {
     const newId = res.json().sessionId;
     const upserts = received.filter((r) => r.event === 'upsert' && r.session.id === newId);
     expect(upserts).toHaveLength(1);
-    expect(upserts[0].session).toMatchObject({ id: newId, parentId: 's1', source: 'web' });
+    expect(upserts[0].session).toMatchObject({ id: newId, source: 'web' });
+    // Lineage is gone (spec 2026-09-24-sessions-end-only-by-hand-design § 4):
+    // the new session carries no link back to the one it replaced.
+    expect(upserts[0].session).not.toHaveProperty('parentId');
+  });
+
+  it('POST /api/sessions/:id/clear stamps ended_at on the old session, not the new one', async () => {
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's2')).run();
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s2/clear', payload: { startNew: true },
+    });
+    const rowOf = (id: string) =>
+      db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    expect(typeof rowOf('s2').ended_at).toBe('number');
+    expect(rowOf(res.json().sessionId).ended_at).toBeNull();
+    expect(received).toContainEqual(
+      expect.objectContaining({ event: 'upsert', session: expect.objectContaining({ id: 's2', status: 'ended' }) }),
+    );
+  });
+
+  it('POST /api/sessions/:id/clear without startNew still stamps ended_at', async () => {
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: {} });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(typeof row.ended_at).toBe('number');
   });
 
   it('clear + startNew uses the settings default model, not the parent one', async () => {
@@ -1142,6 +1183,19 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     close();
   });
 
+  it('409s when the runner ran that id and has since stopped it', async () => {
+    const { app, runner, close } = makeLaunchApp();
+    // A stopped session no longer has a `status()` — the transcript under
+    // its name is still on disk, though, and no row says so here.
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'plan', sessionId: CLIENT_ID });
+    await runner.stop(CLIENT_ID);
+    expect(runner.status(CLIENT_ID)).toBeUndefined();
+    const res = await launch(app, { sessionId: CLIENT_ID });
+    expect(res.statusCode).toBe(409);
+    expect(runner.active()).toEqual([]);
+    close();
+  });
+
   it('mints server-side when the body carries no sessionId at all', async () => {
     const { app, db, runner, close } = makeLaunchApp();
     const res = await launch(app, {});
@@ -1151,87 +1205,6 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     expect(row).toBeDefined();
     expect(runner.active()).toEqual([SERVER_MINTED]);
     close();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// PATCH /api/settings → Runner (the idle timeout used to be boot-only)
-// ---------------------------------------------------------------------------
-
-describe('PATCH /api/settings propagates the idle timeout to the Runner', () => {
-  function makeAppWithRealRunner() {
-    const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-idle-')), 'index.db'));
-    const hub = new Hub();
-    const runner = new Runner({ hub, queryFn: (() => {}) as any, idleTimeoutMs: 30 * 60_000 });
-    const applied: Array<number | null> = [];
-    const original = runner.setIdleTimeoutMs.bind(runner);
-    runner.setIdleTimeoutMs = (ms: number | null) => {
-      applied.push(ms);
-      original(ms);
-    };
-    const app = Fastify();
-    registerRoutes(app, {
-      db,
-      registry: { get: () => undefined, all: () => [] } as any,
-      runner,
-      projectsDir: '/nonexistent',
-      hub,
-      models: { list: async () => [], recordContextWindows: () => {} } as any,
-      subagents: new SubagentStore(),
-      git: gitStore,
-      ide: ideStore,
-      subagentTranscripts: new SubagentTranscripts(),
-      errors: new ErrorLog({ db, hub }),
-      titler: stubTitler(),
-      images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
-      claudeDir: '/nonexistent',
-      settings: {
-        get: (k: string) =>
-          db.select({ value: settingsTable.value }).from(settingsTable)
-            .where(eq(settingsTable.key, k)).get()?.value ?? '',
-        set: (k: string, v: string) =>
-          void db
-            .insert(settingsTable)
-            .values({ key: k, value: v })
-            .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
-            .run(),
-      },
-      retention: retentionFor(db),
-    });
-    return { app, db, applied };
-  }
-
-  it('hands the Runner the new minute count without a restart', async () => {
-    const { app, db, applied } = makeAppWithRealRunner();
-    await app.inject({
-      method: 'PATCH', url: '/api/settings', payload: { ended_after_idle_minutes: '15' },
-    });
-    expect(applied).toEqual([15 * 60_000]);
-    // ...and the value is still persisted, unchanged on the wire.
-    const after = await app.inject({ method: 'GET', url: '/api/settings' });
-    expect(after.json().ended_after_idle_minutes).toBe('15');
-    db.$client.close();
-  });
-
-  it('hands the Runner a null timeout for the "never" sentinel', async () => {
-    const { app, db, applied } = makeAppWithRealRunner();
-    await app.inject({
-      method: 'PATCH', url: '/api/settings', payload: { ended_after_idle_minutes: 'never' },
-    });
-    // Not NaN, not 0 — `setTimeout(fn, NaN)` would end every session at once.
-    expect(applied).toEqual([null]);
-    const after = await app.inject({ method: 'GET', url: '/api/settings' });
-    expect(after.json().ended_after_idle_minutes).toBe('never');
-    db.$client.close();
-  });
-
-  it('leaves the Runner alone for unrelated settings keys', async () => {
-    const { app, db, applied } = makeAppWithRealRunner();
-    await app.inject({
-      method: 'PATCH', url: '/api/settings', payload: { lineage_depth: '5' },
-    });
-    expect(applied).toEqual([]);
-    db.$client.close();
   });
 });
 
@@ -1262,7 +1235,7 @@ describe('claude_code_version', () => {
       expect(body.claude_code_version).toBe(expected);
     }
     // The rest of the settings payload is untouched.
-    expect(body.ended_after_idle_minutes).toBe('30');
+    expect(body.default_model).toBe('sonnet');
     await app.close();
   });
 });
@@ -1388,71 +1361,102 @@ describe('error log routes', () => {
   });
 });
 
-// Tag clusters: map-only dismissal + the hole's index total.
-// Spec: docs/superpowers/specs/2026-09-18-tag-clusters-design.md § 4–5.
-describe('map dismissal and session count', () => {
-  let app: FastifyInstance;
-  let db: ReturnType<typeof makeApp>['db'];
-  let hub: Hub;
-
-  beforeEach(() => {
-    ({ app, db, hub } = makeApp());
-  });
-
-  it('PUT /api/sessions/:id/dismissed stamps map_dismissed_at and publishes the upsert', async () => {
-    const received = subscribeFake(hub, 'sessions');
-    const res = await app.inject({
-      method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true },
-    });
-    expect(res.statusCode).toBe(200);
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
-    expect(typeof row.map_dismissed_at).toBe('number');
-    expect(received[0]).toMatchObject({
-      event: 'upsert',
-      session: { id: 's2', mapDismissedAt: row.map_dismissed_at },
-    });
-  });
-
-  it('PUT /api/sessions/:id/dismissed with dismissed:false clears the stamp (undo)', async () => {
-    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
-    const res = await app.inject({
-      method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: false },
-    });
-    expect(res.statusCode).toBe(200);
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
-    expect(row.map_dismissed_at).toBeNull();
-  });
-
-  it('PUT /api/sessions/:id/dismissed 404s an unknown session and 400s a non-boolean body', async () => {
-    const missing = await app.inject({
-      method: 'PUT', url: '/api/sessions/nope/dismissed', payload: { dismissed: true },
-    });
-    expect(missing.statusCode).toBe(404);
-    const bad = await app.inject({
-      method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: 'yes' },
-    });
-    expect(bad.statusCode).toBe(400);
-  });
-
+// The hole's index total. Spec: docs/superpowers/specs/2026-09-18-tag-clusters-design.md § 4.
+describe('session count', () => {
   it('GET /api/sessions/count returns the whole index total, unpaged', async () => {
+    const { app } = makeApp();
     const res = await app.inject({ method: 'GET', url: '/api/sessions/count' });
     expect(res.json()).toEqual({ total: 2 });
   });
+});
 
-  it('sending a message to a dismissed session clears the dismissal', async () => {
-    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
-    // s2 is inactive in the runner, so this goes down the revive path.
-    await app.inject({
-      method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'continue' },
-    });
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
-    expect(row.map_dismissed_at).toBeNull();
+// A session ends only when the user ends it, and comes back when they write
+// to it or take the End back.
+// Spec: docs/superpowers/specs/2026-09-24-sessions-end-only-by-hand-design.md § 1.
+describe('ending and reopening', () => {
+  let app: FastifyInstance;
+  let db: ReturnType<typeof makeApp>['db'];
+  let hub: Hub;
+  let runner: ReturnType<typeof makeApp>['runner'];
+
+  beforeEach(() => {
+    ({ app, db, hub, runner } = makeApp());
+    db.insert(sessions)
+      .values({ id: 'w1', projectDir: 'p', cwd: '/w/z', source: 'web', lastAt: 50, endedAt: 1234 })
+      .run();
   });
 
-  it('GET /api/sessions/:id carries mapDismissedAt on the wire', async () => {
-    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
-    const res = await app.inject({ method: 'GET', url: '/api/sessions/s2' });
-    expect(typeof res.json().session.mapDismissedAt).toBe('number');
+  const rowOf = (id: string) =>
+    db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+
+  it('POST /api/sessions/:id/reopen clears ended_at and publishes the session as idle', async () => {
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/reopen' });
+    expect(res.statusCode).toBe(200);
+    expect(rowOf('w1').ended_at).toBeNull();
+    expect(received).toContainEqual(
+      expect.objectContaining({ event: 'upsert', session: expect.objectContaining({ id: 'w1', status: 'idle' }) }),
+    );
+  });
+
+  it('POST /api/sessions/:id/reopen 404s an unknown session', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/nope/reopen' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  // A terminal session's end is its CLI exiting; no stamp can take that back.
+  it('POST /api/sessions/:id/reopen refuses a terminal session with 409', async () => {
+    db.update(sessions).set({ endedAt: 99 }).where(eq(sessions.id, 's2')).run();
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s2/reopen' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'terminal_session' });
+    expect(rowOf('s2').ended_at).toBe(99);
+  });
+
+  it('a delivered message reopens an ended session', async () => {
+    // w1 is inactive in the runner, so this goes down the revive path.
+    await app.inject({
+      method: 'POST', url: '/api/sessions/w1/messages', payload: { text: 'continue' },
+    });
+    expect(rowOf('w1').ended_at).toBeNull();
+  });
+
+  it('a revive that fails leaves the session ended', async () => {
+    runner.start = async () => { throw new Error('spawn failed'); };
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/w1/messages', payload: { text: 'continue' },
+    });
+    expect(res.statusCode).toBe(500);
+    expect(rowOf('w1').ended_at).toBe(1234);
+  });
+
+  // The trash's drop of a pinned session: an end and an unpin sent apart
+  // published a row ended-but-pinned in between, and the planet faded back in.
+  it('POST /api/sessions/:id/end with unpin ends and unpins in one publish', async () => {
+    db.update(sessions).set({ endedAt: null, pinnedAt: 77 }).where(eq(sessions.id, 'w1')).run();
+    const received = subscribeFake(hub, 'sessions');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/w1/end', payload: { unpin: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(rowOf('w1').ended_at).toEqual(expect.any(Number));
+    expect(rowOf('w1').pinned_at).toBeNull();
+    const upserts = received.filter((m) => m.event === 'upsert' && m.session.id === 'w1');
+    expect(upserts.length).toBeGreaterThan(0);
+    for (const m of upserts) expect(m.session).toMatchObject({ status: 'ended', pinnedAt: null });
+  });
+
+  it('POST /api/sessions/:id/end without unpin keeps the pin', async () => {
+    db.update(sessions).set({ endedAt: null, pinnedAt: 77 }).where(eq(sessions.id, 'w1')).run();
+    await app.inject({ method: 'POST', url: '/api/sessions/w1/end' });
+    expect(rowOf('w1').pinned_at).toBe(77);
+  });
+
+  it('GET /api/sessions/:id returns the session alone, with no lineage', async () => {
+    const body = res200(await app.inject({ method: 'GET', url: '/api/sessions/w1' }));
+    expect(Object.keys(body)).toEqual(['session']);
+    expect(body.session).toMatchObject({ id: 'w1', status: 'ended' });
+    expect(body.session).not.toHaveProperty('parentId');
   });
 });
 
@@ -1504,35 +1508,16 @@ describe('pinned sessions', () => {
     expect(bad.json()).toEqual({ error: 'pinned must be a boolean' });
   });
 
-  // The two stamps never coexist — pinning an absorbed session is what pulls
-  // it back onto the map.
-  it('pinning clears an existing dismissal', async () => {
-    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
-    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
-    const row = rowOf('s2');
-    expect(row.map_dismissed_at).toBeNull();
-    expect(typeof row.pinned_at).toBe('number');
-  });
-
-  // Manual gesture wins: dragging a pinned planet into the hole unpins it.
-  it('dismissing clears an existing pin', async () => {
-    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
-    await app.inject({ method: 'PUT', url: '/api/sessions/s2/dismissed', payload: { dismissed: true } });
-    const row = rowOf('s2');
-    expect(row.pinned_at).toBeNull();
-    expect(typeof row.map_dismissed_at).toBe('number');
-  });
-
-  it('activity clears the dismissal but leaves the pin', async () => {
+  it('a delivered message reopens a pinned ended session and leaves the pin', async () => {
     await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
     const pinnedAt = rowOf('s2').pinned_at;
-    db.update(sessions).set({ mapDismissedAt: 123 }).where(eq(sessions.id, 's2')).run();
+    db.update(sessions).set({ endedAt: 123 }).where(eq(sessions.id, 's2')).run();
     // s2 is inactive in the runner, so this goes down the revive path.
     await app.inject({
       method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'continue' },
     });
     const row = rowOf('s2');
-    expect(row.map_dismissed_at).toBeNull();
+    expect(row.ended_at).toBeNull();
     expect(row.pinned_at).toBe(pinnedAt);
   });
 

@@ -25,7 +25,7 @@ export interface SegmentedOption<T extends string> {
   label: ReactNode
   /**
    * What assistive tech announces, when `label` is a glyph rather than a
-   * word — the lineage stepper's `∞`, say. Defaults to the label.
+   * word. Defaults to the label.
    */
   ariaLabel?: string
 }

@@ -7,7 +7,6 @@ import {
   parseDetailPanelWidth,
   parseContextThresholds,
   headerSessionStats,
-  releaseDelayMs,
   resolvePanelPairWidths,
   resolveWindowPanelWidths,
   DETAIL_PANEL_DEFAULT_PX,
@@ -58,7 +57,7 @@ import { EndDialog } from './EndDialog'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
-import { formatContextWindow, releaseFootnote } from '../lib/format'
+import { endedFootnote, formatContextWindow } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
 import { awaitingSubagentCount, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import type { ApiSession, Tag, WalkthroughSummary } from '../lib/types'
@@ -156,7 +155,7 @@ function useWindowWidth(enabled: boolean): number {
 /**
  * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail
  * header` 9d): the header (path + actions, editable title, tag chips,
- * permission/status badges, context bar, lineage dots),
+ * permission/status badges, context bar),
  * the session's transcript, and a footer that varies
  * by session kind — a prompt composer for web/ended sessions, or a read-only
  * bar for a session still live in a terminal (which this UI can never take
@@ -225,7 +224,6 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   const setPrompt = (text: string) => {
     if (id) setComposerDraft(id, text)
   }
-  const [lineageCache, setLineageCache] = useState<Record<string, string[]>>({})
 
   // Image intake (spec: 2026-09-20-composer-design § Image intake). The chips
   // live here rather than inside `Composer` because the Send button below reads
@@ -331,26 +329,6 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
     setTitleDraft(session?.title ?? '')
   }, [id, session?.title, isEditingTitle])
 
-  // Lazily fetch + cache the lineage chain per session id (component state
-  // per the brief — `sessions` doesn't carry `lineage`, only `getSession`
-  // returns it, and there's no reason to make every session's row in the
-  // store carry a chain nothing else needs).
-  useEffect(() => {
-    if (!id || lineageCache[id] !== undefined) return
-    let cancelled = false
-    api
-      .getSession(id)
-      .then(({ lineage }) => {
-        if (!cancelled) setLineageCache((cache) => ({ ...cache, [id]: lineage }))
-      })
-      .catch(() => {
-        // Leave uncached; a future select() of this session can retry.
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [id, lineageCache])
-
   // The walkthrough's entry (spec 2026-09-23-walkthrough-design § The page,
   // canvas 21f): present only for Orbital's own sessions with at least one
   // file change — absent, not disabled. The count comes from the server's
@@ -439,15 +417,6 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
   // Standalone has nothing to slide away to: it shows whenever its session is
   // selected, which is from the moment the window seats it.
   if ((standalone ? !selectedId : !mounted) || !id) return null
-
-  function invalidateLineage(clearedId: string) {
-    setLineageCache((cache) => {
-      if (!(clearedId in cache)) return cache
-      const next = { ...cache }
-      delete next[clearedId]
-      return next
-    })
-  }
 
   /** Opens the field. Named rather than inlined so the abandon flag can only
    * ever be cleared here. */
@@ -543,11 +512,9 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
     // clear and start new. Ending without a successor is End session's job
     // (spec 2026-09-23-end-session-design).
     if (settings.confirm_before_clear === 'false') {
-      const clearedId = id
       void api
-        .clearSession(clearedId, true)
+        .clearSession(id, true)
         .then((result) => {
-          invalidateLineage(clearedId)
           if (result.sessionId) void useOrbital.getState().select(result.sessionId)
         })
         .catch((err) => reportError(err, 'Failed to clear session'))
@@ -583,7 +550,6 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
     })
   }
 
-  const lineage = lineageCache[id]
   const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
   const contextUsed = session?.contextUsedTokens ?? null
   // The SAME number the map's arc is drawn from, through the same function —
@@ -628,13 +594,8 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
       : undefined
 
   const pinned = session?.pinnedAt != null
-  // The release delay as the MAP applies it, so the tooltip and the footer
-  // quote the same number the body actually falls on.
-  const releaseAfterMs = releaseDelayMs(settings)
   const footNote =
-    session?.status === 'ended'
-      ? releaseFootnote({ pinned, endedAt: session.lastAt ?? null, releaseAfterMs })
-      : null
+    session?.status === 'ended' ? endedFootnote({ pinned, endedAt: session.endedAt ?? session.lastAt ?? null }) : null
 
   const sessionTag = session ? primaryTag(session, tags) : undefined
   const headerHue = sessionTag?.hue
@@ -791,14 +752,12 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
             standalone={standalone}
             statsVariant={statsVariant}
             pinned={pinned}
-            releaseAfterMs={releaseAfterMs}
             onTogglePin={() => {
               if (session) void setSessionPinned(session.id, !pinned)
             }}
             onClear={handleClearClick}
             onEnd={() => setDialog('end')}
             onCollapse={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
-            lineage={lineage}
             walkthroughEntry={walkthroughEntry}
             pathBudgetPx={standalone ? standaloneWidth : detailWidth}
           />
@@ -1169,7 +1128,6 @@ export function DetailPanel({ standalone = false }: { standalone?: boolean } = {
         open={dialog === 'clear'}
         sessionId={id}
         onClose={() => setDialog(null)}
-        onCleared={invalidateLineage}
       />
       <EndDialog open={dialog === 'end'} sessionId={id} onClose={() => setDialog(null)} />
     </Panel>

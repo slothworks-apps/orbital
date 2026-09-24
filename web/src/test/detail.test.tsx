@@ -32,8 +32,6 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     permissionMode: 'acceptEdits',
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -117,20 +115,12 @@ function resetStore(
 }
 
 /**
- * Seeds a single session (+ its models/usage), renders the panel and waits
- * for it to finish settling — the shared entry point for the model-chip
- * tests, which only ever care about one session at a time.
- *
- * Mounting the panel starts one piece of async work: the lineage effect
- * calls `api.getSession(id)` and writes the answer into `lineageCache`. That
- * write lands a microtask after `render()` returns, so a caller that
- * asserted synchronously pinned the tree one render BEFORE the panel was
- * done — and React logged "an update to DetailPanel was not wrapped in
- * act(...)" when the write finally arrived, after the test had ended.
- * Awaiting the fetch here settles the tree first and puts the state update
- * inside act, the same way the header tests do it. Do not swap this for an
- * `act()` wrapper around `render`: that hides the message without making
- * the assertions run against the settled tree.
+ * Seeds a single session (+ its models/usage) and renders the panel — the
+ * shared entry point for the model-chip tests, which only ever care about
+ * one session at a time. Kept `async` for its callers even though mounting
+ * settles synchronously now: the walkthrough-summary effect it used to have
+ * to wait out never resolves in this file's default mock (see `beforeEach`
+ * below), so there is nothing left to await.
  */
 async function renderDetail({
   session,
@@ -144,17 +134,20 @@ async function renderDetail({
     models,
     ui: { selectedId: session.id },
   })
-  const result = render(<DetailPanel />)
-  await waitFor(() => expect(api.getSession).toHaveBeenCalledWith(session.id))
-  return result
+  return render(<DetailPanel />)
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(api.getSession).mockResolvedValue({
-    session: makeSession({ id: 'unused' }),
-    lineage: [],
-  })
+  // The walkthrough-entry effect fires for every web session on mount
+  // (`DetailPanel`'s `walkthroughSummary` effect) and used to settle inside
+  // whatever `waitFor(api.getSession)` a test happened to await for the now-
+  // removed lineage fetch — coincidence, not something any of these tests
+  // were actually about. A default that never resolves means the effect's
+  // `.then` never fires unless a test opts in, so mounting a web session no
+  // longer needs an unrelated flush just to keep this quiet. The two tests
+  // that care about the walkthrough entry override this themselves.
+  vi.mocked(api.walkthroughSummary).mockReturnValue(new Promise(() => {}))
 })
 
 // ---------------------------------------------------------------------------
@@ -168,7 +161,6 @@ describe('DetailPanel pin toggle', () => {
       ui: { selectedId: 'a' },
     })
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     const toggle = screen.getByRole('button', { name: 'Pin session' })
     expect(toggle).toHaveAttribute('aria-pressed', 'false')
@@ -193,48 +185,9 @@ describe('DetailPanel pin toggle', () => {
     })
     const pinSpy = vi.spyOn(useOrbital.getState(), 'setSessionPinned').mockResolvedValue(undefined)
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     await user.click(screen.getByRole('button', { name: 'Pin session' }))
     expect(pinSpy).toHaveBeenCalledWith('a', true)
-  })
-
-  it('describes the pin on keyboard focus, reading the release setting back', async () => {
-    resetStore({
-      sessions: { a: makeSession({ id: 'a', status: 'ended' }) },
-      settings: { map_release_ended_after_minutes: '1440' },
-      ui: { selectedId: 'a' },
-    })
-    render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
-
-    const toggle = screen.getByRole('button', { name: 'Pin session' })
-    act(() => toggle.focus())
-    expect(screen.getByRole('tooltip')).toHaveTextContent(
-      'Keeps the session on the map — it is never released into history.'
-    )
-
-    act(() => {
-      useOrbital.setState((s) => ({
-        sessions: { ...s.sessions, a: { ...s.sessions.a, pinnedAt: 5 } },
-      }))
-    })
-    expect(screen.getByRole('tooltip')).toHaveTextContent('Releases into history 1d after it ended.')
-  })
-
-  it('promises no release in the tooltip when the release timer is off', async () => {
-    resetStore({
-      sessions: { a: makeSession({ id: 'a', status: 'ended', pinnedAt: 5 }) },
-      settings: { map_release_ended_after_minutes: 'never' },
-      ui: { selectedId: 'a' },
-    })
-    render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
-
-    act(() => screen.getByRole('button', { name: 'Unpin session' }).focus())
-    const tooltip = screen.getByRole('tooltip')
-    expect(tooltip).toHaveTextContent('The release timer is off.')
-    expect(tooltip).not.toHaveTextContent(/releases into history/i)
   })
 
   it('carries the pin in the footer of an ended session, and nothing for a live one', async () => {
@@ -243,11 +196,9 @@ describe('DetailPanel pin toggle', () => {
       sessions: {
         a: makeSession({ id: 'a', status: 'ended', lastAt: now - 2 * 60 * 60_000, pinnedAt: 5 }),
       },
-      settings: { map_release_ended_after_minutes: '1440' },
       ui: { selectedId: 'a' },
     })
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.getByText(/stays on the map until you unpin it/)).toBeInTheDocument()
 
@@ -256,14 +207,14 @@ describe('DetailPanel pin toggle', () => {
         sessions: { ...s.sessions, a: { ...s.sessions.a, pinnedAt: null } },
       }))
     })
-    expect(screen.getByText(/^ended 2h ago · releases into history in/)).toBeInTheDocument()
+    expect(screen.getByText(/^ended 2h ago$/)).toBeInTheDocument()
 
     act(() => {
       useOrbital.setState((s) => ({
         sessions: { ...s.sessions, a: { ...s.sessions.a, status: 'idle' } },
       }))
     })
-    expect(screen.queryByText(/releases into history/)).toBeNull()
+    expect(screen.queryByText(/^ended /)).toBeNull()
   })
 })
 
@@ -295,7 +246,6 @@ describe('DetailPanel header', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     // At rest the title is read as text, not as a field (canvas
     // `Feature - Detail header` 9e): the field appears on click.
@@ -320,7 +270,6 @@ describe('DetailPanel header', () => {
     })
 
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     // Canvas 1b's compact notation ("142.3k"), not raw counts.
     expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/100k\s*\/ 200k$/)
@@ -344,7 +293,6 @@ describe('DetailPanel header', () => {
     })
 
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     // The window IS known (sonnet -> 200k), so the readout renders — honestly
     // unmeasured, not unknown.
@@ -365,7 +313,6 @@ describe('DetailPanel header', () => {
     })
 
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.getByRole('progressbar', { name: /context usage/i })).toHaveAttribute(
       'aria-valuenow',
@@ -386,7 +333,6 @@ describe('DetailPanel header', () => {
     })
 
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(container.querySelector('[data-context-readout]')).toHaveTextContent(/100k\s*\/ 200k$/)
   })
@@ -399,7 +345,6 @@ describe('DetailPanel header', () => {
     })
 
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(container.querySelector('[data-context-readout]')).not.toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
@@ -556,39 +501,6 @@ describe('DetailPanel header', () => {
     expect(useOrbital.getState().toast).toMatchObject({ kind: 'error', message: 'tags server down' })
   })
 
-  it('shows lineage dots when getSession resolves a non-empty lineage', async () => {
-    vi.mocked(api.getSession).mockResolvedValue({
-      session: makeSession({ id: 'a' }),
-      lineage: ['root', 'mid'],
-    })
-    resetStore({
-      sessions: { a: makeSession({ id: 'a' }) },
-      ui: { selectedId: 'a' },
-    })
-
-    render(<DetailPanel />)
-
-    await waitFor(() => {
-      expect(screen.getByLabelText(/lineage/i)).toBeInTheDocument()
-    })
-  })
-
-  it('does not show lineage dots when lineage is empty', async () => {
-    vi.mocked(api.getSession).mockResolvedValue({
-      session: makeSession({ id: 'a' }),
-      lineage: [],
-    })
-    resetStore({
-      sessions: { a: makeSession({ id: 'a' }) },
-      ui: { selectedId: 'a' },
-    })
-
-    render(<DetailPanel />)
-
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
-    expect(screen.queryByLabelText(/lineage/i)).not.toBeInTheDocument()
-  })
-
   it('offers the walkthrough only for an Orbital session with file changes', async () => {
     vi.mocked(api.walkthroughSummary).mockResolvedValue({ steps: 3, files: 2, blindAlleys: 0, subagents: 0 })
     resetStore({
@@ -597,7 +509,6 @@ describe('DetailPanel header', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(await screen.findByRole('button', { name: 'Walkthrough' })).toBeInTheDocument()
   })
@@ -619,7 +530,6 @@ describe('DetailPanel header', () => {
       ui: { selectedId: 'b' },
     })
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.queryByRole('button', { name: 'Walkthrough' })).toBeNull()
     expect(api.walkthroughSummary).toHaveBeenCalledTimes(1) // not asked for a terminal session
@@ -798,7 +708,6 @@ describe('DetailPanel footer', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: /^stop$/i })).not.toBeInTheDocument()
   })
 
@@ -809,7 +718,6 @@ describe('DetailPanel footer', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.getByText(/runs in terminal.*read-only/i)).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: /prompt/i })).not.toBeInTheDocument()
@@ -823,7 +731,6 @@ describe('DetailPanel footer', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.getByRole('textbox', { name: /prompt/i })).toBeInTheDocument()
     expect(screen.queryByText(/runs in terminal/i)).not.toBeInTheDocument()
@@ -836,7 +743,6 @@ describe('DetailPanel footer', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.getByRole('textbox', { name: /prompt/i })).toHaveAttribute(
       'placeholder',
@@ -851,7 +757,6 @@ describe('DetailPanel footer', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.getByRole('textbox', { name: /prompt/i })).toHaveAttribute(
       'placeholder',
@@ -869,7 +774,6 @@ describe('DetailPanel footer', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.getByText('⏎ send · ⇧⏎ newline · ⌘V paste image')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /send/i })).toHaveTextContent('Send ↑')
@@ -882,7 +786,6 @@ describe('DetailPanel footer', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(document.querySelector('[data-composer-mirror]')).not.toBeNull()
   })
@@ -894,7 +797,6 @@ describe('DetailPanel footer', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(screen.queryByText(/⏎ send/)).not.toBeInTheDocument()
     expect(document.querySelector('[data-composer-mirror]')).toBeNull()
@@ -912,7 +814,6 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a' },
     })
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: /^clear$/i })).not.toBeInTheDocument()
   })
 
@@ -996,7 +897,6 @@ describe('DetailPanel clear flow', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     fireEvent.keyDown(document, { key: 'Escape' })
 
     expect(api.clearSession).not.toHaveBeenCalled()
@@ -1043,29 +943,6 @@ describe('DetailPanel clear flow', () => {
     expect(api.clearSession).toHaveBeenCalledWith('a', true)
   })
 
-  it('invalidates the cached lineage for a session after clearing it, so it refetches', async () => {
-    const user = userEvent.setup()
-    vi.mocked(api.clearSession).mockResolvedValue({ ok: true })
-    resetStore({
-      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
-      ui: { selectedId: 'a', dialog: 'clear' },
-    })
-
-    render(<DetailPanel />)
-    // Initial lineage fetch (DetailPanel's header effect + ClearDialog's own preview fetch).
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
-    const callsBeforeClear = vi.mocked(api.getSession).mock.calls.length
-
-    await user.click(screen.getByRole('button', { name: /clear & start new/i }))
-    await waitFor(() => expect(api.clearSession).toHaveBeenCalledWith('a', true))
-
-    // Selection is unchanged (no successor id came back) and the cache entry for 'a' was
-    // dropped, so DetailPanel's lineage effect must refire for the same id.
-    await waitFor(() =>
-      expect(vi.mocked(api.getSession).mock.calls.length).toBeGreaterThan(callsBeforeClear)
-    )
-  })
-
   it('acts on the session the dialog was opened for even if the selection changes while it is open', async () => {
     const user = userEvent.setup()
     vi.mocked(api.clearSession).mockResolvedValue({ ok: true })
@@ -1078,7 +955,6 @@ describe('DetailPanel clear flow', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     // Selection changes elsewhere (e.g. a sidebar click) while the dialog
     // the user opened for 'a' is still open.
@@ -1137,7 +1013,6 @@ describe('DetailPanel stop flow', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     fireEvent.keyDown(document, { key: 'Escape' })
 
     expect(api.interrupt).not.toHaveBeenCalled()
@@ -1204,7 +1079,6 @@ describe('DetailPanel stop flow', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     const dialog = screen.getByRole('dialog', { name: /stop the running turn/i })
     // The dialog's mid-edit row splits the dim tool name from the bright
@@ -1233,7 +1107,6 @@ describe('DetailPanel stop flow', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     const dialog = screen.getByRole('dialog', { name: /stop the running turn/i })
     expect(within(dialog).queryByText(/^Bash/)).not.toBeInTheDocument()
@@ -1251,7 +1124,6 @@ describe('DetailPanel stop flow', () => {
     })
 
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     await act(async () => {
       useOrbital.setState((state) => ({ ui: { ...state.ui, selectedId: 'b' } }))
       await Promise.resolve()
@@ -1386,9 +1258,7 @@ describe('DetailPanel image intake', () => {
       sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
       ui: { selectedId: 'a' },
     })
-    const result = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
-    return result
+    return render(<DetailPanel />)
   }
 
   it('arms the whole panel on a drag carrying images, dimming what is behind the marker', async () => {
@@ -1465,7 +1335,6 @@ describe('DetailPanel image intake', () => {
       ui: { selectedId: 'a' },
     })
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
 
     const shell = container.querySelector('[data-drop-target]') as HTMLElement
     fireEvent.drop(shell, { dataTransfer: imageDrag([png()]) })
@@ -1527,9 +1396,7 @@ describe('DetailPanel session stats placement', () => {
       settings: { header_session_stats: headerSessionStats },
       ui: { selectedId: 'a' },
     })
-    const view = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
-    return view
+    return render(<DetailPanel />)
   }
 
   it('draws the strip by default', async () => {
@@ -1602,7 +1469,6 @@ describe('DetailPanel — the subagent pairing (task 8)', () => {
       ui: { selectedId: 'a' },
     })
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(panelWidthPx(container)).toBe(clampDetailPanelWidth(900, 1000))
     expect(panelWidthPx(container)).toBe(600)
@@ -1617,7 +1483,6 @@ describe('DetailPanel — the subagent pairing (task 8)', () => {
       subagentPanel: openSubagentPanelFor('a'),
     })
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(panelWidthPx(container)).toBe(450)
   })
@@ -1635,7 +1500,6 @@ describe('DetailPanel — the subagent pairing (task 8)', () => {
       subagentPanel: openSubagentPanelFor('a'),
     })
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(panelWidthPx(container)).toBe(429)
   })
@@ -1654,7 +1518,6 @@ describe('DetailPanel — the subagent pairing (task 8)', () => {
       subagentPanel: openSubagentPanelFor('a'),
     })
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     expect(panelWidthPx(container)).toBe(DETAIL_PANEL_MIN_PX)
   })
@@ -1675,7 +1538,6 @@ describe('DetailPanel — the subagent pairing (task 8)', () => {
       subagentPanel: openSubagentPanelFor('a'),
     })
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
 
     const handle = screen.getByRole('separator', { name: /resize panel/i })
     firePointer(handle, 'pointerdown', 500)
@@ -1703,7 +1565,6 @@ describe('DetailPanel — the subagent pairing (task 8)', () => {
       subagentPanel: openSubagentPanelFor('a'),
     })
     const { container } = render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalled())
     expect(panelWidthPx(container)).toBe(DETAIL_PANEL_MIN_PX)
 
     act(() => {
@@ -1770,7 +1631,6 @@ describe('DetailPanel session shortcuts', () => {
     resetStore({ sessions: { a: webSession }, ui: { selectedId: 'a' } })
     const pinSpy = vi.spyOn(useOrbital.getState(), 'setSessionPinned').mockResolvedValue(undefined)
     render(<DetailPanel />)
-    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
 
     press({ key: 'p', code: 'KeyP', metaKey: true })
     expect(pinSpy).toHaveBeenCalledWith('a', true)

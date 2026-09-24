@@ -37,7 +37,6 @@ export interface ApiSession {
   model: string | null;
   /** The model that actually ran, as reported by the CLI, or null. */
   resolvedModel: string | null;
-  parentId: string | null;
   /**
    * Context tokens at the end of the session's last turn, or null when it was
    * never measured — which every terminal session permanently is, only
@@ -47,24 +46,23 @@ export interface ApiSession {
    */
   contextUsedTokens: number | null;
   /**
-   * Map-only dismissal stamp (epoch ms), or null. Set by dragging the body
-   * into the hole; the map hides a stamped session, everything else ignores
-   * it (spec 2026-09-18-tag-clusters-design § 5).
-   */
-  mapDismissedAt: number | null;
-  /**
    * When the user pinned this session (epoch ms), or null. A pinned session
-   * is exempt from the map's release timer indefinitely and sorts to the
-   * front of `GET /api/sessions` (spec
-   * 2026-09-20-pinned-sessions-design § Server). Never non-null at the same
-   * time as `mapDismissedAt`.
+   * stays on the map even once it has ended, and sorts to the front of
+   * `GET /api/sessions` (spec 2026-09-20-pinned-sessions-design § Server,
+   * spec 2026-09-24-sessions-end-only-by-hand-design § 3).
    */
   pinnedAt: number | null;
   /**
+   * When the user ended this session (epoch ms), null while it is open and
+   * for every terminal session, whose end is its CLI exiting rather than a
+   * stamp (spec 2026-09-24-sessions-end-only-by-hand-design § 1).
+   */
+  endedAt: number | null;
+  /**
    * When a server restart cut this session's turn short (epoch ms), null
    * otherwise (spec 2026-09-21-session-autoheal-design). The session itself
-   * is intact and resumed; what is missing is the rest of that one turn.
-   * Cleared the next time the session actually runs a turn.
+   * is intact and revives on the next message; what is missing is the rest
+   * of that one turn. Cleared the next time the session actually runs a turn.
    */
   interruptedAt: number | null;
   tagIds: number[];
@@ -118,12 +116,21 @@ export interface ApiSession {
   ide: IdeContext | null;
 }
 
+/**
+ * A session's status, from whoever knows best: the Runner while it holds a
+ * process, then the terminal registry. Past both, the two kinds of session
+ * part ways (spec 2026-09-24-sessions-end-only-by-hand-design § 1). A
+ * terminal session nobody is running is over. An Orbital session is over only
+ * once the user ended it — without that stamp it is merely asleep, and the
+ * next message revives it.
+ */
 export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
   const fromRunner = ctx.runner.status(row.id);
   if (fromRunner) return fromRunner;
   const live = ctx.registry.get(row.id);
   if (live) return live.status;
-  return 'ended';
+  if (row.source !== 'web') return 'ended';
+  return row.ended_at !== null ? 'ended' : 'idle';
 }
 
 /**
@@ -139,10 +146,9 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     messageCount: row.message_count, source: row.source,
     permissionMode: row.permission_mode,
     model: row.model, resolvedModel: row.resolved_model,
-    parentId: row.parent_id,
     contextUsedTokens: row.context_used_tokens,
-    mapDismissedAt: row.map_dismissed_at,
     pinnedAt: row.pinned_at,
+    endedAt: row.ended_at,
     interruptedAt: row.interrupted_at,
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),

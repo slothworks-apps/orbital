@@ -31,12 +31,13 @@ import {
   guardGesture,
   headerSessionStats,
   mapStatePills,
-  releaseDelayMs,
+  UNDO_TOAST_MS,
   absorptionFor,
+  trashDropFor,
+  MAP_LEAVE_GRACE_MS,
   resolvePanelPairWidths,
   resolveWindowPanelWidths,
   WINDOW_PANEL_PAIR_MIN_PX,
-  RELEASE_FALL_GRACE_MS,
   DETAIL_PANEL_MIN_PX,
   PANEL_GUTTER_PX,
   SUBAGENT_PANEL_DEFAULT_PX,
@@ -59,8 +60,6 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     permissionMode: null,
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -90,6 +89,7 @@ const initialSnapshot: OrbitalState = {
   composerDrafts: {},
   detachedIds: [],
   sessionsTotal: 0,
+  leavingSince: {},
   toast: null,
   subagentPanel: null,
   ui: {
@@ -199,7 +199,7 @@ describe('applySessionsEvent', () => {
 
   it('status for an unknown id triggers a refetch and upserts the result', async () => {
     const fetched = makeSession({ id: 'unknown', status: 'working', lastAt: 999 })
-    vi.mocked(api.getSession).mockResolvedValueOnce({ session: fetched, lineage: [] })
+    vi.mocked(api.getSession).mockResolvedValueOnce({ session: fetched })
 
     useOrbital.getState().applySessionsEvent({ event: 'status', sessionId: 'unknown', status: 'working' })
 
@@ -284,33 +284,37 @@ describe('applySessionEvent', () => {
     expect(useOrbital.getState().sessions.s1.subagents).toEqual([])
   })
 
-  // Task 14 error state: a session that goes `working` -> `ended` without an
+  // Task 14 error state: a session that goes `working` -> `idle` without an
   // intervening `turn_result` is flagged as an SDK process crash (spec §
-  // Error states) so `Transcript` can render an error row. Distinct session
+  // Error states) so `Transcript` can render an error row. `idle`, not
+  // `ended`: a crash no longer ends a session, the process just goes away
+  // (spec 2026-09-24-sessions-end-only-by-hand-design § 1). Distinct session
   // ids per test below, deliberately — the `working`/`turn_result` tracking
   // this feeds off is non-reactive module state in store.ts (`turnResultSeen`),
   // not reset by this file's `beforeEach`, so reusing an id already touched
   // by an earlier test (e.g. 's1') would make these order-dependent.
-  it('flags transcriptErrors when status goes working -> ended with no turn_result in between', () => {
+  it('flags transcriptErrors when status goes working -> idle with no turn_result in between', () => {
     useOrbital.setState({ sessions: { crash1: makeSession({ id: 'crash1', status: 'idle' }) } })
     useOrbital.getState().applySessionEvent('crash1', { event: 'status', status: 'working' })
-    useOrbital.getState().applySessionEvent('crash1', { event: 'status', status: 'ended' })
+    useOrbital.getState().applySessionEvent('crash1', { event: 'status', status: 'idle' })
     expect(useOrbital.getState().transcriptErrors.crash1).toBe(true)
-    expect(useOrbital.getState().sessions.crash1.status).toBe('ended')
+    expect(useOrbital.getState().sessions.crash1.status).toBe('idle')
   })
 
-  it('does not flag transcriptErrors when a turn_result lands before ended', () => {
+  it('does not flag transcriptErrors when a turn_result lands before idle', () => {
     useOrbital.setState({ sessions: { ok1: makeSession({ id: 'ok1', status: 'idle' }) } })
     useOrbital.getState().applySessionEvent('ok1', { event: 'status', status: 'working' })
     useOrbital.getState().applySessionEvent('ok1', { event: 'turn_result', usage: {} })
-    useOrbital.getState().applySessionEvent('ok1', { event: 'status', status: 'ended' })
+    useOrbital.getState().applySessionEvent('ok1', { event: 'status', status: 'idle' })
     expect(useOrbital.getState().transcriptErrors.ok1).toBeUndefined()
   })
 
-  it('does not flag transcriptErrors for an ended transition that did not come from working', () => {
-    useOrbital.setState({ sessions: { idle1: makeSession({ id: 'idle1', status: 'idle' }) } })
-    useOrbital.getState().applySessionEvent('idle1', { event: 'status', status: 'ended' })
-    expect(useOrbital.getState().transcriptErrors.idle1).toBeUndefined()
+  // Only the user ends a session now, so `ended` mid-turn is their End.
+  it('does not flag transcriptErrors when the user ends a session mid-turn', () => {
+    useOrbital.setState({ sessions: { ended1: makeSession({ id: 'ended1', status: 'idle' }) } })
+    useOrbital.getState().applySessionEvent('ended1', { event: 'status', status: 'working' })
+    useOrbital.getState().applySessionEvent('ended1', { event: 'status', status: 'ended' })
+    expect(useOrbital.getState().transcriptErrors.ended1).toBeUndefined()
   })
 
   // The third state of `turnResultSeen`: no entry at all. A session that was
@@ -325,17 +329,17 @@ describe('applySessionEvent', () => {
     })
     // No `working` event first: that transition happened before this tab
     // subscribed to the session's topic.
-    useOrbital.getState().applySessionEvent('mounted1', { event: 'status', status: 'ended' })
+    useOrbital.getState().applySessionEvent('mounted1', { event: 'status', status: 'idle' })
     expect(useOrbital.getState().transcriptErrors.mounted1).toBeUndefined()
-    expect(useOrbital.getState().sessions.mounted1.status).toBe('ended')
+    expect(useOrbital.getState().sessions.mounted1.status).toBe('idle')
   })
 
-  it('clears a crash flag once the session is revived and completes a turn, and a later graceful end keeps it cleared', () => {
+  it('clears a crash flag once the session is revived and completes a turn, and a later graceful idle keeps it cleared', () => {
     useOrbital.setState({ sessions: { revived1: makeSession({ id: 'revived1', status: 'idle' }) } })
 
-    // Crashes once: working -> ended with no turn_result in between.
+    // Crashes once: working -> idle with no turn_result in between.
     useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'working' })
-    useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'ended' })
+    useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'idle' })
     expect(useOrbital.getState().transcriptErrors.revived1).toBe(true)
 
     // Revived and completes a turn normally.
@@ -343,9 +347,9 @@ describe('applySessionEvent', () => {
     useOrbital.getState().applySessionEvent('revived1', { event: 'turn_result', usage: {} })
     expect(useOrbital.getState().transcriptErrors.revived1).toBe(false)
 
-    // A subsequent graceful end (turn_result already seen) must not
+    // A subsequent graceful idle (turn_result already seen) must not
     // re-flag it.
-    useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'ended' })
+    useOrbital.getState().applySessionEvent('revived1', { event: 'status', status: 'idle' })
     expect(useOrbital.getState().transcriptErrors.revived1).toBe(false)
   })
 })
@@ -1160,14 +1164,11 @@ describe('statusCounts (pure)', () => {
       b: makeSession({ id: 'b', status: 'working' }),
       c: makeSession({ id: 'c', status: 'idle' }),
       d: makeSession({ id: 'd', status: 'needs_input' }),
-      e: makeSession({ id: 'e', status: 'ended' }),
+      e: makeSession({ id: 'e', status: 'ended', pinnedAt: 1 }),
     }
-    // "never" keeps the age cutoff out of a test about counting by status —
-    // these fixtures carry a 1970 `lastAt`.
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      settings: { map_release_ended_after_minutes: 'never' },
     }
     expect(statusCounts(state, NOW)).toEqual({ working: 2, idle: 1, needs_input: 1, ended: 1 })
   })
@@ -1187,12 +1188,11 @@ describe('statusCounts (pure)', () => {
       b: makeSession({ id: 'b', status: 'working', tagIds: [2] }), // muted
       c: makeSession({ id: 'c', status: 'idle', tagIds: [1] }),
       d: makeSession({ id: 'd', status: 'needs_input', tagIds: [2] }), // muted
-      e: makeSession({ id: 'e', status: 'ended', tagIds: [1] }),
+      e: makeSession({ id: 'e', status: 'ended', tagIds: [1], pinnedAt: 1 }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      settings: { map_release_ended_after_minutes: 'never' },
       ui: { ...initialSnapshot.ui, filterTagId: 1 },
     }
     // Only sessions a, c, e (tagIds includes 1) should be counted.
@@ -1207,12 +1207,11 @@ describe('statusCounts (pure)', () => {
       a: makeSession({ id: 'a', status: 'working', title: 'Fix login' }),
       b: makeSession({ id: 'b', status: 'working', title: 'Refactor', cwd: '/src/login-service' }),
       c: makeSession({ id: 'c', status: 'needs_input', title: 'Docs' }),
-      d: makeSession({ id: 'd', status: 'ended', title: 'Release notes' }),
+      d: makeSession({ id: 'd', status: 'ended', title: 'Release notes', pinnedAt: 1 }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      settings: { map_release_ended_after_minutes: 'never' },
       ui: { ...initialSnapshot.ui, search: 'LOGIN' },
     }
     expect(statusCounts(state, NOW)).toEqual({ working: 2, idle: 0, needs_input: 0, ended: 0 })
@@ -1236,138 +1235,83 @@ describe('matchesSearch (pure)', () => {
   })
 })
 
-describe('releaseDelayMs (pure)', () => {
-  it('parses minutes, honours "never", and falls back to 2h', () => {
-    expect(releaseDelayMs({ map_release_ended_after_minutes: '30' })).toBe(30 * 60_000)
-    expect(releaseDelayMs({ map_release_ended_after_minutes: 'never' })).toBeNull()
-    expect(releaseDelayMs({})).toBe(120 * 60_000)
-    expect(releaseDelayMs({ map_release_ended_after_minutes: 'garbage' })).toBe(120 * 60_000)
-    expect(releaseDelayMs({ map_release_ended_after_minutes: '-5' })).toBe(120 * 60_000)
+describe('absorptionFor (pure)', () => {
+  it('draws every session that is not ended, however old, whatever its origin', () => {
+    for (const status of ['working', 'needs_input', 'idle'] as const) {
+      expect(absorptionFor(makeSession({ id: status, status, lastAt: NOW - 90 * DAY }), NOW, undefined)).toBe('none')
+      expect(
+        absorptionFor(makeSession({ id: status, status, source: 'terminal', lastAt: NOW - 90 * DAY }), NOW, undefined),
+      ).toBe('none')
+    }
+  })
+
+  // spec 2026-09-24-sessions-end-only-by-hand-design § 3: the pin still means
+  // "keep this here".
+  it('draws a pinned ended session', () => {
+    const pinned = makeSession({ id: 'p', status: 'ended', lastAt: null, pinnedAt: NOW - DAY })
+    expect(absorptionFor(pinned, NOW, undefined)).toBe('none')
+    expect(absorptionFor(pinned, NOW, NOW - 1)).toBe('none')
+  })
+
+  it('an ended, unpinned session this tab never saw leave is gone outright', () => {
+    expect(absorptionFor(makeSession({ id: 'e', status: 'ended', lastAt: NOW - 1_000 }), NOW, undefined)).toBe('gone')
+  })
+
+  it('is leaving for the grace after it left, gone once the grace has passed', () => {
+    const ended = makeSession({ id: 'e', status: 'ended' })
+    expect(absorptionFor(ended, NOW, NOW - 1)).toBe('leaving')
+    expect(absorptionFor(ended, NOW, NOW - MAP_LEAVE_GRACE_MS - 1)).toBe('gone')
+  })
+
+  // The scene's clock is only re-read on a timer, so it can trail a stamp
+  // taken since — that body must still get its fade.
+  it('is leaving when the stamp is newer than the clock', () => {
+    expect(absorptionFor(makeSession({ id: 'e', status: 'ended' }), NOW, NOW + 60_000)).toBe('leaving')
   })
 })
 
-describe('absorptionFor (pure)', () => {
-  const settings = {} // 2h default delay
-
-  it('is none for a live session, however old, and for a fresh ended one', () => {
-    expect(absorptionFor(makeSession({ id: 'w', status: 'working', lastAt: NOW - 90 * DAY }), settings, NOW)).toBe('none')
-    expect(absorptionFor(makeSession({ id: 'e', status: 'ended', lastAt: NOW - 3_600_000 }), settings, NOW)).toBe('none')
+describe('trashDropFor (pure)', () => {
+  it('ends an Orbital session with nothing in flight, ended ones included', () => {
+    expect(trashDropFor('web', 'idle')).toBe('end')
+    expect(trashDropFor('web', 'ended')).toBe('end')
   })
 
-  it('is releasing just past the delay (the fall plays), absorbed once the grace has passed', () => {
-    const releasedJustNow = makeSession({
-      id: 'r', status: 'ended', lastAt: NOW - 2 * 3_600_000 - 1_000,
-    })
-    expect(absorptionFor(releasedJustNow, settings, NOW)).toBe('releasing')
-    const releasedLongAgo = makeSession({
-      id: 'a', status: 'ended',
-      lastAt: NOW - 2 * 3_600_000 - RELEASE_FALL_GRACE_MS - 1_000,
-    })
-    expect(absorptionFor(releasedLongAgo, settings, NOW)).toBe('absorbed')
+  it('asks first for an Orbital session that is working or waiting on the user', () => {
+    expect(trashDropFor('web', 'working')).toBe('confirm')
+    expect(trashDropFor('web', 'needs_input')).toBe('confirm')
   })
 
-  it('treats an ended session with no lastAt as long absorbed — no fall for ancient history', () => {
-    expect(absorptionFor(makeSession({ id: 'n', status: 'ended', lastAt: null }), settings, NOW)).toBe('absorbed')
-  })
-
-  it('never releases by time under the "never" preset', () => {
-    const ancient = makeSession({ id: 'x', status: 'ended', lastAt: NOW - 400 * DAY })
-    expect(absorptionFor(ancient, { map_release_ended_after_minutes: 'never' }, NOW)).toBe('none')
-  })
-
-  it('a manual dismissal releases immediately and absorbs after the grace, but never a working session', () => {
-    const dismissed = makeSession({ id: 'd', status: 'idle', mapDismissedAt: NOW - 1_000 })
-    expect(absorptionFor(dismissed, settings, NOW)).toBe('releasing')
-    const old = makeSession({
-      id: 'o', status: 'idle', mapDismissedAt: NOW - RELEASE_FALL_GRACE_MS - 1_000,
-    })
-    expect(absorptionFor(old, settings, NOW)).toBe('absorbed')
-    // A working session is on the map no matter what a stale stamp says.
-    const working = makeSession({ id: 'w', status: 'working', mapDismissedAt: NOW - DAY })
-    expect(absorptionFor(working, settings, NOW)).toBe('none')
-  })
-
-  // The pin is the manual exemption from the timer (spec
-  // 2026-09-20-pinned-sessions-design § Web).
-  it('a pin keeps an ended session on the map however long past the delay', () => {
-    const ancient = makeSession({
-      id: 'p', status: 'ended',
-      lastAt: NOW - 2 * 3_600_000 - RELEASE_FALL_GRACE_MS - 1_000,
-    })
-    expect(absorptionFor(ancient, settings, NOW)).toBe('absorbed')
-    expect(absorptionFor({ ...ancient, pinnedAt: NOW - DAY }, settings, NOW)).toBe('none')
-  })
-
-  it('a pinned session with no lastAt stays on the map', () => {
-    const pinned = makeSession({ id: 'pn', status: 'ended', lastAt: null, pinnedAt: NOW - DAY })
-    expect(absorptionFor(pinned, settings, NOW)).toBe('none')
-  })
-
-  // The manual gesture wins: the server clears the pin when it stamps a
-  // dismissal, so a row carrying both is mid-flight — the stamp decides.
-  it('a dismissal stamp beats a pin', () => {
-    const both = makeSession({
-      id: 'b', status: 'idle', mapDismissedAt: NOW - 1_000, pinnedAt: NOW - DAY,
-    })
-    expect(absorptionFor(both, settings, NOW)).toBe('releasing')
+  it('refuses a terminal session whatever its status', () => {
+    for (const status of ['working', 'needs_input', 'idle', 'ended'] as const) {
+      expect(trashDropFor('terminal', status)).toBe('refuse')
+    }
   })
 })
 
 describe('mapSessions (pure)', () => {
-  it('drops absorbed ended sessions and keeps fresh + releasing ones', () => {
+  it('drops ended, unpinned sessions and keeps pinned ones and every live one, however old', () => {
     const sessions: Record<string, ApiSession> = {
-      fresh: makeSession({ id: 'fresh', status: 'ended', lastAt: NOW - 3_600_000 }),
-      releasing: makeSession({ id: 'releasing', status: 'ended', lastAt: NOW - 2 * 3_600_000 - 1_000 }),
-      absorbed: makeSession({ id: 'absorbed', status: 'ended', lastAt: NOW - 3 * DAY }),
-    }
-    const state: OrbitalState = { ...initialSnapshot, sessions }
-    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['fresh', 'releasing'])
-  })
-
-  it('never drops a live session, however old its last message is', () => {
-    const sessions: Record<string, ApiSession> = {
+      ended: makeSession({ id: 'ended', status: 'ended', lastAt: NOW - 1_000 }),
+      pinned: makeSession({ id: 'pinned', status: 'ended', lastAt: NOW - 400 * DAY, pinnedAt: 1 }),
       w: makeSession({ id: 'w', status: 'working', lastAt: NOW - 90 * DAY }),
       i: makeSession({ id: 'i', status: 'idle', lastAt: NOW - 90 * DAY }),
       n: makeSession({ id: 'n', status: 'needs_input', lastAt: NOW - 90 * DAY }),
     }
     const state: OrbitalState = { ...initialSnapshot, sessions }
-    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['i', 'n', 'w'])
+    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['i', 'n', 'pinned', 'w'])
   })
 
-  it('drops a manually dismissed idle session once its fall grace has passed', () => {
+  it('keeps a session that left the map while its grace runs, so the fade can play', () => {
     const sessions: Record<string, ApiSession> = {
-      gone: makeSession({
-        id: 'gone', status: 'idle', mapDismissedAt: NOW - RELEASE_FALL_GRACE_MS - 1_000,
-      }),
-      kept: makeSession({ id: 'kept', status: 'idle' }),
-    }
-    const state: OrbitalState = { ...initialSnapshot, sessions }
-    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['kept'])
-  })
-
-  it('applies no timed release at all under the "never" preset', () => {
-    const sessions: Record<string, ApiSession> = {
-      ancient: makeSession({ id: 'ancient', status: 'ended', lastAt: NOW - 400 * DAY }),
+      fading: makeSession({ id: 'fading', status: 'ended' }),
+      faded: makeSession({ id: 'faded', status: 'ended' }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      settings: { map_release_ended_after_minutes: 'never' },
+      leavingSince: { fading: NOW - 1, faded: NOW - MAP_LEAVE_GRACE_MS - 1 },
     }
-    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['ancient'])
-  })
-
-  it('honours a configured delay other than the default', () => {
-    const sessions: Record<string, ApiSession> = {
-      inside: makeSession({ id: 'inside', status: 'ended', lastAt: NOW - 20 * 60_000 }),
-      outside: makeSession({ id: 'outside', status: 'ended', lastAt: NOW - 40 * 60_000 }),
-    }
-    const state: OrbitalState = {
-      ...initialSnapshot,
-      sessions,
-      settings: { map_release_ended_after_minutes: '30' },
-    }
-    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['inside'])
+    expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['fading'])
   })
 
   // The tag filter mutes on the map rather than hiding — ADR
@@ -1376,12 +1320,7 @@ describe('mapSessions (pure)', () => {
     const sessions: Record<string, ApiSession> = {
       keep: makeSession({ id: 'keep', status: 'idle', tagIds: [1] }),
       otherTag: makeSession({ id: 'otherTag', status: 'idle', tagIds: [2] }),
-      staleSameTag: makeSession({
-        id: 'staleSameTag',
-        status: 'ended',
-        tagIds: [1],
-        lastAt: NOW - 30 * DAY,
-      }),
+      endedSameTag: makeSession({ id: 'endedSameTag', status: 'ended', tagIds: [1] }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
@@ -1407,21 +1346,11 @@ describe('mapSessions (pure)', () => {
   })
 
   // The map filters everything it draws: a planet the filter excludes must
-  // not survive just because the session behind it has ended.
-  it('applies the origin filter to ended sessions inside the cutoff too', () => {
+  // not survive just because the session behind it is pinned.
+  it('applies the origin filter to pinned ended sessions too', () => {
     const sessions: Record<string, ApiSession> = {
-      webEnded: makeSession({
-        id: 'webEnded',
-        status: 'ended',
-        source: 'web',
-        lastAt: NOW - 1_000,
-      }),
-      termEnded: makeSession({
-        id: 'termEnded',
-        status: 'ended',
-        source: 'terminal',
-        lastAt: NOW - 1_000,
-      }),
+      webEnded: makeSession({ id: 'webEnded', status: 'ended', source: 'web', pinnedAt: 1 }),
+      termEnded: makeSession({ id: 'termEnded', status: 'ended', source: 'terminal', pinnedAt: 1 }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
@@ -1432,11 +1361,11 @@ describe('mapSessions (pure)', () => {
   })
 })
 
-describe('statusCounts and the timed release', () => {
+describe('statusCounts and ended sessions', () => {
   it('counts ended sessions still on the map only', () => {
     const sessions: Record<string, ApiSession> = {
-      fresh: makeSession({ id: 'fresh', status: 'ended', lastAt: NOW - 1_000 }),
-      absorbed: makeSession({ id: 'absorbed', status: 'ended', lastAt: NOW - 30 * DAY }),
+      pinned: makeSession({ id: 'pinned', status: 'ended', pinnedAt: 1 }),
+      gone: makeSession({ id: 'gone', status: 'ended' }),
       live: makeSession({ id: 'live', status: 'working' }),
     }
     const state: OrbitalState = { ...initialSnapshot, sessions }
@@ -1444,99 +1373,143 @@ describe('statusCounts and the timed release', () => {
   })
 })
 
-describe('setSessionDismissed', () => {
-  const session = () =>
-    makeSession({ id: 'sd', title: 'auth refactor', status: 'idle' })
+describe('leavingSince', () => {
+  it('stamps a session the moment it ends, on either topic', () => {
+    useOrbital.setState({
+      sessions: {
+        a: makeSession({ id: 'a', status: 'idle' }),
+        b: makeSession({ id: 'b', status: 'working' }),
+      },
+    })
+    useOrbital.getState().applySessionsEvent({ event: 'status', sessionId: 'a', status: 'ended' })
+    useOrbital.getState().applySessionEvent('b', { event: 'status', status: 'ended' })
+
+    expect(useOrbital.getState().leavingSince).toEqual({ a: expect.any(Number), b: expect.any(Number) })
+  })
+
+  it('stamps an ended session that loses its pin, and nothing that keeps its place', () => {
+    const pinned = makeSession({ id: 'p', status: 'ended', pinnedAt: 1 })
+    useOrbital.setState({
+      sessions: { p: pinned, i: makeSession({ id: 'i', status: 'working' }) },
+    })
+    useOrbital.getState().applySessionEvent('i', { event: 'status', status: 'idle' })
+    useOrbital.getState().applySessionsEvent({ event: 'status', sessionId: 'p', status: 'ended' })
+    expect(useOrbital.getState().leavingSince).toEqual({})
+
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: { ...pinned, pinnedAt: null } })
+    expect(useOrbital.getState().leavingSince).toEqual({ p: expect.any(Number) })
+  })
+})
+
+describe('trashSession', () => {
+  const session = () => makeSession({ id: 'sd', title: 'auth refactor', status: 'idle' })
 
   beforeEach(() => {
     useOrbital.setState({ sessions: { sd: session() }, order: ['sd'] })
   })
 
-  it('stamps optimistically, saves, and raises the undo toast on success', async () => {
-    await useOrbital.getState().setSessionDismissed('sd', true)
+  it('ends optimistically, saves, and raises the undo toast on success', async () => {
+    const pending = useOrbital.getState().trashSession('sd', { undo: true })
+    // Before the request answers: the planet starts leaving at once.
+    expect(useOrbital.getState().sessions.sd.status).toBe('ended')
+    expect(useOrbital.getState().leavingSince.sd).toEqual(expect.any(Number))
+    await pending
 
-    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toEqual(expect.any(Number))
-    expect(api.setSessionDismissed).toHaveBeenCalledWith('sd', true)
+    expect(api.endSession).toHaveBeenCalledWith('sd', { unpin: false })
+    expect(api.setSessionPinned).not.toHaveBeenCalled()
     const toast = useOrbital.getState().toast
-    expect(toast).toMatchObject({ kind: 'info' })
-    expect(toast?.message).toContain('auth refactor')
+    expect(toast).toMatchObject({ kind: 'info', message: 'auth refactor ended' })
     expect(toast?.action?.label).toBe('Undo')
   })
 
   it('the toast expires on its own after the undo window', async () => {
     vi.useFakeTimers()
     try {
-      await useOrbital.getState().setSessionDismissed('sd', true)
+      await useOrbital.getState().trashSession('sd', { undo: true })
       expect(useOrbital.getState().toast).not.toBeNull()
-      vi.advanceTimersByTime(10_000)
+      vi.advanceTimersByTime(UNDO_TOAST_MS)
       expect(useOrbital.getState().toast).toBeNull()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('undo clears the stamp and saves the clear, without raising another toast', async () => {
-    await useOrbital.getState().setSessionDismissed('sd', true)
-    useOrbital.getState().clearToast()
+  it('without undo, ends and raises no toast', async () => {
+    await useOrbital.getState().trashSession('sd', { undo: false })
 
-    await useOrbital.getState().setSessionDismissed('sd', false)
-
-    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toBeNull()
-    expect(api.setSessionDismissed).toHaveBeenLastCalledWith('sd', false)
+    expect(api.endSession).toHaveBeenCalledWith('sd', { unpin: false })
     expect(useOrbital.getState().toast).toBeNull()
   })
 
-  // Manual gesture wins (spec § Rules): the drop unpins as it absorbs, and
-  // the toast says so rather than letting the pin vanish silently.
-  it('absorbing a pinned session clears the pin locally and names it in the toast', async () => {
-    useOrbital.setState({
-      sessions: { sd: { ...session(), status: 'ended', pinnedAt: 1_000 } },
-    })
+  it('undo reopens the session, optimistically idle, without touching a pin it never had', async () => {
+    await useOrbital.getState().trashSession('sd', { undo: true })
+    useOrbital.getState().toast?.action?.run()
 
-    await useOrbital.getState().setSessionDismissed('sd', true)
+    expect(useOrbital.getState().sessions.sd.status).toBe('idle')
+    await vi.waitFor(() => expect(api.reopenSession).toHaveBeenCalledWith('sd'))
+    expect(api.setSessionPinned).not.toHaveBeenCalled()
+  })
+
+  // spec § 3: dropping a pinned session ends it and clears the pin; Undo
+  // reopens it and re-pins it.
+  it('takes the pin with it, says so, and undo puts both back', async () => {
+    useOrbital.setState({ sessions: { sd: { ...session(), pinnedAt: 1_000 } } })
+
+    await useOrbital.getState().trashSession('sd', { undo: true })
 
     expect(useOrbital.getState().sessions.sd.pinnedAt).toBeNull()
-    expect(useOrbital.getState().toast?.message).toBe('auth refactor absorbed · pin removed')
-  })
+    // One request: an End and an unpin sent apart made the planet blink.
+    expect(api.endSession).toHaveBeenCalledWith('sd', { unpin: true })
+    expect(api.setSessionPinned).not.toHaveBeenCalled()
+    expect(useOrbital.getState().toast?.message).toBe('auth refactor ended · pin removed')
 
-  it('undo restores the pin, and with it the planet, for a session that was pinned', async () => {
-    useOrbital.setState({
-      sessions: { sd: { ...session(), status: 'ended', pinnedAt: 1_000 } },
-    })
-
-    await useOrbital.getState().setSessionDismissed('sd', true)
-    // `run` is fire-and-forget — it `void`s the promise it starts — so there
-    // is nothing to await on it; the tick is what lets that promise settle.
     useOrbital.getState().toast?.action?.run()
-    await Promise.resolve()
-
-    expect(api.setSessionPinned).toHaveBeenCalledWith('sd', true)
-    expect(useOrbital.getState().sessions.sd.pinnedAt).toEqual(expect.any(Number))
-    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toBeNull()
+    await vi.waitFor(() => expect(api.setSessionPinned).toHaveBeenLastCalledWith('sd', true))
+    expect(api.reopenSession).toHaveBeenCalledWith('sd')
+    expect(useOrbital.getState().sessions.sd).toMatchObject({ status: 'idle', pinnedAt: expect.any(Number) })
   })
 
-  it('puts the pin back too when the dismissal fails to save', async () => {
-    useOrbital.setState({
-      sessions: { sd: { ...session(), status: 'ended', pinnedAt: 1_000 } },
-    })
-    vi.mocked(api.setSessionDismissed).mockRejectedValue(new Error('dismissal server down'))
+  it('a pinned session that had already ended is only unpinned, and undo only re-pins', async () => {
+    useOrbital.setState({ sessions: { sd: { ...session(), status: 'ended', pinnedAt: 1_000 } } })
 
-    await useOrbital.getState().setSessionDismissed('sd', true)
+    await useOrbital.getState().trashSession('sd', { undo: true })
 
-    expect(useOrbital.getState().sessions.sd.pinnedAt).toBe(1_000)
-    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toBeNull()
+    expect(api.endSession).not.toHaveBeenCalled()
+    expect(api.setSessionPinned).toHaveBeenCalledWith('sd', false)
+    expect(useOrbital.getState().leavingSince.sd).toEqual(expect.any(Number))
+
+    useOrbital.getState().toast?.action?.run()
+    await vi.waitFor(() => expect(api.setSessionPinned).toHaveBeenLastCalledWith('sd', true))
+    expect(api.reopenSession).not.toHaveBeenCalled()
   })
 
-  it('puts the stamp back and reports when the save fails', async () => {
-    vi.mocked(api.setSessionDismissed).mockRejectedValue(new Error('dismissal server down'))
+  it('rolls status and pin back and rejects when the End fails', async () => {
+    useOrbital.setState({ sessions: { sd: { ...session(), pinnedAt: 1_000 } } })
+    vi.mocked(api.endSession).mockRejectedValueOnce(new Error('end server down'))
 
-    await useOrbital.getState().setSessionDismissed('sd', true)
+    await expect(useOrbital.getState().trashSession('sd', { undo: true })).rejects.toThrow('end server down')
 
-    expect(useOrbital.getState().sessions.sd.mapDismissedAt).toBeNull()
-    expect(useOrbital.getState().toast).toEqual({
-      kind: 'error',
-      message: 'dismissal server down',
-    })
+    expect(useOrbital.getState().sessions.sd).toMatchObject({ status: 'idle', pinnedAt: 1_000 })
+    expect(useOrbital.getState().toast).toBeNull()
+  })
+
+  it('puts the pin back and rejects when unpinning an already-ended session fails', async () => {
+    useOrbital.setState({ sessions: { sd: { ...session(), status: 'ended', pinnedAt: 1_000 } } })
+    vi.mocked(api.setSessionPinned).mockRejectedValueOnce(new Error('pin server down'))
+
+    await expect(useOrbital.getState().trashSession('sd', { undo: true })).rejects.toThrow('pin server down')
+
+    expect(useOrbital.getState().sessions.sd).toMatchObject({ status: 'ended', pinnedAt: 1_000 })
+  })
+
+  it('a failed reopen puts the End back and reports', async () => {
+    await useOrbital.getState().trashSession('sd', { undo: true })
+    vi.mocked(api.reopenSession).mockRejectedValueOnce(new Error('reopen server down'))
+
+    await useOrbital.getState().reopenSession('sd', false)
+
+    expect(useOrbital.getState().sessions.sd.status).toBe('ended')
+    expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'reopen server down' })
   })
 })
 
@@ -1556,40 +1529,21 @@ describe('setSessionPinned', () => {
     expect(useOrbital.getState().toast).toBeNull()
   })
 
-  // Mirrors the server: pinning is what pulls an absorbed session back.
-  it('pinning clears the dismissal stamp locally too', async () => {
-    useOrbital.setState({
-      sessions: {
-        sp: makeSession({ id: 'sp', status: 'ended', mapDismissedAt: 1_000 }),
-      },
-    })
-
-    await useOrbital.getState().setSessionPinned('sp', true)
-
-    expect(useOrbital.getState().sessions.sp.mapDismissedAt).toBeNull()
-    expect(useOrbital.getState().sessions.sp.pinnedAt).toEqual(expect.any(Number))
-  })
-
-  it('unpinning clears the stamp and saves the clear', async () => {
+  it('unpinning clears the stamp, saves the clear, and starts an ended session leaving', async () => {
     await useOrbital.getState().setSessionPinned('sp', true)
     await useOrbital.getState().setSessionPinned('sp', false)
 
     expect(useOrbital.getState().sessions.sp.pinnedAt).toBeNull()
     expect(api.setSessionPinned).toHaveBeenLastCalledWith('sp', false)
+    expect(useOrbital.getState().leavingSince.sp).toEqual(expect.any(Number))
   })
 
-  it('rolls both fields back and reports when the save fails', async () => {
-    useOrbital.setState({
-      sessions: {
-        sp: makeSession({ id: 'sp', status: 'ended', mapDismissedAt: 1_000 }),
-      },
-    })
-    vi.mocked(api.setSessionPinned).mockRejectedValue(new Error('pin server down'))
+  it('rolls the pin back and reports when the save fails', async () => {
+    vi.mocked(api.setSessionPinned).mockRejectedValueOnce(new Error('pin server down'))
 
     await useOrbital.getState().setSessionPinned('sp', true)
 
     expect(useOrbital.getState().sessions.sp.pinnedAt).toBeNull()
-    expect(useOrbital.getState().sessions.sp.mapDismissedAt).toBe(1_000)
     expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'pin server down' })
   })
 })

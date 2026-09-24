@@ -192,11 +192,6 @@ function indexFiles(
               // reports null; that must not erase what the runner already
               // recorded for a live web session.
               resolvedModel: sql`COALESCE(${meta.model ?? null}, ${sessions.resolvedModel})`,
-              // New activity clears a map dismissal — but only genuinely new
-              // activity (lastAt advancing), not a re-parse of the same file:
-              // this branch also runs for title re-derivation and the like
-              // (spec 2026-09-18-tag-clusters-design § 5).
-              mapDismissedAt: sql`CASE WHEN ${meta.lastAt ?? null} > COALESCE(${sessions.lastAt}, 0) THEN NULL ELSE ${sessions.mapDismissedAt} END`,
               indexedMtime: Math.floor(stat.mtimeMs),
               indexedSize: stat.size,
             },

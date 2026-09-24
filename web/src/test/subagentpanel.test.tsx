@@ -44,8 +44,6 @@ function makeSession(overrides: Partial<ApiSession> = {}): ApiSession {
     permissionMode: 'auto',
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'working',
     subagents: [],

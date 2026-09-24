@@ -40,14 +40,6 @@ export const sessions = sqliteTable(
     model: text('model'),
     /** The model that actually ran, as the transcript/SDK reports it (`claude-opus-5`). */
     resolvedModel: text('resolved_model'),
-    parentId: text('parent_id'),
-    /**
-     * Map-only dismissal (tag clusters, spec 2026-09-18-tag-clusters-design):
-     * when set, the session was dragged into the hole and stays off the map.
-     * Epoch ms. Cleared by the undo endpoint and by any new activity (the
-     * indexer, a sent message) — the sidebar and search never read it.
-     */
-    mapDismissedAt: integer('map_dismissed_at'),
     indexedMtime: integer('indexed_mtime').notNull().default(0),
     indexedSize: integer('indexed_size').notNull().default(0),
     /**
@@ -70,20 +62,20 @@ export const sessions = sqliteTable(
      * rather than a flag because the sidebar's PINNED section keeps pin
      * order, and `GET /api/sessions` sorts on it.
      *
-     * Never set at the same time as `mapDismissedAt` — the two are mutually
-     * exclusive, each route clearing the other. Declared last for the same
-     * reason as `contextUsedTokens`: `ALTER TABLE ... ADD COLUMN` appends,
-     * and `sessionColumns` has to stay in physical order.
+     * Declared last for the same reason as `contextUsedTokens`: `ALTER TABLE
+     * ... ADD COLUMN` appends, and `sessionColumns` has to stay in physical
+     * order.
      */
     pinnedAt: integer('pinned_at'),
     /**
      * The status the Runner last held for this session, and null when it does
      * not own it (spec 2026-09-21-session-autoheal-design). The asymmetry is
-     * the point: a graceful end clears it and a killed process cannot, so a
+     * the point: a stopped process clears it and a killed one cannot, so a
      * non-null value at boot means the server that wrote it never got to
-     * finish — which is how autoheal tells a session that ended from one that
-     * was cut off. Only Orbital's own sessions ever carry it; a terminal
-     * session is read, never owned.
+     * finish. Boot clears every one it finds, and a `working` one marks the
+     * session interrupted (spec 2026-09-24-sessions-end-only-by-hand-design
+     * § 5). Only Orbital's own sessions ever carry it; a terminal session is
+     * read, never owned.
      *
      * Declared last for the same reason as `contextUsedTokens` and
      * `pinnedAt`: `ALTER TABLE ... ADD COLUMN` appends, and `sessionColumns`
@@ -97,6 +89,16 @@ export const sessions = sqliteTable(
      * On the row rather than only on the wire so the mark survives a reload.
      */
     interruptedAt: integer('interrupted_at'),
+    /**
+     * When the user ended this session (epoch ms), null while it has not been
+     * ended (spec 2026-09-24-sessions-end-only-by-hand-design § 1). Only the
+     * user's gestures write it — End, Clear on the old session, the trash —
+     * and only a delivered message or Reopen clears it; a process that exits,
+     * crashes or dies with the server leaves it alone. It means something
+     * only for Orbital's own sessions: a terminal session nobody is running
+     * is over whatever this says.
+     */
+    endedAt: integer('ended_at'),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );

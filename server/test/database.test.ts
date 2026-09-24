@@ -17,7 +17,6 @@ const LEGACY_SETTINGS: Record<string, string> = {
   confirm_before_clear: 'true',
   inherit_tags: 'true',
   inherit_permission_mode: 'true',
-  ended_after_idle_minutes: '30',
 };
 
 // The pre-Drizzle hand-rolled schema (verbatim, as it existed before Task
@@ -100,14 +99,6 @@ describe('openDb', () => {
       .where(sql`${settings.key} = 'default_permission_mode'`)
       .get();
     expect(mode?.value).toBe('acceptEdits');
-    // The map releases ended sessions into the hole after 2h by default; the
-    // web client reads this key and applies the cutoff itself.
-    const releaseAfter = db
-      .select()
-      .from(settings)
-      .where(sql`${settings.key} = 'map_release_ended_after_minutes'`)
-      .get();
-    expect(releaseAfter?.value).toBe('120');
     // Naming sessions from their contents spends a model in the background,
     // so it is off until someone turns it on.
     const autoTitle = db
@@ -203,10 +194,10 @@ describe('openDb', () => {
     const settingsRows = db.select().from(settings).all();
     expect(Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))).toEqual({
       ...LEGACY_SETTINGS,
-      map_release_ended_after_minutes: '120',
       default_model: 'sonnet',
       remember_model_per_project: 'true',
       map_show_model: 'true',
+      map_show_trash: 'true',
       planet_scale: '1',
       map_scale_labels: 'false',
       detail_panel_width: '450',
@@ -274,20 +265,76 @@ describe('openDb migrations folder', () => {
   });
 });
 
-// Tag clusters (spec 2026-09-18-tag-clusters-design § 6): the release delay
-// replaces both old map declutter settings.
-describe('cluster release-delay default', () => {
-  it('seeds map_release_ended_after_minutes and no longer seeds the old declutter keys', async () => {
-    const { openDb } = await import('../src/db/database.js');
-    const { settings } = await import('../src/db/schema.js');
-    const { mkdtempSync } = await import('node:fs');
-    const { tmpdir } = await import('node:os');
-    const { join } = await import('node:path');
+// Spec 2026-09-24-sessions-end-only-by-hand-design § 3–4: the trash replaces
+// the timed release, and lineage is gone. Old databases keep the retired
+// rows; a fresh one never gets them.
+describe('map settings defaults', () => {
+  it('seeds map_show_trash and none of the retired map and lineage keys', () => {
     const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-defaults-')), 'index.db'));
     const rows = Object.fromEntries(db.select().from(settings).all().map((r) => [r.key, r.value]));
-    expect(rows.map_release_ended_after_minutes).toBe('120');
-    expect(rows.map_hide_ended).toBeUndefined();
-    expect(rows.map_ended_max_age_days).toBeUndefined();
+    expect(rows.map_show_trash).toBe('true');
+    for (const retired of [
+      'map_release_ended_after_minutes', 'lineage_depth', 'map_hide_ended', 'map_ended_max_age_days',
+    ]) {
+      expect(rows[retired]).toBeUndefined();
+    }
+    db.$client.close();
+  });
+});
+
+/**
+ * A copy of the migrations folder cut off just before the migration whose tag
+ * ends in `suffix` — the database an older build would have left behind.
+ * Truncated rather than filtered: Drizzle applies only migrations newer than
+ * the last one it recorded, so leaving a later one in would make it skip the
+ * one under test.
+ */
+function migrationsBefore(dir: string, suffix: string): string {
+  const before = join(dir, 'drizzle-before');
+  cpSync(DEFAULT_MIGRATIONS_FOLDER, before, { recursive: true });
+  const journalPath = join(before, 'meta', '_journal.json');
+  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
+    entries: { tag: string }[];
+  };
+  const cut = journal.entries.findIndex((e) => e.tag.endsWith(suffix));
+  expect(cut).toBeGreaterThan(0);
+  journal.entries = journal.entries.slice(0, cut);
+  writeFileSync(journalPath, JSON.stringify(journal));
+  return before;
+}
+
+// Spec 2026-09-24-sessions-end-only-by-hand-design § 6: without the backfill
+// every historical Orbital session would come back onto the map as idle.
+describe('ended_at migration', () => {
+  it('stamps unowned Orbital sessions and leaves owned and terminal ones alone', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-ended-'));
+    const dbPath = join(dir, 'index.db');
+    const old = openDb(dbPath, migrationsBefore(dir, '_sessions_end_only_by_hand'));
+    old.$client.exec(`
+      INSERT INTO sessions (id, project_dir, source, last_at, runner_status, parent_id) VALUES
+        ('web-old', 'p', 'web', 500, NULL, NULL),
+        ('web-never', 'p', 'web', NULL, NULL, 'web-old'),
+        ('web-owned', 'p', 'web', 700, 'working', NULL),
+        ('cli', 'p', 'terminal', 900, NULL, NULL);
+    `);
+    old.$client.close();
+
+    const before = Date.now();
+    const db = openDb(dbPath);
+    const endedAt = Object.fromEntries(
+      db.$client.prepare('SELECT id, ended_at FROM sessions').all()
+        .map((r: any) => [r.id, r.ended_at]),
+    );
+    expect(endedAt['web-old']).toBe(500);
+    // No activity to date it by: stamped with the moment of the migration.
+    expect(endedAt['web-never']).toBeGreaterThanOrEqual(before);
+    expect(endedAt['web-never']).toBeLessThanOrEqual(Date.now());
+    expect(endedAt['web-owned']).toBeNull();
+    expect(endedAt['cli']).toBeNull();
+    const columns = db.$client.prepare('PRAGMA table_info(sessions)').all().map((c: any) => c.name);
+    expect(columns).not.toContain('parent_id');
+    expect(columns).not.toContain('map_dismissed_at');
+    db.$client.close();
   });
 });
 
@@ -326,17 +373,7 @@ describe('default tag', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orbital-db-default-'));
     const dbPath = join(dir, 'index.db');
     // Every migration before the one that adds the unique index.
-    const before = join(dir, 'drizzle-before');
-    cpSync(DEFAULT_MIGRATIONS_FOLDER, before, { recursive: true });
-    const journalPath = join(before, 'meta', '_journal.json');
-    const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
-      entries: { tag: string }[];
-    };
-    // Drizzle skips any migration older than the newest one applied, so every
-    // later migration has to go too, not just this one.
-    journal.entries = journal.entries.slice(0, journal.entries.findIndex((e) => e.tag.endsWith('_one_default_tag')));
-    writeFileSync(journalPath, JSON.stringify(journal));
-    const old = openDb(dbPath, before);
+    const old = openDb(dbPath, migrationsBefore(dir, '_one_default_tag'));
     old.insert(tags).values([
       { name: 'atlas', hue: 150, isDefault: 1 },
       { name: 'personal-again', hue: 330, isDefault: 1 },

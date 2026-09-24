@@ -10,7 +10,6 @@ import {
   minDistance,
   rehomeTarget,
   separation,
-  HOLE_CAPTURE_RADIUS,
   HOLE_DROP_RADIUS,
   HOLE_REPEL_RADIUS,
   CROSS_TAG_EXTRA,
@@ -64,11 +63,11 @@ const TICK = 1 / 60
 function makeInput(overrides: Partial<SimInput> = {}): SimInput {
   return {
     bodies: [
-      { id: 'a1', tagId: 1, x: -4, y: 0, r: 1, live: true, released: false },
-      { id: 'a2', tagId: 1, x: -3, y: 1.2, r: 0.71, live: false, released: false },
-      { id: 'a3', tagId: 1, x: -5, y: -1, r: 0.44, live: false, released: false },
-      { id: 'b1', tagId: 2, x: 5, y: 0.5, r: 1, live: true, released: false },
-      { id: 'b2', tagId: 2, x: 4, y: -1, r: 0.71, live: false, released: false },
+      { id: 'a1', tagId: 1, x: -4, y: 0, r: 1, trash: 'confirm' },
+      { id: 'a2', tagId: 1, x: -3, y: 1.2, r: 0.71, trash: 'end' },
+      { id: 'a3', tagId: 1, x: -5, y: -1, r: 0.44, trash: 'end' },
+      { id: 'b1', tagId: 2, x: 5, y: 0.5, r: 1, trash: 'confirm' },
+      { id: 'b2', tagId: 2, x: 4, y: -1, r: 0.71, trash: 'end' },
     ],
     anchors: [
       { tagId: 1, x: -4, y: 0 },
@@ -86,9 +85,7 @@ function makeSim(input: SimInput = makeInput()): SimState {
 }
 
 function step(sim: SimState, ticks: number) {
-  const absorbed: string[] = []
-  for (let i = 0; i < ticks; i++) absorbed.push(...stepSimulation(sim, TICK).absorbed)
-  return absorbed
+  for (let i = 0; i < ticks; i++) stepSimulation(sim, TICK)
 }
 
 function body(sim: SimState, id: string) {
@@ -101,7 +98,6 @@ describe('reconcileSimulation', () => {
   it('seeds a new clump straight into its slots round the tag’s anchor, clear of one another, awake and holding', () => {
     const sim = makeSim()
     const a1 = body(sim, 'a1')
-    expect(a1.mode).toBe('hold')
     expect(a1.asleep).toBe(false)
     // Its radius-weighted barycentre is the anchor…
     const mates = [...sim.bodies.values()].filter((b) => b.tagId === 1)
@@ -247,7 +243,7 @@ describe('stepSimulation', () => {
   it('repels a bonded body out of the hole halo instead of letting it rest there', () => {
     const input = makeInput()
     // Park a lone live body just inside the halo.
-    input.bodies = [{ id: 'x', tagId: 1, x: 26, y: -26, r: 1, live: true, released: false }]
+    input.bodies = [{ id: 'x', tagId: 1, x: 26, y: -26, r: 1, trash: 'confirm' }]
     input.anchors = [{ tagId: 1, x: 24, y: -24 }]
     const sim = makeSim(input)
     const distBefore = Math.hypot(body(sim, 'x').x - 30, body(sim, 'x').y + 30)
@@ -256,79 +252,39 @@ describe('stepSimulation', () => {
     expect(distAfter).toBeGreaterThan(distBefore)
   })
 
-  it('a released body falls to the hole and reports its absorption exactly once', () => {
-    const input = makeInput()
-    input.bodies = input.bodies.map((b) => (b.id === 'a3' ? { ...b, released: true } : b))
+  it('with the trash hidden, nothing keeps a body out of the corner', () => {
+    const input = makeInput({ hole: null })
+    input.bodies = [{ id: 'x', tagId: 1, x: 26, y: -26, r: 1, trash: 'end' }]
+    input.anchors = [{ tagId: 1, x: 26, y: -26 }]
     const sim = makeSim(input)
-    expect(body(sim, 'a3').mode).toBe('fall')
-
-    const absorbed = step(sim, 60 * 30) // up to 30s of fall
-    expect(absorbed).toEqual(['a3'])
-    expect(body(sim, 'a3').mode).toBe('gone')
-    // Falling bodies never disturb the others' barycentre: the rest are still bonded.
-    expect(body(sim, 'a1').mode).toBe('hold')
-  })
-
-  it('an undo re-bonds a falling body and the springs pull it home again', () => {
-    const input = makeInput()
-    input.bodies = input.bodies.map((b) => (b.id === 'a3' ? { ...b, released: true } : b))
-    const sim = makeSim(input)
-    step(sim, 240) // partway into the fall
-    const fallen = body(sim, 'a3')
-    expect(fallen.mode).toBe('fall')
-    const distToAnchor = Math.hypot(fallen.x - -4, fallen.y - 0)
-
-    reconcileSimulation(sim, makeInput()) // released: false again
-    expect(body(sim, 'a3').mode).toBe('hold')
-    step(sim, 600)
-    const back = body(sim, 'a3')
-    expect(Math.hypot(back.x - -4, back.y - 0)).toBeLessThan(distToAnchor)
+    settleSimulation(sim)
+    expect(Math.hypot(body(sim, 'x').x - 26, body(sim, 'x').y + 26)).toBeLessThan(0.01)
   })
 })
 
 describe('settleSimulation', () => {
-  it('resolves falls instantly and puts every bonded body to sleep (reduced motion)', () => {
-    const input = makeInput()
-    input.bodies = input.bodies.map((b) => (b.id === 'a3' ? { ...b, released: true } : b))
-    const sim = makeSim(input)
-    settleSimulation(sim)
-    expect(body(sim, 'a3').mode).toBe('gone')
-    for (const b of sim.bodies.values()) {
-      if (b.mode === 'hold') expect(b.asleep).toBe(true)
-    }
-  })
-})
-
-describe('fall visuals', () => {
-  it('stretches along the path and shrinks toward the horizon as it closes in', () => {
-    const input = makeInput()
-    input.bodies = [
-      { id: 'f', tagId: 1, x: 22, y: -22, r: 0.44, live: false, released: true },
-    ]
-    input.anchors = [{ tagId: 1, x: -4, y: 0 }]
-    const sim = makeSim(input)
-    let sawStretch = false
-    let sawShrink = false
-    for (let i = 0; i < 60 * 30 && body(sim, 'f').mode === 'fall'; i++) {
-      step(sim, 1)
-      const f = body(sim, 'f')
-      if (f.fallStretch > 1.05) sawStretch = true
-      if (f.fallScale < 0.95) sawShrink = true
-    }
-    expect(body(sim, 'f').mode).toBe('gone')
-    expect(sawStretch).toBe(true)
-    expect(sawShrink).toBe(true)
-    expect(HOLE_CAPTURE_RADIUS).toBeGreaterThan(0)
-  })
-})
-
-describe('holeDropState', () => {
-  // Hole at (30,-30) — see makeInput. 'a2' is idle (absorbable), 'a1' is live.
-  function simWithDrag(id: string, x: number, y: number): SimState {
+  it('puts every body to sleep (reduced motion)', () => {
     const sim = makeSim()
+    settleSimulation(sim)
+    for (const b of sim.bodies.values()) expect(b.asleep).toBe(true)
+  })
+})
+
+// spec 2026-09-24-sessions-end-only-by-hand-design § 3.
+describe('holeDropState', () => {
+  // Trash at (30,-30) — see makeInput. 'a2' ends at once, 'a1' asks first.
+  function simWithDrag(id: string, x: number, y: number, input: SimInput = makeInput()): SimState {
+    const sim = makeSim(input)
     dragSimBody(sim, id, { x, y })
     stepSimulation(sim, TICK) // the drag pin is applied on the next tick
     return sim
+  }
+
+  /** `makeInput` plus a terminal session's body, which the trash refuses. */
+  function withTerminal(): SimInput {
+    const input = makeInput()
+    input.bodies = [...input.bodies, { id: 't1', tagId: 2, x: 6, y: 2, r: 0.71, trash: 'refuse' }]
+    return input
   }
 
   it('is none with no drag, and none for a body that is not actually dragging', () => {
@@ -338,19 +294,25 @@ describe('holeDropState', () => {
     expect(holeDropState(sim, 'unknown', 1)).toBe('none')
   })
 
-  it('is eligible while an absorbable body is dragged anywhere outside the halo', () => {
-    const sim = simWithDrag('a2', -10, 5)
-    expect(holeDropState(sim, 'a2', 1)).toBe('eligible')
+  it('is eligible while a body the trash takes is dragged anywhere outside the halo', () => {
+    expect(holeDropState(simWithDrag('a2', -10, 5), 'a2', 1)).toBe('eligible')
+    expect(holeDropState(simWithDrag('a1', -10, 5), 'a1', 1)).toBe('eligible')
   })
 
-  it('arms inside the drop halo — release there absorbs', () => {
-    const sim = simWithDrag('a2', 30 - HOLE_DROP_RADIUS / 2, -30)
-    expect(holeDropState(sim, 'a2', 1)).toBe('armed')
+  it('arms inside the drop halo, for a body that ends at once and one that asks first', () => {
+    const inside = 30 - HOLE_DROP_RADIUS / 2
+    expect(holeDropState(simWithDrag('a2', inside, -30), 'a2', 1)).toBe('armed')
+    expect(holeDropState(simWithDrag('a1', inside, -30), 'a1', 1)).toBe('armed')
   })
 
-  it('never offers the hole to a live body, even inside the halo', () => {
-    const sim = simWithDrag('a1', 30, -30)
-    expect(holeDropState(sim, 'a1', 1)).toBe('none')
+  it('refuses a terminal body over the trash, and says nothing about it anywhere else', () => {
+    expect(holeDropState(simWithDrag('t1', 30, -30, withTerminal()), 't1', 1)).toBe('refused')
+    expect(holeDropState(simWithDrag('t1', -10, 5, withTerminal()), 't1', 1)).toBe('none')
+  })
+
+  it('is none for every drag while the trash is hidden', () => {
+    const sim = simWithDrag('a2', 30, -30, makeInput({ hole: null }))
+    expect(holeDropState(sim, 'a2', 1)).toBe('none')
   })
 
   it('follows the counter-zoomed halo: a drop just outside the base radius arms when the factor inflates it', () => {
@@ -363,11 +325,11 @@ describe('holeDropState', () => {
 
 // Tag clusters follow-up (agreed in chat): a drop re-homes the clump — the
 // tag's anchor moves to where the body was released — EXCEPT when the drop
-// absorbs the body (the survivors keep their old home) or lands inside the
-// hole's repulsion halo (a home the physics fights forever is no home).
+// lands on the trash (the survivors keep their old home) or inside its
+// repulsion halo (a home the physics fights forever is no home).
 describe('rehomeTarget', () => {
-  function simWithDrag(id: string, x: number, y: number): SimState {
-    const sim = makeSim()
+  function simWithDrag(id: string, x: number, y: number, input: SimInput = makeInput()): SimState {
+    const sim = makeSim(input)
     dragSimBody(sim, id, { x, y })
     stepSimulation(sim, TICK)
     return sim
@@ -378,7 +340,12 @@ describe('rehomeTarget', () => {
     expect(rehomeTarget(simWithDrag('a1', 8, 8), 'a1', 1)).toEqual({ tagId: 1, x: 8, y: 8 })
   })
 
-  it('returns null when the release absorbs the body — the survivors keep their old home', () => {
+  it('re-homes anywhere, the corner included, while the trash is hidden', () => {
+    const sim = simWithDrag('a2', 30, -30, makeInput({ hole: null }))
+    expect(rehomeTarget(sim, 'a2', 1)).toEqual({ tagId: 1, x: 30, y: -30 })
+  })
+
+  it('returns null when the release lands on the trash — the survivors keep their old home', () => {
     const sim = simWithDrag('a2', 30 - HOLE_DROP_RADIUS / 2, -30)
     expect(holeDropState(sim, 'a2', 1)).toBe('armed')
     expect(rehomeTarget(sim, 'a2', 1)).toBeNull()
@@ -406,8 +373,8 @@ describe('footprints and separation', () => {
     const sim = createSimulation()
     reconcileSimulation(sim, {
       bodies: [
-        { id: 'p1', tagId: 1, x: -1, y: 0, r, live: true, released: false },
-        { id: 'p2', tagId: 1, x: 1, y: 0, r, live: true, released: false },
+        { id: 'p1', tagId: 1, x: -1, y: 0, r, trash: 'confirm' },
+        { id: 'p2', tagId: 1, x: 1, y: 0, r, trash: 'confirm' },
       ],
       anchors: [{ tagId: 1, x: 0, y: 0 }],
       hole: { x: 100, y: -100 },
@@ -470,8 +437,8 @@ describe('footprints and separation', () => {
 
     reconcileSimulation(sim, {
       bodies: [
-        { id: 'p1', tagId: 1, x: -1, y: 0, r: 2.04, live: true, released: false },
-        { id: 'p2', tagId: 1, x: 1, y: 0, r: 1, live: true, released: false },
+        { id: 'p1', tagId: 1, x: -1, y: 0, r: 2.04, trash: 'confirm' },
+        { id: 'p2', tagId: 1, x: 1, y: 0, r: 1, trash: 'confirm' },
       ],
       anchors: [{ tagId: 1, x: 0, y: 0 }],
       hole: { x: 100, y: -100 },
@@ -522,8 +489,8 @@ describe('separation', () => {
     const sim = createSimulation()
     reconcileSimulation(sim, {
       bodies: [
-        { id: 'p1', tagId: 1, x: -0.5, y: 0, r: 1, live: true, released: false },
-        { id: 'p2', tagId: 1, x: 0.5, y: 0, r: 1, live: true, released: false },
+        { id: 'p1', tagId: 1, x: -0.5, y: 0, r: 1, trash: 'confirm' },
+        { id: 'p2', tagId: 1, x: 0.5, y: 0, r: 1, trash: 'confirm' },
       ],
       anchors: [{ tagId: 1, x: 0, y: 0 }],
       hole: { x: 100, y: -100 },
@@ -774,7 +741,7 @@ describe('settled clusters keep a clump’s shape, not a column', () => {
   /** Steps `sim` until every body sleeps; the number of ticks it took. */
   function ticksToSleep(sim: SimState): number {
     let ticks = 0
-    while ([...sim.bodies.values()].some((b) => b.mode === 'hold' && !b.asleep) && ticks < 10 * SETTLE_BUDGET_TICKS) {
+    while ([...sim.bodies.values()].some((b) => !b.asleep) && ticks < 10 * SETTLE_BUDGET_TICKS) {
       step(sim, 1)
       ticks++
     }
@@ -906,8 +873,7 @@ describe('the hole keeps bodies off its label', () => {
             FONT,
             'label'
           ),
-          live: true,
-          released: false,
+          trash: 'confirm',
         },
       ],
       // Its home is where it was let go, on the label: the spring keeps
@@ -1070,8 +1036,7 @@ function clusterInput(specs: ClusterSpec[], mode: MapStatePills = 'label'): SimI
         y: k * Math.sqrt(i) * Math.sin(i * GOLDEN_ANGLE),
         r: moons > 0 ? moonOrbitRadius(scale, moons - 1, false) + moonVisuals('working').discRadius : scale,
         outline: planetOutline(planet, 1, FONT, mode),
-        live: spec.status === 'working' || spec.status === 'needs_input',
-        released: false,
+        trash: 'end',
       }
     }),
     anchors: [{ tagId: 1, x: 0, y: 0 }],

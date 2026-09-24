@@ -220,8 +220,7 @@ export interface SessionTitlerDeps {
   applyTitle(sessionId: string, title: string): void;
   /**
    * The `auto_title_sessions` setting, read at the point of use rather than
-   * captured at boot — the lesson `ended_after_idle_minutes` already taught,
-   * where a value read once ignored the switch until a restart.
+   * captured at boot: a value read once ignores the switch until a restart.
    */
   isEnabled(): boolean;
   now?: () => number;

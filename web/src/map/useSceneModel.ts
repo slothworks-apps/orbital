@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useOrbital } from '../store/store'
+import { MAP_LEAVE_GRACE_MS, useOrbital } from '../store/store'
 import { buildSceneModel, type SceneModel } from './sceneModel'
-
-/**
- * How often the clock behind the `ended` age cutoff is re-read. The cutoff
- * is configured in days, so a minute of lag before a session crosses it is
- * imperceptible — and this interval is the only thing standing between a
- * pure scene model and a `Date.now()` call inside it.
- */
-const CLOCK_TICK_MS = 60_000
 
 /**
  * `<SpaceMap>`'s scene-model subscription. Deliberately NOT
@@ -48,15 +40,19 @@ export function useSceneModel(): SceneModel {
   const models = useOrbital((s) => s.models)
   const contextWindows = useOrbital((s) => s.contextWindows)
   const sessionsTotal = useOrbital((s) => s.sessionsTotal)
+  const leavingSince = useOrbital((s) => s.leavingSince)
 
-  // The one impure input, kept in one place. Seeded once on mount and
-  // advanced on a slow tick so a session ageing past the cutoff eventually
-  // drops off the map without the model itself reading a clock.
+  // The one impure input, kept in one place. Seeded on mount and re-read
+  // once a leaving body's grace has run out, so its fade ends with it off the
+  // map without the model itself reading a clock. Rescheduled on every new
+  // stamp: the newest grace outlasts every earlier one, so one timer drops
+  // them all.
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), CLOCK_TICK_MS)
-    return () => clearInterval(timer)
-  }, [])
+    if (Object.keys(leavingSince).length === 0) return
+    const timer = setTimeout(() => setNowMs(Date.now()), MAP_LEAVE_GRACE_MS)
+    return () => clearTimeout(timer)
+  }, [leavingSince])
 
   return useMemo(
     () =>
@@ -89,6 +85,7 @@ export function useSceneModel(): SceneModel {
           composerDrafts: {},
           detachedIds: [],
           sessionsTotal,
+          leavingSince,
           toast: null,
           subagentPanel: null,
           ui: {
@@ -112,6 +109,7 @@ export function useSceneModel(): SceneModel {
       models,
       contextWindows,
       sessionsTotal,
+      leavingSince,
       selectedId,
       filterTagId,
       search,

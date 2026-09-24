@@ -28,8 +28,6 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     permissionMode: null,
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -148,7 +146,7 @@ describe('useSessionUrl', () => {
 
   it('fetches a session the initial page did not include, then selects it', async () => {
     const session = makeSession({ id: 'old' })
-    vi.mocked(api.getSession).mockResolvedValue({ session, lineage: [] })
+    vi.mocked(api.getSession).mockResolvedValue({ session })
     goTo('?session=old')
 
     render(<Probe />)
@@ -184,7 +182,7 @@ describe('useSessionUrl', () => {
 
   it('never pushes the restored id back out of the URL', async () => {
     const session = makeSession({ id: 'slow' })
-    let resolveFetch: (value: { session: ApiSession; lineage: string[] }) => void = () => {}
+    let resolveFetch: (value: { session: ApiSession }) => void = () => {}
     vi.mocked(api.getSession).mockReturnValue(
       new Promise((resolve) => {
         resolveFetch = resolve
@@ -196,7 +194,7 @@ describe('useSessionUrl', () => {
     // The selection is still null here — the mirror must not read that as a
     // deselection while the restore is in flight.
     await act(async () => {
-      resolveFetch({ session, lineage: [] })
+      resolveFetch({ session })
     })
 
     await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('slow'))

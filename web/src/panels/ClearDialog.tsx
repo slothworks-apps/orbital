@@ -12,25 +12,6 @@ export interface ClearDialogProps {
   open: boolean
   sessionId: string | null
   onClose: () => void
-  /** Called with the cleared session's id right after a successful `clearSession` — lets the caller drop any cached data (e.g. DetailPanel's lineage cache) keyed to it, since a clear can change what `getSession` would now report. */
-  onCleared?: (id: string) => void
-}
-
-/** The lineage preview orbs of canvas 1g: the ending session dimmed, the
- * successor drawn as a dashed "materializing" ring. The export animates the
- * ring; we reuse the shared `orbital-pulse` treatment since the export's
- * `orb-mat` keyframes live outside the files this panel owns. */
-function LineagePreviewOrbs() {
-  return (
-    <div aria-hidden className="flex shrink-0 items-center">
-      <span className="block h-[26px] w-[26px] rounded-full border border-[rgba(200,215,235,.35)] bg-[#0b141d] opacity-60" />
-      <span className="mx-1.5 w-11 border-t border-dotted border-accent/50" />
-      <span className="relative block h-[26px] w-[26px]">
-        <span className="absolute -inset-[5px] rounded-full border border-accent/80 orbital-pulse" />
-        <span className="absolute inset-0 rounded-full border border-dashed border-accent/90 bg-[rgba(20,40,55,.6)] shadow-[0_0_24px_rgba(89,228,243,.6)]" />
-      </span>
-    </div>
-  )
 }
 
 /**
@@ -42,8 +23,7 @@ function LineagePreviewOrbs() {
  * `confirm_before_clear: 'false'` so `DetailPanel`'s header Clear button
  * skips this dialog entirely next time and does the same clear-and-start-new.
  */
-export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialogProps) {
-  const settings = useOrbital(useShallow((s) => s.settings))
+export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
   const tags = useOrbital(useShallow((s) => s.tags))
 
   // Captured at the moment the dialog opens, not the live `sessionId` prop —
@@ -58,32 +38,15 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
 
   const session = useOrbital((s) => (targetId ? s.sessions[targetId] : undefined))
 
-  const [lineageLength, setLineageLength] = useState<number | null>(null)
   const [dontAskAgain, setDontAskAgain] = useState(false)
   const [pending, setPending] = useState(false)
 
   useEffect(() => {
     if (!open) {
       setDontAskAgain(false)
-      setLineageLength(null)
       setPending(false)
-      return
     }
-    if (!targetId) return
-    let cancelled = false
-    api
-      .getSession(targetId)
-      .then(({ lineage }) => {
-        if (!cancelled) setLineageLength(lineage.length)
-      })
-      .catch(() => {
-        // Leave the preview line without a generation count; the dialog is
-        // still fully usable without it.
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [open, targetId])
+  }, [open])
 
   async function persistDontAskAgain() {
     if (!dontAskAgain) return
@@ -109,7 +72,6 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
       try {
         await persistDontAskAgain()
         const result = await api.clearSession(targetId, true)
-        onCleared?.(targetId)
         if (result.sessionId) {
           void useOrbital.getState().select(result.sessionId)
         }
@@ -121,7 +83,7 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [targetId, pending, dontAskAgain, onClose, onCleared],
+    [targetId, pending, dontAskAgain, onClose],
   )
 
   // ⏎ clears and starts a new session ("esc · ⏎ new"). Ending without a
@@ -138,8 +100,6 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, handleClear])
 
-  const lineageDepth = settings.lineage_depth ?? '3'
-  const currentGen = lineageLength !== null ? lineageLength + 1 : null
   const tagNames = (session?.tagIds ?? [])
     .map((id) => tags.find((t) => t.id === id)?.name)
     .filter((name): name is string => Boolean(name))
@@ -170,26 +130,16 @@ export function ClearDialog({ open, sessionId, onClose, onCleared }: ClearDialog
         {/* Copy + geometry from canvas 1g. */}
         <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
           {session?.title && (
-            <span className="font-mono text-text-bright">
-              {session.title}
-              {currentGen !== null ? ` #${currentGen}` : ''}
-            </span>
+            <span className="font-mono text-text-bright">{session.title}</span>
           )}
           {session?.title ? ' ends' : 'This session ends'} and moves to history. A new session starts in
           the same project and inherits its settings.
         </p>
 
-        <div className="mt-3.5 flex items-center rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3">
-          <LineagePreviewOrbs />
-          <div className="ml-4 min-w-0 font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
-            <div>
-              {currentGen !== null ? `#${currentGen} → #${currentGen + 1} · ` : ''}
-              lineage keeps last <span className="text-text-bright">{lineageDepth}</span>
-            </div>
-            <div className="truncate">
-              {session?.permissionMode ?? 'mode'} ·{' '}
-              {tagNames.length > 0 ? tagNames.join(', ') : 'tags'} · same directory
-            </div>
+        <div className="mt-3.5 rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3 font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+          <div className="truncate">
+            {session?.permissionMode ?? 'mode'} ·{' '}
+            {tagNames.length > 0 ? tagNames.join(', ') : 'tags'} · same directory
           </div>
         </div>
 

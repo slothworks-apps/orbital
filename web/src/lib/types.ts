@@ -15,7 +15,6 @@ export interface ApiSession {
   permissionMode: PermissionMode | null
   model: string | null
   resolvedModel: string | null
-  parentId: string | null
   /**
    * Context tokens at the end of the session's last turn, or null when it was
    * never measured — the numerator of the map's context arc (spec
@@ -29,24 +28,27 @@ export interface ApiSession {
    */
   contextUsedTokens?: number | null
   /**
-   * Map-only dismissal stamp (epoch ms), or null — set when the session was
-   * dragged into the map's hole, cleared by undo or any new activity. Only
-   * the map reads it; the sidebar and search never do (spec
-   * 2026-09-18-tag-clusters-design § 5). Mirrors `server/src/api/shape.ts`.
-   */
-  mapDismissedAt: number | null
-  /**
-   * When the user pinned this session (epoch ms), or null — the manual
-   * exemption from the map's release timer (spec
-   * 2026-09-20-pinned-sessions-design). A time rather than a flag because
-   * the sidebar's PINNED section keeps pin order. Never non-null at the
-   * same time as `mapDismissedAt`. Mirrors `server/src/api/shape.ts`.
+   * When the user pinned this session (epoch ms), or null. A pinned session
+   * stays on the map even once it has ended (spec
+   * 2026-09-20-pinned-sessions-design, spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 3). A time rather than a
+   * flag because the sidebar's PINNED section keeps pin order. Mirrors
+   * `server/src/api/shape.ts`.
    *
    * Optional here for the same reason as `contextUsedTokens`: the server
    * always sends the field, absent and null mean the same thing to every
    * reader, and requiring it would rewrite every session fixture in the suite.
    */
   pinnedAt?: number | null
+  /**
+   * When the user ended this session (epoch ms), null while it is open and
+   * for every terminal session, whose end is its CLI exiting rather than a
+   * stamp (spec 2026-09-24-sessions-end-only-by-hand-design § 1).
+   * Mirrors `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `pinnedAt`.
+   */
+  endedAt?: number | null
   /**
    * When a server restart cut this session's turn short (epoch ms), null
    * otherwise (spec 2026-09-21-session-autoheal-design). The session itself
@@ -760,7 +762,13 @@ export interface FileCompletionEntry {
  */
 export type ErrorSource = 'server' | 'web'
 
-/** What kind of thing failed. A short machine label, not a message. */
+/**
+ * What kind of thing failed. A short machine label, not a message.
+ *
+ * `sessions_healed` is legacy: the boot-time resume that recorded it is gone
+ * (spec 2026-09-24-sessions-end-only-by-hand-design § 5) and nothing produces
+ * it now, but rows written before still carry it.
+ */
 export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash' | 'sessions_healed'
 
 export interface ErrorRecord {

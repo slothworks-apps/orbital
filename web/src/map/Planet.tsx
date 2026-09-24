@@ -402,9 +402,10 @@ export interface PlanetProps {
   scaleMultiplier?: number
   selected: boolean
   /**
-   * Suppressed by the map's ENDED toggle. Fades and shrinks out rather than
-   * unmounting (canvas 2a), so the planet stays in the tree and comes back
-   * the same way.
+   * Leaving the map (`ScenePlanet.leaving`): the session ended, or an ended
+   * one lost its pin. Fades and shrinks out in place (canvas 2a's ENDED
+   * suppression) rather than unmounting, so an Undo brings it back the same
+   * way; the scene drops it once the fade has played.
    */
   hidden?: boolean
   /**
@@ -465,7 +466,7 @@ export interface PlanetProps {
   detached?: boolean
   /**
    * The planet's body in the tag-cluster simulation. When present, the frame
-   * loop reads the LIVE position (and the fall transform) off it every frame
+   * loop reads the LIVE position off it every frame
    * instead of tweening the `x`/`y` props — the sim owns all motion,
    * including the retag walk. The object is mutated in place by the sim and
    * keeps a stable identity, so it never causes re-renders. Absent in the
@@ -1319,9 +1320,6 @@ export function Planet({
    * the next frame corrects.
    */
   const groupRef = useRef<THREE.Group>(null)
-  /** Wraps every mesh (not the label): the fall's stretch-along-the-path and
-   * shrink are written here, so the text never rotates with the body. */
-  const fallGroupRef = useRef<THREE.Group>(null)
   const tickGroupRef = useRef<THREE.Group>(null!)
   const arcGroupRef = useRef<THREE.Group>(null!)
   const coreRef = useRef<THREE.Mesh>(null!)
@@ -1509,38 +1507,11 @@ export function Planet({
     let moving = mixMoved || hueMoved || hideMoved || muteMoved
 
     if (simBody) {
-      // The simulation owns the position outright — walks, drags and falls
-      // all arrive through the mutated body, never through the props.
+      // The simulation owns the position outright — walks and drags both
+      // arrive through the mutated body, never through the props.
       if (groupRef.current) {
         groupRef.current.position.x = simBody.x
         groupRef.current.position.y = simBody.y
-      }
-      if (fallGroupRef.current) {
-        if (simBody.mode === 'hold') {
-          fallGroupRef.current.rotation.z = 0
-          fallGroupRef.current.scale.set(1, 1, 1)
-        } else {
-          // Stretch along the travel direction, shrink toward the horizon
-          // (canvas 4a: `rotate(ang) scale(scale*stretch, scale)`); `gone`
-          // leaves fallScale at 0, which blanks the body without touching
-          // the label's own fade.
-          fallGroupRef.current.rotation.z = simBody.fallAngle
-          fallGroupRef.current.scale.set(
-            simBody.fallScale * simBody.fallStretch,
-            simBody.fallScale,
-            1
-          )
-        }
-        // The label fades out over the last stretch of the fall rather than
-        // riding a stretching body (canvas fades it with distance).
-        if (labelRef.current && simBody.mode !== 'hold') {
-          labelRef.current.style.opacity = String(
-            simBody.fallScale *
-              hideFade.value *
-              mutedOpacity(muteFade.value) *
-              selectionLabelOpacity(reticleFade.value)
-          )
-        }
       }
     } else if (advancePointTween(move, delta)) {
       moving = true
@@ -1681,9 +1652,8 @@ export function Planet({
       }
       // The label changes place on this fade without sliding: it fades out,
       // jumps at the handoff while invisible, and fades back in (see the
-      // label block at the top of this file). A falling planet's label is
-      // the fall's to write, which multiplies the same factor in.
-      if (labelRef.current && (!simBody || simBody.mode === 'hold')) {
+      // label block at the top of this file).
+      if (labelRef.current) {
         labelRef.current.style.opacity = String(whole * selectionLabelOpacity(reticleFade.value))
       }
     }
@@ -1718,13 +1688,17 @@ export function Planet({
     return moving
   })
 
+  // A planet fading off the map is on its way out: nothing to select or pick
+  // up, so the pointer passes through to the map beneath.
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    if (hidden) return
     event.stopPropagation()
     if (detached) setDetachFlash(true)
     onClick?.(session.id)
   }
 
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
+    if (hidden) return
     onBodyPointerDown?.(session.id, event)
   }
 
@@ -1744,7 +1718,6 @@ export function Planet({
       onClick={onClick ? handleClick : undefined}
       onPointerDown={onBodyPointerDown ? handlePointerDown : undefined}
     >
-     <group ref={fallGroupRef}>
       {hasGlowTexture && (
         <mesh position={[0, 0, HALO_Z]} material={materials.glow}>
           <planeGeometry args={[GLOW_SIZE, GLOW_SIZE]} />
@@ -1878,7 +1851,6 @@ export function Planet({
       >
         <circleGeometry args={[HALO_RING_OUTER, 32]} />
       </mesh>
-     </group>
 
       {labelMounted && (
         // No `position` prop: the frame loop owns `y` (`labelY`), and a prop

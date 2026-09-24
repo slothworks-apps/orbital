@@ -10,6 +10,11 @@ related:
 
 # Session autoheal after a server restart
 
+> **Eager resume at boot is gone** ([[2026-09-24-sessions-end-only-by-hand-design]]
+> § 5): a restart resumes nothing. An Orbital session the user did not end
+> reads `idle`, not `ended`, and the next message revives it. A session cut
+> off mid-turn still gets `interrupted_at`.
+
 ## The problem
 
 `server/` runs under `tsx watch`, so every save restarts the process and

@@ -12,6 +12,10 @@ tags:
 ---
 # Pinned sessions — keep a session on the map
 
+> **Since [[2026-09-24-sessions-end-only-by-hand-design]]** there is no
+> release timer, so the pin's exemption from it now reads: pinned ended
+> sessions stay on the map. An unpinned one leaves as soon as it ends.
+
 Canvas: `Feature - Pinned Sessions.dc.html` (artboards 4a–4e; the source
 of truth for every visual value not repeated here). The pin glyph is
 variant D "anchor ring" — provisional per 4e, so build it as one small

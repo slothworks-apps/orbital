@@ -22,7 +22,6 @@ import {
 } from '../db/schema.js';
 import {
   decisionQuestions,
-  parseIdleTimeoutMs,
   type DecisionAnswer,
   type Runner,
 } from '../runner/runner.js';
@@ -197,7 +196,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { sessions: sessionsOut.slice(offset, offset + limit) };
   });
 
-  // The hole's label needs the whole index's size, and `GET /api/sessions`
+  // The trash's label needs the whole index's size, and `GET /api/sessions`
   // only ever returns a page — so the total is its own tiny endpoint rather
   // than a reshaping of the list response every consumer already parses
   // (spec 2026-09-18-tag-clusters-design § 4).
@@ -214,18 +213,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
-    const lineage: string[] = [];
-    let cursor: string | null = row.parent_id;
-    while (cursor) {
-      lineage.push(cursor);
-      const parent = db
-        .select({ parent_id: sessions.parentId })
-        .from(sessions)
-        .where(eq(sessions.id, cursor))
-        .get();
-      cursor = parent?.parent_id ?? null;
-    }
-    return { session: toApiSession(ctx, row), lineage };
+    return { session: toApiSession(ctx, row) };
   });
 
   /**
@@ -631,7 +619,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.post('/api/sessions', async (req, reply) => {
     const body = req.body as {
       cwd: string; prompt: string; permissionMode: PermissionMode;
-      tagId?: number; model?: string; resume?: string; parentId?: string;
+      tagId?: number; model?: string; resume?: string;
       sessionId?: string; attachments?: string[];
     };
     if (invalidAttachments(body.attachments)) {
@@ -655,15 +643,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       }
       // Both halves matter. A row alone would miss a session live in this
       // process whose row has not landed (or was deleted), and the runner
-      // alone would miss every session from a previous boot. `status()` also
-      // answers for sessions that have already ended, which is the answer we
-      // want: their transcript still sits on disk under that name.
+      // alone would miss every session from a previous boot. `hasRun()` also
+      // answers for sessions whose process has stopped, which is the answer
+      // we want: their transcript still sits on disk under that name.
       const rowExists = db
         .select({ id: sessions.id })
         .from(sessions)
         .where(eq(sessions.id, clientId))
         .get() !== undefined;
-      if (rowExists || ctx.runner.status(clientId) !== undefined) {
+      if (rowExists || ctx.runner.hasRun(clientId)) {
         return reply.code(409).send({ error: 'session id is already taken' });
       }
     }
@@ -672,7 +660,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .values({
         id: sessionId, projectDir: '', cwd, source: 'web',
         permissionMode: body.permissionMode, model: body.model ?? null,
-        parentId: body.parentId ?? null, lastAt: Date.now(),
+        lastAt: Date.now(),
         // The row is born already claimed. `start()` above announced the
         // claim to a row that did not exist yet, so without this a session
         // killed during its very first turn would look to the next boot like
@@ -696,44 +684,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   /**
-   * Map-only dismissal — the hole's absorption (spec
-   * 2026-09-18-tag-clusters-design § 5). `dismissed: true` stamps the
-   * session, `false` is the 10s undo. The map is the only reader; the
-   * sidebar, search and every list endpoint ignore the stamp.
-   *
-   * Dismissing also clears any pin: the manual gesture wins, so dragging a
-   * pinned planet into the hole absorbs it and unpins it in one move (spec
-   * 2026-09-20-pinned-sessions-design § Server).
-   */
-  app.put('/api/sessions/:id/dismissed', (req, reply) => {
-    const { id } = req.params as { id: string };
-    const { dismissed } = (req.body ?? {}) as { dismissed?: unknown };
-    if (typeof dismissed !== 'boolean') {
-      return reply.code(400).send({ error: 'dismissed must be a boolean' });
-    }
-    const result = db
-      .update(sessions)
-      .set(
-        dismissed
-          ? { mapDismissedAt: Date.now(), pinnedAt: null }
-          : { mapDismissedAt: null },
-      )
-      .where(eq(sessions.id, id))
-      .run();
-    if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
-    ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
-    return { ok: true };
-  });
-
-  /**
-   * The pin — a per-session, manual exemption from the map's release timer
-   * (spec 2026-09-20-pinned-sessions-design). `pinned: true` stamps the row
-   * with now, `false` clears it; the timer itself is applied client-side, so
+   * The pin — a per-session, manual "keep this on the map", which holds even
+   * once the session has ended (spec 2026-09-20-pinned-sessions-design, spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 3). `pinned: true` stamps
+   * the row with now, `false` clears it; the map applies it client-side, so
    * the server's whole job is the stamp and the ordering it feeds.
-   *
-   * Pinning also clears the dismissal, which is what pulls an already
-   * absorbed session back onto the map. The two stamps never coexist.
    */
   app.put('/api/sessions/:id/pinned', (req, reply) => {
     const { id } = req.params as { id: string };
@@ -743,7 +698,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const result = db
       .update(sessions)
-      .set(pinned ? { pinnedAt: Date.now(), mapDismissedAt: null } : { pinnedAt: null })
+      .set({ pinnedAt: pinned ? Date.now() : null })
       .where(eq(sessions.id, id))
       .run();
     if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
@@ -761,12 +716,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   async function deliverToSession(
     id: string, text: string, attachments?: string[],
   ): Promise<'sent' | 'revived' | 'not_found' | 'terminal'> {
-    // New activity brings a session back to the map, whichever path below
-    // delivers the message — a dismissed session someone is typing into is
-    // evidently not history any more.
-    db.update(sessions).set({ mapDismissedAt: null }).where(eq(sessions.id, id)).run();
+    // Writing to an ended session reopens it, whichever path below delivers
+    // the message — a session someone is typing into is evidently not over
+    // (spec 2026-09-24-sessions-end-only-by-hand-design § 1). Only once it
+    // was delivered, though: a revive that throws leaves the session ended.
+    const reopen = () => db.update(sessions).set({ endedAt: null }).where(eq(sessions.id, id)).run();
     try {
       ctx.runner.send(id, text, attachments);
+      reopen();
       return 'sent';
     } catch {
       // Inactive in the runner — revive by resuming, unless it's live in a
@@ -778,18 +735,30 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       if (ctx.registry.get(id)) return 'terminal';
       const permissionMode = (row.permission_mode ??
         ctx.settings.get('default_permission_mode')) as PermissionMode;
-      await ctx.runner.start({
-        cwd: row.cwd, prompt: text, permissionMode, resume: id,
-        // Without this, reviving silently moved the session onto the CLI's
-        // default model.
-        model: row.model ?? undefined,
-        // The revive is the same turn the send would have been, images included.
-        attachments,
-      });
+      // Reopened ahead of the start, not after it: the Runner announces the
+      // revived session as it starts, and it reads the row for that.
+      reopen();
+      try {
+        await ctx.runner.start({
+          cwd: row.cwd, prompt: text, permissionMode, resume: id,
+          // Without this, reviving silently moved the session onto the CLI's
+          // default model.
+          model: row.model ?? undefined,
+          // The revive is the same turn the send would have been, images included.
+          attachments,
+        });
+      } catch (err) {
+        db.update(sessions).set({ endedAt: row.ended_at }).where(eq(sessions.id, id)).run();
+        throw err;
+      }
       // The session is Orbital's now. Left `terminal`, the row reads as
       // {source: terminal, status: live} — the exact shape `isReadOnly`
       // locks the composer on (fix: reviving-a-terminal-session-leaves-it-read-only).
-      db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, id)).run();
+      //
+      // And the revive is a turn starting, which retires the interrupted
+      // mark. The Runner cannot say so here: a started session is born
+      // `working`, so no status transition fires for the turn it opens with.
+      db.update(sessions).set({ source: 'web', interruptedAt: null }).where(eq(sessions.id, id)).run();
       const revivedRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
       ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, revivedRow) });
       return 'revived';
@@ -1003,7 +972,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (ctx.registry.get(id)) {
       return reply.code(409).send({ error: 'session is live in a terminal' });
     }
-    if (ctx.runner.status(id) && ctx.runner.status(id) !== 'ended') {
+    if (ctx.runner.status(id)) {
       await ctx.runner.setModel(id, model);
     }
     // An ended session keeps the choice too: it is what the revive resumes on.
@@ -1013,14 +982,70 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
+  /**
+   * Writes the user's "this session is over" stamp — `now` to end, null to
+   * reopen — and republishes the row, since `statusOf` reads it for every
+   * Orbital session the Runner holds no process for (spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 1). The Runner only stops
+   * processes; ending is this stamp, which is why the routes write it.
+   */
+  function stampEnded(id: string, endedAt: number | null): void {
+    db.update(sessions).set({ endedAt }).where(eq(sessions.id, id)).run();
+    publishRow(id);
+  }
+
+  function publishRow(id: string): void {
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+  }
+
+  /**
+   * Ends a session: the stamp, and the process stopped if there is one.
+   * Stamped before the stop, not after it — the Runner's release is
+   * announced with whatever the row says at that moment, and announced ahead
+   * of the stamp it would show every client the session `idle` before it
+   * read `ended`. The republish after covers a session with no process to
+   * release.
+   *
+   * `unpin` clears the pin in that same write: the trash ends a pinned
+   * session, and an end and an unpin sent apart gave the map a row that was
+   * ended yet still pinned in between — the planet faded back in, then out.
+   */
+  async function endSession(id: string, opts: { unpin?: boolean } = {}): Promise<void> {
+    db.update(sessions)
+      .set(opts.unpin ? { endedAt: Date.now(), pinnedAt: null } : { endedAt: Date.now() })
+      .where(eq(sessions.id, id))
+      .run();
+    await ctx.runner.stop(id);
+    publishRow(id);
+  }
+
   // End session (spec 2026-09-23-end-session-design): the header's plain
-  // "close this session" — the same `runner.end` that `/clear` makes, under
-  // a name that says what the button does.
+  // "close this session" — the same `endSession` that `/clear` makes, under
+  // a name that says what the button does. `{ unpin: true }` is the trash's
+  // drop of a pinned session: ended and unpinned in one write.
   app.post('/api/sessions/:id/end', async (req, reply) => {
     const { id } = req.params as { id: string };
+    const { unpin } = (req.body ?? {}) as { unpin?: unknown };
     const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
     if (!row) return reply.code(404).send({ error: 'not found' });
-    await ctx.runner.end(id);
+    await endSession(id, { unpin: unpin === true });
+    return { ok: true };
+  });
+
+  /**
+   * The trash's Undo: takes back an End (spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 3). The session comes back
+   * `idle`, with no process — the next message revives it, as for any
+   * sleeping session. A terminal session is refused: its end is the CLI
+   * exiting, which no stamp here can take back.
+   */
+  app.post('/api/sessions/:id/reopen', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.select({ source: sessions.source }).from(sessions).where(eq(sessions.id, id)).get();
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    if (row.source !== 'web') return reply.code(409).send({ error: 'terminal_session' });
+    stampEnded(id, null);
     return { ok: true };
   });
 
@@ -1031,7 +1056,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
-    await ctx.runner.end(id);
+    await endSession(id);
     if (!startNew) return { ok: true };
     const inheritMode = ctx.settings.get('inherit_permission_mode') === 'true';
     const permissionMode = (inheritMode && row.permission_mode
@@ -1048,7 +1073,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     db.insert(sessions)
       .values({
         id: newId, projectDir: '', cwd: row.cwd, source: 'web',
-        permissionMode, model: model ?? null, parentId: id, lastAt: Date.now(),
+        permissionMode, model: model ?? null, lastAt: Date.now(),
       })
       .onConflictDoNothing()
       .run();
@@ -1356,16 +1381,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.patch('/api/settings', (req) => {
     for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
       ctx.settings.set(k, String(v));
-      // The idle timeout used to be read once at boot, so changing it here did
-      // nothing until the API restarted. Push it straight into the Runner that
-      // owns the timers instead — including already-idling sessions.
-      if (k === 'ended_after_idle_minutes') {
-        ctx.runner.setIdleTimeoutMs(parseIdleTimeoutMs(String(v)));
-      }
-      // Same reasoning as the idle timeout above, with more at stake: the
-      // dialog confirms "this will drop N sessions" before saving, so the
-      // sweep has to happen now. Deferring it to the next boot would make
-      // that confirmation a promise about some later restart.
+      // Applied now, not at the next boot: the dialog confirms "this will drop
+      // N sessions" before saving, and deferring the sweep would make that
+      // confirmation a promise about some later restart.
       if (k === RETENTION_KEY) ctx.retention.sweep();
     }
     return { ok: true };

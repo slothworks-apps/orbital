@@ -74,11 +74,13 @@ describe('a session that dies on its own, end to end', () => {
       expect(body.errors[0].detail).toContain('spawn claude ENOENT');
       expect(body.unseen).toBe(1);
 
-      // The session still ends the ordinary way — no `failed` status exists.
+      // No `failed` status exists, and a crash does not end a session: only
+      // the user does (spec 2026-09-24-sessions-end-only-by-hand-design § 1).
+      // It reads idle, and the next message tries again.
       const session = (
         await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}` })
       ).json().session;
-      expect(session.status).toBe('ended');
+      expect(session.status).toBe('idle');
     } finally {
       await app.close();
     }

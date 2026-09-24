@@ -9,12 +9,19 @@ export interface EndDialogProps {
   open: boolean
   sessionId: string | null
   onClose: () => void
+  /**
+   * How the confirmed End is carried out, when not the header's plain
+   * `endSession` — the map's trash passes `trashSession`, which also takes
+   * the pin (spec 2026-09-24-sessions-end-only-by-hand-design § 3). Must
+   * reject on failure, like `endSession`, so the dialog stays open.
+   */
+  onEnd?: (id: string) => Promise<void>
 }
 
 /**
  * Confirms ending a session (spec 2026-09-23-end-session-design; canvas
  * `Feature - Header actions` 23a, "3 · DIALOG"): the 1g shell minus the
- * lineage row and the checkbox — nothing is being created, so there is
+ * summary box and the checkbox — nothing is being created, so there is
  * nothing to preview, and ending is rare enough that the confirmation is the
  * point, so there is no "don't ask again".
  *
@@ -22,7 +29,7 @@ export interface EndDialogProps {
  * leaves it open. The panel stays on the session, which the server republishes
  * as ended.
  */
-export function EndDialog({ open, sessionId, onClose }: EndDialogProps) {
+export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
   // Captured at the moment the dialog opens, not the live `sessionId` prop —
   // see StopDialog: the selection can change elsewhere while this is open.
   const [targetId, setTargetId] = useState<string | null>(null)
@@ -43,14 +50,14 @@ export function EndDialog({ open, sessionId, onClose }: EndDialogProps) {
     if (!targetId || pending) return
     setPending(true)
     try {
-      await useOrbital.getState().endSession(targetId)
+      await (onEnd ?? useOrbital.getState().endSession)(targetId)
       onClose()
     } catch (err) {
       reportError(err, 'Failed to end the session')
     } finally {
       setPending(false)
     }
-  }, [targetId, pending, onClose])
+  }, [targetId, pending, onClose, onEnd])
 
   // ⏎ ends, per the footer caption (23a: "esc · ⏎ end"); esc is the Dialog's.
   useEffect(() => {

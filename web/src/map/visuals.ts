@@ -527,10 +527,20 @@ export const HOLE_HINT_FONT_PX = 9.5
 export const HOLE_HINT_TRACKING_EM = 0.06
 /** The column's flex `gap`, CSS px. */
 export const HOLE_LABEL_LINE_GAP_PX = 4
+/**
+ * The title names what a click opens, not what a drop does: the trash is
+ * still the way into the sidebar's HISTORY (spec
+ * 2026-09-24-sessions-end-only-by-hand-design § 3).
+ */
 export const HOLE_TITLE = 'HISTORY'
-/** Hint copy per drop state. */
-export const HOLE_HINT_REST = 'drop a body in the halo to absorb it'
-export const HOLE_HINT_ARMED = 'release to absorb'
+/**
+ * Hint copy per drop state (spec 2026-09-24-sessions-end-only-by-hand-design
+ * § 3). Placeholder wording until Claude Design draws the trash; the
+ * refused line is the only one that has to say why nothing happens.
+ */
+export const HOLE_HINT_REST = 'drop a session here to end it'
+export const HOLE_HINT_ARMED = 'release to end'
+export const HOLE_HINT_REFUSED = "can't end a terminal session"
 
 /** The count line under the title. */
 export function holeCountLine(count: number): string {
@@ -539,11 +549,11 @@ export function holeCountLine(count: number): string {
 
 /**
  * The box the hole's label column occupies, CSS px: its widest line (the
- * longer of the two hints counts, so the box does not change as a drag
- * arms the hole) over three lines and two gaps.
+ * longest of the hints counts, so the box does not change as a drag arms or
+ * is refused by the trash) over three lines and two gaps.
  */
 export function holeLabelSizePx(count: number): { width: number; height: number } {
-  const hintChars = Math.max(HOLE_HINT_REST.length, HOLE_HINT_ARMED.length)
+  const hintChars = Math.max(HOLE_HINT_REST.length, HOLE_HINT_ARMED.length, HOLE_HINT_REFUSED.length)
   return {
     width: Math.max(
       monoWidthPx(HOLE_TITLE.length, HOLE_TITLE_FONT_PX, HOLE_TITLE_TRACKING_EM),

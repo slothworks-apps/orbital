@@ -59,6 +59,10 @@ and its numbers lived apart. They get their own `CONTEXT USAGE` kicker
 rather than hiding under `MAP`, because the sidebar is not the map and a
 `MAP` kicker would have been a lie.
 
+> Since [[a-session-ends-only-when-the-user-ends-it]] neither of the next
+> two rows exists: lineage and the release timer were removed. The rule
+> itself stands.
+
 **Lineage depth goes to Appearance** for the same reason. It governs how
 many bodies of a chain stay drawn; the sidebar's history is unlimited
 regardless, so nothing about the sessions themselves changes.

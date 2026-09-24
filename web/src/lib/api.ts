@@ -104,8 +104,8 @@ export const api = {
     return data.sessions
   },
 
-  async getSession(id: string): Promise<{ session: ApiSession; lineage: string[] }> {
-    return request<{ session: ApiSession; lineage: string[] }>('GET', `/api/sessions/${id}`)
+  async getSession(id: string): Promise<{ session: ApiSession }> {
+    return request<{ session: ApiSession }>('GET', `/api/sessions/${id}`)
   },
 
   async getMessages(
@@ -294,9 +294,27 @@ export const api = {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/interrupt`)
   },
 
-  /** Ends the session — `runner.end`, the same call `/clear` makes, without the follow-on. */
-  async endSession(id: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/end`)
+  /**
+   * Ends the session — stamps `ended_at` and stops any process, the same call
+   * `/clear` makes, without the follow-on. `unpin` clears the pin in the same
+   * write: the trash's drop of a pinned session, which as two requests showed
+   * the map an ended-but-pinned row in between.
+   */
+  async endSession(id: string, opts: { unpin?: boolean } = {}): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(
+      'POST',
+      `/api/sessions/${id}/end`,
+      opts.unpin ? { unpin: true } : undefined,
+    )
+  },
+
+  /**
+   * Takes back an End — the trash's Undo (spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 3). The session comes back
+   * `idle`; the server refuses a terminal session (409).
+   */
+  async reopenSession(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/reopen`)
   },
 
   async clearSession(id: string, startNew: boolean): Promise<{ ok: boolean; sessionId?: string }> {
@@ -325,12 +343,7 @@ export const api = {
     return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/tags`, { tagIds })
   },
 
-  /** Map-only dismissal (the hole's absorption); `false` is the undo. */
-  async setSessionDismissed(id: string, dismissed: boolean): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/dismissed`, { dismissed })
-  },
-
-  /** The pin — exemption from the map's release timer; `false` unpins. */
+  /** The pin — keeps an ended session on the map; `false` unpins. */
   async setSessionPinned(id: string, pinned: boolean): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/pinned`, { pinned })
   },

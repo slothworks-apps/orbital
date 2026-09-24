@@ -36,8 +36,6 @@ function session(over: Partial<ApiSession> & { id: string }): ApiSession {
     permissionMode: null,
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],

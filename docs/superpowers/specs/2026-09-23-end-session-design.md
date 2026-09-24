@@ -40,6 +40,10 @@ day: when the path and branch run out of room the strip folds to pin · end
 ([[the-header-strip-folds-on-the-path-width]]). The subagent panel's ×
 became the same collapse chevron.
 
+Since [[2026-09-24-sessions-end-only-by-hand-design]], ending is the
+`ended_at` stamp the route writes, then `runner.stop(id)` (`runner.end` is
+gone), and an ended planet leaves the map unless it is pinned.
+
 ## The problem
 
 The detail panel has no action that simply ends a session. What exists:

@@ -26,22 +26,21 @@ import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { LiveSessionStats } from './watcher/liveStats.js';
 import { Hub } from './api/hub.js';
-import { Runner, parseIdleTimeoutMs, type QueryFn } from './runner/runner.js';
-import { runAutoheal } from './runner/autoheal.js';
+import { Runner, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
 import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable } from './runner/claudeCli.js';
 import { GitStore } from './git/store.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
 import { registerRoutes } from './api/routes.js';
-import { toApiSession, type ShapeContext } from './api/shape.js';
+import { statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
-import type { PermissionMode, SessionRow } from './types.js';
+import type { SessionRow } from './types.js';
 
 /**
  * Publishes a REST-shaped `ApiSession` on the `sessions` topic for a live
@@ -65,7 +64,7 @@ export function publishLiveSession(ctx: PublishContext, live: LiveSession): void
     : {
         id: live.sessionId, cwd: live.cwd, title: live.name, firstAt: null,
         lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
-        permissionMode: null, parentId: null, tagIds: [], status: live.status,
+        permissionMode: null, tagIds: [], status: live.status,
         subagents: ctx.subagents.all(live.sessionId),
       };
   ctx.hub.publish('sessions', { event: 'upsert', session });
@@ -237,15 +236,6 @@ export async function buildServer(overrides: {
   // `errors` topic, so it needs the hub and nothing else.
   const errors = new ErrorLog({ db, hub });
   const registry = new SessionRegistry(sessionsDir);
-  // Boot-time seed only — `PATCH /api/settings` pushes later changes straight
-  // into the Runner (`setIdleTimeoutMs`), so this value never goes stale.
-  const idleTimeoutMs = parseIdleTimeoutMs(
-    db
-      .select({ value: settingsTable.value })
-      .from(settingsTable)
-      .where(eq(settingsTable.key, 'ended_after_idle_minutes'))
-      .get()?.value,
-  );
 
   // Which `claude` this server will spawn, decided once at boot: the runner
   // gets the path, `GET /api/health` gets the source so the desktop app can
@@ -355,7 +345,7 @@ export async function buildServer(overrides: {
       republish(sessionId);
     },
     // Read per call, never captured: a value read once at boot ignores the
-    // switch until a restart, which `ended_after_idle_minutes` already taught.
+    // switch until a restart.
     isEnabled: () => settingsStore.get('auto_title_sessions') === 'true',
     onError: (sessionId, err) =>
       errors.record({
@@ -368,10 +358,50 @@ export async function buildServer(overrides: {
       }),
   });
 
+  /**
+   * What a stopped process leaves behind — the user's End or Clear, the
+   * sleep timer, or a CLI that exited on its own all arrive here, as the
+   * Runner's release (`onOwnership` with `null`).
+   *
+   * The announcement is made here and not by the Runner, which cannot know
+   * it: a stopped session reads `ended` only if a route stamped `ended_at`,
+   * and `idle` otherwise (spec 2026-09-24-sessions-end-only-by-hand-design
+   * § 1, § 2). By the time this runs the Runner no longer answers for the
+   * session, so `statusOf` reads the row.
+   */
+  const released = (sessionId: string) => {
+    // Nothing is running in it any more — and nothing is left to observe the
+    // `tool_result` that would otherwise retire its agents.
+    subagents.drop(sessionId);
+    // Same moment, same reasoning: nothing can join a new frame to this
+    // session's buffers once its process is gone, so hanging onto them would
+    // only be a leak.
+    //
+    // This says nothing about what any client is showing. A browser holds
+    // `subagentPanel` in its own store, and neither a status change nor the
+    // `remove` that may follow it necessarily moves `ui.selectedId`, which
+    // is what the panel's close guard watches. Closing it is the client's job
+    // (`applySessionsEvent`'s `remove` branch in `web/src/store/store.ts`); a
+    // panel that outlives this drop refetches into a 404 and renders STREAM
+    // LOST, which is the honest reading — the buffer really is gone by then.
+    subagentTranscripts.drop(sessionId);
+    // One of the two moments a session's stats are written (spec
+    // 2026-09-20-session-stats-design § Evaluation cadence). `liveStats`
+    // is declared below, like `runner` in `publishCtx`.
+    liveStats.end(sessionId);
+    titler.forget(sessionId);
+    // Both topics: the selected session's panel listens on `session:<id>`,
+    // the map on `sessions`.
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as
+      | SessionRow
+      | undefined;
+    if (row) hub.publish(`session:${sessionId}`, { event: 'status', status: statusOf(publishCtx(), row) });
+    republish(sessionId);
+  };
+
   const runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
-    idleTimeoutMs,
     claudeExecutablePath: claudeCli.path,
     images,
     // A second route to a parked permission's verdict, never the only one:
@@ -381,53 +411,26 @@ export async function buildServer(overrides: {
     ide: ideApprovals(ide),
     subagentTranscripts,
     onStatus: (sessionId, status) => {
-      if (status === 'ended') {
-        // An ended session has nothing running in it — and nothing left to
-        // observe the `tool_result` that would otherwise retire its agents.
-        subagents.drop(sessionId);
-        // Same moment, same reasoning: nothing can join a new frame to this
-        // session's buffers once it is gone, so hanging onto them would only
-        // be a leak.
-        //
-        // This says nothing about what any client is showing, and an earlier
-        // version of this comment claimed it did ("no panel can still be
-        // open on a session the map no longer shows"). It could: a browser
-        // holds `subagentPanel` in its own store, and neither an `ended`
-        // status nor the `remove` that may follow it necessarily moves
-        // `ui.selectedId`, which is what the panel's close guard watches.
-        // Closing it is the client's job and the client now does it
-        // (`applySessionsEvent`'s `remove` branch in `web/src/store/store.ts`);
-        // a panel that outlives this drop refetches into a 404 and renders
-        // STREAM LOST, which is the honest reading — the buffer really is
-        // gone by then.
-        subagentTranscripts.drop(sessionId);
-        // One of the two moments a session's stats are written (spec
-        // 2026-09-20-session-stats-design § Evaluation cadence). `liveStats`
-        // is declared below, like `runner` in `publishCtx`.
-        liveStats.end(sessionId);
-      }
-      if (status === 'ended') titler.forget(sessionId);
       // A turn actually starting is what retires the interrupted mark — the
-      // session has moved on from the turn the restart cut short. It has to
-      // hang off `onStatus` rather than `onOwnership`: the latter reports
-      // `working` at the moment autoheal claims the session, which would wipe
-      // the mark before anyone saw it.
+      // session has moved on from the turn the restart cut short. It hangs
+      // off `onStatus` rather than `onOwnership`, which also reports the
+      // claim a revive makes before any turn has run.
       if (status === 'working') {
         db.update(sessions).set({ interruptedAt: null }).where(eq(sessions.id, sessionId)).run();
       }
       hub.publish('sessions', { event: 'status', sessionId, status });
     },
     // The claim that survives a kill: written on every change, cleared only
-    // by a graceful end. A `tsx watch` restart never reaches the clear, which
-    // is precisely how the next boot recognises a session it should bring
-    // back (spec 2026-09-21-session-autoheal-design).
+    // when the process stops. A `tsx watch` restart never reaches the clear,
+    // which is how the next boot recognises a session that was cut off
+    // (spec 2026-09-21-session-autoheal-design).
     onOwnership: (sessionId, status) => {
       db.update(sessions).set({ runnerStatus: status }).where(eq(sessions.id, sessionId)).run();
+      if (status === null) released(sessionId);
       // The session's live feed changes hands with its owner: the Runner's
       // stream while it holds the session, a transcript tail while it does
       // not (adr: the-tail-yields-to-the-runner). `startTail`/`stopTail` are
-      // declared below, like `liveStats`; the first claim is autoheal's, and
-      // that runs after them.
+      // declared below, like `liveStats`.
       const topic = `session:${sessionId}`;
       if (status !== null) stopTail(topic);
       else if (hub.subscriberCount(topic) > 0) startTail(topic);
@@ -482,9 +485,9 @@ export async function buildServer(overrides: {
     // the snapshot, and it is what separates NEEDS INPUT from DONE.
     onDecision: (sessionId) => republish(sessionId),
     // An approved plan left plan mode. Stored on the row, so the panel's mode
-    // readout stops claiming the session is read-only and an autoheal after a
-    // restart resumes it in the mode it was actually running in — not the one
-    // it was launched in (spec 2026-09-23-permission-and-plan-decisions-design).
+    // readout stops claiming the session is read-only and a revive resumes it
+    // in the mode it was actually running in — not the one it was launched in
+    // (spec 2026-09-23-permission-and-plan-decisions-design).
     onPermissionMode: (sessionId, mode) => {
       db.update(sessions).set({ permissionMode: mode }).where(eq(sessions.id, sessionId)).run();
       republish(sessionId);
@@ -584,10 +587,9 @@ export async function buildServer(overrides: {
   // the file. A session the Runner owns publishes off the SDK stream instead,
   // so a tail runs exactly while the topic has a subscriber AND nobody in
   // this process owns the session. Both edges hand over — the Runner
-  // claiming a session (a launch, a revive, a heal) stops its tail, and the
-  // Runner releasing one (its end) starts a tail for whoever is still
-  // watching (adr: the-tail-yields-to-the-runner). Declared before autoheal,
-  // whose claims are the first to reach `stopTail`.
+  // claiming a session (a launch or a revive) stops its tail, and the
+  // Runner releasing one (its process stopping) starts a tail for whoever is
+  // still watching (adr: the-tail-yields-to-the-runner).
   const tails = new Map<string, TranscriptTail>();
   const stopTail = (topic: string) => {
     tails.get(topic)?.stop();
@@ -596,10 +598,9 @@ export async function buildServer(overrides: {
   const startTail = (topic: string) => {
     if (!topic.startsWith('session:') || tails.has(topic)) return;
     const id = topic.slice('session:'.length);
-    // `status()`, not `active()`: on the release edge the Runner still lists
-    // the session for one more call, but already reads it as `ended`.
-    const owned = runner.status(id);
-    if (owned !== undefined && owned !== 'ended') return; // web sessions publish directly
+    // The Runner lets go of a session before it announces the release, so on
+    // that edge this already reads `undefined`.
+    if (runner.status(id) !== undefined) return; // web sessions publish directly
     const transcriptPath = transcriptPathOf(id);
     if (!transcriptPath) return;
     const tail = new TranscriptTail(transcriptPath);
@@ -674,58 +675,22 @@ export async function buildServer(overrides: {
   registry.scan();
   registry.watch();
 
-  // Bring back what the previous server was still running. Runs after
-  // `indexProjects` (which refreshes `last_at`, the age autoheal judges on)
-  // and after `registry.scan()` (so a session live in a terminal is
-  // recognised and left alone). `start()` resolves without waiting to hear
-  // from the CLI, so this does not hold up `listen()`.
-  await runAutoheal({
-    rows: db
-      .select({
-        id: sessions.id, runnerStatus: sessions.runnerStatus, lastAt: sessions.lastAt,
-        cwd: sessions.cwd, permissionMode: sessions.permissionMode, model: sessions.model,
-      })
-      .from(sessions)
-      .where(isNotNull(sessions.runnerStatus))
-      .all(),
-    now: Date.now(),
-    idleTimeoutMs,
-    isLiveInTerminal: (id) => registry.get(id) !== undefined,
-    cwdExists: existsSync,
-    resume: async (row) => {
-      // Empty prompt: the session comes back parked on stdin, no turn, no
-      // tokens. Its own permission mode, or the default when it never had
-      // one; its own model, so a heal cannot silently move it.
-      await runner.start({
-        cwd: row.cwd,
-        prompt: '',
-        permissionMode: (row.permissionMode ??
-          settingsStore.get('default_permission_mode')) as PermissionMode,
-        model: row.model ?? undefined,
-        resume: row.id,
-      });
-      publishSession(publishCtx(), row.id);
-    },
-    clearClaim: (ids) => {
-      if (ids.length) {
-        db.update(sessions).set({ runnerStatus: null }).where(inArray(sessions.id, ids)).run();
-      }
-    },
-    markInterrupted: (ids, at) => {
-      db.update(sessions).set({ interruptedAt: at }).where(inArray(sessions.id, ids)).run();
-    },
-    report: (summary) =>
-      errors.record({
-        source: 'server',
-        kind: 'sessions_healed',
-        sessionId: null,
-        message:
-          `${summary.healed.length} session(s) resumed after a server restart` +
-          (summary.interrupted.length ? `, ${summary.interrupted.length} cut off mid-turn` : ''),
-        detail: null,
-        context: summary as unknown as Record<string, unknown>,
-      }),
-  });
+  // Let go of what the previous server was still running. Nothing is resumed:
+  // a session whose process died with the server reads `idle`, and the next
+  // message revives it (spec 2026-09-24-sessions-end-only-by-hand-design
+  // § 5). A kill never reaches the Runner's release, so the claim is still
+  // on the row; clearing it is the release the kill skipped. A claim that
+  // stood at `working` was cut off mid-turn, which is what `interrupted_at`
+  // records — stamped first, while the flag still says so.
+  const bootedAt = Date.now();
+  db.update(sessions)
+    .set({ interruptedAt: bootedAt })
+    .where(eq(sessions.runnerStatus, 'working'))
+    .run();
+  db.update(sessions)
+    .set({ runnerStatus: null })
+    .where(isNotNull(sessions.runnerStatus))
+    .run();
 
   const app = Fastify();
   // I5: DNS-rebinding guard applied to every REST request.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatDuration, formatToolDuration, releaseFootnote } from '../lib/format'
+import { endedFootnote, formatDuration, formatToolDuration } from '../lib/format'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -52,46 +52,30 @@ describe('formatToolDuration', () => {
   })
 })
 
-describe('releaseFootnote', () => {
+describe('endedFootnote', () => {
   const now = 1_700_000_000_000
 
-  it('says what a pin means, whatever the release setting is', () => {
-    const line = 'pinned · stays on the map until you unpin it or drag it into the hole'
-    expect(releaseFootnote({ pinned: true, endedAt: now - HOUR, releaseAfterMs: 7 * DAY, now })).toBe(line)
-    expect(releaseFootnote({ pinned: true, endedAt: null, releaseAfterMs: null, now })).toBe(line)
+  it('says what a pin means, whenever it ended', () => {
+    const line = 'pinned · stays on the map until you unpin it or drop it in the trash'
+    expect(endedFootnote({ pinned: true, endedAt: now - HOUR, now })).toBe(line)
+    expect(endedFootnote({ pinned: true, endedAt: null, now })).toBe(line)
   })
 
-  it('pairs how long ago it ended with how long is left', () => {
-    expect(releaseFootnote({ pinned: false, endedAt: now - 2 * HOUR, releaseAfterMs: 7 * DAY, now })).toBe(
-      'ended 2h ago · releases into history in 6d 22h'
-    )
-  })
-
-  it('promises no release when the timer is off', () => {
-    expect(releaseFootnote({ pinned: false, endedAt: now - 2 * HOUR, releaseAfterMs: null, now })).toBe(
-      'ended 2h ago'
-    )
-  })
-
-  it('drops the release clause once the delay has already elapsed', () => {
-    expect(releaseFootnote({ pinned: false, endedAt: now - 8 * DAY, releaseAfterMs: 7 * DAY, now })).toBe(
-      'ended 8d ago'
-    )
+  it('says how long ago it ended, with no countdown after it', () => {
+    expect(endedFootnote({ pinned: false, endedAt: now - 2 * HOUR, now })).toBe('ended 2h ago')
   })
 
   it('reads "just now" rather than "now ago" for a session that just ended', () => {
-    expect(releaseFootnote({ pinned: false, endedAt: now - 10_000, releaseAfterMs: 2 * HOUR, now })).toBe(
-      'ended just now · releases into history in 1h 59m'
-    )
+    expect(endedFootnote({ pinned: false, endedAt: now - 10_000, now })).toBe('ended just now')
   })
 
   it('names the date instead of an unreadable day count past a month', () => {
-    const line = releaseFootnote({ pinned: false, endedAt: now - 40 * DAY, releaseAfterMs: null, now })
+    const line = endedFootnote({ pinned: false, endedAt: now - 40 * DAY, now })
     expect(line).toMatch(/^ended on /)
     expect(line).not.toMatch(/ago/)
   })
 
   it('has nothing to say about a session with no end time', () => {
-    expect(releaseFootnote({ pinned: false, endedAt: null, releaseAfterMs: 2 * HOUR, now })).toBeNull()
+    expect(endedFootnote({ pinned: false, endedAt: null, now })).toBeNull()
   })
 })

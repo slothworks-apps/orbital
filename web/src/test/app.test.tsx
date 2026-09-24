@@ -147,8 +147,6 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
     permissionMode: 'acceptEdits',
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],
@@ -221,8 +219,13 @@ beforeEach(() => {
   vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
   vi.mocked(api.getSession).mockResolvedValue({
     session: makeSession({ id: 'unused' }),
-    lineage: [],
   })
+  // Selecting a web session mounts `DetailPanel`, whose walkthrough-entry
+  // effect calls this on every mount. A default that never resolves means
+  // that fetch never lands mid-test as an update no test here is actually
+  // about — see `detail.test.tsx`'s identical default and
+  // `docs/fixes/detailpanel-model-chip-updates-outside-act.md`.
+  vi.mocked(api.walkthroughSummary).mockReturnValue(new Promise(() => {}))
 })
 
 // ---------------------------------------------------------------------------
@@ -391,12 +394,6 @@ describe('App: keyboard', () => {
     act(() => {
       useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a', dialog: null } }))
     })
-    // Selecting mounts DetailPanel, which fetches the session's lineage. Await
-    // it before pressing anything: otherwise the `setLineageCache` it resolves
-    // into lands after this test has returned, outside act. The test below
-    // never warned only because its `waitFor` drains the same microtask by
-    // accident. See `docs/fixes/detailpanel-model-chip-updates-outside-act.md`.
-    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
 
     fireEvent.keyDown(document, { key: 'Escape' })
 
@@ -653,20 +650,20 @@ describe('App: session in the URL', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Map aggregate readout — plain text since tag clusters: hiding ended
-// sessions is the hole's job (they fall in after the release delay), so the
-// 2a/2b suppression toggle is gone (spec 2026-09-18-tag-clusters-design § 6).
+// Map aggregate readout — plain text since tag clusters: an ended session
+// leaves the map unless pinned (spec 2026-09-24-sessions-end-only-by-hand-
+// design § 3), so the 2a/2b suppression toggle is gone.
 // ---------------------------------------------------------------------------
 
 describe('map aggregate readout', () => {
-  /** Two live sessions plus two ended ones, all inside the release delay. */
+  /** Two live sessions plus two ended ones, pinned so they stay on the map. */
   async function renderWithEnded() {
     const recent = Date.now() - 60_000
     vi.mocked(api.listSessions).mockResolvedValue([
       makeSession({ id: 'w', status: 'working', lastAt: recent }),
       makeSession({ id: 'i', status: 'idle', lastAt: recent }),
-      makeSession({ id: 'e1', status: 'ended', lastAt: recent }),
-      makeSession({ id: 'e2', status: 'ended', lastAt: recent }),
+      makeSession({ id: 'e1', status: 'ended', lastAt: recent, pinnedAt: recent }),
+      makeSession({ id: 'e2', status: 'ended', lastAt: recent, pinnedAt: recent }),
     ])
     return renderApp()
   }
@@ -763,7 +760,6 @@ describe('App: placing the subagent panel', () => {
     act(() => {
       useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } }))
     })
-    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
 
     // Nothing subagent-shaped is on screen until the panel opens.
     expect(screen.queryByText('SUBAGENT · READ-ONLY')).not.toBeInTheDocument()
@@ -812,7 +808,6 @@ describe('App: placing the subagent panel', () => {
     act(() => {
       useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } }))
     })
-    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
     act(() => {
       useOrbital.setState({
         subagentPanel: {
@@ -845,7 +840,6 @@ describe('App: placing the subagent panel', () => {
     act(() => {
       useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } }))
     })
-    await waitFor(() => expect(api.getSession).toHaveBeenCalledWith('a'))
     act(() => {
       useOrbital.setState({
         subagentPanel: {

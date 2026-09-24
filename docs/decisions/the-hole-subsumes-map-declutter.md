@@ -1,18 +1,25 @@
 ---
 id: the-hole-subsumes-map-declutter
 title: The corner hole is the one answer to "where did my ended session go"
-status: in-force
+status: superseded
 type: adr
 domain: sessions
 related:
   - map-ended-declutter
   - 2026-09-18-tag-clusters-design
+  - a-session-ends-only-when-the-user-ends-it
 tags:
   - space-map
   - tags
   - settings
 ---
 # The corner hole is the one answer to "where did my ended session go"
+
+> **Superseded by [[a-session-ends-only-when-the-user-ends-it]]** (2026-09-24):
+> nothing ends on a timer any more, so there is no release delay for the
+> hole to absorb sessions after. An ended session leaves the map at once
+> unless pinned, and the hole became a trash that sessions are dropped on to
+> end them.
 
 ## The problem
 

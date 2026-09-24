@@ -99,6 +99,13 @@
       "when": 1790236224224,
       "tag": "0013_reset_stranded_titles",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1790236300000,
+      "tag": "0014_sessions_end_only_by_hand",
+      "breakpoints": true
     }
   ]
 }

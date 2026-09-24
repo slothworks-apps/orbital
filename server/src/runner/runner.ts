@@ -11,19 +11,6 @@ import type { ImageStore, ImageWriter } from '../images/store.js';
 import type { IdeApprovals, IdeReviewVerdict } from '../ide/approvals.js';
 
 /**
- * Sentinel for canvas 1h's "Never — only on Clear": no idle timer at all.
- *
- * A word, not a number. Every numeric sentinel collides with a value some
- * preset might legitimately want (`0` reads as "end immediately", `-1` as a
- * bug), whereas `'never'` can never be mistaken for a minute count. It also
- * fails loudly rather than quietly: `Number('never')` is `NaN`, so a call
- * site that forgets to special-case it trips the `NaN` guard in
- * `parseIdleTimeoutMs` instead of reaching `setTimeout(fn, NaN)` — which
- * fires on the next tick and would end every session the instant it started.
- */
-export const IDLE_NEVER = 'never';
-
-/**
  * How long a turn's end waits for the CLI to say how full the window is
  * before falling back to the turn's last API call. Short on purpose: the
  * request is answered by an idle CLI in milliseconds, and the thing it is
@@ -32,25 +19,15 @@ export const IDLE_NEVER = 'never';
  */
 const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
 
-/** Fallback when the stored value is missing or unusable (minutes). */
-const DEFAULT_IDLE_MINUTES = 30;
-
 /**
- * Turns the stored `ended_after_idle_minutes` value into the milliseconds
- * `Runner` waits before ending an idle session, or `null` for "never arm the
- * timer at all".
- *
- * Deliberately total: anything that is neither `IDLE_NEVER` nor a finite
- * positive minute count falls back to the default rather than reaching
- * `setTimeout` as `NaN`/`0`. Only the explicit sentinel disables the timer,
- * so a corrupt row cannot silently make sessions immortal either.
+ * How long a session may sit waiting on the user before its `claude` process
+ * is stopped. Stopping is not ending: the session reads `idle` and the next
+ * message resumes it through the revive path (spec
+ * 2026-09-24-sessions-end-only-by-hand-design § 2). A constant rather than a
+ * setting, because the user cannot see the difference between a sleeping
+ * session and an idle one.
  */
-export function parseIdleTimeoutMs(raw: string | number | null | undefined): number | null {
-  if (typeof raw === 'string' && raw.trim().toLowerCase() === IDLE_NEVER) return null;
-  const minutes = Number(raw);
-  if (!Number.isFinite(minutes) || minutes <= 0) return DEFAULT_IDLE_MINUTES * 60_000;
-  return minutes * 60_000;
-}
+const SLEEP_AFTER_IDLE_MINUTES = 30;
 
 /**
  * The subset of the SDK's `Query` object Orbital uses. `supportedModels`,
@@ -386,10 +363,10 @@ interface ManagedSession {
    * is what puts the two together.
    */
   turnEnded: boolean;
-  idleTimer: ReturnType<typeof setTimeout> | null;
+  sleepTimer: ReturnType<typeof setTimeout> | null;
   attempt: SessionAttempt;
   /** The session's command list once asked for (or pushed), `null` until then.
-   * It lives on the session, so it dies with it — see `finish()`. */
+   * It lives on the session, so it dies with it — see `release()`. */
   commands: SessionCommand[] | null;
 }
 
@@ -438,8 +415,7 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: I
       // `transcript/parser.ts`): `block` is `any` off the stream, and a
       // non-string `thinking` would throw on `.trim()` inside `pump()`'s
       // `for await`, where the catch logs a warning and then calls
-      // `finish(sessionId)` — one malformed frame would end the whole
-      // session.
+      // `release()` — one malformed frame would stop the whole session.
       if (typeof block.thinking === 'string' && block.thinking.trim()) {
         out.push({ id, role: 'thinking', text: block.thinking, model, timestamp });
       }
@@ -464,12 +440,13 @@ export function sdkToChatMessages(sdkMsg: any, nextSeq: () => number, images?: I
 
 export class Runner {
   private sessions = new Map<string, ManagedSession>();
-  private ended = new Set<string>();
+  /** Every id this Runner has started, live or stopped — see `hasRun`. */
+  private ran = new Set<string>();
   private seq = 0;
   private hub: Hub;
   private queryFn: QueryFn;
   private newSessionId: () => string;
-  private idleTimeoutMs: number | null;
+  private sleepAfterMs: number;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
   private onOwnership?: (sessionId: string, status: SessionStatus | null) => void;
   private onTurnUsage?: (modelUsage: unknown) => void;
@@ -498,8 +475,8 @@ export class Runner {
      * default is a v4 UUID, which is the only shape the CLI accepts.
      */
     newSessionId?: () => string;
-    /** `null` disables the idle timer entirely (the `IDLE_NEVER` preset). */
-    idleTimeoutMs?: number | null;
+    /** The sleep delay, for tests; `SLEEP_AFTER_IDLE_MINUTES` otherwise. */
+    sleepAfterMs?: number;
     /** Content-addressed store live image blocks are decoded into; absent
      * (some tests) they drop, which was always the live path's behaviour. */
     images?: ImageStore;
@@ -517,9 +494,15 @@ export class Runner {
     /**
      * Which sessions this Runner owns, and in what state — `null` when it
      * lets one go. Whoever persists it can tell, at the next boot, a session
-     * that ended from one whose process was killed: a graceful end reports
-     * `null`, and a kill reports nothing at all, leaving the last live
-     * status standing (spec `2026-09-21-session-autoheal-design`).
+     * whose process stopped from one whose process was killed: a stop
+     * reports `null`, and a kill reports nothing at all, leaving the last
+     * live status standing (spec `2026-09-21-session-autoheal-design`).
+     *
+     * The `null` is also the only word the Runner says about a stop. It
+     * publishes no status for it, because it cannot know the answer: a
+     * stopped session is `ended` only if the user ended it, which lives on
+     * the row (spec 2026-09-24-sessions-end-only-by-hand-design § 1). So the
+     * listener announces what the session reads now.
      *
      * Not a second `onStatus`. That one is guarded on change, and a fresh
      * session's state is constructed already at `working`, so it never fires
@@ -599,7 +582,7 @@ export class Runner {
      * exactly one edge, an approved plan leaving plan mode
      * (spec 2026-09-23-permission-and-plan-decisions-design). Whoever stores
      * the sessions row writes it, so the panel's readout and the next
-     * autoheal both see the mode the CLI is actually in rather than the one
+     * revive both see the mode the CLI is actually in rather than the one
      * the session was launched with.
      */
     onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
@@ -610,9 +593,9 @@ export class Runner {
      * reading — see
      * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
      *
-     * Reporting only; the session still ends the same way it always did.
-     * `finish()` runs regardless of whether this is wired, and there is no
-     * `failed` status for it to reach.
+     * Reporting only; the process is still released the same way it always
+     * was. `release()` runs regardless of whether this is wired, and there
+     * is no `failed` status for it to reach.
      *
      * `attempt` is what the session was started with, so a failure can name
      * the directory it could not run in without waiting for the sessions row
@@ -635,10 +618,7 @@ export class Runner {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
     this.newSessionId = deps.newSessionId ?? randomUUID;
-    // `??` would turn an explicit `null` ("never") back into the default, so
-    // only `undefined` (the key absent) may fall through to it.
-    this.idleTimeoutMs =
-      deps.idleTimeoutMs === undefined ? DEFAULT_IDLE_MINUTES * 60_000 : deps.idleTimeoutMs;
+    this.sleepAfterMs = deps.sleepAfterMs ?? SLEEP_AFTER_IDLE_MINUTES * 60_000;
     this.onStatus = deps.onStatus;
     this.onOwnership = deps.onOwnership;
     this.onTurnUsage = deps.onTurnUsage;
@@ -658,45 +638,14 @@ export class Runner {
   }
 
   /**
-   * Applies a new idle timeout to this Runner *and to sessions that are
-   * already idling*, so changing the setting takes effect without restarting
-   * the API.
-   *
-   * Armed timers are re-armed immediately rather than only on the session's
-   * next activity: a session parked in `needs_input` may never reach another
-   * `armIdleTimer()` call — being untouched is exactly the state this setting
-   * governs — so deferring would strand already-idle sessions on the old
-   * timeout forever, and switching away from "never" would never arm one at
-   * all. The re-arm starts a *full* new interval from now instead of
-   * subtracting elapsed idle time, so a change can only postpone an end,
-   * never pull one forward past a deadline the user never saw.
-   *
-   * `working` sessions are left alone here; they pick the new value up at
-   * their next `armIdleTimer()` (turn result/interrupt). Idleness is keyed off
-   * `status`, not off whether a timer handle exists — under the "never"
-   * preset an idling session has no handle, and it is precisely that session
-   * that must get a timer when the user switches back to a timed value.
-   */
-  setIdleTimeoutMs(idleTimeoutMs: number | null): void {
-    this.idleTimeoutMs = idleTimeoutMs;
-    for (const [sessionId, s] of this.sessions) {
-      if (s.status !== 'needs_input') continue;
-      // A parked decision has no deadline (see `decide`), so a setting change
-      // must not hand it one either.
-      if (s.decision) continue;
-      this.armIdleTimer(sessionId);
-    }
-  }
-
-  /**
-   * Clears every armed idle timer (server shutdown). The timers are already
+   * Clears every armed sleep timer (server shutdown). The timers are already
    * `unref()`d so they never hold the process open, but one firing after
-   * close would call `end()` on a Runner whose Hub and db are gone.
+   * close would call `stop()` on a Runner whose Hub and db are gone.
    */
   dispose(): void {
     for (const s of this.sessions.values()) {
-      if (s.idleTimer) clearTimeout(s.idleTimer);
-      s.idleTimer = null;
+      if (s.sleepTimer) clearTimeout(s.sleepTimer);
+      s.sleepTimer = null;
     }
   }
 
@@ -706,14 +655,12 @@ export class Runner {
     s.status = status;
     this.hub.publish(`session:${sessionId}`, { event: 'status', status });
     this.onStatus?.(sessionId, status);
-    // `finish()` reports the release itself, as `null` — an owner that reads
-    // `ended` here would have to translate it back into "not owned" anyway.
-    if (status !== 'ended') this.onOwnership?.(sessionId, status);
+    this.onOwnership?.(sessionId, status);
   }
 
   /**
    * Re-derives a running session's status from what the CLI is actually
-   * doing, and moves the idle timer with it.
+   * doing, and moves the sleep timer with it.
    *
    * `needs_input` is orbital's word for "this one wants YOU", so it may only
    * stand when nothing is going to move on its own. Two things can be moving:
@@ -730,22 +677,22 @@ export class Runner {
    * `decide()` deliberately arms no deadline for it.
    *
    * Every caller funnels through here rather than calling `setStatus`
-   * directly, so the idle timer can never be left armed under a `working`
+   * directly, so the sleep timer can never be left armed under a `working`
    * session or disarmed under a parked one.
    */
   private settleStatus(sessionId: string): void {
     const s = this.sessions.get(sessionId);
-    if (!s || s.status === 'ended' || s.decision) return;
+    if (!s || s.decision) return;
     const busy = !s.turnEnded || this.hasLiveSubagents?.(sessionId) === true;
     const want: SessionStatus = busy ? 'working' : 'needs_input';
     if (s.status === want) return;
     this.setStatus(sessionId, want);
     if (busy) {
       // Null the handle, not just clear it — same reasoning as `send()`.
-      if (s.idleTimer) clearTimeout(s.idleTimer);
-      s.idleTimer = null;
+      if (s.sleepTimer) clearTimeout(s.sleepTimer);
+      s.sleepTimer = null;
     } else {
-      this.armIdleTimer(sessionId);
+      this.armSleepTimer(sessionId);
     }
   }
 
@@ -783,36 +730,49 @@ export class Runner {
     };
   }
 
-  private armIdleTimer(sessionId: string): void {
+  /**
+   * Puts a session that is waiting on the user to sleep after
+   * `SLEEP_AFTER_IDLE_MINUTES`: its process stops, and nothing else about it
+   * changes (spec 2026-09-24-sessions-end-only-by-hand-design § 2).
+   */
+  private armSleepTimer(sessionId: string): void {
     const s = this.sessions.get(sessionId);
     if (!s) return;
-    if (s.idleTimer) clearTimeout(s.idleTimer);
-    s.idleTimer = null;
-    // "Never": leave the session without a timer. This runs *after* the clear
-    // above, so flipping to "never" also disarms what was already armed.
-    if (this.idleTimeoutMs === null) return;
-    const timer = setTimeout(() => void this.end(sessionId), this.idleTimeoutMs);
-    // Don't let the idle timer keep the process alive (e.g. during tests).
+    if (s.sleepTimer) clearTimeout(s.sleepTimer);
+    const timer = setTimeout(() => void this.stop(sessionId), this.sleepAfterMs);
+    // Don't let the sleep timer keep the process alive (e.g. during tests).
     (timer as unknown as { unref?: () => void }).unref?.();
-    s.idleTimer = timer;
+    s.sleepTimer = timer;
   }
 
-  /** Final state transition shared by explicit end() and natural SDK-generator completion. */
-  private finish(sessionId: string): void {
-    // The backstop for the paths that do not go through end(): a generator
+  /**
+   * Lets go of a session whose process has stopped, whichever way it
+   * stopped: `stop()` (the user's End or Clear, or the sleep timer), or a
+   * generator that completed or threw on its own.
+   *
+   * Stopping is not ending. From here on `status()` does not answer for the
+   * session at all, the way it does not for one this Runner never ran, so
+   * `statusOf` falls through to the row: `ended` if a route stamped
+   * `ended_at`, `idle` otherwise (spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 1). No status is published
+   * here — `onOwnership`'s `null` is the whole announcement.
+   *
+   * `state` is the session this call is about. A revive can start a new
+   * session under the same id before the old generator has finished
+   * draining, and that generator's completion must not release the new one.
+   */
+  private release(sessionId: string, state: ManagedSession): void {
+    if (this.sessions.get(sessionId) !== state) return;
+    // The backstop for the paths that do not go through stop(): a generator
     // that completed or threw while a decision was parked. No promise may
     // outlive its session.
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
-    this.setStatus(sessionId, 'ended');
-    // The release. Every path into a finished session comes through here —
-    // the user ending it, the idle timer, a generator that completed or
-    // threw — so this is the one place that can promise "ended on purpose".
-    this.onOwnership?.(sessionId, null);
-    this.ended.add(sessionId);
-    const s = this.sessions.get(sessionId);
-    if (s?.idleTimer) clearTimeout(s.idleTimer);
-    if (s) s.idleTimer = null;
+    if (state.sleepTimer) clearTimeout(state.sleepTimer);
+    state.sleepTimer = null;
+    // Gone before the release is announced, so whoever hears it and asks
+    // `status()` already finds nobody holding the session.
     this.sessions.delete(sessionId);
+    this.onOwnership?.(sessionId, null);
   }
 
   /**
@@ -859,7 +819,7 @@ export class Runner {
       throw new Error(`resume collision: session ${sessionId} already active`);
     }
     const state: ManagedSession = {
-      status: 'working', queue: [], pending: [], generator: null, idleTimer: null,
+      status: 'working', queue: [], pending: [], generator: null, sleepTimer: null,
       lastCall: null, turnEnded: false,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
@@ -867,7 +827,7 @@ export class Runner {
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
     this.sessions.set(sessionId, state);
-    this.ended.delete(sessionId);
+    this.ran.add(sessionId);
     // The claim, announced here rather than left to `setStatus`: the state
     // above is already `working`, so the guarded setter has no transition to
     // fire on, and a session killed before its first turn ended would look
@@ -916,7 +876,7 @@ export class Runner {
 
     const generator = this.queryFn({ prompt: input(), options });
     state.generator = generator;
-    void this.pump(sessionId, generator);
+    void this.pump(sessionId, state, generator);
 
     // An empty prompt with nothing attached (e.g. clear+startNew) means "start
     // the session but wait for the caller's first send()" — enqueueing an empty
@@ -936,10 +896,15 @@ export class Runner {
   }
 
   /** Drains one session's SDK message stream onto the hub until it ends. */
-  private async pump(sessionId: string, generator: AsyncGenerator<any>): Promise<void> {
+  private async pump(sessionId: string, state: ManagedSession, generator: AsyncGenerator<any>): Promise<void> {
     const topic = `session:${sessionId}`;
     try {
       for await (const msg of generator) {
+        // A stopped process can still be flushing frames when a revive starts
+        // a new session under the same id; everything keyed by `sessionId`
+        // below would land on that new session. Once `state` is no longer the
+        // session this id holds, the stream is drained unread.
+        if (this.sessions.get(sessionId) !== state) continue;
         // Every CLI message names the session it belongs to. Anything wearing
         // a different id (a stray from another session) is not ours to
         // publish; messages with no id at all are stream-level noise.
@@ -1098,20 +1063,20 @@ export class Runner {
       }
     } catch (err) {
       // Both, deliberately: the terminal keeps saying it, and the browser
-      // finally gets to. A reporter that throws must not stop `finish()`
+      // finally gets to. A reporter that throws must not stop `release()`
       // below from running — a session that failed twice is still a session
-      // that has to end.
+      // whose process is gone.
       console.warn('orbital: runner pump error:', err);
       try {
-        this.onError?.(sessionId, err, this.sessions.get(sessionId)?.attempt);
+        this.onError?.(sessionId, err, state.attempt);
       } catch (reportErr) {
         console.warn('orbital: failed to record runner error:', reportErr);
       }
     }
-    // Generator finished: the SDK process exited, or end() closed the input
-    // stream. Harmless after an explicit end() — the session is already gone
-    // from the map, so finish() publishes nothing a second time.
-    this.finish(sessionId);
+    // Generator finished: the SDK process exited, or stop() closed the input
+    // stream. Harmless after an explicit stop() — the session is already
+    // released, so release() does nothing a second time.
+    this.release(sessionId, state);
   }
 
   /**
@@ -1241,7 +1206,7 @@ export class Runner {
       };
       this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: pending });
       this.onDecision?.(sessionId);
-      // No idle timer is armed for this: a parked decision has no deadline,
+      // No sleep timer is armed for this: a parked decision has no deadline,
       // mirroring the SDK, whose `canUseTool` promise has none either.
       this.setStatus(sessionId, 'needs_input');
       // AFTER the park, and only after: the browser's card is what owns this
@@ -1459,7 +1424,7 @@ export class Runner {
 
   send(sessionId: string, text: string, attachments?: string[]): void {
     const s = this.sessions.get(sessionId);
-    if (!s || s.status === 'ended') throw new Error(`session ${sessionId} is not active`);
+    if (!s) throw new Error(`session ${sessionId} is not active`);
     // Composer text settles a parked decision instead of starting a turn: the
     // CLI asked, so the text it gets back belongs to the ask, which is what
     // the typing meant. What it MEANS depends on the kind, and the two must
@@ -1504,8 +1469,8 @@ export class Runner {
     if (!msg) return;
     // Null the handle, not just clear it — a cleared-but-retained handle is a
     // dangling reference to a timer that can never fire again.
-    if (s.idleTimer) clearTimeout(s.idleTimer);
-    s.idleTimer = null;
+    if (s.sleepTimer) clearTimeout(s.sleepTimer);
+    s.sleepTimer = null;
     // A turn is starting, and this is the one place that knows it before the
     // stream does. Without the mark, a task event landing in the gap before
     // the CLI's first frame would run `settleStatus` against a session that
@@ -1559,7 +1524,7 @@ export class Runner {
     // interrupt may never produce.
     if (s) s.turnEnded = true;
     this.setStatus(sessionId, 'needs_input');
-    this.armIdleTimer(sessionId);
+    this.armSleepTimer(sessionId);
     if (s) this.onTurnBoundary?.(sessionId, true);
   }
 
@@ -1570,29 +1535,46 @@ export class Runner {
    */
   async setModel(sessionId: string, model: string): Promise<void> {
     const s = this.sessions.get(sessionId);
-    if (!s || s.status === 'ended') throw new Error(`session ${sessionId} is not active`);
+    if (!s) throw new Error(`session ${sessionId} is not active`);
     await s.generator?.setModel?.(model);
   }
 
+  /**
+   * Stops the session's `claude` process — for the user's End and Clear, and
+   * for the sleep timer. Only the process: whether the session is over is
+   * the `ended_at` stamp the routes write, not anything the Runner knows
+   * (spec 2026-09-24-sessions-end-only-by-hand-design § 2).
+   */
   // Same as `start`: `Promise<void>` is this method's published shape, and the
   // routes await it alongside `setModel`, which genuinely is asynchronous.
   // eslint-disable-next-line @typescript-eslint/require-await
-  async end(sessionId: string): Promise<void> {
+  async stop(sessionId: string): Promise<void> {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     // Before the input stream closes, so the CLI is unblocked while it can
     // still read the answer to the question it is parked on.
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
-    if (s.idleTimer) clearTimeout(s.idleTimer);
-    s.idleTimer = null;
     this.enqueue(sessionId, null); // close the input stream
-    this.finish(sessionId);
+    this.release(sessionId, s);
   }
 
+  /**
+   * The status of a session this Runner holds a process for, and `undefined`
+   * for every other — one it never ran and one whose process has stopped
+   * alike, so `statusOf` can read the rest off the row.
+   */
   status(sessionId: string): SessionStatus | undefined {
-    const s = this.sessions.get(sessionId);
-    if (s) return s.status;
-    return this.ended.has(sessionId) ? 'ended' : undefined;
+    return this.sessions.get(sessionId)?.status;
+  }
+
+  /**
+   * Whether this Runner has ever started a session under this id, running or
+   * not. The launch route's collision check needs the stopped ones too: their
+   * transcript still sits on disk under that name, even where the row is
+   * gone.
+   */
+  hasRun(sessionId: string): boolean {
+    return this.ran.has(sessionId);
   }
 
   /**

@@ -103,8 +103,6 @@ function sandboxSession(
     permissionMode: null,
     model: null,
     resolvedModel: null,
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status,
     awaitingSubagents,

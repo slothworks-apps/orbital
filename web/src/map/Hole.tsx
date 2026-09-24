@@ -10,6 +10,7 @@ import {
   HOLE_COUNT_TRACKING_EM,
   HOLE_HINT_ARMED,
   HOLE_HINT_FONT_PX,
+  HOLE_HINT_REFUSED,
   HOLE_HINT_REST,
   HOLE_HINT_TRACKING_EM,
   HOLE_LABEL_GAP,
@@ -29,12 +30,15 @@ import {
 } from './transition'
 
 /**
- * The corner black hole (canvas 4a, spec 2026-09-18-tag-clusters-design § 4):
- * a world-space body pinned bottom-right of the cluster field. It is the
- * history index — its label counts the sessions the map no longer draws, and
- * clicking it opens the sidebar's HISTORY. Absorption feedback (the ring
- * flash) is driven imperatively through `flashRef`, written by the sim
- * driver the moment a body crosses the horizon.
+ * The corner trash (canvas 4a's black hole, spec
+ * 2026-09-24-sessions-end-only-by-hand-design § 3): a world-space body pinned
+ * bottom-right of the cluster field. Dropping a session's planet on it ends
+ * the session (`trashDropFor` decides how); its label counts the sessions the
+ * map does not draw, and clicking it opens the sidebar's HISTORY. The ring
+ * flash on a drop that ends a session is driven imperatively through
+ * `flashRef`, written by `SpaceMap` on release. Still drawn as the hole until
+ * Claude Design draws the trash; the refused state borrows `--color-warning`
+ * meanwhile.
  *
  * Geometry transcribed from canvas 4a's hole block (50px disc, horizon ring
  * at inset -2, drop halo at inset -46, label column left of it), converted
@@ -50,25 +54,35 @@ const RING_OUTER = 27 * PX
 const RING_COLOR = '#f0f8ff'
 const RING_OPACITY = 0.55
 /** The drop halo's band (canvas gradient 42%→74% of the 71px box). The
- * radius itself lives in `simulation.ts` — it is the absorption zone first,
+ * radius itself lives in `simulation.ts` — it is the drop zone first,
  * a visual second. */
 const HALO_BAND_INNER = 0.55 * HOLE_DROP_RADIUS
 const HALO_COLOR = '#96cdff'
 const HALO_OPACITY = 0.07
-/** Halo boost while an absorbable body is in hand… (drop-target signal) */
+/** Halo boost while a body the trash takes is in hand… (drop-target signal) */
 const HALO_ELIGIBLE_BOOST = 2
-/** …and while it is inside the halo, where release absorbs. */
+/** …and while it is inside the halo, where release ends it — or a refused body sits there. */
 const HALO_ARMED_BOOST = 4
 /** How fast the drop-target emphasis eases in and out, per second. */
 const SIGNAL_EASE = 10
 /** An eased emphasis this close to its target has arrived, and snaps to it so the map can stop drawing. */
 const SIGNAL_SETTLED = 0.001
-/** Hint colours per drop state; the copy (`HOLE_HINT_REST`/`_ARMED`) is written imperatively, no re-render per frame. */
+/** Hint colours per drop state; the copy (`HOLE_HINT_*`) is written imperatively, no re-render per frame. */
 const HINT_COLOR_REST = 'rgba(160,190,225,.42)'
 const HINT_COLOR_ELIGIBLE = 'rgba(200,225,255,.75)'
 const HINT_COLOR_ARMED = 'rgba(240,248,255,.95)'
+const HINT_COLOR_REFUSED = 'var(--color-warning)'
+/**
+ * What the ring and halo tint toward while a terminal body is over the trash
+ * — the "no". `--color-warning` in `theme.css`, repeated as a literal because
+ * a three.js material cannot read a CSS variable. No canvas yet; Claude Design
+ * will draw the refused state.
+ */
+const REFUSED_COLOR = new THREE.Color('#ffbb7b')
+const RING_BASE_COLOR = new THREE.Color(RING_COLOR)
+const HALO_BASE_COLOR = new THREE.Color(HALO_COLOR)
 
-/** The ring flash on absorption (canvas: `this.flash = 0.45`). */
+/** The ring flash on a drop that ends a session (canvas: `this.flash = 0.45`). */
 const FLASH_SEC = 0.45
 
 const HOLE_Z = 0.03
@@ -76,8 +90,8 @@ const HOLE_Z = 0.03
 export interface HoleProps {
   hole: SceneHole
   /**
-   * Seconds of flash remaining; the sim driver writes `FLASH_SEC` into it on
-   * each absorption and this component decays it — no React state, the same
+   * Seconds of flash remaining; `SpaceMap` writes into it when a drop ends a
+   * session and this component decays it — no React state, the same
    * frame-loop discipline as every other map animation.
    */
   flashRef: MutableRefObject<number>
@@ -129,9 +143,10 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
     retargetPointTween(move, hole.x, hole.y, prefersReducedMotion())
   }, [move, hole.x, hole.y])
 
-  /** Eased 0..1 emphases of the two drop states, advanced in the frame loop. */
+  /** Eased 0..1 emphases of the drop states, advanced in the frame loop. */
   const eligibleLevel = useRef(0)
   const armedLevel = useRef(0)
+  const refusedLevel = useRef(0)
   const hintRef = useRef<HTMLDivElement>(null)
 
   useMapFrame((state, delta) => {
@@ -150,33 +165,48 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
     }
     const k = flashRef.current / FLASH_SEC
 
-    // Drop-target signal: while an absorbable body is in hand the halo
+    // Drop-target signal: while a body the trash takes is in hand the halo
     // advertises itself, and once the body is inside it the horizon arms —
-    // release there absorbs. Both levels ease so the emphasis breathes in
-    // and out rather than popping.
+    // release there ends it. A terminal body over the trash lights it just
+    // as strongly, but in the warning colour: the "no" has to be as visible
+    // as the "yes". The levels ease so the emphasis breathes in and out
+    // rather than popping.
     const drop = simRef?.current
       ? holeDropState(simRef.current, dragRef?.current?.id ?? null, zoomFactor)
       : 'none'
     const ease = Math.min(1, delta * SIGNAL_EASE)
     const eligibleTarget = drop === 'none' ? 0 : 1
-    const armedTarget = drop === 'armed' ? 1 : 0
+    const armedTarget = drop === 'armed' || drop === 'refused' ? 1 : 0
+    const refusedTarget = drop === 'refused' ? 1 : 0
     eligibleLevel.current += (eligibleTarget - eligibleLevel.current) * ease
     armedLevel.current += (armedTarget - armedLevel.current) * ease
+    refusedLevel.current += (refusedTarget - refusedLevel.current) * ease
     if (Math.abs(eligibleTarget - eligibleLevel.current) < SIGNAL_SETTLED) eligibleLevel.current = eligibleTarget
     if (Math.abs(armedTarget - armedLevel.current) < SIGNAL_SETTLED) armedLevel.current = armedTarget
+    if (Math.abs(refusedTarget - refusedLevel.current) < SIGNAL_SETTLED) refusedLevel.current = refusedTarget
     const eligible = eligibleLevel.current
     const armed = armedLevel.current
+    const refused = refusedLevel.current
 
     ringMaterial.opacity = RING_OPACITY + (1 - RING_OPACITY) * Math.max(k, armed)
+    ringMaterial.color.copy(RING_BASE_COLOR).lerp(REFUSED_COLOR, refused)
     haloMaterial.opacity =
       HALO_OPACITY *
       (1 + 3 * k + (HALO_ELIGIBLE_BOOST - 1) * eligible + (HALO_ARMED_BOOST - HALO_ELIGIBLE_BOOST) * armed)
+    haloMaterial.color.copy(HALO_BASE_COLOR).lerp(REFUSED_COLOR, refused)
 
     if (hintRef.current) {
-      const text = drop === 'armed' ? HOLE_HINT_ARMED : HOLE_HINT_REST
+      const text =
+        drop === 'armed' ? HOLE_HINT_ARMED : drop === 'refused' ? HOLE_HINT_REFUSED : HOLE_HINT_REST
       if (hintRef.current.textContent !== text) hintRef.current.textContent = text
       hintRef.current.style.color =
-        drop === 'armed' ? HINT_COLOR_ARMED : drop === 'eligible' ? HINT_COLOR_ELIGIBLE : HINT_COLOR_REST
+        drop === 'armed'
+          ? HINT_COLOR_ARMED
+          : drop === 'refused'
+            ? HINT_COLOR_REFUSED
+            : drop === 'eligible'
+              ? HINT_COLOR_ELIGIBLE
+              : HINT_COLOR_REST
     }
     // A drag in hand keeps the sim awake, which draws frames anyway; the
     // emphasis easing back out after the drop does not.
@@ -184,7 +214,8 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
       moved ||
       flashRef.current > 0 ||
       eligibleLevel.current !== eligibleTarget ||
-      armedLevel.current !== armedTarget
+      armedLevel.current !== armedTarget ||
+      refusedLevel.current !== refusedTarget
     )
   })
 

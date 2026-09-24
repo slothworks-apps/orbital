@@ -70,8 +70,9 @@ function fixtureSession(
     permissionMode: null,
     model: options.sonnet ? 'sonnet' : 'opus[1m]',
     resolvedModel: options.sonnet ? 'claude-sonnet-5' : 'claude-opus-5[1m]',
-    parentId: null,
-    mapDismissedAt: null,
+    // Ended planets are pinned so they stay on the map: the spacing is what is
+    // being looked at, and an unpinned ended session is not drawn at all.
+    pinnedAt: status === 'ended' ? now : null,
     tagIds: [tag],
     status,
     subagents,
@@ -126,9 +127,6 @@ function seedStore() {
     tags: hole ? HOLE_TAGS : TAGS,
     models: MODELS,
     sessionsTotal: fixture.length + (hole ? HOLE_HISTORY : 0),
-    // Ended planets stay on the map, released never: the spacing is what is
-    // being looked at, not the release.
-    settings: { ...state.settings, map_release_ended_after_minutes: 'never' },
     ui: { ...state.ui, selectedId: 'infra-1', sidebarCollapsed: true, urlRestored: true },
   }))
 }

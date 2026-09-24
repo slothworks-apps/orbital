@@ -28,8 +28,6 @@ function makeSession(patch: Partial<ApiSession> = {}): ApiSession {
     permissionMode: null,
     model: null,
     resolvedModel: 'claude-sonnet-4-6',
-    parentId: null,
-    mapDismissedAt: null,
     tagIds: [],
     status: 'idle',
     subagents: [],

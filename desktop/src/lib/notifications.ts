@@ -11,8 +11,11 @@
  *   `upsert` frames for sessions that have been sitting in `needs_input` for
  *   hours. So a session's FIRST sighting only ever seeds state — news is a
  *   transition, never a state.
- * - Terminal sessions age out `idle → ended` on a timer. That is the clock
- *   talking, not the session, so only `working → ended` is worth an interruption.
+ * - Nothing ends on a timer any more (spec
+ *   2026-09-24-sessions-end-only-by-hand-design): an Orbital session ends when
+ *   the user ends it, a terminal session when its CLI exits. An end from a
+ *   quiet state is one the user made or already expected, so only
+ *   `working → ended` — a session stopping mid-turn — is worth an interruption.
  */
 
 import { basename } from 'node:path';

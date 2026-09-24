@@ -20,27 +20,22 @@ export const DEFAULT_MIGRATIONS_FOLDER = fileURLToPath(
 const DEFAULT_SETTINGS: Record<string, string> = {
   default_permission_mode: 'acceptEdits',
   default_project_dir: '',
-  lineage_depth: '3',
   confirm_before_clear: 'true',
   inherit_tags: 'true',
   inherit_permission_mode: 'true',
-  ended_after_idle_minutes: '30',
-  /**
-   * How long an `ended` session keeps its tag bond on the space map, in
-   * minutes, or `never` — after that it is released and falls into the
-   * corner hole (tag clusters, spec 2026-09-18-tag-clusters-design § 6).
-   * Replaces `map_ended_max_age_days` AND `map_hide_ended`: the hole is now
-   * the one answer to "where did my ended session go". Stored here but
-   * applied client-side (see `mapSessions` in `web/src/store/store.ts`):
-   * the map is a view, and keeping the cutoff out of `GET /api/sessions` is
-   * what leaves the sidebar's HISTORY list complete and its paging intact.
-   */
-  map_release_ended_after_minutes: '120',
   /** Pre-selected in the New session dialog and used by Clear (canvas 4c). A
    * value the catalog does not offer falls back to its first row, client-side. */
   default_model: 'sonnet',
   remember_model_per_project: 'true',
   map_show_model: 'true',
+  /**
+   * Appearance → whether the map draws the trash, the corner target a
+   * dragged body is dropped on to end its session (spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 3). Off takes the drag
+   * gesture with it; the detail header's End session button stays.
+   * Default-on convention: read client-side as `!== 'false'`.
+   */
+  map_show_trash: 'true',
   /**
    * Naming a session from its own contents while it runs
    * (`docs/superpowers/specs/2026-09-18-auto-title-design.md`). Off by

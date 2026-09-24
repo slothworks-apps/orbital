@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
@@ -9,6 +9,7 @@ import {
   parseContextThresholds,
   showContext,
   showCompactBadge,
+  showTrash,
   headerSessionStats,
   mapStatePills,
   expandDiffOnPermission,
@@ -67,31 +68,6 @@ export interface SettingsProps {
   onClose: () => void
 }
 
-const LINEAGE_STEPS = ['1', '2', '3', '4', '5'] as const
-
-/** Idle presets from canvas 1h. Values are minute counts, except the final
- * `'never'` sentinel — the server's `parseIdleTimeoutMs`
- * (`server/src/runner/runner.ts`) maps it to a null timeout so `Runner` never
- * arms an idle timer, and only Clear ends the session. */
-const IDLE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '15', label: '15 min idle' },
-  { value: '30', label: '30 min idle' },
-  { value: '60', label: '60 min idle' },
-  { value: '120', label: '2 h idle' },
-  { value: 'never', label: 'Never — only on Clear' },
-]
-
-/**
- * How long an ended session keeps being drawn on the map. Distinct from the
- * idle preset above: that one ENDS a running web session, this one only
- * stops drawing an already-ended one. `never` means no age cutoff — the
- * sentinel `endedMaxAgeMs` (`store/store.ts`) reads.
- */
-/**
- * The Clusters release delay (spec 2026-09-18-tag-clusters-design § 6):
- * how long an ended session keeps its tag bond on the map before it falls
- * into the corner hole. Stored in minutes; 2h is the canvas 4b default.
- */
 /**
  * Settings → General → "Delete sessions older than" (spec
  * 2026-09-21-settings-sections-design § 4). `never` is first and is the
@@ -119,14 +95,6 @@ const HEADER_STATS_OPTIONS: Array<{ value: HeaderSessionStats; label: string }> 
 const STATE_PILL_OPTIONS: Array<{ value: MapStatePills; label: string }> = [
   { value: 'dot', label: 'Dot' },
   { value: 'label', label: 'Label' },
-]
-
-const RELEASE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '30', label: '30 minutes' },
-  { value: '120', label: '2 hours' },
-  { value: '480', label: '8 hours' },
-  { value: '1440', label: '1 day' },
-  { value: 'never', label: 'Never — keep them bonded' },
 ]
 
 /**
@@ -353,15 +321,6 @@ function FpsSlider({
   )
 }
 
-/** Orb sizes/opacities of the lineage chain illustration, verbatim from
- * canvas 1h (oldest → current, the current one accent-ringed with a core). */
-const CHAIN_ORBS = [
-  { size: 14, opacity: 0.25, gap: 18, gapOpacity: 0.2 },
-  { size: 16, opacity: 0.6, gap: 22, gapOpacity: 0.4 },
-  { size: 18, opacity: 0.6, gap: 22, gapOpacity: 0.5 },
-  { size: 22, opacity: 1, gap: 0, gapOpacity: 0 },
-]
-
 /**
  * Sessions section of Settings (artboard 1h) — the only section v1
  * implements; General/Permissions/Appearance/Shortcuts are nav placeholders
@@ -374,7 +333,6 @@ const CHAIN_ORBS = [
 export function Settings({ open, onClose }: SettingsProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
-  const sessionCwds = useOrbital(useShallow((s) => Object.values(s.sessions).map((x) => x.cwd)))
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
   const [claudeDirDraft, setClaudeDirDraft] = useState(settings.claude_directory ?? '')
@@ -663,21 +621,18 @@ export function Settings({ open, onClose }: SettingsProps) {
 
   const defaultPermissionMode =
     (settings.default_permission_mode as PermissionMode) || 'acceptEdits'
-  const lineageDepth = settings.lineage_depth ?? '3'
   const confirmBeforeClear = settings.confirm_before_clear !== 'false'
   // Opt-in, so the default is the absent key reading as off — the opposite of
   // every `!== 'false'` above it.
   const autoTitleSessions = settings.auto_title_sessions === 'true'
   const inheritTags = settings.inherit_tags !== 'false'
   const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
-  const endedAfterIdle = settings.ended_after_idle_minutes ?? '30'
   // Off unless the stored value is one of the offered policies: an absent or
   // unreadable row must show as "Never", the same way the server parses it.
   const storedRetention = settings.delete_sessions_older_than_days ?? 'never'
   const deleteOlderThan = RETENTION_OPTIONS.some((o) => o.value === storedRetention)
     ? storedRetention
     : 'never'
-  const releaseEndedAfter = settings.map_release_ended_after_minutes ?? '120'
   // `default_model` is a value, not a flag — a missing key means "no
   // preference yet", not "off", so it reads as `null` rather than a default.
   const defaultModel = settings.default_model ?? ''
@@ -688,6 +643,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const defaultModelOtherActive = otherModelPicked || defaultIsCustom
   const rememberModelPerProject = settings.remember_model_per_project !== 'false'
   const mapShowModel = settings.map_show_model !== 'false'
+  const mapShowTrash = showTrash(settings)
   // Context-fill arc (canvas 1h, spec context-fill-arc): master switch and
   // the /compact badge sub-toggle, both default-on.
   const mapShowContext = showContext(settings)
@@ -729,30 +685,10 @@ export function Settings({ open, onClose }: SettingsProps) {
   // (no SDK/manifest) the key stays absent and this row stays hidden.
   const claudeCodeVersion = settings.claude_code_version
 
-  // "+N in history" (canvas 1h): sessions that the current depth pushes off
-  // the map, summed per project — the real number, not a placeholder.
-  const droppedFromMap = useMemo(() => {
-    const depth = Number(lineageDepth)
-    if (!Number.isFinite(depth) || depth <= 0) return 0
-    const perProject = new Map<string, number>()
-    for (const cwd of sessionCwds) perProject.set(cwd, (perProject.get(cwd) ?? 0) + 1)
-    let dropped = 0
-    for (const count of perProject.values()) dropped += Math.max(0, count - depth)
-    return dropped
-  }, [sessionCwds, lineageDepth])
-
   if (!mounted) return null
 
   const entered = presence === 'entered'
   const duration = presence === 'exiting' ? MODAL_EXIT_DURATION : MODAL_ENTER_DURATION
-  const lineageOptions = [...LINEAGE_STEPS, 'Infinity'] as const
-  // Chain length tracks the depth setting plus the live session at its head —
-  // 1h draws four orbs at depth 3, which is also the cap it illustrates.
-  const depthNumber = Number(lineageDepth)
-  const orbCount = Number.isFinite(depthNumber)
-    ? Math.min(CHAIN_ORBS.length, Math.max(2, depthNumber + 1))
-    : CHAIN_ORBS.length
-  const chain = CHAIN_ORBS.slice(CHAIN_ORBS.length - orbCount)
 
   return (
     <EscapeBoundary>
@@ -1166,8 +1102,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                         {/* 11c draws the two positions stacked, each its own pill
                     with a ✓ on the selected one. They ship side by side as a
                     segmented control instead, at Tomin's call: it is one
-                    choice out of two and the dialog already says so this way
-                    one row down, under Lineage depth. */}
+                    choice out of two, and the row reads better without the
+                    stack. */}
                         <Segmented
                           label="Session stats in the header"
                           options={HEADER_STATS_OPTIONS}
@@ -1332,65 +1268,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                             : 'every state pill spells its word'}
                         </span>
                       </Row>
-                      {/* Also moved out of Sessions. It governs how much of a chain
-                  stays drawn and nothing else — the sidebar's history is
-                  unlimited whatever this says. */}
-                      <Row
-                        title="Lineage depth on the map"
-                        desc="How many linked sessions per project stay visible as a chain. Older ones drop off the map — the sidebar history is always unlimited."
-                      >
-                        {/* 40px floor per segment: the labels are single characters,
-                    and without it the steps are as ragged as their glyphs. */}
-                        <Segmented
-                          label="Lineage depth"
-                          size="row"
-                          minItemWidth={40}
-                          options={lineageOptions.map((step) => ({
-                            value: step,
-                            label: step === 'Infinity' ? '∞' : step,
-                            ariaLabel: step === 'Infinity' ? 'Unlimited' : step,
-                          }))}
-                          value={lineageDepth}
-                          onChange={(step) => void patchAndSet({ lineage_depth: step })}
-                        />
-                        {/* Lineage chain illustration (canvas 1h): as many orbs as the
-                    depth keeps on the map, the newest accent-ringed, plus the
-                    live count of sessions the setting pushes into history. */}
-                        <div className="mt-0.5 flex items-center" data-testid="lineage-chain">
-                          {chain.map((orb, i) => (
-                            <span key={orb.size} aria-hidden className="flex items-center">
-                              {i > 0 && (
-                                <span
-                                  className="mx-1 border-t border-dotted"
-                                  style={{
-                                    width: chain[i - 1].gap,
-                                    borderColor: `rgb(89 228 243 / ${chain[i - 1].gapOpacity})`,
-                                  }}
-                                />
-                              )}
-                              <span
-                                data-orb=""
-                                className={[
-                                  'relative block rounded-full border',
-                                  orb.opacity === 1
-                                    ? 'border-accent/45 bg-[#111c28]'
-                                    : 'border-[rgba(200,215,235,.35)] bg-[#0b141d]',
-                                ].join(' ')}
-                                style={{ width: orb.size, height: orb.size, opacity: orb.opacity }}
-                              >
-                                {orb.opacity === 1 && (
-                                  <span className="absolute left-1/2 top-1/2 h-[3px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/80" />
-                                )}
-                              </span>
-                            </span>
-                          ))}
-                          {droppedFromMap > 0 && (
-                            <span className="ml-3 font-mono text-[10px] text-[rgba(160,190,225,.55)]">
-                              +{droppedFromMap} in history
-                            </span>
-                          )}
-                        </div>
-                      </Row>
 
                       {/* Frame budget (spec 2026-09-24-map-frame-budget-design):
                   in the planet-size pattern until Claude Design gives these
@@ -1421,6 +1298,21 @@ export function Settings({ open, onClose }: SettingsProps) {
                           step={MAP_FPS_BACKGROUND_STEP}
                           fallback={MAP_FPS_BACKGROUND_DEFAULT}
                           onChange={(next) => setMapFps('map_fps_background', next)}
+                        />
+                      </Row>
+                      {/* spec 2026-09-24-sessions-end-only-by-hand-design § 3. No
+                  canvas row yet — the Claude Design brief asks for one; until
+                  then it follows the rows around it. */}
+                      <Row
+                        title="Show trash"
+                        desc="The corner of the map where dropping an Orbital session ends it. Off hides it and the gesture; the End button in a session's header works either way."
+                      >
+                        <Toggle
+                          aria-label="Show trash"
+                          checked={mapShowTrash}
+                          onChange={(checked) =>
+                            void patchAndSet({ map_show_trash: checked ? 'true' : 'false' })
+                          }
                         />
                       </Row>
 
@@ -1659,42 +1551,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                             })
                           }
                           label="Permission mode"
-                        />
-                      </Row>
-                      <Row
-                        title="Mark session ended after"
-                        desc="Idle time before an active session is treated as history."
-                      >
-                        <Select
-                          id="settings-ended-after"
-                          aria-label="Mark session ended after"
-                          font="sans"
-                          options={IDLE_OPTIONS}
-                          value={endedAfterIdle}
-                          onChange={(next) => void patchAndSet({ ended_after_idle_minutes: next })}
-                          className="w-[200px]"
-                        />
-                      </Row>
-                      {/* Clusters (canvas 4b's "Settings → Sessions → Clusters"): the
-                one control over the hole's timed absorption. Replaces both
-                the old age cutoff and the ENDED map toggle. */}
-                      <Row
-                        title="Release ended sessions into history after"
-                        // The clause from 4d's string table: this is the one screen
-                        // where the timer looks absolute, so it is where the exemption
-                        // has to be named.
-                        desc="The bond is cut and the body falls into the corner hole. It stays in the sidebar and in search — it just leaves the map — pinned sessions are never released."
-                      >
-                        <Select
-                          id="settings-release-ended-after"
-                          aria-label="Release ended sessions into history after"
-                          font="sans"
-                          options={RELEASE_OPTIONS}
-                          value={releaseEndedAfter}
-                          onChange={(next) =>
-                            void patchAndSet({ map_release_ended_after_minutes: next })
-                          }
-                          className="w-[200px]"
                         />
                       </Row>
                     </>

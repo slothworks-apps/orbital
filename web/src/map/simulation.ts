@@ -1,8 +1,9 @@
 /**
  * The tag-cluster spring simulation (canvas 4a/4b, spec
  * 2026-09-18-tag-clusters-design § 1). Bodies hold together by tag on damped
- * springs, settle to rest, wake on drag — and a released body falls into the
- * corner hole on a scripted straight line.
+ * springs, settle to rest and wake on drag, and keep clear of the corner
+ * trash, where a dropped body is ended (spec
+ * 2026-09-24-sessions-end-only-by-hand-design § 3).
  *
  * It started as a direct port of the canvas 4a demo script, the tuned
  * reference implementation; where it departs from the script (the box
@@ -26,6 +27,7 @@ import type { ApiSession } from '../lib/types'
 import { statePill } from '../lib/types'
 import { stateDot, type MapStatePills } from '../lib/stateStyle'
 import { MAX_FRAME_DELTA_SEC } from './frameSchedule'
+import type { TrashDrop } from '../store/store'
 import { bodyZoomFactor } from './camera'
 import { PLANET_BASE_RADIUS } from './layout'
 import {
@@ -139,11 +141,11 @@ const CONTACT_RAMP = 0.03
  */
 const CONTACT_DAMPING = 0.3
 
-/** The hole's repulsion halo (canvas: `hd < 300`): bonded bodies inside get pushed out. */
+/** The trash's repulsion halo (canvas: `hd < 300`): resting bodies inside get pushed out. */
 export const HOLE_REPEL_RADIUS = 300 * PX
 /**
  * The drop halo (canvas 4a: the hole's `inset:-46px` gradient, a 71px box):
- * where a released body must land to be absorbed. Also the halo the hint
+ * where a dragged body must be let go to be ended. Also the halo the hint
  * text points at, so `Hole.tsx` draws its band to exactly this radius.
  */
 export const HOLE_DROP_RADIUS = 71 * PX
@@ -156,28 +158,6 @@ const WAKE_ACCEL = 0.025 * PX
 const SLEEP_SPEED = 0.03 * PX
 /** …and this acceleration (canvas: `0.02` px). */
 const SLEEP_ACCEL = 0.02 * PX
-
-/**
- * Fall pull toward the hole, eased in over the first 3 s. NOT the canvas's
- * `0.02` px converted: this map's release distances are proportionally longer
- * in world units than the demo's pixel run, and converting verbatim made a
- * typical fall take ~30 s. Chosen instead from the brief's "straight fall,
- * ~8 s": with FALL_DAMPING the terminal speed is `a·0.975/0.025 ≈ 39a`
- * per tick, so 0.0012 covers a typical ~20-unit release in about 8 s.
- */
-const FALL_ACCEL = 0.0012
-const FALL_EASE_SEC = 3
-/** Falling bodies keep more momentum than held ones (canvas: `* 0.975`). */
-const FALL_DAMPING = 0.975
-/** Distance at which a falling body is captured — the hole has it (canvas: `d < 34`). */
-export const HOLE_CAPTURE_RADIUS = 34 * PX
-/** The stretch-along-the-path ramp starts here (canvas: `(260 - d) / 260`)… */
-const FALL_STRETCH_RADIUS = 260 * PX
-/** …up to this factor at the horizon (canvas: `* 2.4` on top of 1). */
-const FALL_STRETCH_MAX = 2.4
-/** The body shrinks with d/150px, floored at 0.2 (canvas: `Math.max(0.2, Math.min(1, d / 150))`). */
-const FALL_SHRINK_RADIUS = 150 * PX
-const FALL_SHRINK_MIN = 0.2
 
 /** Fixed timestep — the canvas script runs at 60Hz and the constants are per-tick. */
 const TICK_SEC = 1 / 60
@@ -223,8 +203,8 @@ export interface SimBody {
   /** The body's place on the layout's spiral (`SimInputBody.x`/`y` of the latest reconcile), where `packSlots` starts it from. */
   seedX: number
   seedY: number
-  /** working/needs_input: repelled by the hole, never absorbable. */
-  live: boolean
+  /** What letting go of this body on the trash does (`trashDropFor`). */
+  trash: TrashDrop
   x: number
   y: number
   vx: number
@@ -233,18 +213,8 @@ export interface SimBody {
   ax: number
   ay: number
   asleep: boolean
-  /** `hold` = bonded; `fall` = released, falling; `gone` = captured by the hole. */
-  mode: 'hold' | 'fall' | 'gone'
   /** Pointer-pinned world position while dragged, else null. */
   drag: { x: number; y: number } | null
-  /** Seconds since the fall started — drives the ease-in. */
-  fallT: number
-  /** Fall visuals, written every fall tick: stretch factor along the path… */
-  fallStretch: number
-  /** …travel direction in radians… */
-  fallAngle: number
-  /** …and the shrink toward the horizon (1 → FALL_SHRINK_MIN). */
-  fallScale: number
 }
 
 /** What the driver feeds `reconcileSimulation` — a flattened SceneModel. */
@@ -256,8 +226,7 @@ export interface SimInputBody {
   r: number
   /** `planetOutline` of the planet; absent for a bare body, measured by `r` alone. */
   outline?: PlanetOutline
-  live: boolean
-  released: boolean
+  trash: TrashDrop
 }
 
 /**
@@ -297,14 +266,16 @@ export interface SimInput {
   bodies: SimInputBody[]
   anchors: Array<{ tagId: number; x: number; y: number }>
   /**
-   * The hole's centre, and the size of its label column in CSS px
+   * The trash's centre, and the size of its label column in CSS px
    * (`holeLabelSizePx`); without `label`, only the round repulsion halo
-   * keeps bodies away.
+   * keeps bodies away. Null when the trash is not drawn (`map_show_trash`
+   * off): then nothing keeps bodies out of the corner, and nothing is a drop
+   * target.
    */
-  hole: { x: number; y: number; label?: { width: number; height: number } }
+  hole: { x: number; y: number; label?: { width: number; height: number } } | null
 }
 
-/** The hole as the tick reads it: its centre and its label column's size, CSS px (0 × 0 for none). */
+/** The trash as the tick reads it: its centre and its label column's size, CSS px (0 × 0 for none). */
 export interface SimHole {
   x: number
   y: number
@@ -322,19 +293,14 @@ export interface SimState {
    * before it. What the home spring pulls to.
    */
   homes: Map<number, { x: number; y: number }>
-  hole: SimHole
+  /** Null while the trash is hidden — see `SimInput.hole`. */
+  hole: SimHole | null
   /**
    * Time handed to stepSimulation and not yet spent on a tick, in seconds —
    * what makes the sim's speed independent of the frame rate. May dip below
    * zero by TICK_SLACK of a tick.
    */
   accumulator: number
-}
-
-/** What one stepSimulation call reports back to the driver. */
-export interface SimEvents {
-  /** Bodies the hole captured this call (ring flash + hide, exactly once each). */
-  absorbed: string[]
 }
 
 // --- API ---------------------------------------------------------------------
@@ -344,17 +310,16 @@ export function createSimulation(): SimState {
     bodies: new Map(),
     anchors: new Map(),
     homes: new Map(),
-    hole: { x: 0, y: 0, labelWidthPx: 0, labelHeightPx: 0 },
+    hole: null,
     accumulator: 0,
   }
 }
 
 /**
  * Brings the sim in line with a fresh scene model: bodies appear at their
- * deterministic seed, leave when the model drops them, change tag or radius
- * in place (the springs then walk them — a retag is a walk, never a cut, per
- * the `retag-migration-motion` ADR), and switch between `hold` and `fall`
- * with the model's `released` flag (an undo re-bonds a falling body).
+ * deterministic seed, leave when the model drops them, and change tag or
+ * radius in place (the springs then walk them — a retag is a walk, never a
+ * cut, per the `retag-migration-motion` ADR).
  *
  * Any structural change wakes every body: a membership change moves
  * barycentres for everyone.
@@ -378,7 +343,7 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
         slotY: 0,
         seedX: spec.x,
         seedY: spec.y,
-        live: spec.live,
+        trash: spec.trash,
         x: spec.x,
         y: spec.y,
         vx: 0,
@@ -386,15 +351,10 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
         ax: 0,
         ay: 0,
         asleep: false,
-        mode: spec.released ? 'fall' : 'hold',
         drag: null,
-        fallT: 0,
-        fallStretch: 1,
-        fallAngle: 0,
-        fallScale: 1,
       }
       sim.bodies.set(spec.id, body)
-      if (body.mode === 'hold') arrived.push(body)
+      arrived.push(body)
       structuralChange = true
       continue
     }
@@ -415,24 +375,9 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
       existing.outline = spec.outline ?? null
       structuralChange = true
     }
-    existing.live = spec.live
+    existing.trash = spec.trash
     existing.seedX = spec.x
     existing.seedY = spec.y
-    if (spec.released && existing.mode === 'hold') {
-      existing.mode = 'fall'
-      existing.fallT = 0
-      existing.drag = null
-      existing.asleep = false
-      structuralChange = true
-    } else if (!spec.released && existing.mode !== 'hold') {
-      // Undo: the bond is back, the springs take over from wherever the
-      // body got to — including out of the hole itself.
-      existing.mode = 'hold'
-      existing.asleep = false
-      existing.fallStretch = 1
-      existing.fallScale = 1
-      structuralChange = true
-    }
   }
 
   for (const id of [...sim.bodies.keys()]) {
@@ -444,7 +389,10 @@ export function reconcileSimulation(sim: SimState, input: SimInput): void {
 
   sim.anchors.clear()
   for (const anchor of input.anchors) sim.anchors.set(anchor.tagId, { x: anchor.x, y: anchor.y })
-  sim.hole = {
+  // The trash appearing or going pushes bodies out of the corner or frees
+  // it — either way everyone has to be awake to notice.
+  if ((sim.hole === null) !== (input.hole === null)) structuralChange = true
+  sim.hole = input.hole && {
     x: input.hole.x,
     y: input.hole.y,
     labelWidthPx: input.hole.label?.width ?? 0,
@@ -478,7 +426,7 @@ function placeArrivals(sim: SimState, arrived: SimBody[]): void {
     let y = 0
     let w = 0
     for (const other of sim.bodies.values()) {
-      if (other.tagId !== body.tagId || other.mode !== 'hold' || isNew.has(other)) continue
+      if (other.tagId !== body.tagId || isNew.has(other)) continue
       x += (other.x - other.slotX) * other.r
       y += (other.y - other.slotY) * other.r
       w += other.r
@@ -545,7 +493,7 @@ function placeHomes(sim: SimState): void {
   for (const [tagId, anchor] of sim.anchors) {
     const boxes: Extent[] = []
     for (const body of sim.bodies.values()) {
-      if (body.tagId !== tagId || body.mode !== 'hold') continue
+      if (body.tagId !== tagId) continue
       const e = body.extent
       boxes.push({
         left: body.slotX + e.left,
@@ -575,20 +523,25 @@ function placeHomes(sim: SimState): void {
   }
 }
 
-/** Where the hole stands toward the current drag — its drop-target signal. */
-export type HoleDropState = 'none' | 'eligible' | 'armed'
+/** Where the trash stands toward the current drag — its drop-target signal. */
+export type HoleDropState = 'none' | 'eligible' | 'armed' | 'refused'
 
 /**
- * Whether the hole should advertise itself to the body being dragged:
+ * What the trash says to the body being dragged (spec
+ * 2026-09-24-sessions-end-only-by-hand-design § 3):
  *
- * - `none` — nothing is dragging, or the dragged body cannot be absorbed
- *   (live, or already falling). The hole shows nothing extra: offering a
- *   target that would refuse the drop would be a lie.
- * - `eligible` — an absorbable body is in hand, anywhere on the map. The
- *   halo brightens a little to say "this is where it can go".
- * - `armed` — the body is inside the drop halo: releasing here absorbs it.
+ * - `none` — nothing is dragging, the trash is hidden, or a body the trash
+ *   refuses is in hand but not over it. The trash shows nothing extra:
+ *   advertising a target that would refuse the drop would be a lie.
+ * - `eligible` — a body the trash takes (`end` or `confirm`) is in hand,
+ *   anywhere on the map. The halo brightens a little to say "this is where
+ *   it can go".
+ * - `armed` — that body is inside the drop halo: letting go ends it (or, for
+ *   `confirm`, asks first).
+ * - `refused` — a terminal session's body is inside the halo: letting go
+ *   does nothing, and it springs back.
  *
- * `zoomFactor` is `bodyZoomFactor(zoom)` — the same counter-zoom the hole is
+ * `zoomFactor` is `bodyZoomFactor(zoom)` — the same counter-zoom the trash is
  * DRAWN with, and the same factor the release check in `SpaceMap` applies,
  * so what looks inside the halo IS inside it. Pure; read per frame.
  */
@@ -597,11 +550,12 @@ export function holeDropState(
   dragId: string | null,
   zoomFactor: number
 ): HoleDropState {
-  if (!dragId) return 'none'
+  if (!dragId || !sim.hole) return 'none'
   const body = sim.bodies.get(dragId)
-  if (!body || !body.drag || body.live || body.mode !== 'hold') return 'none'
-  const d = Math.hypot(body.x - sim.hole.x, body.y - sim.hole.y)
-  return d < HOLE_DROP_RADIUS * zoomFactor ? 'armed' : 'eligible'
+  if (!body || !body.drag) return 'none'
+  const inside = Math.hypot(body.x - sim.hole.x, body.y - sim.hole.y) < HOLE_DROP_RADIUS * zoomFactor
+  if (body.trash === 'refuse') return inside ? 'refused' : 'none'
+  return inside ? 'armed' : 'eligible'
 }
 
 /**
@@ -609,15 +563,14 @@ export function holeDropState(
  * re-settles around wherever you let go (canvas 4a brief), persisted per
  * tag. Null when the release must NOT re-home:
  *
- * - the drop absorbs the body (`armed`): the survivors keep their old home
- *   rather than following the victim to the hole's doorstep;
- * - the drop lands inside the hole's repulsion halo: a home the physics
- *   fights forever is no home, so the clump drifts back instead;
+ * - the drop lands inside the trash's repulsion halo — whether it ends the
+ *   body, opens the End dialog or is refused: the survivors keep their old
+ *   home rather than following it to the trash's doorstep, and a home the
+ *   physics fights forever is no home, so the clump drifts back instead;
  * - nothing is actually dragging.
  *
- * Live bodies DO re-home — they cannot be absorbed, but moving the clump is
- * exactly what dragging them is for. Read BEFORE `dragSimBody(..., null)`,
- * like `holeDropState`.
+ * With the trash hidden there is no halo, and every drop re-homes. Read
+ * BEFORE `dragSimBody(..., null)`, like `holeDropState`.
  */
 export function rehomeTarget(
   sim: SimState,
@@ -626,10 +579,13 @@ export function rehomeTarget(
 ): { tagId: number; x: number; y: number } | null {
   if (!dragId) return null
   const body = sim.bodies.get(dragId)
-  if (!body || !body.drag || body.mode !== 'hold') return null
-  if (holeDropState(sim, dragId, zoomFactor) === 'armed') return null
-  const d = Math.hypot(body.x - sim.hole.x, body.y - sim.hole.y)
-  if (d < HOLE_REPEL_RADIUS) return null
+  if (!body || !body.drag) return null
+  if (sim.hole) {
+    const drop = holeDropState(sim, dragId, zoomFactor)
+    if (drop === 'armed' || drop === 'refused') return null
+    const d = Math.hypot(body.x - sim.hole.x, body.y - sim.hole.y)
+    if (d < HOLE_REPEL_RADIUS) return null
+  }
   return { tagId: body.tagId, x: body.x, y: body.y }
 }
 
@@ -657,49 +613,35 @@ export function dragSimBody(
  * Deterministic: same state + same dt sequence = bit-identical results. The
  * camera does not enter: everything is measured at OUTLINE_ZOOM.
  */
-export function stepSimulation(sim: SimState, dtSeconds: number): SimEvents {
-  const events: SimEvents = { absorbed: [] }
+export function stepSimulation(sim: SimState, dtSeconds: number): void {
   sim.accumulator += Math.min(Math.max(0, dtSeconds), MAX_SUBSTEPS * TICK_SEC)
   const substeps = Math.min(MAX_SUBSTEPS, Math.floor(sim.accumulator / TICK_SEC + TICK_SLACK))
   sim.accumulator -= substeps * TICK_SEC
-  for (let i = 0; i < substeps; i++) tick(sim, events)
-  return events
+  for (let i = 0; i < substeps; i++) tick(sim)
 }
 
-/**
- * Whether anything in the sim still moves: a bonded body awake, or a body
- * falling. The map keeps drawing frames while this is true.
- */
+/** Whether any body is still awake. The map keeps drawing frames while this is true. */
 export function simulationAwake(sim: SimState): boolean {
   for (const body of sim.bodies.values()) {
-    if (body.mode === 'fall' || (body.mode === 'hold' && !body.asleep)) return true
+    if (!body.asleep) return true
   }
   return false
 }
 
 /**
- * Runs the sim to rest synchronously — the reduced-motion path: falls
- * resolve instantly (no animation to honour) and the springs converge before
- * anything is drawn. Bounded by SETTLE_MAX_TICKS as a runaway guard.
+ * Runs the sim to rest synchronously — the reduced-motion path: the springs
+ * converge before anything is drawn. Bounded by SETTLE_MAX_TICKS as a
+ * runaway guard.
  */
-export function settleSimulation(sim: SimState): SimEvents {
-  const events: SimEvents = { absorbed: [] }
-  for (const body of sim.bodies.values()) {
-    if (body.mode === 'fall') {
-      body.mode = 'gone'
-      body.fallScale = 0
-      events.absorbed.push(body.id)
-    }
-  }
+export function settleSimulation(sim: SimState): void {
   for (let i = 0; i < SETTLE_MAX_TICKS; i++) {
     let anyAwake = false
     for (const body of sim.bodies.values()) {
-      if (body.mode === 'hold' && !body.asleep) anyAwake = true
+      if (!body.asleep) anyAwake = true
     }
     if (!anyAwake) break
-    tick(sim, events)
+    tick(sim)
   }
-  return events
 }
 
 /**
@@ -721,7 +663,7 @@ export function settledCopy(sim: SimState): SimState {
   }
   for (const [tagId, anchor] of sim.anchors) copy.anchors.set(tagId, { x: anchor.x, y: anchor.y })
   for (const [tagId, home] of sim.homes) copy.homes.set(tagId, { x: home.x, y: home.y })
-  copy.hole = { ...sim.hole }
+  copy.hole = sim.hole && { ...sim.hole }
   settleSimulation(copy)
   for (const body of copy.bodies.values()) bodyExtent(body.r, body.outline, body.extent)
   return copy
@@ -946,7 +888,6 @@ function contact(
 function packSlots(sim: SimState): void {
   const byTag = new Map<number, SimBody[]>()
   for (const body of sim.bodies.values()) {
-    if (body.mode !== 'hold') continue
     let members = byTag.get(body.tagId)
     if (!members) {
       members = []
@@ -1151,14 +1092,13 @@ function travelling(body: SimBody, centre: Centre): boolean {
   return Math.hypot(dx, dy) > TRAVELLING * (body.extent.top - body.extent.bottom)
 }
 
-function tick(sim: SimState, events: SimEvents): void {
-  const holeLabel = holeLabelBox(sim.hole, HOLE_LABEL_SCRATCH)
+function tick(sim: SimState): void {
+  const hole = sim.hole
+  const holeLabel = hole && holeLabelBox(hole, HOLE_LABEL_SCRATCH)
 
-  // Radius-weighted barycentre per tag, over bonded bodies only — a falling
-  // body has no bond left to pull with (canvas: `if (n.free) continue`).
+  // Radius-weighted barycentre per tag.
   const centres = new Map<number, Centre>()
   for (const body of sim.bodies.values()) {
-    if (body.mode !== 'hold') continue
     let centre = centres.get(body.tagId)
     if (!centre) {
       centre = { x: 0, y: 0, w: 0, held: false }
@@ -1180,10 +1120,9 @@ function tick(sim: SimState, events: SimEvents): void {
     }
   }
 
-  // Falls and drags first: they are placed, not pushed.
+  // Drags first: they are placed, not pushed.
   for (const body of sim.bodies.values()) {
-    if (body.mode === 'fall') tickFall(sim, body, events)
-    else if (body.mode === 'hold' && body.drag) {
+    if (body.drag) {
       body.x = body.drag.x
       body.y = body.drag.y
       body.vx = 0
@@ -1195,7 +1134,7 @@ function tick(sim: SimState, events: SimEvents): void {
   for (const body of sim.bodies.values()) {
     body.ax = 0
     body.ay = 0
-    if (body.mode !== 'hold' || body.drag) continue
+    if (body.drag) continue
     const centre = centres.get(body.tagId)
     const anchor = sim.homes.get(body.tagId)
     let ax = 0
@@ -1214,7 +1153,7 @@ function tick(sim: SimState, events: SimEvents): void {
     }
 
     for (const other of sim.bodies.values()) {
-      if (other === body || other.mode !== 'hold') continue
+      if (other === body) continue
       const dx = body.x - other.x
       const dy = body.y - other.y
       const d = Math.hypot(dx, dy)
@@ -1236,15 +1175,17 @@ function tick(sim: SimState, events: SimEvents): void {
       }
     }
 
-    // The hole never eats a working tag: bonded bodies inside the halo are
-    // pushed back out, whatever their status.
-    const hdx = body.x - sim.hole.x
-    const hdy = body.y - sim.hole.y
-    const hd = Math.hypot(hdx, hdy) || 1
-    if (hd < HOLE_REPEL_RADIUS) {
-      const f = ((HOLE_REPEL_RADIUS - hd) / HOLE_REPEL_RADIUS) * HOLE_REPEL_STRENGTH
-      ax += (hdx / hd) * f
-      ay += (hdy / hd) * f
+    // Nothing ends up in the trash by drifting: resting bodies inside the
+    // halo are pushed back out, whatever their status — only a drop ends one.
+    if (hole) {
+      const hdx = body.x - hole.x
+      const hdy = body.y - hole.y
+      const hd = Math.hypot(hdx, hdy) || 1
+      if (hd < HOLE_REPEL_RADIUS) {
+        const f = ((HOLE_REPEL_RADIUS - hd) / HOLE_REPEL_RADIUS) * HOLE_REPEL_STRENGTH
+        ax += (hdx / hd) * f
+        ay += (hdy / hd) * f
+      }
     }
     if (holeLabel) {
       const f = holeLabelPush(body, holeLabel, SAME_GAP)
@@ -1261,7 +1202,7 @@ function tick(sim: SimState, events: SimEvents): void {
   // where they were and the one moved last see them where they had gone,
   // so a touching pair's two pushes did not quite cancel.
   for (const body of sim.bodies.values()) {
-    if (body.mode !== 'hold' || body.drag) continue
+    if (body.drag) continue
     const accel = Math.hypot(body.ax, body.ay)
     if (body.asleep) {
       if (accel < WAKE_ACCEL) continue
@@ -1319,27 +1260,4 @@ function holeLabelPush(body: SimBody, label: Extent, air: number): number {
   }
   const vn = body.vx * HOLE_LABEL_PUSH.x + body.vy * HOLE_LABEL_PUSH.y
   return Math.min(1, depth / (CONTACT_RAMP * span)) * HOLE_REPEL_STRENGTH - vn * CONTACT_DAMPING
-}
-
-/** The scripted straight fall (canvas `stepFalling`): ease in, accelerate at the hole, stretch, shrink, capture. */
-function tickFall(sim: SimState, body: SimBody, events: SimEvents): void {
-  body.fallT += TICK_SEC
-  const dx = sim.hole.x - body.x
-  const dy = sim.hole.y - body.y
-  const d = Math.hypot(dx, dy) || 1
-  const ease = body.fallT < FALL_EASE_SEC ? body.fallT / FALL_EASE_SEC : 1
-  body.vx += (dx / d) * FALL_ACCEL * ease
-  body.vy += (dy / d) * FALL_ACCEL * ease
-  body.vx *= FALL_DAMPING
-  body.vy *= FALL_DAMPING
-  body.x += body.vx
-  body.y += body.vy
-  body.fallStretch = 1 + Math.max(0, (FALL_STRETCH_RADIUS - d) / FALL_STRETCH_RADIUS) * FALL_STRETCH_MAX
-  body.fallAngle = Math.atan2(dy, dx)
-  body.fallScale = Math.max(FALL_SHRINK_MIN, Math.min(1, d / FALL_SHRINK_RADIUS))
-  if (d < HOLE_CAPTURE_RADIUS) {
-    body.mode = 'gone'
-    body.fallScale = 0
-    events.absorbed.push(body.id)
-  }
 }

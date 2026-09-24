@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { cpSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, utimesSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_MIGRATIONS_FOLDER, openDb } from '../src/db/database.js';
@@ -128,8 +128,17 @@ describe('stranded titles migration', () => {
 
     const dbPath = join(dir, 'index.db');
     const old = openDb(dbPath, before);
-    indexProjects(old, projects);
-    old.update(sessions).set({ title: dirtyTitle }).where(eq(sessions.id, 'aaaa-bbbb')).run();
+    // Raw SQL, not `indexProjects`: today's indexer writes today's columns,
+    // which a database this old does not have yet. The row stands for one
+    // indexed back then — stamped with the file's own mtime and size, so only
+    // the migration's reset can make the next pass look at it again.
+    const stat = statSync(join(projects, 'proj', 'aaaa-bbbb.jsonl'));
+    old.$client
+      .prepare(
+        `INSERT INTO sessions (id, project_dir, title, indexed_mtime, indexed_size)
+         VALUES ('aaaa-bbbb', 'proj', ?, ?, ?)`,
+      )
+      .run(dirtyTitle, Math.floor(stat.mtimeMs), stat.size);
     old.$client.close();
 
     const db = openDb(dbPath);
@@ -156,7 +165,7 @@ describe('indexProjects', () => {
     const { db } = setup();
     expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0 });
   });
-  it('preserves title, source, permission_mode, parent_id on re-index; backfills project_dir for web sessions', () => {
+  it('preserves title, source, permission_mode, ended_at on re-index; backfills project_dir for web sessions', () => {
     const { db, projects, transcriptPath } = setup();
     // Simulate a web session row created (by POST /api/sessions) before its
     // transcript was ever indexed: project_dir starts out empty.
@@ -173,7 +182,7 @@ describe('indexProjects', () => {
     expect(backfilled.source).toBe('web');
     // Manually update session with custom values
     db.update(sessions)
-      .set({ title: 'My renamed title', source: 'web', permissionMode: 'plan', parentId: 'xyz' })
+      .set({ title: 'My renamed title', source: 'web', permissionMode: 'plan', endedAt: 123 })
       .where(eq(sessions.id, 'aaaa-bbbb'))
       .run();
     // Verify the custom values were set
@@ -181,7 +190,7 @@ describe('indexProjects', () => {
     expect(row.title).toBe('My renamed title');
     expect(row.source).toBe('web');
     expect(row.permissionMode).toBe('plan');
-    expect(row.parentId).toBe('xyz');
+    expect(row.endedAt).toBe(123);
     expect(row.messageCount).toBe(3);
     // Append a line and re-index
     appendFileSync(
@@ -194,7 +203,7 @@ describe('indexProjects', () => {
     expect(row.title).toBe('My renamed title');
     expect(row.source).toBe('web');
     expect(row.permissionMode).toBe('plan');
-    expect(row.parentId).toBe('xyz');
+    expect(row.endedAt).toBe(123);
     expect(row.messageCount).toBe(4);
     expect(row.projectDir).toBe('-Users-tomin-Projects-slothworks-ergaily');
   });
@@ -224,37 +233,6 @@ describe('resolved_model', () => {
     indexProjects(db, projects);
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'sess-empty')).get() as SessionRow;
     expect(row.resolved_model).toBe('claude-sonnet-5');
-  });
-});
-
-// Tag clusters (spec 2026-09-18-tag-clusters-design § 5): new activity brings
-// a dismissed session back to the map — the indexer clears the stamp when a
-// transcript's lastAt advances, and only then.
-describe('indexProjects and map_dismissed_at', () => {
-  it('clears the stamp when new activity advances lastAt', () => {
-    const { db, projects, transcriptPath } = setup();
-    indexProjects(db, projects);
-    db.update(sessions).set({ mapDismissedAt: 123 }).where(eq(sessions.id, 'aaaa-bbbb')).run();
-    appendFileSync(
-      transcriptPath,
-      '\n{"type":"user","uuid":"u9","timestamp":"2026-09-02T12:00:00.000Z","message":{"role":"user","content":"more"}}',
-    );
-    indexProjects(db, projects);
-    const row = db.select().from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!;
-    expect(row.mapDismissedAt).toBeNull();
-  });
-
-  it('keeps the stamp across a re-index with no new activity', () => {
-    const { db, projects } = setup();
-    indexProjects(db, projects);
-    // indexedMtime blanked forces a re-parse of the same file: same lastAt.
-    db.update(sessions)
-      .set({ mapDismissedAt: 123, indexedMtime: 0 })
-      .where(eq(sessions.id, 'aaaa-bbbb'))
-      .run();
-    indexProjects(db, projects);
-    const row = db.select().from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!;
-    expect(row.mapDismissedAt).toBe(123);
   });
 });
 

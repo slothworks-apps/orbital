@@ -79,13 +79,13 @@ export interface ScenePlanet {
    */
   footprint: number
   /**
-   * The session's tag bond was just cut (manual dismissal, or the release
-   * delay elapsed) and the body is falling into the hole. Still in the model
-   * on purpose: the simulation plays the fall from wherever the body stands,
-   * and `mapSessions` drops the session outright once its fall grace runs
-   * out (spec 2026-09-18-tag-clusters-design § 4-5).
+   * The session just stopped holding its place on the map (it ended, or an
+   * ended one lost its pin) and the planet is fading out where it stands.
+   * Still in the model on purpose, so the fade can play; `mapSessions` drops
+   * the session outright once its grace runs out (spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 3).
    */
-  released: boolean
+  leaving: boolean
   /**
    * Family alone (`Opus`), drawn as a second label line — or null when the
    * map toggle is off or the model is not one the catalog knows. Never the
@@ -177,11 +177,11 @@ export interface SceneAnchor {
   y: number
 }
 
-/** The corner hole: world-space position plus its label's session count. */
+/** The corner trash: world-space position plus its label's session count. */
 export interface SceneHole {
   x: number
   y: number
-  /** Sessions in the index that are not drawn as bonded bodies — the "N sessions" of the label. */
+  /** Sessions in the index the map does not draw (a leaving body counts already) — the "N sessions" of the label. */
   count: number
 }
 
@@ -257,8 +257,8 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
   const anchorByTag = clusterAnchors(stable)
   const counts = statusCounts(state, nowMs)
   const selectedId = state.ui.selectedId
-  const isReleased = (session: ApiSession) =>
-    absorptionFor(session, state.settings, nowMs) === 'releasing'
+  const isLeaving = (session: ApiSession) =>
+    absorptionFor(session, nowMs, state.leavingSince[session.id]) === 'leaving'
   const showModel = state.settings.map_show_model !== 'false'
   const planets: ScenePlanet[] = []
   const moons: SceneMoon[] = []
@@ -306,7 +306,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         tagId: cluster.tagId,
         subagents,
         footprint,
-        released: isReleased(session),
+        leaving: isLeaving(session),
         modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
         contextFill,
         muted,
@@ -316,15 +316,15 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
 
   const labels: SceneLabel[] = []
   for (const cluster of clusters) {
-    // Counts the bonded bodies, not everything the cluster holds — a
-    // released body's bond is cut, so the chip stops claiming it (canvas
-    // 4a's chips count what holds together). A cluster whose every body has
-    // been released drops its label with them: `NAME · 0` hanging over
-    // emptying space is clutter.
-    const bonded = cluster.sessions.filter((s) => !isReleased(s))
+    // Counts the bodies that stay, not everything the cluster holds — a
+    // leaving body is already gone as far as the chip is concerned (canvas
+    // 4a's chips count what holds together). A cluster whose every body is
+    // leaving drops its label with them: `NAME · 0` hanging over emptying
+    // space is clutter.
+    const bonded = cluster.sessions.filter((s) => !isLeaving(s))
     if (bonded.length === 0) continue
-    // Anchored above the topmost planet still bonded, not above a falling
-    // one — otherwise the label chases the fall.
+    // Anchored above the topmost planet that stays, not above a fading one
+    // — otherwise the label would jump when the fade ends.
     const pos = clusterLabelPos({ ...cluster, sessions: bonded }, positions)
     labels.push({
       tagId: cluster.tagId,
@@ -341,10 +341,10 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
     if (anchor) anchors.push({ tagId: cluster.tagId, hue: cluster.hue, ...anchor })
   }
 
-  // The hole's label subtracts the bonded bodies from the index total: a
-  // falling body is already the hole's, and a stale total must never read
-  // negative.
-  const bondedCount = planets.filter((p) => !p.released).length
+  // The trash's label subtracts the bodies that stay from the index total: a
+  // leaving body already counts as not drawn, and a stale total must never
+  // read negative.
+  const bondedCount = planets.filter((p) => !p.leaving).length
   const holePos = holePosition(stable)
   const hole: SceneHole = {
     x: holePos.x,

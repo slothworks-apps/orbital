@@ -52,44 +52,29 @@ export function formatDuration(ms: number, units: 1 | 2 = 1): string {
 
 /**
  * The detail panel's footer line for an ended session (canvas 4a's foot note,
- * strings from 4d): either what the pin promises, or when the session ended
- * paired with how long it has left on the map.
- *
- * `releaseAfterMs` is the release delay as the map applies it, `null` for the
- * "Never" preset — in which case the line must not promise a release that is
- * never coming. The clause is also dropped once the delay has elapsed: the
- * body has already fallen, so there is nothing left to count down to.
+ * strings from 4d): either what the pin promises, or when the session ended.
+ * There is no countdown any more — an unpinned ended session is already off
+ * the map (spec 2026-09-24-sessions-end-only-by-hand-design § 3).
  *
  * `null` for a session with no end time — there is no moment to date it from.
  */
-export function releaseFootnote({
+export function endedFootnote({
   pinned,
   endedAt,
-  releaseAfterMs,
   now = Date.now(),
 }: {
   pinned: boolean
   endedAt: number | null
-  releaseAfterMs: number | null
   now?: number
 }): string | null {
-  if (pinned) return 'pinned · stays on the map until you unpin it or drag it into the hole'
+  if (pinned) return 'pinned · stays on the map until you unpin it or drop it in the trash'
   if (endedAt == null) return null
 
   const age = Math.max(0, now - endedAt)
   // `timeAgo` turns ancient timestamps into a date and fresh ones into "now",
   // neither of which survives being slotted into "ended … ago".
-  const ended =
-    age < MINUTE_MS
-      ? 'ended just now'
-      : age >= 30 * DAY_MS
-        ? `ended on ${timeAgo(endedAt, now)}`
-        : `ended ${timeAgo(endedAt, now)} ago`
-
-  if (releaseAfterMs == null) return ended
-  const remaining = endedAt + releaseAfterMs - now
-  if (remaining <= 0) return ended
-  return `${ended} · releases into history in ${formatDuration(remaining, 2)}`
+  if (age < MINUTE_MS) return 'ended just now'
+  return age >= 30 * DAY_MS ? `ended on ${timeAgo(endedAt, now)}` : `ended ${timeAgo(endedAt, now)} ago`
 }
 
 /**

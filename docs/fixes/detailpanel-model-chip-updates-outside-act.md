@@ -1,7 +1,7 @@
 ---
 id: detailpanel-model-chip-updates-outside-act
 title: Nine DetailPanel model-chip tests update state outside act
-status: done
+status: superseded
 type: fix
 domain: web
 related:
@@ -116,3 +116,14 @@ accident, which is worth knowing the next time one of these appears quiet.
 `npm run test:run -w web` now prints no copies of the warning at all. Leaving
 exactly one standing would have rebuilt the thing this doc is about: a warning
 nobody acts on, hiding the next one.
+
+## Superseded
+
+Spec `2026-09-24-sessions-end-only-by-hand-design` § 4 removed lineage
+entirely. `DetailPanel` no longer fetches it on mount (the effect this doc
+is about is gone from `DetailPanel.tsx`), so mounting the panel has nothing
+left to await — `renderDetail` and the `app.test.tsx` test this doc fixed
+were both changed to stop waiting on `api.getSession`, which the panel no
+longer calls at all. The pattern this doc taught (await the fetch before
+asserting) no longer applies; it is kept for the reasoning, not as a
+recipe to follow.

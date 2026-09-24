@@ -6,6 +6,7 @@ import { isAttachable, promptWithSelection, selectionId } from '../lib/ideSelect
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
+import { ENDED_HIDE_MS } from '../map/transition'
 import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type {
@@ -189,7 +190,7 @@ export interface OrbitalState {
    * `select()` only ever fetches once per session regardless of how many
    * live messages have already arrived over the WS for that session. */
   historyLoaded: Record<string, boolean>
-  /** Sessions that transitioned `working` -> `ended` on the `session:<id>`
+  /** Sessions that transitioned `working` -> `idle` on the `session:<id>`
    * topic without an intervening `turn_result` — the "SDK process crash"
    * error state from the spec (`docs/superpowers/specs/2026-09-15-orbital-design.md`
    * § Error states). `Transcript` renders an error row when a session's
@@ -292,6 +293,17 @@ export interface OrbitalState {
    * `sessions` WS topic (an upsert of an unknown id is a new row).
    */
   sessionsTotal: number
+  /**
+   * When each session started leaving the map, as this tab saw it — the
+   * moment it stopped holding a place there (`holdsMapPlace`): it ended, or
+   * an ended session lost its pin. `absorptionFor` keeps such a session in
+   * the scene for `MAP_LEAVE_GRACE_MS` past this so its fade can play where
+   * it stands (spec 2026-09-24-sessions-end-only-by-hand-design § 3).
+   * Client-side on purpose: the server says a session is ended, not when
+   * this tab last drew it. Empty after a reload, where every ended,
+   * unpinned session is simply not drawn.
+   */
+  leavingSince: Record<string, number>
   toast: Toast | null
   ui: OrbitalUiState
   /** The one open subagent panel, or null — see `OpenSubagentState`. */
@@ -358,9 +370,22 @@ export interface OrbitalActions {
   setFilterTag(filterTagId: number | 'all'): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
-  setSessionDismissed(id: string, dismissed: boolean): Promise<void>
-  /** Pins (or unpins) a session — the manual exemption from the release timer. */
+  /** Pins (or unpins) a session — a pinned session stays on the map once it has ended. */
   setSessionPinned(id: string, pinned: boolean): Promise<void>
+  /**
+   * Ends a session dropped on the map's trash (spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 3), and takes its pin with
+   * it. Optimistic; rolls back and rejects when a request fails, so the caller
+   * reports it (and the confirm dialog stays open). `undo` raises the toast
+   * whose Undo is `reopenSession`.
+   */
+  trashSession(id: string, opts: { undo: boolean }): Promise<void>
+  /**
+   * The trash's Undo: takes the End back (`POST …/reopen`) and, when the drop
+   * took a pin, puts the pin back. Optimistic; a failure rolls back and
+   * reports through the toast.
+   */
+  reopenSession(id: string, repin: boolean): Promise<void>
   /**
    * Ends a session Orbital runs (spec 2026-09-23-end-session-design). Nothing
    * is written here: the server publishes the `ended` status on the
@@ -496,14 +521,18 @@ function imageRefKey(images: readonly ImageRefEntry[] | undefined): string {
  * Three states, and the third is the one that matters:
  *
  * - `false` — this tab watched the turn start (a `status` event reporting
- *   `working`) and has not seen it resolve. An `ended` now means the turn
- *   ended without ever resolving: the SDK process crash error state.
+ *   `working`) and has not seen it resolve. An `idle` now means the process
+ *   went away without the turn ever resolving: the SDK process crash error
+ *   state. (A crash no longer ends a session — only the user does — so the
+ *   session lands `idle`, not `ended`; spec
+ *   2026-09-24-sessions-end-only-by-hand-design § 1. An `ended` mid-turn is
+ *   the user's End, which is no crash.)
  * - `true` — a `turn_result` arrived. The turn resolved; not a crash.
  * - `undefined` — no entry, because this tab never saw this session start a
  *   turn at all. Its `working` transition happened before the app subscribed
  *   to its `session:<id>` topic (it was already `working` at `loadInitial()`
  *   time). We have no evidence either way, and absence of evidence is not a
- *   crash — so an `ended` for such a session is left alone.
+ *   crash — so an `idle` for such a session is left alone.
  *
  * Hence the crash check tests for an explicit `false` rather than for
  * falsiness: `!undefined` would accuse a session this tab never watched of a
@@ -522,8 +551,10 @@ const turnResultSeen: Record<string, boolean | undefined> = {}
  * independently. A message delivered twice is harmless — the transcript
  * reducer dedups by message id, and `status`/`turn_result` are idempotent.
  *
- * Released when the session ends, which is the one moment after which the
- * topic can say nothing further.
+ * Released when the session goes `idle` or `ended` — its first turn is over,
+ * and the process that answered it has let go (a sleeping or crashed session
+ * reads `idle`, spec 2026-09-24-sessions-end-only-by-hand-design § 1). What
+ * follows is sent from the detail panel, whose own subscription carries it.
  */
 const launchSubscriptions = new Map<string, () => void>()
 
@@ -609,8 +640,36 @@ const initialUiState: OrbitalUiState = {
   sidebarCollapsed: false,
 }
 
-/** How long the absorption toast (and its Undo) stays up. Canvas 4a: "Undo 10 s". */
+/** How long the trash's toast (and its Undo) stays up. Canvas 4a: "Undo 10 s". */
 export const UNDO_TOAST_MS = 10_000
+
+/**
+ * The trailing half of `leavingSince`: stamps the session the moment it
+ * stops holding a place on the map, and never otherwise. Covers every way
+ * that can happen — a status event, an upsert (another window unpinning),
+ * the trash's own optimistic write — through one comparison of before and
+ * after rather than a rule per path.
+ */
+function leavingStamp(
+  state: Pick<OrbitalState, 'leavingSince'>,
+  before: ApiSession | undefined,
+  after: ApiSession,
+): Partial<Pick<OrbitalState, 'leavingSince'>> {
+  if (!before || !holdsMapPlace(before) || holdsMapPlace(after)) return {}
+  return { leavingSince: { ...state.leavingSince, [after.id]: Date.now() } }
+}
+
+/** One session's optimistic write, as a `set` updater's result — a no-op for an id no longer held. */
+function withSessionPatch(
+  state: Pick<OrbitalState, 'sessions' | 'leavingSince'>,
+  id: string,
+  fields: Partial<ApiSession>,
+): Partial<Pick<OrbitalState, 'sessions' | 'leavingSince'>> {
+  const current = state.sessions[id]
+  if (!current) return {}
+  const next = { ...current, ...fields }
+  return { sessions: { ...state.sessions, [id]: next }, ...leavingStamp(state, current, next) }
+}
 
 export const useOrbital = create<OrbitalStore>()((set, get) => ({
   sessions: {},
@@ -634,6 +693,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   composerDrafts: {},
   detachedIds: [],
   sessionsTotal: 0,
+  leavingSince: {},
   toast: null,
   ui: initialUiState,
   subagentPanel: null,
@@ -751,6 +811,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       set({
         sessions,
         order: sortIdsByLastAtDesc(sessions),
+        ...leavingStamp(state, state.sessions[msg.session.id], msg.session),
         ...seedDecision(state, msg.session),
         // An upsert of an unknown id is a new index row, so the hole's total
         // moves with it. A re-upsert of a known session is just a change.
@@ -775,11 +836,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           })
         return
       }
-      const sessions = {
-        ...state.sessions,
-        [msg.sessionId]: { ...existing, status: msg.status },
-      }
-      set({ sessions })
+      const next = { ...existing, status: msg.status }
+      set({
+        sessions: { ...state.sessions, [msg.sessionId]: next },
+        ...leavingStamp(state, existing, next),
+      })
       return
     }
 
@@ -872,25 +933,24 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         turnResultSeen[sessionId] = false
       }
 
-      // An ended session's topic has nothing left to say, so the subscription
-      // `launchSession` opened ahead of the request is done. Harmless if there
-      // is none — every session that was not launched from this tab.
-      if (msg.status === 'ended') releaseLaunchSubscription(sessionId)
+      // The launch's subscription is done once the session settles: see
+      // `launchSubscriptions`. Harmless if there is none — every session that
+      // was not launched from this tab.
+      if (msg.status === 'ended' || msg.status === 'idle') releaseLaunchSubscription(sessionId)
 
-      // SDK process crash: a turn started (`working`) and the session ended
-      // without ever producing a `turn_result` in between. Explicitly
+      // SDK process crash: a turn started (`working`) and the process let go
+      // (`idle`) without ever producing a `turn_result` in between. Explicitly
       // `false`, never merely falsy — `undefined` means this tab never
       // watched the turn start and so has nothing to accuse it of.
       const crashed =
-        msg.status === 'ended' &&
+        msg.status === 'idle' &&
         previousStatus === 'working' &&
         turnResultSeen[sessionId] === false
 
+      const next = { ...session, status: msg.status }
       set({
-        sessions: {
-          ...state.sessions,
-          [sessionId]: { ...session, status: msg.status },
-        },
+        sessions: { ...state.sessions, [sessionId]: next },
+        ...leavingStamp(state, session, next),
         ...(crashed ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } } : {}),
       })
       return
@@ -1324,67 +1384,106 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   /**
-   * Stamps (or, for the undo, clears) a session's map-only dismissal — the
-   * hole's absorption (spec 2026-09-18-tag-clusters-design § 5). Optimistic:
-   * the stamp is what starts the fall animation, and waiting a round trip
-   * before letting go of the body would make the drop feel stuck. A failed
-   * save puts the stamp back and reports.
+   * Pins (or unpins) a session — a pinned session stays on the map once it
+   * has ended (spec 2026-09-20-pinned-sessions-design, spec
+   * 2026-09-24-sessions-end-only-by-hand-design § 3). Optimistic: the toggle
+   * lives in two surfaces that have to agree within a frame, and a round trip
+   * between the click and the row moving into PINNED would read as a stuck
+   * control. A failed save puts the pin back and reports. No undo toast:
+   * unpinning is the same one click that pinned. Unpinning an ended session
+   * takes it off the map, with the same fade as any other leaving body.
    *
-   * A successful dismissal raises the undo toast; the toast expires after
-   * `UNDO_TOAST_MS` (the session itself stays one click away in the
-   * sidebar's HISTORY, so the undo is a convenience, not the only way back).
+   * Both stamps go through `withViewTransition` so the sidebar row slides
+   * between PINNED and its old section instead of teleporting. It sits here
+   * rather than in the two buttons because there are three ways in — the
+   * sidebar row's pin, the detail panel's, and the trash toast's undo — and a
+   * row that animates from one of them and jumps from another would read as a
+   * bug. The rollback is wrapped too: a failed save sends the row back, which
+   * is the same move in reverse.
    */
-  async setSessionDismissed(id, dismissed) {
+  async setSessionPinned(id, pinned) {
     const session = get().sessions[id]
     if (!session) return
-    const previous = { mapDismissedAt: session.mapDismissedAt, pinnedAt: session.pinnedAt ?? null }
-    const wasPinned = previous.pinnedAt != null
-    const stamp = (fields: { mapDismissedAt: number | null; pinnedAt: number | null }) => {
-      const write = () =>
-        set((state) => {
-          const current = state.sessions[id]
-          if (!current) return {}
-          return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
-        })
-      // A dismissal only moves a sidebar row when it takes a pin with it —
-      // absorbing an unpinned session changes the map, and the row stays
-      // where it is. So the view transition is spent on the case that has
-      // something to animate, and the rest of the map's traffic is untouched.
-      if (wasPinned) withViewTransition(write)
-      else write()
-    }
-    // The manual gesture wins: the server clears `pinned_at` as it stamps a
-    // dismissal, so the optimistic state has to clear it too or the row
-    // would sit in PINNED while its planet falls (spec § Rules).
-    stamp(
-      dismissed
-        ? { mapDismissedAt: Date.now(), pinnedAt: null }
-        : { mapDismissedAt: null, pinnedAt: previous.pinnedAt },
-    )
+    const previous = session.pinnedAt ?? null
+    const stamp = (pinnedAt: number | null) =>
+      withViewTransition(() => set((state) => withSessionPatch(state, id, { pinnedAt })))
+    stamp(pinned ? Date.now() : null)
     try {
-      await api.setSessionDismissed(id, dismissed)
+      await api.setSessionPinned(id, pinned)
     } catch (err) {
       stamp(previous)
-      const message = err instanceof Error ? err.message : 'Failed to save the dismissal'
+      const message = err instanceof Error ? err.message : 'Failed to save the pin'
       set({ toast: { kind: 'error', message } })
-      return
     }
-    if (!dismissed) return
+  },
+
+  async endSession(id) {
+    await api.endSession(id)
+  },
+
+  /**
+   * Optimistic: the status is what starts the planet's fade, and waiting a
+   * round trip before letting go of the body would make the drop feel stuck.
+   * The End carries the unpin, one request and one write on the server: sent
+   * apart, the End's upsert came back ended-but-still-pinned, the planet
+   * faded back in, and the unpin's upsert started the fade over. A failure
+   * rolls back both, since neither happened.
+   *
+   * A session that had already ended (only a pinned one is still on the map
+   * to be dropped) is not ended again: the drop is then just the unpin, and
+   * its Undo just the re-pin.
+   *
+   * With `undo`, success raises the toast; it expires after `UNDO_TOAST_MS`
+   * (the session itself stays one click away in the sidebar's HISTORY, so the
+   * undo is a convenience, not the only way back).
+   */
+  async trashSession(id, { undo }) {
+    const session = get().sessions[id]
+    if (!session) return
+    const previousStatus = session.status
+    const previousPin = session.pinnedAt ?? null
+    const wasPinned = previousPin != null
+    const alreadyEnded = previousStatus === 'ended'
+    const write = (fields: Partial<ApiSession>) => {
+      const apply = () => set((state) => withSessionPatch(state, id, fields))
+      // Only a drop that takes a pin moves a sidebar row — ending an
+      // unpinned session changes the map and its status dot, and the row
+      // stays in its section. So the view transition is spent on the case
+      // that has something to animate.
+      if (wasPinned) withViewTransition(apply)
+      else apply()
+    }
+    write({ status: 'ended', pinnedAt: null })
+    if (!alreadyEnded) {
+      try {
+        await api.endSession(id, { unpin: wasPinned })
+      } catch (err) {
+        write({ status: previousStatus, pinnedAt: previousPin })
+        throw err
+      }
+    } else if (wasPinned) {
+      try {
+        await api.setSessionPinned(id, false)
+      } catch (err) {
+        write({ pinnedAt: previousPin })
+        throw err
+      }
+    }
+    if (!undo) return
     const title = session.title || 'Session'
     const toast: Toast = {
       kind: 'info',
-      message: wasPinned
-        ? `${title} absorbed · pin removed`
-        : `${title} absorbed — still in the sidebar's history`,
+      message: alreadyEnded
+        ? `${title} unpinned — still in the sidebar's history`
+        : wasPinned
+          ? `${title} ended · pin removed`
+          : `${title} ended`,
       action: {
         label: 'Undo',
-        // Re-pinning is the whole undo for a pinned session: the `pinned`
-        // route clears `map_dismissed_at`, so one call brings back both the
-        // pin and the planet (4d `drag.toast`).
         run: () =>
-          void (wasPinned
+          void (alreadyEnded
             ? get().setSessionPinned(id, true)
-            : get().setSessionDismissed(id, false)),
+            : get().reopenSession(id, wasPinned)),
       },
     }
     set({ toast })
@@ -1394,54 +1493,22 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }, UNDO_TOAST_MS)
   },
 
-  /**
-   * Pins (or unpins) a session — the manual exemption from the map's release
-   * timer (spec 2026-09-20-pinned-sessions-design). Optimistic like the
-   * dismissal: the toggle lives in two surfaces that have to agree within a
-   * frame, and a round trip between the click and the row moving into PINNED
-   * would read as a stuck control. A failed save puts both fields back and
-   * reports.
-   *
-   * Pinning clears `mapDismissedAt` locally because the server clears it too
-   * — that is what pulls an absorbed session back onto the map. No undo
-   * toast: unpinning is the same one click that pinned.
-   *
-   * Both stamps go through `withViewTransition` so the sidebar row slides
-   * between PINNED and its old section instead of teleporting. It sits here
-   * rather than in the two buttons because there are three ways in — the
-   * sidebar row's pin, the detail panel's, and the absorption toast's undo —
-   * and a row that animates from one of them and jumps from another would
-   * read as a bug. The rollback is wrapped too: a failed save sends the row
-   * back, which is the same move in reverse.
-   */
-  async endSession(id) {
-    await api.endSession(id)
-  },
-
-  async setSessionPinned(id, pinned) {
+  async reopenSession(id, repin) {
     const session = get().sessions[id]
     if (!session) return
-    const previous = { pinnedAt: session.pinnedAt ?? null, mapDismissedAt: session.mapDismissedAt }
-    const stamp = (fields: { pinnedAt: number | null; mapDismissedAt: number | null }) =>
-      withViewTransition(() =>
-        set((state) => {
-          const current = state.sessions[id]
-          if (!current) return {}
-          return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
-        }),
-      )
-    stamp(
-      pinned
-        ? { pinnedAt: Date.now(), mapDismissedAt: null }
-        : { pinnedAt: null, mapDismissedAt: previous.mapDismissedAt },
-    )
+    const previousStatus = session.status
+    // `idle`, because that is what the server reads for an Orbital session
+    // with no process and no `ended_at` — its upsert will say the same.
+    set((state) => withSessionPatch(state, id, { status: 'idle' }))
     try {
-      await api.setSessionPinned(id, pinned)
+      await api.reopenSession(id)
     } catch (err) {
-      stamp(previous)
-      const message = err instanceof Error ? err.message : 'Failed to save the pin'
+      set((state) => withSessionPatch(state, id, { status: previousStatus }))
+      const message = err instanceof Error ? err.message : 'Failed to reopen the session'
       set({ toast: { kind: 'error', message } })
+      return
     }
+    if (repin) await get().setSessionPinned(id, true)
   },
 
   /**
@@ -1828,76 +1895,65 @@ export function visibleSessions(state: Pick<OrbitalState, 'sessions' | 'ui'>): A
   return newestFirst(state.sessions).filter((s) => matchesSidebarFilters(s, state.ui))
 }
 
-/** Sentinel for the release delay's "Never" preset: bonds are never cut by time. */
-export const RELEASE_NEVER = 'never'
-/** Used when `map_release_ended_after_minutes` is missing or unparseable. Canvas 4b: "after 2 h". */
-const DEFAULT_RELEASE_AFTER_MINUTES = 120
-const MS_PER_MINUTE = 60_000
 /**
- * How long past its release a session stays in the scene as a falling body
- * before it is dropped outright. The slow ambient fall is ~8s (canvas 4a);
- * anything that releases while the map is closed simply never plays it.
+ * How long a session that stopped holding its place stays in the scene,
+ * counted from `leavingSince`: long enough for the planet's own fade
+ * (`ENDED_HIDE_MS`) to play out where it stands, with room to spare so a
+ * hitched frame never cuts it short.
  */
-export const RELEASE_FALL_GRACE_MS = 15_000
+export const MAP_LEAVE_GRACE_MS = 2 * ENDED_HIDE_MS
 
 /**
- * The delay after which an `ended` session's tag bond is cut and it falls
- * into the hole, in milliseconds — or `null` for "never" (spec
- * 2026-09-18-tag-clusters-design § 5-6).
- *
- * Stored server-side as `map_release_ended_after_minutes` but applied here:
- * the release decides what this client draws, not what the API returns.
- * Keeping it off the query is what leaves the sidebar's HISTORY list
- * complete and its `offset: visible.length` paging arithmetic intact.
+ * Whether a session has a place on the map: anything not ended, and an ended
+ * session the user pinned (spec 2026-09-24-sessions-end-only-by-hand-design
+ * § 3). An ended session is over by the user's own hand — or, for a terminal
+ * one, because its CLI went away — so there is nothing left to watch; the
+ * pin is the one way to keep it in view.
  */
-export function releaseDelayMs(settings: Record<string, string>): number | null {
-  const raw = settings.map_release_ended_after_minutes
-  if (raw === RELEASE_NEVER) return null
-  const minutes = Number(raw)
-  if (!Number.isFinite(minutes) || minutes <= 0)
-    return DEFAULT_RELEASE_AFTER_MINUTES * MS_PER_MINUTE
-  return minutes * MS_PER_MINUTE
+export function holdsMapPlace(session: ApiSession): boolean {
+  return session.status !== 'ended' || session.pinnedAt != null
 }
 
 /**
- * Where a session stands with the hole:
+ * Where a session stands with the map:
  *
- * - `none` — bonded (or live); drawn normally.
- * - `releasing` — its bond was just cut (manually, or the release delay
- *   elapsed); still in the scene so the fall can play.
- * - `absorbed` — gone from the map. Still whole in the sidebar and search.
+ * - `none` — it holds its place (`holdsMapPlace`); drawn normally.
+ * - `leaving` — it just stopped holding it, `leavingSince` ago, within
+ *   `MAP_LEAVE_GRACE_MS`; still in the scene, drawn fading out in place.
+ * - `gone` — not on the map. Still whole in the sidebar and search.
  *
- * A `working`/`needs_input` session is always `none`: the map never lies
- * about what is running, whatever a stale dismissal stamp says (the server
- * clears stamps on activity, this is the client-side belt to that brace).
- * An ended session with no `lastAt` is `absorbed` outright — there is no
- * moment to measure a fall from, and animating ancient history out of the
- * map on every load would be noise.
- *
- * A pinned session is `none` however long it has been ended: the pin is the
- * manual exemption from the release timer (spec
- * 2026-09-20-pinned-sessions-design). It is checked AFTER `mapDismissedAt`
- * and not before, because the manual gesture wins — the server clears the
- * pin when it stamps a dismissal, so a row carrying both is mid-flight and
- * the stamp is the newer word.
+ * No `leavingSince` means this tab never saw the session leave (it was
+ * already ended at load): gone outright, since animating ancient history off
+ * the map on every load would be noise. A `leavingSince` newer than `nowMs`
+ * reads as `leaving` — the scene's clock is only re-read on a tick, and a
+ * session that left after it must still get its fade.
  */
 export function absorptionFor(
   session: ApiSession,
-  settings: Record<string, string>,
   nowMs: number,
-): 'none' | 'releasing' | 'absorbed' {
-  if (session.status === 'working' || session.status === 'needs_input') return 'none'
-  if (session.mapDismissedAt != null) {
-    return nowMs - session.mapDismissedAt < RELEASE_FALL_GRACE_MS ? 'releasing' : 'absorbed'
-  }
-  if (session.pinnedAt != null) return 'none'
-  if (session.status !== 'ended') return 'none'
-  const delay = releaseDelayMs(settings)
-  if (delay === null) return 'none'
-  if (session.lastAt == null) return 'absorbed'
-  const releasedForMs = nowMs - (session.lastAt + delay)
-  if (releasedForMs < 0) return 'none'
-  return releasedForMs < RELEASE_FALL_GRACE_MS ? 'releasing' : 'absorbed'
+  leavingSince: number | undefined,
+): 'none' | 'leaving' | 'gone' {
+  if (holdsMapPlace(session)) return 'none'
+  if (leavingSince != null && nowMs - leavingSince < MAP_LEAVE_GRACE_MS) return 'leaving'
+  return 'gone'
+}
+
+/**
+ * What dropping a session's body on the map's trash does (spec
+ * 2026-09-24-sessions-end-only-by-hand-design § 3):
+ *
+ * - `end` — an Orbital session with nothing in flight: ended at once, with an
+ *   Undo. That includes a pinned ended one, whose drop is then just the unpin.
+ * - `confirm` — an Orbital session mid-turn or waiting on the user: the End
+ *   session dialog asks first, and Cancel leaves it running.
+ * - `refuse` — a terminal session, whatever its status: Orbital does not own
+ *   the process, so the trash will not pretend to end it.
+ */
+export type TrashDrop = 'end' | 'confirm' | 'refuse'
+
+export function trashDropFor(source: SessionSource, status: SessionStatus): TrashDrop {
+  if (source !== 'web') return 'refuse'
+  return status === 'working' || status === 'needs_input' ? 'confirm' : 'end'
 }
 
 /** The Appearance slider's range (canvas 5a: 0.70×–1.60×, step 0.05). */
@@ -2201,6 +2257,11 @@ export function headerSessionStats(settings: Record<string, string>): HeaderSess
   return settings.header_session_stats === 'button' ? 'button' : 'bar'
 }
 
+/** `map_show_trash`, default on: only the literal `false` hides the trash and its drop-to-end gesture. */
+export function showTrash(settings: Record<string, string>): boolean {
+  return settings.map_show_trash !== 'false'
+}
+
 /**
  * `map_state_pills` (Settings → Appearance → MAP, ADR
  * state-labels-are-dots-first-on-the-map). Dot-first is the default, so only
@@ -2212,14 +2273,13 @@ export function mapStatePills(settings: Record<string, string>): MapStatePills {
 
 /**
  * What the space map draws: every session minus the ones the origin filter
- * excludes, minus everything the hole has absorbed (`absorptionFor`). The
+ * excludes, minus every session that has left the map (`absorptionFor`). The
  * sidebar's tag filter and search are deliberately NOT applied: narrowing
  * must not reflow the layout, so a non-matching session stays on the map and
  * `buildSceneModel` mutes it (ADR `search-mutes-planets-instead-of-hiding-them`).
- * A session that is `releasing` is still returned — the scene keeps it as a
- * falling body until its grace runs out. Live sessions are never dropped by
- * time — an idle terminal session that has sat untouched for a month is
- * still a real process.
+ * A session that is `leaving` is still returned — the scene keeps it, fading,
+ * until its grace runs out. Nothing is dropped by age — an idle session that
+ * has sat untouched for a month is still one the user has not ended.
  *
  * `nowMs` is a parameter rather than a `Date.now()` call so this stays pure
  * and `buildSceneModel` keeps its "same state in, same model out" contract.
@@ -2234,7 +2294,9 @@ export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
   const all = newestFirst(state.sessions)
   const list = origin === 'all' ? all : all.filter((session) => session.source === origin)
 
-  return list.filter((session) => absorptionFor(session, state.settings, nowMs) !== 'absorbed')
+  return list.filter(
+    (session) => absorptionFor(session, nowMs, state.leavingSince[session.id]) !== 'gone',
+  )
 }
 
 export function statusCounts(state: OrbitalState, nowMs: number): Record<SessionStatus, number> {
