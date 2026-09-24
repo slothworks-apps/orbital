@@ -1,6 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { awaitingSubagentCount } from '../lib/types'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { PLANET_SCALE_MAX, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import { buildSceneModel, contextFillFor, type SceneModel } from '../map/sceneModel'
@@ -332,66 +331,30 @@ describe('buildSceneModel', () => {
     expect(three.planets[0].footprint).toBeGreaterThan(one.planets[0].footprint)
   })
 
-  it('keeps ended subagents as moons — they outlive their agents until dismissed (spec § 4)', () => {
-    const liveSubagent = makeSubagent({ id: 'sub-live', state: 'working' })
-    const endedSubagent = makeSubagent({ id: 'sub-ended', state: 'ended' })
-    const model = sceneModelAt(
-      withSessions([makeSession({ id: 'a', tagIds: [1], subagents: [liveSubagent, endedSubagent] })])
-    )
-
-    expect(model.moons).toHaveLength(2)
-    expect(model.moons.map((m) => m.subagent.id).sort()).toEqual(['sub-ended', 'sub-live'])
-    expect(model.planets[0].subagents.map((s) => s.id).sort()).toEqual(['sub-ended', 'sub-live'])
-  })
-
   /**
-   * C2. The server MARKS a dismissed agent rather than withholding it, so
-   * the parent transcript's `OPEN →` control and the messages route keep
-   * working (spec §§ 5, 8) — which makes this filter the entire meaning of
-   * dismissal, and the only place in the client entitled to read the flag.
+   * Finished moons leave the map (subagent list spec § 5) — and only the
+   * map: the session keeps every agent, because the detail panel's
+   * subagent list and the transcript's `OPEN →` row read that full list.
    */
-  it('drops a DISMISSED subagent from the map, and only from the map', () => {
+  it('drops an ENDED subagent from the map, and only from the map', () => {
     const kept = makeSubagent({ id: 'sub-live', state: 'working' })
-    const dismissed = makeSubagent({ id: 'sub-gone', state: 'ended', dismissed: true })
-    const session = makeSession({ id: 'a', tagIds: [1], subagents: [kept, dismissed] })
+    const ended = makeSubagent({ id: 'sub-ended', state: 'ended', status: 'completed' })
+    const session = makeSession({ id: 'a', tagIds: [1], subagents: [kept, ended] })
     const model = sceneModelAt(withSessions([session]))
 
     expect(model.moons.map((m) => m.subagent.id)).toEqual(['sub-live'])
     expect(model.planets[0].subagents.map((s) => s.id)).toEqual(['sub-live'])
-    // The session itself still carries it — that is the list `Transcript`
-    // hands to `ToolRow`, and it must not be narrowed by the map's concern.
-    expect(session.subagents.map((s) => s.id)).toEqual(['sub-live', 'sub-gone'])
+    expect(session.subagents.map((s) => s.id)).toEqual(['sub-live', 'sub-ended'])
   })
 
-  it('still draws a moon for a session with only ended subagents', () => {
+  it('draws no moon for a session whose subagents have all ended, and sizes the planet as moonless', () => {
     const model = sceneModelAt(
       withSessions([makeSession({ id: 'a', tagIds: [1], subagents: [makeSubagent({ id: 'sub-1', state: 'ended' })] })])
     )
 
-    expect(model.moons).toHaveLength(1)
-    expect(model.moons[0].subagent.id).toBe('sub-1')
-    expect(model.planets[0].subagents.map((s) => s.id)).toEqual(['sub-1'])
-  })
-
-  // Asserted together, since the bug this pair prevents is a session stuck
-  // reading WORKING forever (spec § 11): `sceneModel` must draw a moon for
-  // an ended agent, and `awaitingSubagentCount` must still not count it —
-  // the two filters look identical and mean opposite things. See
-  // `awaitingsubagents.test.ts` for the narrower unit test of the second
-  // half on its own.
-  it('an ended agent gets a moon, but never counts toward what the session is still awaiting', () => {
-    const ended = makeSubagent({ id: 'sub-ended', state: 'ended' })
-    const session = makeSession({
-      id: 'a',
-      tagIds: [1],
-      status: 'working',
-      awaitingSubagents: true,
-      subagents: [ended],
-    })
-    const model = sceneModelAt(withSessions([session]))
-
-    expect(model.moons.map((m) => m.subagent.id)).toEqual(['sub-ended'])
-    expect(awaitingSubagentCount(session)).toBe(0)
+    expect(model.moons).toHaveLength(0)
+    expect(model.planets[0].subagents).toEqual([])
+    expect(model.planets[0].footprint).toBeCloseTo(model.planets[0].scale * PLANET_BASE_RADIUS, 10)
   })
 
   it('planet positions are independent of session recency order (stable id ordering feeds layout)', () => {

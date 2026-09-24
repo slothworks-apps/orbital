@@ -69,11 +69,6 @@ async function request<T>(
     throw new ApiError(text || response.statusText, response.status, url)
   }
 
-  // 204 (the dismiss route's only answer) carries no body at all —
-  // `response.json()` throws on it rather than returning anything a caller
-  // could await past.
-  if (response.status === 204) return undefined as T
-
   const data = await response.json()
   return data as T
 }
@@ -150,17 +145,6 @@ export const api = {
    */
   async subagentMessages(id: string, toolUseId: string): Promise<SubagentTranscript> {
     return request<SubagentTranscript>('GET', `/api/sessions/${id}/subagents/${toolUseId}/messages`)
-  },
-
-  /**
-   * Dismisses one moon (spec: 2026-09-22-subagent-transcript-panel-design.md
-   * § 9). Keyed by `Subagent.id`, not `toolUseId` — the task id always
-   * exists, unlike the tool_use id, which only task events carry at all.
-   * Always resolves; the server treats dismissing an unknown or
-   * already-dismissed agent as success, not an error.
-   */
-  async dismissSubagent(id: string, agentId: string): Promise<void> {
-    await request<void>('POST', `/api/sessions/${id}/subagents/${agentId}/dismiss`)
   },
 
   async createSession(body: {

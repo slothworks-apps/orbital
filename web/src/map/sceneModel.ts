@@ -224,25 +224,18 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
  * (`NAME · count`, uppercase, counting the layout — muted planets included),
  * and status counts (filter matches only — `statusCounts`).
  *
- * Moons are drawn for EVERY subagent the session carries, ended ones
- * included (spec 2026-09-22-subagent-transcript-panel-design.md § 4:
- * "moons outlive their agents") — except the dismissed ones, which this
- * function drops and NOTHING ELSE DOES. The server marks them
- * (`SubagentInfo.dismissed`) rather than withholding them, because the same
- * list also feeds the parent transcript's `OPEN →` control and the messages
- * route's own "do I know this agent" check, and dismissal must reach
- * neither: spec § 8's lifecycle row is "Moon dismissed | That moon leaves
- * the map; the row's `OPEN →` still works". This filter is therefore the
- * whole of what dismissal means (adr:
- * dismissal-marks-the-agent-only-the-map-reads-it).
+ * Moons are drawn for RUNNING subagents only: a moon leaves the map the
+ * moment its agent ends (spec 2026-09-24-subagent-list-design.md § 5). The
+ * map shows what is running; the finished record lives in the detail
+ * panel's subagent list and the parent transcript's `OPEN →` row, both of
+ * which read the session's full `subagents` — so this filter is the map's
+ * alone and must not move upstream. The planet's footprint and orbit
+ * spacing follow the running count, because they are built from the same
+ * filtered list.
  *
- * There is no `state !== 'ended'` filter here. That one used to exist and
- * meant a moon vanished the instant its agent reported back, taking the
- * only way into its transcript with it; `awaitingSubagentCount`
- * (`lib/types.ts`) keeps its OWN `state !== 'ended'` filter regardless —
- * it answers "is the parent still waiting", which an ended agent does not
- * affect, and removing that one would strand a session reading WORKING
- * forever.
+ * `awaitingSubagentCount` (`lib/types.ts`) carries a `state !== 'ended'`
+ * filter of its own, for its own reason — it answers "is the parent still
+ * waiting", not "what is drawn" — so neither filter stands in for the other.
  *
  * Pure: same `state` and `nowMs` in, same model out, every time — no
  * Date.now, no Math.random, no mutation of `state`. The clock arrives as
@@ -270,9 +263,9 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
 
       // Straight off the session: the server keeps this current for every
       // live session, so a moon no longer depends on the session being open.
-      // The dismissal filter is the map's alone and no `state !== 'ended'`
-      // filter belongs here at all — see this function's own doc.
-      const subagents = session.subagents.filter((a) => !a.dismissed)
+      // Running agents only — finished moons leave the map (see this
+      // function's own doc).
+      const subagents = session.subagents.filter((a) => a.state !== 'ended')
       const muted = !matchesSidebarFilters(session, state.ui)
 
       // Moons first: the planet's footprint is the outermost shell they

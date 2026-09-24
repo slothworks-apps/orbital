@@ -49,7 +49,7 @@ describe('moonInteraction', () => {
     expect(result).toEqual({ openable: false, inert: false, effectiveState: 'idle' })
   })
 
-  it('an ended agent with a toolUseId stays openable — dismissal, not expiry, is what removes it', () => {
+  it('an ended agent with a toolUseId stays openable — its record outlives it', () => {
     const result = moonInteraction(makeSubagent({ toolUseId: 'tool-1', state: 'ended' }), true)
     expect(result).toEqual({ openable: true, inert: false, effectiveState: 'ended' })
   })

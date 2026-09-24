@@ -537,18 +537,15 @@ export interface Subagent {
    */
   status?: 'completed' | 'failed' | 'stopped'
   /**
-   * The user dismissed this agent's moon. Mirrors `SubagentInfo.dismissed`
-   * (`server/src/transcript/subagents.ts`), which marks a dismissed agent
-   * instead of withholding it.
-   *
-   * **`map/sceneModel.ts` is the only reader.** Dismissal removes the MOON
-   * and nothing else: the parent transcript's `Agent` row keeps its `OPEN →`
-   * control and the buffer keeps answering 200, because the record is
-   * permanent and the map is not (spec
-   * 2026-09-22-subagent-transcript-panel-design.md §§ 5, 8). Anything else
-   * filtering on this is reintroducing the bug.
+   * Epoch ms when this agent ended, stamped by the tracker wherever it sets
+   * `state` to `'ended'` — the `task_notification`, the
+   * `background_tasks_changed` retirement, and `feed()`'s `tool_result` on
+   * the transcript path. Absent while it runs; a resume drops it along with
+   * `status`.
+   * Frozen at the first end, so the subagent list can show a finished row's
+   * duration without opening its buffer (subagent list spec § 3).
    */
-  dismissed?: boolean
+  endedAt?: number
 }
 
 /**

@@ -176,32 +176,6 @@ describe('closeSubagent', () => {
   })
 })
 
-describe('dismissSubagent (task 9 brief § 3)', () => {
-  it('calls the API with the agent id, NOT the toolUseId', async () => {
-    await useOrbital.getState().dismissSubagent(SESSION_ID, 'agent-1')
-    expect(api.dismissSubagent).toHaveBeenCalledWith(SESSION_ID, 'agent-1')
-  })
-
-  it('does not touch subagentPanel itself — no optimistic local removal; the moon leaves through the republished session, the same path every other session mutation takes', async () => {
-    const subagent = makeSubagent()
-    vi.mocked(api.subagentMessages).mockResolvedValue({ messages: [], droppedCount: 0 })
-    await useOrbital.getState().openSubagent(SESSION_ID, subagent)
-
-    await useOrbital.getState().dismissSubagent(SESSION_ID, subagent.id)
-
-    // Still open, unchanged — dismissal is a fire-and-forget request; only a
-    // real `sessions` republish (outside this action entirely) ever removes
-    // the moon.
-    expect(useOrbital.getState().subagentPanel?.subagent).toBe(subagent)
-  })
-
-  it('reports a toast on failure rather than throwing', async () => {
-    vi.mocked(api.dismissSubagent).mockRejectedValue(new Error('network down'))
-    await expect(useOrbital.getState().dismissSubagent(SESSION_ID, 'agent-1')).resolves.toBeUndefined()
-    expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'network down' })
-  })
-})
-
 describe('selection closes the subagent panel', () => {
   beforeEach(() => {
     vi.mocked(api.listSessions).mockResolvedValue([])

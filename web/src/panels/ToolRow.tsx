@@ -232,14 +232,13 @@ export function ToolRow({ toolUse, toolResult, subagents, onOpenSubagent }: Tool
   const preview = expanded && override === null
   // The `OPEN →` control (spec § 5, canvas 11a). Joined on `toolUseId`.
   //
-  // A DISMISSED agent still matches and still gets its control: "unlike the
+  // An ENDED agent still matches and still gets its control: "unlike the
   // moon this is part of the record forever … still reachable after
-  // scrolling back through a long session — and after the moon has been
-  // dismissed" (spec § 5). The list this joins against
-  // (`sessions[id].subagents`) used to have dismissed agents subtracted
-  // server-side, which silently made this the opposite of the spec and left
-  // a live in-memory buffer with no way in; the server now MARKS them and
-  // only `map/sceneModel.ts` acts on the mark.
+  // scrolling back through a long session" (spec § 5). Its moon has left
+  // the map (subagent list spec § 5), so this row and the detail panel's
+  // subagent list are the ways left in — which is why the list this joins
+  // against (`sessions[id].subagents`) carries every agent the session ever
+  // had, and only `map/sceneModel.ts` narrows it to the running ones.
   //
   // What genuinely renders no control — not a disabled one, since there is
   // nothing to press and nothing to explain — is a row with no match at

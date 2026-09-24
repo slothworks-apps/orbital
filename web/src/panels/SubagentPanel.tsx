@@ -123,7 +123,6 @@ export interface SubagentPanelProps {
 export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps) {
   const panel = useOrbital((s) => s.subagentPanel)
   const closeSubagent = useOrbital((s) => s.closeSubagent)
-  const dismissSubagent = useOrbital((s) => s.dismissSubagent)
   const models = useOrbital(useShallow((s) => s.models))
   const tags = useOrbital(useShallow((s) => s.tags))
   const parentSession = useOrbital((s) => (panel ? s.sessions[panel.sessionId] : undefined))
@@ -145,9 +144,9 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
    * `applySessionsEvent` replaces `sessions[id]` wholesale from the WS
    * payload, so a `task_notification` arriving under an open panel lands
    * `state: 'ended'` and `status` on a BRAND NEW `Subagent` object. Reading
-   * the snapshot instead meant the badge stayed RUNNING forever, the elapsed
-   * clock never froze (`elapsedMsFor` kept returning `now - startedAt`), and
-   * the `state === 'ended'` dismiss control never appeared — spec § 8's
+   * the snapshot instead meant the badge stayed RUNNING forever and the
+   * elapsed clock never froze (`elapsedMsFor` kept returning
+   * `now - startedAt`) — spec § 8's
    * "Agent ends | Panel stays, frozen, with the final report" and the whole
    * COMPLETED/FAILED/STOPPED half of § 10 were unreachable on the only path
    * that produces them.
@@ -238,16 +237,6 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
   // it is already shown as the heading below, so the leading turn is
   // suppressed here rather than duplicated into the transcript body.
   const bodyMessages = withoutLeadingUserFrame(messages)
-
-  // Dismissal (spec § 4/9, task 9 brief): only an ended moon can be
-  // dismissed at all — the same gate the map's own lifecycle draws (an
-  // agent still running has no "outlived its agent" to speak of). Keyed by
-  // `subagent.id`, NOT `toolUseId` — `api.dismissSubagent`'s own doc names
-  // this explicitly, since the two are easy to confuse and only one of them
-  // is what the server's dismissal set is keyed by.
-  const handleDismiss = () => {
-    void dismissSubagent(panel.sessionId, subagent.id)
-  }
 
   return (
     <Panel
@@ -407,21 +396,6 @@ export function SubagentPanel({ widthPx, inWindow = false }: SubagentPanelProps)
       >
         <span>read-only · a subagent takes no input</span>
         <span aria-hidden className="flex-1" />
-        {/* Dismissal (task 9 brief § 3). Least new chrome: a plain mono text
-            control matching this strip's existing "⎋ close", rather than a
-            new icon glyph the design does not draw — only shown once there
-            is something to dismiss at all (spec § 4: an ended moon stays
-            until dismissed; a running one has nothing to dismiss yet). */}
-        {subagent.state === 'ended' && (
-          <button
-            type="button"
-            data-dismiss-subagent
-            onClick={handleDismiss}
-            className="text-[rgba(160,190,225,.7)] hover:text-[#e8eef8] hover:underline"
-          >
-            dismiss moon
-          </button>
-        )}
         <span>⎋ close</span>
       </div>
     </Panel>

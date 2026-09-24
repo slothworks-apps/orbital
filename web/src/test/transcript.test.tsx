@@ -633,36 +633,31 @@ describe('ToolRow: OPEN → subagent control', () => {
   })
 
   /**
-   * C2. Dismissal takes the MOON and nothing else: "unlike the moon this is
-   * part of the record forever … still reachable after scrolling back
-   * through a long session — and after the moon has been dismissed" (spec
-   * § 5), "Moon dismissed | That moon leaves the map; the row's `OPEN →`
-   * still works" (§ 8). The server used to subtract a dismissed agent from
-   * the list this joins against, which broke both — and 404'd the messages
-   * route on top, so the row, had it rendered, would have shown STREAM LOST
-   * about a buffer still sitting in memory.
+   * A finished agent's moon leaves the map (subagent list spec § 5), so this
+   * row is one of the two ways left into its transcript: "unlike the moon
+   * this is part of the record forever" (subagent panel spec § 5).
    */
-  it('still renders OPEN → for a DISMISSED agent — dismissal takes the moon, not the record', async () => {
+  it('still renders OPEN → for an ENDED agent — the moon leaves the map, not the record', async () => {
     const user = userEvent.setup()
     const onOpenSubagent = vi.fn()
-    const dismissed = makeSubagentFixture({
+    const ended = makeSubagentFixture({
       id: 'agent-1',
       toolUseId: 'tool-1',
       name: 'run tests',
       state: 'ended',
       status: 'completed',
-      dismissed: true,
+      endedAt: 5000,
     })
     render(
       <ToolRow
         toolUse={makeToolUse({ id: 'tool-1', toolName: 'Agent', toolInput: { description: 'run tests' } })}
-        subagents={[dismissed]}
+        subagents={[ended]}
         onOpenSubagent={onOpenSubagent}
       />
     )
 
     await user.click(screen.getByRole('button', { name: /Open subagent transcript: run tests/ }))
-    expect(onOpenSubagent).toHaveBeenCalledWith(dismissed)
+    expect(onOpenSubagent).toHaveBeenCalledWith(ended)
   })
 
   it('renders no control when no live agent matches the row\'s toolUseId — a depth-2 call, or a server that has forgotten the agent', () => {

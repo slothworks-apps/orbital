@@ -435,16 +435,6 @@ export interface OrbitalActions {
    * call when nothing is open. */
   closeSubagent(): void
   /**
-   * Dismisses one ended moon (spec § 4/9, task 9 brief). Fires the request
-   * and returns — no optimistic local removal. The route is idempotent and
-   * 204s, and the server republishes the session on success, which is what
-   * actually removes the moon: through the normal `sessions` topic, the
-   * SAME path every other session mutation already takes, rather than a
-   * second, parallel "remove this one locally" code path that could disagree
-   * with the republish arriving a moment later.
-   */
-  dismissSubagent(sessionId: string, agentId: string): Promise<void>
-  /**
    * Applies one live message off an open agent's `subagent:<sessionId>:<toolUseId>`
    * topic. Exposed as its own action — like `applySessionEvent` — so the
    * dedupe/staleness rules are testable without going through a real socket.
@@ -1734,15 +1724,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   closeSubagent() {
     releaseSubagentSubscription()
     set({ subagentPanel: null })
-  },
-
-  async dismissSubagent(sessionId, agentId) {
-    try {
-      await api.dismissSubagent(sessionId, agentId)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to dismiss the subagent'
-      set({ toast: { kind: 'error', message } })
-    }
   },
 
   applySubagentEvent(sessionId, toolUseId, msg) {

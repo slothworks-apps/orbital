@@ -41,10 +41,10 @@ describe('awaitingSubagentCount', () => {
   })
 
   it('ignores agents that have already reported back', () => {
-    // Regression guard (task 9): `sceneModel.ts` stopped filtering ended
-    // agents out of `moons` — they now stay on the map until dismissed
-    // (spec § 4) — but THIS filter must not follow suit. It answers "is the
-    // parent still waiting", which an ended agent does not affect; removing
+    // Regression guard: this filter is independent of the one in
+    // `sceneModel.ts` that takes finished moons off the map, and must
+    // survive any change to that one. It answers "is the parent still
+    // waiting", which an ended agent does not affect; removing
     // it would strand a session reading WORKING forever.
     expect(
       awaitingSubagentCount(session({ subagents: [agent('a', 'ended'), agent('b')] }))

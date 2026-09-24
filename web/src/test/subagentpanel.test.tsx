@@ -3,14 +3,13 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, ChatMessage, Subagent } from '../lib/types'
 import { useOrbital } from '../store/store'
 import { SubagentPanel } from '../panels/SubagentPanel'
+import { elapsedMsFor } from '../lib/subagentPanel'
 
-// Only `dismissSubagent` (task 9) actually calls `api` from this component —
-// every other test in this file exercises pure rendering off store state
-// already in place, never a fetch. Mocked the same way `subagentstore.test.ts`
-// does it, so a test that forgets to stub a method resolves instead of
-// throwing outside the test's own assertions.
+// Nothing in this component calls `api` — every test in this file exercises
+// pure rendering off store state already in place, never a fetch. Mocked the
+// same way `subagentstore.test.ts` does it anyway, so a store action reached
+// by accident resolves instead of throwing outside the test's own assertions.
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
-import { api } from '../lib/api'
 
 // ---------------------------------------------------------------------------
 // SubagentPanel — the read-only panel itself (task 7 brief). Store wiring
@@ -394,8 +393,7 @@ describe('the elapsed ticker does not outlive the panel (finding 2)', () => {
  * and `applySessionsEvent` replaces `sessions[id]` wholesale, so the live
  * `state`/`status` landed on a new object the panel did not hold. A panel
  * opened on a running moon stayed RUNNING forever — blinking dot, clock
- * still counting, and no "dismiss moon" control, since that is gated on
- * `state === 'ended'`.
+ * still counting.
  *
  * So this drives the TRANSITION, which is the only thing that can fail for a
  * reason other than someone editing the value it asserts.
@@ -415,7 +413,7 @@ describe('the agent ending under an open panel (C1)', () => {
     })
   }
 
-  it('switches the badge, freezes elapsed and reveals the dismiss control', () => {
+  it('switches the badge and freezes elapsed', () => {
     vi.setSystemTime(0)
     const running = makeSubagent({ id: 'agent-1', state: 'working', startedAt: 0 })
     const { container } = renderPanel({
@@ -430,7 +428,6 @@ describe('the agent ending under an open panel (C1)', () => {
     })
     expect(container.querySelector('[data-task-state="running"]')).toBeInTheDocument()
     expect(screen.getByText('5.0s')).toBeInTheDocument()
-    expect(screen.queryByText('dismiss moon')).not.toBeInTheDocument()
 
     endTheAgent(makeSubagent({ id: 'agent-1', state: 'ended', status: 'completed', startedAt: 0 }))
 
@@ -438,7 +435,6 @@ describe('the agent ending under an open panel (C1)', () => {
     // Frozen at the last message's own timestamp, not at whatever the clock
     // read when the notification landed.
     expect(screen.getByText('3.0s')).toBeInTheDocument()
-    expect(screen.getByText('dismiss moon')).toBeInTheDocument()
 
     // And it stays frozen: the ticking interval is gone with the state.
     act(() => {
@@ -472,24 +468,29 @@ describe('the agent ending under an open panel (C1)', () => {
   })
 })
 
-describe('dismissal (task 9 brief § 3)', () => {
-  it('shows "dismiss moon" only once the agent has ended', () => {
-    renderPanel({ subagent: makeSubagent({ state: 'working' }) })
-    expect(screen.queryByText('dismiss moon')).not.toBeInTheDocument()
+/**
+ * `endedAt` (subagent list spec § 3) is what makes the panel and the list
+ * read the same duration for the same agent: the list has no buffer to
+ * read a last timestamp from, so the panel must prefer the stamp too.
+ */
+describe('elapsedMsFor', () => {
+  const lastAt3s: ChatMessage[] = [
+    { id: 'm1', role: 'assistant', text: 'done', timestamp: new Date(3000).toISOString() },
+  ]
+
+  it('freezes an ended agent at endedAt when the server stamped one, over the last message', () => {
+    const ended = makeSubagent({ state: 'ended', startedAt: 1000, endedAt: 8000 })
+    expect(elapsedMsFor(ended, lastAt3s, 60_000)).toBe(7000)
   })
 
-  it('calls the API with the agent id (not the toolUseId) and does not close the panel itself', () => {
-    renderPanel({
-      subagent: makeSubagent({ id: 'agent-1', toolUseId: 'tool-1', state: 'ended', status: 'completed' }),
-    })
+  it('falls back to the last message timestamp when endedAt is absent', () => {
+    const ended = makeSubagent({ state: 'ended', startedAt: 1000 })
+    expect(elapsedMsFor(ended, lastAt3s, 60_000)).toBe(2000)
+  })
 
-    fireEvent.click(screen.getByText('dismiss moon'))
-
-    expect(api.dismissSubagent).toHaveBeenCalledWith(SESSION_ID, 'agent-1')
-    // No optimistic removal (task 9 brief § 3: "pick one and say which") —
-    // the panel stays exactly as it was; only a real `sessions` republish
-    // ever takes the moon off the map.
-    expect(useOrbital.getState().subagentPanel).not.toBeNull()
+  it('ignores a stale endedAt on a running agent and measures against now', () => {
+    const running = makeSubagent({ state: 'working', startedAt: 1000, endedAt: 8000 })
+    expect(elapsedMsFor(running, lastAt3s, 60_000)).toBe(59_000)
   })
 })
 

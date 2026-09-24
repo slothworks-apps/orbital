@@ -50,22 +50,25 @@ export function taskStateFor(
  * this function stays pure and needs no clock of its own, which is what
  * makes it unit-testable without fake timers.
  *
- * A terminal state freezes at the LAST message's own `timestamp` rather
- * than at whatever moment the panel happened to first render the ended
- * state: an agent reopened long after it finished must read the same
- * duration it did the first time it was seen, and a value derived from the
- * record itself guarantees that where a component-lifecycle snapshot
- * cannot. `undefined` (never a fabricated number) for the practically-rare
- * case of a terminal agent that never published one timestamped message —
- * every forwarded `ChatMessage` is stamped at publish (spec § 7), so this
- * only happens for an agent whose buffer is genuinely empty.
+ * A terminal state freezes at a moment taken from the record, never at
+ * whatever moment the panel happened to first render the ended state: an
+ * agent reopened long after it finished must read the same duration it did
+ * the first time it was seen, and a component-lifecycle snapshot cannot
+ * guarantee that. The record's moment is `endedAt` when the server stamped
+ * one — the same value the subagent list reads, so the panel and the list
+ * agree on the same agent (subagent list spec § 3) — else the LAST
+ * message's own `timestamp`. `undefined` (never a fabricated number) for
+ * the practically-rare case of a terminal agent with neither — every
+ * forwarded `ChatMessage` is stamped at publish (spec § 7), so this only
+ * happens for an agent whose buffer is genuinely empty.
  */
 export function elapsedMsFor(
-  subagent: Pick<Subagent, 'state' | 'startedAt'>,
+  subagent: Pick<Subagent, 'state' | 'startedAt' | 'endedAt'>,
   messages: readonly ChatMessage[],
   nowMs: number,
 ): number | undefined {
   if (subagent.state !== 'ended') return Math.max(0, nowMs - subagent.startedAt)
+  if (subagent.endedAt !== undefined) return Math.max(0, subagent.endedAt - subagent.startedAt)
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const ts = messages[i].timestamp
     if (!ts) continue
