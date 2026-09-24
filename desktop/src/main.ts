@@ -504,8 +504,11 @@ function openWindow(url: string, page: string = url): void {
   // it keeps running (spec: 2026-09-22-desktop-background-mode-design).
   // Its frame and page are remembered for the next launch: as they change,
   // and at once when the window goes away, whether hidden or closed on quit.
-  main.on('move', () => rememberMainWindow('soon'));
-  main.on('resize', () => rememberMainWindow('soon'));
+  // `moved`/`resized`, not `move`/`resize`: the latter fire for every
+  // intermediate frame of a drag or of an animated `setBounds`, the former
+  // once, when the window has settled (macOS, the only platform built).
+  main.on('moved', () => rememberMainWindow('soon'));
+  main.on('resized', () => rememberMainWindow('soon'));
   main.webContents.on('did-navigate', () => rememberMainWindow('soon'));
   main.webContents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
     if (isMainFrame) rememberMainWindow('soon');
@@ -613,8 +616,11 @@ function openSessionWindow(sessionId: string): void {
   // grow and the frame it opened at. A close only writes what is already
   // remembered.
   sessionWindowOpenedAt.set(detached, frameOf(detached));
-  detached.on('move', () => rememberSessionWindow(detached));
-  detached.on('resize', () => rememberSessionWindow(detached));
+  // The settled events only (see the main window): the subagent panel's grow
+  // and shrink animate through widths `sessionFrameToRemember` cannot tell
+  // from a drag, and `resize` would hand it every one of them.
+  detached.on('moved', () => rememberSessionWindow(detached));
+  detached.on('resized', () => rememberSessionWindow(detached));
   detached.on('close', () => flushWindowFrames());
   detached.on('closed', () => {
     sessionWindows.delete(sessionId);

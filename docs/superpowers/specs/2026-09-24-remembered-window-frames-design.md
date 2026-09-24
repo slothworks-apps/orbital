@@ -85,7 +85,9 @@ and writer: it reads it once at launch and keeps the copy in memory.
 - Read defensively: a missing file, bad JSON or another `version` means
   nothing is remembered. Each part is dropped on its own — a bad `path` costs
   the path, not the frame beside it.
-- Written on move and resize after they settle (`FRAME_WRITE_DELAY_MS`), on
+- Written when a move or a resize has settled (Electron's `moved` and `resized`,
+  which fire once per gesture and once per animated `setBounds`, never for an
+  intermediate frame), debounced by `FRAME_WRITE_DELAY_MS`; on
   every page change in the main window, at once when the main window hides or
   closes, when a detached window closes, and on quit. Written through a
   temporary file and a rename; a failed write is logged and costs nothing
