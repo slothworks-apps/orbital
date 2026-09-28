@@ -6,6 +6,7 @@ status: draft
 domain: sessions
 related:
   - background-shell-output-is-not-forced-into-colour
+  - the-composers-stop-spares-background-work
   - subagent-liveness-from-sdk-task-events
   - subagents-only-for-orbital-sessions
   - what-a-session-waits-for-is-a-label
@@ -21,10 +22,11 @@ tags:
 
 # Background tasks
 
-Decided with Tomin, 2026-09-28. The visual design is not done yet: it is
-to be drawn in Claude Design first (the prompt is in the brainstorming
-session that produced this spec), and this spec records what was agreed
-about behaviour, not the pixels.
+Decided with Tomin, 2026-09-28. Source: Claude Design,
+`Feature - Background tasks.dc.html`, artboards 26a–26e. Read it through
+DesignSync; this spec records what was agreed, not the pixels. Where the
+artboards assume something the SDK does not do, this spec wins and the
+difference is listed in § 5.
 
 ## Why
 
@@ -95,9 +97,15 @@ has had, ended included, in start order):
 | `label` | `description` from `task_started`; a workflow uses `workflow_name` when present |
 | `command` | shells and `Monitor` only: the `command` input of the launching call |
 | `state` | `running` · `ended` |
-| `status` | once ended: `completed` · `failed` · `stopped`, from `task_notification`; absent when the task was retired without one |
+| `status` | once ended: `completed` · `failed` · `stopped`, from `task_notification`; absent when the task was retired without one (the UI's "unknown") |
+| `exitCode` | shells and monitors only, once ended: read from the output file's last line, `[exited with code N]`; absent when that line is not there |
 | `startedAt`, `endedAt` | epoch ms |
+| `toolUseId` | the launching call, so the transcript row can offer `OUTPUT →` |
 | `hasOutput` | true when the server knows an output file for it (§ 4) |
+
+The SDK does not send an exit code. The CLI writes one as the output
+file's closing line, which is the only source; the tracker reads it once,
+when the task ends.
 
 The command and the Monitor/Bash split need the launching `tool_use`
 block. The Runner already sees every assistant message before the
@@ -110,9 +118,19 @@ with a terminal `patch.status`, or when it is missing from a
 `background_tasks_changed` payload (the level signal, as the subagent
 tracker already uses it). When the session's CLI process exits — the
 session ended, or it crashed — every running task is ended without a
-`status`: the background processes die with the CLI. The store is in
-memory; after a server restart the list starts empty, like the subagent
-list.
+`status`: the background processes die with the CLI.
+
+### Persistence
+
+Tasks are kept in SQLite, table `background_tasks` (migration after
+`0015`), one row per task, keyed by `(session_id, task_id)`, cascading
+with the session. The row holds every wire field above plus the output
+file path. The tracker writes through on every change; at startup it
+loads the rows, and any still `running` is ended without a `status` —
+the server's restart took its CLI process, and the processes with it.
+So ended tasks, their exit codes and their output (while the file
+lasts) survive a restart of Orbital. Subagents stay in memory; this does
+not change them.
 
 ### Working while a task runs
 
@@ -143,21 +161,52 @@ does not end it itself.
 No confirmation dialog: stopping a background task breaks nothing the
 agent cannot start again.
 
-`perTaskStopAffordance` is **not** declared. Declaring it makes the
-composer's interrupt spare running background agents and workflows,
-which is a separate change to what Stop means, and subagents have no stop
-control of their own yet.
+### The composer's Stop stops only the turn
+
+The Runner declares `perTaskStopAffordance: true`. Without it the CLI
+fails closed and the composer's interrupt kills running background
+agents and workflows along with the turn; with it, Stop aborts the turn
+and the tasks keep running, as 26a says. Each one then has its own stop:
+tasks in this list, and **subagents in theirs** — the subagent list
+(25a) gains the same ■ on running rows, calling the same route with the
+subagent's `task_id` (`stopTask` takes any task id). See
+[[the-composers-stop-spares-background-work]].
+
+To verify when implementing: the SDK's wording names agents and
+workflows; whether an undeclared interrupt also kills background shells,
+and whether a declared one spares them, is checked against the real CLI
+before the UI claims it.
 
 ## 3. Web
 
-- The detail panel gets the list of background tasks, running and ended,
-  with a stop control on running rows. No task, no list: a session that
-  never had one shows nothing.
-- A shell or monitor row with `hasOutput` opens its output (§ 4). A
-  workflow or MCP task has no output to open.
-- The map shows nothing new except the state pill's wording.
-- Where the list sits, how a row reads and how the output view looks come
-  from the Claude Design artboards, not from here.
+- **The ▣ chip** (26a, 26e) sits in the detail header's state row right
+  after the subagent chip. It shows the running count and, once the
+  oldest running task passes `TASK_AGE_SHOWN_AFTER_MS`, its age; with
+  nothing running, the ended counts. No task ever, no chip. When both
+  chips are shown in a narrow session column the two take their compact
+  forms (26c's rule).
+- **The list** is the `ui/Menu` dropdown the subagent list uses:
+  `RUNNING`, then `ENDED`. ■ on a running row stops the task without
+  opening the row. The row stays in `RUNNING` with the stop pending until
+  the `task_notification` arrives — no optimistic move, so a stop that
+  fails does not leave a lie behind.
+- **The output view** (26b) opens a shell or monitor in the subagent
+  slot: the same single slot, so opening one replaces an open subagent
+  and the other way round. Header with the full command wrapped, state,
+  elapsed, ■ while running. The body follows the tail; scrolling up
+  pauses following and the footer counts the new lines; the client keeps
+  the last `OUTPUT_BUFFER_LINES` lines. A workflow or MCP task has no
+  output to open.
+- **`OUTPUT →`** on the transcript's row for a background `Bash` or
+  `Monitor` call opens the same view, joined by `toolUseId`, like
+  `OPEN →` on a subagent's row.
+- **The waiting label** (26d): agents first, then tasks, joined by `+`,
+  at most two terms; a count of one is dropped, from two it is shown —
+  `WAITING FOR 2 AGENTS` replaces today's countless plural; one kind is
+  named, mixed kinds read `TASKS`. The map pill spells it out; the detail
+  row reads `WAITING FOR` and lets the chips carry the nouns.
+- The map shows nothing new except that wording.
+- Detached window: 26c, the 25b pane/swap rules unchanged.
 
 ## 4. Output of shells and monitors
 
@@ -169,14 +218,16 @@ The launching `Bash` call's `tool_result` gives the exact path at launch
 gives it again at the end. The server takes the path from those two
 places only and never builds it from the pattern above.
 
-**Reading.** `GET /api/sessions/:id/tasks/:taskId/output?before=<offset>`
-returns a chunk of the file ending at `before` (the end of the file when
-omitted), at most `OUTPUT_CHUNK_BYTES`, cut forward to a line start, with
-the chunk's start offset and the file's size. Scrolling up asks for the
-chunk before. The path comes only from the tracker's record for that
-task, so the route cannot be pointed at any other file. `404` for an
-unknown task; `410` when the file is gone (`/tmp` does not survive a
-reboot) — the view then says the output is no longer available.
+**Reading.** `GET /api/sessions/:id/tasks/:taskId/output` returns the
+file's tail — at most `OUTPUT_TAIL_BYTES`, cut forward to a line start —
+with the file size as the offset the next delta continues from. There is
+no paging further back: the view holds the last `OUTPUT_BUFFER_LINES`
+lines and older ones drop off (26b). The path comes only from the
+tracker's record for that task, so the route cannot be pointed at any
+other file. `404` for an unknown task; `410` when the file is gone —
+`/tmp` does not survive a reboot, and with persisted tasks (§ 2) a
+finished task can outlive its file — and the view then says the output
+is no longer available.
 
 **Following.** While a view is open, the web subscribes to the task's
 output over the WebSocket; the server watches that one file and pushes
@@ -194,12 +245,24 @@ sequences are stripped and a `\r` without `\n` replaces the line it
 returns to. Colour is neither rendered nor forced
 ([[background-shell-output-is-not-forced-into-colour]]).
 
+## 5. Where the artboards and this spec differ
+
+- **Stop in the list.** 26e moves a stopped row to `ENDED` at once. Here
+  it stays pending in `RUNNING` until the SDK confirms (§ 3).
+- **Exit codes** exist only for shells and monitors (§ 2). A workflow or
+  MCP row reads done or failed, never `exit N`.
+- **"Output no longer available"** — 26b says the file was deleted when
+  the machine restarted. That is one cause, not the only one; the copy
+  says the file no longer exists.
+- **Subagent ■** is not on the artboards; 25a's rows gain the same ■ the
+  task rows have (§ 2).
+
 ## Out of scope
 
 - Cloud sessions (`remote_agent`) — [[cloud-sessions-in-the-session]].
 - Output of workflows and MCP tasks, and colour in shell output (§ 4).
 - Terminal sessions.
-- Declaring `perTaskStopAffordance` (§ 2, Stop).
+- Persisting subagents.
 - Telling a subagent's background tasks from the main loop's: whatever
   reaches the session's SDK stream is listed under the session.
 
@@ -209,11 +272,15 @@ returns to. Colour is neither rendered nor forced
   messages; a foreground `local_bash` hidden until `task_updated` moves
   it to the background, and never shown if it ends first; Bash vs
   Monitor from the launching call; each of the three ways a task ends;
-  every running task ending when the CLI process exits.
-- `working` while only a background task runs, and the counts the label
-  reads.
-- Stop route: `404`, `409`, `204`, and that it calls `stopTask`.
-- Output route: a chunk cut to a line start, paging with `before`, `410`
-  for a missing file, and that no request reaches a path the tracker did
-  not record.
+  every running task ending when the CLI process exits; the exit code
+  read off the output file's last line, and absent without it.
+- Persistence: tasks survive a restart, and a task stored as running is
+  ended without a status on load.
+- `working` while only a background task runs, and the waiting label's
+  wording rules (26d): order, the two-term cap, dropped count of one,
+  mixed kinds.
+- Stop route: `404`, `409`, `204`, that it calls `stopTask`, and that it
+  takes a subagent's task id too.
+- Output route: a tail cut to a line start, `410` for a missing file,
+  and that no request reaches a path the tracker did not record.
 - ANSI stripping and `\r` handling.
