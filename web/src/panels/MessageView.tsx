@@ -9,7 +9,7 @@ import { rehypePathLinks } from '../lib/pathLinks'
 import { rehypeSentTokens } from '../lib/sentTokens'
 import { ImageThumb } from './ImageThumb'
 import { PathButton } from './PathButton'
-import { parseSentSelection } from '../lib/ideSelection'
+import { parseSentSelection, stripSentOpenFile } from '../lib/ideSelection'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { copyToClipboard } from '../lib/clipboard'
@@ -268,7 +268,7 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
    */
   const sentSelection = isUser ? parseSentSelection(message.text) : null
   const openFile = useOrbital((s) => s.openFile)
-  const bodyText = sentSelection ? sentSelection.text : (message.text ?? '')
+  const bodyText = sentSelection ? sentSelection.text : (stripSentOpenFile(message.text) ?? message.text ?? '')
   // Typed nothing → no empty bubble, the chip is the whole turn (6c B).
   const hasText = Boolean(bodyText.trim())
   // Transcript images (canvas 7a): an image-only turn renders the

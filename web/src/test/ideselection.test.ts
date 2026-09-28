@@ -8,9 +8,11 @@ import {
   lineEnd,
   lipParts,
   pathRelativeTo,
+  promptWithOpenFile,
   promptWithSelection,
   parseSentSelection,
   selectionId,
+  stripSentOpenFile,
 } from '../lib/ideSelection'
 import type { IdeSelection } from '../lib/types'
 
@@ -184,5 +186,27 @@ describe('parseSentSelection', () => {
   it('leaves a code block in the typed words alone', () => {
     const typed = 'compare with\n\n```\nother()\n```'
     expect(round(typed)?.text).toBe(typed)
+  })
+})
+
+describe('the open file', () => {
+  it('names the file by path only, relative to the cwd, with the typed words after', () => {
+    const out = promptWithOpenFile('fix it', CWD, '/Users/t/proj/web/src/StatusDot.tsx')
+    expect(out).toBe(
+      'The user opened the file web/src/StatusDot.tsx in the IDE. This may or may not be related to the current task.\n\nfix it',
+    )
+    // No `@`: that would read as a mention of the file, contents and all.
+    expect(out).not.toContain('@')
+  })
+
+  it('gives the bubble back only what was typed, spaces in the path included', () => {
+    expect(stripSentOpenFile(promptWithOpenFile('fix it', CWD, '/Users/t/proj/my file.ts'))).toBe('fix it')
+    expect(stripSentOpenFile(promptWithOpenFile('', CWD, '/elsewhere/a.ts'))).toBe('')
+  })
+
+  it('answers null for every turn that did not carry one', () => {
+    expect(stripSentOpenFile(null)).toBeNull()
+    expect(stripSentOpenFile('just a message')).toBeNull()
+    expect(stripSentOpenFile('The user opened the file and then what?')).toBeNull()
   })
 })

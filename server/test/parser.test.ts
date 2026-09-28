@@ -283,6 +283,18 @@ describe('cleanTitle', () => {
     expect(cleanTitle(text)).toBe('/clickup-branch https://app.clickup.com/t/1');
     expect(cleanTitle('<command-name>/compact</command-name>')).toBe('/compact');
   });
+
+  // Written by `promptWithSelection` / `promptWithOpenFile` in the web app.
+  it('drops the editor context Orbital puts in front of a prompt', () => {
+    const selection = 'Selected in the editor — @src/a.ts lines 3–4:\n\n````\nconst x = "```"\nx++\n````\n\nwhy does this loop';
+    expect(cleanTitle(selection)).toBe('why does this loop');
+    const open = 'The user opened the file src/my file.ts in the IDE. This may or may not be related to the current task.\n\nFix the login bug';
+    expect(cleanTitle(open)).toBe('Fix the login bug');
+  });
+
+  it('keeps a prompt that only mentions the editor in passing', () => {
+    expect(cleanTitle('Selected in the editor — the left one')).toBe('Selected in the editor — the left one');
+  });
 });
 
 describe('extractMeta noise titles', () => {

@@ -14,7 +14,8 @@ import { selectionId } from '../lib/ideSelection'
  * Two rules decided by the spec rather than by the canvas, and both can break
  * for a reason other than someone changing a value:
  *
- * - the selection attaches to EVERY prompt while it stands, as the CLI does;
+ * - the selection attaches to EVERY prompt while it stands, as the CLI does,
+ *   and with none standing the open file rides by path instead;
  * - × is per session, though the selection belongs to the workspace.
  */
 
@@ -54,6 +55,8 @@ function seed(sessions: ApiSession[]) {
 }
 
 const sentTexts = () => vi.mocked(api.sendMessage).mock.calls.map((c) => c[1])
+const OPEN = (path: string, typed: string) =>
+  `The user opened the file ${path} in the IDE. This may or may not be related to the current task.\n\n${typed}`
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -84,12 +87,12 @@ describe('the editor selection on the way out', () => {
     expect(optimistic[0].text).toBe(sentTexts()[0])
   })
 
-  it('sends the typed words alone once this session has dropped it', async () => {
+  it('sends only the open file once this session has dropped the selection', async () => {
     seed([session({ id: 's1', ide: { ideName: 'WebStorm', workspaceRoot: '/w/x', selection: SELECTION } })])
     useOrbital.getState().dismissIdeSelection('s1', selectionId(SELECTION))
 
     await useOrbital.getState().sendPrompt('s1', 'plain question')
-    expect(sentTexts()).toEqual(['plain question'])
+    expect(sentTexts()).toEqual([OPEN('web/CLAUDE.md', 'plain question')])
   })
 
   it('carries it again the moment the selection changes under a dismissal', async () => {
@@ -118,7 +121,7 @@ describe('the editor selection on the way out', () => {
     await useOrbital.getState().sendPrompt('s1', 'one')
     await useOrbital.getState().sendPrompt('s2', 'two')
 
-    expect(sentTexts()[0]).toBe('one')
+    expect(sentTexts()[0]).toBe(OPEN('web/CLAUDE.md', 'one'))
     expect(sentTexts()[1]).toContain('a span does not have a size')
   })
 
@@ -126,7 +129,17 @@ describe('the editor selection on the way out', () => {
     seed([
       session({ id: 'none', ide: null }),
       session({ id: 'absent' }),
-      // An editor with the caret merely moved attaches nothing either.
+    ])
+
+    for (const id of ['none', 'absent']) {
+      await useOrbital.getState().sendPrompt(id, `hello ${id}`)
+    }
+    expect(sentTexts()).toEqual(['hello none', 'hello absent'])
+  })
+
+  it('names the open file, by path only, when nothing is selected', async () => {
+    seed([
+      // The caret merely moved.
       session({
         id: 'caret',
         ide: {
@@ -142,10 +155,10 @@ describe('the editor selection on the way out', () => {
       }),
     ])
 
-    for (const id of ['none', 'absent', 'caret', 'empty']) {
+    for (const id of ['caret', 'empty']) {
       await useOrbital.getState().sendPrompt(id, `hello ${id}`)
     }
-    expect(sentTexts()).toEqual(['hello none', 'hello absent', 'hello caret', 'hello empty'])
+    expect(sentTexts()).toEqual([OPEN('web/CLAUDE.md', 'hello caret'), OPEN('web/CLAUDE.md', 'hello empty')])
   })
 
   it('leaves an answer to an open question alone — it is words for the ask', async () => {

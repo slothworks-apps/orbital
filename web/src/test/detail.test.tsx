@@ -1636,14 +1636,13 @@ describe('DetailPanel session shortcuts', () => {
     expect(pinSpy).toHaveBeenCalledWith('a', true)
   })
 
-  it('⌘T opens the tag select, focused, so the arrows pick', async () => {
+  it('⌘T opens the tag select', async () => {
     await renderDetail({ session: makeSession({ id: 'a', tagIds: [1] }) })
 
     press({ key: 't', code: 'KeyT', metaKey: true })
 
     const trigger = screen.getByRole('combobox', { name: 'Change tag' })
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
-    expect(trigger).toHaveFocus()
     expect(screen.getByRole('listbox', { name: 'Change tag' })).toBeInTheDocument()
   })
 

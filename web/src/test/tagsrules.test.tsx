@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import type { ApiSession, Tag, TagRule } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
@@ -279,48 +278,6 @@ describe('Settings › Tags & rules', () => {
     })
   })
 
-  it('reorders from the keyboard: ArrowDown on the grip moves the rule and keeps focus on it', async () => {
-    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
-    resetStore({ rules: [rule1, workRule2] })
-    renderTags()
-
-    const handle = grip(1)
-    handle.focus()
-    fireEvent.keyDown(handle, { key: 'ArrowDown' })
-
-    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { position: 1 }))
-    expect(api.patchTagRule).toHaveBeenCalledWith(20, { position: 0 })
-    await waitFor(() => {
-      const state = useOrbital.getState()
-      expect(state.rules.find((r) => r.id === 10)?.position).toBe(1)
-      expect(state.rules.find((r) => r.id === 20)?.position).toBe(0)
-    })
-
-    // The moved rule is now second — and focus travelled with it, so a second
-    // Arrow press acts on the same rule rather than on whatever took its slot.
-    expect(grip(2)).toBe(document.querySelector('[data-rule-grip="10"]'))
-    expect(grip(2)).toHaveFocus()
-  })
-
-  it('announces every keyboard move, and says so when a rule is already at the end', async () => {
-    vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
-    resetStore({ rules: [rule1, workRule2] })
-    renderTags()
-
-    const status = screen.getByTestId('reorder-status')
-    expect(status).toHaveAttribute('aria-live', 'polite')
-    expect(status).toBeEmptyDOMElement()
-
-    // Refused move at the top of the list: no PATCH, but never silent.
-    fireEvent.keyDown(grip(1), { key: 'ArrowUp' })
-    expect(api.patchTagRule).not.toHaveBeenCalled()
-    expect(status).toHaveTextContent('is already at position 1 of 2')
-
-    fireEvent.keyDown(grip(1), { key: 'ArrowDown' })
-    expect(status).toHaveTextContent('moved to position 2 of 2')
-    await waitFor(() => expect(api.patchTagRule).toHaveBeenCalled())
-  })
-
   it('reorders by dragging a row onto another by its grip', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore({ rules: [rule1, workRule2] })
@@ -567,16 +524,6 @@ describe('Settings › Tags & rules', () => {
     expect(screen.getAllByRole('button', { name: /^Reorder rule/ })).toHaveLength(2)
   })
 
-  it('refuses to move the last rule down, and says so', () => {
-    resetStore({ rules: [rule1, workRule2] })
-    renderTags()
-
-    fireEvent.keyDown(grip(2), { key: 'ArrowDown' })
-
-    expect(api.patchTagRule).not.toHaveBeenCalled()
-    expect(screen.getByTestId('reorder-status')).toHaveTextContent('is already at position 2 of 2')
-  })
-
   it('creates a rule targeting the default tag with a camelCase tagId payload, then refreshes rules', async () => {
     vi.mocked(api.createTagRule).mockResolvedValue(30)
     const refreshedRules = [rule1, rule2, { id: 30, tag_id: 2, position: 2, enabled: 1 as const, condition: 'path_matches' as const, pattern: '' }]
@@ -595,7 +542,7 @@ describe('Settings › Tags & rules', () => {
     await waitFor(() => expect(useOrbital.getState().rules).toEqual(refreshedRules))
   })
 
-  it('opens a newly added rule straight into edit mode with the pattern field focused', async () => {
+  it('opens a newly added rule straight into edit mode', async () => {
     vi.mocked(api.createTagRule).mockResolvedValue(30)
     const newRule: TagRule = { id: 30, tag_id: 1, position: 2, enabled: 1, condition: 'path_matches', pattern: '' }
     vi.mocked(api.listTagRules).mockResolvedValue([rule1, rule2, newRule])
@@ -610,7 +557,6 @@ describe('Settings › Tags & rules', () => {
     // A brand-new rule has nothing to read, so it skips the resting state.
     await waitFor(() => expect(row(30)?.dataset.ruleMode).toBe('editing'))
     expect(editingRows()).toHaveLength(1)
-    expect(screen.getByLabelText('Pattern for rule 3')).toHaveFocus()
   })
 
   it('patches the target tag with a snake_case tag_id payload (edit mode only)', async () => {
@@ -642,10 +588,10 @@ describe('Settings › Tags & rules', () => {
     expect(useOrbital.getState().rules.find((r) => r.id === 10)?.condition).toBe('title_contains')
   })
 
-  it('keeps the row open while a listbox is open — Escape peels the popup first', async () => {
+  it('keeps the row open when an option is picked from its listbox', async () => {
     vi.mocked(api.patchTagRule).mockResolvedValue({ ok: true })
     resetStore()
-    const { onClose } = renderTags()
+    renderTags()
 
     openRow(1)
     const combo = screen.getByRole('combobox', { name: 'Condition for rule 1' })
@@ -656,18 +602,6 @@ describe('Settings › Tags & rules', () => {
     fireEvent.click(screen.getByRole('option', { name: 'permission is' }))
     await waitFor(() => expect(api.patchTagRule).toHaveBeenCalledWith(10, { condition: 'permission_is' }))
     expect(row(10).dataset.ruleMode).toBe('editing')
-
-    // Escape belongs to the popup while it is open — the row and the panel
-    // each keep their own turn.
-    fireEvent.click(combo)
-    fireEvent.keyDown(combo, { key: 'Escape' })
-    expect(screen.queryByRole('listbox')).toBeNull()
-    expect(row(10).dataset.ruleMode).toBe('editing')
-    expect(onClose).not.toHaveBeenCalled()
-
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(row(10).dataset.ruleMode).toBe('resting')
-    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('toggles a rule enabled/disabled', async () => {
@@ -837,31 +771,6 @@ describe('Settings › Tags & rules', () => {
     expect(document.querySelectorAll('[data-rule-row]')).toHaveLength(2)
   })
 
-  it('selects and deselects a tag from the keyboard via the planet toggle', async () => {
-    const user = userEvent.setup()
-    resetStore({ rules: [rule1, rule2] })
-    renderTags()
-
-    const toggle = screen.getByRole('button', { name: 'Mark rules for work' })
-    expect(toggle).toHaveAttribute('aria-pressed', 'true')
-
-    toggle.focus()
-    await user.keyboard('{Enter}')
-    expect(screen.getByRole('button', { name: 'Mark rules for work' })).toHaveAttribute('aria-pressed', 'false')
-    expect(row(10).dataset.tagMatch).toBe('false')
-
-    // Selection must NOT follow focus, or the card would re-select itself the
-    // instant focus settled back into it after a deselect.
-    fireEvent.focusIn(screen.getByLabelText('Tag name for work'))
-    expect(screen.getByRole('button', { name: 'Mark rules for work' })).toHaveAttribute('aria-pressed', 'false')
-    expect(row(10).dataset.tagMatch).toBe('false')
-
-    screen.getByRole('button', { name: 'Mark rules for work' }).focus()
-    await user.keyboard('{Enter}')
-    expect(screen.getByRole('button', { name: 'Mark rules for work' })).toHaveAttribute('aria-pressed', 'true')
-    expect(row(10).dataset.tagMatch).toBe('true')
-  })
-
   // Regression: the planet is a <span>, so it needs its own `block` to honour
   // its 22px box. It only looked right while it happened to be a flex item —
   // wrapping it in the toggle button collapsed it to a 2px sliver, which no
@@ -975,7 +884,6 @@ describe('Settings › Tags & rules', () => {
     expect(editingRows()).toHaveLength(1)
     expect(row(10).dataset.ruleMode).toBe('editing')
     expect(screen.getByLabelText('Condition for rule 1')).toBeInTheDocument()
-    expect(screen.getByLabelText('Pattern for rule 1')).toHaveFocus()
 
     openRow(2)
     expect(editingRows()).toHaveLength(1)
@@ -1017,28 +925,5 @@ describe('Settings › Tags & rules', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete rule 1' }))
     await waitFor(() => expect(api.deleteTagRule).toHaveBeenCalledWith(20))
     expect(editingRows()).toHaveLength(0)
-  })
-
-  it('opens a row from the keyboard and Escape closes the row before the panel', async () => {
-    const user = userEvent.setup()
-    resetStore({ rules: [rule1] })
-    const { onClose } = renderTags()
-
-    const rowButton = screen.getByRole('button', { name: /^Edit rule 1:/ })
-    rowButton.focus()
-    await user.keyboard('{Enter}')
-
-    await waitFor(() => expect(row(10).dataset.ruleMode).toBe('editing'))
-    await waitFor(() => expect(screen.getByLabelText('Pattern for rule 1')).toHaveFocus())
-
-    // Escape peels the row first…
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => expect(row(10).dataset.ruleMode).toBe('resting'))
-    expect(onClose).not.toHaveBeenCalled()
-    // …focus lands back on the row it came from…
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Edit rule 1:/ })).toHaveFocus())
-    // …and only then the panel.
-    fireEvent.keyDown(document, { key: 'Escape' })
-    await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 })

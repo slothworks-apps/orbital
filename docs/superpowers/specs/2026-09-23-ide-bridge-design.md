@@ -198,7 +198,8 @@ the well. It slides up from behind the edge when there is something to read and
 back down when there is not, as an overlay — nothing reflows.
 
 - **Cursor only** (`text` is null): a read-out, no ×. It names the file and
-  line and attaches nothing.
+  line, and the file's path — never its contents — rides with the prompt
+  (§ Behaviour, amended 2026-09-28).
 - **Selection**: the read-out gives way to the count and the file, with a ×
   that drops it.
 - **No editor, or an editor on another project**: nothing. The panel is
@@ -243,6 +244,19 @@ conversation — that the selection is not relevant to what is being asked here.
 Clearing it for the other sessions would make one panel's housekeeping reach
 into another's. Dismissed selection ids are therefore kept per session, and the
 lip sinks back to the cursor line until the selection changes.
+
+**With no selection standing, the open file rides by path** (amended
+2026-09-28). The CLI does this too: next to `ide_selection` it attaches
+`opened_file_in_ide`, the sentence *"The user opened the file X in the IDE.
+This may or may not be related to the current task."* Orbital sends that
+sentence word for word in front of the typed words — no selection made, or
+this session's × has dropped it. The path is relative to the cwd and written
+without `@`, so it cannot be read as a mention that pulls the file's contents
+in. It rides with every prompt while the file is open, like the selection, and
+has no × of its own: a path is a handful of tokens, and the owner judged a
+control to refuse it not worth its place. The transcript bubble shows only the
+typed words and no caption (`stripSentOpenFile`), and the indexer's derived
+title skips both this sentence and the selection block (`cleanTitle`).
 
 **Two rates, because there are two problems.** The cursor line rewrites in
 place at `IDE_CURSOR_THROTTLE_HZ` so that arrowing through a file does not

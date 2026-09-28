@@ -92,3 +92,18 @@ The block's wording is a parsing contract between `promptWithSelection` and
 caption — the turns are in the CLI's transcript files and cannot be migrated.
 Both functions live in `web/src/lib/ideSelection.ts`, and the round trip is
 covered by `web/src/test/ideselection.test.ts`.
+
+## Amendment 2026-09-28: the open file rides as the CLI's sentence
+
+With no selection standing, the prompt now opens with the CLI's own
+`opened_file_in_ide` sentence instead — `The user opened the file
+web/src/StatusDot.tsx in the IDE. This may or may not be related to the
+current task.` — written by `promptWithOpenFile` and read back by
+`stripSentOpenFile`. It lives in the prompt text for the same reason the
+block does: nothing beside the text survives a reload.
+
+The path is written **without** the `@` the block uses. Only the name is
+meant to travel; a mention could be taken as a request to read the file.
+The sentence is a parsing contract like the block's head, and it has a third
+reader now: `cleanTitle` in `server/src/transcript/parser.ts` strips both the
+sentence and the block, so neither becomes a session's derived title.

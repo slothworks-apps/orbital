@@ -253,22 +253,6 @@ describe('FileViewer', () => {
     expect(useOrbital.getState().ui.fileViewer).toBeNull()
   })
 
-  it('returns focus to the opener on close', async () => {
-    vi.mocked(api.filePreview).mockResolvedValue(okPreview())
-    const opener = render(<PathButton path="web/src/App.tsx" line={2} />)
-    const button = opener.getByRole('button')
-    button.focus()
-    fireEvent.click(button)
-
-    const viewer = render(<FileViewer session={makeSession({ id: 's1' })} />)
-    await waitFor(() => expect(viewer.getByRole('dialog', {})).toBeInTheDocument())
-
-    act(() => {
-      useOrbital.getState().closeFile()
-    })
-    await waitFor(() => expect(document.activeElement).toBe(button))
-  })
-
   it('shows the footer sentence and where it was opened from', async () => {
     vi.mocked(api.filePreview).mockResolvedValue(okPreview())
     renderViewer('web/src/App.tsx')

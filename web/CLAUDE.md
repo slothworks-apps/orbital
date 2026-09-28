@@ -19,12 +19,30 @@ from Tomin, not a per-case judgement call.
 Use `ui/Select`, which owns the custom listbox. If it is missing something
 you need, extend it — do not work around it locally.
 
-A custom control has to earn the native one's behaviour back, so whatever
-lands in `ui/Select` must keep: full keyboard operation (arrows, Home/End,
-Enter/Escape, type-ahead), correct `role`/`aria-*` wiring, focus returning
-to the trigger on close, and closing on outside click and on Escape. A
-prettier control that a keyboard user cannot operate is a regression, not
-a fix.
+A custom control has to earn the native one's behaviour back where it
+matters: correct `role`/`aria-*` wiring, closing on outside click and on
+Escape, and moving through the options with the arrow keys (with Enter,
+Home/End and type-ahead alongside). Arrow navigation in a dropdown is
+wanted — it is the exception to the next section.
+
+## Keyboard-only operation is nice to have, not a requirement
+
+Orbital is a local tool its owner drives with a mouse and a handful of
+shortcuts. Being able to do *everything* from the keyboard — Tab order,
+focus landing in the right field and returning where it came from, arrow
+keys and type-ahead in lists, Escape peeling one layer at a time — is
+welcome when it comes cheap, but never a condition for a change being done,
+and not a reason to reject a design.
+
+So do not add tests for it. A test that pins focus management or keyboard
+navigation of something that is operated with the mouse fails for timing
+reasons in jsdom far more often than for a real regression; such tests were
+removed on 2026-09-28.
+
+This is about keyboard-*only* operation. The keyboard as an input the owner
+actually uses is a feature and stays tested: app shortcuts, ⏎ / ⇧⏎ in the
+composer, the composer's completion list, Escape closing a dialog or panel,
+and arrow navigation in dropdowns — `ui/Select` and the menus.
 
 ## Page zoom is disabled, deliberately
 

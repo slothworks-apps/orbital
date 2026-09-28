@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api, ApiError } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
-import { isAttachable, promptWithSelection, selectionId } from '../lib/ideSelection'
+import { isAttachable, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
@@ -1397,17 +1397,22 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // edit that leaves the same range selected is indistinguishable from no
     // change and a send-once rule would silently skip it (spec
     // 2026-09-23-ide-bridge-design § Behaviour). It is dropped for THIS
-    // session only, by the lip's ×.
+    // session only, by the lip's ×. With no selection standing — none made,
+    // or this one dismissed — the file the editor has open rides instead, by
+    // path only, in the CLI's own sentence.
     //
     // Deliberately after the decision branch above: an answer to a question,
     // or the reason on a refused permission, is words meant for the ask — not
     // a new turn, and nothing rides on it.
     const session = get().sessions[id]
     const selection = session?.ide?.selection ?? null
+    const cwd = session?.cwd ?? ''
     const outgoing =
       isAttachable(selection) && get().ideDismissed[id] !== selectionId(selection)
-        ? promptWithSelection(text, session?.cwd ?? '', selection)
-        : text
+        ? promptWithSelection(text, cwd, selection)
+        : selection
+          ? promptWithOpenFile(text, cwd, selection.filePath)
+          : text
 
     const images = attachments?.map((a) => a.entry)
     // What was SENT, not what was typed: the echo that comes back off the

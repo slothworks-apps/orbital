@@ -1099,28 +1099,40 @@ export function DetailPanel({
             onIdeDismiss={(selectionId) => id && dismissIdeSelection(id, selectionId)}
             attachments={attachments}
             dropArmed={dropArmed}
+            // In a hint row narrower than 440px (a narrow panel) the buttons
+            // keep only their glyphs — ■ and ↑ — rather than breaking "Send ↑"
+            // over two lines; the words stay as their accessible names.
             actions={
               <>
                 {session?.status === 'working' && (
                   <Button
                     variant="warning-outline"
                     size="sm"
+                    // Stretched to Send's height: without its word, the square
+                    // alone would leave Stop a text line shorter.
+                    className="shrink-0 self-stretch"
+                    aria-label="Stop"
                     title={`Interrupt the run · ${shortcutLabel('session.interrupt')}`}
                     onClick={() => setDialog('stop')}
                   >
                     <span aria-hidden className="h-2 w-2 rounded-[1px] bg-current" />
-                    Stop
+                    <span className="hidden @min-[440px]:inline">Stop</span>
                   </Button>
                 )}
                 <Button
                   variant="primary"
                   size="sm"
+                  className="shrink-0"
+                  aria-label="Send"
+                  title="Send"
                   onClick={() => handleSend()}
                   // Live on text OR on one chip that is uploaded or still
                   // uploading; a failed chip alone arms nothing (spec § Send).
                   disabled={composerLocked || (!prompt.trim() && !attachments.armed)}
                 >
-                  Send ↑
+                  <span>
+                    <span className="hidden @min-[440px]:inline">Send </span>↑
+                  </span>
                 </Button>
               </>
             }

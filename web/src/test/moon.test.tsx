@@ -56,11 +56,10 @@ describe('moonInteraction', () => {
 })
 
 describe('MoonControl', () => {
-  it('renders a real, always-tabbable button naming the task', () => {
+  it('renders a real button naming the task', () => {
     render(<MoonControl subagent={makeSubagent()} active={false} discPx={13} onOpen={vi.fn()} />)
     const button = screen.getByRole('button', { name: /Run the eslint and jest suites/ })
     expect(button.tagName).toBe('BUTTON')
-    expect(button).not.toHaveAttribute('tabindex', '-1')
   })
 
   it('clicking calls onOpen', async () => {
@@ -69,17 +68,6 @@ describe('MoonControl', () => {
     render(<MoonControl subagent={makeSubagent()} active={false} discPx={13} onOpen={onOpen} />)
 
     await user.click(screen.getByRole('button'))
-    expect(onOpen).toHaveBeenCalledTimes(1)
-  })
-
-  it('↵ on a focused moon opens it — the native button contract, no key handler needed', async () => {
-    const user = userEvent.setup()
-    const onOpen = vi.fn()
-    render(<MoonControl subagent={makeSubagent()} active={false} discPx={13} onOpen={onOpen} />)
-
-    await user.tab()
-    expect(screen.getByRole('button')).toHaveFocus()
-    await user.keyboard('{Enter}')
     expect(onOpen).toHaveBeenCalledTimes(1)
   })
 

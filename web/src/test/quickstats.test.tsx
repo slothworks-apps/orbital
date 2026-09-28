@@ -253,29 +253,25 @@ describe('QuickStatsDialog', () => {
     vi.mocked(api.sessionStats).mockResolvedValue(detail(patch))
     const view = render(<SessionStatsRow session={makeSession()} />)
     const row = await screen.findByRole('button', { name: /session stats/ })
-    row.focus()
     fireEvent.click(row)
     await screen.findByRole('dialog')
     return { row, rerender: view.rerender }
   }
 
-  it('closes on Escape and returns focus to the row', async () => {
-    const { row } = await openDialog()
-    expect(document.activeElement).toBe(screen.getByRole('dialog'))
+  it('closes on Escape', async () => {
+    await openDialog()
 
     fireEvent.keyDown(window, { key: 'Escape' })
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(document.activeElement).toBe(row)
   })
 
-  it('closes on ✕ and returns focus to the row', async () => {
-    const { row } = await openDialog()
+  it('closes on ✕', async () => {
+    await openDialog()
 
     fireEvent.click(screen.getByRole('button', { name: 'Close session stats' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(document.activeElement).toBe(row)
   })
 
   it('closes when the panel moves to another session, and does not re-open', async () => {

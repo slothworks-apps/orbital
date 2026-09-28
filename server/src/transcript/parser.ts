@@ -177,7 +177,18 @@ export function truncateTitle(text: string): string {
   return `${keep.trimEnd()}…`;
 }
 
+/**
+ * What Orbital's composer puts in front of a prompt from the editor
+ * (`promptWithSelection` / `promptWithOpenFile` in `web/src/lib/ideSelection.ts`
+ * — the wording is a contract with those two, and moves with them): the
+ * selection as a fenced block, or the CLI's sentence naming the open file.
+ * Either is context for the model, never what the session is about.
+ */
+const IDE_SELECTION_BLOCK = /^Selected in the editor — @\S+ lines \d+–\d+:\n\n(`{3,})\n[\s\S]*?\n\1(?:\n|$)/;
+const IDE_OPEN_FILE_LINE = /^The user opened the file .+? in the IDE\. This may or may not be related to the current task\.(?:\n|$)/;
+
 export function cleanTitle(text: string): string {
+  text = text.replace(IDE_SELECTION_BLOCK, '').replace(IDE_OPEN_FILE_LINE, '');
   const commandName = /<command-name>([^<\n]+)<\/command-name>/.exec(text)?.[1]?.trim();
   const commandArgs = /<command-args>([^<\n]*)/.exec(text)?.[1]?.trim();
   const stripped = text.replace(NOISE_BLOCK, ' ').replace(/\s+/g, ' ').trim();

@@ -571,23 +571,6 @@ describe('Settings — Appearance (canvas 5a)', () => {
     await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ planet_scale: '1' }))
   })
 
-  it('Home resets to 1.00× and Shift+Arrow moves five steps (canvas 5b keyboard spec)', () => {
-    renderSettings({ settings: { planet_scale: '0.7' } })
-    openAppearance()
-
-    const slider = screen.getByLabelText(/default planet size/i)
-    fireEvent.keyDown(slider, { key: 'Home' })
-    expect(useOrbital.getState().settings.planet_scale).toBe('1')
-
-    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true })
-    expect(useOrbital.getState().settings.planet_scale).toBe('1.25')
-
-    // Clamped at the top end.
-    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true })
-    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true })
-    expect(useOrbital.getState().settings.planet_scale).toBe('1.6')
-  })
-
   it('the labels toggle PATCHes map_scale_labels', async () => {
     renderSettings({ settings: { map_scale_labels: 'false' } })
     openAppearance()

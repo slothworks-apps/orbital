@@ -555,8 +555,11 @@ export function Composer({
             unknown-command note in the NOT IN CACHE voice (9a), then the
             mount's resting copy. The refusal REPLACES the hint in place, which
             is why it is a branch here and not a line of its own — nothing
-            reflows when it arrives or leaves. */}
-        <div className="flex items-center gap-2">
+            reflows when it arrives or leaves.
+
+            A size container, so the actions can drop their words when the
+            row runs short (a narrow detail panel) instead of wrapping. */}
+        <div className="@container flex items-center gap-2">
           {popupShown ? (
             <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
               {POPUP_HINT}

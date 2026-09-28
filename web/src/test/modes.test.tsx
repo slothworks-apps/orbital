@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { useState } from 'react'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { ModeCards } from '../ui/ModeCards'
@@ -77,32 +77,9 @@ describe('ModeReadout', () => {
     expect(tip).toHaveTextContent('bypassPermissions')
     expect(tip).toHaveTextContent('Never asks. Sandboxed repos only.')
   })
-
-  /** The native `title` never does this, which is why `Tooltip` exists. */
-  it('reveals the same tooltip on keyboard focus and describes the trigger', () => {
-    render(<ModeReadout mode="auto" />)
-    const readout = screen.getByRole('img', { name: /auto/ })
-
-    act(() => readout.focus())
-
-    const tip = screen.getByRole('tooltip')
-    expect(tip).toHaveTextContent('Runs unattended; a classifier vets each command.')
-    expect(readout).toHaveAttribute('aria-describedby', tip.id)
-  })
 })
 
 describe('Tooltip', () => {
-  it('closes on Escape when it was opened by focus', () => {
-    render(<ModeReadout mode="plan" />)
-    const readout = screen.getByRole('img', { name: /plan/ })
-    act(() => readout.focus())
-    expect(screen.getByRole('tooltip')).toBeInTheDocument()
-
-    fireEvent.keyDown(document.body, { key: 'Escape' })
-
-    expect(screen.queryByRole('tooltip')).toBeNull()
-  })
-
   /**
    * A hover tooltip that registered an escape layer would swallow the Escape
    * meant for the dialog under the pointer — `useEscapeLayer` makes its holder
