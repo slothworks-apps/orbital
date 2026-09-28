@@ -712,7 +712,7 @@ export function planetOutline(
   planet: {
     session: Pick<
       ApiSession,
-      'title' | 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents'
+      'title' | 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'
     >
     scale: number
     modelFamily: string | null

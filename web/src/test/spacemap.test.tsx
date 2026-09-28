@@ -104,6 +104,8 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     leavingSince: {},
     toast: null,
     subagentPanel: null,
+    taskOutput: null,
+    stoppingTasks: {},
     ui: defaultUi,
     ...overrides,
   }
@@ -1291,6 +1293,8 @@ describe('SpaceMap overlays and the live panel width', () => {
       // below that opens the subagent panel and does not close it again
       // would otherwise leak it into whatever test runs next.
       subagentPanel: null,
+      taskOutput: null,
+      stoppingTasks: {},
       ...overrides,
       ui: { ...defaultUi, selectedId: 'a', ...(overrides.ui ?? {}) },
     })

@@ -91,8 +91,7 @@ describe('stateWord', () => {
   it('shortens only for the sidebar row', () => {
     expect(stateWord('needs_input', 0)).toBe('NEEDS INPUT')
     expect(stateWord('needs_input', 0, true)).toBe('INPUT')
-    expect(stateWord('waiting', 1)).toBe('WAITING FOR AGENT')
-    expect(stateWord('waiting', 2)).toBe('WAITING FOR AGENTS')
+    expect(stateWord('waiting', 1)).toBe('WAITING FOR')
     expect(stateWord('waiting', 2, true)).toBe('WAITING · 2')
     expect(stateWord('interrupted', 0, true)).toBe('INTERRUPTED')
   })

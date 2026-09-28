@@ -171,6 +171,8 @@ function resetStore() {
     // below that opens the subagent panel and does not close it again
     // would otherwise leak it into whatever test runs next.
     subagentPanel: null,
+    taskOutput: null,
+    stoppingTasks: {},
     ui: {
       selectedId: null,
       filterTagId: 'all',

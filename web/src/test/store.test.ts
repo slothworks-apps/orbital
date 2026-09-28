@@ -93,6 +93,8 @@ const initialSnapshot: OrbitalState = {
   leavingSince: {},
   toast: null,
   subagentPanel: null,
+  taskOutput: null,
+  stoppingTasks: {},
   ui: {
     selectedId: null,
     filterTagId: 'all',

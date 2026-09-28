@@ -11,6 +11,7 @@ import type {
   IdeDiagnostic,
   SlashCommand,
   SubagentTranscript,
+  TaskOutputTail,
   Tag,
   TagRule,
   PermissionMode,
@@ -68,6 +69,9 @@ async function request<T>(
     const text = await response.text()
     throw new ApiError(text || response.statusText, response.status, url)
   }
+
+  // No Content has no body to parse; the caller typed it `void`.
+  if (response.status === 204) return undefined as T
 
   const data = await response.json()
   return data as T
@@ -145,6 +149,24 @@ export const api = {
    */
   async subagentMessages(id: string, toolUseId: string): Promise<SubagentTranscript> {
     return request<SubagentTranscript>('GET', `/api/sessions/${id}/subagents/${toolUseId}/messages`)
+  },
+
+  /**
+   * Stops one background task or subagent by its SDK task id (spec
+   * 2026-09-28-background-tasks-design § 2, Stop). 204 once the stop is
+   * sent; the task ends when the SDK confirms, on the sessions topic. 409
+   * for a task that already ended, 404 for one the session does not know.
+   */
+  async stopTask(id: string, taskId: string): Promise<void> {
+    return request<void>('POST', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/stop`)
+  },
+
+  /**
+   * A shell's or monitor's output tail and the byte range it covers (spec
+   * § 4). 410 when the file no longer exists.
+   */
+  async taskOutput(id: string, taskId: string): Promise<TaskOutputTail> {
+    return request<TaskOutputTail>('GET', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/output`)
   },
 
   async createSession(body: {

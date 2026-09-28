@@ -6,6 +6,7 @@ import { isAttachable, promptWithOpenFile, promptWithSelection, selectionId } fr
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
+import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
 import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
 import { ENDED_HIDE_MS } from '../map/transition'
 import type { ContextThresholds } from '../lib/usage'
@@ -91,6 +92,14 @@ export type SessionEvent =
 export type SubagentEvent =
   | { event: 'message'; message: ChatMessage; droppedCount?: number }
   | (Extract<SessionEvent, { event: 'delta' }> & { droppedCount?: number })
+
+/**
+ * Events on a task's `task-output:<sessionId>:<taskId>` topic (spec
+ * 2026-09-28-background-tasks-design § 4): the bytes appended to its output
+ * file, `offset` being where in the file `text` starts, and `gone` when the
+ * file disappears under an open view.
+ */
+export type TaskOutputEvent = { event: 'output'; offset: number; text: string } | { event: 'gone' }
 
 /**
  * Events delivered on the `errors` topic — the shared error log
@@ -187,6 +196,23 @@ export interface OpenSubagentState {
   messages: ChatMessage[]
   droppedCount: number
   found: boolean
+}
+
+/**
+ * The one open output view (canvas 26b). It shares the side slot with the
+ * subagent panel: opening either closes the other (spec § 3).
+ *
+ * `end` is the byte offset the text so far reaches — a delta starting below
+ * it is already here, in whole or in part. `pending` holds the deltas that
+ * arrive while the tail fetch is in flight, folded in once it lands.
+ */
+export interface OpenTaskOutputState {
+  sessionId: string
+  taskId: string
+  phase: 'loading' | 'ready' | 'gone'
+  output: OutputLines
+  end: number
+  pending: { offset: number; text: string }[]
 }
 
 export interface OrbitalState {
@@ -323,6 +349,14 @@ export interface OrbitalState {
   ui: OrbitalUiState
   /** The one open subagent panel, or null — see `OpenSubagentState`. */
   subagentPanel: OpenSubagentState | null
+  /** The one open task output view, or null — see `OpenTaskOutputState`. */
+  taskOutput: OpenTaskOutputState | null
+  /**
+   * Tasks whose stop was sent and not yet confirmed, keyed
+   * `<sessionId>:<taskId>`: the row keeps its place in RUNNING until the SDK
+   * says the task ended (spec § 3), and shows the stop as pending meanwhile.
+   */
+  stoppingTasks: Record<string, true>
 }
 
 /**
@@ -471,6 +505,14 @@ export interface OrbitalActions {
    * dedupe/staleness rules are testable without going through a real socket.
    */
   applySubagentEvent(sessionId: string, toolUseId: string, msg: SubagentEvent): void
+  /** Opens a shell's or monitor's output in the side slot, closing whatever held it. */
+  openTaskOutput(sessionId: string, taskId: string): Promise<void>
+  /** Releases the output subscription and clears the view. Safe when nothing is open. */
+  closeTaskOutput(): void
+  /** Applies one event off the open view's `task-output:` topic. */
+  applyTaskOutputEvent(sessionId: string, taskId: string, msg: TaskOutputEvent): void
+  /** Stops a background task or a subagent by its task id. */
+  stopTask(sessionId: string, taskId: string): Promise<void>
 }
 
 export type OrbitalStore = OrbitalState & OrbitalActions
@@ -664,6 +706,40 @@ function releaseSubagentSubscription(): void {
 }
 
 /**
+ * The live subscription behind the one open task output view — a single
+ * slot, released before any new subscribe, like the subagent panel's.
+ */
+let taskOutputSubscriptionRelease: (() => void) | null = null
+
+function releaseTaskOutputSubscription(): void {
+  if (!taskOutputSubscriptionRelease) return
+  const release = taskOutputSubscriptionRelease
+  taskOutputSubscriptionRelease = null
+  release()
+}
+
+const utf8Encoder = new TextEncoder()
+const utf8Decoder = new TextDecoder()
+
+/**
+ * Folds one appended chunk into the view. Offsets are the file's BYTES, so
+ * a chunk that overlaps what the view holds is cut in bytes before it is
+ * decoded. `null` for a chunk that starts past the view's end: bytes in
+ * between were never seen, and the caller reads the tail again.
+ */
+function foldOutputDelta(
+  view: OpenTaskOutputState,
+  delta: { offset: number; text: string },
+): OpenTaskOutputState | null {
+  const bytes = utf8Encoder.encode(delta.text)
+  const deltaEnd = delta.offset + bytes.length
+  if (deltaEnd <= view.end) return view
+  if (delta.offset > view.end) return null
+  const fresh = delta.offset === view.end ? delta.text : utf8Decoder.decode(bytes.subarray(view.end - delta.offset))
+  return { ...view, output: appendOutput(view.output, fresh), end: deltaEnd }
+}
+
+/**
  * Marks the named rows as seen (`null` meaning every row), leaving
  * already-stamped rows on their original timestamp — the server's `markSeen`
  * never rewrites `seen_at` either, so re-opening the log must not make the
@@ -776,6 +852,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   toast: null,
   ui: initialUiState,
   subagentPanel: null,
+  taskOutput: null,
+  stoppingTasks: {},
 
   async loadInitial() {
     const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] =
@@ -879,6 +957,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // is bounded by one request.
       const panel = get().subagentPanel
       if (panel) await get().openSubagent(panel.sessionId, panel.subagent)
+      // The output view the same way: the re-subscribed topic would carry on
+      // past a hole, so the tail is read again.
+      const output = get().taskOutput
+      if (output) await get().openTaskOutput(output.sessionId, output.taskId)
     } catch {
       // A failed catch-up leaves the caches as they were; the next reconnect,
       // or a manual reload, tries again.
@@ -1787,6 +1869,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async openSubagent(sessionId, subagent) {
+    // One slot: an open task output view gives way.
+    get().closeTaskOutput()
     // Release first, not last: the old subscription must be gone before the
     // new one is even requested, or the two topics could both be live for a
     // beat and the outgoing agent's messages would land in the incoming
@@ -1984,6 +2068,87 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       },
     })
   },
+
+  async openTaskOutput(sessionId, taskId) {
+    // One slot: the subagent panel and this view take turns in it.
+    get().closeSubagent()
+    releaseTaskOutputSubscription()
+    if (get().ui.selectedId !== sessionId) void get().select(sessionId)
+
+    set({ taskOutput: { sessionId, taskId, phase: 'loading', output: EMPTY_OUTPUT, end: 0, pending: [] } })
+
+    // Subscribed before the fetch, like `openSubagent`: bytes appended in
+    // the gap wait in `pending` and are folded in after the tail.
+    taskOutputSubscriptionRelease = getSocket().subscribe(
+      `task-output:${sessionId}:${taskId}`,
+      (msg: TaskOutputEvent) => get().applyTaskOutputEvent(sessionId, taskId, msg),
+    )
+
+    try {
+      const tail = await api.taskOutput(sessionId, taskId)
+      const current = get().taskOutput
+      // Another open, a close or a hole's reopen may have run meanwhile.
+      if (!current || current.sessionId !== sessionId || current.taskId !== taskId || current.phase !== 'loading') return
+      let next: OpenTaskOutputState = { ...current, phase: 'ready', output: appendOutput(EMPTY_OUTPUT, tail.text), end: tail.end, pending: [] }
+      for (const delta of current.pending) next = foldOutputDelta(next, delta) ?? next
+      set({ taskOutput: next })
+    } catch (err) {
+      const current = get().taskOutput
+      if (!current || current.sessionId !== sessionId || current.taskId !== taskId) return
+      if (err instanceof ApiError && (err.status === 410 || err.status === 404)) {
+        set({ taskOutput: { ...current, phase: 'gone', pending: [] } })
+        return
+      }
+      const message = err instanceof Error ? err.message : 'Failed to load the task output'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
+
+  closeTaskOutput() {
+    releaseTaskOutputSubscription()
+    if (get().taskOutput) set({ taskOutput: null })
+  },
+
+  applyTaskOutputEvent(sessionId, taskId, msg) {
+    const view = get().taskOutput
+    if (!view || view.sessionId !== sessionId || view.taskId !== taskId) return
+    if (msg.event === 'gone') {
+      // What was already read stays readable; the view only says so once
+      // there is nothing at all to show.
+      if (view.phase === 'loading') set({ taskOutput: { ...view, phase: 'gone', pending: [] } })
+      return
+    }
+    if (view.phase === 'loading') {
+      set({ taskOutput: { ...view, pending: [...view.pending, { offset: msg.offset, text: msg.text }] } })
+      return
+    }
+    if (view.phase !== 'ready') return
+    const next = foldOutputDelta(view, msg)
+    if (next) {
+      set({ taskOutput: next })
+      return
+    }
+    // A hole: bytes went by that this view never saw (a dropped socket, a
+    // slow subscribe). Reading the tail again is the whole repair.
+    void get().openTaskOutput(sessionId, taskId)
+  },
+
+  async stopTask(sessionId, taskId) {
+    const key = `${sessionId}:${taskId}`
+    set((state) => ({ stoppingTasks: { ...state.stoppingTasks, [key]: true } }))
+    try {
+      await api.stopTask(sessionId, taskId)
+    } catch (err) {
+      set((state) => {
+        const { [key]: _dropped, ...rest } = state.stoppingTasks
+        return { stoppingTasks: rest }
+      })
+      // 409: it ended on its own while the click was on its way — nothing to report.
+      if (err instanceof ApiError && err.status === 409) return
+      const message = err instanceof Error ? err.message : 'Failed to stop the task'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
 }))
 
 /**
@@ -2006,6 +2171,8 @@ useOrbital.subscribe((state, prevState) => {
   if (state.ui.selectedId === prevState.ui.selectedId) return
   const panel = state.subagentPanel
   if (panel && panel.sessionId !== state.ui.selectedId) useOrbital.getState().closeSubagent()
+  const output = state.taskOutput
+  if (output && output.sessionId !== state.ui.selectedId) useOrbital.getState().closeTaskOutput()
   const left = prevState.ui.selectedId
   if (left) dropTranscript(left)
 })
@@ -2079,6 +2246,7 @@ function sessionsEventPatch(
     after.push(() => {
       const store = useOrbital.getState()
       if (store.subagentPanel?.sessionId === msg.sessionId) store.closeSubagent()
+      if (store.taskOutput?.sessionId === msg.sessionId) store.closeTaskOutput()
     })
     return {
       sessions,

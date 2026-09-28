@@ -123,7 +123,7 @@ export interface SubagentPanelProps {
  * colour, so a session that is working or waiting on you shows it from here.
  * The dot moves as the detail header's chip dot does for that state.
  */
-function BackToSession({ parent, onBack }: { parent: ApiSession | undefined; onBack: () => void }) {
+export function BackToSession({ parent, onBack }: { parent: ApiSession | undefined; onBack: () => void }) {
   const key = parent ? sessionStateKey(parent) : undefined
   return (
     <button

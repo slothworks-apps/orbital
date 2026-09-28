@@ -558,7 +558,7 @@ export function SpaceMap() {
   // not regress).
   const viewportWidth = useViewportWidth()
   const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, viewportWidth))
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
   const pairWidths = useMemo(
     () =>
       subagentPanelOpen
