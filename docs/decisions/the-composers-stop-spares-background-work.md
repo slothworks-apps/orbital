@@ -51,6 +51,6 @@ takes any task id.
 - The CLI reads the declaration at initialisation, first attached client
   wins, so it takes effect for sessions started or resumed after the
   change.
-- The SDK names agents and workflows as what an undeclared interrupt
-  kills. What happens to background shells either way is verified
-  against the real CLI when this is implemented.
+- Background shells were never at stake: checked against the CLI in SDK
+  0.3.278, an interrupt leaves them running with or without the
+  declaration. What changes is agents and workflows.

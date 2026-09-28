@@ -118,7 +118,12 @@ with a terminal `patch.status`, or when it is missing from a
 `background_tasks_changed` payload (the level signal, as the subagent
 tracker already uses it). When the session's CLI process exits — the
 session ended, or it crashed — every running task is ended without a
-`status`: the background processes die with the CLI.
+`status`: the background processes die with the CLI. Verified for a
+clean end (`query.close()` took a background `sleep` with it). A hard
+exit of the host without `close()` left one orphaned in the same probe,
+so after a crash of the Orbital server a shell can outlive the task that
+the list, on restart, reports as ended. Known limit; the list cannot see
+a process it has no CLI for.
 
 ### Persistence
 
@@ -172,10 +177,10 @@ tasks in this list, and **subagents in theirs** — the subagent list
 subagent's `task_id` (`stopTask` takes any task id). See
 [[the-composers-stop-spares-background-work]].
 
-To verify when implementing: the SDK's wording names agents and
-workflows; whether an undeclared interrupt also kills background shells,
-and whether a declared one spares them, is checked against the real CLI
-before the UI claims it.
+Verified against the CLI in SDK 0.3.278 (2026-09-28): an interrupt
+leaves a background shell running whether or not the option is
+declared. The declaration only changes what happens to agents and
+workflows.
 
 ## 3. Web
 
