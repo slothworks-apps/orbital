@@ -259,6 +259,42 @@ export const compactionFailures = sqliteTable(
 );
 
 /**
+ * Every background task an Orbital session has had — shells, monitors,
+ * workflows, MCP tasks — so ended tasks, their exit codes and the path to
+ * their output survive a restart of the server (spec
+ * 2026-09-28-background-tasks-design § 2 Persistence). One row per task,
+ * written through by `BackgroundTaskStore` on every change; the columns are
+ * the wire's `BackgroundTaskInfo` plus `outputPath`, which never leaves the
+ * server. A row still `running` at boot is ended without a status: its CLI
+ * died with the previous server.
+ *
+ * The foreign key documents the ownership; SQLite does not enforce it here
+ * (`foreign_keys` is off), so the retention sweep deletes these rows itself.
+ */
+export const backgroundTasks = sqliteTable(
+  'background_tasks',
+  {
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    taskId: text('task_id').notNull(),
+    kind: text('kind').$type<'shell' | 'monitor' | 'workflow' | 'mcp'>().notNull(),
+    label: text('label').notNull(),
+    command: text('command'),
+    state: text('state').$type<'running' | 'ended'>().notNull(),
+    status: text('status').$type<'completed' | 'failed' | 'stopped'>(),
+    exitCode: integer('exit_code'),
+    /** Epoch ms. */
+    startedAt: integer('started_at').notNull(),
+    endedAt: integer('ended_at'),
+    toolUseId: text('tool_use_id'),
+    /** Where the CLI writes the task's output, as the CLI named it — never built by Orbital. */
+    outputPath: text('output_path'),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.taskId] })],
+);
+
+/**
  * Every failure Orbital caught, from either side of the wire. See
  * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
  *

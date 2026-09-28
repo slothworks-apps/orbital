@@ -29,7 +29,7 @@
 
 import { and, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { OrbitalDb } from './db/database.js';
-import { compactionFailures, sessions, sessionTags, sweptSessions } from './db/schema.js';
+import { backgroundTasks, compactionFailures, sessions, sessionTags, sweptSessions } from './db/schema.js';
 
 /** The "off" value, stored verbatim so the row reads as what the UI shows. */
 export const RETENTION_NEVER = 'never';
@@ -101,7 +101,8 @@ export function countSweepable(db: OrbitalDb, cutoff: number | null): number {
  * leaving them would accumulate orphans that `effectiveTagIds` would keep
  * resolving for sessions that no longer exist.
  * `compaction_failures` goes the same way: its rows are marks in a transcript
- * no longer shown. `errors` rows are left alone on purpose: the log is a
+ * no longer shown, and `background_tasks` too — its foreign key declares the
+ * cascade, but SQLite enforces none here. `errors` rows are left alone on purpose: the log is a
  * record of what happened, it prunes itself to the newest 1000, and a failure
  * is still worth reading after the session it was about has been tidied away.
  */
@@ -118,6 +119,7 @@ export function sweepSessions(db: OrbitalDb, cutoff: number | null, now: number)
   db.transaction((tx) => {
     tx.delete(sessionTags).where(inArray(sessionTags.sessionId, doomed)).run();
     tx.delete(compactionFailures).where(inArray(compactionFailures.sessionId, doomed)).run();
+    tx.delete(backgroundTasks).where(inArray(backgroundTasks.sessionId, doomed)).run();
     tx.delete(sessions).where(inArray(sessions.id, doomed)).run();
     // Stamped with `now`, not with the session's own `lastAt`: the question
     // the indexer asks later is "has this transcript been written to since we

@@ -60,6 +60,8 @@ export interface TaskStartedEvent {
   description: string;
   subagent_type?: string;
   task_type?: string;
+  /** `meta.name` of a workflow script; only set for `local_workflow`. */
+  workflow_name?: string;
   is_backgrounded?: boolean;
   spawn_depth?: number;
   ambient?: boolean;
@@ -73,6 +75,31 @@ export interface TaskNotificationEvent {
   tool_use_id?: string;
   status: 'completed' | 'failed' | 'stopped';
   summary: string;
+  /**
+   * Where the task's output went. Optional here although the SDK types it as
+   * required: the fake streams in the tests leave it out, and only the
+   * background task tracker reads it.
+   */
+  output_file?: string;
+  ambient?: boolean;
+  session_id: string;
+}
+
+/**
+ * A change to a task already started. The two fields anything here reads:
+ * `is_backgrounded`, which moves a foreground `Bash` into the background, and
+ * `status`, whose terminal values end a background task.
+ */
+export interface TaskUpdatedEvent {
+  type: 'system';
+  subtype: 'task_updated';
+  task_id: string;
+  patch: {
+    status?: 'pending' | 'running' | 'completed' | 'failed' | 'killed' | 'paused';
+    description?: string;
+    end_time?: number;
+    is_backgrounded?: boolean;
+  };
   session_id: string;
 }
 
@@ -84,19 +111,24 @@ export interface BackgroundTasksChangedEvent {
 }
 
 /**
- * The three `system` messages that describe a task's life on the SDK stream.
+ * The four `system` messages that describe a task's life on the SDK stream.
  *
  * Restated structurally instead of imported from
  * `@anthropic-ai/claude-agent-sdk`: the SDK's own types require fields this
- * code never reads (`uuid`, `output_file`), which every fake stream in the
- * tests would then have to invent. The field names are the SDK's exactly, so
+ * code never reads (`uuid`) or reads only sometimes (`output_file`), which
+ * every fake stream in the tests would then have to invent. The field names are the SDK's exactly, so
  * a real message satisfies these without translation.
  */
-export type TaskEvent = TaskStartedEvent | TaskNotificationEvent | BackgroundTasksChangedEvent;
+export type TaskEvent =
+  | TaskStartedEvent
+  | TaskUpdatedEvent
+  | TaskNotificationEvent
+  | BackgroundTasksChangedEvent;
 
 /** The subtypes `Runner.pump()` forwards; anything else on `system` is not about a task. */
 export const TASK_EVENT_SUBTYPES: ReadonlySet<string> = new Set([
   'task_started',
+  'task_updated',
   'task_notification',
   'background_tasks_changed',
 ]);
@@ -203,6 +235,17 @@ export class SubagentTracker {
       return [agent];
     }
 
+    if (msg.subtype === 'task_updated') {
+      // Read for one thing only: an agent moved into the background answers
+      // to `background_tasks_changed` from then on, like one that started
+      // there. Nothing visible changes, and a terminal `patch.status` is left
+      // to the notification that follows it, as it always was.
+      if (msg.patch?.is_backgrounded === true && this.agents.has(msg.task_id)) {
+        this.backgrounded.add(msg.task_id);
+      }
+      return [];
+    }
+
     if (msg.subtype === 'task_notification') {
       // Any status ends the agent: failed and stopped are just as finished
       // as completed, and `state` folds all three into the same `'ended'` —
@@ -270,7 +313,7 @@ export function trackSubagents(entries: TranscriptEntry[]): SubagentInfo[] {
  *
  * Two read methods answer two different questions (task-3 brief §2):
  * `running()` is "is this session still waiting on an agent" —
- * `hasLiveSubagents` in index.ts is built on it, and ended agents must never
+ * `hasLiveBackgroundWork` in index.ts is built on it, and ended agents must never
  * leak into it, or a session whose agents all finished would hang at
  * `working` forever. `all()` is "every agent this session has ever had",
  * ended ones included: the subagent list shows finished rows and the parent
@@ -294,7 +337,7 @@ export class SubagentStore {
     return this.apply(sessionId, (tracker) => tracker.feedTask(msg));
   }
 
-  /** The session's still-running subagents — what `hasLiveSubagents` answers off. Ended agents are never here. */
+  /** The session's still-running subagents — what `hasLiveBackgroundWork` answers off, with the background tasks. Ended agents are never here. */
   running(sessionId: string): SubagentInfo[] {
     return this.trackers.get(sessionId)?.running() ?? [];
   }

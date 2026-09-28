@@ -35,6 +35,8 @@ import { toApiSession } from './shape.js';
 import type { GitStore } from '../git/store.js';
 import type { IdeStore } from '../ide/store.js';
 import type { SubagentStore, SubagentTranscripts } from '../transcript/subagents.js';
+import type { BackgroundTaskStore } from '../transcript/backgroundTasks.js';
+import { readOutputTail } from '../files/taskOutput.js';
 import type { ChatMessage, ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
@@ -73,6 +75,9 @@ export interface RouteContext {
    * `SubagentTranscripts` (spec `2026-09-22-subagent-transcript-panel-design.md`
    * § 3). The panel's one read model. */
   subagentTranscripts: SubagentTranscripts;
+  /** Every session's background tasks, with the output path each one's
+   * output route may read (spec 2026-09-28-background-tasks-design §§ 2, 4). */
+  backgroundTasks: BackgroundTaskStore;
   errors: ErrorLog;
   /** Names a session from its own contents; here, only ever on demand. */
   titler: SessionTitler;
@@ -367,6 +372,54 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const transcript = ctx.subagentTranscripts.get(id, toolUseId);
     if (!transcript) return { messages: [], droppedCount: 0 };
     return { messages: transcript.messages, droppedCount: transcript.droppedCount };
+  });
+
+  /**
+   * Stops one task: a background task, or a subagent by its `task_id` — the
+   * SDK's `stopTask` takes either (spec 2026-09-28-background-tasks-design
+   * § 2 Stop). The route only sends the stop. The task's own
+   * `task_notification` ends it, so a stop the CLI does not carry out leaves
+   * the task honestly running.
+   *
+   * 404 for a task this session never had, or a session with no live query
+   * to send it on; 409 for one that has already ended.
+   */
+  app.post('/api/sessions/:id/tasks/:taskId/stop', async (req, reply) => {
+    const { id, taskId } = req.params as { id: string; taskId: string };
+    const task = ctx.backgroundTasks.get(id, taskId);
+    const agent = task ? undefined : ctx.subagents.all(id).find((a) => a.id === taskId);
+    if (!task && !agent) return reply.code(404).send({ error: 'not found' });
+    const ended = task ? task.state === 'ended' : agent!.state === 'ended';
+    if (ended) return reply.code(409).send({ error: 'task_ended' });
+    let sent: boolean;
+    try {
+      sent = await ctx.runner.stopTask(id, taskId);
+    } catch (err) {
+      // The CLI refused — most likely the task ended on its own a moment
+      // before the stop reached it, and its notification is on the way.
+      return reply.code(409).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+    if (!sent) return reply.code(404).send({ error: 'session not running' });
+    return reply.code(204).send();
+  });
+
+  /**
+   * The tail of a shell's or monitor's output file (spec § 4 Reading). The
+   * path comes only from the store's record for this task — the one the CLI
+   * named — so no request can point this route at another file. `start` and
+   * `end` are byte offsets of `text` in the file; the output topic's deltas
+   * continue from `end`.
+   *
+   * 404 for an unknown task or one with no output file; 410 once the file is
+   * gone (`/tmp` does not survive a reboot, and a finished task outlives it).
+   */
+  app.get('/api/sessions/:id/tasks/:taskId/output', (req, reply) => {
+    const { id, taskId } = req.params as { id: string; taskId: string };
+    const path = ctx.backgroundTasks.outputPath(id, taskId);
+    if (!path) return reply.code(404).send({ error: 'not found' });
+    const tail = readOutputTail(path);
+    if (!tail) return reply.code(410).send({ error: 'output_gone' });
+    return tail;
   });
 
   // Transcript images, served straight from the content-addressed store.

@@ -5,6 +5,7 @@ import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
 import { TASK_EVENT_SUBTYPES, type TaskEvent, type SubagentTranscripts } from '../transcript/subagents.js';
+import { TASK_LAUNCHING_TOOLS, type LaunchingCall } from '../transcript/backgroundTasks.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import { noticeFromSdkMessage } from '../transcript/notices.js';
 import {
@@ -34,6 +35,31 @@ const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
  * session and an idle one.
  */
 const SLEEP_AFTER_IDLE_MINUTES = 30;
+
+/**
+ * How many `Bash`/`Monitor` calls a session remembers for the background
+ * task tracker. The tracker reads a call when the `task_started` it causes
+ * arrives, right behind it on the stream, so only the newest few ever
+ * matter; the cap keeps a long session's foreground commands from piling up.
+ */
+const MAX_LAUNCHING_CALLS = 200;
+
+/**
+ * The CLI's answer to a background `Bash`: `Command running in background
+ * with ID: <id>. Output is being written to: <path>.output. …`. The path is
+ * taken from here and from `task_notification.output_file`, never built
+ * (spec 2026-09-28-background-tasks-design § 4).
+ */
+const OUTPUT_PATH_IN_RESULT = /Output is being written to: (\/.*?\.output)(?=[.\s]|$)/;
+
+/** The text of a `tool_result` block's content, string or text-block array alike. */
+function toolResultText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => (part && typeof part === 'object' && typeof part.text === 'string' ? part.text : ''))
+    .join('\n');
+}
 
 /**
  * The subset of the SDK's `Query` object Orbital uses. `supportedModels`,
@@ -452,8 +478,17 @@ interface ManagedSession {
         setPermissionMode?: (mode: PermissionMode) => Promise<void>;
         supportedCommands?: () => Promise<unknown[]>;
         getContextUsage?: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown>;
+        stopTask?: (taskId: string) => Promise<void>;
       })
     | null;
+  /**
+   * The session's `Bash` and `Monitor` calls by `tool_use` id, with the
+   * output path their `tool_result` named once it arrived — what the
+   * background task tracker reads to tell a monitor from a shell and to show
+   * the command (spec 2026-09-28-background-tasks-design § 2). Oldest first,
+   * capped at `MAX_LAUNCHING_CALLS`; dies with the session.
+   */
+  launchingCalls: Map<string, LaunchingCall>;
   /**
    * The window reading from the most recent main-loop API call of the turn in
    * flight — the fallback the turn's end uses when the CLI cannot answer
@@ -597,7 +632,8 @@ export class Runner {
   private onInit?: (sessionId: string, model: string | null) => void;
   private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
   private onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
-  private hasLiveSubagents?: (sessionId: string) => boolean;
+  private hasLiveBackgroundWork?: (sessionId: string) => boolean;
+  private onTaskOutputPath?: (sessionId: string, toolUseId: string, path: string) => void;
   private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
   private onDecision?: (sessionId: string) => void;
   private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
@@ -687,17 +723,28 @@ export class Runner {
      */
     onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
     /**
-     * Whether anything this session launched is still running — read straight
-     * back out of the store `onTaskEvent` feeds, so the two can never
-     * disagree about the same moment.
+     * Whether anything this session launched is still running — a subagent
+     * or a background task — read straight back out of the stores
+     * `onTaskEvent` feeds, so the two can never disagree about the same
+     * moment.
      *
      * The Runner asks because a finished turn is not the same thing as a
      * session that wants you: `Agent` runs in the background, so the CLI ends
      * its turn (and emits `result`) with subagents still working, and wakes
-     * itself up when they report back. Unwired, every session behaves as it
+     * itself up when they report back. A background shell counts too,
+     * deliberately: a dev server left running keeps the session `working`
+     * for as long as it runs (spec 2026-09-28-background-tasks-design § 2
+     * "Working while a task runs"). Unwired, every session behaves as it
      * always did — `result` means `needs_input`.
      */
-    hasLiveSubagents?: (sessionId: string) => boolean;
+    hasLiveBackgroundWork?: (sessionId: string) => boolean;
+    /**
+     * The output path a background `Bash` or `Monitor` call's `tool_result`
+     * named. The result usually lands after the `task_started` it belongs
+     * to, so the tracker, which read the call at the start, learns the path
+     * here.
+     */
+    onTaskOutputPath?: (sessionId: string, toolUseId: string, path: string) => void;
     /**
      * Each edge of the CLI's main loop: `ended` true when a turn's `result`
      * lands (or the user interrupts), false when a frame shows a turn has
@@ -779,7 +826,8 @@ export class Runner {
     this.onInit = deps.onInit;
     this.onEntries = deps.onEntries;
     this.onTaskEvent = deps.onTaskEvent;
-    this.hasLiveSubagents = deps.hasLiveSubagents;
+    this.hasLiveBackgroundWork = deps.hasLiveBackgroundWork;
+    this.onTaskOutputPath = deps.onTaskOutputPath;
     this.onTurnBoundary = deps.onTurnBoundary;
     this.onDecision = deps.onDecision;
     this.onPermissionMode = deps.onPermissionMode;
@@ -838,7 +886,7 @@ export class Runner {
   private settleStatus(sessionId: string): void {
     const s = this.sessions.get(sessionId);
     if (!s || s.decision) return;
-    const busy = !s.turnEnded || this.hasLiveSubagents?.(sessionId) === true;
+    const busy = !s.turnEnded || this.hasLiveBackgroundWork?.(sessionId) === true;
     const want: SessionStatus = busy ? 'working' : 'needs_input';
     if (s.status === want) return;
     this.setStatus(sessionId, want);
@@ -986,6 +1034,7 @@ export class Runner {
     }
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], stream: null, agentStreams: new Map(), generator: null, sleepTimer: null,
+      launchingCalls: new Map(),
       lastCall: null, turnEnded: false,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
@@ -1031,6 +1080,12 @@ export class Runner {
       // ahead of the complete message that still follows
       // (spec: 2026-09-24-streaming-output-design § 3).
       includePartialMessages: true,
+      // Orbital stops background tasks one at a time (the task list's ■, the
+      // subagent list's ■), so the composer's Stop may abort only the turn.
+      // Undeclared, the CLI fails closed and an interrupt kills running
+      // background agents and workflows with it (adr
+      // the-composers-stop-spares-background-work).
+      perTaskStopAffordance: true,
       // Without this the SDK treats every "ask" decision as terminal and
       // auto-denies it, which is what used to push `AskUserQuestion` into
       // plain prose (spec 2026-09-20-interactive-decisions-design).
@@ -1134,15 +1189,17 @@ export class Runner {
     // change (a skill discovered as the agent moves into a subdirectory).
     // The SDK's instruction is to REPLACE the cached list with it, so that
     // is what this does — a re-ask would return the same thing anyway.
-    // A subagent's life, as the CLI reports it; the tool blocks below
-    // cannot tell when one ends (`onTaskEvent`). Every other `system`
-    // subtype falls through unread, as before.
+    // A task's life — a subagent's or a background task's — as the CLI
+    // reports it; the tool blocks below cannot tell when one ends
+    // (`onTaskEvent`). Every other `system` subtype falls through unread,
+    // as before.
     if (msg.type === 'system' && TASK_EVENT_SUBTYPES.has(msg.subtype)) {
       this.onTaskEvent?.(sessionId, msg as TaskEvent);
-      // After the forward, never before: `hasLiveSubagents` reads the very
+      // After the forward, never before: `hasLiveBackgroundWork` reads the very
       // store the line above just fed, and this message may be the one
-      // that empties it — the last background agent reporting back is
-      // what finally makes a turn-ended session `needs_input`.
+      // that empties it — the last background agent reporting back, or the
+      // last background shell exiting, is what finally makes a turn-ended
+      // session `needs_input`.
       this.settleStatus(sessionId);
       return;
     }
@@ -1202,13 +1259,17 @@ export class Runner {
       return;
     }
     if (msg.type === 'assistant' || msg.type === 'user') {
+      // Main loop and subagents alike: a background task a subagent starts
+      // reaches this session's stream and is listed under it (spec
+      // 2026-09-28-background-tasks-design, Out of scope).
+      this.noteLaunchingCalls(sessionId, state, msg);
       // A main-loop frame means the turn is running, whoever started it.
       // Orbital used to learn that only from its own `send()`, so every
       // turn the CLI starts by ITSELF — a background agent reporting
       // back, a queued message, a hook — streamed a whole answer while
       // the map still said NEEDS INPUT. Subagent frames
       // (`parent_tool_use_id` set) are deliberately not this signal;
-      // `hasLiveSubagents` already speaks for them, and only the main
+      // `hasLiveBackgroundWork` already speaks for them, and only the main
       // loop's own turn can be said to have ended.
       if (msg.parent_tool_use_id == null) {
         const s = this.sessions.get(sessionId);
@@ -1522,6 +1583,33 @@ export class Runner {
    * subagent's go to its own topic and carry the buffer's `droppedCount`, as
    * its `message` events do, so a panel learns of an overflow from either.
    */
+  /**
+   * Keeps what the background task tracker needs from one frame: each
+   * `Bash`/`Monitor` call, and the output path its `tool_result` names. The
+   * assistant frame with the call precedes the `task_started` it causes; the
+   * result usually follows it, so a path found here is also handed on.
+   */
+  private noteLaunchingCalls(sessionId: string, state: ManagedSession, msg: any): void {
+    const content = msg.message?.content;
+    if (!Array.isArray(content)) return;
+    for (const block of content) {
+      if (block?.type === 'tool_use' && TASK_LAUNCHING_TOOLS.has(block.name) && typeof block.id === 'string') {
+        const input = block.input && typeof block.input === 'object' ? (block.input as Record<string, unknown>) : {};
+        state.launchingCalls.set(block.id, { name: block.name, input });
+        if (state.launchingCalls.size > MAX_LAUNCHING_CALLS) {
+          state.launchingCalls.delete(state.launchingCalls.keys().next().value!);
+        }
+      } else if (block?.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+        const call = state.launchingCalls.get(block.tool_use_id);
+        if (!call || call.outputPath) continue;
+        const path = OUTPUT_PATH_IN_RESULT.exec(toolResultText(block.content))?.[1];
+        if (!path) continue;
+        call.outputPath = path;
+        this.onTaskOutputPath?.(sessionId, block.tool_use_id, path);
+      }
+    }
+  }
+
   private flushStream(sessionId: string, state: ManagedSession, agent: string | null = null): void {
     const stream = this.streamOf(state, agent);
     if (!stream) return;
@@ -2028,9 +2116,35 @@ export class Runner {
     // the mark goes down here rather than waiting for a `result` that an
     // interrupt may never produce.
     if (s) s.turnEnded = true;
-    this.setStatus(sessionId, 'needs_input');
-    this.armSleepTimer(sessionId);
+    // Only the turn stops: what it left running in the background keeps
+    // running (adr the-composers-stop-spares-background-work), and keeps the
+    // session `working` as it would after any other turn — and unslept, since
+    // sleeping stops the process and the tasks with it.
+    if (s && this.hasLiveBackgroundWork?.(sessionId) === true) {
+      this.settleStatus(sessionId);
+    } else {
+      this.setStatus(sessionId, 'needs_input');
+      this.armSleepTimer(sessionId);
+    }
     if (s) this.onTurnBoundary?.(sessionId, true);
+  }
+
+  /**
+   * Asks the CLI to stop one task — a background task or a subagent, the
+   * SDK's `stopTask` takes any task id. The task's own `task_notification`
+   * then ends it; nothing here does. False when this Runner holds no live
+   * query for the session to send it on.
+   */
+  async stopTask(sessionId: string, taskId: string): Promise<boolean> {
+    const generator = this.sessions.get(sessionId)?.generator;
+    if (!generator?.stopTask) return false;
+    await generator.stopTask(taskId);
+    return true;
+  }
+
+  /** The `Bash`/`Monitor` call with this `tool_use` id, as this session's stream carried it. */
+  launchingCall(sessionId: string, toolUseId: string): LaunchingCall | undefined {
+    return this.sessions.get(sessionId)?.launchingCalls.get(toolUseId);
   }
 
   /**
@@ -2084,7 +2198,9 @@ export class Runner {
 
   /**
    * True when this session is `working` only because of what it launched:
-   * its own turn is over, and a subagent is still out there.
+   * its own turn is over, and a subagent or a background task is still out
+   * there. The name predates the tasks; the label the UI builds from it
+   * says which (spec 2026-09-28-background-tasks-design § 3).
    *
    * The distinction the status alone cannot carry. `working` is the honest
    * answer either way — nothing here wants the human — but "it is thinking"
@@ -2096,7 +2212,7 @@ export class Runner {
   awaitingSubagents(sessionId: string): boolean {
     const s = this.sessions.get(sessionId);
     if (!s || s.status !== 'working' || !s.turnEnded) return false;
-    return this.hasLiveSubagents?.(sessionId) === true;
+    return this.hasLiveBackgroundWork?.(sessionId) === true;
   }
 
   active(): string[] {
