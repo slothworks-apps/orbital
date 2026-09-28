@@ -682,14 +682,13 @@ export function settledCopy(sim: SimState): SimState {
  *
  * The trade: at zooms above this one the map has more air than it needs;
  * below it, labels on a clump's neighbours can touch, and inflated moon
- * systems can reach each other. Fit of an ordinary map of two or three
- * clusters lands between about 25 and 35 in a 1440×860 window (the two
- * cluster sandboxes, panels closed: 33 and 25), so that view is the one
- * kept clean. A map
- * so big that fit has to go further out is past what can be labelled
- * cleanly anyway (Tomin: overflow on huge maps does not matter).
+ * systems can reach each other. It is the bottom of the range the map is
+ * worked in — 20 to 35, with the detail panel open on a 16" MacBook
+ * (Tomin) — so the whole range is clean, at the price of spare air at its
+ * top. A map so big that fit has to go further out is past what can be
+ * labelled cleanly anyway (Tomin: overflow on huge maps does not matter).
  */
-export const OUTLINE_ZOOM = 30
+export const OUTLINE_ZOOM = 20
 
 /** World units per CSS px of a label or pill at OUTLINE_ZOOM. */
 const OUTLINE_PER_PX = 1 / OUTLINE_ZOOM

@@ -46,7 +46,7 @@ where `bodyZoomFactor` is 1), for a planet of tier scale `s`:
 | label height (11 px title line, 5 px gap, 9.5 px family line) | about 32 px = 0.53 |
 | label bottom | 1.34 below at s = 1, 0.89 at s = 0.44 |
 | label width (26 chars of 11 px mono, 0.06 em tracking) | 189 px = **3.15** (half: 1.57) |
-| state pill (`BADGE_OFFSET_X/Y`), `DONE` / `NEEDS INPUT` | from 0.58·s right, 45 px / 102 px wide = 0.75 / 1.7 |
+| state pill (`BADGE_OFFSET_X/Y`), `DONE` / `NEEDS INPUT` | from 0.58·s right ([[state-pills-hang-at-45-degrees]]), 45 px / 102 px wide = 0.75 / 1.7 |
 
 The simulation's footprint `r` is the tier radius — 1, 0.71 or 0.44 — or
 the outermost moon shell. `minDistance` asked for `r₁ + r₂ + SAME_TAG_GAP`

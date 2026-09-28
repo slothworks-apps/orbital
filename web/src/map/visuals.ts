@@ -69,12 +69,8 @@ export function labelRestY(gauged: boolean, selected: boolean): number {
     selected ? LABEL_SELECTED_REST_Y : 0
   )
 }
-/** State pill's top-left corner (1f: `left: calc(100% + 10px); top: -12px` off the body box). */
-export const BADGE_OFFSET_X = px(60)
-export const BADGE_OFFSET_Y = px(62)
-/** …and on a gauged planet, 1i's `/compact` position (`left: calc(100% + 36px); top: -21px`). */
-export const COMPACT_BADGE_OFFSET_X = px(84)
-export const COMPACT_BADGE_OFFSET_Y = px(70)
+// BADGE_OFFSET_X / _Y and COMPACT_BADGE_OFFSET_X / _Y are further down, next
+// to the state disc they are measured from.
 
 // --- Planet ------------------------------------------------------------
 
@@ -587,6 +583,31 @@ export const STATE_PILL_GAP_PX = 6
 export const STATE_DISC_HEIGHT_PX = 20
 export const STATE_DISC_PAD_X_PX = 6
 export const STATE_DISC_DOT_PX = 7
+const STATE_DISC_WIDTH_PX = STATE_DISC_DOT_PX + 2 * (STATE_DISC_PAD_X_PX + STATE_PILL_BORDER_PX)
+
+/**
+ * The pills that hang off a planet sit north-east of it, at 45°: dot mode's
+ * resting disc centres on that diagonal, and a label-mode pill (about the
+ * disc's height) starts where the disc would be and runs out to the right.
+ * `<Html>` anchors by the top-left corner, hence the half-disc shifts.
+ *
+ * The reach is the disc centre's distance from the planet's centre, canvas
+ * px on a 100px body. An owner call, not a canvas value: a little further
+ * out than the pills sat before they moved onto the diagonal (1f's state
+ * pill, 1i's `/compact`), so the disc stands clear of the body, the gauge's
+ * tick ring and the selection reticle's ring instead of touching them.
+ */
+const BADGE_REACH_PX = 100
+/** …and on a gauged planet, out past the tick ring. */
+const COMPACT_BADGE_REACH_PX = 124
+const badgeCorner = (reachPx: number) => {
+  const along = reachPx * Math.SQRT1_2
+  return { x: px(along - STATE_DISC_WIDTH_PX / 2), y: px(along + STATE_DISC_HEIGHT_PX / 2) }
+}
+export const BADGE_OFFSET_X = badgeCorner(BADGE_REACH_PX).x
+export const BADGE_OFFSET_Y = badgeCorner(BADGE_REACH_PX).y
+export const COMPACT_BADGE_OFFSET_X = badgeCorner(COMPACT_BADGE_REACH_PX).x
+export const COMPACT_BADGE_OFFSET_Y = badgeCorner(COMPACT_BADGE_REACH_PX).y
 
 /**
  * The state pill's box, CSS px, as it rests on the map — the room the
@@ -602,7 +623,7 @@ export function statePillSizePx(
 ): { width: number; height: number } {
   if (mode === 'dot') {
     return {
-      width: STATE_DISC_DOT_PX + 2 * (STATE_DISC_PAD_X_PX + STATE_PILL_BORDER_PX),
+      width: STATE_DISC_WIDTH_PX,
       height: STATE_DISC_HEIGHT_PX,
     }
   }

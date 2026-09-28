@@ -36,7 +36,7 @@ What a planet of tier scale `s` draws, at the default zoom
 | reticle ring / corner brackets (`BRACKET_INSET`) | 0.88·s / ±0.96·s square |
 | label top (`LABEL_TOP_REST_Y`) | 0.81·s below |
 | label | up to 189 px wide (26 characters), 32 px tall, both lines |
-| state pill (`BADGE_OFFSET_X/Y`) | top-left corner at (0.58·s, 0.60·s), 20.5 px tall |
+| state pill (`BADGE_OFFSET_X/Y`) | top-left corner at (0.58·s, 0.77·s), 20.5 px tall (0.58·s, 0.60·s when this was measured; [[state-pills-hang-at-45-degrees]]) |
 | pill widths | DONE 45 px, INTERRUPTED 91, NEEDS INPUT 102, WAITING FOR AGENT 142, WAITING FOR AGENTS 149 |
 
 The widest pill is WAITING FOR AGENTS, not NEEDS INPUT.
@@ -273,3 +273,18 @@ selected or not. The label-and-pill acceptance runs at 60, 40 and
   they are drawn larger than their box and can reach a neighbour.
 - A body sits in the drawn drop halo when its clump is homed next to the
   hole: `HOLE_REPEL_RADIUS` is in world units, the halo is counter-zoomed.
+
+## Amendment 2026-09-28: `OUTLINE_ZOOM` is 20
+
+`OUTLINE_ZOOM` went from 30 to 20. With the detail panel open on a 16"
+MacBook, Tomin works the map between 20 and 35, and at 15–20 the dropped
+label of a selected planet and its family line ran into the planet below.
+Measured at the bottom of that range, the whole range is clean; above it
+the map carries spare air.
+
+What it costs: every outline is 1.5× wider in world units, so fit zooms
+out by about as much. Labels keep their screen size, so the framed picture
+is laid out as before and only the bodies draw smaller — the counter-zoom
+shrinks them by the square root, about 18 %. It does not fit more planets
+side by side; that is set by the label's width. Shorter resting labels
+were offered for that and not taken.

@@ -375,11 +375,10 @@ const CONTEXT_PULSE_SEC = 1.6
  */
 const CONTEXT_FADE_MS = STATE_TRANSITION_MS
 
-// `/compact` pill: `left: calc(100% + 36px); top: -21px` off the body box of
-// 1i's 106px planet, normalised to a 100px body (the 105px planet carrying
-// the same badge gives 84.3 / -70). Further out than the needs-input pill
-// because the gauge ring occupies the space that one sits in. The offsets,
-// COMPACT_BADGE_OFFSET_X / _Y, are in `visuals.ts` next to BADGE_OFFSET_X.
+// `/compact` pill: on the same 45° diagonal as the needs-input pill, further
+// out because the gauge ring occupies the space that one sits in. The
+// offsets, COMPACT_BADGE_OFFSET_X / _Y, are in `visuals.ts` next to
+// BADGE_OFFSET_X.
 
 /**
  * The command the badge sends, and the text it shows for it — exported so
