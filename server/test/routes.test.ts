@@ -30,6 +30,7 @@ import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 import type { SessionRow, SessionStatus } from '../src/types.js';
 import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.js';
+import { BackgroundTaskStore } from '../src/transcript/backgroundTasks.js';
 import { createImageStore } from '../src/images/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 
@@ -137,6 +138,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
   app.register(multipart);
   const subagents = new SubagentStore();
   const subagentTranscripts = new SubagentTranscripts();
+  const backgroundTasks = new BackgroundTaskStore({ db });
   const errors = new ErrorLog({ db, hub });
   const imagesDir = mkdtempSync(join(tmpdir(), 'orbital-images-'));
   const imageStore = createImageStore(imagesDir);
@@ -148,6 +150,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
     images: imageStore, imagesDir, claudeDir,
     models: modelCatalog as any,
     subagents,
+    backgroundTasks,
     git: gitStore,
     ide: opts.ide ?? ideStore,
     subagentTranscripts,
@@ -167,7 +170,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
     retention: retentionFor(db),
   });
   return {
-    app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, errors,
+    app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
     imageStore, imagesDir, claudeDir,
   };
 }
@@ -689,7 +692,7 @@ describe('REST routes', () => {
       sessionId: 's1', pid: 1, cwd: '/w/x', name: 'auth fix',
       status: 'working' as const, kind: 'claude', startedAt: 0, updatedAt: 500,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, git: gitStore, ide: ideStore }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: 's1', status: 'working', tagIds: [10] });
@@ -701,7 +704,7 @@ describe('REST routes', () => {
       sessionId: 'term-9', pid: 1, cwd: '/w/z', name: 'untracked',
       status: 'idle' as const, kind: 'claude', startedAt: 0, updatedAt: 700,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, git: gitStore, ide: ideStore }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({
@@ -713,7 +716,7 @@ describe('REST routes', () => {
   // A selection drag in a big workspace used to republish every session ever
   // run there (audit resource-usage-pass-2026-09-24, finding 4).
   it('a directory change republishes live sessions and open ones, not every ended one', () => {
-    const ctx = { hub, db, registry, runner, subagents, git: gitStore, ide: ideStore };
+    const ctx = { hub, db, registry, runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore };
     db.insert(sessions)
       .values({ id: 's3', projectDir: 'p', cwd: '/w/x', title: 'ended', lastAt: 50, source: 'web' })
       .run();
@@ -1059,6 +1062,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       hub,
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
+      backgroundTasks: new BackgroundTaskStore(),
       git: gitStore,
       ide: ideStore,
       subagentTranscripts: new SubagentTranscripts(),
@@ -2879,5 +2883,94 @@ describe('walkthrough routes', () => {
     const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
     expect(res.statusCode).toBe(409);
     expect(res.json()).toEqual({ error: 'terminal_session' });
+  });
+});
+
+describe('background task routes', () => {
+  const started = (over: Record<string, unknown>) =>
+    ({ type: 'system', subtype: 'task_started', session_id: 's1', description: 'dev server', ...over }) as any;
+  const notified = (task_id: string) =>
+    ({ type: 'system', subtype: 'task_notification', session_id: 's1', task_id, status: 'completed', summary: '' }) as any;
+
+  /** `s1` with a running shell `sh1` whose output goes to a real file, and a Runner that can stop it. */
+  function withShell(opts: { output?: string | null } = {}) {
+    const made = makeApp();
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-task-out-'));
+    const path = join(dir, 'sh1.output');
+    if (opts.output !== null) writeFileSync(path, opts.output ?? 'ready on :5173\n');
+    made.backgroundTasks.feedTask(
+      's1',
+      started({ task_id: 'sh1', task_type: 'local_bash', tool_use_id: 'tu1', is_backgrounded: true }),
+      () => ({ name: 'Bash', input: { command: 'npm run dev' }, outputPath: path }),
+    );
+    const stopTask = vi.fn(async (_id: string, _taskId: string) => true);
+    (made.runner as any).stopTask = stopTask;
+    return { ...made, path, dir, stopTask };
+  }
+
+  it('POST .../stop sends the stop for a running task and answers 204, leaving the task running', async () => {
+    const { app, stopTask, backgroundTasks } = withShell();
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/tasks/sh1/stop' });
+    expect(res.statusCode).toBe(204);
+    expect(stopTask).toHaveBeenCalledWith('s1', 'sh1');
+    // Its notification ends it, not the route.
+    expect(backgroundTasks.get('s1', 'sh1')?.state).toBe('running');
+  });
+
+  it('POST .../stop takes a running subagent by its task id', async () => {
+    const { app, stopTask, subagents } = withShell();
+    subagents.feedTask('s1', started({ task_id: 'ag1', task_type: 'local_agent', tool_use_id: 'tuA' }));
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/tasks/ag1/stop' });
+    expect(res.statusCode).toBe(204);
+    expect(stopTask).toHaveBeenCalledWith('s1', 'ag1');
+  });
+
+  it('POST .../stop 404s a task the session never had, and a session with no live query', async () => {
+    const { app, stopTask, runner } = withShell();
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/s1/tasks/nope/stop' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/s2/tasks/sh1/stop' })).statusCode).toBe(404);
+    expect(stopTask).not.toHaveBeenCalled();
+    (runner as any).stopTask = vi.fn(async () => false);
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/s1/tasks/sh1/stop' })).statusCode).toBe(404);
+  });
+
+  it('POST .../stop 409s a task or subagent that has already ended', async () => {
+    const { app, stopTask, backgroundTasks, subagents } = withShell();
+    backgroundTasks.feedTask('s1', notified('sh1'));
+    subagents.feedTask('s1', started({ task_id: 'ag1', task_type: 'local_agent' }));
+    subagents.feedTask('s1', notified('ag1'));
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/s1/tasks/sh1/stop' })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/s1/tasks/ag1/stop' })).statusCode).toBe(409);
+    expect(stopTask).not.toHaveBeenCalled();
+  });
+
+  it('GET .../output returns the tail with its byte offsets', async () => {
+    const { app } = withShell({ output: 'héllo\nready\n' });
+    const res = await app.inject({ url: '/api/sessions/s1/tasks/sh1/output' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ text: 'héllo\nready\n', start: 0, end: Buffer.byteLength('héllo\nready\n') });
+  });
+
+  it('GET .../output 410s once the file is gone, and 404s a task without an output path', async () => {
+    const { app, backgroundTasks } = withShell({ output: null });
+    expect((await app.inject({ url: '/api/sessions/s1/tasks/sh1/output' })).statusCode).toBe(410);
+    backgroundTasks.feedTask('s1', started({ task_id: 'wf', task_type: 'local_workflow' }));
+    expect((await app.inject({ url: '/api/sessions/s1/tasks/wf/output' })).statusCode).toBe(404);
+    expect((await app.inject({ url: '/api/sessions/s1/tasks/unknown/output' })).statusCode).toBe(404);
+  });
+
+  it('GET .../output reads only the path recorded for that task', async () => {
+    const { app, dir } = withShell();
+    // A file beside it, reachable only by a path this route would have to build.
+    writeFileSync(join(dir, 'other.output'), 'secret\n');
+    for (const url of [
+      '/api/sessions/s1/tasks/other/output',
+      '/api/sessions/s1/tasks/..%2Fother/output',
+      `/api/sessions/s1/tasks/${encodeURIComponent(join(dir, 'other.output'))}/output`,
+    ]) {
+      const res = await app.inject({ url });
+      expect(res.statusCode).toBe(404);
+      expect(res.body).not.toContain('secret');
+    }
   });
 });

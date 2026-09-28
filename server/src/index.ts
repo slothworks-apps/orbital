@@ -36,6 +36,8 @@ import { registerRoutes } from './api/routes.js';
 import { statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
+import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
+import { OutputFollower } from './files/taskOutput.js';
 import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
@@ -66,6 +68,7 @@ export function publishLiveSession(ctx: PublishContext, live: LiveSession): void
         lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
         permissionMode: null, tagIds: [], status: live.status,
         subagents: ctx.subagents.all(live.sessionId),
+        backgroundTasks: ctx.backgroundTasks.all(live.sessionId),
       };
   ctx.hub.publish('sessions', { event: 'upsert', session });
 }
@@ -304,6 +307,14 @@ export async function buildServer(overrides: {
   // `2026-09-22-subagent-transcript-panel-design.md` § 3, adr:
   // subagent-buffer-outlives-the-agent).
   const subagentTranscripts = new SubagentTranscripts();
+  // Every session's background tasks — shells, monitors, workflows, MCP
+  // tasks — fed by the same task events as `subagents`, but kept in SQLite:
+  // ended tasks and their output outlive a restart (spec
+  // 2026-09-28-background-tasks-design § 2). Loading ends whatever the
+  // previous server left running. Its `onChange` is a late exit code, and
+  // `republish` is only called once the runner below exists.
+  const backgroundTasks = new BackgroundTaskStore({ db, onChange: (sessionId) => republish(sessionId) });
+  backgroundTasks.load();
   // Built on call, not up front: the runner it names is constructed below and
   // is itself one of the things that asks for a republish.
   // Where each session's `cwd` sits in git, cached per working tree and kept
@@ -317,7 +328,7 @@ export async function buildServer(overrides: {
   // it may delay or fail a session (adr `orbital-speaks-to-the-ide-itself`).
   const ide = new IdeStore({ claudeDir });
   ide.start();
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, git, ide });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, git, ide });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
 
   git.on('change', (_root: string, cwds: string[]) => republishCwds(publishCtx(), cwds));
@@ -404,6 +415,11 @@ export async function buildServer(overrides: {
     // panel that outlives this drop refetches into a 404 and renders STREAM
     // LOST, which is the honest reading — the buffer really is gone by then.
     subagentTranscripts.drop(sessionId);
+    // Its background tasks are not dropped — they are kept, ended — but
+    // they died with the CLI process, so whatever was still running ends
+    // now, without a status (spec 2026-09-28-background-tasks-design § 2
+    // Ending). The republish below carries it.
+    backgroundTasks.endAll(sessionId);
     // One of the two moments a session's stats are written (spec
     // 2026-09-20-session-stats-design § Evaluation cadence). `liveStats`
     // is declared below, like `runner` in `publishCtx`.
@@ -486,13 +502,33 @@ export async function buildServer(overrides: {
     // messages; the tool blocks cannot, because `Agent` runs in the
     // background and its tool_result comes back at launch
     // (adr: subagent-liveness-from-sdk-task-events).
+    // Both stores read every event and each keeps its own `task_type`s; the
+    // background task tracker also needs the call that launched a task, which
+    // only the runner saw.
     onTaskEvent: (sessionId, msg) => {
-      if (subagents.feedTask(sessionId, msg)) republish(sessionId);
+      const agentsChanged = subagents.feedTask(sessionId, msg);
+      const tasksChanged = backgroundTasks.feedTask(sessionId, msg, (toolUseId) =>
+        runner.launchingCall(sessionId, toolUseId),
+      );
+      if (agentsChanged || tasksChanged) republish(sessionId);
+      // A notification can name the output file for the first time; a view
+      // already open on the task starts following it then.
+      if (msg.subtype === 'task_notification') startFollower(`task-output:${sessionId}:${msg.task_id}`);
     },
-    // The same store, read back: a session whose turn ended with agents still
-    // running is working, not waiting for the human
-    // (fix: `a-turn-that-launched-an-agent-reads-as-needs-input`).
-    hasLiveSubagents: (sessionId) => subagents.running(sessionId).length > 0,
+    // The same stores, read back: a session whose turn ended with agents or
+    // background tasks still running is working, not waiting for the human
+    // (fix: `a-turn-that-launched-an-agent-reads-as-needs-input`; spec
+    // 2026-09-28-background-tasks-design § 2 "Working while a task runs").
+    hasLiveBackgroundWork: (sessionId) =>
+      subagents.running(sessionId).length > 0 || backgroundTasks.running(sessionId).length > 0,
+    // A launch's tool_result named the output file after its task started:
+    // the task gains `hasOutput`, and a view already open on it can follow.
+    onTaskOutputPath: (sessionId, toolUseId, path) => {
+      if (!backgroundTasks.setOutputPath(sessionId, toolUseId, path)) return;
+      const taskId = backgroundTasks.taskIdForToolUse(sessionId, toolUseId);
+      if (taskId) startFollower(`task-output:${sessionId}:${taskId}`);
+      republish(sessionId);
+    },
     // Both edges of the main loop's turn. The titler used to hang off
     // `status === 'needs_input'`, which no longer means "a turn just ended"
     // now that a turn can end into `working`; and the republish is what
@@ -686,14 +722,50 @@ export async function buildServer(overrides: {
     tail.start(from);
     tails.set(topic, tail);
   };
+  // A background task's output, followed while a view has it open: topic
+  // `task-output:<sessionId>:<taskId>`, one file watched per topic and none
+  // while nobody looks (spec 2026-09-28-background-tasks-design § 4
+  // Following). Only the path the store recorded for the task is ever
+  // opened. A task whose path is not known yet starts following once it is
+  // (`onTaskOutputPath` above).
+  const followers = new Map<string, OutputFollower>();
+  const TASK_OUTPUT_PREFIX = 'task-output:';
+  const stopFollower = (topic: string) => {
+    followers.get(topic)?.stop();
+    followers.delete(topic);
+  };
+  function startFollower(topic: string): void {
+    if (!topic.startsWith(TASK_OUTPUT_PREFIX) || followers.has(topic)) return;
+    if (hub.subscriberCount(topic) === 0) return;
+    // Session ids are UUIDs, so the first colon ends the session id and the
+    // task id is whatever follows it.
+    const rest = topic.slice(TASK_OUTPUT_PREFIX.length);
+    const colon = rest.indexOf(':');
+    if (colon <= 0) return;
+    const path = backgroundTasks.outputPath(rest.slice(0, colon), rest.slice(colon + 1));
+    if (!path) return;
+    const follower = new OutputFollower(
+      path,
+      (offset, text) => hub.publish(topic, { event: 'output', offset, text }),
+      () => {
+        hub.publish(topic, { event: 'gone' });
+        followers.delete(topic);
+      },
+    );
+    followers.set(topic, follower);
+    follower.start();
+  }
+
   hub.onFirstSubscriber((topic) => {
     startTail(topic);
+    startFollower(topic);
     // An ended session nobody had open was skipped by `republishCwds`, so its
     // branch and editor selection may be stale in the browser by now.
     if (topic.startsWith('session:')) republish(topic.slice('session:'.length));
   });
   hub.onLastUnsubscriber((topic) => {
     stopTail(topic);
+    stopFollower(topic);
     if (topic.startsWith('session:')) liveStats.drop(topic.slice('session:'.length));
   });
 
@@ -807,7 +879,7 @@ export async function buildServer(overrides: {
     paths: { claudeDir, dataDir: CONFIG.dataDir, dbPath: overrides.dbPath ?? CONFIG.dbPath },
   }));
   registerRoutes(app, {
-    db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, errors,
+    db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, errors,
     images, imagesDir, titler, git, ide,
     settings: settingsStore,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
@@ -825,6 +897,8 @@ export async function buildServer(overrides: {
     ide.close();
     projectsWatcher.close();
     for (const tail of tails.values()) tail.stop();
+    for (const follower of followers.values()) follower.stop();
+    backgroundTasks.dispose();
     db.$client.close();
     done();
   });
