@@ -139,9 +139,9 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
       withinRef={withinRef}
       footer={
         <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-2.5 pt-2 pb-1 font-mono text-[9.5px] tracking-[.06em] text-[rgba(160,190,225,.45)]">
-          ↵ open output · ■ stops at once · ⎋ close
-          <span aria-hidden className="flex-1" />
-          this session only
+          {/* 26a's hint, alone: beside the subagent list's `this session only`
+              it wraps at `LIST_WIDTH_PX`. */}
+          <span className="whitespace-nowrap">↵ open output · ■ stops at once · ⎋ close</span>
         </div>
       }
       renderTrigger={(props, isOpen) => {
