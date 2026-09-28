@@ -79,7 +79,7 @@ import type { ContextFill } from './sceneModel'
 import { DetachGlyph } from '../ui/UtilityButton'
 import {
   CONTEXT_CRITICAL_OKLCH,
-  CONTEXT_WARN_OKLCH,
+  contextLevelOklch,
   oklchCss,
   type ContextThresholds,
   type Oklch,
@@ -1400,31 +1400,15 @@ function PlanetBody({
     materials.arc.opacity = b.arcOpacity * fade
     materials.arc.visible = b.arcOpacity > 0.001
 
-    // Context gauge colour (1i): the session's own hue below the first
-    // threshold — so a full-enough-to-matter arc is the only one that stops
-    // belonging to its tag — then amber, then red. Written here, with the
-    // hue tween's current value, so a retag carries the arc with it; the
+    // Context gauge colour (1i): green below the first threshold, then
+    // amber, then red — the same on every planet, never the tag hue. The
     // opacities (and the critical pulse) belong to the frame loop below.
-    if (shownFill?.level === 'warn') {
-      setOklchTagColor(
-        materials.contextFill.color,
-        CONTEXT_WARN_OKLCH.hue,
-        CONTEXT_WARN_OKLCH.lightness,
-        CONTEXT_WARN_OKLCH.chroma
+    if (shownFill) {
+      const gauge = contextLevelOklch(shownFill.level)
+      setOklchTagColor(materials.contextFill.color, gauge.hue, gauge.lightness, gauge.chroma).lerp(
+        GREY_COLOR,
+        muteFade.value
       )
-    } else if (shownFill?.level === 'critical') {
-      setOklchTagColor(
-        materials.contextFill.color,
-        CONTEXT_CRITICAL_OKLCH.hue,
-        CONTEXT_CRITICAL_OKLCH.lightness,
-        CONTEXT_CRITICAL_OKLCH.chroma
-      )
-    } else {
-      materials.contextFill.color.copy(hueC)
-    }
-    // hueC is already greyed; the warn/critical colours are not.
-    if (shownFill?.level === 'warn' || shownFill?.level === 'critical') {
-      materials.contextFill.color.lerp(GREY_COLOR, muteFade.value)
     }
 
     if (hasBodyTextures) {

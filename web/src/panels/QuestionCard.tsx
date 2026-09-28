@@ -640,7 +640,9 @@ function LiveBody({
                   if (otherText.trim()) onAnswer(otherText)
                 }
               }}
-              className="block w-full resize-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-[#e8eef8] caret-accent focus:outline-none"
+              // Grows with what is written, then scrolls: a long answer
+              // wraps instead of running off a single line.
+              className="block max-h-40 w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-[#e8eef8] caret-accent [field-sizing:content] focus:outline-none"
             />
             <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
               ⏎ send · esc back to options

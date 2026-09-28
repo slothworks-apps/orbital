@@ -9,7 +9,9 @@ import {
 import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
 import { getSocket } from './lib/socket'
 import { useCommand } from './lib/commands'
-import { setMenuCommands } from './lib/desktop'
+import { hasDesktopBridge, setMenuCommands } from './lib/desktop'
+import { useWindowFocused } from './lib/useWindowFocused'
+import { TopGlint } from './ui/TopGlint'
 import { menuCommands } from './lib/keymap'
 import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
 import { useViewportWidth } from './lib/useViewportWidth'
@@ -72,6 +74,8 @@ export default function App() {
   // sidebar. Nothing in a browser or in full screen.
   const windowBand = useWindowBand()
   useSidebarWindowButtons(sidebarCollapsed)
+  const desktop = hasDesktopBridge()
+  const windowFocused = useWindowFocused(desktop)
 
   // The desktop menu is built from the keymap, and the main window is the
   // one that sends it (spec: 2026-09-23-shortcuts-design § 5); `App` never
@@ -234,6 +238,10 @@ export default function App() {
           style={{ height: WINDOW_DRAG_BAND_PX }}
         />
       )}
+      {/* The desktop window's own top edge wears the detail panel's glint
+          (1b) in the accent, so the main window reads as the same family as
+          a detached one. A browser tab has an edge of its own. */}
+      {desktop && <TopGlint focused={windowFocused} className="z-[7]" />}
 
       {/* Docked panels inset 16px from the viewport edge, per the export's
           `left:16px;top:16px;bottom:16px` on both 1a's sidebar and 1b's

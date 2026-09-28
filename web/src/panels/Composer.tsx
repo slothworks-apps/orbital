@@ -288,16 +288,6 @@ export function Composer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mentions, resolved, context, keyId])
 
-  // Grow with the text, then scroll. Written on the element rather than
-  // through a class because the height is a measured value.
-  useLayoutEffect(() => {
-    const el = fieldRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    // jsdom measures nothing; leaving the height alone there is correct.
-    if (el.scrollHeight > 0) el.style.height = `${Math.min(el.scrollHeight, MAX_FIELD_PX)}px`
-  }, [value])
-
   // Restore the caret after an accept, once the controlled value has landed.
   useLayoutEffect(() => {
     const pos = pendingCaret.current
@@ -530,7 +520,12 @@ export function Composer({
             onBlur={() => setFocused(false)}
             // Transparent ink over the mirror, accent caret (9e). The
             // placeholder sets its own colour, so it survives the transparency.
-            className={`relative block min-h-[36px] w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-transparent caret-accent placeholder:text-[rgba(160,190,225,.5)] focus:outline-none ${FIELD_METRICS}`}
+            className={`relative block min-h-[36px] w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-transparent caret-accent [field-sizing:content] placeholder:text-[rgba(160,190,225,.5)] focus:outline-none ${FIELD_METRICS}`}
+            // Grows with the text, then scrolls. field-sizing rather than a
+            // measured scrollHeight: scrollHeight is a whole pixel and the
+            // lines are not, so a measured field came out a fraction short,
+            // scrolled by that fraction and slid the caret off the mirror.
+            style={{ maxHeight: MAX_FIELD_PX }}
             // Past MAX_FIELD_PX the field scrolls, and the mirror has to scroll
             // with it — the third leg of the lockstep.
             onScroll={(e) => {

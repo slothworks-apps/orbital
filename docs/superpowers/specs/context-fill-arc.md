@@ -93,8 +93,8 @@ A ring outside the planet's existing outer rings, drawn per the canvas:
   degrees, e.g. 50 % → 180°, 80 % → 288°). Ticks are visible even at 0 %
   fill and move live when thresholds change.
 - **Colour by fill level.**
-  - fill ≤ T1: the session's tag hue at 0.6 alpha (`oklch(80% .13 <hue> / 0.6)`,
-    via the existing `setOklchTagColor` conversion)
+  - fill ≤ T1: green `oklch(84% .12 160)`, the same on every planet
+    (superseded the tag hue, see `the-context-gauge-is-a-traffic-light`)
   - fill > T1: amber `oklch(80% .13 60)`
   - fill > T2: red `oklch(72% .17 25)` plus a 1.6 s opacity pulse
     (canvas `orb-ring` keyframe: opacity .55 ↔ 1)

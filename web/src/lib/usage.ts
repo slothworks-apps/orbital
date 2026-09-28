@@ -67,6 +67,13 @@ export interface Oklch {
   hue: number
 }
 
+/**
+ * Below the first threshold — the DONE state's green (`--state-done`,
+ * canvas 24d). Fixed rather than the session's tag hue: the gauge reads as
+ * one traffic light on every planet, so green/amber/red mean the same thing
+ * whatever the tag.
+ */
+export const CONTEXT_OK_OKLCH: Oklch = { lightness: 0.84, chroma: 0.12, hue: 160 }
 /** Past the first threshold — canvas 1i's `oklch(80% .13 60)` amber. */
 export const CONTEXT_WARN_OKLCH: Oklch = { lightness: 0.8, chroma: 0.13, hue: 60 }
 /** Past the second — canvas 1i's `oklch(72% .17 25)` red. */
@@ -76,6 +83,13 @@ export const CONTEXT_CRITICAL_OKLCH: Oklch = { lightness: 0.72, chroma: 0.17, hu
 export function oklchCss({ lightness, chroma, hue }: Oklch, alpha?: number): string {
   const base = `oklch(${lightness * 100}% ${chroma} ${hue}`
   return alpha === undefined ? `${base})` : `${base} / ${alpha})`
+}
+
+/** The gauge's colour for a level — the arc's and the bar's alike. */
+export function contextLevelOklch(level: ContextLevel): Oklch {
+  if (level === 'critical') return CONTEXT_CRITICAL_OKLCH
+  if (level === 'warn') return CONTEXT_WARN_OKLCH
+  return CONTEXT_OK_OKLCH
 }
 
 /**

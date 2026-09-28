@@ -14,6 +14,7 @@ import { useCommand } from '../lib/commands'
 import { partitionSessions } from '../lib/sidebarOrder'
 import { reportError } from '../lib/errors'
 import { hasDesktopBridge } from '../lib/desktop'
+import { TopGlint } from '../ui/TopGlint'
 import { useWindowBand } from '../lib/windowChrome'
 import { useWindowFocused } from '../lib/useWindowFocused'
 import { useViewportWidth } from '../lib/useViewportWidth'
@@ -590,6 +591,9 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           className="orbital-no-drag absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
         />
       )}
+      {/* The detail panel's top glint (1b), in the accent: the sidebar has
+          no session to take a hue from. */}
+      <TopGlint focused={windowFocused} />
       {/* Collapsed rail per canvas 1b: logo, expand toggle, divider, one hue
           dot per active session (blinking while working). */}
       <div

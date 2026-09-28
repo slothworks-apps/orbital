@@ -15,11 +15,12 @@ import {
 import {
   contextFractionFor,
   contextLevel,
+  contextLevelOklch,
   oklchCss,
   CONTEXT_CRITICAL_OKLCH,
-  CONTEXT_WARN_OKLCH,
 } from '../lib/usage'
 import { api } from '../lib/api'
+import { GLINT_ACCENT_HUE, TopGlint } from '../ui/TopGlint'
 import { openQuestion } from '../lib/questionCard'
 import { composerHintFor, composerPlaceholderFor } from '../lib/decisionCard'
 import { reportError } from '../lib/errors'
@@ -80,15 +81,7 @@ function primaryTag(session: ApiSession, tags: Tag[]): Tag | undefined {
 
 /** Hue the panel's accents fall back to when the session has no tag — the
  * export's own `oklch(85% .12 205)` accent (canvas 1b). */
-const ACCENT_HUE = 205
-
-/**
- * The glint's opacity while a detached window sits behind another (canvas
- * `Feature - Detached window` 22d). Only the glint answers to focus — the
- * ink, the status blink and the gauges stay as they are, because a window in
- * the background is still a session worth reading.
- */
-const INACTIVE_GLINT_OPACITY = 0.45
+const ACCENT_HUE = GLINT_ACCENT_HUE
 
 /**
  * The title's type, from `Feature - Detail header` 9d's row 2. One object
@@ -599,8 +592,8 @@ export function DetailPanel({
   /**
    * The context gauge takes the map arc's colours past the same two
    * thresholds, so "arc colour and sidebar % change at the same values"
-   * (canvas 1i's acceptance) holds: the session's own hue while there is
-   * room, amber past the first, red past the second. Derived from the
+   * (canvas 1i's acceptance) holds: green while there is room, amber past
+   * the first, red past the second — never the tag hue. Derived from the
    * UNROUNDED fraction, so a bar reading "50%" and an arc at 50.4 % cannot
    * end up on opposite sides of the line.
    */
@@ -610,14 +603,9 @@ export function DetailPanel({
   const contextThresholds = parseContextThresholds(settings)
   const contextBarLevel =
     contextFraction === undefined ? undefined : contextLevel(contextFraction, contextThresholds)
-  // Below the first threshold the bar keeps the session's own hue, exactly
-  // as it always has — the `ok` level is not a colour of its own.
-  const contextBarOklch =
-    contextBarLevel === 'warn'
-      ? CONTEXT_WARN_OKLCH
-      : contextBarLevel === 'critical'
-        ? CONTEXT_CRITICAL_OKLCH
-        : undefined
+  // No level (a count against an unknown window) keeps the session's accent:
+  // green would claim there is room when nothing knows that.
+  const contextBarOklch = contextBarLevel && contextLevelOklch(contextBarLevel)
   // One ink for the number and the fill (canvas 1b-alt, column A). Unmeasured
   // is its own washed-out ink rather than the accent at low alpha: an em dash
   // in the session's hue reads as a value.
@@ -697,14 +685,7 @@ export function DetailPanel({
       )}
       {/* Top hairline glint in the session's tag hue (canvas 1b). A detached
           window keeps it and dims it while unfocused (22d). */}
-      <div
-        aria-hidden
-        className="absolute inset-x-0 top-0 h-px"
-        style={{
-          background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
-          opacity: windowFocused ? 1 : INACTIVE_GLINT_OPACITY,
-        }}
-      />
+      <TopGlint hue={headerHue} focused={windowFocused} />
 
       {/* Header — `Feature - Detail header` 9d, variant B: a utility strip
           carrying the path and the session's actions, over a title that owns
