@@ -5,6 +5,7 @@ type: spec
 status: draft
 domain: sessions
 related:
+  - background-shell-output-is-not-forced-into-colour
   - subagent-liveness-from-sdk-task-events
   - subagents-only-for-orbital-sessions
   - what-a-session-waits-for-is-a-label
@@ -190,13 +191,13 @@ of the 93 shell output files on the machine on 2026-09-28 held an escape
 sequence or a bare `\r`. A command that forces colour (`FORCE_COLOR`,
 `--color=always`) can still put them there, so as a safety net escape
 sequences are stripped and a `\r` without `\n` replaces the line it
-returns to. Rendering that colour is not worth building for the rare
-case.
+returns to. Colour is neither rendered nor forced
+([[background-shell-output-is-not-forced-into-colour]]).
 
 ## Out of scope
 
 - Cloud sessions (`remote_agent`) — [[cloud-sessions-in-the-session]].
-- Output of workflows and MCP tasks, and colour in shell output (it rarely has any, § 4).
+- Output of workflows and MCP tasks, and colour in shell output (§ 4).
 - Terminal sessions.
 - Declaring `perTaskStopAffordance` (§ 2, Stop).
 - Telling a subagent's background tasks from the main loop's: whatever
