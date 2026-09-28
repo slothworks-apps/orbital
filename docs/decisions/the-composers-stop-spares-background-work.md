@@ -54,3 +54,7 @@ takes any task id.
 - Background shells were never at stake: checked against the CLI in SDK
   0.3.278, an interrupt leaves them running with or without the
   declaration. What changes is agents and workflows.
+- An interrupt no longer always leaves the session `needs_input`. With a
+  subagent or a background task still running it stays `working`, as
+  after any other turn, and its sleep timer stays unarmed: sleeping stops
+  the process, which would take the spared tasks with it.
