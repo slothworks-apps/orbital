@@ -1476,8 +1476,16 @@ function PlanetBody({
   // exit, which is the thing the exit exists to avoid.
   const reticleMounted = useLingering(selected, RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS)
 
-  /** The state pill's state and word, or null for a planet that needs none (`statePill`). */
-  const pill = compacting ? null : statePill(session)
+  /**
+   * The state pill's state and word, or null for a planet that needs none (`statePill`).
+   *
+   * A failed compaction stops the turn, so the planet it leaves behind is
+   * almost always DONE — and DONE taking the corner would mean the failure
+   * badge never shows. DONE yields to it; needs-input and interrupted do not.
+   */
+  const failureStanding = session.lastCompactionFailed != null && contextFill !== null
+  const statePillNow = compacting ? null : statePill(session)
+  const pill = failureStanding && statePillNow?.key === 'done' ? null : statePillNow
   const pillLabel = pill?.label ?? null
   /**
    * The pill's own fade, rather than a weight read off the state mix.

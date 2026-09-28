@@ -306,3 +306,13 @@ could not do exactly what is written:
   arrive together.** The transcript tail converts each batch of appended
   lines on its own; a summary written in the next batch is dropped rather
   than shown as a user row, and the mark gains it on reload.
+- **Found in the fidelity pass (2026-09-28): `COMPACT FAILED` yields to
+  nothing but needs-input and interrupted.** A failed compaction stops the
+  turn, so the planet it leaves behind is DONE, and the DONE pill took the
+  corner first. The badge never showed. DONE now gives way to a standing
+  failure (`Planet.tsx`).
+- **Found in the fidelity pass: the failure is not a session failure.** The
+  transcript's red "session failed" line picks up the session's latest error
+  record, so a `compaction_failed` record repeated the mark directly
+  underneath it. `recordedFailureFor` skips that kind. The toast still fires,
+  as it does for every error record.

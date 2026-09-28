@@ -1799,6 +1799,14 @@ describe('recordedFailureFor', () => {
     const noSignals = state({ sessions: {} })
     expect(recordedFailureFor(noSignals, 'a')).toBeDefined()
   })
+
+  /** Its own transcript mark reports a failed compaction; the session did not fail. */
+  it('never reports a failed compaction as the session failing', () => {
+    const compaction = record({ id: 2, at: 2_000, kind: 'compaction_failed', message: 'Compaction failed: 529' })
+    expect(recordedFailureFor(state({ errors: [compaction] }), 'a')).toBeUndefined()
+    // …and does not hide a real failure recorded before it.
+    expect(recordedFailureFor(state({ errors: [compaction, record()] }), 'a')?.kind).toBe('session_failed')
+  })
 })
 
 describe('parsePlanetScale', () => {

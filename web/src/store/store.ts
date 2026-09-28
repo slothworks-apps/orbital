@@ -2158,20 +2158,6 @@ function dropTranscript(id: string) {
 // ---------------------------------------------------------------------------
 
 /**
- * The most recent recorded error for one session, or `undefined`.
- *
- * `errors` is newest-first, so the first match is the latest. Safe to call
- * straight from a `useOrbital` selector: it returns an element of the array,
- * not a new object, so the reference is stable until the log itself changes.
- */
-export function latestErrorForSession(
-  errors: ErrorRecord[],
-  sessionId: string,
-): ErrorRecord | undefined {
-  return errors.find((error) => error.sessionId === sessionId)
-}
-
-/**
  * The failure the transcript should be showing for a session, or `undefined`
  * when it should be showing none.
  *
@@ -2188,12 +2174,22 @@ export function latestErrorForSession(
  *
  * Neither alone is sufficient: the first is empty after a reload, the second
  * lags right after a revive. Together they cover both.
+ *
+ * A failed compaction is not the session failing: its own mark in the
+ * transcript already says so, with the error quoted, and a second red line
+ * under it would repeat it as if the session had crashed.
+ *
+ * `errors` is newest-first, so the first match is the latest. Safe to call
+ * straight from a `useOrbital` selector: it returns an element of the array,
+ * not a new object, so the reference is stable until the log itself changes.
  */
 export function recordedFailureFor(
   state: Pick<OrbitalState, 'errors' | 'sessions' | 'lastTurnResultAt'>,
   sessionId: string,
 ): ErrorRecord | undefined {
-  const latest = latestErrorForSession(state.errors, sessionId)
+  const latest = state.errors.find(
+    (error) => error.sessionId === sessionId && error.kind !== 'compaction_failed',
+  )
   if (!latest) return undefined
   const turnAt = state.lastTurnResultAt[sessionId]
   if (turnAt != null && turnAt > latest.at) return undefined
