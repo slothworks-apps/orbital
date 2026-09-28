@@ -44,6 +44,12 @@ export class OrbitalSocket {
   private reconnectTimeout: number | null = null
   private watchdogTimeout: number | null = null
   private isClosed = false
+  // What the transcript check logs when it finds a gap (spec
+  // 2026-09-28-transcript-check-design): when each topic last delivered a
+  // frame, and which topics the server's last heartbeat says it holds us on.
+  private lastFrameAt: Map<string, number> = new Map()
+  private serverTopics: string[] | null = null
+  private lastHeartbeatAt: number | null = null
 
   constructor(url: string = '/ws', opts?: OrbitalSocketOptions) {
     this.url = url
@@ -62,6 +68,9 @@ export class OrbitalSocket {
 
     this._status = 'connecting'
     this.notifyStatusChange('connecting')
+    // A new connection has told us nothing yet.
+    this.serverTopics = null
+    this.lastHeartbeatAt = null
 
     // Handle both class constructors and factory functions
     const impl = this.opts.WebSocketImpl
@@ -95,7 +104,12 @@ export class OrbitalSocket {
       try {
         const msg = JSON.parse(event.data)
         const topic = msg.topic
+        if (msg.type === 'heartbeat' && Array.isArray(msg.topics)) {
+          this.serverTopics = msg.topics
+          this.lastHeartbeatAt = Date.now()
+        }
         if (topic) {
+          this.lastFrameAt.set(topic, Date.now())
           const topicHandlers = this.handlers.get(topic)
           if (topicHandlers) {
             topicHandlers.forEach((handler) => {
@@ -255,6 +269,30 @@ export class OrbitalSocket {
       unsubscribed = true
       const idx = this.statusCallbacks.indexOf(cb)
       if (idx !== -1) this.statusCallbacks.splice(idx, 1)
+    }
+  }
+
+  /**
+   * What this socket knows about one topic's delivery, for a log entry: is
+   * it subscribed here, does the server's last heartbeat hold us on it (null
+   * before the first heartbeat of this connection), and how long ago did the
+   * topic and the heartbeat last arrive.
+   */
+  diagnostics(topic: string): {
+    status: WsStatus
+    subscribedHere: boolean
+    heldByServer: boolean | null
+    lastFrameAgoMs: number | null
+    lastHeartbeatAgoMs: number | null
+  } {
+    const now = Date.now()
+    const lastFrame = this.lastFrameAt.get(topic)
+    return {
+      status: this._status,
+      subscribedHere: this.handlers.has(topic),
+      heldByServer: this.serverTopics ? this.serverTopics.includes(topic) : null,
+      lastFrameAgoMs: lastFrame === undefined ? null : now - lastFrame,
+      lastHeartbeatAgoMs: this.lastHeartbeatAt === null ? null : now - this.lastHeartbeatAt,
     }
   }
 

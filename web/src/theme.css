@@ -568,3 +568,32 @@ body {
 .orbital-no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* Context compaction (spec 2026-09-28-context-compaction-design). The
+   elapsed-time labels arrive on a 200 ms fade once a compaction has run for
+   three seconds (canvas 26e), and the live block's track carries a highlight
+   sweeping across it (26c `orb-shimmer`, 2.4s) — the only motion that says
+   "still going" without claiming a progress it does not know. */
+.orbital-compact-label-in {
+  animation: orbital-fade-in 0.2s ease;
+}
+
+@keyframes orbital-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+.orbital-shimmer {
+  animation: orbital-shimmer 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-compact-label-in,
+  .orbital-shimmer {
+    animation: none;
+  }
+}

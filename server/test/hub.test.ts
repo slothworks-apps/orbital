@@ -63,6 +63,21 @@ describe('Hub heartbeat', () => {
     expect(heartbeats).toHaveLength(2);
   });
 
+  it('names in each heartbeat the topics the hub holds this socket on', () => {
+    vi.useFakeTimers();
+    const hub = new Hub({ heartbeatIntervalMs: 1000 });
+    const a = fakeSocket();
+    hub.handleSocket(a);
+    a.emit('message', JSON.stringify({ type: 'subscribe', topic: 'sessions' }));
+    a.emit('message', JSON.stringify({ type: 'subscribe', topic: 'session:x' }));
+    a.emit('message', JSON.stringify({ type: 'unsubscribe', topic: 'sessions' }));
+
+    vi.advanceTimersByTime(1000);
+
+    const [data] = a.send.mock.calls.at(-1) as [string];
+    expect(JSON.parse(data)).toEqual({ type: 'heartbeat', topics: ['session:x'] });
+  });
+
   it('stops sending heartbeats once the socket closes', () => {
     vi.useFakeTimers();
     const hub = new Hub({ heartbeatIntervalMs: 1000 });

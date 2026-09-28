@@ -11,7 +11,7 @@
     "dogfood": "npm run build -w server && npm run build -w web && ORBITAL_STATIC_DIR=\"$PWD/web/dist\" ORBITAL_MIGRATIONS_DIR=\"$PWD/server/drizzle\" node server/dist/index.mjs",
     "dev": "concurrently -n server,web -c blue,magenta \"npm run dev:server\" \"npm run dev:web\"",
     "dev:seed": "bash scripts/seed-dev-db.sh",
-    "dev:server": "ORBITAL_PORT=4838 ORBITAL_DATA_DIR=\"$HOME/Library/Application Support/orbital-dev\" npm run dev -w server",
+    "dev:server": "ORBITAL_PORT=4838 ORBITAL_DEV_TOOLS=1 ORBITAL_DATA_DIR=\"$HOME/Library/Application Support/orbital-dev\" npm run dev -w server",
     "dev:web": "ORBITAL_PORT=4838 npm run dev -w web",
     "dev:desktop": "ORBITAL_PORT=4838 npm run dev -w desktop",
     "desktop:build": "npm run build -w server && npm run build -w web && npm run dist:local -w desktop",

@@ -103,6 +103,8 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
     // Nothing is out working for any of these by default — see
     // `Runner.awaitingSubagents`.
     awaitingSubagents: (_id: string) => false,
+    compacting: (_id: string) => null,
+    lastCompacted: (_id: string) => null,
     start: async (body: any) => { startCalls.push(body); return 'web-9'; },
     send: (id: string, text: string, attachments?: string[]): void => {
       sendCalls.push({ id, text, attachments });
@@ -1263,6 +1265,12 @@ describe('error log routes', () => {
     expect(body.error.source).toBe('web');
     const listed = (await app.inject({ method: 'GET', url: '/api/errors' })).json();
     expect(listed.errors[0].source).toBe('web');
+  });
+
+  it('POST /api/errors takes the transcript check\'s gap report', async () => {
+    const res = await post({ kind: 'transcript_gap', message: 'reloaded', sessionId: null });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().error.kind).toBe('transcript_gap');
   });
 
   it('POST /api/errors rejects a missing message and an unknown kind', async () => {

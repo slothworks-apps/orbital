@@ -72,10 +72,14 @@ export class Hub {
       }
     });
     // The frame carries no `topic`, so the client's router drops it and only
-    // the watchdog sees it — which is the whole job.
+    // the watchdog sees it. `topics` is what the hub actually holds this
+    // socket on, read from the topic sets rather than from `mine`: it is the
+    // client's one way to tell "nothing was published" from "the server
+    // stopped sending me this topic" (spec 2026-09-28-transcript-check-design).
     const heartbeat = setInterval(() => {
       try {
-        socket.send(JSON.stringify({ type: 'heartbeat' }));
+        const topics = [...mine].filter((topic) => this.topics.get(topic)?.has(socket));
+        socket.send(JSON.stringify({ type: 'heartbeat', topics }));
       } catch {
         /* dead socket; close handler will clean up */
       }

@@ -11,6 +11,7 @@ import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
+  compactionFailures,
   sessionColumns,
   sessions,
   sessionTags,
@@ -24,7 +25,9 @@ import {
   decisionQuestions,
   type DecisionAnswer,
   type Runner,
+  type SimulatedCompactionOutcome,
 } from '../runner/runner.js';
+import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
 import { RETENTION_KEY } from '../retention.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
@@ -86,10 +89,50 @@ export interface RouteContext {
     /** What a candidate policy WOULD remove, for the confirmation. */
     preview(value: string): number;
   };
+  /**
+   * Whether the dev-only routes are registered — the compaction simulation
+   * (spec 2026-09-28-context-compaction-design § Dev simulation). Off unless
+   * the server runs from `npm run dev`; never on in the packaged app.
+   */
+  devTools?: boolean;
+}
+
+const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);
+
+/** The longest compaction the simulation will play, in seconds. */
+const SIMULATION_MAX_SECONDS = 600;
+
+/**
+ * Dev-only: plays a compaction on a running session through the Runner's own
+ * message handler, so the UI can be exercised without a real failure. It sends
+ * nothing to the CLI.
+ */
+function registerDevRoutes(app: FastifyInstance, ctx: RouteContext): void {
+  app.post('/api/dev/sessions/:id/simulate-compaction', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { outcome?: unknown; seconds?: unknown };
+    const outcome = body.outcome ?? 'success';
+    if (typeof outcome !== 'string' || !SIMULATED_OUTCOMES.has(outcome)) {
+      return reply.code(400).send({ error: `outcome must be one of ${[...SIMULATED_OUTCOMES].join(', ')}` });
+    }
+    const seconds = body.seconds === undefined ? 5 : Number(body.seconds);
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds > SIMULATION_MAX_SECONDS) {
+      return reply.code(400).send({ error: `seconds must be between 0 and ${SIMULATION_MAX_SECONDS}` });
+    }
+    if (!ctx.runner.simulateCompaction(id, outcome as SimulatedCompactionOutcome, seconds)) {
+      return reply.code(409).send({ error: 'session is not running in this server' });
+    }
+    return reply.code(202).send({ ok: true, outcome, seconds });
+  });
 }
 
 /** The only kinds `POST /api/errors` will accept, mirroring `ErrorKind`. */
-const ERROR_KINDS = new Set<string>(['session_failed', 'api_request', 'render_crash']);
+const ERROR_KINDS = new Set<string>([
+  'session_failed',
+  'api_request',
+  'render_crash',
+  'transcript_gap',
+]);
 
 /** Served type per stored extension (the store writes `jpg`, never `jpeg`). */
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
@@ -161,6 +204,7 @@ function invalidAttachments(raw: unknown): boolean {
 
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
+  if (ctx.devTools) registerDevRoutes(app, ctx);
   /**
    * One reader for the whole server, because its whole job is to hold a tab
    * list still for a moment across the burst of requests one `@` produces
@@ -240,16 +284,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!row) return null;
     const path = join(ctx.projectsDir, row.project_dir, `${id}.jsonl`);
     const stamp = fileStamp(path);
-    if (stamp === null) return [];
     // Cached as finished wire messages rather than raw entries, so a page
     // also skips `entriesToMessages` and the image decoding inside it.
-    return transcriptMessages.get(path, stamp, () => {
-      try {
-        return entriesToMessages(parseTranscript(readFileSync(path, 'utf8')), ctx.images);
-      } catch {
-        return [];
-      }
-    });
+    const fromFile =
+      stamp === null
+        ? []
+        : transcriptMessages.get(path, stamp, () => {
+            try {
+              return entriesToMessages(parseTranscript(readFileSync(path, 'utf8')), ctx.images);
+            } catch {
+              return [];
+            }
+          });
+    // Failed compactions live in the database, not the file, so they are
+    // merged in at their timestamp on every read rather than cached with it
+    // (spec 2026-09-28-context-compaction-design § Failure).
+    const failures = db
+      .select()
+      .from(compactionFailures)
+      .where(eq(compactionFailures.sessionId, id))
+      .all() as CompactionFailureRecord[];
+    return failures.length ? mergeCompactionFailures(fromFile, failures) : fromFile;
   }
 
   app.get('/api/sessions/:id/messages', (req, reply) => {

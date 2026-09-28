@@ -6,6 +6,7 @@ import { isAttachable, promptWithSelection, selectionId } from '../lib/ideSelect
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
+import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
 import { ENDED_HIDE_MS } from '../map/transition'
 import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
@@ -344,6 +345,13 @@ export interface OrbitalActions {
    * so every event published during the outage is only recoverable over REST.
    */
   resyncAfterReconnect(): Promise<void>
+  /**
+   * One run of the transcript check (spec 2026-09-28-transcript-check-design):
+   * compares the open transcript with its file's tail and, when a row has
+   * been missing for two checks running, reloads it from the file and logs a
+   * `transcript_gap`. Driven by `useTranscriptCheck`.
+   */
+  checkTranscript(id: string): Promise<void>
   applySessionsEvent(msg: SessionsEvent): void
   /**
    * The socket's way in for the `sessions` topic: events that arrive within
@@ -475,6 +483,11 @@ let localMessageCounter = 0
  * `connecting -> open` is not an outage and must not trigger the catch-up.
  */
 let sawClosedSocket = false
+
+/** Per session, the file row the last transcript check found missing. */
+const transcriptSuspects = new Map<string, ChatMessage>()
+/** Sessions with a transcript check in flight — a slow read must not stack. */
+const transcriptChecking = new Set<string>()
 
 /** Generates a client-side id for optimistic messages. Prefixed so it can
  * never collide with a server-issued message id. */
@@ -869,6 +882,57 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     } catch {
       // A failed catch-up leaves the caches as they were; the next reconnect,
       // or a manual reload, tries again.
+    }
+  },
+
+  async checkTranscript(id) {
+    // Nothing to compare before the history is seated; `select()` owns that.
+    if (!get().historyLoaded[id] || transcriptChecking.has(id)) return
+    transcriptChecking.add(id)
+    try {
+      const tail = await api.getMessages(id, { limit: TRANSCRIPT_CHECK_PAGE })
+      const held = get().transcripts[id]
+      if (!held || !get().historyLoaded[id]) return
+      const step = transcriptCheckStep(held, tail, transcriptSuspects.get(id) ?? null)
+      const missing = transcriptSuspects.get(id)
+      if (step.suspect) transcriptSuspects.set(id, step.suspect)
+      else transcriptSuspects.delete(id)
+      if (!step.reload || !missing) return
+
+      // Read before the reload, which is what would change them.
+      const socket = getSocket().diagnostics(`session:${id}`)
+      const heldCount = held.length
+      const fetched = await api.getMessages(id)
+      set((state) => {
+        // Left while the fetch was out: the next open fetches anyway.
+        if (!state.historyLoaded[id]) return {}
+        // The file is the whole truth except for a turn typed a moment ago
+        // that it has not echoed yet — the same carry-over `select()` makes.
+        const current = state.transcripts[id] ?? []
+        const pending = current.filter(
+          (m) => isPendingTurn(m) && !fetched.some((f) => echoes(f, m)),
+        )
+        return { transcripts: { ...state.transcripts, [id]: [...fetched, ...pending] } }
+      })
+
+      void api
+        .reportErrorToServer({
+          kind: 'transcript_gap',
+          sessionId: id,
+          message: 'The open transcript was missing a message its file had, and was reloaded',
+          context: {
+            missing: { id: missing.id, role: missing.role, timestamp: missing.timestamp ?? null },
+            heldCount,
+            sessionStatus: get().sessions[id]?.status ?? null,
+            windowFocused: document.hasFocus(),
+            socket,
+          },
+        })
+        .catch((err) => console.error('orbital: failed to record a transcript gap', err))
+    } catch {
+      // A failed read is not a gap; the next check asks again.
+    } finally {
+      transcriptChecking.delete(id)
     }
   },
 

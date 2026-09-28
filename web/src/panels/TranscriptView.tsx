@@ -12,12 +12,17 @@ import {
 } from './transcriptMotion'
 import { MessageView } from './MessageView'
 import { NoticeRow } from './NoticeRow'
+import { CompactionMark } from './CompactionMark'
+import { compactionOrdinals, newestFailedCompactionId } from '../lib/compaction'
 import { QuestionCard } from './QuestionCard'
 import { PermissionCard } from './PermissionCard'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolRow, salientInput, toolDurationMs } from './ToolRow'
 import { QUESTION_TOOL_NAME } from '../lib/questionCard'
 import { PLAN_TOOL_NAME } from '../lib/decisionCard'
+
+/** The accent hue (`oklch(85% .12 205)`'s angle), for a mark drawn without a session tag. */
+const NEUTRAL_MARK_HUE = 205
 
 /** Initial size of the rendered window (in paired items) — windowing beyond
  * that (real virtualization) is explicitly deferred per the task brief. */
@@ -277,6 +282,12 @@ export interface TranscriptViewProps {
    * position inside the same scroll container, so DOM order is unchanged. */
   footer?: ReactNode
   /**
+   * Changes when the footer's content does. A footer that grows while the
+   * reader sits at the bottom — the live compaction block arriving — is
+   * followed there, as a new row would be.
+   */
+  footerKey?: string
+  /**
    * Selects the subagent panel's rendering of a `thinking` message — a left
    * hairline rule instead of canvas 1b's boxed treatment, expanded by
    * default instead of collapsed — over the parent transcript's own (spec
@@ -298,6 +309,23 @@ export interface TranscriptViewProps {
    * to match (fix: subagent-question-ignores-agent-id).
    */
   readOnly?: boolean
+  /**
+   * What the compaction marks need to know about the session they sit in
+   * (spec 2026-09-28-context-compaction-design § The permanent mark). Absent
+   * — the subagent panel — they draw with a neutral hue and no actions.
+   *
+   * `onCompactAgain` is passed only while the session is live; it lands on
+   * the newest failure alone. `reveal` scrolls that newest failure into view
+   * once, and `onRevealed` reports it done.
+   */
+  compaction?: {
+    terminal: boolean
+    contextWindow: number | null
+    hue: number
+    onCompactAgain?: () => void
+    reveal?: boolean
+    onRevealed?: () => void
+  }
   /**
    * The session's own live `subagents`, threaded straight through to every
    * `ToolRow` this view renders (spec § 5, canvas 11a: the `Agent`/`Task`
@@ -530,10 +558,12 @@ export function TranscriptView({
   exhausted,
   observerFactory = defaultScrollObserverFactory,
   footer,
+  footerKey,
   compact = false,
   readOnly = false,
   subagents,
   onOpenSubagent,
+  compaction,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
   // Folded tool runs (spec: 2026-09-18-transcript-folding-design). An
@@ -550,6 +580,11 @@ export function TranscriptView({
     () => insertModelDividers(groupToolRuns(items, pendingDecisionId)),
     [items, pendingDecisionId],
   )
+
+  // Over the FULL array: `N OF M` counts every compaction held, not only the
+  // windowed ones.
+  const ordinals = useMemo(() => compactionOrdinals(messages), [messages])
+  const newestFailedId = useMemo(() => newestFailedCompactionId(messages), [messages])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<Scroller | null>(null)
@@ -659,6 +694,25 @@ export function TranscriptView({
    * down. Called when the fold animation settles, and again on the toggle
    * itself for the reduced-motion path, where there is no animation to end.
    */
+  // The map's COMPACT FAILED badge opens the session at its mark. After the
+  // stick-to-bottom effect above, so the landing is not undone by it; the
+  // reader is then deliberately not at the bottom.
+  const reveal = compaction?.reveal === true
+  const onRevealed = compaction?.onRevealed
+  useLayoutEffect(() => {
+    if (!reveal || !newestFailedId) return
+    const el = containerRef.current?.querySelector(`[data-compaction-id="${newestFailedId}"]`)
+    if (!el) return
+    scrollerRef.current?.cancel()
+    el.scrollIntoView?.({ block: 'center' })
+    stickToBottomRef.current = false
+    onRevealed?.()
+  }, [reveal, newestFailedId, items, onRevealed])
+
+  useLayoutEffect(() => {
+    if (footerKey && stickToBottomRef.current) scrollerRef.current?.toBottom({ instant: false })
+  }, [footerKey])
+
   const refreshStick = useCallback(() => {
     const el = containerRef.current
     if (el && !scrollerRef.current?.isAnimating()) stickToBottomRef.current = isNearBottom(el)
@@ -838,6 +892,16 @@ export function TranscriptView({
               onOpenSubagent={onOpenSubagent}
             />
           )
+        ) : group.item.message.role === 'compaction' ? (
+          <CompactionMark
+            message={group.item.message}
+            sessionId={sessionId}
+            ordinal={ordinals.get(group.item.message.id)}
+            terminal={compaction?.terminal ?? false}
+            contextWindow={compaction?.contextWindow ?? null}
+            hue={compaction?.hue ?? NEUTRAL_MARK_HUE}
+            onCompactAgain={group.item.message.id === newestFailedId ? compaction?.onCompactAgain : undefined}
+          />
         ) : group.item.message.role === 'notice' ? (
           // The CLI answering for itself — a locally-answered slash command,
           // a hook's banner. Never `MessageView`: it is neither speech nor a

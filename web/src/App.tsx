@@ -15,6 +15,7 @@ import { TopGlint } from './ui/TopGlint'
 import { menuCommands } from './lib/keymap'
 import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
 import { useViewportWidth } from './lib/useViewportWidth'
+import { useTranscriptCheck } from './lib/useTranscriptCheck'
 import { STATS_PATH } from './stats/route'
 import type { ApiSession } from './lib/types'
 import { SpaceMap } from './map/SpaceMap'
@@ -24,6 +25,7 @@ import { SubagentPanel } from './panels/SubagentPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
+import { CompactDialog } from './panels/CompactDialog'
 import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
@@ -193,6 +195,7 @@ export default function App() {
       applySessionEvent(selectedId, msg)
     )
   }, [selectedId, applySessionEvent])
+  useTranscriptCheck(selectedId)
 
   // App is the OUTERMOST escape layer — always registered, so it only ever
   // sees the key when nothing is open above it (see `ui/escapeLayer`). Any
@@ -306,6 +309,8 @@ export default function App() {
       <NewSessionDialog open={dialog === 'new'} onClose={() => setDialog(null)} />
       <Settings open={dialog === 'settings'} onClose={() => setDialog(null)} />
       <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
+      {/* A `/compact` past running subagents, from the composer or the map's badge. */}
+      <CompactDialog />
 
       {/* The way into the error log lives in SpaceMap's HUD now — an icon
           with the unseen count as its badge, riding the zoom column. */}

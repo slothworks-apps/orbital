@@ -727,8 +727,12 @@ export function useStateMix<S extends string>(
   // Layout effect, not render: mutating the ref during render would fire twice
   // under StrictMode and start the transition from a half-applied state.
   useLayoutEffect(() => {
+    // The duration is read when a transition starts, so a caller can give one
+    // change its own pace (a planet entering compaction switches faster than
+    // a state change) without touching one already under way.
+    if (mix.target !== target) mix.durationMs = durationMs
     retargetStateMix(mix, target, prefersReducedMotion())
-  }, [mix, target])
+  }, [mix, target, durationMs])
   return mix
 }
 

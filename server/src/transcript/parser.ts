@@ -1,6 +1,7 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
 import { messageFromLocalCommandEntry } from './notices.js';
+import { compactSummaryText, markFromTranscriptBoundary } from './compaction.js';
 import { parseWalkthroughTag, walkthroughChipName, WALKTHROUGH_TAG } from '../walkthrough/tag.js';
 
 export type { ImageWriter };
@@ -39,6 +40,14 @@ export interface TranscriptEntry {
    * pasted image leaves behind. See `outsideConversation`.
    */
   isMeta?: boolean;
+  /**
+   * The user entry carrying a compaction's summary, right after its
+   * `compact_boundary`. Not `isMeta`, so it has to be named to be kept out of
+   * the conversation.
+   */
+  isCompactSummary?: boolean;
+  /** `compact_boundary` entries only: trigger, token counts and duration. */
+  compactMetadata?: Record<string, unknown>;
   /** Set on assistant entries; several entries of one API response share it. */
   requestId?: string;
   /** Set on the user entry carrying a tool_result — the payload stats measure. */
@@ -273,7 +282,28 @@ export function toolResultParts(
 
 export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWriter): ChatMessage[] {
   const out: ChatMessage[] = [];
+  // The newest compaction mark still waiting for its summary entry.
+  let unsummarised: ChatMessage | null = null;
   for (const e of entries) {
+    // A compaction becomes its own mark, carrying the summary from the entry
+    // that follows it — the same item the runner builds live (spec
+    // 2026-09-28-context-compaction-design § Success).
+    if (e.type === 'system' && e.subtype === 'compact_boundary' && e.isSidechain !== true) {
+      unsummarised = {
+        id: `${e.uuid}:0`, role: 'compaction', timestamp: e.timestamp,
+        compaction: markFromTranscriptBoundary(e),
+      };
+      out.push(unsummarised);
+      continue;
+    }
+    // The summary is the harness speaking, not the human: the live path
+    // drops the same frame, so it never becomes a user bubble on either.
+    if (e.type === 'user' && e.isCompactSummary === true) {
+      const summary = compactSummaryText(e.message?.content);
+      if (unsummarised?.compaction && summary) unsummarised.compaction.summary = summary;
+      unsummarised = null;
+      continue;
+    }
     // The CLI answers some slash commands by itself and writes the answer as
     // a `system`/`local_command` entry — never as a turn. Without this the
     // whole of `/context`, `/usage`, `/mcp` and friends survived only in the

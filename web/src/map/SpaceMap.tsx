@@ -32,6 +32,7 @@ import { Button } from '../ui/Button'
 import { shortcutLabel } from '../lib/keymap'
 import { useCommand } from '../lib/commands'
 import { COMPACT_COMMAND, Planet } from './Planet'
+import { sendCompactAware, useCompactionUi } from '../store/compaction'
 import { Moon } from './Moon'
 import { Hole } from './Hole'
 import { useSceneModel } from './useSceneModel'
@@ -544,7 +545,6 @@ export function SpaceMap() {
   useEffect(() => {
     if (windowFocused && !documentHidden) scheduler.request()
   }, [scheduler, windowFocused, documentHidden])
-  const sendPrompt = useOrbital((s) => s.sendPrompt)
   // Live panel width for the follow inset and the right-anchored overlays —
   // the drag handle moves it, and while it is held (`resizingPanel`) the
   // overlays drop their transition so they track the pointer with the panel.
@@ -758,9 +758,22 @@ export function SpaceMap() {
       const session = state.sessions[id]
       if (!session || isReadOnly(session)) return
       if (state.pendingDecisions[id]) return
-      void sendPrompt(id, COMPACT_COMMAND)
+      // A compaction already running: the badge has nothing to add (spec
+      // 2026-09-28-context-compaction-design § Transcript while it runs).
+      if (session.compacting) return
+      // Past running subagents it asks first, like the composer.
+      sendCompactAware(id, COMPACT_COMMAND)
     },
-    [sendPrompt]
+    []
+  )
+
+  // COMPACT FAILED opens the session at the failure's mark.
+  const handleCompactFailed = useCallback(
+    (id: string) => {
+      useCompactionUi.getState().setReveal(id)
+      handleSelect(id)
+    },
+    [handleSelect]
   )
 
   const handleBodyPointerDown = useCallback((id: string, e: ThreeEvent<PointerEvent>) => {
@@ -1135,6 +1148,8 @@ export function SpaceMap() {
               contextThresholds={contextThresholds}
               showCompactBadge={compactBadgeAllowed}
               onCompact={handleCompact}
+              compactingSince={planet.compactingSince}
+              onCompactFailedClick={handleCompactFailed}
               onClick={handleSelect}
               statePills={pillMode}
               onPillClick={handlePillSelect}

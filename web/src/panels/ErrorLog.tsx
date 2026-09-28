@@ -4,6 +4,7 @@ import { useOrbital } from '../store/store'
 import type { ErrorRecord } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
+import { copyToClipboard } from '../lib/clipboard'
 
 /**
  * The whole record as one block of text, which is what a person pasting it
@@ -19,17 +20,6 @@ export function formatRecordForCopy(error: ErrorRecord): string {
   if (error.context) lines.push('', JSON.stringify(error.context, null, 2))
   if (error.detail) lines.push('', error.detail)
   return lines.filter((line) => line !== null).join('\n')
-}
-
-/** Best-effort copy. `navigator.clipboard` is absent in jsdom and on any
- * non-secure origin, and a log that throws while you are reading it about
- * why something else threw is not a trade worth making. */
-async function copyToClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard?.writeText(text)
-  } catch (err) {
-    console.error('orbital: could not copy the error to the clipboard', err)
-  }
 }
 
 /** 5b spells kinds out: `render_crash` reads as RENDER CRASH. */

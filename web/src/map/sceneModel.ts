@@ -1,5 +1,6 @@
 import type { ApiSession, OrbitalModel, SessionStatus, Subagent } from '../lib/types'
 import { matchModel } from '../lib/models'
+import { compactingOf } from '../lib/compaction'
 import { contextFractionFor, contextLevel, type ContextLevel } from '../lib/usage'
 import { CONTEXT_GAUGE_OUTER, moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
@@ -107,6 +108,14 @@ export interface ScenePlanet {
    */
   muted: boolean
   contextFill: ContextFill | null
+  /**
+   * When the session's running compaction started (epoch ms), or null when
+   * the planet is not in the compacting state — `compactingOf` decides:
+   * Orbital sessions only, over working and waiting, under needs-input (spec
+   * 2026-09-28-context-compaction-design § Planet). A number rather than the
+   * session's object, so the memoised planet compares it by value.
+   */
+  compactingSince: number | null
 }
 
 /** A planet's context arc: how far round it goes, and what colour it is. */
@@ -324,6 +333,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
         contextFill,
         muted,
+        compactingSince: compactingOf(session)?.startedAt ?? null,
       })
     }
   }

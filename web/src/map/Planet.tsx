@@ -55,6 +55,7 @@ import {
   advanceStateMix,
   advanceTween,
   blendPlanet,
+  easeMotion,
   createPlanetBlend,
   endedHideTransform,
   labelUnderReticle,
@@ -77,6 +78,13 @@ import type { SimBody } from './simulation'
 import { useFrameOnRender, useMapFrame } from './FrameBudget'
 import type { ContextFill } from './sceneModel'
 import { DetachGlyph } from '../ui/UtilityButton'
+import {
+  COMPACTED_CAPTION_MS,
+  COMPACTING_SWITCH_MS,
+  compactingLabelOpacity,
+  formatCompactTokens,
+  formatElapsed,
+} from '../lib/compaction'
 import {
   CONTEXT_CRITICAL_OKLCH,
   contextLevelOklch,
@@ -382,6 +390,87 @@ export const COMPACT_COMMAND = '/compact'
  * lighter red than the border's, so the word reads before the percentage. */
 const COMPACT_COMMAND_OKLCH: Oklch = { lightness: 0.8, chroma: 0.15, hue: 25 }
 
+// --- context compaction (canvas `Feature - Context compaction` 26b, 26e) --
+// While a session compacts, the planet takes the idle body (ticks still, no
+// halo), its core turns into a hollow ring, the arc greys, and two grey rings
+// contract inward onto the body (spec 2026-09-28-context-compaction-design).
+
+/** The hollow core: 26b's `border: 1.5px solid` tag hue at .75, on its 16px core. */
+const COMPACT_CORE_OUTER = px(8)
+const COMPACT_CORE_INNER = px(8 - 1.5)
+const COMPACT_CORE_OPACITY = 0.75
+/** The greyed arc: `rgba(200,215,235,.3)` (GREY at .3), and the threshold marks at `opacity: .3`. */
+const COMPACT_ARC_OPACITY = 0.3
+const COMPACT_TICKS_FACTOR = 0.3
+/**
+ * The condensing rings: `inset: arcIn` — the context fill ring's own radius
+ * — with a 1.5px `rgba(214,228,246,.8)` border, drawn in to `scale(.56)`,
+ * which is the body's edge.
+ */
+const CONDENSE_OUTER = CONTEXT_FILL_OUTER
+const CONDENSE_INNER = px(90 - 1.5)
+const CONDENSE_COLOR = '#d6e4f6'
+const CONDENSE_OPACITY = 0.8
+const CONDENSE_END_SCALE = 0.56
+/** `orb-condense 3.2s`; the second ring runs half a cycle (1.6 s) off the first. */
+const CONDENSE_PERIOD_SEC = 3.2
+/**
+ * `orb-condense`'s opacity keyframes (0 → .9 at 18 % → .6 at 70 % → 0), each
+ * segment eased by the animation's `cubic-bezier(.45,0,.7,.5)`, as CSS eases
+ * every keyframe interval. The scale has only its two ends.
+ */
+const CONDENSE_STOPS = [0, 0.18, 0.7, 1] as const
+const CONDENSE_VALUES = [0, 0.9, 0.6, 0] as const
+/**
+ * 26b's `box-shadow: 0 0 10px rgba(214,228,246,.25)`, inside and out, as a
+ * wider faint band under each ring — a flat ring cannot blur.
+ */
+const CONDENSE_GLOW_INNER = px(90 - 6)
+const CONDENSE_GLOW_OUTER = px(90 + 4)
+const CONDENSE_GLOW_OPACITY = 0.12
+/** After a success the arc drains to its new value (26e: 700 ms). */
+const ARC_DRAIN_MS = 700
+/** 26e "map pill": `COMPACTING` in the compacting grey over a .22 hairline. */
+const COMPACTING_PILL_BORDER = 'rgba(150,205,255,.22)'
+const COMPACTING_PILL_INK = 'rgba(214,228,246,.85)'
+/** Both pills' second word — the timer, the percentage. */
+const PILL_SUB_INK = 'rgba(160,190,225,.6)'
+/** 26e "failure badge": the /compact badge's red border, a lighter red word. */
+const COMPACT_FAILED_INK = 'oklch(80% .12 25)'
+/** 26b's caption under the label after a success: 9.5px at .08em. */
+const COMPACTED_CAPTION_INK = 'rgba(200,220,245,.75)'
+
+/** One axis of a cubic Bézier with endpoints (0,0) and (1,1). */
+function bezierAxis(t: number, p1: number, p2: number): number {
+  const u = 1 - t
+  return 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t
+}
+
+/** `cubic-bezier(.45,0,.7,.5)` at `x`, by bisection (x is monotonic). */
+function condenseEase(x: number): number {
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2
+    if (bezierAxis(mid, 0.45, 0.7) < x) lo = mid
+    else hi = mid
+  }
+  return bezierAxis((lo + hi) / 2, 0, 0.5)
+}
+
+/** Where one condensing ring stands at `phase` cycles: written into `out`, allocation-free. */
+function condenseAt(phase: number, out: { opacity: number; scale: number }): void {
+  const t = phase - Math.floor(phase)
+  out.scale = 1 + (CONDENSE_END_SCALE - 1) * condenseEase(t)
+  for (let i = 0; i < CONDENSE_STOPS.length - 1; i++) {
+    if (t > CONDENSE_STOPS[i + 1]) continue
+    const local = (t - CONDENSE_STOPS[i]) / (CONDENSE_STOPS[i + 1] - CONDENSE_STOPS[i])
+    out.opacity = CONDENSE_VALUES[i] + (CONDENSE_VALUES[i + 1] - CONDENSE_VALUES[i]) * condenseEase(local)
+    return
+  }
+  out.opacity = 0
+}
+
 export interface PlanetProps {
   session: ApiSession
   /** Tag hue (oklch hue angle, 0-360); state never changes this. */
@@ -446,6 +535,16 @@ export interface PlanetProps {
    * does: this component knows nothing about the store.
    */
   onCompact?: (sessionId: string) => void
+  /**
+   * When the session's compaction started (epoch ms), or null — `compactingOf`
+   * via the scene model, which is where "it outranks working, loses to needs
+   * input, never on a terminal planet" is decided. The start time is what
+   * phases the condensing rings, so planets compacting together never pulse
+   * in step.
+   */
+  compactingSince?: number | null
+  /** The `COMPACT FAILED` badge was clicked: open the session at its mark. */
+  onCompactFailedClick?: (sessionId: string) => void
   onClick?: (sessionId: string) => void
   /**
    * How the state pill is drawn (`map_state_pills`): a resting dot that
@@ -657,7 +756,8 @@ function ContextGauge({
   fillMaterial: THREE.Material
   tickMaterial: THREE.Material
 }) {
-  const sweep = fraction * Math.PI * 2
+  const drained = useDrainedFraction(fraction)
+  const sweep = drained * Math.PI * 2
   const tickWidth = (CONTEXT_TICK_WIDTH_DEG * Math.PI) / 180
   // Track and fill divide the ring between them rather than stacking, the
   // way the canvas's single conic gradient does — two overlapping
@@ -680,13 +780,13 @@ function ContextGauge({
           />
         </mesh>
       )}
-      {fraction > 0 && (
+      {drained > 0 && (
         <mesh material={fillMaterial}>
           <ringGeometry
             args={[
               CONTEXT_FILL_INNER,
               CONTEXT_FILL_OUTER,
-              Math.max(1, Math.ceil(fraction * 96)),
+              Math.max(1, Math.ceil(drained * 96)),
               1,
               // A clockwise arc of `sweep` ending at 12 o'clock is the same
               // shape as a counter-clockwise one starting `sweep` before it.
@@ -715,6 +815,36 @@ function ContextGauge({
         ))}
     </group>
   )
+}
+
+/**
+ * The fraction the arc draws: a rise lands at once, as it always has, and a
+ * fall — which only a compaction produces — drains over `ARC_DRAIN_MS` on the
+ * app's motion curve (26e). The geometry is rebuilt per step, so this renders
+ * the gauge alone, a few dozen times, once per compaction.
+ */
+function useDrainedFraction(fraction: number): number {
+  const [drain, setDrain] = useState<{ from: number; to: number; value: number } | null>(null)
+  const shown = useRef(fraction)
+  useEffect(() => {
+    const from = shown.current
+    shown.current = fraction
+    if (fraction >= from || prefersReducedMotion()) return
+    const start = performance.now()
+    let frame = 0
+    const step = (now: number) => {
+      const k = Math.min(1, (now - start) / ARC_DRAIN_MS)
+      const value = from + (fraction - from) * easeMotion(k)
+      shown.current = value
+      setDrain(k < 1 ? { from, to: fraction, value } : null)
+      if (k < 1) frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+  }, [fraction])
+  // Asks the demand-driven map for a frame after each step.
+  useFrameOnRender()
+  return drain && drain.to === fraction ? drain.value : fraction
 }
 
 /**
@@ -1033,6 +1163,109 @@ function CompactBadge({
 }
 
 /**
+ * `COMPACTING m:ss` (26b, 26e), in the pill slot once a compaction has run
+ * three seconds. Its opacity and its timer are written by the frame loop, so
+ * a second ticking by costs no render.
+ */
+function CompactingPill({
+  clearsGauge,
+  innerRef,
+  timeRef,
+}: {
+  clearsGauge: boolean
+  innerRef: RefObject<HTMLSpanElement | null>
+  timeRef: RefObject<HTMLSpanElement | null>
+}) {
+  return (
+    <Html
+      position={
+        clearsGauge ? [COMPACT_BADGE_OFFSET_X, COMPACT_BADGE_OFFSET_Y, CORE_Z] : [BADGE_OFFSET_X, BADGE_OFFSET_Y, CORE_Z]
+      }
+      zIndexRange={[5, 0]}
+      style={{ pointerEvents: 'none' }}
+    >
+      <span
+        ref={innerRef}
+        data-compacting-pill
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '3px 8px',
+          borderRadius: 999,
+          background: 'rgba(6,10,20,.88)',
+          border: `1px solid ${COMPACTING_PILL_BORDER}`,
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          fontSize: 9.5,
+          letterSpacing: '0.1em',
+          color: COMPACTING_PILL_INK,
+          whiteSpace: 'nowrap',
+          opacity: 0,
+        }}
+      >
+        COMPACTING
+        <span ref={timeRef} style={{ color: PILL_SUB_INK }} />
+      </span>
+    </Html>
+  )
+}
+
+/**
+ * `COMPACT FAILED · NN%` (26e), in the `/compact` badge's slot while the
+ * session's last compaction stands failed. A button: it opens the session at
+ * the failure's mark.
+ */
+function CompactFailedBadge({
+  percent,
+  innerRef,
+  initialOpacity,
+  onClick,
+}: {
+  percent: number
+  innerRef: RefObject<HTMLButtonElement | null>
+  initialOpacity: number
+  onClick: () => void
+}) {
+  return (
+    <Html
+      position={[COMPACT_BADGE_OFFSET_X, COMPACT_BADGE_OFFSET_Y, CORE_Z]}
+      zIndexRange={[5, 0]}
+      style={{ pointerEvents: 'none' }}
+    >
+      <button
+        ref={innerRef}
+        type="button"
+        data-compact-failed
+        title="The last compaction failed · open the session at it"
+        onClick={onClick}
+        style={{
+          appearance: 'none',
+          margin: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '3px 8px',
+          borderRadius: 999,
+          background: 'rgba(6,10,20,.88)',
+          border: `1px solid ${oklchCss(CONTEXT_CRITICAL_OKLCH, 0.7)}`,
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          fontSize: 9.5,
+          letterSpacing: '0.1em',
+          color: COMPACT_FAILED_INK,
+          whiteSpace: 'nowrap',
+          cursor: 'pointer',
+          pointerEvents: 'auto',
+          opacity: initialOpacity,
+        }}
+      >
+        COMPACT FAILED
+        <span style={{ color: PILL_SUB_INK }}>· {percent}%</span>
+      </button>
+    </Html>
+  )
+}
+
+/**
  * The one mark a planet wears while its session sits in a window of its own
  * (canvas `Feature - Detached window` 22e): the detach glyph on a small dark
  * tile at the body's top-right. Static — the window is a place, not an
@@ -1094,6 +1327,10 @@ interface PlanetMaterials {
   coreGlowWhite: THREE.MeshBasicMaterial
   core: THREE.MeshBasicMaterial
   ripple: THREE.MeshBasicMaterial
+  /** Compaction (26b): the hollow core and the two condensing rings with their glow bands. */
+  coreHollow: THREE.MeshBasicMaterial
+  condense: THREE.MeshBasicMaterial[]
+  condenseGlow: THREE.MeshBasicMaterial[]
 }
 
 /**
@@ -1140,6 +1377,10 @@ function usePlanetMaterials(): PlanetMaterials {
       coreGlowWhite: soft(WHITE, glowMap),
       core,
       ripple: soft(STATE_INPUT_HEX),
+      // Hidden until a compaction fades them in, for the same reason as the gauge.
+      coreHollow: gauge(),
+      condense: [gauge(CONDENSE_COLOR), gauge(CONDENSE_COLOR)],
+      condenseGlow: [gauge(CONDENSE_COLOR), gauge(CONDENSE_COLOR)],
     }
   }, [])
 
@@ -1173,6 +1414,8 @@ function PlanetBody({
   contextThresholds,
   showCompactBadge = false,
   onCompact,
+  compactingSince = null,
+  onCompactFailedClick,
   onClick,
   statePills = 'dot',
   onPillClick,
@@ -1180,7 +1423,27 @@ function PlanetBody({
   simBody,
   onBodyPointerDown,
 }: PlanetProps) {
-  const mix = useStateMix(PLANET_STATES, session.status)
+  /**
+   * A compaction borrows the idle body — ticks still, no halo, no glow (26b:
+   * "arc greyed · ticks still") — and switches into it and back out in
+   * `COMPACTING_SWITCH_MS` rather than the state change's own pace (26e).
+   * The edge is read during render, before the mix is retargeted.
+   */
+  const compacting = compactingSince !== null
+  const compactingSinceRef = useRef(compactingSince)
+  if (compactingSince !== null) compactingSinceRef.current = compactingSince
+  const compactEdgeRef = useRef(compacting)
+  const compactEdge = compactEdgeRef.current !== compacting
+  const mix = useStateMix(
+    PLANET_STATES,
+    compacting ? 'idle' : session.status,
+    compactEdge ? COMPACTING_SWITCH_MS : STATE_TRANSITION_MS,
+  )
+  useLayoutEffect(() => {
+    compactEdgeRef.current = compacting
+  })
+  const compactFade = useFadeTween(compacting, COMPACTING_SWITCH_MS, COMPACTING_SWITCH_MS)
+  const compactingPillMounted = useLingering(compacting, COMPACTING_SWITCH_MS)
   const hueTween = useHueTween(hue)
   // The tier scale changes WITH the status (layout.ts), so it rides the same
   // curve and duration as the material crossfade — un-tweened it snapped the
@@ -1215,7 +1478,7 @@ function PlanetBody({
   const reticleMounted = useLingering(selected, RETICLE_EXIT_MS + RETICLE_LINGER_GRACE_MS)
 
   /** The state pill's state and word, or null for a planet that needs none (`statePill`). */
-  const pill = statePill(session)
+  const pill = compacting ? null : statePill(session)
   const pillLabel = pill?.label ?? null
   /**
    * The pill's own fade, rather than a weight read off the state mix.
@@ -1270,9 +1533,48 @@ function PlanetBody({
    * sits in the same corner and answers a more urgent question, so it wins
    * outright, including while it is fading away.
    */
-  const compactDue = showCompactBadge && contextFill?.level === 'critical' && !pillMounted
+  /**
+   * `COMPACT FAILED · NN%` (26e) takes the `/compact` badge's slot while the
+   * last compaction stands failed. It needs the percentage, so it rides the
+   * gauge; it is swapped in with no motion of its own and leaves on the
+   * state change's fade.
+   */
+  const failedDue = session.lastCompactionFailed != null && contextFill !== null && !compacting && !pillMounted
+  const failedMounted = useLingering(failedDue, STATE_TRANSITION_MS)
+  const failedFade = useFadeTween(failedDue, 0, STATE_TRANSITION_MS)
+  // A running compaction takes the badge's place (its own pill does), and a
+  // failed one has already said what the badge would.
+  const compactDue =
+    showCompactBadge && contextFill?.level === 'critical' && !pillMounted && !compacting && !failedDue
   const compactMounted = useLingering(compactDue, STATE_TRANSITION_MS)
-  const compactFade = useFadeTween(compactDue, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
+  const compactBadgeFade = useFadeTween(compactDue, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
+
+  /**
+   * `compacted · 186k → 22k` under the label for six seconds after a success
+   * (26b, 26e). Only an Orbital session has `lastCompacted`, and only in the
+   * server process that saw it — after a restart there is nothing to show.
+   * Shown and hidden from timers, never from the render itself.
+   */
+  const lastCompacted = session.lastCompacted ?? null
+  const compactedAt = lastCompacted?.at ?? null
+  const [captionFor, setCaptionFor] = useState<number | null>(null)
+  useEffect(() => {
+    if (compactedAt === null) return
+    const left = compactedAt + COMPACTED_CAPTION_MS - Date.now()
+    if (left <= 0) return
+    const show = setTimeout(() => setCaptionFor(compactedAt), 0)
+    const hide = setTimeout(() => setCaptionFor(null), left)
+    return () => {
+      clearTimeout(show)
+      clearTimeout(hide)
+    }
+  }, [compactedAt])
+  const captionShown = captionFor !== null && captionFor === compactedAt
+  const captionMounted = useLingering(captionShown, STATE_TRANSITION_MS)
+  const captionText =
+    lastCompacted && lastCompacted.preTokens !== null && lastCompacted.postTokens !== null
+      ? `compacted · ${formatCompactTokens(lastCompacted.preTokens)} → ${formatCompactTokens(lastCompacted.postTokens)}`
+      : 'compacted'
   /**
    * A suppressed planet's title has to LEAVE the document, not just turn
    * invisible: `<Html>` portals its content into a plain DOM overlay that the
@@ -1331,6 +1633,14 @@ function PlanetBody({
   const badgeRef = useRef<HTMLSpanElement | null>(null)
   const detachedBadgeRef = useRef<HTMLSpanElement | null>(null)
   const compactBadgeRef = useRef<HTMLButtonElement | null>(null)
+  const failedBadgeRef = useRef<HTMLButtonElement | null>(null)
+  const compactingPillRef = useRef<HTMLSpanElement | null>(null)
+  const compactingTimeRef = useRef<HTMLSpanElement | null>(null)
+  const coreHollowRef = useRef<THREE.Mesh>(null!)
+  const condenseRef0 = useRef<THREE.Group>(null)
+  const condenseRef1 = useRef<THREE.Group>(null)
+  /** Scratch for `condenseAt`, so the frame loop allocates nothing. */
+  const condenseState = useRef({ opacity: 0, scale: 1 })
   const labelRef = useRef<HTMLSpanElement | null>(null)
   const labelGroupRef = useRef<THREE.Group>(null)
   /** Where the label hangs right now: under the gauge, and under the reticle once its fade is past the handoff. */
@@ -1405,11 +1715,12 @@ function PlanetBody({
     // opacities (and the critical pulse) belong to the frame loop below.
     if (shownFill) {
       const gauge = contextLevelOklch(shownFill.level)
-      setOklchTagColor(materials.contextFill.color, gauge.hue, gauge.lightness, gauge.chroma).lerp(
-        GREY_COLOR,
-        muteFade.value
-      )
+      setOklchTagColor(materials.contextFill.color, gauge.hue, gauge.lightness, gauge.chroma)
+        // A compacting arc goes to the grey (26b), whatever its level.
+        .lerp(GREY_COLOR, compactFade.value)
+        .lerp(GREY_COLOR, muteFade.value)
     }
+    materials.coreHollow.color.copy(hueC)
 
     if (hasBodyTextures) {
       // Bottom-to-top: flat ended fill, idle gradient, working gradient.
@@ -1477,18 +1788,19 @@ function PlanetBody({
     const hueMoved = advanceTween(hueTween, delta)
     const hideMoved = advanceTween(hideFade, delta)
     const muteMoved = advanceTween(muteFade, delta)
+    const compactMoved = advanceTween(compactFade, delta)
     const b = blendRef.current
     if (mixMoved) blendPlanet(mix.weights, b)
     // The hide fade and the search mute multiply into every opacity (and the
     // mute into the hue) `applyState` writes, so either moving has to re-run
     // it — otherwise the layers it only touches on a state change would keep
     // their pre-fade alpha.
-    const applied = mixMoved || hueMoved || hideMoved || muteMoved || !settled.current
+    const applied = mixMoved || hueMoved || hideMoved || muteMoved || compactMoved || !settled.current
     if (applied) applyState()
-    settled.current = !(mixMoved || hueMoved || hideMoved || muteMoved)
+    settled.current = !(mixMoved || hueMoved || hideMoved || muteMoved || compactMoved)
     // Whether anything this frame writes will differ next frame. The body's
     // position is the simulation's, and `SimStepper` reports that.
-    let moving = mixMoved || hueMoved || hideMoved || muteMoved
+    let moving = mixMoved || hueMoved || hideMoved || muteMoved || compactMoved
 
     if (simBody) {
       // The simulation owns the position outright — walks and drags both
@@ -1534,9 +1846,27 @@ function PlanetBody({
       }
     }
     if (compactMounted) {
-      if (advanceTween(compactFade, delta)) moving = true
+      if (advanceTween(compactBadgeFade, delta)) moving = true
       if (compactBadgeRef.current) {
-        compactBadgeRef.current.style.opacity = String(compactFade.value * whole)
+        compactBadgeRef.current.style.opacity = String(compactBadgeFade.value * whole)
+      }
+    }
+    if (failedMounted) {
+      if (advanceTween(failedFade, delta)) moving = true
+      if (failedBadgeRef.current) failedBadgeRef.current.style.opacity = String(failedFade.value * whole)
+    }
+    // The compacting pill: nothing for three seconds, then a 200 ms fade, and
+    // a timer that counts up (26e). Written every frame it is mounted — the
+    // condensing rings keep frames coming for as long as it is.
+    if (compactingPillMounted) {
+      const since = compactingSinceRef.current
+      const elapsed = since !== null ? Date.now() - since : 0
+      if (compactingPillRef.current) {
+        compactingPillRef.current.style.opacity = String(compactingLabelOpacity(elapsed) * compactFade.value * whole)
+      }
+      const time = formatElapsed(elapsed)
+      if (compactingTimeRef.current && compactingTimeRef.current.textContent !== time) {
+        compactingTimeRef.current.textContent = time
       }
     }
     if (detachedMounted) {
@@ -1560,16 +1890,21 @@ function PlanetBody({
     const critical = shownFill?.level === 'critical'
     if (gaugeMoved || (gaugeMounted && critical)) moving = true
     if (gaugeMounted && (gaugeMoved || applied || critical)) {
-      const pulse = critical
+      // A compacting arc holds still at the grey's .3 (26b), and its
+      // threshold marks drop to .3 with it.
+      const held = compactFade.value
+      const beat = critical
         ? HALO_BREATH_MIN + (1 - HALO_BREATH_MIN) * oscillate(state.clock.elapsedTime, CONTEXT_PULSE_SEC)
         : 1
+      const pulse = beat + (1 - beat) * held
       const gauge = gaugeFade.value * whole
       materials.contextTrack.opacity = CONTEXT_TRACK_OPACITY * pulse * gauge
       materials.contextTrack.visible = materials.contextTrack.opacity > 0.001
-      materials.contextTicks.opacity = CONTEXT_TICK_OPACITY * gauge
+      materials.contextTicks.opacity = CONTEXT_TICK_OPACITY * (1 - (1 - COMPACT_TICKS_FACTOR) * held) * gauge
       materials.contextTicks.visible = materials.contextTicks.opacity > 0.001
+      const fillOpacity = (shownFill?.level === 'ok' ? CONTEXT_OK_OPACITY : 1) * pulse
       materials.contextFill.opacity =
-        (shownFill?.level === 'ok' ? CONTEXT_OK_OPACITY : 1) * pulse * gauge
+        (fillOpacity + (COMPACT_ARC_OPACITY - fillOpacity) * held) * gauge
       materials.contextFill.visible = materials.contextFill.opacity > 0.001
     }
 
@@ -1588,8 +1923,36 @@ function PlanetBody({
     // `orb-blink`: opacity 1 → .3 → 1 over corePulseSec (a blink, not a scale pulse).
     corePhase.current += b.corePulseSec > 0 ? delta / b.corePulseSec : 0
     const blink = b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
-    materials.core.opacity = b.coreOpacity * blink * b.dim * whole
+    // The solid core gives way to the hollow ring while compacting (26b).
+    const held = compactFade.value
+    materials.core.opacity = b.coreOpacity * blink * b.dim * whole * (1 - held)
     materials.core.visible = materials.core.opacity > 0.001
+    materials.coreHollow.opacity = COMPACT_CORE_OPACITY * held * whole
+    materials.coreHollow.visible = materials.coreHollow.opacity > 0.001
+
+    // Two grey rings drawn in onto the body, half a cycle apart, phased off
+    // the compaction's own start (26b, 26e). They run for as long as the
+    // compaction does and fade with it.
+    if (held > 0.001) {
+      moving = true
+      const since = compactingSinceRef.current ?? 0
+      const cycles = (Date.now() - since) / 1000 / CONDENSE_PERIOD_SEC
+      const rings = [condenseRef0.current, condenseRef1.current]
+      for (let i = 0; i < 2; i++) {
+        condenseAt(cycles + i * 0.5, condenseState.current)
+        rings[i]?.scale.setScalar(condenseState.current.scale)
+        const alpha = condenseState.current.opacity * held * whole
+        materials.condense[i].opacity = CONDENSE_OPACITY * alpha
+        materials.condense[i].visible = materials.condense[i].opacity > 0.001
+        materials.condenseGlow[i].opacity = CONDENSE_GLOW_OPACITY * alpha
+        materials.condenseGlow[i].visible = materials.condenseGlow[i].opacity > 0.001
+      }
+    } else {
+      for (let i = 0; i < 2; i++) {
+        materials.condense[i].visible = false
+        materials.condenseGlow[i].visible = false
+      }
+    }
 
     // `orb-ring`: opacity ×.55 → ×1 → ×.55 over 2.4s, faded in by haloBreath.
     const breath =
@@ -1768,6 +2131,29 @@ function PlanetBody({
         <circleGeometry args={[1, 32]} />
       </mesh>
 
+      <mesh ref={coreHollowRef} position={[0, 0, CORE_Z]} material={materials.coreHollow}>
+        <ringGeometry args={[COMPACT_CORE_INNER, COMPACT_CORE_OUTER, 32]} />
+      </mesh>
+
+      {/* The condensing rings (26b). Scaled from the frame loop, which owns
+          each group's `scale` alone. */}
+      <group ref={condenseRef0} position={[0, 0, CONTEXT_GAUGE_Z]}>
+        <mesh material={materials.condenseGlow[0]}>
+          <ringGeometry args={[CONDENSE_GLOW_INNER, CONDENSE_GLOW_OUTER, 64]} />
+        </mesh>
+        <mesh material={materials.condense[0]}>
+          <ringGeometry args={[CONDENSE_INNER, CONDENSE_OUTER, 64]} />
+        </mesh>
+      </group>
+      <group ref={condenseRef1} position={[0, 0, CONTEXT_GAUGE_Z]}>
+        <mesh material={materials.condenseGlow[1]}>
+          <ringGeometry args={[CONDENSE_GLOW_INNER, CONDENSE_GLOW_OUTER, 64]} />
+        </mesh>
+        <mesh material={materials.condense[1]}>
+          <ringGeometry args={[CONDENSE_INNER, CONDENSE_OUTER, 64]} />
+        </mesh>
+      </group>
+
       <mesh ref={rippleRef} position={[0, 0, RIPPLE_Z]} material={materials.ripple}>
         <ringGeometry args={[RIPPLE_INNER, RIPPLE_OUTER, 48]} />
       </mesh>
@@ -1817,6 +2203,23 @@ function PlanetBody({
           percent={Math.round(shownFill.fraction * 100)}
           innerRef={compactBadgeRef}
           onClick={() => onCompact?.(session.id)}
+        />
+      )}
+
+      {failedMounted && shownFill && (
+        <CompactFailedBadge
+          percent={Math.round(shownFill.fraction * 100)}
+          innerRef={failedBadgeRef}
+          initialOpacity={failedFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value)}
+          onClick={() => onCompactFailedClick?.(session.id)}
+        />
+      )}
+
+      {compactingPillMounted && (
+        <CompactingPill
+          clearsGauge={gaugeMounted && shownFill !== null}
+          innerRef={compactingPillRef}
+          timeRef={compactingTimeRef}
         />
       )}
 
@@ -1910,6 +2313,27 @@ function PlanetBody({
                   }}
                 >
                   {modelFamily.toUpperCase()}
+                </span>
+              )}
+              {captionMounted && (
+                // 26b: the caption line under the name, 4px below it, for six
+                // seconds after a successful compaction.
+                <span
+                  data-compacted-caption
+                  style={{
+                    display: 'block',
+                    marginTop: 4,
+                    textAlign: 'center',
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: labelFamilyPx,
+                    letterSpacing: '0.08em',
+                    color: COMPACTED_CAPTION_INK,
+                    opacity: captionShown ? 1 : 0,
+                    transition: reduced ? undefined : `opacity ${STATE_TRANSITION_MS}ms ease`,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {captionText}
                 </span>
               )}
             </span>

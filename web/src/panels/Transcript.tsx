@@ -1,9 +1,13 @@
-import { useCallback, useLayoutEffect, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { recordedFailureFor, useOrbital } from '../store/store'
 import type { ChatMessage, Subagent } from '../lib/types'
 import { Button } from '../ui/Button'
 import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
+import { CompactingBlock } from './CompactionMark'
+import { compactingOf } from '../lib/compaction'
+import { contextWindowFor } from '../lib/models'
+import { useCompactionUi } from '../store/compaction'
 
 /** Stable empty array — a fresh `[]` fallback on every selector call would
  * defeat `useShallow`'s equality check and re-render on every store tick. */
@@ -81,6 +85,38 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
 
   const [exhausted, setExhausted] = useState(false)
 
+  // Context compaction (spec 2026-09-28-context-compaction-design): what the
+  // marks draw against, and the live block while one runs.
+  const session = useOrbital((s) => s.sessions[sessionId])
+  const tags = useOrbital(useShallow((s) => s.tags))
+  const contextWindows = useOrbital(useShallow((s) => s.contextWindows))
+  const setComposerDraft = useOrbital((s) => s.setComposerDraft)
+  const reveal = useCompactionUi((s) => s.reveal === sessionId)
+  const setReveal = useCompactionUi((s) => s.setReveal)
+  const compacting = session ? compactingOf(session) : null
+  const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
+  // The session's one tag, as the map and the header pick it.
+  const hue =
+    (session && (tags.find((t) => session.tagIds.includes(t.id)) ?? tags.find((t) => t.is_default === 1))?.hue) ??
+    undefined
+  const live = session?.source === 'web' && session.status !== 'ended'
+  const handleCompactAgain = useCallback(() => {
+    setComposerDraft(sessionId, '/compact')
+    document.querySelector<HTMLTextAreaElement>('[data-composer-well] textarea')?.focus()
+  }, [setComposerDraft, sessionId])
+  const handleRevealed = useCallback(() => setReveal(null), [setReveal])
+  const compaction = useMemo(
+    () => ({
+      terminal: session?.source === 'terminal',
+      contextWindow,
+      hue: hue ?? 205,
+      onCompactAgain: live ? handleCompactAgain : undefined,
+      reveal,
+      onRevealed: handleRevealed,
+    }),
+    [session?.source, contextWindow, hue, live, handleCompactAgain, reveal, handleRevealed],
+  )
+
   // `TranscriptView` resets its own windowing/scroll state off `resetKey`,
   // but "exhausted" is this session's pagination state, not the view's, so
   // it resets here, off the same switch.
@@ -115,28 +151,40 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       observerFactory={observerFactory}
       subagents={subagents}
       onOpenSubagent={handleOpenSubagent}
+      compaction={compaction}
+      footerKey={compacting ? 'compacting' : undefined}
       footer={
-        (recorded || hasError) && (
-          <div
-            role="alert"
-            className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 font-mono text-xs text-red-300"
-          >
-            <span aria-hidden>⚠</span>
-            {/* The heuristic stays underneath as the fallback: a CLI that exits
-                non-zero without the generator throwing records nothing, and for
-                that case the generic sentence is still the honest answer. */}
-            <span className="min-w-0 flex-1 break-words">
-              {recorded
-                ? recorded.message
-                : 'Session ended unexpectedly — the assistant process may have crashed.'}
-            </span>
-            {recorded && (
-              <Button variant="ghost" size="sm" onClick={() => setDialog('errors')}>
-                Detail
-              </Button>
-            )}
-          </div>
-        )
+        <>
+          {compacting && (
+            <CompactingBlock
+              startedAt={compacting.startedAt}
+              trigger={compacting.trigger}
+              preTokens={session?.contextUsedTokens ?? null}
+              contextWindow={contextWindow}
+            />
+          )}
+          {(recorded || hasError) && (
+            <div
+              role="alert"
+              className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 font-mono text-xs text-red-300"
+            >
+              <span aria-hidden>⚠</span>
+              {/* The heuristic stays underneath as the fallback: a CLI that exits
+                  non-zero without the generator throwing records nothing, and for
+                  that case the generic sentence is still the honest answer. */}
+              <span className="min-w-0 flex-1 break-words">
+                {recorded
+                  ? recorded.message
+                  : 'Session ended unexpectedly — the assistant process may have crashed.'}
+              </span>
+              {recorded && (
+                <Button variant="ghost" size="sm" onClick={() => setDialog('errors')}>
+                  Detail
+                </Button>
+              )}
+            </div>
+          )}
+        </>
       }
     />
   )

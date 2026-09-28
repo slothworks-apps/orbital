@@ -230,6 +230,35 @@ export const sweptSessions = sqliteTable('swept_sessions', {
 });
 
 /**
+ * Context compactions the CLI reported as failed (spec
+ * 2026-09-28-context-compaction-design § Failure). The CLI writes nothing
+ * about a failure into the transcript, so without this table the mark would
+ * disappear on reload.
+ *
+ * `id` is the transcript row's own id, so the live mark and the reloaded one
+ * are the same row to the client. `preTokens` is the session's context
+ * reading when the compaction started. `clearedAt` is when the failure
+ * stopped being the session's current state — the next turn started, or a
+ * compaction succeeded — which is how `lastCompactionFailed` survives a
+ * restart without a second source of truth. The mark itself stays.
+ */
+export const compactionFailures = sqliteTable(
+  'compaction_failures',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    /** Epoch ms. */
+    at: integer('at').notNull(),
+    error: text('error'),
+    preTokens: integer('pre_tokens'),
+    trigger: text('trigger').$type<'manual' | 'auto'>().notNull(),
+    durationMs: integer('duration_ms'),
+    clearedAt: integer('cleared_at'),
+  },
+  (table) => [index('idx_compaction_failures_session').on(table.sessionId, table.at)],
+);
+
+/**
  * Every failure Orbital caught, from either side of the wire. See
  * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
  *

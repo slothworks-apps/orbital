@@ -7,6 +7,12 @@ import type { TranscriptEntry } from '../transcript/parser.js';
 import { TASK_EVENT_SUBTYPES, type TaskEvent, type SubagentTranscripts } from '../transcript/subagents.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import { noticeFromSdkMessage } from '../transcript/notices.js';
+import {
+  compactSummaryText,
+  failureMessage,
+  markFromSdkBoundary,
+  type CompactionFailureRecord,
+} from '../transcript/compaction.js';
 import type { ImageStore, ImageWriter } from '../images/store.js';
 import type { IdeApprovals, IdeReviewVerdict } from '../ide/approvals.js';
 
@@ -173,6 +179,62 @@ export interface SessionAttempt {
   cwd: string;
   permissionMode: PermissionMode;
   model: string | null;
+}
+
+/**
+ * A compaction running right now, as the session snapshot carries it (spec
+ * 2026-09-28-context-compaction-design § Live state).
+ */
+export interface CompactingState {
+  startedAt: number;
+  trigger: 'manual' | 'auto';
+}
+
+/**
+ * The newest compaction this process saw succeed, for the map's short-lived
+ * `compacted · 186k → 22k` caption. In memory only: after a restart there is
+ * nothing to animate.
+ */
+export interface LastCompacted {
+  at: number;
+  preTokens: number | null;
+  postTokens: number | null;
+}
+
+/** What a compaction's edges tell whoever stores and republishes the session. */
+export type CompactionEvent =
+  | { type: 'started' }
+  | { type: 'succeeded' }
+  | { type: 'failed'; failure: CompactionFailureRecord };
+
+/** The outcomes the dev simulation can play. */
+export type SimulatedCompactionOutcome = 'success' | 'success_no_post_tokens' | 'failed' | 'failed_no_error';
+
+/** The simulation's stand-ins for what a real compaction would report. */
+const SIMULATED_PRE_TOKENS = 150_000;
+const SIMULATED_COMPACT_ERROR = 'Simulated: API Error 529 · Overloaded';
+const SIMULATED_SUMMARY =
+  'Simulated compaction summary.\n\nGoal: exercise the compaction UI.\nNext: carry on from here.';
+
+/**
+ * Whether a compaction was the user's `/compact`: the turn it runs in was
+ * started by that command, with or without arguments. Everything else —
+ * including a compaction in a turn the CLI started by itself — is `auto`.
+ */
+export function compactTriggerOf(turnPrompt: string | null): 'manual' | 'auto' {
+  return turnPrompt !== null && /^\/compact(\s|$)/.test(turnPrompt.trim()) ? 'manual' : 'auto';
+}
+
+/**
+ * The synthetic user frame carrying a compaction's summary. The SDK stream
+ * marks it `isSynthetic` (the transcript's `isCompactSummary` does not
+ * cross), and its body is a plain string — which the harness's other
+ * synthetic frames, block arrays, are not.
+ */
+function isCompactSummaryFrame(msg: any): boolean {
+  if (msg?.type !== 'user' || msg.parent_tool_use_id != null) return false;
+  if (msg.isCompactSummary === true) return true;
+  return msg.isSynthetic === true && typeof msg.message?.content === 'string';
 }
 
 /** The tool whose call becomes a question card rather than a permission prompt. */
@@ -419,6 +481,23 @@ interface ManagedSession {
   /** The session's command list once asked for (or pushed), `null` until then.
    * It lives on the session, so it dies with it — see `release()`. */
   commands: SessionCommand[] | null;
+  /**
+   * The compaction running now, with the context reading it started from —
+   * what a failure's mark reports as "unchanged". Cleared by its end, by the
+   * turn ending, and with the session.
+   */
+  compacting: (CompactingState & { preTokens: number | null }) | null;
+  /** The last successful compaction's measured duration, for its boundary. */
+  measuredCompactionMs: number | null;
+  /** A compaction mark waiting for the summary frame that follows it. */
+  heldCompaction: ChatMessage | null;
+  /** The last compaction that succeeded in this process — the map's caption. */
+  lastCompacted: LastCompacted | null;
+  /**
+   * The text of the user message that started the turn in flight, or `null`
+   * between turns — what tells a `/compact` apart from an automatic one.
+   */
+  turnPrompt: string | null;
 }
 
 /**
@@ -523,6 +602,8 @@ export class Runner {
   private onDecision?: (sessionId: string) => void;
   private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
+  private onCompaction?: (sessionId: string, event: CompactionEvent) => void;
+  private readContextUsed?: (sessionId: string) => number | null;
   private images?: ImageStore;
   private subagentTranscripts?: SubagentTranscripts;
   private claudeExecutablePath?: string | null;
@@ -678,6 +759,14 @@ export class Runner {
      * open (adr `the-editor-is-a-second-route-to-one-verdict`).
      */
     ide?: IdeApprovals;
+    /**
+     * A compaction's edges: started, succeeded, failed (spec
+     * 2026-09-28-context-compaction-design). Whoever stores the session
+     * republishes on each, persists a failure and logs it.
+     */
+    onCompaction?: (sessionId: string, event: CompactionEvent) => void;
+    /** The session's stored context reading — a failed compaction's "before". */
+    readContextUsed?: (sessionId: string) => number | null;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -699,6 +788,8 @@ export class Runner {
     this.subagentTranscripts = deps.subagentTranscripts;
     this.claudeExecutablePath = deps.claudeExecutablePath;
     this.ide = deps.ide;
+    this.onCompaction = deps.onCompaction;
+    this.readContextUsed = deps.readContextUsed;
   }
 
   /**
@@ -833,6 +924,10 @@ export class Runner {
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
     if (state.sleepTimer) clearTimeout(state.sleepTimer);
     state.sleepTimer = null;
+    // A mark still waiting for its summary goes out as it is, while the
+    // session is still this one's; the compaction itself dies with it.
+    this.publishHeldCompaction(sessionId, state);
+    state.compacting = null;
     // A flush after the release would publish for a session nobody holds.
     if (state.stream?.flushTimer) clearTimeout(state.stream.flushTimer);
     state.stream = null;
@@ -894,6 +989,8 @@ export class Runner {
       lastCall: null, turnEnded: false,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
+      compacting: null, measuredCompactionMs: null, heldCompaction: null, lastCompacted: null,
+      turnPrompt: opts.prompt,
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -959,8 +1056,12 @@ export class Runner {
     // the CLI until then, so it stays parked on stdin, which is exactly
     // `needs_input`.
     const first = this.userMessage(sessionId, opts.prompt, opts.attachments);
-    if (first) this.enqueue(sessionId, first);
-    else {
+    if (first) {
+      this.enqueue(sessionId, first);
+      // The state above is constructed mid-turn, so neither the status nor
+      // the stream will ever show this turn's start as an edge.
+      this.onTurnBoundary?.(sessionId, false);
+    } else {
       // No turn ever ran, so there is none in flight for `settleStatus` to
       // find — but it must not read the session as mid-turn either.
       state.turnEnded = true;
@@ -972,188 +1073,8 @@ export class Runner {
 
   /** Drains one session's SDK message stream onto the hub until it ends. */
   private async pump(sessionId: string, state: ManagedSession, generator: AsyncGenerator<any>): Promise<void> {
-    const topic = `session:${sessionId}`;
     try {
-      for await (const msg of generator) {
-        // A stopped process can still be flushing frames when a revive starts
-        // a new session under the same id; everything keyed by `sessionId`
-        // below would land on that new session. Once `state` is no longer the
-        // session this id holds, the stream is drained unread.
-        if (this.sessions.get(sessionId) !== state) continue;
-        // Every CLI message names the session it belongs to. Anything wearing
-        // a different id (a stray from another session) is not ours to
-        // publish; messages with no id at all are stream-level noise.
-        if (msg?.session_id !== sessionId) continue;
-        if (msg.type === 'system' && msg.subtype === 'init') {
-          this.onInit?.(sessionId, typeof msg.model === 'string' ? msg.model : null);
-          continue;
-        }
-        // A fire-and-forget push of the whole command list after a mid-session
-        // change (a skill discovered as the agent moves into a subdirectory).
-        // The SDK's instruction is to REPLACE the cached list with it, so that
-        // is what this does — a re-ask would return the same thing anyway.
-        // A subagent's life, as the CLI reports it; the tool blocks below
-        // cannot tell when one ends (`onTaskEvent`). Every other `system`
-        // subtype falls through unread, as before.
-        if (msg.type === 'system' && TASK_EVENT_SUBTYPES.has(msg.subtype)) {
-          this.onTaskEvent?.(sessionId, msg as TaskEvent);
-          // After the forward, never before: `hasLiveSubagents` reads the very
-          // store the line above just fed, and this message may be the one
-          // that empties it — the last background agent reporting back is
-          // what finally makes a turn-ended session `needs_input`.
-          this.settleStatus(sessionId);
-          continue;
-        }
-        // A compaction just rewrote the context, so the last `result`'s token
-        // count is history — this is what makes the map's arc shrink after a
-        // `/compact` instead of sitting full until the next turn ends
-        // (spec `context-fill-arc`). The SDK's `post_tokens` is optional;
-        // without it the reading is cleared rather than left stale.
-        if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
-          // The calls before the boundary measured a conversation that no
-          // longer exists, so they must not outlive it as this turn's
-          // fallback and overwrite `post_tokens` when the turn ends.
-          const s = this.sessions.get(sessionId);
-          if (s) s.lastCall = null;
-          this.onContextUsed?.(sessionId, contextUsedFromCompactBoundary(msg));
-          continue;
-        }
-        if (msg.type === 'system' && msg.subtype === 'commands_changed') {
-          const s = this.sessions.get(sessionId);
-          if (s && Array.isArray(msg.commands)) s.commands = shapeCommands(msg.commands);
-          continue;
-        }
-        // The CLI speaking for itself: `local_command_output` and the loop's
-        // `informational` banner. Neither is a turn, so neither touches the
-        // session's status or its context reading — they are rows and nothing
-        // else. Every OTHER `system` subtype still falls through unread.
-        if (msg.type === 'system') {
-          const row = noticeFromSdkMessage(msg, `${sessionId}:${++this.seq}:0`);
-          if (row) this.hub.publish(topic, { event: 'message', message: row });
-          continue;
-        }
-        // The answer as it is written — the main loop's on `session:<id>`, a
-        // subagent's on its own topic, each in a stream state of its own
-        // (spec: 2026-09-24-streaming-output-design § 1).
-        if (msg.type === 'stream_event') {
-          if (msg.event) this.onStreamEvent(sessionId, state, msg.event, msg.parent_tool_use_id ?? null);
-          continue;
-        }
-        if (msg.type === 'assistant' || msg.type === 'user') {
-          // A main-loop frame means the turn is running, whoever started it.
-          // Orbital used to learn that only from its own `send()`, so every
-          // turn the CLI starts by ITSELF — a background agent reporting
-          // back, a queued message, a hook — streamed a whole answer while
-          // the map still said NEEDS INPUT. Subagent frames
-          // (`parent_tool_use_id` set) are deliberately not this signal;
-          // `hasLiveSubagents` already speaks for them, and only the main
-          // loop's own turn can be said to have ended.
-          if (msg.parent_tool_use_id == null) {
-            const s = this.sessions.get(sessionId);
-            const began = s?.turnEnded === true;
-            if (s) s.turnEnded = false;
-            this.settleStatus(sessionId);
-            // Only on the edge: every later frame of the same turn changes
-            // nothing, and a republish per streamed block is a firehose.
-            if (began) this.onTurnBoundary?.(sessionId, false);
-          }
-          // A slash command the CLI answered by itself arrives as a SYNTHETIC
-          // assistant frame — `message.model` is the literal `<synthetic>`
-          // and `message.usage` is all zeros — with the answer in its text
-          // blocks and `local_command_source` beside them. Publishing it as
-          // an assistant turn would draw a model divider around a model that
-          // does not exist, feed the context arc's fallback a zero, and hand
-          // the auto-titler a page of `/context` output; a reload, which
-          // rebuilds the same answer from the transcript file, would then
-          // disagree with the live view about what kind of row it is. So it
-          // becomes the same notice on both paths and stops here — before
-          // the usage capture, `onEntries` and the ordinary publish, and
-          // after the turn edge above, which is real: the turn did run.
-          const localCommand = noticeFromSdkMessage(msg, `${sessionId}:${++this.seq}:0`);
-          if (localCommand) {
-            this.hub.publish(topic, { event: 'message', message: localCommand });
-            continue;
-          }
-          // How big the conversation was when this call ran — kept as the
-          // turn's fallback reading. Only the main loop's own calls: a
-          // subagent (`parent_tool_use_id` set) fills a window of its own,
-          // which is not this session's.
-          if (msg.type === 'assistant' && msg.parent_tool_use_id == null) {
-            const used = contextUsedFromAssistantUsage(msg.message?.usage);
-            const s = this.sessions.get(sessionId);
-            if (s && used !== null) s.lastCall = used;
-          }
-          // The publish itself is the other half of the `parent_tool_use_id`
-          // split above. Before `forwardSubagentText` this branch mattered
-          // only for `onEntries` and the fallback reading, because a
-          // subagent's tool_use/tool_result blocks look harmless enough on
-          // `session:<id>` — but they vanish on reload (`entriesToMessages`
-          // skips `isSidechain` entries), so live and reloaded transcripts of
-          // the same session already disagreed before today. Now that the SDK
-          // also forwards a subagent's prose and thinking, publishing it here
-          // unchanged would flood the parent with the whole nested
-          // conversation instead of the one line it used to get from the
-          // tool's own `tool_result`. So a subagent frame goes to its own
-          // buffer and its own topic instead, and touches neither `onEntries`
-          // nor `session:<id>` at all (spec
-          // `2026-09-22-subagent-transcript-panel-design.md` § "The bug this
-          // uncovers" and § 2).
-          if (msg.parent_tool_use_id == null) {
-            // The SDK's `isSynthetic` is the transcript's `isMeta` under
-            // another name; restoring it keeps a skill body or an image
-            // note out of whatever reads these as transcript entries.
-            const entry = (msg.type === 'user' && (msg as { isSynthetic?: boolean }).isSynthetic === true
-              ? { ...msg, isMeta: true }
-              : msg) as TranscriptEntry;
-            this.onEntries?.(sessionId, [entry]);
-            // Every delta of a block goes out before the block itself, so
-            // the client never sees a complete row grow afterwards.
-            this.flushStream(sessionId, state);
-            const idFor = this.streamedIdFor(state.stream, msg);
-            for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images, idFor)) {
-              this.hub.publish(topic, { event: 'message', message: chat });
-            }
-          } else {
-            const agent: string = msg.parent_tool_use_id;
-            // The same order as the main loop: the agent's deltas first, then
-            // the block, which takes over the row they were filling. The
-            // buffer below only ever holds complete messages.
-            this.flushStream(sessionId, state, agent);
-            const agentStream = state.agentStreams.get(agent);
-            const chats = sdkToChatMessages(msg, () => ++this.seq, this.images, this.streamedIdFor(agentStream, msg));
-            if (agentStream?.stopped && agentStream.rows.size === 0) state.agentStreams.delete(agent);
-            this.subagentTranscripts?.append(sessionId, msg.parent_tool_use_id, chats);
-            const subagentTopic = `subagent:${sessionId}:${msg.parent_tool_use_id}`;
-            // Read AFTER the append, so it already counts whatever this
-            // frame just evicted. `droppedCount` rides every increment and
-            // not just the REST response (spec § 3: "`droppedCount` rides
-            // the REST response and the WS increments") — without it a
-            // panel that was opened before the buffer overflowed would
-            // never learn it had, and its TRUNCATED chip would stay hidden
-            // while the transcript above it silently lost its head.
-            const droppedCount =
-              this.subagentTranscripts?.get(sessionId, msg.parent_tool_use_id)?.droppedCount ?? 0;
-            for (const chat of chats) {
-              this.hub.publish(subagentTopic, { event: 'message', message: chat, droppedCount });
-            }
-          }
-        } else if (msg.type === 'result') {
-          this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });
-          this.onTurnUsage?.(msg.modelUsage);
-          // How full the window is now (spec `context-fill-arc`). Deliberately
-          // NOT `msg.usage`, which is the turn's billing total across every
-          // request it made — see `contextUsedFromAssistantUsage`.
-          const used = await this.contextUsed(sessionId);
-          if (used !== null) this.onContextUsed?.(sessionId, used);
-          // The turn is over — but whether the SESSION is waiting for the
-          // human depends on what it left running behind it, which is
-          // `settleStatus`'s call to make.
-          const s = this.sessions.get(sessionId);
-          if (s) s.turnEnded = true;
-          this.settleStatus(sessionId);
-          this.onTurnBoundary?.(sessionId, true);
-        }
-      }
+      for await (const msg of generator) await this.handle(sessionId, state, msg);
     } catch (err) {
       // Both, deliberately: the terminal keeps saying it, and the browser
       // finally gets to. A reporter that throws must not stop `release()`
@@ -1170,6 +1091,342 @@ export class Runner {
     // stream. Harmless after an explicit stop() — the session is already
     // released, so release() does nothing a second time.
     this.release(sessionId, state);
+  }
+
+  /**
+   * One SDK message, as `pump()` hands it over. Its own method so the dev
+   * compaction simulation can feed fake messages through the very same path
+   * (spec 2026-09-28-context-compaction-design § Dev simulation).
+   */
+  private async handle(sessionId: string, state: ManagedSession, msg: any): Promise<void> {
+    const topic = `session:${sessionId}`;
+    // A stopped process can still be flushing frames when a revive starts
+    // a new session under the same id; everything keyed by `sessionId`
+    // below would land on that new session. Once `state` is no longer the
+    // session this id holds, the stream is drained unread.
+    if (this.sessions.get(sessionId) !== state) return;
+    // Every CLI message names the session it belongs to. Anything wearing
+    // a different id (a stray from another session) is not ours to
+    // publish; messages with no id at all are stream-level noise.
+    if (msg?.session_id !== sessionId) return;
+    // A compaction's mark waits one message for its summary frame. That frame
+    // completes it; anything else publishes it as it is, ahead of itself.
+    if (state.heldCompaction) {
+      if (isCompactSummaryFrame(msg)) {
+        const summary = compactSummaryText(msg.message?.content);
+        if (summary && state.heldCompaction.compaction) state.heldCompaction.compaction.summary = summary;
+        this.publishHeldCompaction(sessionId, state);
+        // Nothing else to do with it: `sdkToChatMessages` drops a synthetic
+        // frame, and it is not a turn edge — the compaction ran inside one.
+        return;
+      }
+      if (!(msg.type === 'system' && msg.subtype === 'status')) this.publishHeldCompaction(sessionId, state);
+    }
+    if (msg.type === 'system' && msg.subtype === 'status') {
+      this.onCompactionStatus(sessionId, state, msg);
+      return;
+    }
+    if (msg.type === 'system' && msg.subtype === 'init') {
+      this.onInit?.(sessionId, typeof msg.model === 'string' ? msg.model : null);
+      return;
+    }
+    // A fire-and-forget push of the whole command list after a mid-session
+    // change (a skill discovered as the agent moves into a subdirectory).
+    // The SDK's instruction is to REPLACE the cached list with it, so that
+    // is what this does — a re-ask would return the same thing anyway.
+    // A subagent's life, as the CLI reports it; the tool blocks below
+    // cannot tell when one ends (`onTaskEvent`). Every other `system`
+    // subtype falls through unread, as before.
+    if (msg.type === 'system' && TASK_EVENT_SUBTYPES.has(msg.subtype)) {
+      this.onTaskEvent?.(sessionId, msg as TaskEvent);
+      // After the forward, never before: `hasLiveSubagents` reads the very
+      // store the line above just fed, and this message may be the one
+      // that empties it — the last background agent reporting back is
+      // what finally makes a turn-ended session `needs_input`.
+      this.settleStatus(sessionId);
+      return;
+    }
+    // A compaction just rewrote the context, so the last `result`'s token
+    // count is history — this is what makes the map's arc shrink after a
+    // `/compact` instead of sitting full until the next turn ends
+    // (spec `context-fill-arc`). The SDK's `post_tokens` is optional;
+    // without it the reading is cleared rather than left stale.
+    if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+      // The calls before the boundary measured a conversation that no
+      // longer exists, so they must not outlive it as this turn's
+      // fallback and overwrite `post_tokens` when the turn ends.
+      state.lastCall = null;
+      // The mark (spec 2026-09-28-context-compaction-design § Success). The
+      // measured duration is the fallback for a boundary without
+      // `duration_ms`: the status pair when it arrived first, or the time
+      // since `compacting` when the boundary is what ends it.
+      const measuredMs =
+        state.measuredCompactionMs ?? (state.compacting ? Date.now() - state.compacting.startedAt : null);
+      const mark = markFromSdkBoundary(msg, { measuredMs, fallbackTrigger: state.compacting?.trigger });
+      state.measuredCompactionMs = null;
+      state.compacting = null;
+      // Set before the republish below, so the map's caption and the drained
+      // arc arrive in the same snapshot.
+      state.lastCompacted = { at: Date.now(), preTokens: mark.preTokens, postTokens: mark.postTokens };
+      this.onContextUsed?.(sessionId, contextUsedFromCompactBoundary(msg));
+      state.heldCompaction = {
+        id: `${sessionId}:${++this.seq}:0`,
+        role: 'compaction',
+        timestamp: new Date().toISOString(),
+        compaction: mark,
+      };
+      // Also when the status message already said so: the status messages
+      // sit behind a CLI flag, and the boundary must stand on its own.
+      this.onCompaction?.(sessionId, { type: 'succeeded' });
+      return;
+    }
+    if (msg.type === 'system' && msg.subtype === 'commands_changed') {
+      const s = this.sessions.get(sessionId);
+      if (s && Array.isArray(msg.commands)) s.commands = shapeCommands(msg.commands);
+      return;
+    }
+    // The CLI speaking for itself: `local_command_output` and the loop's
+    // `informational` banner. Neither is a turn, so neither touches the
+    // session's status or its context reading — they are rows and nothing
+    // else. Every OTHER `system` subtype still falls through unread.
+    if (msg.type === 'system') {
+      const row = noticeFromSdkMessage(msg, `${sessionId}:${++this.seq}:0`);
+      if (row) this.hub.publish(topic, { event: 'message', message: row });
+      return;
+    }
+    // The answer as it is written — the main loop's on `session:<id>`, a
+    // subagent's on its own topic, each in a stream state of its own
+    // (spec: 2026-09-24-streaming-output-design § 1).
+    if (msg.type === 'stream_event') {
+      if (msg.event) this.onStreamEvent(sessionId, state, msg.event, msg.parent_tool_use_id ?? null);
+      return;
+    }
+    if (msg.type === 'assistant' || msg.type === 'user') {
+      // A main-loop frame means the turn is running, whoever started it.
+      // Orbital used to learn that only from its own `send()`, so every
+      // turn the CLI starts by ITSELF — a background agent reporting
+      // back, a queued message, a hook — streamed a whole answer while
+      // the map still said NEEDS INPUT. Subagent frames
+      // (`parent_tool_use_id` set) are deliberately not this signal;
+      // `hasLiveSubagents` already speaks for them, and only the main
+      // loop's own turn can be said to have ended.
+      if (msg.parent_tool_use_id == null) {
+        const s = this.sessions.get(sessionId);
+        const began = s?.turnEnded === true;
+        if (s) s.turnEnded = false;
+        this.settleStatus(sessionId);
+        // Only on the edge: every later frame of the same turn changes
+        // nothing, and a republish per streamed block is a firehose.
+        if (began) this.onTurnBoundary?.(sessionId, false);
+      }
+      // A slash command the CLI answered by itself arrives as a SYNTHETIC
+      // assistant frame — `message.model` is the literal `<synthetic>`
+      // and `message.usage` is all zeros — with the answer in its text
+      // blocks and `local_command_source` beside them. Publishing it as
+      // an assistant turn would draw a model divider around a model that
+      // does not exist, feed the context arc's fallback a zero, and hand
+      // the auto-titler a page of `/context` output; a reload, which
+      // rebuilds the same answer from the transcript file, would then
+      // disagree with the live view about what kind of row it is. So it
+      // becomes the same notice on both paths and stops here — before
+      // the usage capture, `onEntries` and the ordinary publish, and
+      // after the turn edge above, which is real: the turn did run.
+      const localCommand = noticeFromSdkMessage(msg, `${sessionId}:${++this.seq}:0`);
+      if (localCommand) {
+        this.hub.publish(topic, { event: 'message', message: localCommand });
+        return;
+      }
+      // How big the conversation was when this call ran — kept as the
+      // turn's fallback reading. Only the main loop's own calls: a
+      // subagent (`parent_tool_use_id` set) fills a window of its own,
+      // which is not this session's.
+      if (msg.type === 'assistant' && msg.parent_tool_use_id == null) {
+        const used = contextUsedFromAssistantUsage(msg.message?.usage);
+        const s = this.sessions.get(sessionId);
+        if (s && used !== null) s.lastCall = used;
+      }
+      // The publish itself is the other half of the `parent_tool_use_id`
+      // split above. Before `forwardSubagentText` this branch mattered
+      // only for `onEntries` and the fallback reading, because a
+      // subagent's tool_use/tool_result blocks look harmless enough on
+      // `session:<id>` — but they vanish on reload (`entriesToMessages`
+      // skips `isSidechain` entries), so live and reloaded transcripts of
+      // the same session already disagreed before today. Now that the SDK
+      // also forwards a subagent's prose and thinking, publishing it here
+      // unchanged would flood the parent with the whole nested
+      // conversation instead of the one line it used to get from the
+      // tool's own `tool_result`. So a subagent frame goes to its own
+      // buffer and its own topic instead, and touches neither `onEntries`
+      // nor `session:<id>` at all (spec
+      // `2026-09-22-subagent-transcript-panel-design.md` § "The bug this
+      // uncovers" and § 2).
+      if (msg.parent_tool_use_id == null) {
+        // The SDK's `isSynthetic` is the transcript's `isMeta` under
+        // another name; restoring it keeps a skill body or an image
+        // note out of whatever reads these as transcript entries.
+        const entry = (msg.type === 'user' && (msg as { isSynthetic?: boolean }).isSynthetic === true
+          ? { ...msg, isMeta: true }
+          : msg) as TranscriptEntry;
+        this.onEntries?.(sessionId, [entry]);
+        // Every delta of a block goes out before the block itself, so
+        // the client never sees a complete row grow afterwards.
+        this.flushStream(sessionId, state);
+        const idFor = this.streamedIdFor(state.stream, msg);
+        for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images, idFor)) {
+          this.hub.publish(topic, { event: 'message', message: chat });
+        }
+      } else {
+        const agent: string = msg.parent_tool_use_id;
+        // The same order as the main loop: the agent's deltas first, then
+        // the block, which takes over the row they were filling. The
+        // buffer below only ever holds complete messages.
+        this.flushStream(sessionId, state, agent);
+        const agentStream = state.agentStreams.get(agent);
+        const chats = sdkToChatMessages(msg, () => ++this.seq, this.images, this.streamedIdFor(agentStream, msg));
+        if (agentStream?.stopped && agentStream.rows.size === 0) state.agentStreams.delete(agent);
+        this.subagentTranscripts?.append(sessionId, msg.parent_tool_use_id, chats);
+        const subagentTopic = `subagent:${sessionId}:${msg.parent_tool_use_id}`;
+        // Read AFTER the append, so it already counts whatever this
+        // frame just evicted. `droppedCount` rides every increment and
+        // not just the REST response (spec § 3: "`droppedCount` rides
+        // the REST response and the WS increments") — without it a
+        // panel that was opened before the buffer overflowed would
+        // never learn it had, and its TRUNCATED chip would stay hidden
+        // while the transcript above it silently lost its head.
+        const droppedCount =
+          this.subagentTranscripts?.get(sessionId, msg.parent_tool_use_id)?.droppedCount ?? 0;
+        for (const chat of chats) {
+          this.hub.publish(subagentTopic, { event: 'message', message: chat, droppedCount });
+        }
+      }
+    } else if (msg.type === 'result') {
+      this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });
+      this.onTurnUsage?.(msg.modelUsage);
+      // How full the window is now (spec `context-fill-arc`). Deliberately
+      // NOT `msg.usage`, which is the turn's billing total across every
+      // request it made — see `contextUsedFromAssistantUsage`.
+      const used = await this.contextUsed(sessionId);
+      if (used !== null) this.onContextUsed?.(sessionId, used);
+      // The turn is over — but whether the SESSION is waiting for the
+      // human depends on what it left running behind it, which is
+      // `settleStatus`'s call to make.
+      const s = this.sessions.get(sessionId);
+      if (s) s.turnEnded = true;
+      // A compaction never outlives the turn it ran in; the republish below
+      // carries the cleared state to the map.
+      state.compacting = null;
+      state.turnPrompt = null;
+      this.settleStatus(sessionId);
+      this.onTurnBoundary?.(sessionId, true);
+    }
+  }
+
+  /**
+   * The CLI's `system/status` messages, of which only a compaction's two
+   * edges mean anything here (spec 2026-09-28-context-compaction-design §
+   * Live state). `requesting`, and a bare `null` with no `compact_result`,
+   * are ignored.
+   */
+  private onCompactionStatus(sessionId: string, state: ManagedSession, msg: any): void {
+    if (msg.status === 'compacting') {
+      if (state.compacting) return;
+      state.compacting = {
+        startedAt: Date.now(),
+        trigger: compactTriggerOf(state.turnPrompt),
+        preTokens: this.readContextUsed?.(sessionId) ?? null,
+      };
+      state.measuredCompactionMs = null;
+      this.onCompaction?.(sessionId, { type: 'started' });
+      return;
+    }
+    const result = msg.compact_result;
+    if (result !== 'success' && result !== 'failed') return;
+    const started = state.compacting;
+    state.compacting = null;
+    const measuredMs = started ? Date.now() - started.startedAt : null;
+    if (result === 'success') {
+      // Kept for the boundary that follows, in case it carries no duration.
+      state.measuredCompactionMs = measuredMs;
+      this.onCompaction?.(sessionId, { type: 'succeeded' });
+      return;
+    }
+    const error = typeof msg.compact_error === 'string' && msg.compact_error.trim() ? msg.compact_error : null;
+    const failure: CompactionFailureRecord = {
+      id: `compaction:${randomUUID()}`,
+      at: Date.now(),
+      error,
+      preTokens: started ? started.preTokens : (this.readContextUsed?.(sessionId) ?? null),
+      // A failure reports no trigger, so it is Orbital's own attribution.
+      trigger: started?.trigger ?? compactTriggerOf(state.turnPrompt),
+      durationMs: measuredMs,
+    };
+    this.hub.publish(`session:${sessionId}`, { event: 'message', message: failureMessage(failure) });
+    this.onCompaction?.(sessionId, { type: 'failed', failure });
+  }
+
+  /** Publishes the compaction mark waiting for its summary, if any. */
+  private publishHeldCompaction(sessionId: string, state: ManagedSession): void {
+    const held = state.heldCompaction;
+    if (!held) return;
+    state.heldCompaction = null;
+    this.hub.publish(`session:${sessionId}`, { event: 'message', message: held });
+  }
+
+  /**
+   * Plays a compaction through `handle()` with fake SDK messages, for the dev
+   * route (spec 2026-09-28-context-compaction-design § Dev simulation).
+   * Nothing reaches the CLI: the messages go where the CLI's own would, and
+   * nowhere else. `false` when this Runner does not hold the session.
+   */
+  simulateCompaction(sessionId: string, outcome: SimulatedCompactionOutcome, seconds: number): boolean {
+    const state = this.sessions.get(sessionId);
+    if (!state) return false;
+    const feed = (msg: Record<string, unknown>) =>
+      this.handle(sessionId, state, { session_id: sessionId, uuid: randomUUID(), ...msg });
+    void (async () => {
+      await feed({ type: 'system', subtype: 'status', status: 'compacting' });
+      const trigger = state.compacting?.trigger ?? 'auto';
+      const preTokens = state.compacting?.preTokens ?? SIMULATED_PRE_TOKENS;
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, seconds) * 1000).unref?.());
+      if (outcome === 'failed' || outcome === 'failed_no_error') {
+        await feed({
+          type: 'system', subtype: 'status', status: null, compact_result: 'failed',
+          ...(outcome === 'failed' ? { compact_error: SIMULATED_COMPACT_ERROR } : {}),
+        });
+        return;
+      }
+      await feed({ type: 'system', subtype: 'status', status: null, compact_result: 'success' });
+      // `success_no_post_tokens` also drops the duration, so the measured
+      // fallback is exercised too.
+      const full = outcome === 'success';
+      await feed({
+        type: 'system', subtype: 'compact_boundary',
+        compact_metadata: {
+          trigger,
+          pre_tokens: preTokens,
+          ...(full ? { post_tokens: Math.round(preTokens * 0.12), duration_ms: Math.round(seconds * 1000) } : {}),
+        },
+      });
+      await feed({
+        type: 'user', parent_tool_use_id: null, isSynthetic: true,
+        message: { role: 'user', content: SIMULATED_SUMMARY },
+      });
+    })();
+    return true;
+  }
+
+  /**
+   * The compaction running in this session right now, or `null` — for every
+   * session this Runner does not hold, too. In memory only.
+   */
+  compacting(sessionId: string): CompactingState | null {
+    const c = this.sessions.get(sessionId)?.compacting;
+    return c ? { startedAt: c.startedAt, trigger: c.trigger } : null;
+  }
+
+  /** The last compaction this Runner saw succeed in the session, or `null`. */
+  lastCompacted(sessionId: string): LastCompacted | null {
+    return this.sessions.get(sessionId)?.lastCompacted ?? null;
   }
 
   /**
@@ -1723,6 +1980,7 @@ export class Runner {
     // the CLI's first frame would run `settleStatus` against a session that
     // still looked finished and snap it back to `needs_input`.
     s.turnEnded = false;
+    s.turnPrompt = text;
     this.setStatus(sessionId, 'working');
     this.enqueue(sessionId, msg);
   }

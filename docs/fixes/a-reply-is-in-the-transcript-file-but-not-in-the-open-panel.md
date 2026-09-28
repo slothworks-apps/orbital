@@ -2,7 +2,7 @@
 id: a-reply-is-in-the-transcript-file-but-not-in-the-open-panel
 title: A reply reaches the transcript file but not the open panel until View > Reload
 type: fix
-status: done
+status: active
 domain: web
 related:
   - 2026-09-22-ws-reconnect-resync-design
@@ -130,6 +130,16 @@ Candidates that survive the above, none confirmed:
   desktop app, so the renderer lives for days. Chromium throttles timers
   and pauses `requestAnimationFrame` for it, but delivers socket frames;
   no mechanism that would lose a subscription was found.
+
+## Reported again, 2026-09-28
+
+The panel still stalls occasionally, and ⌘R shows the missing messages. The
+cause above is fixed, so this is a different one. A 5 s transcript check
+([[2026-09-28-transcript-check-design]]) now repairs the panel from the file
+and logs each repair as `transcript_gap`, with the socket's state at that
+moment. The heartbeat now carries the topics the server holds the socket
+on, which answers step 2 below. The next occurrence will be in the error
+log.
 
 ## Next
 

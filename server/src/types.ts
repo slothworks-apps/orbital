@@ -81,8 +81,13 @@ export interface ChatMessage {
    * turn: nothing about it went to or came from the model, so it carries no
    * `model` and is never folded into a tool run
    * (`docs/domains/locally-answered-slash-commands.md`).
+   *
+   * `compaction` is the permanent mark a context compaction leaves, success
+   * or failure; its facts ride in `compaction`. Like `notice` it is not a
+   * turn and never folds into a tool run
+   * (spec 2026-09-28-context-compaction-design).
    */
-  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice';
+  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction';
   text?: string;
   toolName?: string;
   toolInput?: unknown;
@@ -120,6 +125,27 @@ export interface ChatMessage {
    * 2026-09-24-streaming-output-design).
    */
   partial?: true;
+  /** `compaction` rows only. */
+  compaction?: CompactionMark;
+}
+
+/**
+ * What one compaction left behind, as both the live stream and the transcript
+ * file can say it. Only what was reported: a figure the CLI did not give is
+ * null, never estimated (spec 2026-09-28-context-compaction-design § What the
+ * SDK and the transcript give us).
+ */
+export interface CompactionMark {
+  outcome: 'success' | 'failed';
+  trigger: 'manual' | 'auto';
+  preTokens: number | null;
+  /** Success only, and optional there too: absent in some real boundaries. */
+  postTokens: number | null;
+  durationMs: number | null;
+  /** Success only: the summary Claude carries on from, when it was seen. */
+  summary?: string;
+  /** Failure only: the CLI's error text verbatim, null when it gave none. */
+  error?: string | null;
 }
 
 export interface TagRule {
@@ -148,8 +174,23 @@ export type ErrorSource = 'server' | 'web';
  * `sessions_healed` is legacy: the boot-time resume that recorded it is gone
  * (spec 2026-09-24-sessions-end-only-by-hand-design § 5) and nothing produces
  * it now, but rows written before still carry it.
+ *
+ * `transcript_gap` is not a failure anyone saw as one: the open panel was
+ * missing a message its transcript file had, and the transcript check filled
+ * it in (spec 2026-09-28-transcript-check-design). Logged so the gap's cause
+ * can be read off a real occurrence.
+ *
+ * `compaction_failed` is a context compaction the CLI reported as failed, so
+ * it can be read even when the session is not open (spec
+ * 2026-09-28-context-compaction-design § Failure).
  */
-export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash' | 'sessions_healed';
+export type ErrorKind =
+  | 'session_failed'
+  | 'api_request'
+  | 'render_crash'
+  | 'sessions_healed'
+  | 'transcript_gap'
+  | 'compaction_failed';
 
 export interface ErrorRecord {
   id: number;

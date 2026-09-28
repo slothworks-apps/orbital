@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
 import { resolveClaudeDir } from './paths.js';
@@ -19,7 +19,7 @@ import {
   RETENTION_KEY,
 } from './retention.js';
 import { openDb } from './db/database.js';
-import { sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
+import { compactionFailures, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
 import { indexPaths, indexProjects } from './indexer/indexer.js';
 import { watchProjects } from './watcher/projects.js';
 import { SessionRegistry, type LiveSession } from './watcher/registry.js';
@@ -181,6 +181,12 @@ export async function buildServer(overrides: {
    * where Vite serves it on 5173 and proxies `/api` and `/ws` here.
    */
   staticDir?: string;
+  /**
+   * Registers the dev-only routes (the compaction simulation). Defaults to
+   * `ORBITAL_DEV_TOOLS=1`, which only the root `dev:server` script sets —
+   * so the packaged app and the test suite never have them.
+   */
+  devTools?: boolean;
 } = {}): Promise<FastifyInstance> {
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
@@ -369,6 +375,19 @@ export async function buildServer(overrides: {
    * § 1, § 2). By the time this runs the Runner no longer answers for the
    * session, so `statusOf` reads the row.
    */
+  /**
+   * A session's compaction failure stops being its current state: the next
+   * turn started, or a compaction succeeded (spec
+   * 2026-09-28-context-compaction-design § Failure). The rows stay — they
+   * are the transcript's marks — and only `lastCompactionFailed` moves.
+   * True when anything was cleared, so a caller republishes only then.
+   */
+  const clearCompactionFailure = (sessionId: string): boolean =>
+    db.update(compactionFailures)
+      .set({ clearedAt: Date.now() })
+      .where(and(eq(compactionFailures.sessionId, sessionId), isNull(compactionFailures.clearedAt)))
+      .run().changes > 0;
+
   const released = (sessionId: string) => {
     // Nothing is running in it any more — and nothing is left to observe the
     // `tool_result` that would otherwise retire its agents.
@@ -417,6 +436,8 @@ export async function buildServer(overrides: {
       // claim a revive makes before any turn has run.
       if (status === 'working') {
         db.update(sessions).set({ interruptedAt: null }).where(eq(sessions.id, sessionId)).run();
+        // The same edge retires a failed compaction as the session's state.
+        if (clearCompactionFailure(sessionId)) republish(sessionId);
       }
       hub.publish('sessions', { event: 'status', sessionId, status });
     },
@@ -479,6 +500,9 @@ export async function buildServer(overrides: {
     // moves the status at all.
     onTurnBoundary: (sessionId, ended) => {
       if (ended) void titler.considerTurnEnd(sessionId);
+      // A turn the CLI started by itself is a next turn too, and it moves no
+      // status for `onStatus` above to see.
+      else clearCompactionFailure(sessionId);
       republish(sessionId);
     },
     // Both edges of a parked question, for the map: `pendingDecision` rides
@@ -509,6 +533,40 @@ export async function buildServer(overrides: {
     // inserts that row only after `start()` has returned, and a spawn that
     // fails is exactly the case where the two can race. The row is read only
     // to fill in what the attempt does not carry.
+    readContextUsed: (sessionId) =>
+      db.select({ used: sessions.contextUsedTokens }).from(sessions).where(eq(sessions.id, sessionId)).get()
+        ?.used ?? null,
+    // A compaction's edges (spec 2026-09-28-context-compaction-design). The
+    // live state rides the snapshot, so every edge republishes; a failure is
+    // also persisted — the CLI writes nothing about it into the transcript —
+    // and logged, so it can be read with the session closed.
+    onCompaction: (sessionId, event) => {
+      if (event.type === 'succeeded') clearCompactionFailure(sessionId);
+      if (event.type === 'failed') {
+        const { failure } = event;
+        db.insert(compactionFailures).values({
+          id: failure.id, sessionId, at: failure.at, error: failure.error,
+          preTokens: failure.preTokens, trigger: failure.trigger, durationMs: failure.durationMs,
+        }).run();
+        const row = db
+          .select({ cwd: sessions.cwd, model: sessions.model, resolvedModel: sessions.resolvedModel })
+          .from(sessions).where(eq(sessions.id, sessionId)).get();
+        errors.record({
+          source: 'server',
+          kind: 'compaction_failed',
+          sessionId,
+          message: failure.error ? `Compaction failed: ${failure.error}` : 'Compaction failed (no reason given)',
+          context: {
+            trigger: failure.trigger,
+            preTokens: failure.preTokens,
+            durationMs: failure.durationMs,
+            model: row?.resolvedModel ?? row?.model ?? null,
+            cwd: row?.cwd ?? null,
+          },
+        });
+      }
+      republish(sessionId);
+    },
     onError: (sessionId, err, attempt) => {
       const row = db
         .select({
@@ -752,6 +810,7 @@ export async function buildServer(overrides: {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, errors,
     images, imagesDir, titler, git, ide,
     settings: settingsStore,
+    devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     retention: {
       sweep: runRetentionSweep,
       preview: (value: string) =>

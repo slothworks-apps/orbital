@@ -1,6 +1,8 @@
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { effectiveTagIds } from '../tags/rules.js';
+import { compactionFailures } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
-import type { PendingDecision, Runner } from '../runner/runner.js';
+import type { CompactingState, LastCompacted, PendingDecision, Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '../types.js';
 import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
@@ -113,6 +115,38 @@ export interface ApiSession {
    * `GET /api/sessions/:id/ide/open-files` instead.
    */
   ide: IdeContext | null;
+  /**
+   * The compaction running in this session right now, or null. In memory
+   * only, and only ever set for a session this process runs: a terminal
+   * session's compaction is known only afterwards, from its transcript
+   * (spec 2026-09-28-context-compaction-design § Live state).
+   */
+  compacting: CompactingState | null;
+  /**
+   * The session's newest compaction failed and nothing has moved on from it
+   * yet — no compaction has succeeded and no turn has started since. Opening
+   * the session does not clear it; opening does not fix the context. Read
+   * from `compaction_failures`, so it survives a restart (spec § Failure).
+   */
+  lastCompactionFailed: { at: number } | null;
+  /**
+   * The newest compaction this server process saw succeed, with its token
+   * counts — what the map's `compacted · 186k → 22k` caption reads. In
+   * memory only, and only for sessions this process runs.
+   */
+  lastCompacted: LastCompacted | null;
+}
+
+/** The newest compaction failure still standing for this session, or null. */
+export function lastCompactionFailed(db: OrbitalDb, sessionId: string): { at: number } | null {
+  const row = db
+    .select({ at: compactionFailures.at })
+    .from(compactionFailures)
+    .where(and(eq(compactionFailures.sessionId, sessionId), isNull(compactionFailures.clearedAt)))
+    .orderBy(desc(compactionFailures.at))
+    .limit(1)
+    .get();
+  return row ? { at: row.at } : null;
 }
 
 /**
@@ -156,5 +190,8 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     pendingDecision: ctx.runner.pendingDecision(row.id),
     git: ctx.git.locate(row.cwd),
     ide: ctx.ide.locate(row.cwd),
+    compacting: ctx.runner.compacting(row.id),
+    lastCompactionFailed: lastCompactionFailed(ctx.db, row.id),
+    lastCompacted: ctx.runner.lastCompacted(row.id),
   };
 }

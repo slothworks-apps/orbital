@@ -2342,6 +2342,48 @@ describe('resyncAfterReconnect', () => {
   })
 })
 
+describe('checkTranscript', () => {
+  const prompt: ChatMessage = { id: 'local:1', role: 'user', text: 'Question' }
+  const reply: ChatMessage = { id: 'uuid-2:0', role: 'assistant', text: 'The reply' }
+  const fromFile: ChatMessage[] = [{ ...prompt, id: 'uuid-1:0' }, reply]
+
+  beforeEach(() => {
+    useOrbital.setState((state) => ({
+      transcripts: { s1: [prompt] },
+      historyLoaded: { s1: true },
+      ui: { ...state.ui, selectedId: 's1' },
+    }))
+  })
+
+  it('reloads from the file and logs a gap once a row stays missing for two checks', async () => {
+    vi.mocked(api.getMessages).mockResolvedValue(fromFile)
+
+    await useOrbital.getState().checkTranscript('s1')
+    expect(useOrbital.getState().transcripts.s1).toEqual([prompt])
+    expect(api.reportErrorToServer).not.toHaveBeenCalled()
+
+    await useOrbital.getState().checkTranscript('s1')
+    expect(useOrbital.getState().transcripts.s1).toEqual(fromFile)
+    expect(api.reportErrorToServer).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'transcript_gap', sessionId: 's1' }),
+    )
+  })
+
+  it('leaves the panel alone when the socket delivers the row in between', async () => {
+    vi.mocked(api.getMessages).mockResolvedValue(fromFile)
+
+    await useOrbital.getState().checkTranscript('s1')
+    useOrbital.getState().applySessionEvent('s1', {
+      event: 'message',
+      message: { ...reply, id: 's1:7:0' },
+    })
+    await useOrbital.getState().checkTranscript('s1')
+
+    expect(useOrbital.getState().transcripts.s1.map((m) => m.id)).toEqual(['local:1', 's1:7:0'])
+    expect(api.reportErrorToServer).not.toHaveBeenCalled()
+  })
+})
+
 describe('setWsStatus', () => {
   it('resyncs when the socket comes back after a close', async () => {
     useOrbital.getState().setWsStatus('closed')

@@ -11,6 +11,8 @@ import { ImageThumb } from './ImageThumb'
 import { PathButton } from './PathButton'
 import { parseSentSelection } from '../lib/ideSelection'
 import { useOrbital } from '../store/store'
+import { Button } from '../ui/Button'
+import { copyToClipboard } from '../lib/clipboard'
 
 /** 7a: two or more images share one wrapping row, each capped narrower. */
 const TWO_UP_WIDTH_PX = 171
@@ -52,6 +54,42 @@ const LANGUAGE_CLASS = /language-(\S+)/
  * trusted-safe HTML, so `dangerouslySetInnerHTML` here never carries
  * unescaped user input directly.
  */
+/** How long the copy button says "Copied" before it goes back to "Copy". */
+const COPIED_FEEDBACK_MS = 1500
+
+/**
+ * A fenced block with a copy button in its top-right corner. The button stays
+ * out of the way until the block is hovered or the button has focus, so a
+ * transcript full of code does not turn into a column of buttons. It sits
+ * outside the block's own scroller, so it stays put when a long line is
+ * scrolled sideways.
+ */
+function CodeFrame({ code, children }: { code: string; children: ReactNode }) {
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS)
+    return () => clearTimeout(timer)
+  }, [copied])
+
+  return (
+    <div className="group/code relative">
+      {children}
+      <span className="absolute right-1.5 top-1.5 opacity-0 transition-opacity group-hover/code:opacity-100 focus-within:opacity-100">
+        <Button
+          variant="pill-muted"
+          size="pill"
+          aria-label="Copy code"
+          onClick={() => void copyToClipboard(code).then((ok) => setCopied(ok))}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </span>
+    </div>
+  )
+}
+
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null)
 
@@ -134,14 +172,17 @@ export function Pre({ children, className, ...rest }: PreProps) {
     const match = LANGUAGE_CLASS.exec(codeProps.className ?? '')
     const code = plainText(codeProps.children).replace(/\n$/, '')
 
-    if (match) {
-      return <CodeBlock code={code} lang={match[1]} />
-    }
-    // Fenced, but no language on the fence — still a block, not inline.
     return (
-      <pre className="overflow-x-auto rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft">
-        <code>{code}</code>
-      </pre>
+      <CodeFrame code={code}>
+        {match ? (
+          <CodeBlock code={code} lang={match[1]} />
+        ) : (
+          // Fenced, but no language on the fence — still a block, not inline.
+          <pre className="overflow-x-auto rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft">
+            <code>{code}</code>
+          </pre>
+        )}
+      </CodeFrame>
     )
   }
 

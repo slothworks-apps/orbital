@@ -17,6 +17,7 @@ function planet(id: string, contextFill: ContextFill | null): ScenePlanet {
     modelFamily: null,
     muted: false,
     contextFill,
+    compactingSince: null,
   }
 }
 

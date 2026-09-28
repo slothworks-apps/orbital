@@ -62,6 +62,9 @@ import { SubagentChip } from './SubagentChip'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
 import { endedFootnote, formatContextWindow } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
+import { compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
+import { useNow } from '../lib/useNow'
+import { useCompactionUi } from '../store/compaction'
 import { awaitingSubagentCount, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import type { ApiSession, Tag, WalkthroughSummary } from '../lib/types'
 
@@ -113,6 +116,15 @@ const NO_VALUE = '—'
 /** The unmeasured read-out and its note (canvas 1b-alt): deliberately NOT the
  * session's hue, so an em dash cannot be mistaken for a reading. */
 const UNMEASURED_INK = 'rgba(150,205,255,.3)'
+/**
+ * The gauge while the session compacts (26c/26e): the old number held at .55,
+ * the bar greyed like the map's arc, and a note that says why.
+ */
+const COMPACTING_READOUT_INK = 'rgba(200,215,235,.55)'
+const COMPACTING_BAR_INK = 'rgba(200,215,235,.3)'
+const COMPACTING_NOTE_INK = 'rgba(160,190,225,.6)'
+/** 26c's locked composer. */
+const COMPACTING_PLACEHOLDER = 'Compacting. You can write again when it\u2019s done.'
 
 /**
  * Compact token count in the export's own notation — "142.3k", "28.9k",
@@ -189,6 +201,13 @@ export function DetailPanel({
   const decisionAnswers = useOrbital((s) =>
     pendingDecision?.kind === 'question' ? s.decisionAnswers[pendingDecision.id] : undefined,
   )
+
+  // A compaction running in this session (spec
+  // 2026-09-28-context-compaction-design): the chip counts it up, the gauge
+  // greys, and the composer locks until it ends.
+  const compacting = session ? compactingOf(session) : null
+  const compactingNow = useNow(compacting !== null)
+  const composerLocked = session?.source === 'web' && session.compacting != null
 
   const [titleDraft, setTitleDraft] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -520,7 +539,16 @@ export function DetailPanel({
     const text = draft.trim()
     const sessionId = id
     if (!sessionId) return
+    if (composerLocked) return
     if (!text && !attachments.armed) return
+    // A `/compact` past running subagents asks first; the draft stays for a
+    // Cancel, and the dialog sends it (spec § Confirmation when subagents are
+    // running).
+    const confirmCount = attachments.armed ? 0 : compactConfirmCount(text, session)
+    if (confirmCount > 0) {
+      useCompactionUi.getState().setConfirm({ sessionId, text, count: confirmCount })
+      return
+    }
     setPrompt('')
     if (!attachments.armed) {
       void sendPrompt(sessionId, text)
@@ -619,8 +647,9 @@ export function DetailPanel({
    * its own window — where the bar is pinned full but the numerator is not.
    * Every ordinary fill gets no note at all.
    */
-  const contextNote =
-    contextFraction === undefined
+  const contextNote = compacting
+    ? { text: 'COMPACTING…', ink: COMPACTING_NOTE_INK }
+    : contextFraction === undefined
       ? { text: 'NOT MEASURED YET', ink: UNMEASURED_INK }
       : contextUsed != null && contextWindow !== null && contextUsed > contextWindow
         ? { text: 'OVER WINDOW', ink: oklchCss(CONTEXT_CRITICAL_OKLCH) }
@@ -869,17 +898,21 @@ export function DetailPanel({
                 session never gets either (see `canShowContext`); 9d ends its
                 row with a TERMINAL chip instead. */}
             <div ref={stateRowRef} className="mt-3 flex items-center gap-2.5">
-              <Badge
-                variant="status"
-                // The panel has the live question in the store as well as on
-                // the snapshot, and the store's copy is the fresher of the
-                // two — it hears `decision_pending` directly.
-                state={sessionStateKey({
-                  ...session,
-                  pendingDecision: pendingDecision ?? session.pendingDecision,
-                })}
-                awaiting={awaitingSubagentCount(session)}
-              />
+              {compacting ? (
+                <Badge variant="compacting" elapsed={formatElapsed(compactingNow - compacting.startedAt)} />
+              ) : (
+                <Badge
+                  variant="status"
+                  // The panel has the live question in the store as well as on
+                  // the snapshot, and the store's copy is the fresher of the
+                  // two — it hears `decision_pending` directly.
+                  state={sessionStateKey({
+                    ...session,
+                    pendingDecision: pendingDecision ?? session.pendingDecision,
+                  })}
+                  awaiting={awaitingSubagentCount(session)}
+                />
+              )}
               {/* Subagent list spec § 1: the chip is as tall as the badge,
                   so the row does not grow; none at all without subagents. */}
               <SubagentChip sessionId={session.id} subagents={session.subagents} withinRef={stateRowRef} />
@@ -904,7 +937,9 @@ export function DetailPanel({
                 >
                   <span
                     className="text-[17px] leading-none tracking-[-0.01em] transition-colors duration-300"
-                    style={{ color: contextUsed != null ? contextInk : UNMEASURED_INK }}
+                    style={{
+                      color: compacting ? COMPACTING_READOUT_INK : contextUsed != null ? contextInk : UNMEASURED_INK,
+                    }}
                   >
                     {/* The measurement itself, NOT the bar's clamped fraction:
                         a session past a mis-learned window says so. */}
@@ -941,8 +976,8 @@ export function DetailPanel({
                     data-context-level={contextBarLevel}
                     style={{
                       width: `${contextPercent}%`,
-                      background: contextInk,
-                      boxShadow: `0 0 8px ${contextGlow}`,
+                      background: compacting ? COMPACTING_BAR_INK : contextInk,
+                      boxShadow: compacting ? 'none' : `0 0 8px ${contextGlow}`,
                       transition: 'width .45s ease, background .3s ease',
                     }}
                   />
@@ -1043,10 +1078,13 @@ export function DetailPanel({
                   : '⏎ send · ⇧⏎ newline · ⌘V paste image'
             }
             answering={openDecisionQuestion !== undefined || openVerdictKind !== undefined}
+            locked={composerLocked}
             // The placeholder names the question's header chip, so with 2–4
             // stacked you know WHICH one you would be answering (canvas 9c).
             placeholder={
-              openDecisionQuestion
+              composerLocked
+                ? COMPACTING_PLACEHOLDER
+                : openDecisionQuestion
                 ? `Answer ${openDecisionQuestion.header}, or pick an option above…`
                 : openVerdictKind
                   ? composerPlaceholderFor(openVerdictKind)
@@ -1080,7 +1118,7 @@ export function DetailPanel({
                   onClick={() => handleSend()}
                   // Live on text OR on one chip that is uploaded or still
                   // uploading; a failed chip alone arms nothing (spec § Send).
-                  disabled={!prompt.trim() && !attachments.armed}
+                  disabled={composerLocked || (!prompt.trim() && !attachments.armed)}
                 >
                   Send ↑
                 </Button>

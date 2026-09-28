@@ -19,6 +19,8 @@ import { useWindowBand } from '../lib/windowChrome'
 import { useWindowFocused } from '../lib/useWindowFocused'
 import { useViewportWidth } from '../lib/useViewportWidth'
 import { awaitingSubagentCount, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { compactingLabelOpacity, compactingOf, formatElapsed } from '../lib/compaction'
+import { useNow } from '../lib/useNow'
 import { stateColor, stateDot, stateWord } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
@@ -226,8 +228,22 @@ function IconButton({
  * dot and an amber INPUT, and the word's text and dot keep them apart.
  */
 function RowStatus({ session }: { session: ApiSession }) {
+  const compacting = compactingOf(session)
+  const now = useNow(compacting !== null)
   const key = sessionStateKey(session)
   const color = stateColor(key)
+  // A compaction takes the label once it has run three seconds (26e): `COMPACT
+  // 0:14`, the compacting grey, no dot. Shorter ones never show here at all.
+  if (compacting && compactingLabelOpacity(now - compacting.startedAt) > 0) {
+    return (
+      <span
+        data-state="compacting"
+        className="orbital-compact-label-in flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,228,246,.8)]"
+      >
+        COMPACT {formatElapsed(now - compacting.startedAt)}
+      </span>
+    )
+  }
   return (
     <span
       data-state={key}

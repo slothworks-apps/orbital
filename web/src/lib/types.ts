@@ -107,6 +107,26 @@ export interface ApiSession {
    * `orbital-speaks-to-the-ide-itself`). Mirrors `server/src/api/shape.ts`.
    */
   ide?: IdeContext | null
+  /**
+   * The compaction running in this session right now, or null — only ever
+   * set for a session Orbital runs (spec 2026-09-28-context-compaction-design
+   * § Live state). Mirrors `server/src/api/shape.ts`.
+   *
+   * Optional here, like every other snapshot field added after the fixtures.
+   */
+  compacting?: { startedAt: number; trigger: 'manual' | 'auto' } | null
+  /**
+   * The newest compaction failed and nothing has moved on from it yet — no
+   * success, no new turn. Survives a restart; opening the session does not
+   * clear it. Mirrors `server/src/api/shape.ts`.
+   */
+  lastCompactionFailed?: { at: number } | null
+  /**
+   * The newest compaction the server saw succeed in this process, for the
+   * map's short `compacted · 186k → 22k` caption. Mirrors
+   * `server/src/api/shape.ts`.
+   */
+  lastCompacted?: { at: number; preTokens: number | null; postTokens: number | null } | null
 }
 
 /** Where the caret is, and what is selected under it. */
@@ -246,6 +266,23 @@ export interface PendingVerdictDecision {
  */
 export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning'
 
+/**
+ * What one compaction left behind (spec 2026-09-28-context-compaction-design).
+ * A figure the CLI did not report is null, never estimated. Mirrors
+ * `server/src/types.ts`.
+ */
+export interface CompactionMark {
+  outcome: 'success' | 'failed'
+  trigger: 'manual' | 'auto'
+  preTokens: number | null
+  postTokens: number | null
+  durationMs: number | null
+  /** Success only. */
+  summary?: string
+  /** Failure only: verbatim, null when the CLI gave no reason. */
+  error?: string | null
+}
+
 export interface ChatMessage {
   id: string
   /**
@@ -259,8 +296,12 @@ export interface ChatMessage {
    * `notice` is the CLI speaking for itself rather than through the model —
    * a locally-answered slash command's output (`/context`, `/usage`, `/mcp`),
    * a hook's feedback. Rendered by `NoticeRow`, never by `MessageView`.
+   *
+   * `compaction` is the permanent mark a context compaction leaves, its facts
+   * in `compaction`. Rendered by `CompactionMark`; never a bubble, never
+   * folded into a tool run.
    */
-  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice'
+  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction'
   text?: string
   toolName?: string
   toolInput?: unknown
@@ -290,6 +331,8 @@ export interface ChatMessage {
    * `server/src/types.ts`.
    */
   notice?: { level: NoticeLevel; command?: string }
+  /** `compaction` rows only. Mirrors `server/src/types.ts`. */
+  compaction?: CompactionMark
   /** Images this message carries — refs into the server's image store
    * (`GET /api/images/<ref>`), never bytes. Mirrors `server/src/types.ts`.
    * Spec: 2026-09-18-transcript-images-design. */
@@ -772,8 +815,19 @@ export type ErrorSource = 'server' | 'web'
  * `sessions_healed` is legacy: the boot-time resume that recorded it is gone
  * (spec 2026-09-24-sessions-end-only-by-hand-design § 5) and nothing produces
  * it now, but rows written before still carry it.
+ *
+ * `transcript_gap` is not a failure anyone saw as one: the open panel was
+ * missing a message its transcript file had, and the transcript check filled
+ * it in (spec 2026-09-28-transcript-check-design). Logged so the gap's cause
+ * can be read off a real occurrence.
  */
-export type ErrorKind = 'session_failed' | 'api_request' | 'render_crash' | 'sessions_healed'
+export type ErrorKind =
+  | 'session_failed'
+  | 'api_request'
+  | 'render_crash'
+  | 'sessions_healed'
+  | 'transcript_gap'
+  | 'compaction_failed'
 
 export interface ErrorRecord {
   id: number

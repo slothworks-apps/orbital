@@ -121,6 +121,21 @@ describe('MessageView', () => {
     })
   })
 
+  it('copies a fenced block as its source text — not the highlighted markup, not the fence', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const text = 'before\n\n```ts\nconst a = 1\nconst b = 2\n```\n\n```\nplain block\n```'
+    const { container } = render(<MessageView message={makeMessage({ id: '1', text })} />)
+    await waitFor(() => expect(container.querySelector('pre.shiki')).toBeInTheDocument())
+
+    const [highlighted, plain] = screen.getAllByRole('button', { name: /copy code/i })
+    await user.click(highlighted)
+    await user.click(plain)
+
+    expect(writeText.mock.calls).toEqual([['const a = 1\nconst b = 2'], ['plain block']])
+  })
+
   /**
    * I4. The timestamp under a bubble was interpolated raw — all 24
    * characters of `2026-09-22T10:00:00.000Z`, a full extra line per message

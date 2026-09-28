@@ -15,6 +15,16 @@ export type BadgeProps =
        */
       awaiting?: number
     }
+  | {
+      /**
+       * The header's state chip while the session compacts its context
+       * (canvas 26c, 26e): `COMPACTING 0:14`. Not a `status` state — the
+       * session is still `working` everywhere that counts states.
+       */
+      variant: 'compacting'
+      /** The elapsed time, already formatted (`formatElapsed`). */
+      elapsed: string
+    }
   | { variant: 'count'; value: number; label?: string }
   | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
   | {
@@ -163,6 +173,20 @@ export function Badge(props: BadgeProps) {
           glow={state === 'working'}
         />
         {stateWord(state, awaiting)}
+      </span>
+    )
+  }
+
+  if (props.variant === 'compacting') {
+    // 26c/26e: the compacting grey (`rgba(214,228,246,.82)`) with the timer
+    // in the muted ink, no dot — the pill on the map says it the same way.
+    return (
+      <span
+        data-variant="compacting"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.22)] px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em] text-[rgba(214,228,246,.82)]"
+      >
+        COMPACTING
+        <span className="text-[rgba(160,190,225,.6)]">{props.elapsed}</span>
       </span>
     )
   }

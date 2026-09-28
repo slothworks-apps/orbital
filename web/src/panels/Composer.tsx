@@ -101,6 +101,14 @@ export interface ComposerProps {
    * The copy itself still comes from `hint` — this only says how it is worn.
    */
   answering?: boolean
+  /**
+   * The session cannot take a message right now — it is compacting its
+   * context (spec 2026-09-28-context-compaction-design § Transcript while it
+   * runs). The field is disabled and the well quiets down (canvas 26c); the
+   * caller supplies the placeholder that says why and keeps its own Send
+   * inert.
+   */
+  locked?: boolean
   placeholder?: string
   id?: string
   'aria-label'?: string
@@ -147,6 +155,7 @@ export function Composer({
   variant,
   hint,
   answering = false,
+  locked = false,
   placeholder,
   id,
   actions,
@@ -377,8 +386,11 @@ export function Composer({
         // `--color-accent` is oklch(85% .12 205) precomputed (theme.css), which
         // is this feature's accent throughout. The column gap is the 10px both
         // wells carry (9c-2 and 9d-D) — chip row to text, text to hint line.
+        data-locked={locked || undefined}
         className={[
-          'relative flex flex-col gap-2.5 rounded-[10px] border bg-[rgba(4,8,16,.6)]',
+          'relative flex flex-col gap-2.5 rounded-[10px] border transition-[border-color,background-color] duration-300',
+          // 26c: a locked well drops to a .08 hairline over a .3 fill.
+          locked ? 'bg-[rgba(4,8,16,.3)]' : 'bg-[rgba(4,8,16,.6)]',
           variant === 'dialog' ? 'min-h-24 px-3.5 pb-2.5 pt-3' : 'px-3 pb-2.5 pt-3',
           // 9c-1: the marker is 96px tall, so the panel's well grows to it for
           // the duration of the drag — the dialog's already is.
@@ -386,7 +398,9 @@ export function Composer({
           // Canvas 9c COLOUR: "composer pending border — accent/.38 → .5
           // typed". The typed state is the same chrome focus already wears,
           // which is why they share a branch.
-          focused || (answering && value.length > 0)
+          locked
+            ? 'border-[rgba(150,205,255,.08)]'
+            : focused || (answering && value.length > 0)
             ? 'border-accent/50 ring-[3px] ring-accent/10'
             : answering
               ? 'border-accent/38'
@@ -496,6 +510,7 @@ export function Composer({
             aria-controls={activeDescendant ? listboxId : undefined}
             aria-activedescendant={activeDescendant ?? undefined}
             value={value}
+            disabled={locked}
             // The last chip that fits hides the placeholder, never the text
             // (canvas 9c-2): a full chip row plus a placeholder is two things
             // competing for the same line.
@@ -586,11 +601,21 @@ export function Composer({
               {hint}
             </span>
           ) : (
-            <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+            <span
+              className={[
+                'font-mono text-[10px] tracking-[0.06em]',
+                locked ? 'text-[rgba(160,190,225,.25)]' : 'text-[rgba(160,190,225,.5)]',
+              ].join(' ')}
+            >
               {ideHint ?? hint}
             </span>
           )}
           <span aria-hidden className="flex-1" />
+          {locked && (
+            <span data-composer-locked className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.25)]">
+              LOCKED
+            </span>
+          )}
           {actions}
         </div>
 
