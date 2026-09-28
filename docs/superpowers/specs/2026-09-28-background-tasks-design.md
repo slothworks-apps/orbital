@@ -184,14 +184,19 @@ streamed transcript text uses
 ([[streamed-text-rides-as-offset-deltas-on-the-rows-id]]). No file is
 watched while nobody has it open.
 
-**ANSI.** Escape sequences are stripped, and a `\r` without `\n`
-replaces the line it returns to, so progress bars read as their last
-state. Colour is not kept in this version.
+**ANSI.** The output is plain text in practice: the command writes to a
+file, not a terminal, so tools turn their colour off themselves — none
+of the 93 shell output files on the machine on 2026-09-28 held an escape
+sequence or a bare `\r`. A command that forces colour (`FORCE_COLOR`,
+`--color=always`) can still put them there, so as a safety net escape
+sequences are stripped and a `\r` without `\n` replaces the line it
+returns to. Rendering that colour is not worth building for the rare
+case.
 
 ## Out of scope
 
 - Cloud sessions (`remote_agent`) — [[cloud-sessions-in-the-session]].
-- Output of workflows and MCP tasks, and colour in shell output.
+- Output of workflows and MCP tasks, and colour in shell output (it rarely has any, § 4).
 - Terminal sessions.
 - Declaring `perTaskStopAffordance` (§ 2, Stop).
 - Telling a subagent's background tasks from the main loop's: whatever
