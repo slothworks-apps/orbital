@@ -66,7 +66,10 @@ the minimum instead).
 - **Planet**: the `scale` prop is premultiplied at the call site —
   `scale={pos.scale * planetScale}`. `sceneModel` and `layout` are
   untouched, so orbit radii, moon orbits and cluster spacing do not move
-  ("orbit radii are untouched — only bodies resize").
+  ("orbit radii are untouched — only bodies resize"). Amended since: the
+  step between moon orbits widens with the slider, so larger moons do not
+  touch as they pass
+  ([[orbit-step-clears-the-moon-at-any-planet-size]]).
 - **Moon**: a new `bodyScale` prop written onto `bodyGroupRef` (the body
   group only). This composes with the counter-zoom factor
   ([[counter-zoom-inflates-the-whole-moon-system]]), which stays on the

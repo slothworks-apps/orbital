@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
-import { PLANET_SCALE_MAX, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
-import { buildSceneModel, contextFillFor, type SceneModel } from '../map/sceneModel'
+import { PLANET_SCALE_MAX, PLANET_SCALE_MIN, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
+import { buildSceneModel, contextFillFor, MOON_EXTENT_RADIUS, type SceneModel } from '../map/sceneModel'
 import { useSceneModel } from '../map/useSceneModel'
 import {
   applyPan,
@@ -296,6 +296,19 @@ describe('buildSceneModel', () => {
     const [m1, m2] = model.moons
     expect(m1.orbitRadius).not.toBe(m2.orbitRadius)
     expect(m1.phase).not.toBe(m2.phase)
+  })
+
+  it('keeps moons on neighbouring orbits from touching as they pass, at every planet size', () => {
+    const subagents = [makeSubagent({ id: 's1' }), makeSubagent({ id: 's2' })]
+    for (const size of [PLANET_SCALE_MIN, 1, PLANET_SCALE_MAX]) {
+      const model = sceneModelAt(
+        withSessions([makeSession({ id: 'a', tagIds: [1], subagents })], {
+          settings: { planet_scale: String(size) },
+        })
+      )
+      const [inner, outer] = model.moons
+      expect(outer.orbitRadius - inner.orbitRadius).toBeGreaterThan(2 * MOON_EXTENT_RADIUS * size)
+    }
   })
 
   it('gives a moonless planet the footprint of its own body', () => {

@@ -2,13 +2,14 @@ import type { ApiSession, OrbitalModel, SessionStatus, Subagent } from '../lib/t
 import { matchModel } from '../lib/models'
 import { compactingOf } from '../lib/compaction'
 import { contextFractionFor, contextLevel, type ContextLevel } from '../lib/usage'
-import { CONTEXT_GAUGE_OUTER, moonVisuals } from './visuals'
+import { CONTEXT_GAUGE_OUTER, MOON_TICK_LENGTH, MOON_TICK_RADIUS, moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
 import {
   absorptionFor,
   mapSessions,
   matchesSidebarFilters,
   parseContextThresholds,
+  parsePlanetScale,
   PLANET_SCALE_MAX,
   showContext,
   statusCounts,
@@ -46,13 +47,31 @@ const GAUGED_PLANET_EDGE = Math.max(PLANET_BASE_RADIUS, CONTEXT_GAUGE_OUTER * PL
 /**
  * World-space orbit radius of a planet's `index`-th moon. Exported for the
  * sandbox, which draws moons without a scene model — one formula, no drift.
+ *
+ * `planetScale` is the Appearance multiplier the moon's body is drawn at.
+ * It widens the step between orbits only; the innermost orbit keeps its
+ * place (adr: orbit-step-clears-the-moon-at-any-planet-size).
  */
-export function moonOrbitRadius(scale: number, index: number, gauged: boolean): number {
+export function moonOrbitRadius(
+  scale: number,
+  index: number,
+  gauged: boolean,
+  planetScale = 1
+): number {
   const edge = gauged ? GAUGED_PLANET_EDGE : PLANET_BASE_RADIUS
-  return scale * edge + MOON_ORBIT_MARGIN + index * MOON_ORBIT_STEP
+  return scale * edge + MOON_ORBIT_MARGIN + index * MOON_ORBIT_STEP * planetScale
 }
-/** Radial gap between successive moons orbiting the same planet. */
-const MOON_ORBIT_STEP = 0.28
+/** How far a moon reaches from its centre at planet size 1: its working tick ring. */
+export const MOON_EXTENT_RADIUS = MOON_TICK_RADIUS + MOON_TICK_LENGTH / 2
+/** Empty space left between two moons on neighbouring orbits when they pass. */
+const MOON_ORBIT_CLEARANCE = 0.08
+/**
+ * Radial gap between successive moons orbiting the same planet, at planet
+ * size 1. Neighbouring orbits run at different angular speeds, so their
+ * moons pass each other; the step is a whole moon across plus
+ * `MOON_ORBIT_CLEARANCE`, or they overlap as they do.
+ */
+const MOON_ORBIT_STEP = 2 * MOON_EXTENT_RADIUS + MOON_ORBIT_CLEARANCE
 /**
  * Angular spacing between successive moons' starting phase, reusing the
  * layout's golden angle so multiple moons around one planet start spread
@@ -285,6 +304,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
   const showModel = state.settings.map_show_model !== 'false'
   const planets: ScenePlanet[] = []
   const moons: SceneMoon[] = []
+  const planetScale = parsePlanetScale(state.settings)
 
   for (const cluster of clusters) {
     for (const session of cluster.sessions) {
@@ -303,7 +323,7 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
       const contextFill = contextFillFor(session, state.models, state.settings, state.contextWindows)
       let footprint = pos.scale * PLANET_BASE_RADIUS
       subagents.forEach((subagent, i) => {
-        const orbitRadius = moonOrbitRadius(pos.scale, i, contextFill !== null)
+        const orbitRadius = moonOrbitRadius(pos.scale, i, contextFill !== null, planetScale)
         moons.push({
           subagent,
           sessionId: session.id,
@@ -314,8 +334,9 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
           phase: i * MOON_PHASE_STEP,
           muted,
         })
-        // Measured to the moon's own edge, not to the dashed trail it rides.
-        const shell = orbitRadius + moonVisuals(subagent.state).discRadius
+        // Measured to the moon's own edge, not to the dashed trail it rides,
+        // and at the size the body is drawn.
+        const shell = orbitRadius + moonVisuals(subagent.state).discRadius * planetScale
         if (shell > footprint) footprint = shell
       })
 

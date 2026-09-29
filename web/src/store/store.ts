@@ -2476,9 +2476,10 @@ export const PLANET_SCALE_MAX = 1.6
 /**
  * `planet_scale` as the map consumes it: the stored multiplier parsed and
  * clamped to the slider's own range, falling back to 1 (the default) for a
- * missing or unparsable value. Applied to drawn body scale only — layout,
- * orbits and cluster spacing never see it (spec:
- * 2026-09-18-planet-size-design).
+ * missing or unparsable value. Applied to drawn body scale — layout and
+ * cluster spacing never see it (spec: 2026-09-18-planet-size-design). The
+ * one exception is the step between moon orbits, which widens with the
+ * moons it separates (adr: orbit-step-clears-the-moon-at-any-planet-size).
  */
 export function parsePlanetScale(settings: Record<string, string>): number {
   const raw = Number(settings.planet_scale)
