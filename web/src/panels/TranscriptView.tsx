@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ChatMessage, OrbitalModel, Subagent } from '../lib/types'
+import type { BackgroundTask, ChatMessage, OrbitalModel, Subagent } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { formatToolDuration } from '../lib/format'
 import { usePresence } from '../ui/usePresence'
@@ -339,6 +339,13 @@ export interface TranscriptViewProps {
   /** Opens the subagent panel for a row's matched agent. Absent alongside
    * `subagents` for the same reason. */
   onOpenSubagent?: (subagent: Subagent) => void
+  /**
+   * The session's background tasks, for the `OUTPUT →` on a background
+   * `Bash` or `Monitor` row (spec 2026-09-28-background-tasks-design § 3).
+   * Passed only where `subagents` is, for the same reason.
+   */
+  backgroundTasks?: BackgroundTask[]
+  onOpenTaskOutput?: (task: BackgroundTask) => void
 }
 
 /**
@@ -386,6 +393,8 @@ function ToolRunGroup({
   onHeightSettled,
   subagents,
   onOpenSubagent,
+  backgroundTasks,
+  onOpenTaskOutput,
 }: {
   items: Extract<TranscriptItem, { kind: 'tool' }>[]
   /** The call held beneath the folded header — see `leadingEdgeItem`. */
@@ -395,6 +404,8 @@ function ToolRunGroup({
   onHeightSettled: () => void
   subagents?: Subagent[]
   onOpenSubagent?: (subagent: Subagent) => void
+  backgroundTasks?: BackgroundTask[]
+  onOpenTaskOutput?: (task: BackgroundTask) => void
 }) {
   const summary = summarizeToolRun(items)
   const unfinished = items.find((item) => !item.toolResult)
@@ -494,6 +505,8 @@ function ToolRunGroup({
                   toolResult={item.toolResult}
                   subagents={subagents}
                   onOpenSubagent={onOpenSubagent}
+                  backgroundTasks={backgroundTasks}
+                  onOpenTaskOutput={onOpenTaskOutput}
                 />
               ))}
             </div>
@@ -563,6 +576,8 @@ export function TranscriptView({
   readOnly = false,
   subagents,
   onOpenSubagent,
+  backgroundTasks,
+  onOpenTaskOutput,
   compaction,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
@@ -879,6 +894,8 @@ export function TranscriptView({
                 toolResult={group.items[0].toolResult}
                 subagents={subagents}
                 onOpenSubagent={onOpenSubagent}
+                backgroundTasks={backgroundTasks}
+                onOpenTaskOutput={onOpenTaskOutput}
               />
             </div>
           ) : (
@@ -890,6 +907,8 @@ export function TranscriptView({
               onHeightSettled={refreshStick}
               subagents={subagents}
               onOpenSubagent={onOpenSubagent}
+              backgroundTasks={backgroundTasks}
+              onOpenTaskOutput={onOpenTaskOutput}
             />
           )
         ) : group.item.message.role === 'compaction' ? (

@@ -6,6 +6,7 @@ import type { CompactingState, LastCompacted, PendingDecision, Runner } from '..
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '../types.js';
 import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
+import type { BackgroundTaskInfo, BackgroundTaskStore } from '../transcript/backgroundTasks.js';
 import type { GitStore } from '../git/store.js';
 import type { GitLocation } from '../git/gitState.js';
 import type { IdeStore } from '../ide/store.js';
@@ -22,6 +23,7 @@ export interface ShapeContext {
   registry: SessionRegistry;
   runner: Runner;
   subagents: SubagentStore;
+  backgroundTasks: BackgroundTaskStore;
   git: GitStore;
   ide: IdeStore;
 }
@@ -70,10 +72,12 @@ export interface ApiSession {
   tagIds: number[];
   status: SessionStatus;
   /**
-   * `working`, but only because of `subagents`: the session's own turn ended
-   * and it is now waiting for what it launched, which the CLI will hand back
-   * without the human touching anything. Always false when `status` is
-   * anything but `working`, and for every session orbital does not run.
+   * `working`, but only because of what it launched — `subagents` or
+   * `backgroundTasks` still running: the session's own turn ended and it is
+   * now waiting for them. The name predates the background tasks; the UI's
+   * label says which it waits for (spec 2026-09-28-background-tasks-design
+   * § 3). Always false when `status` is anything but `working`, and for
+   * every session orbital does not run.
    *
    * A flag rather than a fifth `SessionStatus`: the map's four states are a
    * visual vocabulary (size tier, ring, core, counts) and this changes none
@@ -87,6 +91,14 @@ export interface ApiSession {
    * for every session that has never launched one.
    */
   subagents: SubagentInfo[];
+  /**
+   * Every background task — shell, monitor, workflow, MCP task — this
+   * session has had, ended included, in start order (spec
+   * 2026-09-28-background-tasks-design § 2). Kept in SQLite, so it survives
+   * a restart. Empty for every session Orbital does not run: the task
+   * events exist only on the SDK stream.
+   */
+  backgroundTasks: BackgroundTaskInfo[];
   /**
    * The question this session's CLI is blocked on, or null — which is what
    * every terminal and ended session gets, their decisions having died with
@@ -187,6 +199,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     status: status ?? statusOf(ctx, row),
     awaitingSubagents: ctx.runner.awaitingSubagents(row.id),
     subagents: ctx.subagents.all(row.id),
+    backgroundTasks: ctx.backgroundTasks.all(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
     git: ctx.git.locate(row.cwd),
     ide: ctx.ide.locate(row.cwd),

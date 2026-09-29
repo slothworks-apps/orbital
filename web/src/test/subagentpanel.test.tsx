@@ -86,6 +86,8 @@ function renderPanel(opts: {
 beforeEach(() => {
   useOrbital.setState({
     subagentPanel: null,
+    taskOutput: null,
+    stoppingTasks: {},
     sessions: {},
     transcripts: {},
     tags: [],

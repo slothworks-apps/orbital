@@ -179,7 +179,7 @@ describe('SubagentStore', () => {
   });
 
   // task-3 brief §2, test 2: the session-stuck-at-working regression, made
-  // explicit. `hasLiveSubagents` in index.ts is `running(id).length > 0`; if
+  // explicit. `hasLiveBackgroundWork` in index.ts is `running(id).length > 0`; if
   // ended agents ever leaked into `running()`, a session whose agents had
   // ALL finished would read as still `working` forever.
   it('running() goes empty once every agent has ended, even though all() still lists them', () => {
@@ -189,7 +189,7 @@ describe('SubagentStore', () => {
     store.feed('s1', [taskResult('t1')]);
     store.feed('s1', [taskResult('t2')]);
 
-    expect(store.running('s1')).toEqual([]); // hasLiveSubagents(s1) would now be false
+    expect(store.running('s1')).toEqual([]); // hasLiveBackgroundWork(s1) would now be false
     expect(store.all('s1')).toHaveLength(2); // but both are still listed
   });
 

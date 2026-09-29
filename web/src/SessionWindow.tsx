@@ -16,6 +16,7 @@ import { useTranscriptCheck } from './lib/useTranscriptCheck'
 import { STATS_PATH } from './stats/route'
 import { DetailPanel } from './panels/DetailPanel'
 import { SubagentPanel } from './panels/SubagentPanel'
+import { TaskOutputPanel } from './panels/TaskOutputPanel'
 import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
 import { Toasts } from './ui/Toasts'
@@ -130,7 +131,7 @@ export function SessionWindow({ id }: { id: string }) {
   // "not answered yet"; `widthPx` undefined is an answer with no width (the
   // browser, or one already reached). A close forgets it, in the same
   // render, and an answer that lands after a close is discarded.
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
   const [answer, setAnswer] = useState<{ widthPx: number | undefined } | null>(null)
   if (!subagentPanelOpen && answer !== null) setAnswer(null)
   useEffect(() => {
@@ -194,6 +195,9 @@ export function SessionWindow({ id }: { id: string }) {
           <div className="h-full shrink-0" style={{ width: swap ? '100%' : subagentWidthPx }}>
             <ErrorBoundary label="Subagent panel">
               <SubagentPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
+            </ErrorBoundary>
+            <ErrorBoundary label="Task output">
+              <TaskOutputPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
             </ErrorBoundary>
           </div>
         )}

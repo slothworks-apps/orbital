@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital, editDiffsExpanded } from '../store/store'
-import type { ChatMessage, Subagent } from '../lib/types'
+import type { BackgroundTask, ChatMessage, Subagent } from '../lib/types'
+import { opensOutput } from '../lib/backgroundTasks'
 import { ansiToHtml } from '../lib/highlight'
 import { hasTextExtension } from '../lib/pathLinks'
 import { changeCounts, describeFileChange } from '../lib/fileEdit'
@@ -174,6 +175,9 @@ export interface ToolRowProps {
   /** Opens the subagent panel for the row's matched agent. Absent alongside
    * `subagents` for the same reason. */
   onOpenSubagent?: (subagent: Subagent) => void
+  /** The session's background tasks, for a background `Bash` or `Monitor` row's `OUTPUT →`. */
+  backgroundTasks?: BackgroundTask[]
+  onOpenTaskOutput?: (task: BackgroundTask) => void
 }
 
 /**
@@ -187,7 +191,14 @@ export interface ToolRowProps {
  * expanding lifts both (fill `.55`, border `.18`) so the open row reads as
  * one block with its output.
  */
-export function ToolRow({ toolUse, toolResult, subagents, onOpenSubagent }: ToolRowProps) {
+export function ToolRow({
+  toolUse,
+  toolResult,
+  subagents,
+  onOpenSubagent,
+  backgroundTasks,
+  onOpenTaskOutput,
+}: ToolRowProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   // `null` means "nobody has touched this row", which is what lets the setting
   // still govern it. The first click writes a boolean and the row keeps that
@@ -248,6 +259,12 @@ export function ToolRow({ toolUse, toolResult, subagents, onOpenSubagent }: Tool
   const openableSubagent =
     toolUse.toolName && SUBAGENT_TOOLS.has(toolUse.toolName) && toolUse.toolUseId
       ? subagents?.find((a) => a.toolUseId === toolUse.toolUseId)
+      : undefined
+  // The same for a background `Bash` or `Monitor` call (26a): its task, joined
+  // on the launching call, and `OUTPUT →` when it has output to open.
+  const openableTask =
+    toolUse.toolUseId && (toolUse.toolName === 'Bash' || toolUse.toolName === 'Monitor')
+      ? backgroundTasks?.find((task) => task.toolUseId === toolUse.toolUseId && opensOutput(task))
       : undefined
 
   return (
@@ -345,6 +362,22 @@ export function ToolRow({ toolUse, toolResult, subagents, onOpenSubagent }: Tool
                 className="font-mono text-[10.5px] tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
               >
                 OPEN →
+              </button>
+            </span>
+          )}
+          {openableTask && onOpenTaskOutput && (
+            <span className="pointer-events-auto shrink-0">
+              <button
+                type="button"
+                data-open-task-output
+                aria-label={`Open output: ${openableTask.label}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenTaskOutput(openableTask)
+                }}
+                className="font-mono text-[10.5px] tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
+              >
+                OUTPUT →
               </button>
             </span>
           )}

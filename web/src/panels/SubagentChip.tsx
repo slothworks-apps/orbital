@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import type { RefObject } from 'react'
 import { useOrbital } from '../store/store'
 import type { ChatMessage, Subagent } from '../lib/types'
-import { chipSegments, isOpenable, listGroups, rowElapsedMs, rowStateWord } from '../lib/subagentList'
+import { chipSegments, isOpenable, listGroups, rowElapsedMs, rowStateWord, type ChipSegment } from '../lib/subagentList'
+import { agentPhrase } from '../lib/types'
+import { StopButton } from './TaskChip'
 import { ELAPSED_TICK_MS, subagentTypeFrom, taskStateFor } from '../lib/subagentPanel'
 import { formatToolDuration } from '../lib/format'
 import { STATE_DOT_RING_PX } from '../lib/stateStyle'
@@ -32,6 +34,10 @@ export interface SubagentChipProps {
    * (25a: "right-aligned to the header", drawn in a 450px panel). Without it
    * the list hangs under the chip wherever that lands.
    */
+  /** 26c/26e: `1 · 5`, running · done, beside the ▣ chip in a column too narrow for both full forms. */
+  compact?: boolean
+  /** The session waits on what it launched: the chip carries the noun (`1 agent`), the row says only WAITING FOR (26d). */
+  waiting?: boolean
   withinRef?: RefObject<HTMLElement | null>
 }
 
@@ -42,10 +48,12 @@ export interface SubagentChipProps {
  * What is counted, grouped and ordered is `lib/subagentList`'s; this only
  * draws it and wires the pick to `openSubagent`.
  */
-export function SubagentChip({ sessionId, subagents, withinRef }: SubagentChipProps) {
+export function SubagentChip({ sessionId, subagents, compact = false, waiting = false, withinRef }: SubagentChipProps) {
   const [open, setOpen] = useState(false)
   const [nowMs, setNowMs] = useState(Date.now)
   const openSubagent = useOrbital((s) => s.openSubagent)
+  const stopTask = useOrbital((s) => s.stopTask)
+  const stopping = useOrbital((s) => s.stoppingTasks)
   const openAgentId = useOrbital((s) =>
     s.subagentPanel?.sessionId === sessionId ? s.subagentPanel.subagent.id : undefined,
   )
@@ -53,7 +61,8 @@ export function SubagentChip({ sessionId, subagents, withinRef }: SubagentChipPr
   // closed chip has no reason to re-render on every transcript message.
   const parentMessages = useOrbital((s) => (open ? s.transcripts[sessionId] : undefined)) ?? NO_MESSAGES
 
-  const segments = chipSegments(subagents)
+  // 26d: after WAITING FOR the chip names only what it waits on.
+  const segments = chipSegments(subagents).filter((segment) => !waiting || segment.kind === 'running')
   const running = segments.some((segment) => segment.kind === 'running')
 
   // One clock for the open list, and none while it is closed; the list opens
@@ -76,7 +85,17 @@ export function SubagentChip({ sessionId, subagents, withinRef }: SubagentChipPr
       label: subagent.name,
       disabled: !isOpenable(subagent),
       selected: subagent.id === openAgentId,
-      body: <SubagentRow subagent={subagent} type={subagentTypeFrom(parentMessages, subagent.toolUseId)} nowMs={nowMs} />,
+      body: (
+        <SubagentRow
+          subagent={subagent}
+          type={subagentTypeFrom(parentMessages, subagent.toolUseId)}
+          nowMs={nowMs}
+          stopping={Boolean(stopping[`${sessionId}:${subagent.id}`])}
+          // `id` is the SDK task id, which `stopTask` takes for an agent
+          // as for any task (adr the-composers-stop-spares-background-work).
+          onStop={() => void stopTask(sessionId, subagent.id)}
+        />
+      ),
       onSelect: () => void openSubagent(sessionId, subagent),
     })),
   ])
@@ -135,7 +154,7 @@ export function SubagentChip({ sessionId, subagents, withinRef }: SubagentChipPr
                       : undefined
                 }
               >
-                {segment.count} {segment.kind}
+                {segmentText(segment, compact, waiting)}
               </span>
             </span>
           ))}
@@ -169,7 +188,19 @@ function MoonGlyph({ running }: { running: boolean }) {
  * type and state word under it, the elapsed time at the right end. The ✓
  * and the row's focus, dimming and keys are `Menu`'s.
  */
-function SubagentRow({ subagent, type, nowMs }: { subagent: Subagent; type: string | undefined; nowMs: number }) {
+function SubagentRow({
+  subagent,
+  type,
+  nowMs,
+  stopping,
+  onStop,
+}: {
+  subagent: Subagent
+  type: string | undefined
+  nowMs: number
+  stopping: boolean
+  onStop: () => void
+}) {
   const state = taskStateFor(subagent, true)
   const tone = TASK_TONE[state]
   const openable = isOpenable(subagent)
@@ -204,6 +235,20 @@ function SubagentRow({ subagent, type, nowMs }: { subagent: Subagent; type: stri
           {elapsed}
         </span>
       )}
+      {/* 26e's ■, on the subagent list too: with the composer's Stop sparing
+          background agents, this is how one is stopped on its own (adr
+          the-composers-stop-spares-background-work). */}
+      {state === 'running' && <StopButton label={`Stop ${subagent.name}`} stopping={stopping} onStop={onStop} />}
     </div>
   )
+}
+
+/**
+ * One count as the chip prints it (25a, 26e): `2 running` in full, the bare
+ * number in the compact form, and after WAITING FOR the noun (`1 agent`).
+ */
+function segmentText(segment: ChipSegment, compact: boolean, waiting: boolean): string {
+  if (waiting && segment.kind === 'running') return agentPhrase(segment.count)
+  if (compact && segment.kind !== 'failed') return String(segment.count)
+  return `${segment.count} ${segment.kind}`
 }

@@ -31,7 +31,7 @@ const COMPACT_COMMAND_RE = /^\/compact(\s|$)/
 export function compactingOf(
   session: Pick<
     ApiSession,
-    'source' | 'status' | 'compacting' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents'
+    'source' | 'status' | 'compacting' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'
   >,
 ): { startedAt: number; trigger: 'manual' | 'auto' } | null {
   if (session.source !== 'web' || session.status === 'ended' || !session.compacting) return null

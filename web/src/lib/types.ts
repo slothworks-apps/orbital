@@ -76,6 +76,14 @@ export interface ApiSession {
   /** Subagents running in this session right now — the map's moons. */
   subagents: Subagent[]
   /**
+   * Every background task — shell, monitor, workflow, MCP task — the session
+   * has had, ended included, in start order (spec
+   * 2026-09-28-background-tasks-design § 2). Optional for the same reason
+   * as `interruptedAt`: absent and empty mean the same thing to every
+   * reader, and requiring it would rewrite every session fixture.
+   */
+  backgroundTasks?: BackgroundTask[]
+  /**
    * The question this session is blocked on, or null. Part of the session
    * snapshot precisely so a reload does not lose it (spec:
    * 2026-09-20-interactive-decisions-design § State and lifecycle) — the
@@ -598,6 +606,41 @@ export interface Subagent {
   endedAt?: number
 }
 
+/** What started a background task: `Bash` or `Monitor`, a `Workflow`, an MCP tool. */
+export type BackgroundTaskKind = 'shell' | 'monitor' | 'workflow' | 'mcp'
+
+/**
+ * Mirrors `BackgroundTaskInfo` in `server/src/transcript/backgroundTasks.ts`
+ * — the two must move together (spec 2026-09-28-background-tasks-design
+ * § 2).
+ */
+export interface BackgroundTask {
+  /** The SDK's `task_id` — what the stop and output routes key on. */
+  id: string
+  kind: BackgroundTaskKind
+  label: string
+  /** Shells and monitors only: the launching call's `command`. */
+  command?: string
+  state: 'running' | 'ended'
+  /** Once ended; absent when it ended without the SDK saying how — the list's "unknown". */
+  status?: 'completed' | 'failed' | 'stopped'
+  /** Shells and monitors only, read off the output file's closing line. */
+  exitCode?: number
+  startedAt: number
+  endedAt?: number
+  /** The launching call, which the transcript row joins on for `OUTPUT →`. */
+  toolUseId?: string
+  /** Whether there is an output file to open. */
+  hasOutput: boolean
+}
+
+/** The body of `GET /api/sessions/:id/tasks/:taskId/output`: the file's tail and the byte range it covers. */
+export interface TaskOutputTail {
+  text: string
+  start: number
+  end: number
+}
+
 /**
  * The body of `GET /api/sessions/:id/subagents/:toolUseId/messages` — mirrors
  * `SubagentTranscript` in `server/src/transcript/subagents.ts`. `messages` is
@@ -643,12 +686,67 @@ export function awaitingSubagentCount(
 }
 
 /**
- * The readout for a session that is only waiting on what it launched. One
- * wording, shared by the map's pill and the panel's chip — the moons carry
- * the count, so the label only has to get the grammar right.
+ * What a session that is only waiting on what it launched is waiting FOR:
+ * its running subagents and the kinds of its running background tasks. Both
+ * empty whenever the session is doing something of its own, or is not
+ * working at all — the same gate as `awaitingSubagentCount`, whose server
+ * flag now covers background tasks too (spec 2026-09-28-background-tasks-design
+ * § 2, "Working while a task runs").
  */
-export const awaitingSubagentLabel = (count: number): string =>
-  count === 1 ? 'WAITING FOR AGENT' : 'WAITING FOR AGENTS'
+export interface AwaitedWork {
+  agents: number
+  tasks: BackgroundTaskKind[]
+}
+
+export function awaitedWork(
+  session: Pick<ApiSession, 'status' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'>,
+): AwaitedWork {
+  if (session.status !== 'working' || !session.awaitingSubagents) return { agents: 0, tasks: [] }
+  return {
+    agents: session.subagents.filter((agent) => agent.state !== 'ended').length,
+    tasks: (session.backgroundTasks ?? []).filter((task) => task.state === 'running').map((task) => task.kind),
+  }
+}
+
+export const awaitedCount = (work: AwaitedWork): number => work.agents + work.tasks.length
+
+const TASK_NOUNS: Record<BackgroundTaskKind | 'mixed', [string, string]> = {
+  shell: ['shell', 'shells'],
+  monitor: ['monitor', 'monitors'],
+  workflow: ['workflow', 'workflows'],
+  mcp: ['MCP task', 'MCP tasks'],
+  mixed: ['task', 'tasks'],
+}
+
+/**
+ * The running tasks as a noun phrase (canvas 26d): one kind is named, mixed
+ * kinds are `tasks`. `dropOne` leaves a count of one out (`shell`, not
+ * `1 shell`) — the pill's form; the chips always count.
+ */
+export function taskPhrase(kinds: readonly BackgroundTaskKind[], dropOne: boolean): string {
+  if (kinds.length === 0) return ''
+  const distinct = new Set(kinds)
+  const [one, many] = TASK_NOUNS[distinct.size === 1 ? kinds[0] : 'mixed']
+  if (kinds.length === 1) return dropOne ? one : `1 ${one}`
+  return `${kinds.length} ${many}`
+}
+
+/** The agents as the chips read them: `1 agent`, `2 agents`. */
+export const agentPhrase = (count: number): string => (count === 1 ? '1 agent' : `${count} agents`)
+
+/**
+ * The readout for a session that is only waiting on what it launched — the
+ * map's pill (canvas 26d). Agents first, then tasks, joined by `+`, never
+ * more than those two terms; a count of one is dropped, from two it shows
+ * (`WAITING FOR 2 AGENTS + SHELL`). The detail row says only `WAITING FOR`
+ * and lets its chips carry the nouns.
+ */
+export function waitingLabel(work: AwaitedWork): string {
+  const terms: string[] = []
+  if (work.agents > 0) terms.push(work.agents === 1 ? 'agent' : agentPhrase(work.agents))
+  if (work.tasks.length > 0) terms.push(taskPhrase(work.tasks, true))
+  return `WAITING FOR ${terms.join(' + ')}`.toUpperCase()
+}
 
 /**
  * What a `needs_input` session actually wants, in a word.
@@ -700,11 +798,11 @@ export function asksForHuman(session: Pick<ApiSession, 'pendingDecision'>): bool
 export type SessionStateKey = 'needs_input' | 'waiting' | 'interrupted' | 'done' | 'working' | 'idle' | 'ended'
 
 export function sessionStateKey(
-  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents'>,
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'>,
 ): SessionStateKey {
   if (session.interruptedAt) return 'interrupted'
   if (session.status === 'needs_input') return asksForHuman(session) ? 'needs_input' : 'done'
-  if (session.status === 'working') return awaitingSubagentCount(session) > 0 ? 'waiting' : 'working'
+  if (session.status === 'working') return awaitedCount(awaitedWork(session)) > 0 ? 'waiting' : 'working'
   return session.status
 }
 
@@ -718,7 +816,7 @@ export function sessionStateKey(
  * ENDED are already told by the planet's pulse, rings and dimming (canvas 24c).
  */
 export function statePill(
-  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents'>,
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'>,
 ): { key: SessionStateKey; label: string } | null {
   const key = sessionStateKey(session)
   switch (key) {
@@ -728,7 +826,7 @@ export function statePill(
     case 'done':
       return { key, label: parkedLabel(session) }
     case 'waiting':
-      return { key, label: awaitingSubagentLabel(awaitingSubagentCount(session)) }
+      return { key, label: waitingLabel(awaitedWork(session)) }
     default:
       return null
   }

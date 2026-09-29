@@ -93,6 +93,8 @@ export function useSceneModel(): SceneModel {
           leavingSince,
           toast: null,
           subagentPanel: null,
+          taskOutput: null,
+          stoppingTasks: {},
           ui: {
             selectedId,
             filterTagId,

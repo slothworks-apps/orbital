@@ -106,6 +106,8 @@ function resetStore(
     // again would otherwise leak it into whatever test runs next in this
     // file.
     subagentPanel: null,
+    taskOutput: null,
+    stoppingTasks: {},
     // Same reason: a draft typed in one test would sit in the next one's
     // composer.
     composerDrafts: {},

@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { recordedFailureFor, useOrbital } from '../store/store'
-import type { ChatMessage, Subagent } from '../lib/types'
+import type { BackgroundTask, ChatMessage, Subagent } from '../lib/types'
 import { Button } from '../ui/Button'
 import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
 import { CompactingBlock } from './CompactionMark'
@@ -12,6 +12,7 @@ import { useCompactionUi } from '../store/compaction'
 /** Stable empty array — a fresh `[]` fallback on every selector call would
  * defeat `useShallow`'s equality check and re-render on every store tick. */
 const NO_SUBAGENTS: Subagent[] = []
+const NO_TASKS: BackgroundTask[] = []
 
 export { pairMessages, groupToolRuns, insertModelDividers, summarizeToolRun } from './TranscriptView'
 export type { TranscriptItem, TranscriptGroup } from './TranscriptView'
@@ -82,6 +83,16 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
     },
     [openSubagent, sessionId]
   )
+  // And its background tasks, for a background `Bash` or `Monitor` row's
+  // `OUTPUT →` (spec 2026-09-28-background-tasks-design § 3).
+  const backgroundTasks = useOrbital(useShallow((s) => s.sessions[sessionId]?.backgroundTasks ?? NO_TASKS))
+  const openTaskOutput = useOrbital((s) => s.openTaskOutput)
+  const handleOpenTaskOutput = useCallback(
+    (task: BackgroundTask) => {
+      void openTaskOutput(sessionId, task.id)
+    },
+    [openTaskOutput, sessionId]
+  )
 
   const [exhausted, setExhausted] = useState(false)
 
@@ -151,6 +162,8 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       observerFactory={observerFactory}
       subagents={subagents}
       onOpenSubagent={handleOpenSubagent}
+      backgroundTasks={backgroundTasks}
+      onOpenTaskOutput={handleOpenTaskOutput}
       compaction={compaction}
       footerKey={compacting ? 'compacting' : undefined}
       footer={

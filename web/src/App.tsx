@@ -22,6 +22,7 @@ import { SpaceMap } from './map/SpaceMap'
 import { Sidebar } from './panels/Sidebar'
 import { DetailPanel } from './panels/DetailPanel'
 import { SubagentPanel } from './panels/SubagentPanel'
+import { TaskOutputPanel } from './panels/TaskOutputPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
@@ -98,7 +99,7 @@ export default function App() {
   // to make room for the subagent panel sitting to its right. `subagentWidthPx`
   // stays 0 (no offset added) whenever the subagent panel is closed, which
   // is what keeps this a no-op in the regression case (requirement 1).
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
   const viewportWidth = useViewportWidth()
   const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, viewportWidth))
   const subagentWidthPx = subagentPanelOpen
@@ -284,6 +285,9 @@ export default function App() {
       <div className="absolute inset-y-4 right-4 z-10">
         <ErrorBoundary label="Subagent panel">
           <SubagentPanel widthPx={subagentWidthPx} />
+        </ErrorBoundary>
+        <ErrorBoundary label="Task output">
+          <TaskOutputPanel widthPx={subagentWidthPx} />
         </ErrorBoundary>
       </div>
 

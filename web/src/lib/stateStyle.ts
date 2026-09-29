@@ -1,4 +1,4 @@
-import { awaitingSubagentLabel, type SessionStateKey } from './types'
+import type { SessionStateKey } from './types'
 
 /**
  * How each session state is drawn — the one mapping every state surface
@@ -128,13 +128,16 @@ const FULL_WORD: Record<Exclude<SessionStateKey, 'waiting'>, string> = {
 }
 
 /**
- * A state's word. `awaiting` is the subagent count a WAITING session waits
- * on (`awaitingSubagentCount`). `short` is the sidebar row's form (24c): the
- * row has room for about eleven characters, so NEEDS INPUT becomes `INPUT`
- * and WAITING carries the moon count instead of the grammar (`WAITING · 2`).
+ * A state's word. `awaiting` is how many things a WAITING session waits on,
+ * agents and background tasks together (`awaitedCount`). `short` is the
+ * sidebar row's form (24c): the row has room for about eleven characters, so
+ * NEEDS INPUT becomes `INPUT` and WAITING carries the count (`WAITING · 2`).
+ * The long form is the detail row's, which says only `WAITING FOR` and lets
+ * the chips beside it carry the nouns (canvas 26d); the map's pill spells
+ * them out itself (`waitingLabel`).
  */
 export function stateWord(key: SessionStateKey, awaiting: number, short = false): string {
-  if (key === 'waiting') return short ? `WAITING · ${awaiting}` : awaitingSubagentLabel(awaiting)
+  if (key === 'waiting') return short ? `WAITING · ${awaiting}` : 'WAITING FOR'
   if (short && key === 'needs_input') return 'INPUT'
   return FULL_WORD[key]
 }

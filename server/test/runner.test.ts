@@ -390,7 +390,7 @@ describe('Runner', () => {
     await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
 
     // `parent_tool_use_id` set: this is a subagent talking, not the session's
-    // own loop. Whether such a session is busy is `hasLiveSubagents`'s answer
+    // own loop. Whether such a session is busy is `hasLiveBackgroundWork`'s answer
     // (unwired here), never a stray frame's.
     script.push({
       type: 'assistant',
@@ -416,7 +416,7 @@ describe('Runner', () => {
       // Answers "nothing running" — the shape that made this a bug: the
       // session's turn was over, so only `send()`'s own mark stands between
       // the user's message and a status that says nobody sent one.
-      hasLiveSubagents: () => false,
+      hasLiveBackgroundWork: () => false,
     });
     // Subagent frames are routed off `session:<id>` onto their own topic
     // (spec `2026-09-22-subagent-transcript-panel-design.md` § 2), so that is
@@ -458,7 +458,7 @@ describe('Runner', () => {
         if (msg.subtype === 'task_started') live.add(msg.task_id);
         if (msg.subtype === 'task_notification') live.delete(msg.task_id);
       },
-      hasLiveSubagents: () => live.size > 0,
+      hasLiveBackgroundWork: () => live.size > 0,
     });
     const events = subscribed(hub, 'session:web-1');
     await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
@@ -480,6 +480,77 @@ describe('Runner', () => {
       task_id: 't1', status: 'completed',
     });
     await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+  });
+
+  it('an interrupt stops the turn but leaves a session with background work running working', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    let live = true;
+    const runner = new Runner({
+      hub, queryFn: script.fn as any, newSessionId: () => 'web-1', sleepAfterMs: 10,
+      hasLiveBackgroundWork: () => live,
+    });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    await runner.interrupt('web-1');
+    expect(runner.status('web-1')).toBe('working');
+    expect(runner.awaitingSubagents('web-1')).toBe(true);
+    // Not put to sleep: sleeping stops the process, and the shell with it.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(runner.status('web-1')).toBe('working');
+    // The shell exiting is what finally hands the session to the human (and
+    // then, this test's sleep being short, to sleep).
+    live = false;
+    script.push({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.event === 'status').map((e) => e.status)).toContain('needs_input'),
+    );
+  });
+
+  it('remembers Bash and Monitor calls and the output path their launch result names', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const paths: Array<[string, string]> = [];
+    const runner = new Runner({
+      hub, queryFn: script.fn as any, newSessionId: () => 'web-1',
+      onTaskOutputPath: (_sid, toolUseId, path) => paths.push([toolUseId, path]),
+    });
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    script.push({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'npm run dev', run_in_background: true } },
+          { type: 'tool_use', id: 'm1', name: 'Monitor', input: { command: 'tail -f x.log' } },
+          { type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: '/p/a' } },
+        ],
+      },
+    });
+    script.push({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'b1', content: 'Command running in background with ID: bx. Output is being written to: /private/tmp/claude-501/-p/web-1/tasks/bx.output. You will be notified when it completes.' },
+          { type: 'tool_result', tool_use_id: 'm1', content: [{ type: 'text', text: 'Monitor started. Output is being written to: /private/tmp/claude-501/-p/web-1/tasks/mx.output' }] },
+          // A tool the tracker has no use for is never read, whatever it says.
+          { type: 'tool_result', tool_use_id: 'r1', content: 'Output is being written to: /etc/passwd.output.' },
+        ],
+      },
+    });
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+    expect(paths).toEqual([
+      ['b1', '/private/tmp/claude-501/-p/web-1/tasks/bx.output'],
+      ['m1', '/private/tmp/claude-501/-p/web-1/tasks/mx.output'],
+    ]);
+    expect(runner.launchingCall('web-1', 'b1')).toEqual({
+      name: 'Bash', input: { command: 'npm run dev', run_in_background: true },
+      outputPath: '/private/tmp/claude-501/-p/web-1/tasks/bx.output',
+    });
+    expect(runner.launchingCall('web-1', 'm1')?.name).toBe('Monitor');
+    expect(runner.launchingCall('web-1', 'r1')).toBeUndefined();
   });
 
   it('interrupt() calls the SDK interrupt', async () => {

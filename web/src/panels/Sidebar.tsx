@@ -18,7 +18,7 @@ import { TopGlint } from '../ui/TopGlint'
 import { useWindowBand } from '../lib/windowChrome'
 import { useWindowFocused } from '../lib/useWindowFocused'
 import { useViewportWidth } from '../lib/useViewportWidth'
-import { awaitingSubagentCount, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { awaitedCount, awaitedWork, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { compactingLabelOpacity, compactingOf, formatElapsed } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
 import { stateColor, stateDot, stateWord } from '../lib/stateStyle'
@@ -251,7 +251,7 @@ function RowStatus({ session }: { session: ApiSession }) {
       style={{ color }}
     >
       <StateDot dot={stateDot(key, 'label')} color={color} solidPx={5} hollowPx={6} />
-      {stateWord(key, awaitingSubagentCount(session), true)}
+      {stateWord(key, awaitedCount(awaitedWork(session)), true)}
     </span>
   )
 }

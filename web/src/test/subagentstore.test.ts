@@ -57,6 +57,8 @@ beforeEach(() => {
   handlers.clear()
   useOrbital.setState({
     subagentPanel: null,
+    taskOutput: null,
+    stoppingTasks: {},
     sessions: {},
     ui: { ...useOrbital.getState().ui, selectedId: null },
   })

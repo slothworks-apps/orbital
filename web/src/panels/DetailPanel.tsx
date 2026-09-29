@@ -59,14 +59,15 @@ import { EndDialog } from './EndDialog'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { SubagentChip } from './SubagentChip'
+import { TaskChip } from './TaskChip'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
 import { endedFootnote, formatContextWindow, formatTokens } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
 import { compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
 import { useCompactionUi } from '../store/compaction'
-import { awaitingSubagentCount, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
-import type { ApiSession, Tag, WalkthroughSummary } from '../lib/types'
+import { isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import type { ApiSession, BackgroundTask, Tag, WalkthroughSummary } from '../lib/types'
 
 /**
  * The one tag the session wears — first resolvable id, falling back to the
@@ -92,6 +93,9 @@ const ACCENT_HUE = GLINT_ACCENT_HUE
  * identical metrics — a swap that moved the text by a pixel would read as a
  * jump — and the auto-grow below measures in these same units.
  */
+/** Canvas 26c: the session column from which the subagent and ▣ chips both fit in their full form. */
+const CHIPS_FULL_MIN_PX = 540
+const NO_TASKS: readonly BackgroundTask[] = []
 const TITLE_FONT_PX = 22
 const TITLE_LINE_HEIGHT = 1.15
 const TITLE_TYPE = {
@@ -241,7 +245,8 @@ export function DetailPanel({
   // is exactly what keeps a drag that requests more room than the ceiling
   // allows from ever widening the panel past it (spec § 8 "Layout").
   const detailWidth = parseDetailPanelWidth(settings, windowWidth)
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null)
+  // The side slot holds a subagent or a task's output; either narrows this panel the same way.
+  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
   const renderedDetailWidth = subagentPanelOpen
     ? resolvePanelPairWidths(detailWidth, SUBAGENT_PANEL_DEFAULT_PX, windowWidth).detailWidthPx
     : detailWidth
@@ -645,6 +650,22 @@ export function DetailPanel({
         ? { text: 'OVER WINDOW', ink: oklchCss(CONTEXT_CRITICAL_OKLCH) }
         : undefined
 
+  // The panel has the live question in the store as well as on the
+  // snapshot, and the store's copy is the fresher of the two — it hears
+  // `decision_pending` directly.
+  const stateKey = session
+    ? sessionStateKey({ ...session, pendingDecision: pendingDecision ?? session.pendingDecision })
+    : 'idle'
+  // 26d: once the turn is over and only launched work runs, the badge says
+  // WAITING FOR and the chips after it carry the nouns.
+  const waiting = stateKey === 'waiting'
+  const tasks = session?.backgroundTasks ?? NO_TASKS
+  // 26c: both chips at full width need `CHIPS_FULL_MIN_PX` of session column;
+  // below it, with both shown, each takes its compact form.
+  const columnWidth = standalone ? standaloneWidth : renderedDetailWidth
+  const compactChips =
+    columnWidth < CHIPS_FULL_MIN_PX && tasks.length > 0 && (session?.subagents.length ?? 0) > 0
+
   return (
     // 1b paints a faint outer bloom in the session's hue around the panel.
     // Slide wrapper, not `Panel` itself: Panel already declares
@@ -896,16 +917,26 @@ export function DetailPanel({
                   // The panel has the live question in the store as well as on
                   // the snapshot, and the store's copy is the fresher of the
                   // two — it hears `decision_pending` directly.
-                  state={sessionStateKey({
-                    ...session,
-                    pendingDecision: pendingDecision ?? session.pendingDecision,
-                  })}
-                  awaiting={awaitingSubagentCount(session)}
+                  state={stateKey}
                 />
               )}
               {/* Subagent list spec § 1: the chip is as tall as the badge,
-                  so the row does not grow; none at all without subagents. */}
-              <SubagentChip sessionId={session.id} subagents={session.subagents} withinRef={stateRowRef} />
+                  so the row does not grow; none at all without subagents.
+                  The ▣ chip follows it on the same terms (26a). */}
+              <SubagentChip
+                sessionId={session.id}
+                subagents={session.subagents}
+                compact={compactChips}
+                waiting={waiting}
+                withinRef={stateRowRef}
+              />
+              <TaskChip
+                sessionId={session.id}
+                tasks={tasks}
+                compact={compactChips}
+                waiting={waiting}
+                withinRef={stateRowRef}
+              />
               <span aria-hidden className="flex-1" />
               {showContext && contextNote && (
                 // 9d names the note but draws no state that carries one; it

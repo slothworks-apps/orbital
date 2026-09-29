@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { asksForHuman, awaitingSubagentCount, awaitingSubagentLabel, parkedLabel } from '../lib/types'
-import type { ApiSession, Subagent } from '../lib/types'
+import { asksForHuman, awaitedWork, awaitingSubagentCount, parkedLabel, taskPhrase, waitingLabel } from '../lib/types'
+import type { ApiSession, BackgroundTask, Subagent } from '../lib/types'
 
 const agent = (id: string, state: Subagent['state'] = 'working'): Subagent => ({
   id,
@@ -52,10 +52,51 @@ describe('awaitingSubagentCount', () => {
   })
 })
 
-describe('awaitingSubagentLabel', () => {
-  it('agrees with itself about grammar', () => {
-    expect(awaitingSubagentLabel(1)).toBe('WAITING FOR AGENT')
-    expect(awaitingSubagentLabel(3)).toBe('WAITING FOR AGENTS')
+const task = (kind: BackgroundTask['kind'], state: BackgroundTask['state'] = 'running'): BackgroundTask => ({
+  id: `${kind}-${Math.random()}`,
+  kind,
+  label: kind,
+  state,
+  startedAt: 0,
+  hasOutput: false,
+})
+
+describe('awaitedWork', () => {
+  it('counts running agents and running tasks, ended ones left out', () => {
+    const work = awaitedWork({
+      ...session({ subagents: [agent('a'), agent('b', 'ended')] }),
+      backgroundTasks: [task('shell'), task('workflow', 'ended'), task('mcp')],
+    })
+    expect(work).toEqual({ agents: 1, tasks: ['shell', 'mcp'] })
+  })
+
+  it('is empty while the session is doing something of its own', () => {
+    const work = awaitedWork({ ...session({ awaitingSubagents: false }), backgroundTasks: [task('shell')] })
+    expect(work).toEqual({ agents: 0, tasks: [] })
+  })
+})
+
+describe('waitingLabel (26d)', () => {
+  it('drops a count of one and shows it from two, agents included', () => {
+    expect(waitingLabel({ agents: 1, tasks: [] })).toBe('WAITING FOR AGENT')
+    expect(waitingLabel({ agents: 2, tasks: [] })).toBe('WAITING FOR 2 AGENTS')
+    expect(waitingLabel({ agents: 0, tasks: ['shell'] })).toBe('WAITING FOR SHELL')
+    expect(waitingLabel({ agents: 0, tasks: ['shell', 'shell'] })).toBe('WAITING FOR 2 SHELLS')
+  })
+
+  it('puts agents first, joins with +, and names mixed kinds TASKS', () => {
+    expect(waitingLabel({ agents: 1, tasks: ['shell', 'shell'] })).toBe('WAITING FOR AGENT + 2 SHELLS')
+    expect(waitingLabel({ agents: 0, tasks: ['shell', 'workflow'] })).toBe('WAITING FOR 2 TASKS')
+    expect(waitingLabel({ agents: 2, tasks: ['shell', 'monitor'] })).toBe('WAITING FOR 2 AGENTS + 2 TASKS')
+    expect(waitingLabel({ agents: 2, tasks: ['mcp', 'mcp'] })).toBe('WAITING FOR 2 AGENTS + 2 MCP TASKS')
+  })
+})
+
+describe('taskPhrase', () => {
+  it('always counts in the chips form', () => {
+    expect(taskPhrase(['monitor'], false)).toBe('1 monitor')
+    expect(taskPhrase(['mcp'], true)).toBe('MCP task')
+    expect(taskPhrase([], false)).toBe('')
   })
 })
 
