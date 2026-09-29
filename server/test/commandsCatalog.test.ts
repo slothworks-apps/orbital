@@ -86,6 +86,25 @@ describe('collectCommands', () => {
     ]);
   });
 
+  it('carries the argument-hint of a command and of a skill, and nothing for a file without one', () => {
+    const claudeDir = makeRoot('claude');
+    write(
+      join(claudeDir, 'commands', 'fix.md'),
+      '---\ndescription: fix an issue\nargument-hint: [issue-number] [priority]\n---\nbody\n',
+    );
+    write(join(claudeDir, 'commands', 'plain.md'), 'no frontmatter\n');
+    write(
+      join(claudeDir, 'skills', 'review', 'SKILL.md'),
+      '---\nname: review\ndescription: review a PR\nargument-hint: "<pr-number>"\n---\n',
+    );
+
+    expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([
+      { name: 'fix', description: 'fix an issue', source: 'user', argumentHint: '[issue-number] [priority]' },
+      { name: 'plain', description: '', source: 'user' },
+      { name: 'review', description: 'review a PR', source: 'user', argumentHint: '<pr-number>' },
+    ]);
+  });
+
   it('names a user skill after its directory and describes it from SKILL.md', () => {
     const claudeDir = makeRoot('claude');
     skill(claudeDir, 'find-skills');

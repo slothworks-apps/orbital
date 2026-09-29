@@ -875,6 +875,9 @@ export interface SlashCommand {
   name: string
   description: string
   source: CommandSource
+  /** What the command takes, ghosted after `/name ` in the composer (spec:
+   * 2026-09-29-composer-rich-editor-design § 3). */
+  argumentHint?: string
 }
 
 /** One row of `GET /api/files/complete`. `size` is absent for directories. */

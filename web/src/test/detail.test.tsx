@@ -16,6 +16,7 @@ import { api } from '../lib/api'
 import { DetailPanel } from '../panels/DetailPanel'
 import { ModelSwitcher } from '../panels/ModelSwitcher'
 import { installKeyListener } from '../lib/commands'
+import { clickAndType, fieldValue, replaceField } from './composerField'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -416,18 +417,17 @@ describe('DetailPanel header', () => {
 
     render(<DetailPanel />)
     const promptBox = screen.getByRole('textbox', { name: /prompt/i })
-    await user.type(promptBox, 'a prompt in progress')
+    clickAndType(promptBox, 'a prompt in progress')
 
     const titleInput = await openTitle(user, 'Old title')
     await user.clear(titleInput)
     await user.type(titleInput, 'New title{Enter}')
 
     await waitFor(() => expect(useOrbital.getState().sessions.a.title).toBe('New title'))
-    expect(promptBox).toHaveValue('a prompt in progress')
+    expect(fieldValue(promptBox)).toBe('a prompt in progress')
   })
 
   it('keeps each session its own prompt draft across switching away and back', async () => {
-    const user = userEvent.setup()
     resetStore({
       sessions: {
         a: makeSession({ id: 'a', source: 'web', status: 'idle' }),
@@ -437,15 +437,15 @@ describe('DetailPanel header', () => {
     })
 
     render(<DetailPanel />)
-    await user.type(screen.getByRole('textbox', { name: /prompt/i }), 'half a thought')
+    clickAndType(screen.getByRole('textbox', { name: /prompt/i }), 'half a thought')
 
     act(() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'b' } })))
     const promptBox = screen.getByRole('textbox', { name: /prompt/i })
-    expect(promptBox).toHaveValue('')
-    await user.type(promptBox, 'yes')
+    expect(fieldValue(promptBox)).toBe('')
+    clickAndType(promptBox, 'yes')
 
     act(() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'a' } })))
-    expect(screen.getByRole('textbox', { name: /prompt/i })).toHaveValue('half a thought')
+    expect(fieldValue(screen.getByRole('textbox', { name: /prompt/i }))).toBe('half a thought')
     expect(useOrbital.getState().composerDrafts.b).toBe('yes')
   })
 
@@ -663,14 +663,13 @@ describe('DetailPanel footer', () => {
 
     render(<DetailPanel />)
     const textbox = screen.getByRole('textbox', { name: /prompt/i })
-    await user.type(textbox, 'hello there')
+    clickAndType(textbox, 'hello there')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
     expect(sendSpy).toHaveBeenCalledWith('a', 'hello there')
   })
 
   it('sends on Enter and inserts a newline on Shift+Enter instead of sending', async () => {
-    const user = userEvent.setup()
     vi.mocked(api.sendMessage).mockResolvedValue({ ok: true })
     resetStore({
       sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
@@ -680,7 +679,7 @@ describe('DetailPanel footer', () => {
 
     render(<DetailPanel />)
     const textbox = screen.getByRole('textbox', { name: /prompt/i })
-    await user.type(textbox, 'line one')
+    clickAndType(textbox, 'line one')
     fireEvent.keyDown(textbox, { key: 'Enter', shiftKey: true })
     expect(sendSpy).not.toHaveBeenCalled()
 
@@ -698,7 +697,7 @@ describe('DetailPanel footer', () => {
 
     render(<DetailPanel />)
     const textbox = screen.getByRole('textbox', { name: /prompt/i })
-    await user.type(textbox, 'optimistic ping')
+    clickAndType(textbox, 'optimistic ping')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
     expect(await screen.findByText('optimistic ping')).toBeInTheDocument()
@@ -763,7 +762,7 @@ describe('DetailPanel footer', () => {
     render(<DetailPanel />)
 
     expect(screen.getByRole('textbox', { name: /prompt/i })).toHaveAttribute(
-      'placeholder',
+      'aria-placeholder',
       'Continue conversation…'
     )
   })
@@ -777,14 +776,13 @@ describe('DetailPanel footer', () => {
     render(<DetailPanel />)
 
     expect(screen.getByRole('textbox', { name: /prompt/i })).toHaveAttribute(
-      'placeholder',
+      'aria-placeholder',
       'Send a message…'
     )
   })
 
   // The composer is `panels/Composer` now (spec: 2026-09-20-composer-design),
-  // so the hint carries the paste affordance and the field has its highlight
-  // mirror behind it.
+  // so the hint carries the paste affordance and the field is its editor.
   it('shows the panel mount`s key hint beside the composer actions (canvas 9a)', async () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
@@ -797,7 +795,7 @@ describe('DetailPanel footer', () => {
     expect(screen.getByRole('button', { name: /send/i })).toHaveTextContent('Send ↑')
   })
 
-  it('mounts the highlight mirror behind the panel`s prompt field', async () => {
+  it('mounts the composer`s editor as the panel`s prompt field', async () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a', source: 'web', status: 'idle' }) },
       ui: { selectedId: 'a' },
@@ -805,7 +803,7 @@ describe('DetailPanel footer', () => {
 
     render(<DetailPanel />)
 
-    expect(document.querySelector('[data-composer-mirror]')).not.toBeNull()
+    expect(document.querySelector('[data-composer-field]')).not.toBeNull()
   })
 
   it('hides the composer key hint for a live terminal session (no composer to drive)', async () => {
@@ -817,7 +815,7 @@ describe('DetailPanel footer', () => {
     render(<DetailPanel />)
 
     expect(screen.queryByText(/⏎ send/)).not.toBeInTheDocument()
-    expect(document.querySelector('[data-composer-mirror]')).toBeNull()
+    expect(document.querySelector('[data-composer-field]')).toBeNull()
   })
 })
 
@@ -1327,11 +1325,11 @@ describe('DetailPanel image intake', () => {
     await waitFor(() => expect(screen.getAllByTestId('attachment-chip')).toHaveLength(1))
 
     const textbox = screen.getByRole('textbox', { name: /prompt/i })
-    fireEvent.change(textbox, { target: { value: 'both at 390' } })
+    replaceField(textbox, 'both at 390')
     fireEvent.click(screen.getByRole('button', { name: /send/i }))
 
     // The field cleared at once; the turn has not gone out yet.
-    expect(textbox).toHaveValue('')
+    expect(fieldValue(textbox)).toBe('')
     expect(sendSpy).not.toHaveBeenCalled()
 
     await act(async () => {

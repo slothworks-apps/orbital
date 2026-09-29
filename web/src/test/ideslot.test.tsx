@@ -12,6 +12,7 @@ import { promptWithSelection, selectionId } from '../lib/ideSelection'
 import { useOrbital } from '../store/store'
 import { IDE_SELECTION_DEBOUNCE_MS } from '../lib/useIdeReadout'
 import type { FileCompletionEntry, IdeContext } from '../lib/types'
+import { fieldValue, focusField } from './composerField'
 
 /**
  * The composer's editor slot (spec: 2026-09-23-ide-bridge-design; canvas
@@ -36,7 +37,7 @@ function ide(over: Partial<IdeContext> = {}): IdeContext {
 }
 
 const slot = () => document.querySelector<HTMLElement>('[data-ide-slot]')
-const field = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Prompt' })
+const field = () => screen.getByRole('textbox', { name: 'Prompt' })
 
 /** Controlled wrapper — both real mounts own the draft, so the harness does too. */
 function Harness({ initial = '', ...props }: Partial<ComposerProps> & { initial?: string }) {
@@ -207,10 +208,10 @@ describe('the completion list with an editor connected', () => {
     render(<Harness initial="@De" />)
     // The caret is where the accept splices: in the real app the field has
     // focus and the caret sits at the end of the fragment being completed.
-    await userEvent.click(field())
+    focusField(field())
     await screen.findByRole('listbox', { name: /completions/i })
     await userEvent.click(screen.getAllByRole('option')[0])
-    expect(field().value).toBe('@web/src/panels/DetailPanel.tsx ')
+    expect(fieldValue(field())).toBe('@web/src/panels/DetailPanel.tsx ')
   })
 
   it('draws the shipped list unchanged when nothing is open', async () => {

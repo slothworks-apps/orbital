@@ -15,7 +15,7 @@ const CATALOG: SlashCommand[] = [
 ]
 const KNOWN = commandNameSet(CATALOG)
 
-/** The invariant the mirror depends on: tokens re-join to the input, verbatim. */
+/** The invariant the paint depends on: tokens re-join to the input, verbatim. */
 function joined(text: string) {
   return tokenizeComposer(text, KNOWN)
     .map((t) => t.text)

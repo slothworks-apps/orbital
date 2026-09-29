@@ -1,11 +1,11 @@
 /**
  * The composer's tokenizer (spec: 2026-09-20-composer-design § Highlighting).
  *
- * Pure, and deliberately so: the highlight mirror renders these runs behind a
- * transparent textarea, so the one invariant that matters is that the runs
+ * Pure, and deliberately so: the composer paints these runs as decorations
+ * over its own text (`composerDecorations`), mapping each run's length onto
+ * document positions, so the one invariant that matters is that the runs
  * re-join to the input VERBATIM — a tokenizer that trimmed, normalised or
- * dropped a single character would slide every glyph after it out from under
- * the caret.
+ * dropped a single character would slide every paint after it off its text.
  *
  * Two token kinds, per canvas 9a/9e: a command slug (an exact catalog match
  * wherever a `/` starts a word) and a mention (`@path` with an optional
@@ -25,7 +25,7 @@ export type ComposerToken =
   | { kind: 'text'; text: string }
   /** `name` is the slug without its leading slash — the catalog's own key. */
   | { kind: 'command'; text: string; name: string }
-  /** `suffix` is the raw `:line[:col]` (or ''), which the mirror paints muted. */
+  /** `suffix` is the raw `:line[:col]` (or ''), which the composer paints muted. */
   | { kind: 'mention'; text: string; path: string; suffix: string }
 
 /**
@@ -132,7 +132,7 @@ export function tokenizeComposer(
   for (const hit of hits) {
     // Both scans require a word start, so an overlap needs one run to contain
     // the other; the earlier one keeps it and the prose between is emitted
-    // verbatim, which is the invariant the mirror rests on.
+    // verbatim, which is the invariant the paint rests on.
     if (hit.start < cursor) continue
     if (hit.start > cursor) tokens.push({ kind: 'text', text: text.slice(cursor, hit.start) })
     tokens.push(hit.token)

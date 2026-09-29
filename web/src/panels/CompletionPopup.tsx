@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { KeyboardEvent as ReactKeyboardEvent, Ref, RefObject } from 'react'
+import type { Ref, RefObject } from 'react'
 import { api } from '../lib/api'
 import { matchCommands } from '../lib/commandMatch'
 import { formatBytes } from '../lib/format'
@@ -15,7 +15,7 @@ import type { CommandSource, CompletionKey, FileCompletionEntry, SlashCommand } 
  * The composer's completion list (spec: 2026-09-20-composer-design §
  * Completion popup; canvas 9b).
  *
- * Focus never leaves the textarea. The list is a `role="listbox"` of
+ * Focus never leaves the field. The list is a `role="listbox"` of
  * `role="option"` rows wired to the field with `aria-activedescendant`, and
  * every key it owns arrives through the field: the composer offers each
  * keydown to `handleKeyDown` first and the popup answers whether it took it.
@@ -78,9 +78,15 @@ type Row =
       keepOpen: boolean
     }
 
+/** The part of a keydown the list reads — the editor hands it a native one. */
+export type CompletionKeyEvent = Pick<
+  KeyboardEvent,
+  'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey' | 'preventDefault'
+>
+
 export interface CompletionHandle {
   /** Offers one keydown to the popup; true when the popup consumed it. */
-  handleKeyDown: (e: ReactKeyboardEvent) => boolean
+  handleKeyDown: (e: CompletionKeyEvent) => boolean
 }
 
 export interface CompletionPopupProps {
@@ -262,7 +268,7 @@ export function CompletionPopup({
   useImperativeHandle(
     ref,
     () => ({
-      handleKeyDown(e: ReactKeyboardEvent) {
+      handleKeyDown(e: CompletionKeyEvent) {
         if (!shown) return false
         // A chord is never the list's: ⌘⏎ is the dialog's launch, and ⇧⏎ is
         // the panel's newline. The list owns the bare keys only.

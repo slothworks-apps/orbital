@@ -30,6 +30,10 @@ export interface CatalogCommand {
   name: string;
   description: string;
   source: CommandSource;
+  /** The `argument-hint` frontmatter, which the composer ghosts after the
+   * slug (spec: 2026-09-29-composer-rich-editor-design § 3). Absent when the
+   * file has none. */
+  argumentHint?: string;
 }
 
 /** How deep under a `skills/` root a `SKILL.md` may sit. Two is what the real
@@ -108,9 +112,18 @@ function readText(path: string): string | null {
   }
 }
 
-function describe(path: string): string {
+/**
+ * What a row says about itself, from its file's frontmatter: the description,
+ * and the `argument-hint` when there is one. Both are optional in the file.
+ */
+function describe(frontmatter: Record<string, string>): Pick<CatalogCommand, 'description' | 'argumentHint'> {
+  const hint = frontmatter['argument-hint'];
+  return { description: frontmatter.description ?? '', ...(hint ? { argumentHint: hint } : {}) };
+}
+
+function frontmatterOf(path: string): Record<string, string> {
   const text = readText(path);
-  return text ? (parseFrontmatter(text).description ?? '') : '';
+  return text ? parseFrontmatter(text) : {};
 }
 
 /**
@@ -124,8 +137,8 @@ function scanCommandsDir(dir: string, source: CommandSource, prefix: string): Ca
     if (entry.isDir || !entry.name.endsWith('.md')) continue;
     out.push({
       name: prefix + entry.name.slice(0, -'.md'.length),
-      description: describe(join(dir, entry.name)),
       source,
+      ...describe(frontmatterOf(join(dir, entry.name))),
     });
   }
   return out;
@@ -150,7 +163,7 @@ function scanSkillsDir(
     if (manifest !== null) {
       // The directory names the command, not the frontmatter's `name:` — the
       // directory is what the CLI resolves `/<name>` against.
-      out.push({ name: prefix + entry.name, description: parseFrontmatter(manifest).description ?? '', source });
+      out.push({ name: prefix + entry.name, source, ...describe(parseFrontmatter(manifest)) });
     } else if (depth < SKILL_MAX_DEPTH) {
       out.push(...scanSkillsDir(child, source, prefix, depth + 1));
     }

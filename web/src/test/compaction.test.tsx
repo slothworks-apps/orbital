@@ -146,14 +146,14 @@ describe('the composer while a compaction runs', () => {
   it('is locked, says why, and cannot send', () => {
     renderWith(session({ compacting: { startedAt: Date.now(), trigger: 'manual' } }), 'hello')
     const field = screen.getByRole('textbox', { name: 'Prompt' })
-    expect(field).toBeDisabled()
-    expect(field).toHaveAttribute('placeholder', 'Compacting. You can write again when it’s done.')
+    expect(field).toHaveAttribute('aria-disabled', 'true')
+    expect(field).toHaveAttribute('aria-placeholder', 'Compacting. You can write again when it’s done.')
     expect(screen.getByRole('button', { name: /Send/ })).toBeDisabled()
   })
 
   it('is open again once it is not compacting', () => {
     renderWith(session({ compacting: null }), 'hello')
-    expect(screen.getByRole('textbox', { name: 'Prompt' })).not.toBeDisabled()
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).not.toHaveAttribute('aria-disabled')
     expect(screen.getByRole('button', { name: /Send/ })).not.toBeDisabled()
   })
 

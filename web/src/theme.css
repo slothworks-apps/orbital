@@ -390,6 +390,60 @@ body {
   animation: orbital-fade-out 0.2s ease forwards;
 }
 
+/* The composer's formatted content (spec 2026-09-29-composer-rich-editor-design
+   § 1). Lists, inline code and fenced blocks borrow the transcript's own
+   treatment (`MessageView`) so a prompt looks like the turn it becomes; the
+   transcript leaves quotes and headings unstyled, so the field gives a quote a
+   rule and a heading only a small step up from the body size, which keeps a
+   heading from blowing the field up. Blocks sit flush — the field's own
+   metrics are the body text — with a small gap between siblings. */
+.orbital-composer-field > * + *,
+.orbital-composer-field li > * + *,
+.orbital-composer-field blockquote > * + * {
+  margin-top: 0.25rem;
+}
+.orbital-composer-field ul {
+  @apply list-disc pl-5;
+}
+.orbital-composer-field ol {
+  @apply list-decimal pl-5;
+}
+.orbital-composer-field code {
+  @apply rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em];
+}
+.orbital-composer-field pre {
+  @apply rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft whitespace-pre-wrap wrap-anywhere;
+}
+.orbital-composer-field pre code {
+  @apply bg-transparent p-0 text-[1em];
+}
+.orbital-composer-field blockquote {
+  @apply border-l-2 border-[rgba(150,205,255,.3)] pl-3 text-[rgba(200,220,245,.8)];
+}
+.orbital-composer-field h1,
+.orbital-composer-field h2,
+.orbital-composer-field h3,
+.orbital-composer-field h4,
+.orbital-composer-field h5,
+.orbital-composer-field h6 {
+  @apply font-semibold;
+}
+.orbital-composer-field h1 {
+  @apply text-[15.5px];
+}
+.orbital-composer-field h2 {
+  @apply text-[14.5px];
+}
+/* The placeholder (`@tiptap/extensions` Placeholder) — the textarea's own
+   placeholder ink. */
+.orbital-composer-field p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: rgba(160, 190, 225, 0.5);
+}
+
 /* A tooltip arriving (canvas 4d, drawn in 4a): a fade plus the last few
    pixels of downward travel, so a bubble that waited out its delay reads as
    settling into place rather than blinking on. */
@@ -501,7 +555,7 @@ body {
    a rehype plugin, not by JSX, so there is no `className` string for the
    Tailwind scanner to find.
    --------------------------------------------------------------------------- */
-/* No negative margin here, unlike the composer's mirror: there is no caret to
+/* No negative margin here, unlike the composer's tokens: there is no caret to
    stay in register with in a sent turn, so the padding is real — which is also
    how the canvas draws it (9c-3, 9e SENT carry padding and no margin). */
 .orbital-sent-command,

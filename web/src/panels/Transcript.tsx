@@ -113,7 +113,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   const live = session?.source === 'web' && session.status !== 'ended'
   const handleCompactAgain = useCallback(() => {
     setComposerDraft(sessionId, '/compact')
-    document.querySelector<HTMLTextAreaElement>('[data-composer-well] textarea')?.focus()
+    document.querySelector<HTMLElement>('[data-composer-field]')?.focus()
   }, [setComposerDraft, sessionId])
   const handleRevealed = useCallback(() => setReveal(null), [setReveal])
   const compaction = useMemo(

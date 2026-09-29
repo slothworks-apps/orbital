@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import { EditorContent, useEditor } from '@tiptap/react'
+import { Extension, type Editor } from '@tiptap/core'
+import { Placeholder } from '@tiptap/extensions'
+import { Selection } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
 import { api } from '../lib/api'
 import { chordLabel, command, matches } from '../lib/keymap'
 import {
@@ -7,7 +12,20 @@ import {
   completionContext,
   tokenizeComposer,
   unknownCommand,
+  type CompletionContext,
 } from '../lib/composerTokens'
+import {
+  clipboardMarkdown,
+  composerMarkdown,
+  composerSchemaExtensions,
+  markdownPasteSlice,
+  parseComposerMarkdown,
+} from '../lib/composerMarkdown'
+import {
+  composerDecorationsPlugin,
+  refreshDecorations,
+  type TokenSource,
+} from '../lib/composerDecorations'
 import { CompletionPopup, type CompletionHandle } from './CompletionPopup'
 import { AttachmentChip } from './AttachmentChip'
 import { ATTACHMENT_TYPES_LINE, MAX_ATTACHMENTS, filesFrom } from '../lib/attachments'
@@ -22,26 +40,19 @@ import type { CompletionKey, IdeContext, SlashCommand } from '../lib/types'
  * 2026-09-20-composer-design § The component; canvas 9a/9b/9d). Mounted in
  * `DetailPanel`'s footer and as the New Session dialog's FIRST PROMPT field.
  *
- * ## How the highlight stays in lockstep
+ * ## A rich-text field that speaks markdown
  *
- * The field's own text is transparent (the caret keeps the accent colour) and
- * an `aria-hidden` mirror behind it renders the same string with token spans.
- * Three things keep the two in register, and all three are load-bearing:
+ * The field is a Tiptap editor (spec: 2026-09-29-composer-rich-editor-design;
+ * ADR the-composer-becomes-a-tiptap-editor): `- ` becomes a bullet, `**word**`
+ * comes out bold. What goes in and out is still a markdown string — `value`
+ * and `onChange` — so the callers' drafts and the send path never see the
+ * editor. `lib/composerMarkdown` owns the schema and both directions of the
+ * markdown; `lib/composerDecorations` paints the tokens.
  *
- * 1. `FIELD_METRICS` is applied to BOTH elements — one string, so font,
- *    size, leading and wrapping cannot drift apart. Neither element carries
- *    padding of its own (the well owns it, canvas 9a), so there is no padding
- *    to keep in sync either.
- * 2. Token spans cancel their own padding with an equal negative margin, so a
- *    token contributes exactly the width of its glyphs. The canvas pairs `1px
- *    5px` with `0 -2px`, which does not cancel — that compensated for the
- *    canvas setting tokens in mono at 12.5 inside 13.5 sans prose. The spec
- *    drops the font change (a mirror cannot survive one), so the compensation
- *    goes with it; keeping it would slide every glyph after a token 6px off
- *    the caret. See "Deviations" in the spec, same constraint.
- * 3. The mirror scrolls with the field, and the field never wraps differently:
- *    `text-wrap: pretty` is deliberately absent, since a textarea does not
- *    honour it and the mirror would break its lines somewhere else.
+ * The editor is the source of truth while it is being typed in. `value` is
+ * parsed back into it only when it differs from the last markdown this field
+ * emitted — a session switch, a draft cleared after send — never on its own
+ * keystrokes, which would reset the caret.
  *
  * ## Image intake
  *
@@ -52,13 +63,12 @@ import type { CompletionKey, IdeContext, SlashCommand } from '../lib/types'
  * panel in one mount, the dialog surface in the other. All this component does
  * with either is draw them: the chip row above the text, the marker over the
  * well, the refusal line in place of the hint. Paste is the one intake that is
- * genuinely the field's, so it hangs off the textarea here.
+ * genuinely the field's, so it hangs off the editor's DOM here.
  */
 
 /**
- * Everything that decides where a glyph lands. Applied verbatim to the field
- * and to the mirror; nothing else may set any of these on either element.
- * Canvas 9a/9e: prose 13.5px at 1.62.
+ * Body text metrics — canvas 9a/9e: prose 13.5px at 1.62. Formatting that
+ * changes size (a heading, a code block) sets its own on top.
  */
 export const FIELD_METRICS = 'font-sans text-[13.5px] leading-[1.62] whitespace-pre-wrap break-words'
 
@@ -79,14 +89,52 @@ const MENTION_PROBE_MS = 250
  */
 const POPUP_HINT = '⏎ accept · esc closes the list · ⌘V paste image'
 
+/**
+ * The editable root. `orbital-composer-field` carries the formatted content's
+ * look (theme.css); the rest is the field the textarea used to be: grows with
+ * its content, then scrolls, accent caret. `tabindex` makes it focusable
+ * where contenteditable alone is not (jsdom); a browser already treats it so.
+ */
+const FIELD_CLASS = `orbital-composer-field block min-h-[36px] w-full overflow-y-auto text-text-bright caret-accent focus:outline-none ${FIELD_METRICS}`
+
+/**
+ * The `/` or `@` token the caret is in, read off the text of the block it
+ * sits in (spec § 3). `completionContext` stays the one rule for what counts;
+ * this only maps its offsets onto the document. Code — a block or an inline
+ * mark — completes nothing.
+ */
+function readCompletion(editor: Editor): CompletionContext | null {
+  const { selection, schema } = editor.state
+  if (!selection.empty) return null
+  const { $from } = selection
+  if (!$from.parent.isTextblock || $from.parent.type.spec.code) return null
+  if (schema.marks.code && $from.marks().some((m) => m.type === schema.marks.code)) return null
+  const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\n')
+  const context = completionContext(before, before.length)
+  if (!context) return null
+  // `start` becomes a document position: the popup only reads the kind and
+  // the prefix, and the accept replaces from here to the caret.
+  return { ...context, start: $from.start() + context.start }
+}
+
+const sameCompletion = (a: CompletionContext | null, b: CompletionContext | null) =>
+  a === b || (a !== null && b !== null && a.kind === b.kind && a.start === b.start && a.prefix === b.prefix)
+
+/** The caret at the end of the document, the way a textarea's lands after its value is set. */
+function caretToEnd(editor: Editor) {
+  const { tr, doc } = editor.state
+  editor.view.dispatch(tr.setSelection(Selection.atEnd(doc)))
+}
+
 export interface ComposerProps {
   /** Which session (panel) or directory (dialog) completions resolve against. */
   sessionKey: CompletionKey
+  /** Markdown in both directions. */
   value: string
   onChange: (value: string) => void
   /** ⏎ sends in the panel, newlines in the dialog (canvas 9d). */
   enter: 'send' | 'newline'
-  /** Called with the trimmed text when ⏎ sends. */
+  /** Called with the trimmed markdown when ⏎ sends. */
   onSend?: (text: string) => void
   /** The popup opens above on the panel floor, below in the dialog (canvas 9b/9d). */
   placement: 'above' | 'below'
@@ -104,7 +152,7 @@ export interface ComposerProps {
   /**
    * The session cannot take a message right now — it is compacting its
    * context (spec 2026-09-28-context-compaction-design § Transcript while it
-   * runs). The field is disabled and the well quiets down (canvas 26c); the
+   * runs). The field is read-only and the well quiets down (canvas 26c); the
    * caller supplies the placeholder that says why and keeps its own Send
    * inert.
    */
@@ -169,14 +217,10 @@ export function Composer({
 }: ComposerProps) {
   const listboxId = `${useId()}-completions`
   const wellRef = useRef<HTMLDivElement | null>(null)
-  const mirrorRef = useRef<HTMLDivElement | null>(null)
-  const fieldRef = useRef<HTMLTextAreaElement | null>(null)
   const popupRef = useRef<CompletionHandle | null>(null)
-  /** Caret to restore after a controlled value change lands. */
-  const pendingCaret = useRef<number | null>(null)
 
   const [focused, setFocused] = useState(false)
-  const [caret, setCaret] = useState(value.length)
+  const [context, setContext] = useState<CompletionContext | null>(null)
   const [activeDescendant, setActiveDescendant] = useState<string | null>(null)
   /** Escape closes the list without touching the text; it stays closed until
    * the token is left and re-entered. */
@@ -197,6 +241,143 @@ export function Composer({
     probed.current = new Set()
   }, [keyId])
 
+  /** The mount's chip row. Memoised on the handle rather than rebuilt every
+   * render, because the hint line's `useMemo` below depends on it. */
+  const chips = useMemo(() => attachments?.items ?? [], [attachments?.items])
+  const anyFailed = chips.some((chip) => chip.state === 'failed')
+  const refusal = attachments?.refusal ?? null
+  // The last chip that fits hides the placeholder, never the text (canvas
+  // 9c-2): a full chip row plus a placeholder is two things competing for the
+  // same line.
+  const shownPlaceholder = chips.length >= MAX_ATTACHMENTS ? undefined : placeholder
+
+  /**
+   * What the editor's callbacks read. They are wired once, when the editor is
+   * built, so anything that changes between renders reaches them through here.
+   */
+  const latest = useRef({ onChange, onSend, enter, attachments, placeholder: shownPlaceholder })
+  latest.current = { onChange, onSend, enter, attachments, placeholder: shownPlaceholder }
+  /** What the token paint reads — see `lib/composerDecorations`. */
+  const tokenSource = useRef<TokenSource>({ known: new Set(), resolved: new Set(), hints: new Map() })
+  /** The last markdown this field handed out; `value` equal to it is our own echo. */
+  const lastEmitted = useRef(value)
+  const keyDownRef = useRef<(e: KeyboardEvent) => boolean>(() => false)
+
+  const [editorSetup] = useState(() => ({
+    extensions: [
+      ...composerSchemaExtensions(),
+      Placeholder.configure({
+        placeholder: () => latest.current.placeholder ?? '',
+        // A locked field still says why it is locked (canvas 26c).
+        showOnlyWhenEditable: false,
+      }),
+      Extension.create({
+        name: 'composerTokens',
+        addProseMirrorPlugins: () => [composerDecorationsPlugin(() => tokenSource.current)],
+      }),
+    ],
+    editorProps: {
+      attributes: {
+        role: 'textbox',
+        'aria-multiline': 'true',
+        tabindex: '0',
+        'data-composer-field': '',
+        class: FIELD_CLASS,
+        style: `max-height: ${MAX_FIELD_PX}px`,
+      },
+      handleKeyDown: (_view: EditorView, e: KeyboardEvent) => keyDownRef.current(e),
+      handleDOMEvents: {
+        // Ahead of ProseMirror's own paste, which would read a clipboard
+        // carrying nothing but an image as an empty paste.
+        paste: (view: EditorView, e: ClipboardEvent) => {
+          const intake = latest.current.attachments
+          const files = intake ? filesFrom(e.clipboardData) : []
+          if (files.length > 0) intake!.accept(files, 'clipboard')
+          const markdown = clipboardMarkdown(e.clipboardData)
+          const editor = (view.dom as HTMLElement & { editor?: Editor }).editor
+          const slice =
+            markdown !== null && editor
+              ? markdownPasteSlice(editor, view.state.schema, markdown, view.state.selection.$from)
+              : null
+          if (slice) {
+            view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView())
+            e.preventDefault()
+            return true
+          }
+          // An image with no text beside it is a paste that is over; one that
+          // came with text still pastes the text (canvas 9c).
+          if (files.length > 0 && markdown === null && !e.clipboardData?.types?.includes('text/html')) {
+            e.preventDefault()
+            return true
+          }
+          return false
+        },
+      },
+    },
+  }))
+
+  const editor = useEditor({
+    ...editorSetup,
+    content: lastEmitted.current,
+    contentType: 'markdown',
+    editable: !locked,
+    immediatelyRender: true,
+    shouldRerenderOnTransaction: false,
+    // Pasted text is read as markdown by `clipboardMarkdown` and HTML by
+    // ProseMirror; the marks' own paste rules would re-scan either with the
+    // loose patterns the input rules were tightened away from.
+    enablePasteRules: false,
+    onUpdate: ({ editor }) => {
+      const markdown = composerMarkdown(editor)
+      if (markdown === lastEmitted.current) return
+      lastEmitted.current = markdown
+      latest.current.onChange(markdown)
+    },
+    onTransaction: ({ editor }) => {
+      const next = readCompletion(editor)
+      setContext((prev) => (sameCompletion(prev, next) ? prev : next))
+    },
+    onFocus: () => setFocused(true),
+    onBlur: () => setFocused(false),
+  })
+
+  // The caret starts where a textarea's would after its value was set: at
+  // the end. Before paint, so a field that opens on a `/` fragment already
+  // has its completion.
+  useLayoutEffect(() => {
+    if (!editor) return
+    caretToEnd(editor)
+    setContext(readCompletion(editor))
+  }, [editor])
+
+  // `value` from outside — a session switch, a cleared draft, a reset. Our
+  // own echo is skipped, so typing never re-parses under the caret.
+  useEffect(() => {
+    if (!editor || value === lastEmitted.current) return
+    lastEmitted.current = value
+    editor.commands.setContent(parseComposerMarkdown(editor, value), { emitUpdate: false })
+    caretToEnd(editor)
+  }, [editor, value])
+
+  useEffect(() => {
+    if (editor && editor.isEditable === locked) editor.setEditable(!locked, false)
+  }, [editor, locked])
+
+  // The root is ProseMirror's element, so its ARIA wiring is set on it
+  // directly rather than rendered.
+  useLayoutEffect(() => {
+    const dom = editor?.view.dom
+    if (!dom) return
+    const set = (name: string, next: string | undefined) =>
+      next === undefined ? dom.removeAttribute(name) : dom.setAttribute(name, next)
+    set('id', id)
+    set('aria-label', aria['aria-label'])
+    set('aria-placeholder', shownPlaceholder)
+    set('aria-disabled', locked ? 'true' : undefined)
+    set('aria-controls', activeDescendant ? listboxId : undefined)
+    set('aria-activedescendant', activeDescendant ?? undefined)
+  }, [editor, id, aria, shownPlaceholder, locked, activeDescendant, listboxId])
+
   /**
    * The list reports its active row, and it only has one while it is actually
    * painted — which makes this the popup's "on screen" flag as well as the
@@ -204,7 +385,6 @@ export function Composer({
    */
   const popupShown = activeDescendant !== null
 
-  const context = useMemo(() => completionContext(value, caret), [value, caret])
   const popupOpen = context !== null && !dismissed
   useEffect(() => {
     if (context === null && dismissed) setDismissed(false)
@@ -237,23 +417,36 @@ export function Composer({
   }, [wantsCommands, commands, keyId])
 
   const knownCommands = useMemo(() => commandNameSet(commands ?? []), [commands])
-  const tokens = useMemo(() => tokenizeComposer(value, knownCommands), [value, knownCommands])
   const note = useMemo(() => {
     if (commands === null) return null
     const slug = unknownCommand(value, knownCommands)
     return slug === null ? null : `no command ${slug} — sends as typed`
   }, [commands, value, knownCommands])
 
-  /** Mention runs with their offsets — the offsets tell the probe which one the caret is in. */
-  const mentions = useMemo(() => {
-    const out: Array<{ path: string; start: number }> = []
-    let offset = 0
-    for (const token of tokens) {
-      if (token.kind === 'mention') out.push({ path: token.path, start: offset })
-      offset += token.text.length
+  // The paint reads the catalog, the receipts and the hints; tell it when any
+  // of them moved.
+  useEffect(() => {
+    const hints = new Map<string, string>()
+    for (const c of commands ?? []) {
+      if (c.argumentHint) hints.set(c.name.startsWith('/') ? c.name.slice(1) : c.name, c.argumentHint)
     }
-    return out
-  }, [tokens])
+    tokenSource.current = { known: knownCommands, resolved, hints }
+    if (editor && !editor.isDestroyed) refreshDecorations(editor.view)
+  }, [editor, commands, knownCommands, resolved])
+
+  // A new placeholder has to be drawn; the plugin only looks on a transaction.
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) refreshDecorations(editor.view)
+  }, [editor, shownPlaceholder])
+
+  /** Every mention in the text, in the order they were typed. */
+  const mentions = useMemo(
+    () =>
+      tokenizeComposer(value, knownCommands).flatMap((token) =>
+        token.kind === 'mention' ? [token.path] : [],
+      ),
+    [value, knownCommands],
+  )
 
   /**
    * One unconfirmed mention at a time, debounced: `files/complete` on the whole
@@ -263,19 +456,17 @@ export function Composer({
    * now is skipped — the popup is already asking about that one.
    */
   useEffect(() => {
+    const typing = context?.kind === 'file' ? context.prefix : null
     const pending = mentions.find(
-      (m) =>
-        !resolved.has(m.path) &&
-        !probed.current.has(m.path) &&
-        !(context !== null && context.start === m.start),
+      (path) => !resolved.has(path) && !probed.current.has(path) && path !== typing,
     )
     if (!pending) return
     const timer = setTimeout(() => {
-      probed.current.add(pending.path)
+      probed.current.add(pending)
       api
-        .filesComplete(sessionKey, pending.path)
+        .filesComplete(sessionKey, pending)
         .then((entries) => {
-          const dir = pending.path.slice(0, pending.path.lastIndexOf('/') + 1)
+          const dir = pending.slice(0, pending.lastIndexOf('/') + 1)
           // The row's own path, not its base name: with an editor connected
           // the list also carries open tabs matched by base name from
           // elsewhere in the tree (spec 2026-09-23-ide-bridge-design § Open
@@ -284,10 +475,10 @@ export function Composer({
           // A path ending in `/` has no basename to match; a directory that
           // lists anything at all exists.
           const exists =
-            dir === pending.path
+            dir === pending
               ? entries.length > 0
-              : entries.some((e) => (e.path ?? dir + e.name) === pending.path)
-          if (exists) setResolved((prev) => new Set(prev).add(pending.path))
+              : entries.some((e) => (e.path ?? dir + e.name) === pending)
+          if (exists) setResolved((prev) => new Set(prev).add(pending))
         })
         .catch(() => {
           // Unconfirmed stays untinted. Nothing to report.
@@ -297,43 +488,20 @@ export function Composer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mentions, resolved, context, keyId])
 
-  // Restore the caret after an accept, once the controlled value has landed.
-  useLayoutEffect(() => {
-    const pos = pendingCaret.current
-    if (pos === null) return
-    pendingCaret.current = null
-    fieldRef.current?.setSelectionRange(pos, pos)
-  })
-
-  const syncCaret = useCallback(() => {
-    setCaret(fieldRef.current?.selectionStart ?? 0)
-  }, [])
-
   const handleAccept = useCallback(
     (insert: string, keepOpen: boolean) => {
-      if (context === null) return
-      const el = fieldRef.current
-      const end = el?.selectionStart ?? caret
+      if (context === null || !editor) return
       // One trailing space on accept; a directory gets none, because the popup
       // stays open and keeps completing inside it (canvas 9b).
       const tail = keepOpen ? '' : ' '
-      const next = value.slice(0, context.start) + insert + tail + value.slice(end)
-      const nextCaret = context.start + insert.length + tail.length
       // Accepting a path IS the confirmation — no probe needed (spec:
       // "applied on popup accept").
       if (insert.startsWith('@')) setResolved((prev) => new Set(prev).add(insert.slice(1)))
-      pendingCaret.current = nextCaret
-      setCaret(nextCaret)
-      onChange(next)
+      const { state } = editor
+      editor.view.dispatch(state.tr.insertText(insert + tail, context.start, state.selection.from))
     },
-    [context, caret, value, onChange],
+    [context, editor],
   )
-
-  /** The mount's chip row. Memoised on the handle rather than rebuilt every
-   * render, because the hint line's `useMemo` below depends on it. */
-  const chips = useMemo(() => attachments?.items ?? [], [attachments?.items])
-  const anyFailed = chips.some((chip) => chip.state === 'failed')
-  const refusal = attachments?.refusal ?? null
 
   // The editor slot's two rates, run once for the slot and the hint line both
   // (spec 2026-09-23-ide-bridge-design § The slot and the lip).
@@ -359,20 +527,41 @@ export function Composer({
       : `${bare} newline · ${chordLabel(command('composer.start').chords[0])} start session with ${carries}`
   }, [ideStanding, ideLip, chips, enter])
 
-  function handleKeyDown(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    // The list gets first refusal on every key — it owns ↑↓, ⏎ and Tab while
-    // it is on screen, and nothing else (spec § Completion popup).
-    if (popupRef.current?.handleKeyDown(e)) return
-    // `matches` wants the exact modifier set, so `composer.newline` (the
-    // browser's own newline) and ⌘⏎ — which belongs to whoever is listening
-    // further out, the dialog's `composer.start` — are never a send.
-    if (enter === 'send' && matches(command('composer.send').chords[0], e)) {
-      e.preventDefault()
-      const text = value.trim()
+  /**
+   * The keys (spec § 2). The list gets first refusal on every key — it owns
+   * ↑↓, ⏎ and Tab while it is on screen, and nothing else (spec § Completion
+   * popup). Then `composer.send` and `composer.newline` mean what the mount
+   * says; everything else is Tiptap's own — a bare ⏎ in the dialog splits the
+   * block or the list item, Tab nests an item. `matches` wants the exact
+   * modifier set, so ⌘⏎ — which belongs to whoever is listening further out,
+   * the dialog's `composer.start` — is never one of these.
+   */
+  keyDownRef.current = (e: KeyboardEvent) => {
+    if (popupRef.current?.handleKeyDown(e)) return true
+    if (!editor) return false
+    if (matches(command('composer.send').chords[0], e)) {
+      if (enter !== 'send') return false
+      const text = composerMarkdown(editor).trim()
       // An armed chip is a sendable turn on its own — an image with no words is
       // a whole message (spec § Send). Empty and unarmed still sends nothing.
       if (text || attachments?.armed) onSend?.(text)
+      return true
     }
+    if (matches(command('composer.newline').chords[0], e)) {
+      if (enter === 'send') {
+        // What a bare ⏎ does in the dialog: a new item in a list, a new line
+        // in code, a new paragraph anywhere else.
+        return editor.commands.first(({ commands: c }) => [
+          () => c.splitListItem('listItem'),
+          () => c.newlineInCode(),
+          () => c.createParagraphNear(),
+          () => c.liftEmptyBlock(),
+          () => c.splitBlock(),
+        ])
+      }
+      return editor.commands.first(({ commands: c }) => [() => c.newlineInCode(), () => c.setHardBreak()])
+    }
+    return false
   }
 
   return (
@@ -453,101 +642,7 @@ export function Composer({
         )}
 
         <div className="relative">
-          <div
-            ref={mirrorRef}
-            aria-hidden="true"
-            data-composer-mirror
-            className={`pointer-events-none absolute inset-0 overflow-hidden text-text-bright ${FIELD_METRICS}`}
-          >
-            {tokens.map((token, index) => {
-              if (token.kind === 'command') {
-                return (
-                  <span
-                    key={index}
-                    data-token="command"
-                    // 9a/9e: filled slug, rgba(150,205,255,.13) under #f2f9ff
-                    // ink, 4px radius, padding cancelled by the margin (see the
-                    // lockstep note above). No transition — 9e: "meant to read
-                    // as the field having always known".
-                    className="-mx-[5px] box-decoration-clone rounded-[4px] bg-[rgba(150,205,255,.13)] px-[5px] py-px text-[#f2f9ff] transition-none"
-                  >
-                    {token.text}
-                  </span>
-                )
-              }
-              if (token.kind === 'mention') {
-                // The tint is the receipt for a RESOLVED name; an unconfirmed
-                // path stays plain ink (9b: "not tinted while you are still
-                // typing it").
-                if (!resolved.has(token.path)) return token.text
-                return (
-                  <span
-                    key={index}
-                    data-token="mention"
-                    // 9a/9e: .06 fill + a 1px .18 inset ring under #dfeeff ink.
-                    className="-mx-[5px] box-decoration-clone rounded-[4px] bg-[rgba(150,205,255,.06)] px-[5px] py-px text-[#dfeeff] shadow-[inset_0_0_0_1px_rgba(150,205,255,.18)] transition-none"
-                  >
-                    @{token.path}
-                    {token.suffix && (
-                      <span data-token-suffix className="text-[rgba(160,190,225,.6)]">
-                        {token.suffix}
-                      </span>
-                    )}
-                  </span>
-                )
-              }
-              return token.text
-            })}
-            {/* A trailing newline has no glyph, so the mirror would be one line
-                shorter than the field. A zero-width space gives it one. */}
-            {value.endsWith('\n') && '​'}
-          </div>
-
-          <textarea
-            ref={fieldRef}
-            id={id}
-            aria-label={aria['aria-label']}
-            aria-controls={activeDescendant ? listboxId : undefined}
-            aria-activedescendant={activeDescendant ?? undefined}
-            value={value}
-            disabled={locked}
-            // The last chip that fits hides the placeholder, never the text
-            // (canvas 9c-2): a full chip row plus a placeholder is two things
-            // competing for the same line.
-            placeholder={chips.length >= MAX_ATTACHMENTS ? undefined : placeholder}
-            onChange={(e) => {
-              setCaret(e.target.selectionStart ?? e.target.value.length)
-              onChange(e.target.value)
-            }}
-            // Paste is the field's own intake (⌘V, canvas 9c). The event is NOT
-            // prevented: a clipboard carrying both an image and text should
-            // still paste the text.
-            onPaste={
-              attachments &&
-              ((e) => {
-                const files = filesFrom(e.clipboardData)
-                if (files.length > 0) attachments.accept(files, 'clipboard')
-              })
-            }
-            onKeyDown={handleKeyDown}
-            onSelect={syncCaret}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            // Transparent ink over the mirror, accent caret (9e). The
-            // placeholder sets its own colour, so it survives the transparency.
-            className={`relative block min-h-[36px] w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-transparent caret-accent [field-sizing:content] placeholder:text-[rgba(160,190,225,.5)] focus:outline-none ${FIELD_METRICS}`}
-            // Grows with the text, then scrolls. field-sizing rather than a
-            // measured scrollHeight: scrollHeight is a whole pixel and the
-            // lines are not, so a measured field came out a fraction short,
-            // scrolled by that fraction and slid the caret off the mirror.
-            style={{ maxHeight: MAX_FIELD_PX }}
-            // Past MAX_FIELD_PX the field scrolls, and the mirror has to scroll
-            // with it — the third leg of the lockstep.
-            onScroll={(e) => {
-              const m = mirrorRef.current
-              if (m) m.scrollTop = e.currentTarget.scrollTop
-            }}
-          />
+          <EditorContent editor={editor} />
         </div>
 
         {/* Hint row — 8px above, mono 10 at .06em (9e). Four states, in this

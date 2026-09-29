@@ -518,7 +518,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
           // the file it came from usually says more.
           description: c.description || match?.description || '',
           source: match?.source ?? 'built-in',
-          ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
+          // Same for the hint the composer ghosts after the slug.
+          ...(c.argumentHint || match?.argumentHint
+            ? { argumentHint: c.argumentHint || match?.argumentHint }
+            : {}),
           ...(c.aliases ? { aliases: c.aliases } : {}),
         };
       })

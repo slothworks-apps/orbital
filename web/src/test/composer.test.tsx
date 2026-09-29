@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useState } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
-import { Composer, FIELD_METRICS, type ComposerProps } from '../panels/Composer'
+import { Composer, type ComposerProps } from '../panels/Composer'
+import { backspace, clickAndType, editorOf, fieldValue, replaceField, typeInto } from './composerField'
 import { escapeLayerDepth } from '../ui/escapeLayer'
 import type { SlashCommand, FileCompletionEntry } from '../lib/types'
 
@@ -54,16 +54,9 @@ function Harness({
 }
 
 const field = () => screen.getByRole('textbox', { name: 'Prompt' })
-const mirror = () => document.querySelector('[data-composer-mirror]') as HTMLElement
 const popup = () => screen.queryByRole('listbox', { name: /completions/i })
 const rows = () => screen.queryAllByRole('option')
 const selectedRow = () => rows().find((r) => r.dataset.selected === 'true')
-
-/** Types into the field and keeps the caret where a user's would be. */
-async function type(user: ReturnType<typeof userEvent.setup>, text: string) {
-  await user.click(field())
-  await user.type(field(), text)
-}
 
 beforeEach(() => {
   vi.mocked(api.commands).mockResolvedValue(COMMANDS)
@@ -71,69 +64,105 @@ beforeEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// The well + the mirror (canvas 9a)
+// The field + the token paint (canvas 9a)
 // ---------------------------------------------------------------------------
 
-describe('Composer — the mirrored highlight layer', () => {
-  it('renders the text twice: once in the field, once in an aria-hidden mirror', () => {
+/** A mention with a `:line` is painted as two spans; this is the whole of it. */
+const mentionText = () =>
+  [...field().querySelectorAll('[data-token="mention"]')].map((n) => n.textContent).join('')
+
+describe('Composer — the token paint', () => {
+  it('shows the markdown it was given, and hands the same markdown back', () => {
     render(<Harness initial="plain prose" />)
-    expect(field()).toHaveValue('plain prose')
-    expect(mirror()).toHaveAttribute('aria-hidden', 'true')
-    expect(mirror().textContent).toBe('plain prose')
+    expect(fieldValue(field())).toBe('plain prose')
+    expect(field().textContent).toBe('plain prose')
   })
 
-  it('keeps the mirror and the field on identical metrics — the lockstep guarantee', () => {
-    render(<Harness initial="x" />)
-    for (const cls of FIELD_METRICS.split(' ')) {
-      expect(mirror().className).toContain(cls)
-      expect(field().className).toContain(cls)
-    }
-  })
-
-  it('leaves the mirror text untouched while marking a known command token', async () => {
+  it('leaves the text untouched while marking a known command token', async () => {
     render(<Harness initial="/code-review the staged diff" />)
-    await waitFor(() => expect(mirror().querySelector('[data-token="command"]')).not.toBeNull())
-    expect(mirror().textContent).toBe('/code-review the staged diff')
-    expect(mirror().querySelector('[data-token="command"]')).toHaveTextContent('/code-review')
+    await waitFor(() => expect(field().querySelector('[data-token="command"]')).not.toBeNull())
+    expect(field().textContent).toBe('/code-review the staged diff')
+    expect(field().querySelector('[data-token="command"]')).toHaveTextContent('/code-review')
   })
 
   it('marks a command wherever it starts a word, and leaves an unknown slug plain', async () => {
     render(<Harness initial="/commit then run /code-review and /comand" />)
     await waitFor(() =>
-      expect(mirror().querySelectorAll('[data-token="command"]')).toHaveLength(2)
+      expect(field().querySelectorAll('[data-token="command"]')).toHaveLength(2)
     )
-    const marked = [...mirror().querySelectorAll('[data-token="command"]')].map((n) => n.textContent)
+    const marked = [...field().querySelectorAll('[data-token="command"]')].map((n) => n.textContent)
     expect(marked).toEqual(['/commit', '/code-review'])
-    expect(mirror().textContent).toBe('/commit then run /code-review and /comand')
+    expect(field().textContent).toBe('/commit then run /code-review and /comand')
+  })
+
+  it('does not mark a command inside inline code', async () => {
+    render(<Harness initial="run `/commit` then /commit" />)
+    await waitFor(() => expect(api.commands).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(field().querySelectorAll('[data-token="command"]')).toHaveLength(1)
+    )
+    expect(field().querySelector('code [data-token], [data-token] code')).toBeNull()
   })
 
   it('tints a hand-typed mention once the debounced probe confirms the path', async () => {
-    const user = userEvent.setup()
     vi.mocked(api.filesComplete).mockResolvedValue([{ name: 'App.tsx', dir: false, size: 10 }])
     render(<Harness />)
-    await type(user, 'from @web/src/App.tsx:42 ')
+    clickAndType(field(), 'from @web/src/App.tsx:42 ')
 
-    const token = await waitFor(() => {
-      const el = mirror().querySelector('[data-token="mention"]')
-      expect(el).not.toBeNull()
-      return el as HTMLElement
-    })
-    expect(token).toHaveTextContent('@web/src/App.tsx:42')
-    expect(token.querySelector('[data-token-suffix]')).toHaveTextContent(':42')
-    expect(mirror().textContent).toBe('from @web/src/App.tsx:42 ')
+    await waitFor(() => expect(field().querySelector('[data-token="mention"]')).not.toBeNull())
+    expect(mentionText()).toBe('@web/src/App.tsx:42')
+    expect(field().querySelector('[data-token-suffix]')).toHaveTextContent(':42')
+    expect(field().textContent).toBe('from @web/src/App.tsx:42 ')
   })
 
   it('leaves a mention the server does not know plain — the tint is a receipt', async () => {
-    const user = userEvent.setup()
     vi.mocked(api.filesComplete).mockResolvedValue([])
     render(<Harness />)
-    await type(user, 'from @web/src/Nope.tsx ')
+    clickAndType(field(), 'from @web/src/Nope.tsx ')
 
     await waitFor(() =>
       expect(api.filesComplete).toHaveBeenCalledWith({ session: 's1' }, 'web/src/Nope.tsx')
     )
-    expect(mirror().querySelector('[data-token="mention"]')).toBeNull()
-    expect(mirror().textContent).toBe('from @web/src/Nope.tsx ')
+    expect(field().querySelector('[data-token="mention"]')).toBeNull()
+    expect(field().textContent).toBe('from @web/src/Nope.tsx ')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The argument hint (spec 2026-09-29-composer-rich-editor-design § 3)
+// ---------------------------------------------------------------------------
+
+describe('Composer — the argument hint', () => {
+  const ghost = () => field().querySelector('[data-argument-hint]')
+
+  beforeEach(() => {
+    vi.mocked(api.commands).mockResolvedValue([
+      ...COMMANDS,
+      { name: '/fix-issue', description: 'Fix one', source: 'project', argumentHint: '[issue-number]' },
+    ])
+  })
+
+  it('ghosts the hint after an accepted command, and drops it on the first character', async () => {
+    render(<Harness />)
+    clickAndType(field(), '/fix-i')
+    await waitFor(() => expect(rows()).toHaveLength(1))
+    fireEvent.keyDown(field(), { key: 'Enter' })
+
+    await waitFor(() => expect(ghost()).toHaveTextContent('[issue-number]'))
+    // Drawn, never text: the field still hands out only what was typed.
+    expect(fieldValue(field())).toBe('/fix-issue ')
+
+    typeInto(field(), '4')
+    expect(ghost()).toBeNull()
+    expect(fieldValue(field())).toBe('/fix-issue 4')
+  })
+
+  it('draws nothing for a command without a hint', async () => {
+    render(<Harness />)
+    clickAndType(field(), '/commit ')
+    await waitFor(() => expect(api.commands).toHaveBeenCalled())
+    await waitFor(() => expect(field().querySelector('[data-token="command"]')).not.toBeNull())
+    expect(ghost()).toBeNull()
   })
 })
 
@@ -155,9 +184,8 @@ describe('Composer — the hint line', () => {
   })
 
   it('hands the line to the open list, then takes it back (canvas 9b)', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
 
     expect(screen.getByText('⏎ accept · esc closes the list · ⌘V paste image')).toBeInTheDocument()
@@ -175,12 +203,20 @@ describe('Composer — the hint line', () => {
 // ---------------------------------------------------------------------------
 
 describe('Composer — enter behaviour', () => {
+  /** The document's top-level blocks, by type. */
+  const blocks = () => {
+    const names: string[] = []
+    editorOf(field()).state.doc.forEach((node) => names.push(node.type.name))
+    return names
+  }
+
   it('sends on ⏎ and newlines on ⇧⏎ in the panel mount', async () => {
     const onSend = vi.fn()
     render(<Harness initial="line one" onSend={onSend} />)
 
     fireEvent.keyDown(field(), { key: 'Enter', shiftKey: true })
     expect(onSend).not.toHaveBeenCalled()
+    expect(blocks()).toEqual(['paragraph', 'paragraph'])
 
     fireEvent.keyDown(field(), { key: 'Enter' })
     expect(onSend).toHaveBeenCalledWith('line one')
@@ -190,10 +226,75 @@ describe('Composer — enter behaviour', () => {
     const onSend = vi.fn()
     render(<Harness initial="line one" enter="newline" onSend={onSend} />)
 
-    const e = fireEvent.keyDown(field(), { key: 'Enter' })
+    fireEvent.keyDown(field(), { key: 'Enter' })
     expect(onSend).not.toHaveBeenCalled()
-    // Not swallowed: the textarea's own newline has to happen.
-    expect(e).toBe(true)
+    // The editor's own newline happened: a new paragraph under the first.
+    expect(blocks()).toEqual(['paragraph', 'paragraph'])
+  })
+
+  it('breaks the line on ⇧⏎ in the dialog mount, inside the same paragraph', () => {
+    render(<Harness initial="line one" enter="newline" />)
+    fireEvent.keyDown(field(), { key: 'Enter', shiftKey: true })
+    typeInto(field(), 'line two')
+    expect(blocks()).toEqual(['paragraph'])
+    expect(fieldValue(field())).toBe('line one  \nline two')
+  })
+
+  it('turns `- ` into a list, and ⏎ into its next item in the dialog mount', () => {
+    render(<Harness enter="newline" />)
+    clickAndType(field(), '- one')
+    expect(blocks()[0]).toBe('bulletList')
+
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    typeInto(field(), 'two')
+    expect(fieldValue(field())).toBe('- one\n- two')
+
+    // ⏎ on an empty item leaves the list.
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    typeInto(field(), 'after')
+    expect(fieldValue(field())).toBe('- one\n- two\n\nafter')
+  })
+
+  it('formats emphasis as it is typed, and leaves stars around spaces as typed', () => {
+    render(<Harness enter="newline" />)
+    clickAndType(field(), 'a **bold** and _it_ word, 2 * 3 * 4')
+    expect(field().querySelector('strong')).toHaveTextContent('bold')
+    expect(field().querySelector('em')).toHaveTextContent('it')
+    expect(fieldValue(field())).toBe('a **bold** and *it* word, 2 * 3 * 4')
+  })
+
+  it('breaks the line inside a list item on ⇧⏎ in the dialog mount', () => {
+    render(<Harness enter="newline" />)
+    clickAndType(field(), '1. one')
+    fireEvent.keyDown(field(), { key: 'Enter', shiftKey: true })
+    typeInto(field(), 'still one')
+    expect(blocks()[0]).toBe('orderedList')
+    expect(editorOf(field()).state.doc.firstChild!.childCount).toBe(1)
+  })
+
+  it('makes ⇧⏎ the next item in the panel mount, and ⏎ sends the whole list', () => {
+    const onSend = vi.fn()
+    render(<Harness onSend={onSend} />)
+    clickAndType(field(), '- one')
+    fireEvent.keyDown(field(), { key: 'Enter', shiftKey: true })
+    typeInto(field(), 'two')
+    expect(onSend).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('- one\n- two')
+  })
+
+  it('nests a list item on Tab and lifts it back on ⇧Tab', () => {
+    render(<Harness enter="newline" />)
+    clickAndType(field(), '- one')
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    typeInto(field(), 'two')
+
+    fireEvent.keyDown(field(), { key: 'Tab' })
+    expect(fieldValue(field())).toBe('- one\n  - two')
+    fireEvent.keyDown(field(), { key: 'Tab', shiftKey: true })
+    expect(fieldValue(field())).toBe('- one\n- two')
   })
 
   it('lets ⌘⏎ through untouched, whatever the mount', () => {
@@ -218,9 +319,8 @@ describe('Composer — enter behaviour', () => {
 
 describe('CompletionPopup — commands', () => {
   it('opens on a / at position 0 and lists the catalog', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/')
+    clickAndType(field(), '/')
 
     expect(await screen.findByRole('option', { name: /code-review/ })).toBeInTheDocument()
     expect(api.commands).toHaveBeenCalledWith({ session: 's1' })
@@ -228,25 +328,22 @@ describe('CompletionPopup — commands', () => {
   })
 
   it('opens on a / that starts a word later in the prompt', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, 'then run /co')
+    clickAndType(field(), 'then run /co')
     await screen.findByRole('option', { name: /code-review/ })
   })
 
   it('inserts a command accepted mid-prompt in place, leaving the prose alone', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, 'then run /code-r')
+    clickAndType(field(), 'then run /code-r')
     await screen.findByRole('option', { name: /code-review/ })
     fireEvent.keyDown(field(), { key: 'Enter' })
-    await waitFor(() => expect(field()).toHaveValue('then run /code-review '))
+    await waitFor(() => expect(fieldValue(field())).toBe('then run /code-review '))
   })
 
   it('prefix-filters as you type, resetting the selection to the first row', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
     expect(rows()).toHaveLength(6)
 
@@ -254,15 +351,14 @@ describe('CompletionPopup — commands', () => {
     expect(selectedRow()).toHaveAccessibleName(/\/commit/)
 
     // `/com` narrows to commit + compact, and the selection goes back to row 0.
-    await user.type(field(), 'm')
+    typeInto(field(), 'm')
     await waitFor(() => expect(rows()).toHaveLength(2))
     expect(selectedRow()).toHaveAccessibleName(/\/commit/)
   })
 
   it('wraps the selection at both ends', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/cost')
+    clickAndType(field(), '/cost')
     await waitFor(() => expect(rows()).toHaveLength(1))
 
     // A single row wraps onto itself in both directions.
@@ -271,8 +367,7 @@ describe('CompletionPopup — commands', () => {
     fireEvent.keyDown(field(), { key: 'ArrowUp' })
     expect(selectedRow()).toHaveAccessibleName(/\/cost/)
 
-    await user.clear(field())
-    await user.type(field(), '/com')
+    replaceField(field(), '/com')
     await waitFor(() => expect(rows()).toHaveLength(2))
     // Up from the top lands on the last row, down from there wraps home.
     fireEvent.keyDown(field(), { key: 'ArrowUp' })
@@ -282,32 +377,29 @@ describe('CompletionPopup — commands', () => {
   })
 
   it('accepts on ⏎, replacing the fragment and adding one trailing space', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/comm')
+    clickAndType(field(), '/comm')
     await waitFor(() => expect(rows()).toHaveLength(1))
 
     fireEvent.keyDown(field(), { key: 'Enter' })
-    expect(field()).toHaveValue('/commit ')
+    expect(fieldValue(field())).toBe('/commit ')
     await waitFor(() => expect(popup()).toBeNull())
   })
 
   it('accepts on Tab too, and Tab does not move focus out of the field', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/comm')
+    clickAndType(field(), '/comm')
     await waitFor(() => expect(rows()).toHaveLength(1))
 
     fireEvent.keyDown(field(), { key: 'Tab' })
-    expect(field()).toHaveValue('/commit ')
+    expect(fieldValue(field())).toBe('/commit ')
     expect(document.activeElement).toBe(field())
   })
 
   it('does not send when ⏎ is the popup`s — the accept is not a turn', async () => {
-    const user = userEvent.setup()
     const onSend = vi.fn()
     render(<Harness onSend={onSend} />)
-    await type(user, '/comm')
+    clickAndType(field(), '/comm')
     await waitFor(() => expect(rows()).toHaveLength(1))
 
     fireEvent.keyDown(field(), { key: 'Enter' })
@@ -315,57 +407,52 @@ describe('CompletionPopup — commands', () => {
   })
 
   it('closes on Escape, one layer only, leaving the text and the focus alone', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
     const before = escapeLayerDepth()
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await waitFor(() => expect(escapeLayerDepth()).toBe(before + 1))
 
     fireEvent.keyDown(window, { key: 'Escape' })
     await waitFor(() => expect(popup()).toBeNull())
     expect(escapeLayerDepth()).toBe(before)
-    expect(field()).toHaveValue('/co')
+    expect(fieldValue(field())).toBe('/co')
     expect(document.activeElement).toBe(field())
   })
 
   it('stays closed after Escape until the trigger is typed again', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
     fireEvent.keyDown(window, { key: 'Escape' })
     await waitFor(() => expect(popup()).toBeNull())
 
-    await user.type(field(), 'm')
+    typeInto(field(), 'm')
     await waitFor(() => expect(popup()).toBeNull())
   })
 
   it('closes when ⌫ takes the caret back past the trigger', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/c')
+    clickAndType(field(), '/c')
     await screen.findByRole('option', { name: /code-review/ })
 
-    await user.type(field(), '{Backspace}{Backspace}')
+    backspace(field(), 2)
     await waitFor(() => expect(popup()).toBeNull())
-    expect(field()).toHaveValue('')
+    expect(fieldValue(field())).toBe('')
   })
 
   it('closes on no match rather than showing an empty shell', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
 
-    await user.type(field(), 'mand')
+    typeInto(field(), 'mand')
     await waitFor(() => expect(popup()).toBeNull())
     expect(rows()).toHaveLength(0)
   })
 
   it('carries a name, a description and a source badge per row (canvas 9b)', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     const row = await screen.findByRole('option', { name: /code-review/ })
 
     expect(row).toHaveTextContent('/code-review')
@@ -374,9 +461,8 @@ describe('CompletionPopup — commands', () => {
   })
 
   it('spells each source out the way 9b does', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
 
     expect(screen.getByRole('option', { name: /coverage/ })).toHaveTextContent('user ~/.claude')
@@ -385,9 +471,8 @@ describe('CompletionPopup — commands', () => {
   })
 
   it('keeps focus in the field, wiring the active row through aria-activedescendant', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
 
     expect(document.activeElement).toBe(field())
@@ -400,18 +485,16 @@ describe('CompletionPopup — commands', () => {
 
 describe('CompletionPopup — files', () => {
   it('opens on an @ anywhere and asks the server for the typed prefix', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, 'check @web/src/co')
+    clickAndType(field(), 'check @web/src/co')
 
     await screen.findByRole('option', { name: /composer\.tsx/ })
     expect(api.filesComplete).toHaveBeenLastCalledWith({ session: 's1' }, 'web/src/co')
   })
 
   it('puts directories first, with an accent slash and a DIR mark (canvas 9b)', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '@co')
+    clickAndType(field(), '@co')
     await screen.findByRole('option', { name: /components/ })
 
     expect(rows()[0]).toHaveAccessibleName(/components/)
@@ -420,9 +503,8 @@ describe('CompletionPopup — files', () => {
   })
 
   it('shows a file`s size and its parent directory', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '@web/src/co')
+    clickAndType(field(), '@web/src/co')
     const row = await screen.findByRole('option', { name: /composer\.tsx/ })
 
     expect(row).toHaveTextContent('13 KB')
@@ -430,15 +512,14 @@ describe('CompletionPopup — files', () => {
   })
 
   it('accepting a directory keeps the popup open, now listing inside it', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '@co')
+    clickAndType(field(), '@co')
     await screen.findByRole('option', { name: /components/ })
 
     fireEvent.keyDown(field(), { key: 'Enter' })
     // Inserted with its trailing slash and NO trailing space — the popup is
     // still completing (canvas 9b: the only case ⏎ does not close).
-    expect(field()).toHaveValue('@components/')
+    expect(fieldValue(field())).toBe('@components/')
     await waitFor(() =>
       expect(api.filesComplete).toHaveBeenLastCalledWith({ session: 's1' }, 'components/')
     )
@@ -446,38 +527,35 @@ describe('CompletionPopup — files', () => {
   })
 
   it('accepting a file closes the popup and adds one trailing space', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '@web/src/comp')
+    clickAndType(field(), '@web/src/comp')
     await screen.findByRole('option', { name: /composer\.tsx/ })
 
     // Row 0 is the directory; composer.tsx is the third row.
     fireEvent.keyDown(field(), { key: 'ArrowDown' })
     fireEvent.keyDown(field(), { key: 'ArrowDown' })
     fireEvent.keyDown(field(), { key: 'Enter' })
-    expect(field()).toHaveValue('@web/src/composer.tsx ')
+    expect(fieldValue(field())).toBe('@web/src/composer.tsx ')
     await waitFor(() => expect(popup()).toBeNull())
   })
 
   it('tints an accepted mention at once — accept IS the receipt', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '@web/src/comp')
+    clickAndType(field(), '@web/src/comp')
     await screen.findByRole('option', { name: /composer\.tsx/ })
 
     fireEvent.keyDown(field(), { key: 'ArrowDown' })
     fireEvent.keyDown(field(), { key: 'ArrowDown' })
     fireEvent.keyDown(field(), { key: 'Enter' })
-    expect(mirror().querySelector('[data-token="mention"]')).toHaveTextContent(
+    expect(field().querySelector('[data-token="mention"]')).toHaveTextContent(
       '@web/src/composer.tsx'
     )
   })
 
   it('closes when the server has nothing for the prefix', async () => {
-    const user = userEvent.setup()
     vi.mocked(api.filesComplete).mockResolvedValue([])
     render(<Harness />)
-    await type(user, '@zzz')
+    clickAndType(field(), '@zzz')
     await waitFor(() => expect(api.filesComplete).toHaveBeenCalled())
     await waitFor(() => expect(popup()).toBeNull())
   })
@@ -497,9 +575,8 @@ describe('CompletionPopup — placement', () => {
   }
 
   it('opens above the well on the panel floor (canvas 9b)', async () => {
-    const user = userEvent.setup()
     render(<Harness />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
 
     anchorLow()
@@ -510,9 +587,8 @@ describe('CompletionPopup — placement', () => {
   })
 
   it('opens below the same field in the dialog mount (canvas 9d)', async () => {
-    const user = userEvent.setup()
     render(<Harness placement="below" enter="newline" variant="dialog" />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
 
     anchorLow()
@@ -528,9 +604,8 @@ describe('Composer — the completion key', () => {
   })
 
   it('asks by cwd when the mount has no session (the dialog)', async () => {
-    const user = userEvent.setup()
     render(<Harness sessionKey={{ cwd: '/work/web' }} />)
-    await type(user, '/co')
+    clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
     expect(api.commands).toHaveBeenCalledWith({ cwd: '/work/web' })
   })

@@ -11,6 +11,7 @@ import { useImageDrop } from '../panels/useImageDrop'
 import { MAX_ATTACHMENTS } from '../lib/attachments'
 import type { AttachmentUpload, ImageRefEntry } from '../lib/types'
 import type { SentAttachment } from '../store/store'
+import { fieldValue, replaceField } from './composerField'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -412,14 +413,14 @@ describe('Composer intake — the ceiling', () => {
 
   it('lets the last chip hide the placeholder, never the text', async () => {
     render(<Harness />)
-    expect(field()).toHaveAttribute('placeholder', 'Send a message…')
+    expect(field()).toHaveAttribute('aria-placeholder', 'Send a message…')
 
     drop(Array.from({ length: MAX_ATTACHMENTS }, (_, i) => png(`p${i}.png`)))
     await waitFor(() => expect(chips()).toHaveLength(MAX_ATTACHMENTS))
-    expect(field()).not.toHaveAttribute('placeholder')
+    expect(field()).not.toHaveAttribute('aria-placeholder')
 
-    fireEvent.change(field(), { target: { value: 'still typing' } })
-    expect(field()).toHaveValue('still typing')
+    replaceField(field(), 'still typing')
+    expect(fieldValue(field())).toBe('still typing')
   })
 })
 
@@ -430,14 +431,14 @@ describe('Composer intake — the ceiling', () => {
 describe('Composer intake — the drop state', () => {
   it('arms the whole panel on a drag carrying images, and the well becomes the marker', () => {
     render(<Harness />)
-    fireEvent.change(field(), { target: { value: 'kept under the marker' } })
+    replaceField(field(), 'kept under the marker')
     fireEvent.dragEnter(panel(), { dataTransfer: makeDataTransfer([png()]) })
 
     expect(panel()).toHaveAttribute('data-drop-armed', 'true')
     expect(marker()).toHaveTextContent('DROP TO ATTACH')
     expect(marker()).toHaveTextContent('png · jpg · gif · webp · up to 5 MB each')
     // Typed text is kept, hidden under the marker (9c-1).
-    expect(field()).toHaveValue('kept under the marker')
+    expect(fieldValue(field())).toBe('kept under the marker')
   })
 
   it('never arms for a folder — no flash, no "can`t drop that"', () => {

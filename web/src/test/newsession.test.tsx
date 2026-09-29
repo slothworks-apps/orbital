@@ -24,6 +24,7 @@ vi.mock('../lib/socket', () => ({
 
 import { api } from '../lib/api'
 import { NewSessionDialog } from '../panels/NewSessionDialog'
+import { editorOf, fieldValue, replaceField } from './composerField'
 
 /** RFC 4122 v4, the only shape the CLI accepts as a session id. */
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -214,7 +215,7 @@ describe('NewSessionDialog', () => {
     render(<NewSessionDialog open onClose={onClose} />)
     fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/work' } })
     await waitFor(() => expect(chip('work')).toHaveAttribute('data-active', 'true'))
-    fireEvent.change(screen.getByLabelText(/first prompt/i), { target: { value: 'do the thing' } })
+    replaceField(screen.getByRole('textbox', { name: /first prompt/i }), 'do the thing')
 
     fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
 
@@ -464,12 +465,12 @@ describe('NewSessionDialog — canvas 1d structure', () => {
 describe('NewSessionDialog — FIRST PROMPT is the composer', () => {
   const field = () => screen.getByRole('textbox', { name: /first prompt/i })
 
-  it('mounts the composer, with its mirror and the dialog`s own hint copy', async () => {
+  it('mounts the composer, with its editor and the dialog`s own hint copy', async () => {
     resetStore()
     render(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
 
-    expect(document.querySelector('[data-composer-mirror]')).not.toBeNull()
+    expect(document.querySelector('[data-composer-field]')).not.toBeNull()
     expect(
       screen.getByText('⏎ newline · ⌘⏎ start session · ⌘V paste image')
     ).toBeInTheDocument()
@@ -484,8 +485,9 @@ describe('NewSessionDialog — FIRST PROMPT is the composer', () => {
       target: { value: '/home/tomin/work' },
     })
 
-    // Not swallowed by the composer: the textarea's own newline happens.
-    expect(fireEvent.keyDown(field(), { key: 'Enter' })).toBe(true)
+    // The composer's own newline happens: a second paragraph, no launch.
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    expect(editorOf(field()).state.doc.childCount).toBe(2)
     expect(api.createSession).not.toHaveBeenCalled()
   })
 
@@ -501,13 +503,13 @@ describe('NewSessionDialog — FIRST PROMPT is the composer', () => {
     })
 
     // Open the completion popup, which owns a bare ⏎ but never a chord.
-    fireEvent.change(field(), { target: { value: '/com' } })
+    replaceField(field(), '/com')
     await screen.findByRole('option', { name: /\/commit/ })
 
     fireEvent.keyDown(field(), { key: 'Enter', metaKey: true })
     await waitFor(() => expect(api.createSession).toHaveBeenCalled())
     // The accept did not happen — ⌘⏎ was the dialog's.
-    expect(field()).toHaveValue('/com')
+    expect(fieldValue(field())).toBe('/com')
   })
 
   it('opens the popup below the field (canvas 9d)', async () => {
@@ -517,7 +519,7 @@ describe('NewSessionDialog — FIRST PROMPT is the composer', () => {
     resetStore()
     render(<NewSessionDialog open onClose={vi.fn()} />)
 
-    fireEvent.change(field(), { target: { value: '/com' } })
+    replaceField(field(), '/com')
     await screen.findByRole('option', { name: /\/commit/ })
 
     const well = document.querySelector('[data-composer-well]') as HTMLElement
@@ -537,7 +539,7 @@ describe('NewSessionDialog — FIRST PROMPT is the composer', () => {
       target: { value: '/home/tomin/work ' },
     })
 
-    fireEvent.change(field(), { target: { value: '/' } })
+    replaceField(field(), '/')
     await waitFor(() =>
       expect(api.commands).toHaveBeenCalledWith({ cwd: '/home/tomin/work' })
     )
@@ -660,13 +662,13 @@ describe('NewSessionDialog — image intake (9d-D)', () => {
   it('arms the DIALOG on a drag carrying images, and the well becomes the marker', async () => {
     resetStore()
     render(<NewSessionDialog open onClose={vi.fn()} />)
-    fireEvent.change(field(), { target: { value: 'kept under the marker' } })
+    replaceField(field(), 'kept under the marker')
 
     fireEvent.dragEnter(surface(), { dataTransfer: makeDataTransfer([png()]) })
 
     expect(surface()).toHaveAttribute('data-drop-armed', 'true')
     expect(marker()).toHaveTextContent('DROP TO ATTACH')
-    expect(field()).toHaveValue('kept under the marker')
+    expect(fieldValue(field())).toBe('kept under the marker')
   })
 
   it('is not armed by a drag over the scrim outside the dialog surface', async () => {

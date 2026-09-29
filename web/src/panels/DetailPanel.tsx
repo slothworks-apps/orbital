@@ -1077,7 +1077,7 @@ export function DetailPanel({
             runs in terminal — read-only
           </div>
         ) : (
-          // The well, its highlight mirror and its completion popup are
+          // The well, its editor and its completion popup are
           // `Composer`'s — the same control the New Session dialog mounts
           // (spec: 2026-09-20-composer-design). The action row stays the
           // panel's: Stop and Send belong to a live session, not to a field.
