@@ -12,7 +12,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'pill'
     | 'pill-active'
     | 'pill-muted'
-  size?: 'sm' | 'md' | 'lg' | 'pill'
+    | 'strip'
+    | 'toggle'
+    | 'toggle-on'
+  size?: 'sm' | 'md' | 'lg' | 'pill' | 'strip' | 'icon'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -46,6 +49,15 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
     'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)]',
   'pill-muted':
     'bg-transparent text-[rgba(190,212,238,.6)] font-semibold border border-[rgba(150,205,255,.1)] hover:bg-white/5',
+  // Canvas 27a: the composer strip's Cancel / Cancel rewind — a hairline
+  // chip in regular weight that lights its fill on hover.
+  strip:
+    'bg-transparent text-[rgba(220,235,255,.9)] border border-[rgba(150,205,255,.18)] hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
+  // Canvas 27a/27c: the ↶ next to Send, a neutral chip at rest and the
+  // lit chip while its mode is on (`aria-pressed` says which).
+  toggle:
+    'bg-transparent text-[rgba(200,220,245,.75)] border border-[rgba(150,205,255,.18)] hover:border-[rgba(150,205,255,.3)] hover:text-text-bright',
+  'toggle-on': 'bg-[rgba(150,205,255,.14)] text-text-bright border border-[rgba(150,205,255,.3)]',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -56,6 +68,10 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   lg: 'px-[18px] py-[9px] text-[13px]',
   // 5b's row pills: 4px/10px at 11px.
   pill: 'px-2.5 py-1 text-[11px]',
+  // 27a's strip chip: 3px/9px at mono 10.5.
+  strip: 'px-[9px] py-[3px] text-[10.5px]',
+  // 27a's ↶: a 30px square, Send's height at `sm`.
+  icon: 'h-[30px] w-[30px] p-0',
 }
 
 export function Button({
@@ -72,9 +88,14 @@ export function Button({
   const rounding =
     variant === 'cta' || variant.startsWith('pill')
       ? 'rounded-full'
-      : size === 'sm'
-        ? 'rounded-[7px]'
-        : 'rounded-lg'
+      : size === 'strip'
+        ? 'rounded-[6px]'
+        : size === 'sm' || size === 'icon'
+          ? 'rounded-[7px]'
+          : 'rounded-lg'
+  // The same for the family: the strip chip is mono, and two font utilities
+  // on one element would be settled by stylesheet order.
+  const family = size === 'strip' ? 'font-mono' : 'font-sans'
 
   return (
     <button
@@ -82,7 +103,8 @@ export function Button({
       data-variant={variant}
       data-size={size}
       className={[
-        'inline-flex items-center justify-center gap-2 font-sans transition-colors',
+        'inline-flex items-center justify-center gap-2 transition-colors',
+        family,
         'disabled:cursor-not-allowed disabled:opacity-40',
         rounding,
         variantClasses[variant],

@@ -312,6 +312,47 @@ export function RefreshGlyph({ spinning = false }: { spinning?: boolean }) {
 }
 
 /**
+ * Rewind's ↶ (canvas 27c: "glyph: the regenerate arc, mirrored (turns back)").
+ * `mark` is the 11.5px one on the ↶ button and the transcript's chips; `strip`
+ * the 10px one leading the composer strip, a notch finer. The two are drawn
+ * separately on the canvas, not scaled from one another.
+ */
+const REWIND_GLYPH = {
+  mark: { box: 11.5, stroke: 1.4, wing: 2.5, head: 3.6 },
+  strip: { box: 10, stroke: 1.3, wing: 2.3, head: 3.3 },
+} as const
+
+export function RewindGlyph({ size = 'mark' }: { size?: keyof typeof REWIND_GLYPH }) {
+  const g = REWIND_GLYPH[size]
+  const gap = 'conic-gradient(from 28deg, transparent 0 62deg, #000 62deg)'
+  return (
+    <span
+      aria-hidden
+      className="relative block"
+      style={{ width: `${g.box}px`, height: `${g.box}px`, transform: 'scaleX(-1)' }}
+    >
+      <span
+        className="absolute inset-0 box-border block rounded-full"
+        style={{ border: `${g.stroke}px solid currentColor`, mask: gap, WebkitMask: gap }}
+      />
+      <span
+        className="absolute block"
+        style={{
+          top: '-1px',
+          right: '-1px',
+          width: 0,
+          height: 0,
+          borderLeft: `${g.wing}px solid transparent`,
+          borderRight: `${g.wing}px solid transparent`,
+          borderBottom: `${g.head}px solid currentColor`,
+          transform: 'rotate(128deg)',
+        }}
+      />
+    </span>
+  )
+}
+
+/**
  * Which of the two sizes the stats glyph is drawn at — the bar table in
  * canvas `Feature - Header gauges` 11d gives both, and they are not a scale
  * of one another (the bar widths and gaps are picked per size so the strokes

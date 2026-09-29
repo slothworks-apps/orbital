@@ -42,7 +42,7 @@ import {
   EXITING,
 } from '../ui/motion'
 import { Badge } from '../ui/Badge'
-import { RefreshGlyph, UtilityButton } from '../ui/UtilityButton'
+import { RefreshGlyph, RewindGlyph, UtilityButton } from '../ui/UtilityButton'
 import { Tooltip } from '../ui/Tooltip'
 import { ModeReadout } from '../ui/ModeDot'
 import { Select } from '../ui/Select'
@@ -56,6 +56,9 @@ import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { EndDialog } from './EndDialog'
+import { RewindDialog } from './RewindDialog'
+import { cancelRewind, useRewindUi } from '../store/rewind'
+import { isRewindCommand } from '../lib/rewind'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { SubagentChip } from './SubagentChip'
@@ -219,6 +222,27 @@ export function DetailPanel({
   const setPrompt = (text: string) => {
     if (id) setComposerDraft(id, text)
   }
+
+  // Rewind (spec 2026-09-29-rewind-design; canvas `Feature - Rewind v2`
+  // 27a/27b). The pending rewind is the server's; once this tab has sent it,
+  // the strip and the marker go at once rather than when the CLI answers.
+  const rewindSending = useOrbital((s) => (id ? Boolean(s.rewindSending[id]) : false))
+  const rewindPending = rewindSending ? null : (session?.rewindPending ?? null)
+  const picking = useRewindUi((s) => id != null && s.pick === id)
+  const rewindPicked = useRewindUi((s) => (id != null && s.picked?.sessionId === id ? s.picked : null))
+  const leavePick = useRewindUi((s) => s.leavePick)
+  const togglePick = useRewindUi((s) => s.togglePick)
+  // Pick mode belongs to the session it was entered for, and ends when that
+  // session gets a pending rewind or a terminal takes it over.
+  useEffect(() => {
+    leavePick()
+  }, [id, leavePick])
+  const terminalHeld = session ? isReadOnly(session) : false
+  useEffect(() => {
+    if (rewindPending || terminalHeld) leavePick()
+  }, [rewindPending, terminalHeld, leavePick])
+  // Esc leaves pick mode before it reaches anything further out.
+  useEscapeLayer(picking && !hidden, leavePick)
 
   // Image intake (spec: 2026-09-20-composer-design § Image intake). The chips
   // live here rather than inside `Composer` because the Send button below reads
@@ -539,6 +563,17 @@ export function DetailPanel({
     if (!sessionId) return
     if (composerLocked) return
     if (!text && !attachments.armed) return
+    // `/rewind` is Orbital's, never the agent's: sent, it opens pick mode
+    // (spec 2026-09-29-rewind-design § Behaviour 1). While a rewind is
+    // pending it does nothing — Cancel rewind is the way back.
+    if (isRewindCommand(text) && !attachments.armed) {
+      if (rewindPending) return
+      setPrompt('')
+      if (!picking) togglePick(sessionId)
+      return
+    }
+    // A turn sent from pick mode ends it.
+    leavePick()
     // A `/compact` past running subagents asks first; the draft stays for a
     // Cancel, and the dialog sends it (spec § Confirmation when subagents are
     // running).
@@ -914,6 +949,9 @@ export function DetailPanel({
             <div ref={stateRowRef} className="mt-3 flex items-center gap-2.5">
               {compacting ? (
                 <Badge variant="compacting" elapsed={formatElapsed(compactingNow - compacting.startedAt)} />
+              ) : rewindPending ? (
+                // Canvas 27b: the state line while a rewind is pending.
+                <Badge variant="rewind" />
               ) : (
                 <Badge
                   variant="status"
@@ -1094,14 +1132,59 @@ export function DetailPanel({
             variant="panel"
             // Canvas 9c: one hint line rewritten while a question is open —
             // ⏎ answers it, it does not start a new turn.
+            // Canvas 27a: pick mode and a pending rewind rewrite it too, in
+            // the brighter ink, ahead of everything else — they are what ⏎
+            // (or a click) does next.
             hint={
-              openDecisionQuestion
+              picking || rewindPicked
+                ? 'click a message · esc cancels'
+                : rewindPending
+                  ? '⏎ send — the rewind becomes permanent'
+                  : openDecisionQuestion
                 ? '⏎ answers the question · ⇧⏎ newline'
                 : openVerdictKind
                   ? composerHintFor(openVerdictKind)
                   : '⏎ send · ⇧⏎ newline · ⌘V paste image'
             }
-            answering={openDecisionQuestion !== undefined || openVerdictKind !== undefined}
+            answering={
+              !picking && !rewindPending && (openDecisionQuestion !== undefined || openVerdictKind !== undefined)
+            }
+            hintBright={picking || rewindPicked !== null || rewindPending !== null}
+            emphasized={rewindPending !== null}
+            strip={
+              picking || rewindPicked ? (
+                // Canvas 27a/27c: pick mode's strip. A draft already in the
+                // field stays untouched underneath it.
+                <>
+                  <span className="flex text-accent">
+                    <RewindGlyph size="strip" />
+                  </span>
+                  <span className="text-text-bright">Pick one of your messages to rewind to</span>
+                  <span aria-hidden className="flex-1" />
+                  <Button variant="strip" size="strip" onClick={leavePick}>
+                    Cancel
+                  </Button>
+                </>
+              ) : rewindPending ? (
+                // Canvas 27a/27c: the pending strip, the only Cancel.
+                <>
+                  <span className="flex text-accent">
+                    <RewindGlyph size="strip" />
+                  </span>
+                  <span className="text-text-bright">Rewound</span>
+                  <span aria-hidden className="text-[rgba(150,205,255,.3)]">
+                    ·
+                  </span>
+                  <span data-rewind-hidden>
+                    {rewindPending.hiddenCount} {rewindPending.hiddenCount === 1 ? 'message' : 'messages'} hidden
+                  </span>
+                  <span aria-hidden className="flex-1" />
+                  <Button variant="strip" size="strip" onClick={() => id && void cancelRewind(id)}>
+                    Cancel rewind
+                  </Button>
+                </>
+              ) : undefined
+            }
             locked={composerLocked}
             // The placeholder names the question's header chip, so with 2–4
             // stacked you know WHICH one you would be answering (canvas 9c).
@@ -1128,6 +1211,23 @@ export function DetailPanel({
             // over two lines; the words stay as their accessible names.
             actions={
               <>
+                {/* Canvas 27a/27c: ↶ left of Send, a 30px chip lit while
+                    pick mode is on. Gone while a rewind is pending — Cancel
+                    rewind is the way back. */}
+                {!rewindPending && (
+                  <Button
+                    variant={picking || rewindPicked ? 'toggle-on' : 'toggle'}
+                    size="icon"
+                    className="shrink-0"
+                    aria-label="Rewind to one of your messages"
+                    title="Rewind to one of your messages"
+                    aria-pressed={picking || rewindPicked !== null}
+                    disabled={composerLocked}
+                    onClick={() => id && togglePick(id)}
+                  >
+                    <RewindGlyph />
+                  </Button>
+                )}
                 {session?.status === 'working' && (
                   <Button
                     variant="warning-outline"
@@ -1180,6 +1280,7 @@ export function DetailPanel({
         onClose={() => setDialog(null)}
       />
       <EndDialog open={dialog === 'end'} sessionId={id} onClose={() => setDialog(null)} />
+      <RewindDialog sessionId={id} />
     </Panel>
       {/* The armed panel's chrome (canvas 9c-1 / 9e drop state): accent border
           at .45 over a matching inset ring at .12, arriving over .12s.

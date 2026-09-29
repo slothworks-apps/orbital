@@ -24,6 +24,19 @@ import type {
   WalkthroughSummary,
 } from './types'
 
+/**
+ * What a send answers. `uuid` is the transcript entry the turn is written
+ * under — the client puts it on its optimistic copy, which is what makes a
+ * just-sent turn pickable for a rewind; `rewind` says the send was a pending
+ * rewind's (spec 2026-09-29-rewind-design § As built).
+ */
+export interface SendResult {
+  ok: boolean
+  revived?: boolean
+  uuid?: string | null
+  rewind?: true
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -196,8 +209,8 @@ export const api = {
     id: string,
     text: string,
     attachments?: readonly string[]
-  ): Promise<{ ok: boolean; revived?: boolean }> {
-    return request<{ ok: boolean; revived?: boolean }>(
+  ): Promise<SendResult> {
+    return request<SendResult>(
       'POST',
       `/api/sessions/${id}/messages`,
       attachments && attachments.length > 0 ? { text, attachments } : { text }
@@ -298,6 +311,24 @@ export const api = {
 
   async interrupt(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/interrupt`)
+  },
+
+  /**
+   * Picks a rewind target (spec 2026-09-29-rewind-design § API): the server
+   * stops a live session itself, stores the pending rewind and answers with
+   * the picked message's text for the composer. `draft` is what the composer
+   * held before the pick, handed back by a Cancel.
+   */
+  async startRewind(
+    id: string,
+    body: { uuid: string; hiddenCount: number; draft: string },
+  ): Promise<{ text: string }> {
+    return request<{ text: string }>('POST', `/api/sessions/${id}/rewind`, body)
+  },
+
+  /** Cancels the pending rewind; answers with the draft the pick replaced. */
+  async cancelRewind(id: string): Promise<{ draft: string }> {
+    return request<{ draft: string }>('DELETE', `/api/sessions/${id}/rewind`)
   },
 
   /**

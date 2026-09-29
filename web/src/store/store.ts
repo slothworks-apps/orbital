@@ -9,6 +9,7 @@ import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
 import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
 import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
 import { ENDED_HIDE_MS } from '../map/transition'
+import { REWIND_REFUSED_TOAST } from '../lib/rewind'
 import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type {
@@ -133,7 +134,13 @@ export type ErrorsEvent =
   | { event: 'seen'; ids: number[] | null; unseen: number }
 
 export interface Toast {
-  kind: 'error' | 'info'
+  /**
+   * `rewind_refused` is the CLI turning down a pending rewind's send (spec
+   * 2026-09-29-rewind-design § Behaviour 8; canvas 27c REFUSAL): the 1g toast
+   * shell with the errors-log red dot, a Details link to the log, and it stays
+   * until dismissed or the next send.
+   */
+  kind: 'error' | 'info' | 'rewind_refused'
   message: string
   /**
    * One optional action button ("Undo" on an absorption toast). `run` is
@@ -334,6 +341,16 @@ export interface OrbitalState {
    * An empty draft is not kept.
    */
   composerDrafts: Record<string, string>
+  /**
+   * Sessions whose pending rewind this tab has just sent (spec
+   * 2026-09-29-rewind-design § Behaviour 7). The server keeps the row pending
+   * until the CLI takes the truncating resume, so the session goes on carrying
+   * `rewindPending` for a moment after Send; the panel reads this to stop
+   * showing the strip and the end marker the moment the text goes out. Cleared
+   * when the row arrives without `rewindPending`, on a refusal, or when the
+   * send itself fails.
+   */
+  rewindSending: Record<string, true>
   /**
    * Sessions whose detail panel lives in its own desktop window right now
    * (spec: 2026-09-23-detached-session-windows-design). The desktop main
@@ -601,6 +618,22 @@ function imageRefKey(images: readonly ImageRefEntry[] | undefined): string {
     .join('\0')
 }
 
+/**
+ * The text typed for a pending rewind's send, by session, until the send is
+ * settled. Not store state: nothing renders it; the refusal reads it to put
+ * the words back in the composer as an ordinary draft (spec
+ * 2026-09-29-rewind-design § Behaviour 8). What was typed, not what was sent —
+ * an editor selection riding along is not part of the draft.
+ */
+const rewindSentText: Record<string, string> = {}
+
+/** A copy of `record` without `key`. */
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...record }
+  delete next[key]
+  return next
+}
+
 /** Whether `message` is a user turn this tab appended optimistically and the
  * transcript file has not echoed back yet. */
 function isPendingTurn(message: ChatMessage): boolean {
@@ -866,6 +899,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   decisionVerdicts: {},
   ideDismissed: {},
   composerDrafts: {},
+  rewindSending: {},
   detachedIds: [],
   sessionsTotal: 0,
   leavingSince: {},
@@ -1197,6 +1231,34 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       get().reloadTranscript(sessionId).catch((err) => {
         console.error('orbital: failed to reload a transcript after its branch changed', err)
       })
+      return
+    }
+
+    if (msg.event === 'rewind_refused') {
+      // The CLI turned the truncating resume down (spec
+      // 2026-09-29-rewind-design § Behaviour 8): nothing was sent, so the
+      // optimistic turn goes and its words go back into the composer as an
+      // ordinary draft; the strip goes with the pending row. The hidden
+      // messages come back with the `transcript_reset` that follows, which is
+      // why the turn has to go first — a reload keeps an un-echoed turn.
+      const held = state.transcripts[sessionId]
+      const lastLocal = held ? [...held].reverse().find(isPendingTurn) : undefined
+      const draft = rewindSentText[sessionId] ?? lastLocal?.text
+      delete rewindSentText[sessionId]
+      const rewindSending = { ...state.rewindSending }
+      delete rewindSending[sessionId]
+      const session = state.sessions[sessionId]
+      set({
+        rewindSending,
+        ...(held ? { transcripts: { ...state.transcripts, [sessionId]: held.filter((m) => !isPendingTurn(m)) } } : {}),
+        ...(session ? { sessions: { ...state.sessions, [sessionId]: { ...session, rewindPending: null } } } : {}),
+        toast: {
+          kind: 'rewind_refused',
+          message: REWIND_REFUSED_TOAST,
+          action: { label: 'Details', run: () => get().setDialog('errors') },
+        },
+      })
+      if (draft !== undefined) get().setComposerDraft(sessionId, draft)
       return
     }
 
@@ -1534,27 +1596,57 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // less would be replaced by a longer one a moment later.
     const optimisticMessage = optimisticTurn(outgoing, attachments)
 
+    // A pending rewind is sent by the ordinary send (spec
+    // 2026-09-29-rewind-design § Behaviour 7): from here the strip and the end
+    // marker go, and the typed text is kept in case the CLI refuses.
+    const sendsRewind = Boolean(session?.rewindPending) && !get().rewindSending[id]
+    if (sendsRewind) rewindSentText[id] = text
+
     set((state) => ({
       transcripts: {
         ...state.transcripts,
         [id]: [...(state.transcripts[id] ?? []), optimisticMessage],
       },
+      // The refusal toast lasts until the next send (canvas 27c).
+      ...(state.toast?.kind === 'rewind_refused' ? { toast: null } : {}),
+      ...(sendsRewind ? { rewindSending: { ...state.rewindSending, [id]: true as const } } : {}),
     }))
 
     try {
       // Two-argument call for a text-only turn, deliberately: a trailing
       // `undefined` is a different call as far as every existing assertion in
       // the suite is concerned, and a plain turn's wire shape has not changed.
-      if (images && images.length > 0) {
-        await api.sendMessage(
-          id,
-          outgoing,
-          images.map((image) => image.ref),
-        )
-      } else {
-        await api.sendMessage(id, outgoing)
+      const result =
+        images && images.length > 0
+          ? await api.sendMessage(
+              id,
+              outgoing,
+              images.map((image) => image.ref),
+            )
+          : await api.sendMessage(id, outgoing)
+      // The entry uuid the turn is written under: what makes this optimistic
+      // copy pickable for a rewind before the file is read again.
+      const uuid = result?.uuid
+      if (uuid) {
+        set((state) => {
+          const held = state.transcripts[id]
+          const idx = held?.findIndex((m) => m.id === optimisticMessage.id) ?? -1
+          if (!held || idx < 0) return {}
+          const updated = held.slice()
+          updated[idx] = { ...held[idx], uuid }
+          return { transcripts: { ...state.transcripts, [id]: updated } }
+        })
       }
     } catch (err) {
+      if (sendsRewind) {
+        // Nothing went out, so the rewind is still pending on the server.
+        delete rewindSentText[id]
+        set((state) => {
+          const rewindSending = { ...state.rewindSending }
+          delete rewindSending[id]
+          return { rewindSending }
+        })
+      }
       if (err instanceof ApiError && err.status === 409) {
         set({
           toast: {
@@ -2223,7 +2315,12 @@ function sessionsEventPatch(
   if (msg.event === 'upsert') {
     const isNew = !(msg.session.id in state.sessions)
     const sessions = { ...state.sessions, [msg.session.id]: msg.session }
+    // A sent rewind is settled once the row stops carrying it — the CLI took
+    // the truncating resume (or a refusal took it back).
+    const rewindSettled = !msg.session.rewindPending && state.rewindSending[msg.session.id]
+    if (rewindSettled) delete rewindSentText[msg.session.id]
     return {
+      ...(rewindSettled ? { rewindSending: withoutKey(state.rewindSending, msg.session.id) } : {}),
       sessions,
       order: sortIdsByLastAtDesc(sessions),
       ...leavingStamp(state, state.sessions[msg.session.id], msg.session),

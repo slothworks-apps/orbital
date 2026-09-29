@@ -241,6 +241,61 @@ export function insertModelDividers(groups: TranscriptGroup[]): TranscriptGroup[
   return out
 }
 
+/**
+ * Whether a group is a system divider — a mark the transcript draws between
+ * rows rather than a row of the conversation: the model switch, a rewind's
+ * divider, a compaction's mark.
+ */
+function isSystemDivider(group: TranscriptGroup): boolean {
+  if (group.kind === 'model-divider') return true
+  if (group.kind !== 'message') return false
+  const role = group.item.message.role
+  return role === 'rewind' || role === 'compaction'
+}
+
+/**
+ * N, the count a rewind to `groups[index]` hides (spec 2026-09-29-rewind-design
+ * § Behaviour, "The count"; canvas 27c): every row from the picked message on,
+ * except system dividers, with a folded tool run counting as one — a run is
+ * one group whether its stack is open or not. Counted over the RENDERED
+ * groups, because the folding is the client's alone; the preview line, the
+ * pending strip and both markers all show this one number.
+ */
+export function rewindCountFrom(groups: readonly TranscriptGroup[], index: number): number {
+  if (index < 0) return 0
+  return groups.slice(index).filter((group) => !isSystemDivider(group)).length
+}
+
+/**
+ * The solid system divider a sent rewind leaves (canvas 27c, "after send · the
+ * model-switch divider, solid = final"). A rewind done in the terminal has no
+ * count Orbital knows, and says where it happened instead.
+ */
+export function rewindDividerLabel(hiddenCount: number | null | undefined): string {
+  if (hiddenCount == null) return 'REWOUND IN THE TERMINAL'
+  return `REWOUND · ${hiddenCount} ${hiddenCount === 1 ? 'MESSAGE' : 'MESSAGES'} REMOVED`
+}
+
+/**
+ * Pick mode, as the transcript draws it (canvas 27a/27c): the pickable rows
+ * at full strength with a neutral ↶ mark, everything else at `.4`; the row
+ * under the pointer — or the one already picked while the stop dialog asks —
+ * wears the accent ring with the dashed preview above it, and every row
+ * after it fades to `.18`.
+ */
+export interface TranscriptRewind {
+  /** The ids of the rows that can be picked (`lib/rewind`'s `rewindTargetIds`). */
+  targets: ReadonlySet<string>
+  /** The row already picked, held while the stop dialog asks or the pick is on its way. */
+  pickedId?: string | null
+  /** Absent once a row is picked: the transcript stops taking picks. */
+  onPick?: (message: ChatMessage, hiddenCount: number) => void
+}
+
+/** Canvas 27a: other rows while picking, and rows past the previewed cut. */
+const PICK_DIM_OPACITY = 0.4
+const PICK_FADE_OPACITY = 0.18
+
 export interface TranscriptViewProps {
   /** The full message array to render. Paired on the FULL array first (see
    * `pairMessages`' doc comment), then windowed — never the other way
@@ -346,6 +401,8 @@ export interface TranscriptViewProps {
    */
   backgroundTasks?: BackgroundTask[]
   onOpenTaskOutput?: (task: BackgroundTask) => void
+  /** Pick mode is on (spec 2026-09-29-rewind-design § Behaviour 2). Absent, the transcript is exactly as it always was. */
+  rewind?: TranscriptRewind
 }
 
 /**
@@ -579,8 +636,14 @@ export function TranscriptView({
   backgroundTasks,
   onOpenTaskOutput,
   compaction,
+  rewind,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
+  // The row under the pointer in pick mode. Forgotten when the mode ends, so
+  // the next pick mode does not open on a stale preview.
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const picking = rewind !== undefined
+  if (!picking && hoveredId !== null) setHoveredId(null)
   // Folded tool runs (spec: 2026-09-18-transcript-folding-design). An
   // explicit toggle always wins over the default (folded, or open for a run
   // containing a failure). Keyed by the group's first message id — stable
@@ -823,6 +886,13 @@ export function TranscriptView({
     return () => observer.disconnect()
   }, [observerFactory, loadOlder, pages, messages.length, visibleCount])
 
+  // Pick mode's preview: the picked row while one is held, else the one
+  // under the pointer (canvas 27a, 27b's confirmation keeps its ring).
+  const previewId = rewind ? (rewind.pickedId ?? hoveredId) : null
+  const previewIndex = previewId
+    ? groups.findIndex((g) => g.kind === 'message' && g.item.message.id === previewId)
+    : -1
+
   return (
     // Canvas 1b: the transcript owns the panel's 18px/22px inset and stacks
     // its rows 14px apart.
@@ -835,7 +905,21 @@ export function TranscriptView({
       {pages && (
         <div ref={sentinelRef} data-testid="transcript-sentinel" aria-hidden className="-mb-[15px] h-px shrink-0" />
       )}
-      {groups.map((group, index, all) => (
+      {groups.map((group, index, all) => {
+        const message = group.kind === 'message' ? group.item.message : undefined
+        const target = rewind !== undefined && message !== undefined && rewind.targets.has(message.id)
+        const previewed = target && index === previewIndex
+        const pickable = target && rewind?.onPick !== undefined
+        // Canvas 27a: past the previewed cut everything fades; before it, the
+        // targets stay whole and the rest steps back.
+        const opacity = !rewind
+          ? undefined
+          : previewIndex >= 0 && index > previewIndex
+            ? PICK_FADE_OPACITY
+            : target
+              ? 1
+              : PICK_DIM_OPACITY
+        return (
         // One wrapper per group, unconditionally — the entrance belongs to
         // the transcript (it is the transcript that knows what just arrived),
         // not to four different row components, and a wrapper that came and
@@ -847,10 +931,43 @@ export function TranscriptView({
         // 2px tall — its borders — without it); here it covers every row
         // kind, which is what the container wanted all along. jsdom cannot
         // catch this; only the browser can.
+        //
+        // In pick mode the same wrapper carries the row's opacity and, on a
+        // target, the pick itself: the whole row is the hit area, and a click
+        // anywhere on it picks rather than reaching the chip or path inside.
         <div
           key={group.key}
-          className={['shrink-0', entering.has(group.key) ? 'orbital-row-enter' : ''].join(' ')}
+          data-rewind-target={target || undefined}
+          className={[
+            'shrink-0 motion-safe:transition-opacity motion-safe:duration-150',
+            entering.has(group.key) ? 'orbital-row-enter' : '',
+            pickable ? 'cursor-pointer' : '',
+          ].join(' ')}
+          style={opacity === undefined ? undefined : { opacity }}
+          onMouseEnter={pickable ? () => setHoveredId(message.id) : undefined}
+          onMouseLeave={pickable ? () => setHoveredId((id) => (id === message.id ? null : id)) : undefined}
+          onClickCapture={
+            pickable
+              ? (e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  rewind.onPick!(message, rewindCountFrom(all, index))
+                }
+              : undefined
+          }
         >
+        {previewed && (
+          // Canvas 27a/27c: the dashed preview over the hovered message, in
+          // the accent, 8px above the bubble.
+          <div
+            data-rewind-preview
+            className="mb-2 flex items-center gap-2.5 whitespace-nowrap font-mono text-[9.5px] tracking-[0.14em] text-accent"
+          >
+            <span aria-hidden className="flex-1 border-t border-dashed border-accent/55" />
+            REWIND TO HERE · {rewindCountFrom(all, index)} HIDDEN
+            <span aria-hidden className="flex-1 border-t border-dashed border-accent/55" />
+          </div>
+        )}
         {group.kind === 'model-divider' ? (
           // Canvas 4a "Transcript model divider": 9.5px mono, .14em tracking,
           // a hairline on each side, sitting in the transcript's own 14px
@@ -911,6 +1028,16 @@ export function TranscriptView({
               onOpenTaskOutput={onOpenTaskOutput}
             />
           )
+        ) : group.item.message.role === 'rewind' ? (
+          // Canvas 27c: a sent rewind is the model divider's solid system row.
+          <div
+            data-rewind-divider
+            className="flex items-center gap-2.5 whitespace-nowrap font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+          >
+            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span>{rewindDividerLabel(group.item.message.rewind?.hiddenCount)}</span>
+            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+          </div>
         ) : group.item.message.role === 'compaction' ? (
           <CompactionMark
             message={group.item.message}
@@ -942,10 +1069,12 @@ export function TranscriptView({
               index === all.length - 1 &&
               group.item.message.role === 'assistant'
             }
+            rewindMark={target ? (previewed ? 'active' : 'target') : undefined}
           />
         )}
         </div>
-      ))}
+        )
+      })}
       {footer}
     </div>
   )

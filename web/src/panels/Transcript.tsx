@@ -8,6 +8,8 @@ import { CompactingBlock } from './CompactionMark'
 import { compactingOf } from '../lib/compaction'
 import { contextWindowFor } from '../lib/models'
 import { useCompactionUi } from '../store/compaction'
+import { pickRewindTarget, useRewindUi } from '../store/rewind'
+import { rewindTargetIds } from '../lib/rewind'
 
 /** Stable empty array — a fresh `[]` fallback on every selector call would
  * defeat `useShallow`'s equality check and re-render on every store tick. */
@@ -128,6 +130,28 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
     [session?.source, contextWindow, hue, live, handleCompactAgain, reveal, handleRevealed],
   )
 
+  // Rewind (spec 2026-09-29-rewind-design): pick mode, the pick held while
+  // the stop dialog asks, and the pending rewind's end marker.
+  const picking = useRewindUi((s) => s.pick === sessionId)
+  const picked = useRewindUi((s) => (s.picked?.sessionId === sessionId ? s.picked : null))
+  const sending = useOrbital((s) => Boolean(s.rewindSending[sessionId]))
+  const pendingHidden = !sending ? (session?.rewindPending?.hiddenCount ?? null) : null
+  const targets = useMemo(
+    () => (picking || picked ? rewindTargetIds(messages) : null),
+    [picking, picked, messages],
+  )
+  const handlePick = useCallback(
+    (message: ChatMessage, hiddenCount: number) => pickRewindTarget(sessionId, message, hiddenCount),
+    [sessionId],
+  )
+  const rewind = useMemo(
+    () =>
+      targets
+        ? { targets, pickedId: picked?.messageId ?? null, onPick: picked ? undefined : handlePick }
+        : undefined,
+    [targets, picked, handlePick],
+  )
+
   // `TranscriptView` resets its own windowing/scroll state off `resetKey`,
   // but "exhausted" is this session's pagination state, not the view's, so
   // it resets here, off the same switch.
@@ -165,9 +189,22 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       backgroundTasks={backgroundTasks}
       onOpenTaskOutput={handleOpenTaskOutput}
       compaction={compaction}
-      footerKey={compacting ? 'compacting' : undefined}
+      rewind={rewind}
+      footerKey={compacting ? 'compacting' : pendingHidden !== null ? 'rewind-pending' : undefined}
       footer={
         <>
+          {pendingHidden !== null && (
+            // Canvas 27a/27c: where the transcript ends while a rewind is
+            // pending — dashed, because nothing is final yet.
+            <div
+              data-rewind-pending
+              className="flex shrink-0 items-center gap-2.5 whitespace-nowrap py-1 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(200,220,245,.75)]"
+            >
+              <span aria-hidden className="flex-1 border-t border-dashed border-[rgba(150,205,255,.3)]" />
+              {pendingHidden} HIDDEN · BACK ON CANCEL
+              <span aria-hidden className="flex-1 border-t border-dashed border-[rgba(150,205,255,.3)]" />
+            </div>
+          )}
           {compacting && (
             <CompactingBlock
               startedAt={compacting.startedAt}

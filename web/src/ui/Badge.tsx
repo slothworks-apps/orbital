@@ -25,6 +25,14 @@ export type BadgeProps =
       /** The elapsed time, already formatted (`formatElapsed`). */
       elapsed: string
     }
+  | {
+      /**
+       * The header's state chip while a rewind is pending (canvas 27b's state
+       * line: REWIND PENDING, a neutral hollow dot). Not a `status` state: the
+       * map and the sidebar read the session as waiting for input.
+       */
+      variant: 'rewind'
+    }
   | { variant: 'count'; value: number; label?: string }
   | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
   | {
@@ -173,6 +181,22 @@ export function Badge(props: BadgeProps) {
           glow={state === 'working'}
         />
         {stateWord(state, awaiting)}
+      </span>
+    )
+  }
+
+  if (props.variant === 'rewind') {
+    // 27b: ink rgba(200,220,245,.85) for the word and the 1.5px ring alike.
+    // The chip's border is the idle chip's — the canvas draws the line bare.
+    const ink = 'rgba(200,220,245,.85)'
+    return (
+      <span
+        data-variant="rewind"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em]"
+        style={{ color: ink }}
+      >
+        <StateDot dot={{ shape: 'hollow', motion: 'steady' }} color={ink} solidPx={6} hollowPx={7} />
+        REWIND PENDING
       </span>
     )
   }

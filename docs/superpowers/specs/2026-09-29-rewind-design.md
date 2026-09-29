@@ -331,6 +331,32 @@ Where the server departs from the design above, or says what it left open:
 - **Compaction failures** are cut with the turns (those at or past the cut's
   timestamp). Background-task rows are not joined against the branch yet.
 
+### As built (step 5, the web)
+
+- **Where it lives.** `web/src/lib/rewind.ts` holds the pure rules (which
+  rows are targets, what the stop dialog says, the refusal copy);
+  `rewindCountFrom` sits with the folding in `panels/TranscriptView.tsx`;
+  `store/rewind.ts` holds pick mode and the start/cancel calls; the pending
+  row stays the server's (`ApiSession.rewindPending`).
+- **Targets** are the rows the server marked `rewindable`, plus the
+  optimistic turn once the send answered with its `uuid` and a reply sits
+  before it.
+- **The count** leaves out the model divider, an earlier rewind's divider
+  and compaction marks — all three are system rows.
+- **Sending** a pending rewind hides the strip and the end marker at once
+  (`rewindSending`), although the server keeps the row pending until `init`.
+  A refusal drops the optimistic turn, puts the typed text back as the draft
+  and raises the refusal toast; the next send clears it.
+- **A pick the server turns down** (409, 504) shows the ordinary error toast
+  with the reason, not the refusal toast: nothing was refused by the CLI.
+- **`/rewind` while a rewind is pending** does nothing. A send from pick mode
+  leaves pick mode and goes out as usual.
+- **Departures from the canvas:** the resting hint keeps the composer's own
+  copy (not `⏎ send · /rewind`); REWIND PENDING is drawn in the header's
+  state-chip shell; the faded rows after a previewed cut fade whole, their ↶
+  mark included; the refusal toast has a × and its Details opens the errors
+  log, newest first, rather than scrolling to the entry.
+
 ## Verification (2026-09-29)
 
 Agent SDK 0.3.278, read-only on real transcripts, and live resumes on a

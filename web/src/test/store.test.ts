@@ -88,6 +88,7 @@ const initialSnapshot: OrbitalState = {
   decisionVerdicts: {},
   ideDismissed: {},
   composerDrafts: {},
+  rewindSending: {},
   detachedIds: [],
   sessionsTotal: 0,
   leavingSince: {},

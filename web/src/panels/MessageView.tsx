@@ -13,6 +13,7 @@ import { parseSentSelection, stripSentOpenFile } from '../lib/ideSelection'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { copyToClipboard } from '../lib/clipboard'
+import { RewindGlyph } from '../ui/UtilityButton'
 
 /** 7a: two or more images share one wrapping row, each capped narrower. */
 const TWO_UP_WIDTH_PX = 171
@@ -258,6 +259,33 @@ export function commandLineCount(body: string): number {
   return lines.length
 }
 
+/**
+ * The ↶ chip beside a pickable turn in pick mode (canvas 27a/27c): 24px, 6px
+ * radius, 8px left of the bubble and 4px below its top. Hung off the bubble
+ * rather than laid out beside it, so entering pick mode moves nothing — the
+ * bubble keeps its place and its width, and only this appears in the free
+ * space the right-aligned turn always leaves on its left.
+ */
+function RewindMark({ active }: { active: boolean }) {
+  return (
+    <span
+      aria-hidden
+      data-rewind-mark={active ? 'active' : 'target'}
+      className={[
+        'absolute top-[3px] grid h-6 w-6 place-items-center rounded-[6px] border transition-colors duration-150',
+        active
+          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+          : 'border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)] text-[rgba(200,220,245,.75)]',
+      ].join(' ')}
+      // The bubble's 1px border sits outside its padding box, which is what
+      // `right: 100%` measures from: 8px of gap is 9px from there.
+      style={{ right: 'calc(100% + 9px)' }}
+    >
+      <RewindGlyph />
+    </span>
+  )
+}
+
 export interface MessageViewProps {
   message: ChatMessage
   /**
@@ -266,6 +294,12 @@ export interface MessageViewProps {
    * of a session that is still working.
    */
   streaming?: boolean
+  /**
+   * Pick mode (canvas 27a/27c): a pickable user turn wears the neutral ↶ mark
+   * beside its bubble, and the one previewed wears the accent ring and the
+   * mark's active chip. Absent outside pick mode.
+   */
+  rewindMark?: 'target' | 'active'
 }
 
 /**
@@ -273,7 +307,7 @@ export interface MessageViewProps {
  * fenced code blocks, etc). `tool_use`/`tool_result` messages are not
  * handled here — `Transcript` pairs those and renders them via `ToolRow`.
  */
-export function MessageView({ message, streaming = false }: MessageViewProps) {
+export function MessageView({ message, streaming = false, rewindMark }: MessageViewProps) {
   const isUser = message.role === 'user'
   // The command-expansion fold (canvas 6c, spec:
   // 2026-09-18-transcript-folding-design). Only user turns carry `command`.
@@ -334,10 +368,15 @@ export function MessageView({ message, streaming = false }: MessageViewProps) {
           // padding, capped at 86% of the column; the assistant's turn has
           // no bubble at all — plain 13px/1.55 text, up to 92% wide.
           isUser
-            ? 'max-w-[86%] rounded-[12px_12px_4px_12px] border border-accent/30 bg-accent/12 px-3.5 py-2.5 text-[13px] leading-[1.5] text-text-bright'
+            ? 'max-w-[86%] rounded-[12px_12px_4px_12px] border bg-accent/12 px-3.5 py-2.5 text-[13px] leading-[1.5] text-text-bright'
             : 'max-w-[92%] text-[13px] leading-[1.55] text-[rgba(232,238,248,.92)]',
+          // Canvas 27a: the previewed turn's ring — the border to accent .8
+          // plus a 3px accent .14 glow, over .15s.
+          isUser && rewindMark === 'active' ? 'border-accent/80 ring-[3px] ring-accent/14' : isUser ? 'border-accent/30' : '',
+          isUser && rewindMark ? 'relative transition-[border-color,box-shadow] duration-150' : '',
         ].join(' ')}
       >
+        {isUser && rewindMark && <RewindMark active={rewindMark === 'active'} />}
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           // Path detection runs over ASSISTANT prose only — a user turn is

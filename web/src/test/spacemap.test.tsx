@@ -97,6 +97,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     decisionVerdicts: {},
     ideDismissed: {},
     composerDrafts: {},
+    rewindSending: {},
     detachedIds: [],
     errors: [],
     errorsUnseen: 0,

@@ -163,6 +163,21 @@ export interface ComposerProps {
   /** Rendered at the right end of the hint row — the panel's Stop/Send buttons. */
   actions?: ReactNode
   /**
+   * A strip across the top of the well, above the text (canvas `Feature -
+   * Rewind v2` 27a): pick mode's "Pick one of your messages" and a pending
+   * rewind's "Rewound · N messages hidden". The caller draws its content; the
+   * well draws the rule under it.
+   */
+  strip?: ReactNode
+  /**
+   * The well wears its focused chrome — accent .5 border and the 3px glow —
+   * whether or not it has focus: a pending rewind (27a/27b), where the text in
+   * it is what the next send makes permanent.
+   */
+  emphasized?: boolean
+  /** The resting hint in the brighter ink pick mode and a pending rewind use (27a). */
+  hintBright?: boolean
+  /**
    * The editor covering this mount's directory, or null/absent when there is
    * none (spec 2026-09-23-ide-bridge-design § The slot and the lip). The
    * composer draws the slot on the well's top edge, names what ⏎ will carry in
@@ -207,6 +222,9 @@ export function Composer({
   placeholder,
   id,
   actions,
+  strip,
+  emphasized = false,
+  hintBright = false,
   ide = null,
   ideDismissedId,
   onIdeDismiss,
@@ -589,7 +607,7 @@ export function Composer({
           // which is why they share a branch.
           locked
             ? 'border-[rgba(150,205,255,.08)]'
-            : focused || (answering && value.length > 0)
+            : focused || emphasized || (answering && value.length > 0)
             ? 'border-accent/50 ring-[3px] ring-accent/10'
             : answering
               ? 'border-accent/38'
@@ -609,6 +627,17 @@ export function Composer({
           standing={ideStanding}
           onDismiss={(selection) => onIdeDismiss?.(selection)}
         />
+
+        {/* Canvas 27a: -2px above, a .1 hairline 10px under it; the 10px
+            beneath the rule is the well's own gap. */}
+        {strip && (
+          <div
+            data-composer-strip
+            className="-mt-0.5 flex items-center gap-2 border-b border-[rgba(150,205,255,.1)] pb-2.5 font-mono text-[10.5px] text-[rgba(200,220,245,.85)]"
+          >
+            {strip}
+          </div>
+        )}
 
         {/* The chip row: above the text, inside the well (canvas 9c-2). Three
             fit across a 418px well and it wraps to a second row. */}
@@ -702,10 +731,15 @@ export function Composer({
             <span
               className={[
                 'font-mono text-[10px] tracking-[0.06em]',
-                locked ? 'text-[rgba(160,190,225,.25)]' : 'text-[rgba(160,190,225,.5)]',
+                locked
+                  ? 'text-[rgba(160,190,225,.25)]'
+                  : hintBright
+                    ? 'text-[rgba(200,220,245,.7)]'
+                    : 'text-[rgba(160,190,225,.5)]',
               ].join(' ')}
             >
-              {ideHint ?? hint}
+              {/* Pick mode and a pending rewind say what ⏎ does now; that outranks what it carries. */}
+              {hintBright ? hint : (ideHint ?? hint)}
             </span>
           )}
           <span aria-hidden className="flex-1" />

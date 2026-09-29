@@ -88,6 +88,7 @@ export function useSceneModel(): SceneModel {
           decisionVerdicts: {},
           ideDismissed: {},
           composerDrafts: {},
+          rewindSending: {},
           detachedIds: [],
           sessionsTotal,
           leavingSince,
