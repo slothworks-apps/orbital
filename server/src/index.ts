@@ -712,6 +712,11 @@ export async function buildServer(overrides: {
         hub.publish(topic, { event: 'message', message: msg });
       }
     });
+    // The branch changed under what the client holds — a rewind done in the
+    // terminal, or an interrupt's dangling call dropped. Nothing to append:
+    // the client reads the transcript again (spec 2026-09-29-rewind-design §
+    // Reading the live branch).
+    tail.on('reset', () => hub.publish(topic, { event: 'transcript_reset' }));
     // Start at EOF, not byte 0: history is served over REST, and the first WS
     // subscriber replaying the entire transcript on every (re)subscribe is
     // both wasteful and duplicative of what GET /api/sessions/:id/messages

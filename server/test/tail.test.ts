@@ -74,6 +74,38 @@ describe('TranscriptTail', () => {
   });
 });
 
+// Spec 2026-09-29-rewind-design § Reading the live branch: a tail started
+// at the end of a file knows the branch from what is above it, and a rewind
+// appended in the terminal is a reset, not rows to append.
+describe('TranscriptTail on a rewind', () => {
+  const line = (uuid: string, parentUuid: string | null, type = 'user') =>
+    JSON.stringify({ type, uuid, parentUuid, message: { role: type, content: uuid } }) + '\n';
+
+  it('emits reset when the appended entry starts a new branch off the live one', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-tail-rewind-'));
+    const file = join(dir, 't.jsonl');
+    const history = line('p1', null) + line('a1', 'p1', 'assistant') + line('p2', 'a1') + line('a2', 'p2', 'assistant');
+    writeFileSync(file, history);
+    await new Promise((r) => setTimeout(r, 5));
+    const tail = new TranscriptTail(file);
+    const seen = collect(tail);
+    let resets = 0;
+    tail.on('reset', () => resets++);
+    tail.start(Buffer.byteLength(history));
+    appendFileSync(file, line('p2-edited', 'a1'));
+    // Re-fired the same way as the append test above, for the same reason.
+    await vi.waitFor(
+      () => {
+        utimesSync(file, new Date(), new Date());
+        expect(resets).toBe(1);
+      },
+      { timeout: 15_000, interval: 250 },
+    );
+    expect(seen).toEqual([]);
+    tail.stop();
+  }, 20_000);
+});
+
 // The live half of the stats cadence (spec 2026-09-20-session-stats-design,
 // § Heuristic findings → Evaluation cadence).
 describe('LiveSessionStats', () => {

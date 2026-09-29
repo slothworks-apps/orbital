@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
@@ -450,6 +450,26 @@ describe('REST routes', () => {
         expect(res.json()).toEqual({ messages: [] });
       }
     });
+  });
+
+  // Spec 2026-09-29-rewind-design § Reading the live branch: the file keeps
+  // every abandoned turn, the API returns only the branch that ends at the
+  // newest leaf.
+  it('GET /api/sessions/:id/messages returns only the live branch of a rewound transcript', async () => {
+    const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-msg-routes-'));
+    mkdirSync(join(projectsDir, 'p'), { recursive: true });
+    copyFileSync(join(import.meta.dirname, 'fixtures/transcript-rewind-cli.jsonl'), join(projectsDir, 'p', 's1.jsonl'));
+    const { app } = makeApp({ projectsDir });
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/messages' });
+    const users = (res.json().messages as Array<{ role: string; text?: string }>)
+      .filter((m) => m.role === 'user' && m.text)
+      .map((m) => m.text);
+    expect(users).toEqual([
+      'say A (reply with just the letter)',
+      'say E (reply with just the letter)',
+      'say F (reply with just the letter)',
+      'say I (reply with just the letter)',
+    ]);
   });
 
   it('GET /api/sessions/:id/messages still 404s for a session nobody has heard of', async () => {

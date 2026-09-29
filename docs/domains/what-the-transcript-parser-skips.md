@@ -57,6 +57,28 @@ The stats (`server/src/stats/compute.ts`) do **not** skip `isMeta`. A meta
 entry is still input the model was sent, and a user entry is where API
 timing starts counting.
 
+## Entries off the live branch
+
+Before any of the above, every reader narrows the file to its live branch
+(`server/src/transcript/liveBranch.ts`, spec `2026-09-29-rewind-design`).
+The CLI never deletes: a rewind appends the new branch and leaves the old
+one in place, and an interrupt leaves a `tool_use` nothing continues from.
+What the walk drops:
+
+- a side branch that holds a human prompt: a rewound turn, or the `/compact`
+  prompt older transcripts hang off the pre-compaction tip
+- a `tool_use` with no result, once a later prompt is on the branch: the
+  interrupt's dangling call
+- the later copies of a uuid the CLI re-appended around a compaction
+
+Every other side branch is kept. Parallel tool calls are written as a chain
+of `tool_use` entries whose results each parent their own call, so the next
+step continues from one result only and the rest of the batch hangs beside
+the walk. Hook attachments hang off a `tool_use` the same way.
+
+The stats read the whole file but count the dead branches' usage only: those
+tokens were billed. Turns, tools, time and findings are the live branch's.
+
 ## Entries that are not turns but are kept
 
 - **`type: "system"`, `subtype: "local_command"`**: becomes a notice row

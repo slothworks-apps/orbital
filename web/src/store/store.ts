@@ -71,6 +71,13 @@ export type SessionEvent =
   | { event: 'decision_pending'; decision: PendingDecision }
   /** It was settled — by this tab, another window, an interrupt, or the session ending. */
   | { event: 'decision_resolved'; decisionId: string }
+  /**
+   * The transcript's live branch changed under the rows held — a rewind done
+   * in the terminal, or an interrupt's dangling call dropped (spec
+   * 2026-09-29-rewind-design § Reading the live branch). Nothing to append;
+   * the transcript is read again.
+   */
+  | { event: 'transcript_reset' }
 
 /**
  * Events delivered on the `subagent:<sessionId>:<toolUseId>` topic — one
@@ -386,6 +393,12 @@ export interface OrbitalActions {
    * `transcript_gap`. Driven by `useTranscriptCheck`.
    */
   checkTranscript(id: string): Promise<void>
+  /**
+   * Replaces the held transcript with the file's, keeping a turn typed a
+   * moment ago that the file has not echoed yet. Nothing happens for a
+   * transcript whose history is not seated.
+   */
+  reloadTranscript(id: string): Promise<void>
   applySessionsEvent(msg: SessionsEvent): void
   /**
    * The socket's way in for the `sessions` topic: events that arrive within
@@ -967,6 +980,22 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
   },
 
+  async reloadTranscript(id) {
+    if (!get().historyLoaded[id]) return
+    const fetched = await api.getMessages(id)
+    set((state) => {
+      // Left while the fetch was out: the next open fetches anyway.
+      if (!state.historyLoaded[id]) return {}
+      // The file is the whole truth except for a turn typed a moment ago
+      // that it has not echoed yet — the same carry-over `select()` makes.
+      const current = state.transcripts[id] ?? []
+      const pending = current.filter(
+        (m) => isPendingTurn(m) && !fetched.some((f) => echoes(f, m)),
+      )
+      return { transcripts: { ...state.transcripts, [id]: [...fetched, ...pending] } }
+    })
+  },
+
   async checkTranscript(id) {
     // Nothing to compare before the history is seated; `select()` owns that.
     if (!get().historyLoaded[id] || transcriptChecking.has(id)) return
@@ -984,18 +1013,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // Read before the reload, which is what would change them.
       const socket = getSocket().diagnostics(`session:${id}`)
       const heldCount = held.length
-      const fetched = await api.getMessages(id)
-      set((state) => {
-        // Left while the fetch was out: the next open fetches anyway.
-        if (!state.historyLoaded[id]) return {}
-        // The file is the whole truth except for a turn typed a moment ago
-        // that it has not echoed yet — the same carry-over `select()` makes.
-        const current = state.transcripts[id] ?? []
-        const pending = current.filter(
-          (m) => isPendingTurn(m) && !fetched.some((f) => echoes(f, m)),
-        )
-        return { transcripts: { ...state.transcripts, [id]: [...fetched, ...pending] } }
-      })
+      await get().reloadTranscript(id)
 
       void api
         .reportErrorToServer({
@@ -1164,6 +1182,13 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         sessions: { ...state.sessions, [sessionId]: next },
         ...leavingStamp(state, session, next),
         ...(crashed ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } } : {}),
+      })
+      return
+    }
+
+    if (msg.event === 'transcript_reset') {
+      get().reloadTranscript(sessionId).catch((err) => {
+        console.error('orbital: failed to reload a transcript after its branch changed', err)
       })
       return
     }

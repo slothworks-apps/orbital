@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
+import { liveBranch } from '../transcript/liveBranch.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { expandHome } from '../paths.js';
 import { readFilePreview } from '../files/preview.js';
@@ -290,13 +291,16 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const path = join(ctx.projectsDir, row.project_dir, `${id}.jsonl`);
     const stamp = fileStamp(path);
     // Cached as finished wire messages rather than raw entries, so a page
-    // also skips `entriesToMessages` and the image decoding inside it.
+    // also skips `entriesToMessages` and the image decoding inside it. Only
+    // the live branch: a rewind's abandoned turns and an interrupt's dangling
+    // call stay in the file (spec 2026-09-29-rewind-design § Reading the live
+    // branch).
     const fromFile =
       stamp === null
         ? []
         : transcriptMessages.get(path, stamp, () => {
             try {
-              return entriesToMessages(parseTranscript(readFileSync(path, 'utf8')), ctx.images);
+              return entriesToMessages(liveBranch(parseTranscript(readFileSync(path, 'utf8'))), ctx.images);
             } catch {
               return [];
             }

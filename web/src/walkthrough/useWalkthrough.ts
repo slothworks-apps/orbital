@@ -56,7 +56,7 @@ export function useWalkthrough(id: string): WalkthroughData {
       timer = setTimeout(() => { timer = null; refetch() }, WALKTHROUGH_REFETCH_DEBOUNCE_MS)
     }
     const release = getSocket().subscribe(`session:${id}`, (msg: SessionEvent) => {
-      if (msg.event === 'message' || msg.event === 'status') schedule()
+      if (msg.event === 'message' || msg.event === 'status' || msg.event === 'transcript_reset') schedule()
     })
     return () => { release(); if (timer) clearTimeout(timer) }
   }, [id, refetch])

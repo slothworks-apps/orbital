@@ -1,5 +1,6 @@
 import type { TranscriptEntry, TranscriptUsage } from '../transcript/parser.js';
 import { SUBAGENT_TOOLS } from '../transcript/subagents.js';
+import { liveBranch } from '../transcript/liveBranch.js';
 import {
   CACHE_BURN_MIN_HIT_RATIO,
   CACHE_BURN_MIN_TURNS,
@@ -211,6 +212,12 @@ function usageTokens(usage: TranscriptUsage | undefined) {
  * run, so they only contribute `subagentTokens` (the flat display sum) and
  * `subagentUsage` (the same tokens, broken down by the subagent's own model
  * id, for pricing — Ruling 11).
+ *
+ * Main-chain entries off the live branch (a rewind's abandoned turns, an
+ * interrupt's dangling call) were billed all the same, so their usage counts
+ * toward the token totals; they open no turn, run no tool and time nothing,
+ * so turns, tools, time and findings cover the live branch only (spec
+ * 2026-09-29-rewind-design § After a rewind is sent).
  */
 export function computeStats(entries: TranscriptEntry[]): SessionStats {
   const rollup = emptyRollup();
@@ -221,6 +228,25 @@ export function computeStats(entries: TranscriptEntry[]): SessionStats {
   const pending = new Map<string, PendingUse>();
   const countedRequests = new Set<string>();
   const countedSidechainRequests = new Set<string>();
+  const live = new Set(liveBranch(entries));
+
+  /**
+   * Banks a request's usage in the totals, once per request; the tokens it
+   * added, or null when the request was already banked.
+   */
+  const bankUsage = (key: string, entry: TranscriptEntry) => {
+    if (countedRequests.has(key)) return null;
+    countedRequests.add(key);
+    const u = usageTokens(entry.message?.usage);
+    rollup.inputTokens += u.input;
+    rollup.outputTokens += u.output;
+    rollup.cacheReadTokens += u.cacheRead;
+    rollup.cacheCreationTokens += u.cacheCreation;
+    rollup.cacheCreation5mTokens += u.creation5m;
+    rollup.cacheCreation1hTokens += u.creation1h;
+    rollup.thinkingTokens += u.thinking;
+    return u;
+  };
 
   /**
    * Where the next turn's API wait is measured from: the last main-chain entry
@@ -305,6 +331,11 @@ export function computeStats(entries: TranscriptEntry[]): SessionStats {
       return;
     }
 
+    if (!live.has(entry)) {
+      if (entry.type === 'assistant') bankUsage(entry.requestId || `turn-${index}`, entry);
+      return;
+    }
+
     if (entry.type === 'user') {
       openTurnKey = null;
       const ts = timestampOf(entry);
@@ -327,16 +358,8 @@ export function computeStats(entries: TranscriptEntry[]): SessionStats {
       const tokens = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
       // A repeated requestId (never seen in practice) still opens a segment,
       // but its usage was already banked and must not count twice.
-      if (!countedRequests.has(key)) {
-        countedRequests.add(key);
-        const u = usageTokens(entry.message?.usage);
-        rollup.inputTokens += u.input;
-        rollup.outputTokens += u.output;
-        rollup.cacheReadTokens += u.cacheRead;
-        rollup.cacheCreationTokens += u.cacheCreation;
-        rollup.cacheCreation5mTokens += u.creation5m;
-        rollup.cacheCreation1hTokens += u.creation1h;
-        rollup.thinkingTokens += u.thinking;
+      const u = bankUsage(key, entry);
+      if (u) {
         tokens.input = u.input;
         tokens.output = u.output;
         tokens.cacheRead = u.cacheRead;

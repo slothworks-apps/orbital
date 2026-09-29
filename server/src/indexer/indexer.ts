@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { OrbitalDb } from '../db/database.js';
 import { sessions, sweptSessions, sessionStats } from '../db/schema.js';
 import { parseTranscript, extractMeta } from '../transcript/parser.js';
+import { liveBranch } from '../transcript/liveBranch.js';
 import { regenerateRuleTags } from '../tags/rules.js';
 import { computeStats } from '../stats/compute.js';
 import { STATS_VERSION } from '../stats/constants.js';
@@ -151,7 +152,10 @@ function indexFiles(
           existing.statsVersion === STATS_VERSION
         ) continue;
         const entries = parseTranscript(readFileSync(path, 'utf8'));
-        const meta = extractMeta(entries);
+        // The title, the count and the timestamps come off the live branch
+        // (spec 2026-09-29-rewind-design); stats take every entry and split
+        // it themselves, since a dead branch was still billed.
+        const meta = extractMeta(liveBranch(entries));
         // Sidechains live in their own files beside this one, so stats read
         // both; `extractMeta` above stays on the session's own entries.
         const { rollup } = computeStats([...entries, ...readSubagentEntries(path)]);

@@ -148,13 +148,42 @@ parents to the block before it. The prompt that started a compaction is off
 it too in older transcripts (it hangs off the pre-compaction tip); the
 compaction mark stands in for it.
 
-The tail (`watcher/tail.ts`) only handles appends. It keeps the live set and
-the leaf. An appended chain entry continues the branch when its parent is
-the leaf, when it is a `tool_result` whose parent is live, or when it is a
-`compact_boundary` whose `logicalParentUuid` is the leaf. Anything else whose
-parent is live is a new branch, and the tail tells clients to reload the
-transcript rather than appending. An entry whose parent is off the branch
-is ignored.
+**As built (step 2).** Run over every local transcript, the rule above
+dropped real conversation, so `server/src/transcript/liveBranch.ts` amends it:
+
+- The walk above is the *spine*. A side branch hanging off it is dead only
+  if it holds a human prompt (a rewind, or an old `/compact`). Any other
+  side branch is live: parallel and streamed tool calls chain one `tool_use`
+  after another and each result parents its own call, so rule 4 alone lost
+  every call of a batch whose result did not land last.
+- A side branch's `tool_use` with no result is dropped once a later prompt
+  is on the spine. That is the interrupt's dangling call; a call of a batch
+  still running stays.
+- The tip ranks entries by their first occurrence. Ranked by the last one,
+  a side leaf the CLI re-appended around a compaction took the tip and the
+  branch collapsed to the preserved range.
+- A parent the file does not hold, or none past the first entry, continues
+  the walk at the chain entry before it in the file. One transcript has
+  assistant entries parented to uuids never written, the CLI writes some
+  entries before the parent they name, and a session opened with `/clear`
+  has a second root.
+- Fork points (for the divider) are live entries with a dead side branch
+  holding a prompt, whose child on the spine is a prompt too. That second
+  condition keeps an old `/compact` from reading as a rewind.
+
+The tail (`watcher/tail.ts`) only handles appends. The per-entry rule
+first written here (continue when the parent is the leaf, reload when it is
+live) reloaded on ordinary parallel tool calls and missed a rewind whose new
+branch opens with an `away_summary`. So the tail holds the file's chain
+entries and walks them again on every batch (about a millisecond on the
+largest local transcript), built on the first append from the file above
+where it started. A batch that takes an entry the client was shown off the
+branch publishes `{ event: 'transcript_reset' }` on `session:<id>`, and the
+client reads the transcript again; otherwise the batch's live entries are
+appended. An append to an abandoned branch is not ignored: it is the newest
+leaf, so the transcript goes back there, and the tail resets. Replayed
+entry by entry over every local transcript, the tail's view ended identical
+to a full read on all of them.
 
 ### Ids
 

@@ -603,3 +603,42 @@ describe('computeStats — findings', () => {
     expect(computeStats(entries).rollup.findings.some((f) => f.rule === 'error-loop')).toBe(false);
   });
 });
+
+// Spec 2026-09-29-rewind-design § After a rewind is sent: an abandoned
+// branch was billed, so its tokens stay in the totals, but its turns and
+// tools are no longer the session's.
+describe('computeStats over a rewound transcript', () => {
+  const entries: TranscriptEntry[] = [
+    { ...human(0, 'p1'), parentUuid: null },
+    { ...assistant({ at: 1_000, uuid: 'a1', requestId: 'r1', usage: { input: 10, output: 1 } }), parentUuid: 'p1' },
+    // The abandoned turn: a prompt, a call and its result, an answer.
+    { ...human(2_000, 'p-dead'), parentUuid: 'a1' },
+    {
+      ...assistant({
+        at: 3_000, uuid: 'a-dead', requestId: 'r-dead', usage: { input: 100, output: 20 },
+        content: [{ type: 'tool_use', id: 'tu-dead', name: 'Bash', input: {} }],
+      }),
+      parentUuid: 'p-dead',
+    },
+    {
+      type: 'user', uuid: 'res-dead', parentUuid: 'a-dead', timestamp: at(4_000),
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-dead', content: 'ok' }] },
+    },
+    { ...assistant({ at: 5_000, uuid: 'a-dead-2', requestId: 'r-dead-2', usage: { input: 200, output: 30 } }), parentUuid: 'res-dead' },
+    // The rewind: a new prompt off the same entry.
+    { ...human(6_000, 'p2'), parentUuid: 'a1' },
+    { ...assistant({ at: 7_000, uuid: 'a2', requestId: 'r2', usage: { input: 1_000, output: 5 } }), parentUuid: 'p2' },
+  ];
+
+  it('counts the dead branch in the tokens and not in the turns or tools', () => {
+    const { rollup, turns } = computeStats(entries);
+    expect(rollup.inputTokens).toBe(10 + 100 + 200 + 1_000);
+    expect(rollup.outputTokens).toBe(1 + 20 + 30 + 5);
+    expect(turns.map((t) => t.uuid)).toEqual(['a1', 'a2']);
+    expect(rollup.turns).toBe(2);
+    expect(rollup.toolCalls).toBe(0);
+    // The live turn's wait is measured from its own prompt, not from the
+    // abandoned answer written before it.
+    expect(turns[1].apiMs).toBe(1_000);
+  });
+});

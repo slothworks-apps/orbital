@@ -30,6 +30,10 @@ export interface TranscriptEntry {
   /** `system` entries only: the line the CLI wrote, tags and all. */
   content?: string;
   uuid?: string;
+  /** The entry this one follows on the chain; null at a root and at a `compact_boundary`. */
+  parentUuid?: string | null;
+  /** `compact_boundary` entries only: the entry the compaction continues from. */
+  logicalParentUuid?: string | null;
   timestamp?: string;
   cwd?: string;
   isSidechain?: boolean;

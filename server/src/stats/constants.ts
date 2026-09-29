@@ -11,7 +11,7 @@
  * means: the indexer then recomputes every session, including files whose
  * mtime and size have not changed since they were last indexed.
  */
-export const STATS_VERSION = 1;
+export const STATS_VERSION = 2;
 
 /**
  * How many turns a live session runs before the watcher tail recomputes its
