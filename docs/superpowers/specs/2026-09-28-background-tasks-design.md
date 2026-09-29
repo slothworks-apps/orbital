@@ -2,7 +2,7 @@
 id: 2026-09-28-background-tasks-design
 title: Background tasks — the shells, monitors, workflows and MCP tasks a session left running
 type: spec
-status: draft
+status: done
 domain: sessions
 related:
   - background-shell-output-is-not-forced-into-colour
@@ -147,8 +147,9 @@ monitors too, deliberately: a dev server left running keeps the planet
 label says what is waited for, and it is one click from being stopped.
 
 `hasLiveSubagents` widens to "anything the session launched is still
-running". `ApiSession` gains what the label needs: counts of the running
-tasks by `kind`, beside `awaitingSubagents`. The wording of the state pill
+running" (`hasLiveBackgroundWork`). The label needs no field of its own:
+the web counts the running tasks by `kind` off `backgroundTasks`, gated
+on `awaitingSubagents` as before (`awaitedWork`). The wording of the state pill
 and the detail chip (today `WAITING FOR AGENT`) comes from the design; one
 shared function still produces it for both.
 
