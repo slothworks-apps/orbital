@@ -59,10 +59,13 @@ Out:
    one previews the cut: a dashed line with the count, the rows after it
    faded (canvas 27a/27c).
 3. **Which messages can be picked.** A human-typed user message in the live
-   branch that has a predecessor in the chain. The first user message of the
-   session has none, so it is not a target; it renders like the non-target rows.
-   Messages from the turn that is still streaming are targets as soon as their
-   transcript uuid is known (see *Ids*).
+   branch that has conversation before it and comes after the branch's newest
+   `compact_boundary`. The first user message of the session has no
+   conversation before it (at most start-up attachments), so it is not a
+   target. Messages before the newest compaction are not targets either: the
+   CLI cannot resume there (see *Verification*). Non-targets render like the
+   non-target rows. Messages from the turn that is still streaming are targets
+   as soon as their transcript uuid is known (see *Ids*).
 4. **Confirmation.** If the session is working, or has running background tasks
    or subagents, the stop dialog opens after the pick. It names what ends and
    offers *Keep running* and *Stop and rewind* (copy and variants: canvas 27c).
@@ -106,32 +109,62 @@ tool calls cut off by an interrupt.
 The transcript is therefore read as its **live branch**: one function turns a
 file's entries into the entries of the branch that ends at the newest leaf,
 keeping uuid-less metadata entries, and every reader calls it between
-`parseTranscript` and what it does today. Parallel tool calls also make
-parents with several children, so "follow `parentUuid` back from the last
-entry" is not the rule by itself. The SDK's `getSessionMessages` already
-builds this chain.
+`parseTranscript` and what it does today.
 
-**The first implementation step verifies that:** whether
-`getSessionMessages` keeps parallel tool results, attachments and system
-entries, how it treats `compact_boundary` (`parentUuid: null`,
-`logicalParentUuid`), and how fast it is on the largest local transcript.
-If it holds up, the live branch is its uuid set applied to Orbital's own
-parsed entries. The fragile part then belongs to the SDK. If not, Orbital
-writes the walk itself, following `logicalParentUuid` across compaction, and
-the investigation's evidence files become test fixtures.
+Orbital writes the walk itself. `getSessionMessages` builds a different
+chain, the one the CLI sends to the model, and it does not fit (see
+*Verification*). The rule:
 
-The tail (`watcher/tail.ts`) only handles appends. When an appended entry's
-parent is not the current leaf, the branch changed, and the tail tells
-clients to reload the transcript rather than appending.
+1. The chain entries are the `user`, `assistant`, `system`, `attachment` and
+   `progress` entries that have a uuid and are not `isSidechain`. Everything
+   else passes through untouched. A uuid can appear more than once (the CLI
+   re-appends whole ranges); the first occurrence counts.
+2. The tip is the newest leaf: the chain entry, latest in the file, that no
+   other entry names as its parent.
+3. Walk `parentUuid` back from the tip. At a `compact_boundary`, whose
+   `parentUuid` is null, continue at its `logicalParentUuid`.
+4. Parallel tool calls: each `tool_result` entry parents its own `tool_use`,
+   so only the last result is on the walked chain. Every `tool_result` user
+   entry whose parent is on the branch joins it.
+5. Keep the file's order, filtered to the branch.
+
+```
+liveBranch(entries):
+  chain  = entries with uuid, chain type, not isSidechain
+  parent = { e.parentUuid for e in chain }
+  tip    = last e in chain with e.uuid not in parent
+  live   = {}
+  e = tip
+  while e and e.uuid not in live:
+    live.add(e.uuid)
+    up = e.parentUuid ?? (e is compact_boundary ? e.logicalParentUuid : null)
+    e = first entry with uuid == up
+  for e in chain: if e is a tool_result user entry and e.parentUuid in live: live.add(e.uuid)
+  return entries where not in chain, or (uuid in live and first occurrence)
+```
+
+An interrupt's dangling `tool_use` is off this branch: the next prompt
+parents to the block before it. The prompt that started a compaction is off
+it too in older transcripts (it hangs off the pre-compaction tip); the
+compaction mark stands in for it.
+
+The tail (`watcher/tail.ts`) only handles appends. It keeps the live set and
+the leaf. An appended chain entry continues the branch when its parent is
+the leaf, when it is a `tool_result` whose parent is live, or when it is a
+`compact_boundary` whose `logicalParentUuid` is the leaf. Anything else whose
+parent is live is a new branch, and the tail tells clients to reload the
+transcript rather than appending. An entry whose parent is off the branch
+is ignored.
 
 ### Ids
 
 Messages parsed from the file carry the entry uuid in their id
 (`${uuid}:${block}`). Messages from a live turn do not: the runner mints
 `${session}:${seq}:${i}` and drops the SDK frame's `uuid`. The runner keeps
-the frame uuids (and sets its own `uuid` on user messages it sends, which the
-SDK documents as the entry uuid), so every user message has an entry uuid by
-the time pick mode needs it. The wire message gains an optional `uuid`.
+the frame uuids (and sets its own `uuid` on user messages it sends, which
+becomes the entry uuid in the file, verified), so every user message has an
+entry uuid by the time pick mode needs it. Streamed assistant frames carry
+their entry uuid too. The wire message gains an optional `uuid`.
 
 The client sends the picked message's entry uuid. The server resolves the
 fork point: that entry's `parentUuid`, the last chain entry before it. The
@@ -177,8 +210,13 @@ the terminal) it reads *Rewound in the terminal* with no count.
 ### Runner
 
 - `start()` passes `resumeSessionAt` and `resumeDropsTurn` through to the SDK
-  options. `resumeDropsTurn` gets `target_uuid`; which uuid the CLI actually
-  expects is verified in the first step, together with the rest.
+  options. `resumeSessionAt` gets `fork_uuid`. `resumeDropsTurn` gets
+  `target_uuid`, but only when the target is the newest human prompt on the
+  live branch: the guard accepts a discarded range of exactly one turn and
+  refuses anything with a second user prompt in it. A rewind further back
+  omits `resumeDropsTurn` and truncates unguarded. That is safe here because
+  the session was stopped and awaited, and the user saw everything being
+  dropped.
 - **Stopping waits for the process.** `stop()` today closes the input and
   releases the state without waiting for the CLI to exit. A rewind must not
   start a second process on the same file while the first is still writing.
@@ -186,13 +224,17 @@ the terminal) it reads *Rewound in the terminal* with no count.
   timeout that fails the rewind visibly rather than racing.
 - **Send with a pending row:**
   1. Stop any live query and await it.
-  2. `start({ resume, resumeSessionAt: fork_uuid, resumeDropsTurn: target_uuid, prompt })`.
-  3. On the first sign the turn is running, move the pending row into the
-     sent-rewinds table.
-  4. On a result whose message starts with `Resume rejected by
-     --resume-drops-turn:`, delete the pending row, send nothing, record the
+  2. `start({ resume, resumeSessionAt: fork_uuid, resumeDropsTurn: target_uuid, prompt })`,
+     `resumeDropsTurn` only as above.
+  3. On the `system`/`init` frame the turn is running: move the pending row
+     into the sent-rewinds table. A refusal always comes before `init`.
+  4. A refusal is a `result` with subtype `error_during_execution` whose
+     `errors[0]` starts with `Resume rejected by --resume-drops-turn:` (or
+     `No message found with message.uuid of:`, a fork point the CLI cannot
+     load). The query's iterator then throws the same text; the runner
+     catches it. On either: delete the pending row, send nothing, record the
      error, and emit a refusal event. The client restores the transcript and
-     keeps the draft.
+     keeps the draft. The CLI writes nothing to the file on a refusal.
 - The pending row is what makes a truncation stick. Until a turn lands, the
   file's newest leaf is still the old branch, and a plain revive would load
   it. Every revive path goes through the pending check.
@@ -208,13 +250,61 @@ the terminal) it reads *Rewound in the terminal* with no count.
 - **Title:** the titler's in-memory feed is reset from the live branch.
 - **Walkthrough:** built from the live branch, so dropped steps disappear.
 
+## Verification (2026-09-29)
+
+Agent SDK 0.3.278, read-only on real transcripts, and live resumes on a
+throwaway haiku session only.
+
+**`getSessionMessages` is not the live branch Orbital needs.** It returns the
+chain the CLI would send to the model:
+
+- It stops at the newest `compact_boundary`. Everything before it is gone,
+  and the preserved segment is moved after the summary. Orbital shows the
+  whole history, so this alone rules it out.
+- It starts its walk at the newest user or assistant entry, so the system
+  entries after the last turn (`turn_duration`, `stop_hook_summary`,
+  `away_summary`, a trailing local command's output) are missing.
+- It puts back every block of an assistant message by `message.id`, which
+  brings the interrupt's dangling `tool_use` back.
+- It leaves out attachments and `isMeta` entries, and gives queued commands
+  uuids that are not in the file.
+- It does keep parallel tool results, and it does follow a CLI rewind to the
+  newest branch.
+
+Orbital's own walk (*Reading the live branch*) matches it on every user,
+assistant and system entry after the newest boundary across five large
+transcripts, apart from exactly the differences above. It follows a CLI
+rewind (the sibling prompts under one parent), drops the dangling
+`tool_use`, and crosses compaction by `logicalParentUuid`. It takes a few
+milliseconds on the largest local transcript once parsed; the SDK call,
+file read included, took about a tenth of a second there.
+
+**A real truncating resume:**
+
+- The fork point is the target's `parentUuid`. In practice that is a
+  `stop_hook_summary` or an attachment, and `resumeSessionAt` accepts it.
+  Forking at the previous assistant entry is accepted too; the entries
+  between are skippable.
+- `resumeDropsTurn` wants the uuid of the user entry being dropped, the
+  target. A wrong uuid is refused before the prompt is read, with nothing
+  written. Dropping two turns with the guard is refused (*a user entry not
+  attributable to the declared turn*); without it, it goes through.
+- The new branch's first entry, the new prompt, parents to the fork uuid,
+  and it carries the uuid Orbital set on the message.
+- A truncating resume that never gets a prompt writes only uuid-less
+  metadata. Nothing on the chain changes until a turn is sent.
+- A plain resume afterwards continues from the new branch.
+- Forking before a compaction fails with `No message found with
+  message.uuid of:`, with or without the guard. After the boundary it works
+  like any other rewind.
+
 ## Errors and edge cases
 
 - **The picked message scrolled out of the loaded page.** Pick mode only
   offers loaded messages. To go further back, load more first.
-- **Compaction.** Picking a message before a `compact_boundary` depends on
-  whether the CLI accepts that fork point, which the first step verifies. If
-  it refuses, those messages are not targets.
+- **Compaction.** The CLI cannot fork before the newest `compact_boundary`,
+  so those messages are not targets. If one gets through anyway, its
+  `No message found` refusal takes the refusal path.
 - **A terminal `claude --resume` later.** The interactive CLI ignores
   `resumeSessionAt`. Once a rewind has been sent, the file's newest leaf is
   the new branch, which the CLI then follows. While a rewind is pending,
@@ -249,7 +339,7 @@ Not worth a test: the dimming, the ring, the markers' styling.
      which uuid `resumeDropsTurn` wants
    - forking before a compaction boundary
 
-   The answers go into this spec before step 2.
+   Done: see *Verification*.
 2. The live branch through every reader, shipped on its own. It also fixes
    the dangling tool calls interrupts leave today.
 3. Ids for live messages.
