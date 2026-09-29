@@ -30,9 +30,22 @@ const walkthrough: Walkthrough = {
   narration: null, narrationFailed: false, narrationPending: false, lastMessageId: 'x',
 }
 
-beforeEach(() => { vi.mocked(api.getWalkthrough).mockResolvedValue({ session: session(), walkthrough }) })
+beforeEach(() => {
+  vi.mocked(api.getSettings).mockResolvedValue({ walkthrough_enabled: 'true' })
+  vi.mocked(api.getWalkthrough).mockResolvedValue({ session: session(), walkthrough })
+})
 
 describe('WalkthroughPage', () => {
+  it('sends a link to the map while the Experimental switch is off', async () => {
+    vi.mocked(api.getSettings).mockResolvedValue({})
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, replace, origin: window.location.origin })
+    render(<WalkthroughPage id="w1" />)
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(expect.stringContaining('w1')))
+    expect(api.getWalkthrough).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
   it('opens on the cover with the counts, starts into step 1, and shows the diff and the exchange', async () => {
     render(<WalkthroughPage id="w1" />)
     await screen.findByRole('heading', { name: 'auth-refactor' })

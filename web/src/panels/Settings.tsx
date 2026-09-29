@@ -33,6 +33,13 @@ import { api, type ServerHealth } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { SCOPES, bindingCount, chordLabel, command } from '../lib/keymap'
 import { notifyDesktopSettingsChanged } from '../lib/desktop'
+import {
+  EXPERIMENTAL_UNLOCKED_KEY,
+  WALKTHROUGH_ENABLED_KEY,
+  experimentalUnlocked,
+  isRevealChord,
+  walkthroughEnabled,
+} from '../lib/experimental'
 import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import { usePresence } from '../ui/usePresence'
@@ -117,6 +124,8 @@ const NAV_ITEMS = [
   { key: 'tags', label: 'Tags & rules', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
   { key: 'shortcuts', label: 'Shortcuts', disabled: false },
+  // Listed only once the reveal chord has unlocked it (`lib/experimental`).
+  { key: 'experimental', label: 'Experimental', disabled: false },
 ] as const
 
 type SectionKey = (typeof NAV_ITEMS)[number]['key']
@@ -135,8 +144,13 @@ type SectionKey = (typeof NAV_ITEMS)[number]['key']
  */
 export function initialSection(settings: Record<string, string | undefined>): SectionKey {
   const stored = settings.settings_last_section
-  const match = NAV_ITEMS.find((item) => item.key === stored)
+  const match = visibleNavItems(settings).find((item) => item.key === stored)
   return match && !match.disabled ? match.key : NAV_ITEMS[0].key
+}
+
+/** The nav as drawn: Experimental stays out of it until it is unlocked. */
+function visibleNavItems(settings: Record<string, string | undefined>) {
+  return NAV_ITEMS.filter((item) => item.key !== 'experimental' || experimentalUnlocked(settings))
 }
 
 /** Debounce for the free-text fields — the rest of this panel's controls
@@ -371,6 +385,23 @@ export function Settings({ open, onClose }: SettingsProps) {
     // `settings` deliberately absent: this reseeds per visit, and reading it
     // through `getState` keeps a PATCH landing mid-visit from yanking the
     // user out of the section they are looking at.
+  }, [open])
+
+  // The reveal chord, only while the dialog is open. Locking again while the
+  // section is on screen moves to the first row rather than leaving a page
+  // whose nav row just vanished.
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (!isRevealChord(e)) return
+      e.preventDefault()
+      const unlocked = !experimentalUnlocked(useOrbital.getState().settings)
+      void patchAndSet({ [EXPERIMENTAL_UNLOCKED_KEY]: unlocked ? 'true' : 'false' })
+      if (!unlocked) setSection((current) => (current === 'experimental' ? NAV_ITEMS[0].key : current))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   useEffect(() => {
@@ -768,7 +799,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 className="flex flex-col gap-0.5 border-r border-[rgba(150,205,255,.1)] px-3 py-4"
                 aria-label="Settings sections"
               >
-                {NAV_ITEMS.map((item) => (
+                {visibleNavItems(settings).map((item) => (
                   <button
                     key={item.key}
                     type="button"
@@ -1084,6 +1115,24 @@ export function Settings({ open, onClose }: SettingsProps) {
                               ? 'Approve arms, a second press sends it'
                               : 'no brake — guarded requests approve like any other'}
                         </span>
+                      </Row>
+                    </>
+                  )}
+
+                  {section === 'experimental' && (
+                    <>
+                      <SectionLabel first>FEATURES</SectionLabel>
+                      <Row
+                        title="Walkthrough"
+                        desc="The step-by-step review of what an Orbital session changed. Off by default: narrating can get a session's turns refused, and Orbital cannot yet rewind past a refused turn."
+                      >
+                        <Toggle
+                          aria-label="Walkthrough"
+                          checked={walkthroughEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [WALKTHROUGH_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
                       </Row>
                     </>
                   )}

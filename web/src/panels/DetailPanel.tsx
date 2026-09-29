@@ -66,6 +66,7 @@ import { contextWindowFor } from '../lib/models'
 import { compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
 import { useCompactionUi } from '../store/compaction'
+import { walkthroughEnabled } from '../lib/experimental'
 import { isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import type { ApiSession, BackgroundTask, Tag, WalkthroughSummary } from '../lib/types'
 
@@ -340,15 +341,17 @@ export function DetailPanel({
   const sessionSource = session?.source
   const sessionSettled = session?.status !== 'working'
   const summaryKey = `${sessionId}:${sessionSource}`
+  // Behind the Experimental switch (adr walkthrough-sits-behind-an-experimental-switch).
+  const walkthroughOn = walkthroughEnabled(settings)
   useEffect(() => {
-    if (!sessionId || sessionSource !== 'web') return
+    if (!walkthroughOn || !sessionId || sessionSource !== 'web') return
     let cancelled = false
     api.walkthroughSummary(sessionId)
       .then((s) => { if (!cancelled) setWalkthroughSummary({ key: `${sessionId}:${sessionSource}`, summary: s }) })
       .catch(() => { /* absent is the honest state when the server cannot say */ })
     return () => { cancelled = true }
-  }, [sessionId, sessionSource, sessionSettled])
-  const walkthroughEntry = walkthroughSummary?.key === summaryKey ? walkthroughSummary.summary : null
+  }, [walkthroughOn, sessionId, sessionSource, sessionSettled])
+  const walkthroughEntry = walkthroughOn && walkthroughSummary?.key === summaryKey ? walkthroughSummary.summary : null
 
   // The title field is one line until its own text needs a second, and stops
   // there (9e). On every keystroke, because the height is a function of the

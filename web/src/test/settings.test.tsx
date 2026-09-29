@@ -499,6 +499,13 @@ describe('Settings — remembered section', () => {
     expect(initialSection({ settings_last_section: '' })).toBe('general')
   })
 
+  it('resumes Experimental only while it is unlocked', () => {
+    expect(initialSection({ settings_last_section: 'experimental' })).toBe('general')
+    expect(
+      initialSection({ settings_last_section: 'experimental', experimental_unlocked: 'true' }),
+    ).toBe('experimental')
+  })
+
   it('remembers a section across a close and reopen, without claiming a save', async () => {
     resetStore()
     const { rerender } = render(<Settings open onClose={vi.fn()} />)

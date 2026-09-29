@@ -508,6 +508,7 @@ describe('DetailPanel header', () => {
     resetStore({
       sessions: { a: makeSession({ id: 'a', source: 'web' }) },
       ui: { selectedId: 'a' },
+      settings: { walkthrough_enabled: 'true' },
     })
 
     render(<DetailPanel />)
@@ -515,11 +516,26 @@ describe('DetailPanel header', () => {
     expect(await screen.findByRole('button', { name: 'Walkthrough' })).toBeInTheDocument()
   })
 
+  it('neither offers nor asks for the walkthrough while its Experimental switch is off', async () => {
+    vi.mocked(api.walkthroughSummary).mockResolvedValue({ steps: 3, files: 2, blindAlleys: 0, subagents: 0 })
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<DetailPanel />)
+
+    await act(async () => {})
+    expect(screen.queryByRole('button', { name: 'Walkthrough' })).toBeNull()
+    expect(api.walkthroughSummary).not.toHaveBeenCalled()
+  })
+
   it('hides the walkthrough control for a terminal session and for a session without changes', async () => {
     vi.mocked(api.walkthroughSummary).mockResolvedValue({ steps: 0, files: 0, blindAlleys: 0, subagents: 0 })
     resetStore({
       sessions: { a: makeSession({ id: 'a', source: 'web' }) },
       ui: { selectedId: 'a' },
+      settings: { walkthrough_enabled: 'true' },
     })
 
     render(<DetailPanel />)
@@ -530,6 +546,7 @@ describe('DetailPanel header', () => {
     resetStore({
       sessions: { b: makeSession({ id: 'b', source: 'terminal' }) },
       ui: { selectedId: 'b' },
+      settings: { walkthrough_enabled: 'true' },
     })
     render(<DetailPanel />)
 

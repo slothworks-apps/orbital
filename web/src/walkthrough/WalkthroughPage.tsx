@@ -7,12 +7,38 @@ import { Cover } from './Cover'
 import { midTurn, nextScreen, prevScreen, settleScreen, type Screen } from './derive'
 import { StepScreen } from './StepScreen'
 import { useWalkthrough } from './useWalkthrough'
+import { api } from '../lib/api'
+import { walkthroughEnabled } from '../lib/experimental'
+import { mapHref } from './route'
+
+/**
+ * The page is behind the Experimental switch (adr
+ * walkthrough-sits-behind-an-experimental-switch): a link or a bookmark with
+ * it off lands on the map instead. Nothing draws until the settings answer.
+ * A failed fetch shows the page — the switch hides a feature, it guards nothing.
+ */
+export function WalkthroughPage({ id }: { id: string }) {
+  const [allowed, setAllowed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    api.getSettings().then(
+      (settings) => {
+        if (cancelled) return
+        if (walkthroughEnabled(settings)) setAllowed(true)
+        else window.location.replace(mapHref(id))
+      },
+      () => { if (!cancelled) setAllowed(true) },
+    )
+    return () => { cancelled = true }
+  }, [id])
+  return allowed ? <WalkthroughScreens id={id} /> : null
+}
 
 /**
  * `/walkthrough/<id>` — the session's file changes, in order, one screen at a
  * time: cover, steps, close (spec: 2026-09-23-walkthrough-design § The page).
  */
-export function WalkthroughPage({ id }: { id: string }) {
+function WalkthroughScreens({ id }: { id: string }) {
   const data = useWalkthrough(id)
   const [chosen, setScreen] = useState<Screen>({ kind: 'cover' })
   const stepKey = data.walkthrough?.steps.map((s) => s.id).join('\n') ?? ''
