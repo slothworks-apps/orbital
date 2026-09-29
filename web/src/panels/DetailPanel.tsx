@@ -60,7 +60,7 @@ import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { SubagentChip } from './SubagentChip'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
-import { endedFootnote, formatContextWindow } from '../lib/format'
+import { endedFootnote, formatContextWindow, formatTokens } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
 import { compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
@@ -125,16 +125,6 @@ const COMPACTING_BAR_INK = 'rgba(200,215,235,.3)'
 const COMPACTING_NOTE_INK = 'rgba(160,190,225,.6)'
 /** 26c's locked composer. */
 const COMPACTING_PLACEHOLDER = 'Compacting. You can write again when it\u2019s done.'
-
-/**
- * Compact token count in the export's own notation — "142.3k", "28.9k",
- * "116k" (canvas 1b's context read-out). Counts under 1k
- * are shown verbatim; a trailing ".0" is dropped.
- */
-export function formatTokens(n: number): string {
-  if (n < 1000) return String(n)
-  return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
-}
 
 /**
  * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail

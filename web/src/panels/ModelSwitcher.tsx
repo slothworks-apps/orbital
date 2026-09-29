@@ -3,9 +3,12 @@ import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { useCommand } from '../lib/commands'
-import { shortcutLabel } from '../lib/keymap'
+import { command, matches, shortcutLabel } from '../lib/keymap'
+import { formatTokens } from '../lib/format'
 import { matchModel, modelChipLabel, isExactModelMatch } from '../lib/models'
 import { Badge } from '../ui/Badge'
+import { Button } from '../ui/Button'
+import { Dialog } from '../ui/Dialog'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import type { ApiSession, OrbitalModel } from '../lib/types'
 
@@ -34,6 +37,8 @@ export interface ModelSwitcherProps {
  */
 export function ModelSwitcher({ session, models, defaultValue, disabledReason, hidden = false }: ModelSwitcherProps) {
   const [open, setOpen] = useState(false)
+  /** The model a pick is waiting on the confirm for — see `SwitchDialog`. */
+  const [pending, setPending] = useState<OrbitalModel | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
   const current = matchModel(session, models)
@@ -52,6 +57,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason, h
   // would describe the session that used to be selected.
   useEffect(() => {
     setOpen(false)
+    setPending(null)
   }, [session.id])
 
   // `pointerdown`, not `click` — matches `ui/Select.tsx`'s own dismissal:
@@ -98,9 +104,14 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason, h
     )
   }
 
-  function choose(value: string) {
+  function choose(model: OrbitalModel) {
     setOpen(false)
-    if (value === session.model) return
+    if (model.value === session.model) return
+    setPending(model)
+  }
+
+  function apply(value: string) {
+    setPending(null)
     const previous = session.model
     useOrbital.setState((state) => {
       const row = state.sessions[session.id]
@@ -155,7 +166,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason, h
                     role="option"
                     aria-selected={selected}
                     aria-label={model.shortVersion}
-                    onClick={() => choose(model.value)}
+                    onClick={() => choose(model)}
                     className={[
                       'grid grid-cols-[1fr_auto] items-center gap-2 rounded-[7px] border px-2 py-[9px] text-left',
                       selected ? 'border-accent/35 bg-accent/10' : 'border-transparent hover:bg-white/5',
@@ -180,6 +191,78 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason, h
           </div>
         </EscapeBoundary>
       )}
+      <SwitchDialog
+        to={pending}
+        contextTokens={session.contextUsedTokens ?? null}
+        onCancel={() => setPending(null)}
+        onConfirm={() => pending && apply(pending.value)}
+      />
     </span>
+  )
+}
+
+/**
+ * Asks before every switch, whatever state the cache is in.
+ *
+ * A model's prompt cache is its own: the next turn on another model reads the
+ * whole conversation again at the full input rate, where the same turn on the
+ * current model would have read most of it cheaply from the cache. The CLI
+ * warns only while the cache is still warm (it tracks `prompt_cache_warm` and
+ * an estimated re-cache cost); Orbital asks every time, because a dialog that
+ * appears on one switch and not on the next reads as random (owner's call,
+ * 2026-09-28). Built like `CompactDialog` — same shell, same ⏎ confirm. Not
+ * on the canvas; its fidelity is checked by hand.
+ */
+function SwitchDialog({
+  to,
+  contextTokens,
+  onCancel,
+  onConfirm,
+}: {
+  to: OrbitalModel | null
+  contextTokens: number | null
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const open = to !== null
+
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!matches(command('dialogs.confirm').chords[0], e)) return
+      e.preventDefault()
+      onConfirm()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open, onConfirm])
+
+  const name = to ? modelChipLabel(to) : ''
+  const amount = contextTokens ? `all ${formatTokens(contextTokens)} tokens of it` : 'all of it'
+  return (
+    <Dialog
+      open={open}
+      title={`Switch to ${name}?`}
+      eyebrow="MODEL SWITCH"
+      size="sm"
+      onClose={onCancel}
+      footerCaption="esc cancel · ⏎ switch"
+      footer={
+        <>
+          <Button variant="ghost" size="lg" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="lg" onClick={onConfirm}>
+            Switch
+          </Button>
+        </>
+      }
+    >
+      <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        The conversation is kept, but {name} reads it from scratch on your next message — {amount}. The
+        cache that makes a turn cheap belongs to the current model, so that turn uses noticeably more of your
+        limit than usual.
+      </p>
+    </Dialog>
   )
 }

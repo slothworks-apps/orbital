@@ -171,6 +171,16 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
+ * Compact token count in the export's own notation — "142.3k", "28.9k",
+ * "116k" (canvas 1b's context read-out). Counts under 1k
+ * are shown verbatim; a trailing ".0" is dropped.
+ */
+export function formatTokens(n: number): string {
+  if (n < 1000) return String(n)
+  return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
+}
+
+/**
  * Context-window sizes as the model pickers print them — "200k", "1M".
  * Distinct from `formatTokens`: this formats a round budget, not a measured
  * count, so it never shows a decimal it does not need.

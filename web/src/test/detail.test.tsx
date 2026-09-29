@@ -571,12 +571,28 @@ describe('DetailPanel model chip', () => {
     expect(screen.getByText(/APPLIES FROM NEXT TURN/)).toBeInTheDocument()
   })
 
-  it('switches the model', async () => {
+  it('switches the model once the switch is confirmed', async () => {
     vi.mocked(api.setSessionModel).mockResolvedValue({ ok: true })
+    await renderDetail({ session: { ...webSession, model: 'sonnet', contextUsedTokens: 143_300 }, models: MODELS })
+    fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
+    fireEvent.click(screen.getByRole('option', { name: 'Haiku 4.5' }))
+
+    // Every switch asks: the new model reads the whole context again.
+    expect(api.setSessionModel).not.toHaveBeenCalled()
+    expect(screen.getByText(/143\.3k tokens/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await waitFor(() => expect(api.setSessionModel).toHaveBeenCalledWith(webSession.id, 'haiku'))
+  })
+
+  it('keeps the model when the switch is cancelled', async () => {
     await renderDetail({ session: { ...webSession, model: 'sonnet' }, models: MODELS })
     fireEvent.click(screen.getByRole('button', { name: /Change model/ }))
     fireEvent.click(screen.getByRole('option', { name: 'Haiku 4.5' }))
-    await waitFor(() => expect(api.setSessionModel).toHaveBeenCalledWith(webSession.id, 'haiku'))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Switch' })).not.toBeInTheDocument())
+    expect(api.setSessionModel).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Change model/ })).toHaveTextContent('Sonnet 5')
   })
 
   it('closes on an outside pointerdown, matching every other popover in the app (F4)', async () => {
