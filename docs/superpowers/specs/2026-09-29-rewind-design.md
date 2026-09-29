@@ -1,7 +1,7 @@
 ---
 id: 2026-09-29-rewind-design
 title: Rewind — take a session's conversation back to before one of your messages
-status: draft
+status: done
 type: spec
 domain: sessions
 related:
@@ -419,6 +419,11 @@ file read included, took about a tenth of a second there.
   is cleared when the registry sees a terminal take the session.
 - **Server restart while pending.** The row persists and the send path picks
   it up.
+- **A turn sent from another window.** The runner does not publish a user's
+  own turn, so a window that did not send it has no row for it until it
+  refetches. N counts that window's rows, so it comes out short. Found in the
+  2026-09-29 run in the app, where a turn sent through the API gave 2 instead
+  of 4. With one window nothing is missing.
 
 ## Testing
 

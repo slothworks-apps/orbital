@@ -2,7 +2,7 @@
 id: narrate-can-lock-a-session-out
 title: A refused narrate turn locks the session out of every later turn
 type: fix
-status: active
+status: done
 domain: walkthrough
 related:
   - walkthrough-sits-behind-an-experimental-switch
@@ -42,3 +42,8 @@ then `/rewind` to the message before the narrate turn.
 ## Done when
 
 Orbital can rewind a session to a message before a refused turn.
+
+## Resolved
+
+Orbital rewinds in place since spec `2026-09-29-rewind-design`: ↶ next to
+Send or `/rewind`, pick the message before the refused turn, send.
