@@ -58,11 +58,32 @@ const LANGUAGE_CLASS = /language-(\S+)/
 const COPIED_FEEDBACK_MS = 1500
 
 /**
+ * The surface every plain (unhighlighted) fenced block shares. Long lines
+ * wrap instead of scrolling sideways — a clipped line gave no hint that it
+ * went on, since macOS hides the scrollbar — and `wrap-anywhere` breaks
+ * unbroken tokens (URLs, hashes) too. No `overflow` here, on purpose: see
+ * `CodeFrame`.
+ */
+const PLAIN_BLOCK =
+  'rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft whitespace-pre-wrap wrap-anywhere'
+
+/**
  * A fenced block with a copy button in its top-right corner. The button stays
  * out of the way until the block is hovered or the button has focus, so a
- * transcript full of code does not turn into a column of buttons. It sits
- * outside the block's own scroller, so it stays put when a long line is
- * scrolled sideways.
+ * transcript full of code does not turn into a column of buttons; it fades
+ * with opacity, so hovering never reflows the text.
+ *
+ * The button is a right float at the head of the block, not an overlay:
+ * lines wrap, so any line can reach the right edge, and an absolutely
+ * positioned button would sit on top of it. A float only shortens the line
+ * boxes beside it — the first line or two wrap around the button and the
+ * rest of the block keeps its full width. That holds only while the `pre`
+ * (and the `div` around shiki's `pre`) do NOT establish their own block
+ * formatting context: an `overflow`, `flow-root` or `flex` on them turns the
+ * float into a column beside a narrowed box. The frame itself is `flow-root`
+ * so the float stays inside it even under a one-line block. The `pre` paints
+ * the block's background (shiki sets its own inline) and floats paint above
+ * block backgrounds, so the button sits on the block's own surface.
  */
 function CodeFrame({ code, children }: { code: string; children: ReactNode }) {
   const [copied, setCopied] = useState(false)
@@ -74,9 +95,8 @@ function CodeFrame({ code, children }: { code: string; children: ReactNode }) {
   }, [copied])
 
   return (
-    <div className="group/code relative">
-      {children}
-      <span className="absolute right-1.5 top-1.5 opacity-0 transition-opacity group-hover/code:opacity-100 focus-within:opacity-100">
+    <div className="group/code flow-root">
+      <span className="float-right ml-2 mr-1.5 mt-1.5 opacity-0 transition-opacity group-hover/code:opacity-100 focus-within:opacity-100">
         <Button
           variant="pill-muted"
           size="pill"
@@ -86,6 +106,7 @@ function CodeFrame({ code, children }: { code: string; children: ReactNode }) {
           {copied ? 'Copied' : 'Copy'}
         </Button>
       </span>
+      {children}
     </div>
   )
 }
@@ -107,7 +128,9 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   if (html !== null) {
     return (
       <div
-        className="overflow-x-auto rounded-md text-xs [&_pre]:p-3"
+        // The fill and colour only show when shiki fell back to plain markup
+        // (`plainCodeHtml`); a highlighted `pre` overrides both inline.
+        className="text-xs [&_pre]:rounded-md [&_pre]:bg-black/30 [&_pre]:p-3 [&_pre]:text-text-soft [&_pre]:whitespace-pre-wrap [&_pre]:wrap-anywhere"
         // Shiki output is trusted-safe HTML.
         dangerouslySetInnerHTML={{ __html: html }}
       />
@@ -115,7 +138,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   }
 
   return (
-    <pre className="overflow-x-auto rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft">
+    <pre className={PLAIN_BLOCK}>
       <code>{code}</code>
     </pre>
   )
@@ -178,7 +201,7 @@ export function Pre({ children, className, ...rest }: PreProps) {
           <CodeBlock code={code} lang={match[1]} />
         ) : (
           // Fenced, but no language on the fence — still a block, not inline.
-          <pre className="overflow-x-auto rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft">
+          <pre className={PLAIN_BLOCK}>
             <code>{code}</code>
           </pre>
         )}
