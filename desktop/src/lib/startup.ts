@@ -87,7 +87,7 @@ export function classifyChildExit(state: {
  * `localhost`, not `127.0.0.1`: vite's default host binds `::1` only, so the
  * literal IPv4 address is refused.
  */
-export const VITE_URL = 'http://localhost:5173';
+export const VITE_URL = 'http://localhost:4839';
 
 /** The server's own origin, where it serves the built web app when it has one. */
 export function serverUrl(port: number): string {
@@ -121,8 +121,9 @@ export function decideWindowTarget(input: {
 /** The only origins that are Orbital: every window target, whatever mode. */
 function appOrigins(port: number): string[] {
   // Both spellings of loopback for vite: which one it binds is its own config's
-  // business, and either way a dev server on 5173 is ours.
-  return [VITE_URL, 'http://127.0.0.1:5173', serverUrl(port)].map((url) => new URL(url).origin);
+  // business, and either way a dev server on vite's port is ours.
+  const vitePort = new URL(VITE_URL).port;
+  return [VITE_URL, `http://127.0.0.1:${vitePort}`, serverUrl(port)].map((url) => new URL(url).origin);
 }
 
 export type NavigationDecision =

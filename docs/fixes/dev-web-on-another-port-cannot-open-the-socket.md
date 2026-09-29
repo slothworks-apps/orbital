@@ -2,7 +2,7 @@
 id: dev-web-on-another-port-cannot-open-the-socket
 title: The dev web app on any port but 5173 cannot open the socket
 type: fix
-status: backlog
+status: done
 domain: server
 related:
   - dogfood-and-dev-side-by-side
@@ -37,3 +37,11 @@ browser sends the page's origin, `http://localhost:5174`, through the proxy.
   for both halves) and allow that one, rather than a hard-coded 5173.
 
 Either keeps the guard as strict as it is now.
+
+## Fixed 2026-09-29
+
+Both suggestions, with a port of Orbital's own. `npm run dev` serves the web
+app on `DEV_WEB_PORT` (4839, next to the dev server's 4838), vite pins it
+with `strictPort`, and the server's origin guard and the desktop window
+follow the same port. 5173 is left to other projects, whose dev servers
+keep their browser storage there.

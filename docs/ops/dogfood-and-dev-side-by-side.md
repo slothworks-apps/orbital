@@ -34,7 +34,7 @@ editing is not a server you can work in.** The fix is two instances.
 | command | `npm run dogfood` | `npm run dev` |
 | port | 4737 | 4838 |
 | database | `~/Library/Application Support/orbital` | `…/orbital-dev` |
-| frontend | built, served same-origin | vite on 5173, proxying 4838 |
+| frontend | built, served same-origin | vite on 4839, proxying 4838 |
 | restarts when you save | no | yes, that is the point |
 
 Both read the same `~/.claude`, so the dev instance still sees real
@@ -47,7 +47,7 @@ There is no watcher, so it stays up until you stop it.
 ```bash
 npm run dev:seed         # once, before the first `npm run dev`
 npm run dogfood          # the one you work in       → http://127.0.0.1:4737
-npm run dev              # the one you are changing  → http://localhost:5173
+npm run dev              # the one you are changing  → http://localhost:4839
 ```
 
 ## Seed the dev database first
@@ -80,7 +80,7 @@ having it happen to you mid-turn on every save.
 
 - **The desktop probes whatever `ORBITAL_PORT` says**, which is why
   `npm run dev:desktop` exports 4838 like the other dev scripts. It has to
-  agree with vite: the window loads vite on 5173, whose `/api` proxy points
+  agree with vite: the window loads vite on 4839, whose `/api` proxy points
   at 4838, while the desktop's own notification socket opens
   `ws://127.0.0.1:<ORBITAL_PORT>/ws` directly. Leave them disagreeing and the
   map shows one server's sessions while notifications arrive from another's.

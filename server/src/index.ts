@@ -142,6 +142,14 @@ export function republishCwds(ctx: PublishContext, cwds: string[]): void {
 }
 
 /**
+ * Where `npm run dev` serves the web app (`web/vite.config.ts` pins it with
+ * `strictPort`, and `desktop/src/lib/startup.ts` points the window there).
+ * Deliberately not vite's default 5173, which other projects' dev servers
+ * hold: a page of theirs must not be able to open this socket.
+ */
+export const DEV_WEB_PORT = 4839;
+
+/**
  * Cross-site WebSocket hijacking guard (C2): the browser always sends an
  * Origin header for a WS handshake initiated from a page, so only our own
  * dev/prod origins may open /ws. Non-browser clients (CLI tools, tests) send
@@ -153,8 +161,8 @@ export function isAllowedWsOrigin(origin: string | undefined | null, port: numbe
   const allowed = new Set([
     `http://127.0.0.1:${port}`,
     `http://localhost:${port}`,
-    `http://127.0.0.1:5173`,
-    `http://localhost:5173`,
+    `http://127.0.0.1:${DEV_WEB_PORT}`,
+    `http://localhost:${DEV_WEB_PORT}`,
   ]);
   return allowed.has(origin);
 }
@@ -181,7 +189,7 @@ export async function buildServer(overrides: {
   titleQueryFn?: TitleQueryFn;
   /**
    * Built frontend to serve same-origin (`web/dist`). Unset in dev and tests,
-   * where Vite serves it on 5173 and proxies `/api` and `/ws` here.
+   * where Vite serves it on DEV_WEB_PORT and proxies `/api` and `/ws` here.
    */
   staticDir?: string;
   /**

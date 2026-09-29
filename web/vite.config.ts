@@ -15,6 +15,11 @@ const SERVER_PORT = process.env.ORBITAL_PORT ?? '4737'
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   server: {
+    // `DEV_WEB_PORT` in server/src/index.ts, the one web origin the server's
+    // socket accepts besides its own. Strict: a taken port fails here, loudly,
+    // instead of vite moving on to one whose socket is refused.
+    port: 4839,
+    strictPort: true,
     proxy: {
       '/api': `http://127.0.0.1:${SERVER_PORT}`,
       '/ws': { target: `ws://127.0.0.1:${SERVER_PORT}`, ws: true },

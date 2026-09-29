@@ -103,8 +103,8 @@ describe('decideNavigation', () => {
     expect(decideNavigation('http://127.0.0.1:4737/sandbox', 4737)).toBe('allow');
     // Every window target is ours, whichever mode this process is in — and
     // vite answers to both spellings of loopback.
-    expect(decideNavigation('http://localhost:5173/', 4737)).toBe('allow');
-    expect(decideNavigation('http://127.0.0.1:5173/', 4737)).toBe('allow');
+    expect(decideNavigation('http://localhost:4839/', 4737)).toBe('allow');
+    expect(decideNavigation('http://127.0.0.1:4839/', 4737)).toBe('allow');
   });
 
   it('sends a link in a transcript to the browser instead of replacing the map', () => {
@@ -136,10 +136,10 @@ describe('decideWindowTarget', () => {
 
   it('points at vite in development, whatever the server serves', () => {
     expect(decideWindowTarget({ ...base, dev: true })).toEqual({
-      kind: 'vite', url: 'http://localhost:5173',
+      kind: 'vite', url: 'http://localhost:4839',
     });
     expect(decideWindowTarget({ ...base, dev: true, serverServesStatic: false })).toEqual({
-      kind: 'vite', url: 'http://localhost:5173',
+      kind: 'vite', url: 'http://localhost:4839',
     });
   });
 
@@ -154,7 +154,7 @@ describe('decideWindowTarget', () => {
     // The bug: a tsx dev server has no ORBITAL_STATIC_DIR, so its `/` is a
     // fastify 404 in JSON. In that topology the web app lives on vite.
     expect(decideWindowTarget({ ...base, serverServesStatic: false, viteReachable: true })).toEqual(
-      { kind: 'vite', url: 'http://localhost:5173' },
+      { kind: 'vite', url: 'http://localhost:4839' },
     );
   });
 

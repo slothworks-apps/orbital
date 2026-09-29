@@ -21,7 +21,7 @@ export async function probeHealth(port: number): Promise<ProbeOutcome> {
 }
 
 /**
- * Is a vite dev server answering on 5173?
+ * Is a vite dev server answering on 4839?
  *
  * Any answer counts — this asks whether something serves the web app there, not
  * what it says. Only a connection failure means no.

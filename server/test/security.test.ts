@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildServer, isAllowedWsOrigin, isAllowedHost } from '../src/index.js';
+import { buildServer, DEV_WEB_PORT, isAllowedWsOrigin, isAllowedHost } from '../src/index.js';
 import { CONFIG } from '../src/config.js';
 
 describe('isAllowedWsOrigin (C2)', () => {
@@ -13,12 +13,14 @@ describe('isAllowedWsOrigin (C2)', () => {
   it('allows our own dev/prod origins', () => {
     expect(isAllowedWsOrigin(`http://127.0.0.1:${CONFIG.port}`, CONFIG.port)).toBe(true);
     expect(isAllowedWsOrigin(`http://localhost:${CONFIG.port}`, CONFIG.port)).toBe(true);
-    expect(isAllowedWsOrigin('http://127.0.0.1:5173', CONFIG.port)).toBe(true);
-    expect(isAllowedWsOrigin('http://localhost:5173', CONFIG.port)).toBe(true);
+    expect(isAllowedWsOrigin(`http://127.0.0.1:${DEV_WEB_PORT}`, CONFIG.port)).toBe(true);
+    expect(isAllowedWsOrigin(`http://localhost:${DEV_WEB_PORT}`, CONFIG.port)).toBe(true);
   });
   it('rejects a foreign origin', () => {
     expect(isAllowedWsOrigin('http://evil.example', CONFIG.port)).toBe(false);
-    expect(isAllowedWsOrigin('https://localhost:5173', CONFIG.port)).toBe(false); // wrong scheme
+    // Vite's default port belongs to other projects' dev servers.
+    expect(isAllowedWsOrigin('http://localhost:5173', CONFIG.port)).toBe(false);
+    expect(isAllowedWsOrigin(`https://localhost:${DEV_WEB_PORT}`, CONFIG.port)).toBe(false); // wrong scheme
   });
 });
 

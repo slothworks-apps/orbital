@@ -21,11 +21,11 @@ forks the built server bundle itself.
 ## Attached mode (development, HMR)
 
 ```bash
-npm run dev            # terminal 1: server on 4838 + vite on 5173
+npm run dev            # terminal 1: server on 4838 + vite on 4839
 npm run dev:desktop    # terminal 2: builds desktop/dist, then `electron .`
 ```
 
-The window loads `http://localhost:5173`. The probe finds the dev server and
+The window loads `http://localhost:4839`. The probe finds the dev server and
 attaches: no child is forked, and quitting the app leaves your `npm run dev`
 running.
 
@@ -42,7 +42,7 @@ A packaged app — or `npx electron .` without the flag — attaches to a runnin
 a dev server gets no `ORBITAL_STATIC_DIR`, so its `/` is fastify's JSON 404.
 
 `GET /api/health` carries `"static"` for exactly this, and the window follows
-it: `true` → the server's origin, `false` → vite on 5173, and if vite is not
+it: `true` → the server's origin, `false` → vite on 4839, and if vite is not
 answering either, the app says so in a dialog and quits rather than opening a
 window onto nothing.
 
@@ -277,7 +277,7 @@ Silent by design:
 | "Port … is taken" | something that is not Orbital answers there. Stop it or set `ORBITAL_PORT`. |
 | A blank window in forked mode | `web/dist` is missing — run `npm run build -w web`. |
 | `{"message":"Route GET:/ not found"}` in the window | you are on a build from before the `"static"` flag. It attached to a dev server and loaded its origin anyway. Rebuild: the window now goes to vite instead. |
-| "Orbital has no map to show" | attached to a dev server that serves no web app, with no vite on 5173 either. Start `npm run dev` and relaunch, or stop it so Orbital forks its own server. |
+| "Orbital has no map to show" | attached to a dev server that serves no web app, with no vite on 4839 either. Start `npm run dev` and relaunch, or stop it so Orbital forks its own server. |
 | "The Claude Code CLI was not found" | expected when no CLI is on the resolved PATH. Pick the executable; the app PATCHes `claude_executable_path` and restarts the server, because that setting is read once at boot. |
 | `npm run desktop:release` fails on a missing Electron binary | `node_modules/electron/dist` was never downloaded — run `node node_modules/electron/install.js`. |
 | No notification ever appears | the window was focused (suppression is correct), or Orbital is not permitted in System Settings → Notifications. |
