@@ -507,6 +507,53 @@ describe('Runner', () => {
     );
   });
 
+  // Spec 2026-09-29-rewind-design § Reading the live branch: the live branch
+  // drops an interrupted call once a later prompt is in the file, but the
+  // client holds it from the stream until it reads the transcript again.
+  it('after an interrupt cut a call off, the next turn\'s end tells the client to reread the transcript', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    script.push({
+      type: 'assistant', parent_tool_use_id: null,
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {} }] },
+    });
+    await vi.waitFor(() => expect(events.some((e) => e.message?.role === 'tool_use')).toBe(true));
+    await runner.interrupt('web-1');
+    // The interrupted turn's own end is too early: the next prompt is not in the file yet.
+    script.push({ type: 'result', subtype: 'error_during_execution', usage: {} });
+    await vi.waitFor(() => expect(events.some((e) => e.event === 'turn_result')).toBe(true));
+    expect(events.some((e) => e.event === 'transcript_reset')).toBe(false);
+    runner.send('web-1', 'next');
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(events.filter((e) => e.event === 'turn_result')).toHaveLength(2));
+    expect(events.filter((e) => e.event === 'transcript_reset')).toHaveLength(1);
+  });
+
+  it('an interrupt with every call answered changes nothing about the transcript', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    script.push({
+      type: 'assistant', parent_tool_use_id: null,
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {} }] },
+    });
+    script.push({
+      type: 'user', parent_tool_use_id: null,
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }] },
+    });
+    await vi.waitFor(() => expect(events.some((e) => e.message?.role === 'tool_result')).toBe(true));
+    await runner.interrupt('web-1');
+    runner.send('web-1', 'next');
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(events.some((e) => e.event === 'turn_result')).toBe(true));
+    expect(events.some((e) => e.event === 'transcript_reset')).toBe(false);
+  });
+
   it('remembers Bash and Monitor calls and the output path their launch result names', async () => {
     const hub = new Hub();
     const script = scriptedQueryFn();
@@ -995,7 +1042,11 @@ describe('sdkToChatMessages / entriesToMessages agree on thinking', () => {
 
 /** `statusOf` with the real Runner in it; nothing is live in a terminal. */
 function shapeCtx(runner: Runner): ShapeContext {
-  return { runner, registry: { get: () => undefined } } as unknown as ShapeContext;
+  return {
+    runner, registry: { get: () => undefined },
+    // No pending rewind anywhere.
+    db: { select: () => ({ from: () => ({ where: () => ({ get: () => undefined }) }) }) },
+  } as unknown as ShapeContext;
 }
 
 function webRow(id: string, endedAt: number | null): SessionRow {

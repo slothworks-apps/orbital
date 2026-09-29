@@ -19,7 +19,7 @@ import {
   RETENTION_KEY,
 } from './retention.js';
 import { openDb } from './db/database.js';
-import { compactionFailures, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
+import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
 import { indexPaths, indexProjects } from './indexer/indexer.js';
 import { watchProjects } from './watcher/projects.js';
 import { SessionRegistry, type LiveSession } from './watcher/registry.js';
@@ -198,6 +198,8 @@ export async function buildServer(overrides: {
    * so the packaged app and the test suite never have them.
    */
   devTools?: boolean;
+  /** How long a rewind waits for a stopped process; tests shorten it (see `Runner.stopAndWait`). */
+  rewindStopTimeoutMs?: number;
 } = {}): Promise<FastifyInstance> {
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
@@ -808,7 +810,16 @@ export async function buildServer(overrides: {
   });
 
   // Live registry → 'sessions' topic, REST-shaped (final-review ruling).
-  registry.on('upsert', (s) => publishLiveSession(publishCtx(), s));
+  registry.on('upsert', (s) => {
+    // A terminal took the session: the CLI there resumes the file's newest
+    // leaf, which is still the old branch, so a pending rewind no longer
+    // describes anything (spec 2026-09-29-rewind-design § Errors and edge
+    // cases). Every window reads the transcript again.
+    if (db.delete(pendingRewinds).where(eq(pendingRewinds.sessionId, s.sessionId)).run().changes > 0) {
+      hub.publish(`session:${s.sessionId}`, { event: 'transcript_reset' });
+    }
+    publishLiveSession(publishCtx(), s);
+  });
   registry.on('remove', (id) => {
     // The CLI process is gone, which is the only "ended" a terminal session
     // announces — its final rollup is written here.
@@ -896,6 +907,7 @@ export async function buildServer(overrides: {
     images, imagesDir, titler, git, ide,
     settings: settingsStore,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
+    rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,
     retention: {
       sweep: runRetentionSweep,
       preview: (value: string) =>

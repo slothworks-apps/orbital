@@ -86,8 +86,28 @@ export interface ChatMessage {
    * or failure; its facts ride in `compaction`. Like `notice` it is not a
    * turn and never folds into a tool run
    * (spec 2026-09-28-context-compaction-design).
+   *
+   * `rewind` is the divider where the live branch passes a rewind: one
+   * Orbital sent, carrying its count, or one done in the terminal, without
+   * one. Like `compaction` it is a mark, not a turn (spec
+   * 2026-09-29-rewind-design § Pending rewind).
    */
-  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction';
+  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction' | 'rewind';
+  /**
+   * The transcript entry this message came from — what a rewind names. Set on
+   * every message read from the file and on every live one whose SDK frame
+   * carried it. A user turn Orbital sends is not published live (the SDK does
+   * not replay stdin); the send route answers with the uuid it set on it
+   * instead (spec 2026-09-29-rewind-design § Ids).
+   */
+  uuid?: string;
+  /**
+   * `user` rows only: this message can be picked as a rewind target — a human
+   * prompt on the live branch with conversation before it and no compaction
+   * after it (spec § Which messages can be picked). Only the server knows the
+   * chain, so it decides. Absent means not.
+   */
+  rewindable?: true;
   text?: string;
   toolName?: string;
   toolInput?: unknown;
@@ -127,6 +147,12 @@ export interface ChatMessage {
   partial?: true;
   /** `compaction` rows only. */
   compaction?: CompactionMark;
+  /**
+   * `rewind` rows only. `hiddenCount` is the N the client counted when the
+   * rewind was picked, null for a rewind done in the terminal, which Orbital
+   * never counted.
+   */
+  rewind?: { hiddenCount: number | null };
 }
 
 /**
@@ -183,6 +209,11 @@ export type ErrorSource = 'server' | 'web';
  * `compaction_failed` is a context compaction the CLI reported as failed, so
  * it can be read even when the session is not open (spec
  * 2026-09-28-context-compaction-design § Failure).
+ *
+ * `rewind_refused` is the CLI refusing a truncating resume: the rewind was
+ * undone and the hidden messages restored. `rewind_failed` is a rewind that
+ * could not stop the session it was taking back (spec
+ * 2026-09-29-rewind-design § Runner).
  */
 export type ErrorKind =
   | 'session_failed'
@@ -190,7 +221,9 @@ export type ErrorKind =
   | 'render_crash'
   | 'sessions_healed'
   | 'transcript_gap'
-  | 'compaction_failed';
+  | 'compaction_failed'
+  | 'rewind_refused'
+  | 'rewind_failed';
 
 export interface ErrorRecord {
   id: number;

@@ -277,6 +277,18 @@ export class SessionTitler {
     state.newUserText = state.newUserText.slice(-BUFFER_MESSAGES);
   }
 
+  /**
+   * Replaces what a session has said with what its conversation holds now —
+   * after a rewind, the dropped turns must not name it (spec
+   * 2026-09-29-rewind-design § After a rewind is sent). Nothing here counts
+   * as new user text: the rename gate weighs what is said from now on.
+   */
+  reset(sessionId: string, messages: ChatMessage[]): void {
+    const state = this.stateFor(sessionId);
+    state.buffer = messages.slice(-BUFFER_MESSAGES);
+    state.newUserText = [];
+  }
+
   /** Drops a session's buffers — it has ended and will say nothing more. */
   forget(sessionId: string): void {
     this.states.delete(sessionId);

@@ -27,6 +27,45 @@ import type { IdeApprovals, IdeReviewVerdict } from '../ide/approvals.js';
 const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
 
 /**
+ * How long a rewind waits for the session's `claude` process to exit once
+ * it has been told to stop, before it gives up and says so. A rewind must
+ * not start a second process on the same transcript while the first may
+ * still be writing to it (spec 2026-09-29-rewind-design § Runner).
+ */
+export const REWIND_STOP_TIMEOUT_MS = 10_000;
+
+/**
+ * How the CLI words a truncating resume it will not do: the
+ * `--resume-drops-turn` guard refusing the range, and a fork point it cannot
+ * load (one before the newest compaction). Both arrive as the `errors[0]` of
+ * an `error_during_execution` result before `system/init`, and the query's
+ * iterator then throws the same text (spec § Verification).
+ */
+export const REWIND_REFUSAL_PREFIXES = [
+  'Resume rejected by --resume-drops-turn:',
+  'No message found with message.uuid of:',
+] as const;
+
+/** The refusal text when `text` is one of the CLI's rewind refusals, else null. */
+export function rewindRefusal(text: unknown): string | null {
+  if (typeof text !== 'string') return null;
+  const at = Math.min(
+    ...REWIND_REFUSAL_PREFIXES.map((p) => text.indexOf(p)).filter((i) => i >= 0),
+  );
+  return Number.isFinite(at) ? text.slice(at).trim() : null;
+}
+
+/**
+ * What a truncating resume tells whoever holds the pending rewind: the CLI
+ * took it (`system/init` arrived — a refusal always comes before it), or it
+ * refused, with the CLI's own words.
+ */
+export interface RewindHooks {
+  started(): void;
+  refused(message: string): void;
+}
+
+/**
  * How long a session may sit waiting on the user before its `claude` process
  * is stopped. Stopping is not ending: the session reads `idle` and the next
  * message resumes it through the revive path (spec
@@ -533,6 +572,23 @@ interface ManagedSession {
    * between turns — what tells a `/compact` apart from an automatic one.
    */
   turnPrompt: string | null;
+  /** A truncating resume still waiting for `init` or a refusal; null otherwise. */
+  rewind: RewindHooks | null;
+  /** The CLI refused this session's rewind: the error its iterator throws next is not a failure. */
+  rewindRefused: boolean;
+  /**
+   * The main loop's `tool_use` ids still waiting for a result. An interrupt
+   * that leaves one behind leaves it on the client's screen, while the live
+   * branch drops it once a later prompt is on the chain.
+   */
+  openToolUses: Set<string>;
+  /**
+   * Where that dangling call stands: `left` by an interrupt, `resetAtTurnEnd`
+   * once the next prompt has gone out — its turn's end is when the file has
+   * the prompt that takes the call off the branch, and the client is told to
+   * read the transcript again.
+   */
+  danglingCall: 'none' | 'left' | 'resetAtTurnEnd';
 }
 
 /**
@@ -569,6 +625,10 @@ export function sdkToChatMessages(
   // when it has one; otherwise this is the only record of when it landed,
   // so a tool row's duration (a later task) has something to subtract.
   const timestamp = typeof sdkMsg.timestamp === 'string' ? sdkMsg.timestamp : new Date().toISOString();
+  // The frame's own uuid is the transcript entry's (verified, spec
+  // 2026-09-29-rewind-design § Ids), so a live row names the same entry its
+  // reloaded twin does.
+  const uuid = typeof sdkMsg.uuid === 'string' ? { uuid: sdkMsg.uuid as string } : {};
   const out: ChatMessage[] = [];
   content.forEach((block: any, i: number) => {
     const id = `${sdkMsg.session_id}:${nextSeq()}:${i}`;
@@ -577,10 +637,10 @@ export function sdkToChatMessages(
         // Same split as the indexed path (`entriesToMessages`) — a live
         // command expansion must fold identically to a reloaded one.
         const split = splitUserText(block.text);
-        out.push({ id, role: 'user', text: split.text, ...(split.command ? { command: split.command } : {}), timestamp });
+        out.push({ id, role: 'user', text: split.text, ...(split.command ? { command: split.command } : {}), timestamp, ...uuid });
       } else {
         const streamed = idFor?.({ type: 'text', text: block.text });
-        out.push({ id: streamed ?? id, role: 'assistant', text: block.text, model, timestamp });
+        out.push({ id: streamed ?? id, role: 'assistant', text: block.text, model, timestamp, ...uuid });
       }
     } else if (block.type === 'thinking') {
       // The SDK carries the reasoning text in `thinking`, not `text` — the
@@ -595,10 +655,10 @@ export function sdkToChatMessages(
       // `release()` — one malformed frame would stop the whole session.
       if (typeof block.thinking === 'string' && block.thinking.trim()) {
         const streamed = idFor?.({ type: 'thinking', text: block.thinking });
-        out.push({ id: streamed ?? id, role: 'thinking', text: block.thinking, model, timestamp });
+        out.push({ id: streamed ?? id, role: 'thinking', text: block.thinking, model, timestamp, ...uuid });
       }
     } else if (block.type === 'tool_use') {
-      out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id, timestamp });
+      out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id, timestamp, ...uuid });
     } else if (block.type === 'tool_result') {
       const parts = toolResultParts(block.content ?? '', images);
       out.push({
@@ -607,10 +667,11 @@ export function sdkToChatMessages(
         ...(parts.images.length ? { images: parts.images } : {}),
         ...(block.is_error === true ? { isError: true } : {}),
         timestamp,
+        ...uuid,
       });
     } else if (block.type === 'image') {
       const entry = imageRefOf(block, images);
-      if (entry) out.push({ id, role: sdkMsg.type === 'user' ? 'user' : 'assistant', images: [entry], timestamp });
+      if (entry) out.push({ id, role: sdkMsg.type === 'user' ? 'user' : 'assistant', images: [entry], timestamp, ...uuid });
     }
   });
   return out;
@@ -620,6 +681,12 @@ export class Runner {
   private sessions = new Map<string, ManagedSession>();
   /** Every id this Runner has started, live or stopped — see `hasRun`. */
   private ran = new Set<string>();
+  /**
+   * Each session's pump, by id, until its generator has finished — which is
+   * after `release()` when the session was stopped. What `stopAndWait` awaits:
+   * a stopped session's CLI can still be writing its transcript.
+   */
+  private exits = new Map<string, Promise<void>>();
   private seq = 0;
   private hub: Hub;
   private queryFn: QueryFn;
@@ -911,7 +978,7 @@ export class Runner {
    * is failing a turn over a thumbnail the cache pruned, which is a worse
    * answer than sending the rest of what was typed.
    */
-  private userMessage(sessionId: string, text: string, attachments?: string[]): InputMessage {
+  private userMessage(sessionId: string, text: string, attachments?: string[], uuid?: string): InputMessage {
     const content: unknown[] = [];
     for (const ref of attachments ?? []) {
       const image = this.images?.read(ref);
@@ -930,6 +997,10 @@ export class Runner {
       session_id: sessionId,
       parent_tool_use_id: null,
       message: { role: 'user', content },
+      // The CLI writes the entry under this uuid, so the turn can be named as
+      // a rewind target before the file is read again (spec
+      // 2026-09-29-rewind-design § Ids).
+      ...(uuid ? { uuid } : {}),
     };
   }
 
@@ -1025,6 +1096,18 @@ export class Runner {
     /** Image store refs to send alongside the first prompt — the New Session
      * dialog's attachments, and a revived session's. */
     attachments?: string[];
+    /**
+     * A truncating resume (spec 2026-09-29-rewind-design § Runner): the chain
+     * entry the conversation continues from, and — only when the dropped
+     * range is exactly the newest turn — the prompt uuid the CLI's guard
+     * checks it against. Both go straight to the SDK options.
+     */
+    resumeSessionAt?: string;
+    resumeDropsTurn?: string;
+    /** The uuid the first prompt's entry is written under. */
+    promptUuid?: string;
+    /** Told whether the CLI took the truncating resume. */
+    rewind?: RewindHooks;
   }): Promise<string> {
     // A resume keeps the transcript's own id; otherwise the caller's pinned
     // id if it brought one, and a freshly minted one if it did not.
@@ -1040,6 +1123,8 @@ export class Runner {
       commands: null, decision: null,
       compacting: null, measuredCompactionMs: null, heldCompaction: null, lastCompacted: null,
       turnPrompt: opts.prompt,
+      rewind: opts.rewind ?? null, rewindRefused: false,
+      openToolUses: new Set(), danglingCall: 'none',
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -1097,20 +1182,28 @@ export class Runner {
     if (opts.resume) options.resume = opts.resume;
     else options.sessionId = sessionId;
     if (opts.model) options.model = opts.model;
+    if (opts.resume && opts.resumeSessionAt) {
+      options.resumeSessionAt = opts.resumeSessionAt;
+      if (opts.resumeDropsTurn) options.resumeDropsTurn = opts.resumeDropsTurn;
+    }
     // Absent, the SDK spawns its own bundled binary — which is what dev
     // wants and what the packaged app cannot have (spec § 2).
     if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
 
     const generator = this.queryFn({ prompt: input(), options });
     state.generator = generator;
-    void this.pump(sessionId, state, generator);
+    const exit = this.pump(sessionId, state, generator);
+    this.exits.set(sessionId, exit);
+    void exit.then(() => {
+      if (this.exits.get(sessionId) === exit) this.exits.delete(sessionId);
+    });
 
     // An empty prompt with nothing attached (e.g. clear+startNew) means "start
     // the session but wait for the caller's first send()" — enqueueing an empty
     // user turn would otherwise burn a turn on nothing (I6). Nothing reaches
     // the CLI until then, so it stays parked on stdin, which is exactly
     // `needs_input`.
-    const first = this.userMessage(sessionId, opts.prompt, opts.attachments);
+    const first = this.userMessage(sessionId, opts.prompt, opts.attachments, opts.promptUuid);
     if (first) {
       this.enqueue(sessionId, first);
       // The state above is constructed mid-turn, so neither the status nor
@@ -1131,6 +1224,16 @@ export class Runner {
     try {
       for await (const msg of generator) await this.handle(sessionId, state, msg);
     } catch (err) {
+      // A refused rewind is not a failed session: the refusal went to whoever
+      // holds the rewind, which records it (spec 2026-09-29-rewind-design §
+      // Runner). The iterator throws the refusal's text after its `result`,
+      // or instead of it.
+      const refusal = state.rewind ? rewindRefusal(err instanceof Error ? err.message : err) : null;
+      if (refusal) this.refuseRewind(state, refusal);
+      if (state.rewindRefused) {
+        this.release(sessionId, state);
+        return;
+      }
       // Both, deliberately: the terminal keeps saying it, and the browser
       // finally gets to. A reporter that throws must not stop `release()`
       // below from running — a session that failed twice is still a session
@@ -1160,6 +1263,17 @@ export class Runner {
     // below would land on that new session. Once `state` is no longer the
     // session this id holds, the stream is drained unread.
     if (this.sessions.get(sessionId) !== state) return;
+    // A truncating resume the CLI will not do is answered before `init`, by
+    // a result nothing else should read as a turn (spec
+    // 2026-09-29-rewind-design § Runner). Checked ahead of the id guard: the
+    // CLI has not loaded the session it refuses.
+    if (state.rewind && msg?.type === 'result' && msg.subtype === 'error_during_execution') {
+      const refusal = rewindRefusal(Array.isArray(msg.errors) ? msg.errors[0] : null);
+      if (refusal) {
+        this.refuseRewind(state, refusal);
+        return;
+      }
+    }
     // Every CLI message names the session it belongs to. Anything wearing
     // a different id (a stray from another session) is not ours to
     // publish; messages with no id at all are stream-level noise.
@@ -1182,6 +1296,17 @@ export class Runner {
       return;
     }
     if (msg.type === 'system' && msg.subtype === 'init') {
+      // The turn is running, so the CLI took the truncating resume: a refusal
+      // always comes before this.
+      const rewind = state.rewind;
+      state.rewind = null;
+      if (rewind) {
+        try {
+          rewind.started();
+        } catch (err) {
+          console.warn('orbital: failed to record a sent rewind:', err);
+        }
+      }
       this.onInit?.(sessionId, typeof msg.model === 'string' ? msg.model : null);
       return;
     }
@@ -1230,6 +1355,7 @@ export class Runner {
         id: `${sessionId}:${++this.seq}:0`,
         role: 'compaction',
         timestamp: new Date().toISOString(),
+        ...(typeof msg.uuid === 'string' ? { uuid: msg.uuid as string } : {}),
         compaction: mark,
       };
       // Also when the status message already said so: the status messages
@@ -1271,6 +1397,7 @@ export class Runner {
       // (`parent_tool_use_id` set) are deliberately not this signal;
       // `hasLiveBackgroundWork` already speaks for them, and only the main
       // loop's own turn can be said to have ended.
+      if (msg.parent_tool_use_id == null) this.noteOpenToolUses(state, msg);
       if (msg.parent_tool_use_id == null) {
         const s = this.sessions.get(sessionId);
         const began = s?.turnEnded === true;
@@ -1377,8 +1504,41 @@ export class Runner {
       // carries the cleared state to the map.
       state.compacting = null;
       state.turnPrompt = null;
+      // The turn after an interrupt has put its prompt in the file, which
+      // takes the interrupted call off the live branch; the client still
+      // holds it from the stream, so it reads the transcript again.
+      if (state.danglingCall === 'resetAtTurnEnd') {
+        state.danglingCall = 'none';
+        this.hub.publish(topic, { event: 'transcript_reset' });
+      }
       this.settleStatus(sessionId);
       this.onTurnBoundary?.(sessionId, true);
+    }
+  }
+
+  /** Keeps `openToolUses` in step with one main-loop frame. */
+  private noteOpenToolUses(state: ManagedSession, msg: any): void {
+    const content = msg.message?.content;
+    if (!Array.isArray(content)) return;
+    for (const block of content) {
+      if (msg.type === 'assistant' && block?.type === 'tool_use' && typeof block.id === 'string') {
+        state.openToolUses.add(block.id);
+      } else if (msg.type === 'user' && block?.type === 'tool_result') {
+        state.openToolUses.delete(block.tool_use_id);
+      }
+    }
+  }
+
+  /** The CLI refused the session's truncating resume; tells whoever holds it, once. */
+  private refuseRewind(state: ManagedSession, message: string): void {
+    const rewind = state.rewind;
+    state.rewind = null;
+    state.rewindRefused = true;
+    if (!rewind) return;
+    try {
+      rewind.refused(message);
+    } catch (err) {
+      console.warn('orbital: failed to record a refused rewind:', err);
     }
   }
 
@@ -2014,7 +2174,12 @@ export class Runner {
     this.onPermissionMode?.(sessionId, APPROVED_PLAN_MODE);
   }
 
-  send(sessionId: string, text: string, attachments?: string[]): void {
+  /**
+   * Sends one turn, or settles the parked decision with it. Returns the uuid
+   * the turn's entry is written under — a rewind names the turn by it before
+   * the file is read again — and null when no turn was started.
+   */
+  send(sessionId: string, text: string, attachments?: string[]): string | null {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} is not active`);
     // Composer text settles a parked decision instead of starting a turn: the
@@ -2052,13 +2217,15 @@ export class Runner {
       // below.
       s.turnEnded = false;
       this.setStatus(sessionId, 'working');
-      return;
+      return null;
     }
-    const msg = this.userMessage(sessionId, text, attachments);
+    const uuid = randomUUID();
+    const msg = this.userMessage(sessionId, text, attachments, uuid);
     // Nothing to say: leave the session exactly as it was. Flipping it to
     // `working` first would strand it there — no turn is running, so no
     // `result` is coming to move it back.
-    if (!msg) return;
+    if (!msg) return null;
+    if (s.danglingCall === 'left') s.danglingCall = 'resetAtTurnEnd';
     // Null the handle, not just clear it — a cleared-but-retained handle is a
     // dangling reference to a timer that can never fire again.
     if (s.sleepTimer) clearTimeout(s.sleepTimer);
@@ -2071,6 +2238,7 @@ export class Runner {
     s.turnPrompt = text;
     this.setStatus(sessionId, 'working');
     this.enqueue(sessionId, msg);
+    return uuid;
   }
 
   /**
@@ -2116,6 +2284,12 @@ export class Runner {
     // the mark goes down here rather than waiting for a `result` that an
     // interrupt may never produce.
     if (s) s.turnEnded = true;
+    // A call the interrupt cut off before its result stays on the client's
+    // screen until the transcript is read again — see `danglingCall`.
+    if (s && s.openToolUses.size > 0) {
+      s.openToolUses.clear();
+      s.danglingCall = 'left';
+    }
     // Only the turn stops: what it left running in the background keeps
     // running (adr the-composers-stop-spares-background-work), and keeps the
     // session `working` as it would after any other turn — and unslept, since
@@ -2175,6 +2349,45 @@ export class Runner {
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
     this.enqueue(sessionId, null); // close the input stream
     this.release(sessionId, s);
+  }
+
+  /**
+   * Stops the session and waits for its `claude` process to be gone — what a
+   * rewind needs before it starts another process on the same transcript
+   * (spec 2026-09-29-rewind-design § Runner). `stop()` alone closes the input
+   * and lets go without waiting. Also waits out a process a sleep or an End
+   * stopped a moment ago that is still draining.
+   *
+   * A turn in flight is interrupted first, so the CLI is not left finishing
+   * it after its input closed. A process that has not exited within half the
+   * timeout is closed outright; one still running at the timeout throws,
+   * rather than racing it.
+   */
+  async stopAndWait(sessionId: string, timeoutMs = REWIND_STOP_TIMEOUT_MS): Promise<void> {
+    const exit = this.exits.get(sessionId);
+    if (!exit) return;
+    const s = this.sessions.get(sessionId);
+    const generator = s?.generator ?? null;
+    const within = (p: Promise<unknown>, ms: number) =>
+      new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), ms);
+        (timer as unknown as { unref?: () => void }).unref?.();
+        p.then(() => {
+          clearTimeout(timer);
+          resolve(true);
+        }, () => {
+          clearTimeout(timer);
+          resolve(true);
+        });
+      });
+    if (s && s.status === 'working' && generator?.interrupt) {
+      await within(generator.interrupt().catch(() => {}), timeoutMs / 4);
+    }
+    await this.stop(sessionId);
+    if (await within(exit, timeoutMs / 2)) return;
+    (generator as { close?: () => void } | null)?.close?.();
+    if (await within(exit, timeoutMs / 2)) return;
+    throw new Error(`the session's claude process did not exit within ${timeoutMs / 1000} s`);
   }
 
   /**

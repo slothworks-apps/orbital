@@ -152,7 +152,7 @@ describe('the transcript tail yields to the Runner', () => {
         method: 'POST', url: `/api/sessions/${sessionId}/messages`,
         payload: { text: 'again' },
       });
-      expect(revived.json()).toEqual({ ok: true, revived: true });
+      expect(revived.json()).toEqual({ ok: true, revived: true, uuid: expect.any(String) });
       await vi.waitFor(() => expect(sub.events).toContain('turn_result'), { timeout: 3000 });
       await probing(file, 'during', () => {
         expect(sub.ids.filter((id) => id.startsWith(`${sessionId}:`))).toHaveLength(1);

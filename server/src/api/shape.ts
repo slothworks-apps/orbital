@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { effectiveTagIds } from '../tags/rules.js';
-import { compactionFailures } from '../db/schema.js';
+import { compactionFailures, pendingRewinds } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
 import type { CompactingState, LastCompacted, PendingDecision, Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
@@ -147,6 +147,24 @@ export interface ApiSession {
    * memory only, and only for sessions this process runs.
    */
   lastCompacted: LastCompacted | null;
+  /**
+   * The rewind picked and not sent yet, or null (spec
+   * 2026-09-29-rewind-design § Pending rewind). `hiddenCount` is the N the
+   * client counted at pick time; `text` is the picked message's, which the
+   * composer holds while the rewind is pending. On the snapshot so the
+   * detached window and a reload show the same state.
+   */
+  rewindPending: { hiddenCount: number; text: string } | null;
+}
+
+/** The session's pending rewind as the snapshot carries it, or null. */
+export function rewindPendingOf(db: OrbitalDb, sessionId: string): { hiddenCount: number; text: string } | null {
+  const row = db
+    .select({ hiddenCount: pendingRewinds.hiddenCount, text: pendingRewinds.text })
+    .from(pendingRewinds)
+    .where(eq(pendingRewinds.sessionId, sessionId))
+    .get();
+  return row ?? null;
 }
 
 /** The newest compaction failure still standing for this session, or null. */
@@ -168,12 +186,18 @@ export function lastCompactionFailed(db: OrbitalDb, sessionId: string): { at: nu
  * terminal session nobody is running is over. An Orbital session is over only
  * once the user ended it — without that stamp it is merely asleep, and the
  * next message revives it.
+ *
+ * A pending rewind reads as waiting for input, whatever the row says: the
+ * session was stopped to take it, and it is the user's turn to send (spec
+ * 2026-09-29-rewind-design § Behaviour 5). Only past the Runner and the
+ * registry — a session either of them holds has no pending rewind.
  */
 export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
   const fromRunner = ctx.runner.status(row.id);
   if (fromRunner) return fromRunner;
   const live = ctx.registry.get(row.id);
   if (live) return live.status;
+  if (rewindPendingOf(ctx.db, row.id)) return 'needs_input';
   if (row.source !== 'web') return 'ended';
   return row.ended_at !== null ? 'ended' : 'idle';
 }
@@ -206,5 +230,6 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     compacting: ctx.runner.compacting(row.id),
     lastCompactionFailed: lastCompactionFailed(ctx.db, row.id),
     lastCompacted: ctx.runner.lastCompacted(row.id),
+    rewindPending: rewindPendingOf(ctx.db, row.id),
   };
 }

@@ -135,6 +135,14 @@ export interface ApiSession {
    * `server/src/api/shape.ts`.
    */
   lastCompacted?: { at: number; preTokens: number | null; postTokens: number | null } | null
+  /**
+   * The rewind picked and not sent yet, or null: `hiddenCount` is the N the
+   * client counted at pick time, `text` the picked message's. While it is
+   * set the session reads `needs_input` and the transcript ends before the
+   * picked message. Mirrors `server/src/api/shape.ts` (spec
+   * 2026-09-29-rewind-design § Pending rewind).
+   */
+  rewindPending?: { hiddenCount: number; text: string } | null
 }
 
 /** Where the caret is, and what is selected under it. */
@@ -308,8 +316,21 @@ export interface ChatMessage {
    * `compaction` is the permanent mark a context compaction leaves, its facts
    * in `compaction`. Rendered by `CompactionMark`; never a bubble, never
    * folded into a tool run.
+   *
+   * `rewind` is the divider where the transcript passes a rewind, its count
+   * in `rewind` (null for one done in the terminal). A mark like
+   * `compaction` (spec 2026-09-29-rewind-design).
    */
-  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction'
+  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction' | 'rewind'
+  /**
+   * The transcript entry this message came from — what a rewind names. On
+   * every message read from the file and every live one whose frame carried
+   * it; the user's own turn gets it from the send response. Mirrors
+   * `server/src/types.ts`.
+   */
+  uuid?: string
+  /** `user` rows only: can be picked as a rewind target. Absent means not. */
+  rewindable?: true
   text?: string
   toolName?: string
   toolInput?: unknown
@@ -341,6 +362,8 @@ export interface ChatMessage {
   notice?: { level: NoticeLevel; command?: string }
   /** `compaction` rows only. Mirrors `server/src/types.ts`. */
   compaction?: CompactionMark
+  /** `rewind` rows only: N, or null for a rewind done in the terminal. Mirrors `server/src/types.ts`. */
+  rewind?: { hiddenCount: number | null }
   /** Images this message carries — refs into the server's image store
    * (`GET /api/images/<ref>`), never bytes. Mirrors `server/src/types.ts`.
    * Spec: 2026-09-18-transcript-images-design. */
@@ -929,6 +952,8 @@ export type ErrorKind =
   | 'sessions_healed'
   | 'transcript_gap'
   | 'compaction_failed'
+  | 'rewind_refused'
+  | 'rewind_failed'
 
 export interface ErrorRecord {
   id: number

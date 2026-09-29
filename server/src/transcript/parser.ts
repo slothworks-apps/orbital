@@ -300,12 +300,16 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
   // The newest compaction mark still waiting for its summary entry.
   let unsummarised: ChatMessage | null = null;
   for (const e of entries) {
+    // The entry's uuid rides on every message it becomes: a rewind names its
+    // target by it, and the messages API cuts and places dividers by it
+    // (spec 2026-09-29-rewind-design § Ids).
+    const uuid = typeof e.uuid === 'string' ? { uuid: e.uuid } : {};
     // A compaction becomes its own mark, carrying the summary from the entry
     // that follows it — the same item the runner builds live (spec
     // 2026-09-28-context-compaction-design § Success).
     if (e.type === 'system' && e.subtype === 'compact_boundary' && e.isSidechain !== true) {
       unsummarised = {
-        id: `${e.uuid}:0`, role: 'compaction', timestamp: e.timestamp,
+        id: `${e.uuid}:0`, role: 'compaction', timestamp: e.timestamp, ...uuid,
         compaction: markFromTranscriptBoundary(e),
       };
       out.push(unsummarised);
@@ -326,14 +330,14 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
     // Orbital only ever reads from the file) never showed them at all.
     if (e.type === 'system') {
       const row = messageFromLocalCommandEntry(e, `${e.uuid}:0`);
-      if (row) out.push(row);
+      if (row) out.push({ ...row, ...uuid });
       continue;
     }
     if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || outsideConversation(e)) continue;
     const base =
       e.type === 'assistant' && typeof e.message.model === 'string' && e.message.model
-        ? { timestamp: e.timestamp, model: e.message.model }
-        : { timestamp: e.timestamp };
+        ? { timestamp: e.timestamp, model: e.message.model, ...uuid }
+        : { timestamp: e.timestamp, ...uuid };
     const content = e.message.content;
     if (typeof content === 'string') {
       if (e.type === 'user') {

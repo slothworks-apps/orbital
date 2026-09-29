@@ -78,6 +78,13 @@ export type SessionEvent =
    * the transcript is read again.
    */
   | { event: 'transcript_reset' }
+  /**
+   * The CLI refused a pending rewind's send: nothing was sent, the hidden
+   * messages are back (a `transcript_reset` follows) and the edited text
+   * stays as an ordinary draft. `message` is the CLI's own words (spec
+   * 2026-09-29-rewind-design § Behaviour 8). Handled by the rewind UI step.
+   */
+  | { event: 'rewind_refused'; message: string; hiddenCount: number | null }
 
 /**
  * Events delivered on the `subagent:<sessionId>:<toolUseId>` topic — one

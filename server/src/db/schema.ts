@@ -295,6 +295,57 @@ export const backgroundTasks = sqliteTable(
 );
 
 /**
+ * A rewind the user picked and has not sent yet, one per session at most
+ * (spec 2026-09-29-rewind-design § Pending rewind). Nothing about the
+ * transcript file changes until the next send, so this row is what makes the
+ * cut stick: while it exists the messages API ends the live branch before
+ * `targetUuid`, and every revive path resumes at `forkUuid` instead of the
+ * file's newest leaf. It survives a restart for the same reason.
+ */
+export const pendingRewinds = sqliteTable('pending_rewinds', {
+  sessionId: text('session_id').primaryKey(),
+  /** The picked user entry — the start of the turn being dropped. */
+  targetUuid: text('target_uuid').notNull(),
+  /** The target's `parentUuid`: what `resumeSessionAt` receives. */
+  forkUuid: text('fork_uuid').notNull(),
+  /**
+   * What `resumeDropsTurn` receives: the target, but only when it was the
+   * newest human prompt of the live branch. The CLI's guard refuses a range
+   * holding a second prompt, so a deeper rewind goes unguarded (null).
+   */
+  dropsTurn: text('drops_turn'),
+  /** N, as the client counted it at pick time. */
+  hiddenCount: integer('hidden_count').notNull(),
+  /** The picked message's text, for the composer. */
+  text: text('text').notNull(),
+  /** What the composer held before the pick, handed back on Cancel. */
+  priorDraft: text('prior_draft').notNull(),
+  /** Epoch ms. */
+  createdAt: integer('created_at').notNull(),
+});
+
+/**
+ * Rewinds that were sent — what gives the divider at a fork its count
+ * (spec § Pending rewind). A fork on the live branch with no row here was
+ * rewound in the terminal. `targetUuid` is kept beyond the spec's columns:
+ * until the new prompt lands in the file the target is still on the live
+ * branch, and the messages API keeps cutting there meanwhile.
+ */
+export const rewinds = sqliteTable(
+  'rewinds',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: text('session_id').notNull(),
+    forkUuid: text('fork_uuid').notNull(),
+    targetUuid: text('target_uuid').notNull(),
+    hiddenCount: integer('hidden_count').notNull(),
+    /** Epoch ms. */
+    at: integer('at').notNull(),
+  },
+  (table) => [index('idx_rewinds_session').on(table.sessionId, table.at)],
+);
+
+/**
  * Every failure Orbital caught, from either side of the wire. See
  * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
  *

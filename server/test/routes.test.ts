@@ -1679,6 +1679,9 @@ describe('tag anchors', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/commands', () => {
+  /** Orbital answers `/rewind` itself, so every session lists it (spec 2026-09-29-rewind-design). */
+  const REWIND = { name: 'rewind', description: 'Take the conversation back to before one of your messages', source: 'built-in' };
+
   /** A command on disk, the flat `~/.claude/commands/<name>.md` shape. */
   function writeCommand(claudeDir: string, name: string, description: string) {
     mkdirSync(join(claudeDir, 'commands'), { recursive: true });
@@ -1705,6 +1708,7 @@ describe('GET /api/commands', () => {
     expect(res.json()).toEqual({
       commands: [
         { name: 'deploy', description: 'deploy', source: 'project' },
+        REWIND,
         { name: 'ship', description: 'ship it', source: 'user' },
       ],
     });
@@ -1728,6 +1732,7 @@ describe('GET /api/commands', () => {
     expect(res.json()).toEqual({
       commands: [
         { name: 'clear', description: 'Clear conversation history', source: 'built-in' },
+        REWIND,
         { name: 'ship', description: 'ship it', source: 'user' },
         { name: 'usage', description: 'Show plan usage', source: 'built-in', aliases: ['cost'] },
       ],
@@ -1742,7 +1747,7 @@ describe('GET /api/commands', () => {
     runner.commands = async () => [{ name: 'ship', description: '' }];
 
     expect(res200(await app.inject({ method: 'GET', url: '/api/commands?session=sc' })).commands)
-      .toEqual([{ name: 'ship', description: 'ship it', source: 'user' }]);
+      .toEqual([REWIND, { name: 'ship', description: 'ship it', source: 'user' }]);
   });
 
   it('carries an argument hint through when the CLI gives one', async () => {
@@ -1755,6 +1760,7 @@ describe('GET /api/commands', () => {
     expect(res200(await app.inject({ method: 'GET', url: '/api/commands?session=sc' })).commands)
       .toEqual([
         { name: 'add-dir', description: 'Add a directory', source: 'built-in', argumentHint: '<path>' },
+        REWIND,
       ]);
   });
 
@@ -2836,7 +2842,7 @@ describe('walkthrough routes', () => {
     const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
     expect(res.statusCode).toBe(200);
     // The stub runner's send() throws "not active", so the route revives.
-    expect(res.json()).toEqual({ ok: true, revived: true });
+    expect(res.json()).toEqual({ ok: true, revived: true, uuid: expect.any(String) });
     expect(sendCalls[0].text).toContain('<orbital-walkthrough kind="narrate">');
     expect(sendCalls[0].text).toContain('toolu_E1');
     expect(startCalls[0]).toMatchObject({ resume: 'w1', cwd: '/w/z' });

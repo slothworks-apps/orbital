@@ -3,13 +3,15 @@ import { statusOf, type ShapeContext } from '../src/api/shape.js';
 import type { SessionRow, SessionSource, SessionStatus } from '../src/types.js';
 
 /**
- * `statusOf` reads only the Runner, the registry and the row, so the context
- * is those two lookups and nothing else.
+ * `statusOf` reads only the Runner, the registry, the pending rewinds and the
+ * row, so the context is those three lookups and nothing else.
  */
 function ctxWith(opts: { runner?: SessionStatus; registry?: SessionStatus } = {}): ShapeContext {
   return {
     runner: { status: () => opts.runner },
     registry: { get: () => (opts.registry ? { status: opts.registry } : undefined) },
+    // No pending rewind anywhere.
+    db: { select: () => ({ from: () => ({ where: () => ({ get: () => undefined }) }) }) },
   } as unknown as ShapeContext;
 }
 

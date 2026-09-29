@@ -279,6 +279,58 @@ the terminal) it reads *Rewound in the terminal* with no count.
 - **Title:** the titler's in-memory feed is reset from the live branch.
 - **Walkthrough:** built from the live branch, so dropped steps disappear.
 
+### As built (steps 3 and 4)
+
+Where the server departs from the design above, or says what it left open:
+
+- **The user's own turn.** The Runner never publishes a turn it sends (the
+  SDK does not replay stdin; the client shows its own copy). So the send
+  routes answer with `uuid`, the uuid Orbital set on the message, and the
+  client puts it on its copy. Every message read from the file carries its
+  entry's `uuid`, and so does every live one whose frame had one.
+- **Pickable is the server's call.** The messages API marks
+  `rewindable: true` on the user rows that can be picked: a human prompt, not
+  the harness's (`<local-command-stdout>` and the like have nothing the human
+  typed), with an assistant entry or a compaction before it, after the newest
+  `compact_boundary`. A user turn just sent counts as pickable once the file
+  has it; until then the client can offer it when it is not the session's
+  first.
+- **The divider is a row of its own**, `role: 'rewind'` with
+  `rewind: { hiddenCount }` (null for the terminal). There was no server-side
+  divider to reuse: the model divider is drawn by the client. It goes ahead
+  of the new branch's first prompt, with the id `rewind:<fork>:<dropped>`.
+- **Between init and the new prompt reaching the file** the file's newest
+  leaf is still the old branch. `rewinds` keeps `target_uuid` for this: while
+  the newest sent rewind's target is still on the live branch, the messages
+  API keeps cutting there and puts the divider at the cut, under the id the
+  fork's divider takes over once the prompt lands. If the CLI crashed after
+  `init` without writing the prompt, the cut would stay; not handled.
+- **Stopping.** `Runner.stopAndWait` interrupts a turn in flight, closes the
+  input, and after half the timeout closes the query outright. Still running
+  at the timeout, the rewind fails with 504 `stop_timeout` and a
+  `rewind_failed` error, and nothing is stored. It also waits out a process
+  a sleep or an End stopped a moment earlier.
+- **Status while pending** is `needs_input`, read in `statusOf` past the
+  Runner and the registry, whatever the row's end stamp says.
+- **Refusal** is logged as `rewind_refused` (the message names what was
+  restored, the detail is the CLI's text) and published as
+  `{ event: 'rewind_refused', message, hiddenCount }` on `session:<id>`,
+  followed by `transcript_reset`. The pump does not also log it as a failed
+  session.
+- **The walkthrough's narrate and ask** are refused with 409
+  `rewind_pending` while a rewind is pending: the next turn is the edited
+  prompt.
+- **`/rewind`** is in every session's command list as a `built-in` (the
+  catalog has no badge of Orbital's own), and the send route answers exactly
+  `/rewind` with 400 `local_command`.
+- **The interrupt's dangling call** on Orbital-run sessions: the Runner
+  remembers that an interrupt cut a call off, and the end of the turn after
+  the next prompt publishes `transcript_reset`. If the interrupted turn's own
+  `result` arrives after that send, the reset comes one turn early and the
+  call stays until the next reread.
+- **Compaction failures** are cut with the turns (those at or past the cut's
+  timestamp). Background-task rows are not joined against the branch yet.
+
 ## Verification (2026-09-29)
 
 Agent SDK 0.3.278, read-only on real transcripts, and live resumes on a

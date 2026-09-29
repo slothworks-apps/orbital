@@ -1,15 +1,17 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseTranscript, entriesToMessages } from '../transcript/parser.js';
-import { liveBranch } from '../transcript/liveBranch.js';
+import { parseTranscript } from '../transcript/parser.js';
+import { presentBranch, readTranscriptBranch, type BranchRead } from '../transcript/rewind.js';
+import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { expandHome } from '../paths.js';
 import { readFilePreview } from '../files/preview.js';
 import { completeFilePath } from '../files/complete.js';
 import { OpenTabsReader } from '../files/openTabs.js';
-import { collectCommands } from '../commands/catalog.js';
+import { collectCommands, type CatalogCommand } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
   compactionFailures,
@@ -32,7 +34,7 @@ import { mergeCompactionFailures, type CompactionFailureRecord } from '../transc
 import { RETENTION_KEY } from '../retention.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
-import { toApiSession } from './shape.js';
+import { statusOf, toApiSession } from './shape.js';
 import type { GitStore } from '../git/store.js';
 import type { IdeStore } from '../ide/store.js';
 import type { SubagentStore, SubagentTranscripts } from '../transcript/subagents.js';
@@ -101,6 +103,11 @@ export interface RouteContext {
    * the server runs from `npm run dev`; never on in the packaged app.
    */
   devTools?: boolean;
+  /**
+   * How long a rewind waits for a stopped session's process to exit
+   * (`Runner.stopAndWait`). Tests shorten it; the Runner's default otherwise.
+   */
+  rewindStopTimeoutMs?: number;
 }
 
 const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);
@@ -130,6 +137,24 @@ function registerDevRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     return reply.code(202).send({ ok: true, outcome, seconds });
   });
+}
+
+/**
+ * `/rewind`, which Orbital answers itself: the composer opens pick mode on it
+ * and never sends it (spec 2026-09-29-rewind-design § Behaviour 1). Listed
+ * for every session whatever the CLI reports, as the built-in it stands in
+ * for; the catalog has no badge of Orbital's own.
+ */
+const REWIND_COMMAND: CatalogCommand = {
+  name: 'rewind',
+  description: 'Take the conversation back to before one of your messages',
+  source: 'built-in',
+};
+
+/** A session's command list with `/rewind` in it, Orbital's description winning. */
+function withRewind<T extends { name: string }>(commands: T[]): Array<T | CatalogCommand> {
+  return [...commands.filter((c) => c.name !== REWIND_COMMAND.name), REWIND_COMMAND]
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** The only kinds `POST /api/errors` will accept, mirroring `ErrorKind`. */
@@ -208,6 +233,9 @@ function invalidAttachments(raw: unknown): boolean {
   return raw.some((ref) => typeof ref !== 'string' || !IMAGE_REF_RE.test(ref));
 }
 
+/** A rewind could not stop the process holding its session; the route answers 504. */
+class RewindStopError extends Error {}
+
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
   if (ctx.devTools) registerDevRoutes(app, ctx);
@@ -218,7 +246,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   const openTabs = new OpenTabsReader(ctx.ide);
   /** Parsed transcripts by path, so paging back does not re-parse per page. */
-  const transcriptMessages = new StampedCache<ChatMessage[]>(TRANSCRIPT_CACHE_SESSIONS);
+  const transcriptMessages = new StampedCache<BranchRead>(TRANSCRIPT_CACHE_SESSIONS);
+  /** Pending and sent rewinds (spec 2026-09-29-rewind-design § Pending rewind). */
+  const rewindStore = new RewindStore(db);
   /** Walkthroughs by transcript path; selecting a session asks for one. */
   const walkthroughs = new StampedCache<Walkthrough>(TRANSCRIPT_CACHE_SESSIONS);
 
@@ -281,7 +311,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * this work for every session Orbital knows, including the terminal ones it
    * only ever watches.
    */
-  function readTranscriptMessages(id: string): ChatMessage[] | null {
+  function readBranchOf(id: string): BranchRead | null {
     const row = db
       .select({ project_dir: sessions.projectDir })
       .from(sessions)
@@ -294,32 +324,60 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // also skips `entriesToMessages` and the image decoding inside it. Only
     // the live branch: a rewind's abandoned turns and an interrupt's dangling
     // call stay in the file (spec 2026-09-29-rewind-design § Reading the live
-    // branch).
-    const fromFile =
-      stamp === null
-        ? []
-        : transcriptMessages.get(path, stamp, () => {
-            try {
-              return entriesToMessages(liveBranch(parseTranscript(readFileSync(path, 'utf8'))), ctx.images);
-            } catch {
-              return [];
-            }
-          });
-    // Failed compactions live in the database, not the file, so they are
-    // merged in at their timestamp on every read rather than cached with it
-    // (spec 2026-09-28-context-compaction-design § Failure).
-    const failures = db
+    // branch). What the rewind feature reads off the branch — the pickable
+    // messages, the forks — comes from the same read.
+    const empty: BranchRead = { messages: [], targets: new Map(), order: new Map(), forks: [] };
+    if (stamp === null) return empty;
+    return transcriptMessages.get(path, stamp, () => {
+      try {
+        return readTranscriptBranch(parseTranscript(readFileSync(path, 'utf8')), ctx.images);
+      } catch {
+        return empty;
+      }
+    });
+  }
+
+  /**
+   * Failed compactions live in the database, not the file, so they are
+   * merged in at their timestamp on every read rather than cached with it
+   * (spec 2026-09-28-context-compaction-design § Failure). Those at or past
+   * a rewind's cut went with the turns it hid.
+   */
+  function withCompactionFailures(id: string, messages: ChatMessage[], cutAt: string | null): ChatMessage[] {
+    let failures = db
       .select()
       .from(compactionFailures)
       .where(eq(compactionFailures.sessionId, id))
       .all() as CompactionFailureRecord[];
-    return failures.length ? mergeCompactionFailures(fromFile, failures) : fromFile;
+    const cut = cutAt === null ? NaN : Date.parse(cutAt);
+    if (!Number.isNaN(cut)) failures = failures.filter((f) => f.at < cut);
+    return failures.length ? mergeCompactionFailures(messages, failures) : messages;
+  }
+
+  function readTranscriptMessages(id: string): ChatMessage[] | null {
+    const read = readBranchOf(id);
+    return read && withCompactionFailures(id, read.messages, null);
+  }
+
+  /**
+   * The transcript as the panel shows it: the live branch with a divider at
+   * every rewind, cut before a pending rewind's target (spec
+   * 2026-09-29-rewind-design § Pending rewind). See `presentBranch`.
+   */
+  function presentTranscript(id: string): ChatMessage[] | null {
+    const read = readBranchOf(id);
+    if (!read) return null;
+    const { messages, cutAt } = presentBranch(read, {
+      pendingTarget: rewindStore.pending(id)?.targetUuid ?? null,
+      sent: rewindStore.sent(id),
+    });
+    return withCompactionFailures(id, messages, cutAt);
   }
 
   app.get('/api/sessions/:id/messages', (req, reply) => {
     const { id } = req.params as { id: string };
     const q = req.query as Record<string, string>;
-    const messages = readTranscriptMessages(id);
+    const messages = presentTranscript(id);
     if (!messages) return reply.code(404).send({ error: 'not found' });
     const limit = Math.min(Number(q.limit ?? 100), 500);
     // A `before` cursor this transcript does not contain is answered with an
@@ -511,7 +569,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
     const scanned = collectCommands({ claudeDir: ctx.claudeDir, cwd });
     const live = sessionId ? await ctx.runner.commands(sessionId) : null;
-    if (!live) return { commands: scanned };
+    if (!live) return { commands: sessionId ? withRewind(scanned) : scanned };
     const byName = new Map(scanned.map((c) => [c.name, c]));
     const commands = live
       .map((c) => {
@@ -530,7 +588,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-    return { commands };
+    return { commands: withRewind(commands) };
   });
 
   /**
@@ -795,63 +853,203 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
+  /** What a delivery did, and the uuid the turn's entry is written under when it started one. */
+  interface Delivery {
+    outcome: 'sent' | 'revived' | 'not_found' | 'terminal';
+    uuid: string | null;
+    /** The turn was the send of a pending rewind (spec 2026-09-29-rewind-design § Runner). */
+    rewind?: true;
+  }
+
   /**
    * One delivery path for anything Orbital says INTO a session: the composer's
    * text, and the walkthrough's narrate and ask turns. Sends if the runner
    * holds the session; otherwise revives it by resuming — unless a terminal
    * owns it, which cannot be taken over.
    */
-  async function deliverToSession(
-    id: string, text: string, attachments?: string[],
-  ): Promise<'sent' | 'revived' | 'not_found' | 'terminal'> {
+  async function deliverToSession(id: string, text: string, attachments?: string[]): Promise<Delivery> {
     // Writing to an ended session reopens it, whichever path below delivers
     // the message — a session someone is typing into is evidently not over
     // (spec 2026-09-24-sessions-end-only-by-hand-design § 1). Only once it
     // was delivered, though: a revive that throws leaves the session ended.
     const reopen = () => db.update(sessions).set({ endedAt: null }).where(eq(sessions.id, id)).run();
+    // A pending rewind before anything else: until a turn lands, the file's
+    // newest leaf is still the old branch, and a plain send or revive would
+    // carry on from it (spec 2026-09-29-rewind-design § Runner).
+    const pending = rewindStore.pending(id);
+    if (pending) return sendRewind(id, pending, text, attachments, reopen);
     try {
-      ctx.runner.send(id, text, attachments);
+      const uuid = ctx.runner.send(id, text, attachments);
       reopen();
-      return 'sent';
+      return { outcome: 'sent', uuid };
     } catch {
       // Inactive in the runner — revive by resuming, unless it's live in a
       // terminal (which owns the SDK process and can't be taken over).
       const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
         | SessionRow
         | undefined;
-      if (!row) return 'not_found';
-      if (ctx.registry.get(id)) return 'terminal';
-      const permissionMode = (row.permission_mode ??
-        ctx.settings.get('default_permission_mode')) as PermissionMode;
-      // Reopened ahead of the start, not after it: the Runner announces the
-      // revived session as it starts, and it reads the row for that.
-      reopen();
-      try {
-        await ctx.runner.start({
-          cwd: row.cwd, prompt: text, permissionMode, resume: id,
-          // Without this, reviving silently moved the session onto the CLI's
-          // default model.
-          model: row.model ?? undefined,
-          // The revive is the same turn the send would have been, images included.
-          attachments,
-        });
-      } catch (err) {
-        db.update(sessions).set({ endedAt: row.ended_at }).where(eq(sessions.id, id)).run();
-        throw err;
-      }
-      // The session is Orbital's now. Left `terminal`, the row reads as
-      // {source: terminal, status: live} — the exact shape `isReadOnly`
-      // locks the composer on (fix: reviving-a-terminal-session-leaves-it-read-only).
-      //
-      // And the revive is a turn starting, which retires the interrupted
-      // mark. The Runner cannot say so here: a started session is born
-      // `working`, so no status transition fires for the turn it opens with.
-      db.update(sessions).set({ source: 'web', interruptedAt: null }).where(eq(sessions.id, id)).run();
-      const revivedRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
-      ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, revivedRow) });
-      return 'revived';
+      if (!row) return { outcome: 'not_found', uuid: null };
+      if (ctx.registry.get(id)) return { outcome: 'terminal', uuid: null };
+      const uuid = randomUUID();
+      await revive(row, text, attachments, reopen, { promptUuid: uuid });
+      return { outcome: 'revived', uuid };
     }
   }
+
+  /**
+   * Starts a sleeping (or terminal-exited) session again by resuming it with
+   * this turn — plain, or truncating when `rewind` says where to fork.
+   */
+  async function revive(
+    row: SessionRow, text: string, attachments: string[] | undefined, reopen: () => void,
+    extra: Pick<Parameters<Runner['start']>[0], 'promptUuid' | 'resumeSessionAt' | 'resumeDropsTurn' | 'rewind'>,
+  ): Promise<void> {
+    const id = row.id;
+    const permissionMode = (row.permission_mode ??
+      ctx.settings.get('default_permission_mode')) as PermissionMode;
+    // Reopened ahead of the start, not after it: the Runner announces the
+    // revived session as it starts, and it reads the row for that.
+    reopen();
+    try {
+      await ctx.runner.start({
+        cwd: row.cwd, prompt: text, permissionMode, resume: id,
+        // Without this, reviving silently moved the session onto the CLI's
+        // default model.
+        model: row.model ?? undefined,
+        // The revive is the same turn the send would have been, images included.
+        attachments,
+        ...extra,
+      });
+    } catch (err) {
+      db.update(sessions).set({ endedAt: row.ended_at }).where(eq(sessions.id, id)).run();
+      throw err;
+    }
+    // The session is Orbital's now. Left `terminal`, the row reads as
+    // {source: terminal, status: live} — the exact shape `isReadOnly`
+    // locks the composer on (fix: reviving-a-terminal-session-leaves-it-read-only).
+    //
+    // And the revive is a turn starting, which retires the interrupted
+    // mark. The Runner cannot say so here: a started session is born
+    // `working`, so no status transition fires for the turn it opens with.
+    db.update(sessions).set({ source: 'web', interruptedAt: null }).where(eq(sessions.id, id)).run();
+    publishRow(id);
+  }
+
+  /**
+   * The send of a pending rewind (spec 2026-09-29-rewind-design § Runner):
+   * whatever still runs the session is stopped and awaited, and the turn goes
+   * out as a truncating resume at the fork. The pending row stays until the
+   * CLI answers — `system/init` makes it a sent rewind, a refusal deletes it.
+   */
+  async function sendRewind(
+    id: string, pending: PendingRewind, text: string, attachments: string[] | undefined, reopen: () => void,
+  ): Promise<Delivery> {
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+      | SessionRow
+      | undefined;
+    if (!row) return { outcome: 'not_found', uuid: null };
+    if (ctx.registry.get(id)) return { outcome: 'terminal', uuid: null };
+    await stopForRewind(id);
+    const uuid = randomUUID();
+    await revive(row, text, attachments, reopen, {
+      promptUuid: uuid,
+      resumeSessionAt: pending.forkUuid,
+      resumeDropsTurn: pending.dropsTurn ?? undefined,
+      rewind: {
+        started: () => rewindStarted(id),
+        refused: (message) => rewindRefused(id, message),
+      },
+    });
+    return { outcome: 'revived', uuid, rewind: true };
+  }
+
+  /**
+   * Stops the session and waits for its process to be gone. A timeout is
+   * recorded and thrown as `RewindStopError` — failing the rewind visibly
+   * rather than racing a second process onto the same transcript.
+   */
+  async function stopForRewind(id: string): Promise<void> {
+    try {
+      await ctx.runner.stopAndWait(id, ctx.rewindStopTimeoutMs);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.errors.record({
+        source: 'server',
+        kind: 'rewind_failed',
+        sessionId: id,
+        message: `Rewind failed: ${message}`,
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: 'stopping the session for a rewind' },
+      });
+      throw new RewindStopError(message);
+    }
+  }
+
+  /** Tells every window on the session to read its transcript again. */
+  function publishReset(id: string): void {
+    ctx.hub.publish(`session:${id}`, { event: 'transcript_reset' });
+  }
+
+  /**
+   * A pending rewind's edges move the status of a session nobody runs
+   * (`statusOf`), which no Runner transition announces: the map hears it
+   * through the row, the panel on its own topic.
+   */
+  function publishRewindEdge(id: string): void {
+    publishReset(id);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
+    if (!row) return;
+    ctx.hub.publish(`session:${id}`, { event: 'status', status: statusOf(ctx, row) });
+    ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+  }
+
+  /**
+   * The CLI took the truncating resume (spec 2026-09-29-rewind-design §
+   * After a rewind is sent): the pending row becomes a sent one, the context
+   * reading of the dropped branch goes, and the titler forgets the dropped
+   * turns.
+   */
+  function rewindStarted(id: string): void {
+    if (!rewindStore.promote(id)) return;
+    db.update(sessions).set({ contextUsedTokens: null }).where(eq(sessions.id, id)).run();
+    const shown = presentTranscript(id);
+    if (shown) ctx.titler.reset(id, shown);
+    publishReset(id);
+    publishRow(id);
+  }
+
+  /**
+   * The CLI refused the truncating resume. Nothing was sent and nothing
+   * written; the rewind is undone, and the client — told by `rewind_refused`
+   * — keeps the edited text as an ordinary draft. Never retried: the refusal
+   * is deterministic.
+   */
+  function rewindRefused(id: string, message: string): void {
+    const pending = rewindStore.takePending(id);
+    const restored = pending
+      ? `${pending.hiddenCount} hidden message${pending.hiddenCount === 1 ? '' : 's'} restored`
+      : 'nothing to restore';
+    ctx.errors.record({
+      source: 'server',
+      kind: 'rewind_refused',
+      sessionId: id,
+      message: `The CLI refused the rewind; ${restored}`,
+      detail: message,
+      context: pending
+        ? {
+            targetUuid: pending.targetUuid, forkUuid: pending.forkUuid,
+            dropsTurn: pending.dropsTurn, hiddenCount: pending.hiddenCount,
+          }
+        : null,
+    });
+    ctx.hub.publish(`session:${id}`, {
+      event: 'rewind_refused', message, hiddenCount: pending?.hiddenCount ?? null,
+    });
+    publishRewindEdge(id);
+  }
+
+  /** What only Orbital answers: sent as a message, it would reach the agent as text. */
+  const LOCAL_COMMANDS = new Set(['/rewind']);
 
   app.post('/api/sessions/:id/messages', async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -859,10 +1057,109 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (invalidAttachments(attachments)) {
       return reply.code(400).send({ error: 'invalid_attachment' });
     }
-    const outcome = await deliverToSession(id, text, attachments);
-    if (outcome === 'not_found') return reply.code(404).send({ error: 'not found' });
-    if (outcome === 'terminal') return reply.code(409).send({ error: 'session is live in a terminal' });
-    return outcome === 'revived' ? { ok: true, revived: true } : { ok: true };
+    // The client opens pick mode on `/rewind`; one that sends it anyway must
+    // not hand the agent the word (spec 2026-09-29-rewind-design § Behaviour 1).
+    if (typeof text === 'string' && LOCAL_COMMANDS.has(text.trim())) {
+      return reply.code(400).send({ error: 'local_command' });
+    }
+    let delivery: Delivery;
+    try {
+      delivery = await deliverToSession(id, text, attachments);
+    } catch (err) {
+      if (err instanceof RewindStopError) return reply.code(504).send({ error: 'stop_timeout', message: err.message });
+      throw err;
+    }
+    return deliveryReply(delivery, reply, 'session is live in a terminal');
+  });
+
+  /**
+   * The answer every turn-sending route gives. `uuid` names the turn's
+   * transcript entry — the client holds its own copy of the turn, which the
+   * Runner never publishes, and a rewind needs the name.
+   */
+  function deliveryReply(delivery: Delivery, reply: FastifyReply, terminalError: string) {
+    if (delivery.outcome === 'not_found') return reply.code(404).send({ error: 'not found' });
+    if (delivery.outcome === 'terminal') return reply.code(409).send({ error: terminalError });
+    return {
+      ok: true,
+      ...(delivery.outcome === 'revived' ? { revived: true } : {}),
+      ...(delivery.uuid ? { uuid: delivery.uuid } : {}),
+      ...(delivery.rewind ? { rewind: true } : {}),
+    };
+  }
+
+  // ---- Rewind (spec: 2026-09-29-rewind-design) ---------------------------
+
+  /**
+   * Picks a rewind: the conversation goes back to just before one of the
+   * user's messages, pending until the next send. The client has already
+   * asked whether to stop a working session, so a live query is stopped —
+   * and its process awaited — before the row is stored.
+   *
+   * 400 for a malformed body, 404 for an unknown session, 409 for a session
+   * a terminal holds (`terminal_session`), one with a rewind already pending
+   * (`rewind_pending`) or a uuid that is not a pickable entry of the live
+   * branch (`not_rewindable`), 504 when the process would not stop.
+   */
+  app.post('/api/sessions/:id/rewind', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { uuid?: unknown; hiddenCount?: unknown; draft?: unknown };
+    if (typeof body.uuid !== 'string' || !body.uuid) {
+      return reply.code(400).send({ error: 'uuid is required' });
+    }
+    if (typeof body.hiddenCount !== 'number' || !Number.isSafeInteger(body.hiddenCount) || body.hiddenCount < 0) {
+      return reply.code(400).send({ error: 'hiddenCount must be a non-negative integer' });
+    }
+    if (body.draft !== undefined && typeof body.draft !== 'string') {
+      return reply.code(400).send({ error: 'draft must be a string' });
+    }
+    const uuid = body.uuid;
+    const refused = () => {
+      if (ctx.registry.get(id)) return reply.code(409).send({ error: 'terminal_session' });
+      if (rewindStore.pending(id)) return reply.code(409).send({ error: 'rewind_pending' });
+      if (!readBranchOf(id)?.targets.has(uuid)) return reply.code(409).send({ error: 'not_rewindable' });
+      return null;
+    };
+    if (!db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get()) {
+      return reply.code(404).send({ error: 'not found' });
+    }
+    const early = refused();
+    if (early) return early;
+    try {
+      await stopForRewind(id);
+    } catch (err) {
+      if (err instanceof RewindStopError) return reply.code(504).send({ error: 'stop_timeout', message: err.message });
+      throw err;
+    }
+    // Asked again: the stopped turn may have written on, and another window
+    // may have picked while this one waited.
+    const late = refused();
+    if (late) return late;
+    const target = readBranchOf(id)!.targets.get(uuid)!;
+    rewindStore.createPending({
+      sessionId: id,
+      targetUuid: uuid,
+      forkUuid: target.forkUuid,
+      dropsTurn: target.newest ? uuid : null,
+      hiddenCount: body.hiddenCount,
+      text: target.text,
+      priorDraft: typeof body.draft === 'string' ? body.draft : '',
+      createdAt: Date.now(),
+    });
+    publishRewindEdge(id);
+    return { text: target.text };
+  });
+
+  /** Cancels a pending rewind; the composer gets back the draft it held before the pick. */
+  app.delete('/api/sessions/:id/rewind', (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get()) {
+      return reply.code(404).send({ error: 'not found' });
+    }
+    const pending = rewindStore.takePending(id);
+    if (!pending) return reply.code(404).send({ error: 'no_rewind_pending' });
+    publishRewindEdge(id);
+    return { draft: pending.priorDraft };
   });
 
   // ---- Walkthrough (spec: 2026-09-23-walkthrough-design) ----------------
@@ -926,6 +1223,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   function refuseTurn(row: SessionRow, id: string): { code: number; error: string } | null {
     if (row.source === 'terminal' || ctx.registry.get(id)) return { code: 409, error: 'terminal_session' };
+    // The next turn of a session with a pending rewind is the edited prompt,
+    // not a walkthrough's (spec 2026-09-29-rewind-design § Runner).
+    if (rewindStore.pending(id)) return { code: 409, error: 'rewind_pending' };
     if (ctx.runner.status(id) === 'working' || ctx.runner.pendingDecision(id) !== null) {
       return { code: 409, error: 'busy' };
     }
@@ -933,10 +1233,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   }
 
   async function sendTurn(id: string, text: string, reply: FastifyReply) {
-    const outcome = await deliverToSession(id, text);
-    if (outcome === 'not_found') return reply.code(404).send({ error: 'not found' });
-    if (outcome === 'terminal') return reply.code(409).send({ error: 'terminal_session' });
-    return outcome === 'revived' ? { ok: true, revived: true } : { ok: true };
+    return deliveryReply(await deliverToSession(id, text), reply, 'terminal_session');
   }
 
   app.post('/api/sessions/:id/walkthrough/narrate', async (req, reply) => {

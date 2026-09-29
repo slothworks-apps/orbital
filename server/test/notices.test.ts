@@ -264,7 +264,7 @@ describe('entriesToMessages with local commands', () => {
       message: { role: 'assistant', model: 'claude-x', content: [{ type: 'text', text: 'hi' }] },
     });
     expect(entriesToMessages(parseTranscript(plain))).toEqual([
-      { id: 'z:0', role: 'assistant', text: 'hi', timestamp: undefined, model: 'claude-x' },
+      { id: 'z:0', role: 'assistant', text: 'hi', timestamp: undefined, model: 'claude-x', uuid: 'z' },
     ]);
   });
 });

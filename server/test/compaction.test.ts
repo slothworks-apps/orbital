@@ -42,7 +42,7 @@ describe('the compaction mark from a transcript', () => {
     );
     expect(messages.map((m) => m.role)).toEqual(['user', 'compaction', 'assistant']);
     expect(messages[1]).toEqual({
-      id: 'b1:0', role: 'compaction', timestamp: '2026-09-28T10:05:14.351Z',
+      id: 'b1:0', role: 'compaction', timestamp: '2026-09-28T10:05:14.351Z', uuid: 'b1',
       compaction: {
         outcome: 'success', trigger: 'manual', preTokens: 186_000, postTokens: 22_000, durationMs: 38_000,
         summary: 'This session is being continued. Summary: X.',
@@ -212,7 +212,7 @@ describe('Runner compaction status', () => {
       compactingStatus,
       statusEnd('success'),
       {
-        type: 'system', subtype: 'compact_boundary',
+        type: 'system', subtype: 'compact_boundary', uuid: 'b1',
         compact_metadata: { trigger: 'manual', pre_tokens: 186_000, post_tokens: 22_000, duration_ms: 38_000 },
       },
       {
