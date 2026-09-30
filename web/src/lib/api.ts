@@ -9,6 +9,7 @@ import type {
   ErrorRecord,
   FileCompletionEntry,
   FilePreview,
+  GhAvailability,
   IdeDiagnostic,
   SlashCommand,
   SubagentTranscript,
@@ -702,6 +703,24 @@ export const api = {
    */
   async getHealth(): Promise<ServerHealth> {
     return request<ServerHealth>('GET', '/api/health')
+  },
+
+  /**
+   * Whether `gh` can answer for the PR switch in Settings → Appearance, and
+   * if not, why (spec 2026-09-30-branch-pr-and-line-changes-design §
+   * Settings). Asked when Settings opens and when the app regains focus.
+   */
+  async ghStatus(): Promise<{ status: GhAvailability }> {
+    return request<{ status: GhAvailability }>('GET', '/api/gh-status')
+  },
+
+  /**
+   * The app regained focus: the server looks again at the PR and the lines of
+   * every working tree a window has open. Answers at once; the readings arrive
+   * as session upserts.
+   */
+  async refreshBranchStatus(): Promise<{ ok: true }> {
+    return request<{ ok: true }>('POST', '/api/branch-status/refresh')
   },
 
   /**

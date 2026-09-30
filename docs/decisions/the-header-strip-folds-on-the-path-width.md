@@ -89,3 +89,28 @@ branch would go under 120 px").
   nothing binds ⌘⇧N. The hints are left out.
 - **No tooltip on ⋯.** The menu under it names every row, and a bubble would
   hang where the menu opens.
+
+## With the pull request and line changes after the branch (2026-09-30)
+
+Canvas `Feature - Branch status` 1h puts the strip's fold third in the
+where-cell's fold order: the path yields to its leaf, split collapses to the
+total, *then* the strip folds, and only after that is the branch cut. Spec:
+[[2026-09-30-branch-pr-and-line-changes-design]]. Code:
+`web/src/panels/whereFit.ts`.
+
+- **The fold is still `stripForm` on the measured cell, with a reserve taken
+  off first** (`whereFoldReservePx`): the #PR and the total as drawn at that
+  step, plus whatever the path at its leaf and the whole branch need beyond
+  `FOLD_MIN_PATH_PX`. The strip therefore folds exactly when the row no
+  longer fits whole at the total — the canvas's own rule, and its cost
+  statement holds: at the default width a normal feature branch with both on
+  folds, PR only or lines only does not.
+- **Not taken: the shipped threshold alone.** Subtracting only the suffixes'
+  width and keeping `FOLD_MIN_PATH_PX` as the trigger folds far later than the
+  canvas, so a normal feature branch is cut before the strip folds — the
+  order reversed.
+- **Nothing after the branch: the reserve is zero**, so both off, or a branch
+  with nothing to show, fold exactly where they did before.
+- **A change of the reserve is judged after the suffixes' fade.** A suffix
+  that appears or goes fades on the branch's clock; the strip locks its
+  decision for that long and then decides, so the row never folds mid-fade.

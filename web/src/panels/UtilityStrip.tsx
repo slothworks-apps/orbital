@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
+import { api } from '../lib/api'
 import { detachSession, hasDesktopBridge, openInMainWindow } from '../lib/desktop'
 import { shortenPath } from '../lib/format'
 import { useCommand } from '../lib/commands'
-import { useOrbital } from '../store/store'
+import { headerLineChanges, headerPullRequest, useOrbital } from '../store/store'
 import type { ApiSession, WalkthroughSummary } from '../lib/types'
 import { MENU_SEPARATOR, MenuButton } from '../ui/Menu'
 import type { MenuEntry } from '../ui/Menu'
@@ -31,7 +32,7 @@ import {
   stripMenu,
 } from './stripFold'
 import type { StripButton, StripForm, StripPresence } from './stripFold'
-import { WhereLine } from './WhereLine'
+import { BRANCH_FADE_MS, WhereLine } from './WhereLine'
 
 /**
  * How long the pointer rests on a strip button before its tooltip appears
@@ -124,10 +125,22 @@ function Seat({
 }
 
 /**
+ * The width the fold decision judges: the cell's, less what the where-cell's
+ * suffixes reserve (`whereFoldReservePx`). A cell squeezed to nothing by
+ * them still counts as measured — it is the clearest case for folding.
+ */
+function judgedPx(cellPx: number, reservePx: number): number {
+  return cellPx > 0 ? Math.max(1, cellPx - reservePx) : 0
+}
+
+/**
  * The form the strip is in, and whether a change of it animates.
  *
  * A `ResizeObserver` on the path cell re-decides on every change of its width
- * (23d, TRIGGER). The decision is held — not dropped — while `held` (a tooltip
+ * (23d, TRIGGER), judged on the cell less `reservePx` — what the #PR and the
+ * line changes after the branch need (`Feature - Branch status` 1h, step 3 of
+ * the fold order: the shipped fold, measured on the whole cell). A change of
+ * the reserve is judged only after the suffixes' fade in has run (1h). The decision is held — not dropped — while `held` (a tooltip
  * or the ⋯ menu is up, 23d RESTRAINT) and while a fold is still running, and
  * taken with the latest width once they end.
  *
@@ -141,6 +154,7 @@ function useStripForm(
   present: StripPresence,
   held: boolean,
   resetKey: string,
+  reservePx: number,
 ): { form: StripForm; motion: Motion; cellPx: number } {
   const [form, setForm] = useState<StripForm>('expanded')
   const [animated, setAnimated] = useState(false)
@@ -148,13 +162,13 @@ function useStripForm(
   const [cellPx, setCellPx] = useState(0)
   const width = useRef(0)
   const lockedUntil = useRef(0)
-  const latest = useRef({ present, held, animated })
-  latest.current = { present, held, animated }
+  const latest = useRef({ present, held, animated, reservePx })
+  latest.current = { present, held, animated, reservePx }
 
   const decide = useCallback(() => {
-    const { present, held } = latest.current
+    const { present, held, reservePx } = latest.current
     if (held || performance.now() < lockedUntil.current) return
-    setForm((current) => stripForm(width.current, current, present))
+    setForm((current) => stripForm(judgedPx(width.current, reservePx), current, present))
   }, [])
 
   useLayoutEffect(() => {
@@ -163,7 +177,7 @@ function useStripForm(
     const cell = cellRef.current
     if (cell) width.current = cell.getBoundingClientRect().width
     setCellPx(width.current)
-    setForm((current) => stripForm(width.current, current, latest.current.present))
+    setForm((current) => stripForm(judgedPx(width.current, latest.current.reservePx), current, latest.current.present))
     // Two frames: the first paints the settled form, the second arms the
     // transitions for whatever comes after it.
     let frame = requestAnimationFrame(() => {
@@ -212,6 +226,27 @@ function useStripForm(
     return () => clearTimeout(timer)
   }, [form, decide])
 
+  // The suffixes changed. Before the strip has settled — a new session, whose
+  // row reports its reserve in the same layout pass — that is part of the
+  // first decision; after, the suffix is fading in, and the fold waits for it.
+  useLayoutEffect(() => {
+    if (!latest.current.animated) {
+      setForm((current) => stripForm(judgedPx(width.current, reservePx), current, latest.current.present))
+      return
+    }
+    lockedUntil.current = Math.max(lockedUntil.current, performance.now() + BRANCH_FADE_MS)
+    // Until the lock has run out, whoever holds it: a timer that fires a
+    // hair early would otherwise find the decision still locked and drop it.
+    let timer: ReturnType<typeof setTimeout>
+    const tick = () => {
+      const left = lockedUntil.current - performance.now()
+      if (left > 0) timer = setTimeout(tick, left)
+      else decide()
+    }
+    timer = setTimeout(tick, BRANCH_FADE_MS)
+    return () => clearTimeout(timer)
+  }, [reservePx, decide])
+
   // Released: take the decision that was held.
   useEffect(() => {
     if (!held) decide()
@@ -219,6 +254,24 @@ function useStripForm(
 
   const motion: Motion = !animated ? 'none' : prefersReducedMotion() ? 'reduced' : 'full'
   return { form, motion, cellPx }
+}
+
+/**
+ * The app regained focus: ask the server to look again at the PR and the lines
+ * of every working tree a window has open (spec § When it refreshes) — once
+ * per focus, and only while either setting is on.
+ */
+function useBranchStatusFocusRefresh(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return
+    const onFocus = () => {
+      api.refreshBranchStatus().catch(() => {
+        /* the next focus or the server's own interval tries again */
+      })
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [enabled])
 }
 
 export interface UtilityStripProps {
@@ -298,7 +351,22 @@ export function UtilityStrip({
   const [menuOpen, setMenuOpen] = useState(false)
   const held = pointerIn || focusIn || menuOpen
 
-  const { form, motion, cellPx } = useStripForm(cellRef, present, held, `${session?.id ?? ''}|${presenceKey}`)
+  // The branch's suffixes (spec 2026-09-30-branch-pr-and-line-changes-design).
+  // The server already leaves out what is switched off; reading the settings
+  // here as well keeps a switch that was just flipped from waiting on it.
+  const settings = useOrbital((s) => s.settings)
+  const prOn = headerPullRequest(settings)
+  const linesMode = headerLineChanges(settings)
+  const [foldReservePx, setFoldReservePx] = useState(0)
+  useBranchStatusFocusRefresh(Boolean(session) && (prOn || linesMode !== 'off'))
+
+  const { form, motion, cellPx } = useStripForm(
+    cellRef,
+    present,
+    held,
+    `${session?.id ?? ''}|${presenceKey}`,
+    foldReservePx,
+  )
 
   const layout = stripLayout(form, present)
   const shown = new Map(layout.map((slot) => [slot.button, slot.marginPx]))
@@ -350,6 +418,11 @@ export function UtilityStrip({
         sessionId={session?.id ?? null}
         panelWidthPx={pathBudgetPx}
         cellWidthPx={cellPx}
+        pr={prOn ? session?.branch?.pr : undefined}
+        lines={linesMode !== 'off' ? session?.branch?.lines : undefined}
+        linesMode={linesMode}
+        folded={form === 'folded'}
+        onFoldReserve={setFoldReservePx}
       />
       {/* The walkthrough's entry (canvas 21f): the first icon of the
           strip, present only once there is something to walk through. Not

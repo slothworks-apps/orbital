@@ -11,6 +11,8 @@ import {
   showCompactBadge,
   showTrash,
   headerSessionStats,
+  headerLineChanges,
+  headerPullRequest,
   mapStatePills,
   expandDiffOnPermission,
   guardGesture,
@@ -67,7 +69,9 @@ import { Select } from '../ui/Select'
 import { Checkbox, Toggle } from '../ui/Checkbox'
 import { Segmented } from '../ui/Segmented'
 import { modelByValue } from '../lib/models'
-import type { PermissionMode } from '../lib/types'
+import type { GhAvailability, PermissionMode } from '../lib/types'
+import { lineGroups, type LinesMode } from '../lib/branchStatus'
+import { LineGroups } from './BranchSuffixes'
 import type { MapStatePills } from '../lib/stateStyle'
 import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
@@ -101,6 +105,29 @@ const HEADER_STATS_OPTIONS: Array<{ value: HeaderSessionStats; label: string }> 
   { value: 'bar', label: 'bar + numbers' },
   { value: 'button', label: 'button only' },
 ]
+
+/** Settings → Appearance → "Line changes in the header" (canvas `Feature - Branch status` 1g). Off first: it is the default. */
+const LINE_CHANGES_OPTIONS: Array<{ value: LinesMode; label: string }> = [
+  { value: 'off', label: 'Off' },
+  { value: 'branch', label: 'Branch' },
+  { value: 'split', label: 'Split' },
+]
+
+/**
+ * 1g's preview under the line changes control: a feature branch with a little
+ * uncommitted work, so split has a second group to show.
+ */
+const LINE_CHANGES_SAMPLE = {
+  parent: 'main',
+  committed: { added: 112, removed: 32 },
+  uncommitted: { added: 8, removed: 2 },
+}
+
+/** 1g: why the PR switch is disabled. One line, naming no command — the fix belongs in a terminal. */
+const GH_REASON: Record<Exclude<GhAvailability, 'ready'>, string> = {
+  missing: 'gh is not installed',
+  logged_out: 'gh is not logged in',
+}
 
 /** Settings → Appearance → MAP → "State on the map" (canvas 24e / 24a). Dot first: it is the default. */
 const STATE_PILL_OPTIONS: Array<{ value: MapStatePills; label: string }> = [
@@ -361,6 +388,14 @@ export function Settings({ open, onClose }: SettingsProps) {
    * path or a real billing mode.
    */
   const [health, setHealth] = useState<ServerHealth | null>(null)
+  /**
+   * Whether `gh` can answer for the PR switch (canvas `Feature - Branch
+   * status` 1g), asked when the dialog opens and whenever the app regains
+   * focus while it is open. Null until an answer lands, or after a failed
+   * ask: the switch then works as any other, since only the server can say
+   * `gh` is missing.
+   */
+  const [gh, setGh] = useState<GhAvailability | null>(null)
   const [copiedPath, setCopiedPath] = useState(false)
   /**
    * The retention confirmation. Held as the pending value plus the count the
@@ -595,6 +630,27 @@ export function Settings({ open, onClose }: SettingsProps) {
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    const ask = () => {
+      api
+        .ghStatus()
+        .then((answer) => {
+          if (live && answer) setGh(answer.status)
+        })
+        .catch(() => {
+          /* the switch stays as it was; the next focus asks again */
+        })
+    }
+    ask()
+    window.addEventListener('focus', ask)
+    return () => {
+      live = false
+      window.removeEventListener('focus', ask)
+    }
+  }, [open])
+
   /**
    * Context thresholds (canvas 1h, spec context-fill-arc): typed number
    * fields, so they get the project-dir field's draft-then-debounce
@@ -697,6 +753,12 @@ export function Settings({ open, onClose }: SettingsProps) {
   const notifySound = settings.notify_sound !== 'false'
   // Appearance (canvas 5a).
   const headerStats = headerSessionStats(settings)
+  // 1g: gh unusable draws the switch off and disabled — the stored choice is
+  // left alone, so it comes back as it was once gh works again.
+  const ghBlocked = gh !== null && gh !== 'ready' ? GH_REASON[gh] : null
+  const prInHeader = headerPullRequest(settings) && !ghBlocked
+  const lineChanges = headerLineChanges(settings)
+  const lineChangesPreview = lineGroups(LINE_CHANGES_SAMPLE, lineChanges)
   const statePills = mapStatePills(settings)
   const editDiffs = settings.transcript_edit_diffs === 'expanded' ? 'expanded' : 'collapsed'
   const expandDiffOnPermissionRow = expandDiffOnPermission(settings)
@@ -1188,6 +1250,47 @@ export function Settings({ open, onClose }: SettingsProps) {
                         />
                         <span className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
                           applies to every panel · no reload
+                        </span>
+                      </Row>
+                      {/* canvas `Feature - Branch status` 1g: the branch's pull
+                  request and line changes, both opt-in, right under the
+                  header's other density choice. */}
+                      <Row
+                        title="Pull request in the header"
+                        desc="Shows the branch's pull request number after the branch. Hover it for state, review and checks; click it to open the PR on GitHub. Uses the gh CLI."
+                      >
+                        <div className="flex flex-col items-start gap-2">
+                          <Toggle
+                            aria-label="Pull request in the header"
+                            checked={prInHeader}
+                            disabled={ghBlocked !== null}
+                            onChange={(checked) =>
+                              void patchAndSet({ header_pull_request: checked ? 'true' : 'false' })
+                            }
+                          />
+                          {ghBlocked && (
+                            <span className="font-mono text-[10.5px] leading-[1.5] text-[rgba(200,220,245,.8)]">
+                              {ghBlocked}
+                            </span>
+                          )}
+                        </div>
+                      </Row>
+                      <Row
+                        title="Line changes in the header"
+                        desc="What the branch changes against its parent branch, uncommitted work included. Split also shows the uncommitted part on its own."
+                      >
+                        <Segmented
+                          label="Line changes in the header"
+                          options={LINE_CHANGES_OPTIONS}
+                          value={lineChanges}
+                          onChange={(next) => void patchAndSet({ header_line_changes: next })}
+                        />
+                        {/* 1g: what the choice draws, on a sample branch. */}
+                        <span className="flex min-h-4 items-center gap-2 font-mono text-[11px]">
+                          <span className="text-[10px] text-[rgba(160,190,225,.5)]">
+                            {lineChangesPreview.length > 0 ? 'e.g.' : 'nothing drawn'}
+                          </span>
+                          {lineChangesPreview.length > 0 && <LineGroups groups={lineChangesPreview} />}
                         </span>
                       </Row>
 

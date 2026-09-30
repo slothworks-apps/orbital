@@ -6,6 +6,7 @@ import { opensOutput } from '../lib/backgroundTasks'
 import { ansiToHtml } from '../lib/highlight'
 import { hasTextExtension } from '../lib/pathLinks'
 import { changeCounts, describeFileChange } from '../lib/fileEdit'
+import { DIFF_ADDED_INK_CLASS, DIFF_REMOVED_INK_CLASS } from '../lib/diff'
 import { ChangeView, changeSectionLabel } from './DiffView'
 import { formatBytes, formatToolDuration } from '../lib/format'
 import { ImageThumb } from './ImageThumb'
@@ -331,11 +332,11 @@ export function ToolRow({
           {counts && (counts.added > 0 || counts.removed > 0) && (
             <span data-diff-stat className="shrink-0 tabular-nums">
               {counts.added > 0 && (
-                <span className="text-[oklch(82%_.14_145)]">+{counts.added}</span>
+                <span className={DIFF_ADDED_INK_CLASS}>+{counts.added}</span>
               )}
               {counts.added > 0 && counts.removed > 0 && ' '}
               {counts.removed > 0 && (
-                <span className="text-[oklch(72%_.15_22)]">−{counts.removed}</span>
+                <span className={DIFF_REMOVED_INK_CLASS}>−{counts.removed}</span>
               )}
             </span>
           )}

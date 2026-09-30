@@ -296,3 +296,12 @@ export function diffLines(before: string, after: string): LineDiff {
     afterEndsWithNewline,
   }
 }
+
+/**
+ * The diff pair: the only green and red the transcript keeps, for `+n` and
+ * `−n` counts printed on a row (canvas `Feature - Transcript blocks` 20d-G).
+ * Shared so the detail header's line changes (canvas `Feature - Branch
+ * status` 1h, "no new hue") are the same two inks, not a near copy.
+ */
+export const DIFF_ADDED_INK_CLASS = 'text-[oklch(82%_.14_145)]'
+export const DIFF_REMOVED_INK_CLASS = 'text-[oklch(72%_.15_22)]'

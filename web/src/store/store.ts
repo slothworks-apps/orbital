@@ -12,6 +12,7 @@ import { ENDED_HIDE_MS } from '../map/transition'
 import { REWIND_REFUSED_TOAST } from '../lib/rewind'
 import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
+import type { LinesMode } from '../lib/branchStatus'
 import type {
   ApiSession,
   AttachmentSource,
@@ -2904,6 +2905,17 @@ export type HeaderSessionStats = 'bar' | 'button'
  * `button` turns the strip off — an unreadable value draws the readout. */
 export function headerSessionStats(settings: Record<string, string>): HeaderSessionStats {
   return settings.header_session_stats === 'button' ? 'button' : 'bar'
+}
+
+/** `header_pull_request`, default off: only the literal `true` turns it on (spec 2026-09-30-branch-pr-and-line-changes-design § Settings). */
+export function headerPullRequest(settings: Record<string, string>): boolean {
+  return settings.header_pull_request === 'true'
+}
+
+/** `header_line_changes`, default off: an unknown value reads as off. */
+export function headerLineChanges(settings: Record<string, string>): LinesMode {
+  const value = settings.header_line_changes
+  return value === 'branch' || value === 'split' ? value : 'off'
 }
 
 /** `map_show_trash`, default on: only the literal `false` hides the trash and its drop-to-end gesture. */

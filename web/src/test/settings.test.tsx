@@ -75,6 +75,8 @@ function resetStore(
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.patchSettings).mockResolvedValue({ ok: true })
+  // Back to the mock's own default (resolves with nothing: gh unknown).
+  vi.mocked(api.ghStatus).mockReset()
 })
 
 /** `resetStore` + render, for the model-preference tests below where every
@@ -164,6 +166,54 @@ describe('Settings', () => {
     )
     expect(useOrbital.getState().settings.header_session_stats).toBe('button')
     expect(within(group).getAllByRole('button')[1]).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  // canvas `Feature - Branch status` 1g: without a usable gh the PR switch is
+  // drawn off and disabled with the reason under it — and the stored choice is
+  // left alone, so it comes back once gh works.
+  it.each([
+    ['missing', 'gh is not installed'],
+    ['logged_out', 'gh is not logged in'],
+  ] as const)('disables the PR switch when gh is %s, keeping the stored choice', async (status, reason) => {
+    resetStore({ settings: { header_pull_request: 'true' } })
+    vi.mocked(api.ghStatus).mockResolvedValue({ status })
+    render(<Settings open onClose={vi.fn()} />)
+    openSection('Appearance')
+
+    const toggle = screen.getByRole('switch', { name: 'Pull request in the header' })
+    await waitFor(() => expect(toggle).toBeDisabled())
+    expect(toggle).not.toBeChecked()
+    expect(screen.getByText(reason)).toBeInTheDocument()
+    expect(api.patchSettings).not.toHaveBeenCalled()
+    expect(useOrbital.getState().settings.header_pull_request).toBe('true')
+  })
+
+  it('draws the stored PR choice once gh is ready, and patches it', async () => {
+    resetStore({ settings: { header_pull_request: 'true' } })
+    vi.mocked(api.ghStatus).mockResolvedValue({ status: 'ready' })
+    render(<Settings open onClose={vi.fn()} />)
+    openSection('Appearance')
+
+    const toggle = screen.getByRole('switch', { name: 'Pull request in the header' })
+    await waitFor(() => expect(api.ghStatus).toHaveBeenCalled())
+    expect(toggle).toBeEnabled()
+    expect(toggle).toBeChecked()
+    fireEvent.click(toggle)
+    await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ header_pull_request: 'false' }))
+  })
+
+  it('patches the line changes mode, off by default', async () => {
+    resetStore()
+    render(<Settings open onClose={vi.fn()} />)
+    openSection('Appearance')
+
+    const group = screen.getByRole('group', { name: 'Line changes in the header' })
+    expect(within(group).getByRole('button', { name: 'Off' })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(within(group).getByRole('button', { name: 'Split' }))
+
+    await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ header_line_changes: 'split' }))
+    expect(useOrbital.getState().settings.header_line_changes).toBe('split')
   })
 
   it('patches confirm-before-clear when the toggle is clicked', async () => {
