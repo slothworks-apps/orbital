@@ -107,3 +107,19 @@ export function watchProjects(
     },
   };
 }
+
+/**
+ * The sessions a batch names by their transcripts, or null when it names
+ * something coarser — a project directory, or everything — and so could be
+ * any session.
+ */
+export function batchSessionIds(batch: ProjectsBatch): string[] | null {
+  if (batch.all) return null;
+  const ids: string[] = [];
+  for (const path of batch.paths) {
+    const match = path.match(/^[^/]+\/(.+)\.jsonl$/);
+    if (!match) return null;
+    ids.push(match[1]);
+  }
+  return ids;
+}

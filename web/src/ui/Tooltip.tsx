@@ -1,12 +1,10 @@
-import { cloneElement, useEffect, useId, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import { cloneElement, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useEscapeLayer } from './escapeLayer'
 import { shortcutLabel } from '../lib/keymap'
 
 interface TooltipBase {
-  /** Mono first line — the exact name of the thing. */
-  title: string
   /**
    * The id of the keymap command the trigger fires, printed muted after the
    * title (`End session  ⌘⌫`). A control that can be reached from the
@@ -54,16 +52,36 @@ interface TooltipBase {
  * `name` is the smaller single-line shell the git reading hangs under
  * (`Feature - Git worktree` 1f): the same panel fill and border, tighter, and
  * carrying nothing but the name that did not fit on the row.
+ * `panel` is the fixed-width shell the header's pull request and line
+ * changes explain themselves in (`Feature - Branch status` 1e): rows the
+ * caller lays out, where a title and a sentence are not enough.
  */
 export type TooltipProps =
   | (TooltipBase & {
       variant?: 'card'
+      /** Mono first line — the exact name of the thing. */
+      title: string
       /** Second line, one sentence. */
       description: string
     })
   | (TooltipBase & {
       variant: 'name'
+      /** Mono first line — the exact name of the thing. */
+      title: string
       /** A one-line bubble says only its title. */
+      description?: never
+    })
+  | (TooltipBase & {
+      variant: 'panel'
+      /** The bubble's rows. */
+      content: ReactNode
+      /**
+       * The box the bubble must stay inside (1h: "clamped to the panel"). Its
+       * left edge sits on the trigger until that would carry its right edge
+       * past this box's.
+       */
+      clampWithin?: () => HTMLElement | null
+      title?: never
       description?: never
     })
 
@@ -85,18 +103,17 @@ export type TooltipProps =
  * the dialog underneath the pointer. A keyboard user, by contrast, has no
  * other way to put it away.
  */
-export function Tooltip({
-  title,
-  shortcut,
-  description,
-  variant = 'card',
-  align = 'left',
-  side = 'below',
-  delayMs = 0,
-  anchor = 'trigger',
-  suppressed = false,
-  children,
-}: TooltipProps) {
+export function Tooltip(props: TooltipProps) {
+  const {
+    shortcut,
+    variant = 'card',
+    align = 'left',
+    side = 'below',
+    delayMs = 0,
+    anchor = 'trigger',
+    suppressed = false,
+    children,
+  } = props
   const id = useId()
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -116,27 +133,67 @@ export function Tooltip({
 
   useEscapeLayer(open && focused, () => setDismissed(true))
 
+  const triggerEvents = {
+    onMouseEnter: () => {
+      if (delayMs <= 0) {
+        setHovered(true)
+        return
+      }
+      cancelHover()
+      hoverTimer.current = setTimeout(() => setHovered(true), delayMs)
+    },
+    onMouseLeave: () => {
+      cancelHover()
+      setHovered(false)
+      if (!focused) setDismissed(false)
+    },
+    onFocus: () => setFocused(true),
+    onBlur: () => {
+      setFocused(false)
+      setDismissed(false)
+    },
+  }
+
+  // The panel bubble's left offset from its trigger, measured once it is up.
+  const wrapper = useRef<HTMLSpanElement | null>(null)
+  const [panelLeft, setPanelLeft] = useState(-PANEL_INSET_PX)
+  const clampWithin = props.variant === 'panel' ? props.clampWithin : undefined
+  useLayoutEffect(() => {
+    if (!open || !clampWithin || !wrapper.current) return
+    const bounds = clampWithin()?.getBoundingClientRect()
+    if (!bounds) return
+    const trigger = wrapper.current.getBoundingClientRect().left
+    const left = Math.max(bounds.left - PANEL_INSET_PX, Math.min(trigger - PANEL_INSET_PX, bounds.right - PANEL_WIDTH_PX))
+    setPanelLeft(left - trigger)
+  }, [open, clampWithin])
+
+  if (props.variant === 'panel') {
+    return (
+      <span
+        ref={wrapper}
+        className="relative inline-flex"
+        {...triggerEvents}
+      >
+        {cloneElement(children, { 'aria-describedby': open ? id : undefined })}
+        {open && (
+          <span
+            role="tooltip"
+            id={id}
+            style={{ left: panelLeft }}
+            className={['orbital-tooltip-in orbital-no-drag absolute top-full z-20 mt-2', PANEL_CLASS].join(' ')}
+          >
+            {props.content}
+          </span>
+        )}
+      </span>
+    )
+  }
+  const { title, description } = props
+
   return (
     <span
       className={anchor === 'trigger' ? 'relative inline-flex' : 'inline-flex'}
-      onMouseEnter={() => {
-        if (delayMs <= 0) {
-          setHovered(true)
-          return
-        }
-        cancelHover()
-        hoverTimer.current = setTimeout(() => setHovered(true), delayMs)
-      }}
-      onMouseLeave={() => {
-        cancelHover()
-        setHovered(false)
-        if (!focused) setDismissed(false)
-      }}
-      onFocus={() => setFocused(true)}
-      onBlur={() => {
-        setFocused(false)
-        setDismissed(false)
-      }}
+      {...triggerEvents}
     >
       {cloneElement(children, { 'aria-describedby': open ? id : undefined })}
       {open && (
@@ -198,6 +255,12 @@ export function Tooltip({
 }
 
 const BUBBLE_SHELL_CLASS = 'w-max border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]'
+/** `Feature - Branch status` 1h: the End-session tooltip's shell at a fixed width, rows laid out by the caller. */
+const PANEL_WIDTH_PX = 264
+/** 1a: the bubble's left edge sits this far left of its trigger's, so its padding lines up with the text. */
+const PANEL_INSET_PX = 6
+const PANEL_CLASS =
+  'box-border flex w-[264px] flex-col gap-[9px] whitespace-normal rounded-lg border border-[rgba(150,205,255,.2)] bg-[rgba(10,16,28,.96)] px-3 py-2.5 text-left shadow-[0_10px_26px_rgba(0,0,0,.5)]'
 const CARD_CLASS = 'max-w-[340px] rounded-[9px] px-3 py-[9px] shadow-[0_16px_40px_rgba(0,0,0,.55)]'
 const CARD_TITLE_CLASS = 'block font-mono text-[11.5px] text-text-bright'
 const SHORTCUT_CLASS = 'ml-2 whitespace-nowrap text-[rgba(160,190,225,.55)]'

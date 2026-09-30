@@ -212,6 +212,8 @@ describe('openDb', () => {
       transcript_expand_diff_on_permission: 'true',
       permission_guard_gesture: 'hold',
       header_session_stats: 'bar',
+      header_pull_request: 'false',
+      header_line_changes: 'off',
       map_state_pills: 'dot',
       claude_executable_path: '',
       claude_directory: '',

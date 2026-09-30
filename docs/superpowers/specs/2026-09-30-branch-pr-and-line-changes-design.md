@@ -2,7 +2,7 @@
 id: 2026-09-30-branch-pr-and-line-changes-design
 title: Pull request and line changes in the detail panel header
 type: spec
-status: draft
+status: done
 domain: sessions
 related:
   - 2026-09-22-git-location-indicator-design
@@ -157,8 +157,9 @@ Lines:
 - when a panel opens on the directory;
 - when `HEAD` or the index moves (the `GitStore` watcher, extended to the
   index, so a commit or `git add` from a terminal is picked up too);
-- after a tool that edits files finishes, and at the end of a turn. Both are
-  debounced: the recount runs after a quiet interval, with a maximum wait so
+- on transcript activity of a session in that working tree (Orbital-run and
+  terminal sessions alike; tool edits and turn ends are both transcript
+  writes). All line triggers are debounced: the recount runs after a quiet interval, with a maximum wait so
   that a long run of edits still updates as it goes. Both intervals are
   named constants.
 
@@ -210,7 +211,8 @@ The browser opens `pr.url` through the desktop shell's external-link path.
 - Picking the parent: PR base when known, default branch otherwise, none on
   the default branch or a detached HEAD.
 - The debounce with its maximum wait (fake timers).
-- The settings route accepting and rejecting the two new keys.
+- The settings PATCH applying the two keys without a reload (the route has
+  no per-key validation, like every other setting).
 
 ## Out of scope
 

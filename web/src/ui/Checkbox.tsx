@@ -57,7 +57,14 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
 export function Toggle({ checked, onChange, label, disabled = false, ...aria }: ToggleableProps) {
   return (
     // `relative` for the same containment reason as Checkbox's label above.
-    <label className="relative flex cursor-pointer select-none items-center gap-2 text-sm text-text-soft">
+    // Disabled reads as unavailable, not as off: dimmed, and no pointer
+    // (canvas `Feature - Branch status` 1g, the PR switch without gh).
+    <label
+      className={[
+        'relative flex select-none items-center gap-2 text-sm text-text-soft',
+        disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
+      ].join(' ')}
+    >
       <input
         type="checkbox"
         // Explicit switch semantics: a screen reader should hear "on/off",

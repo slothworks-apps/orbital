@@ -21,7 +21,7 @@ import {
 import { openDb } from './db/database.js';
 import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
 import { indexPaths, indexProjects } from './indexer/indexer.js';
-import { watchProjects } from './watcher/projects.js';
+import { batchSessionIds, watchProjects } from './watcher/projects.js';
 import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { LiveSessionStats } from './watcher/liveStats.js';
@@ -30,6 +30,7 @@ import { Runner, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
 import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable } from './runner/claudeCli.js';
 import { GitStore } from './git/store.js';
+import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
 import { registerRoutes } from './api/routes.js';
@@ -341,11 +342,20 @@ export async function buildServer(overrides: {
   // it may delay or fail a session (adr `orbital-speaks-to-the-ide-itself`).
   const ide = new IdeStore({ claudeDir });
   ide.start();
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, git, ide });
+  // Line changes and the PR per working tree, read only while a window has a
+  // session in it open (spec 2026-09-30-branch-pr-and-line-changes-design).
+  // The settings are read per call, so a switch applies without a restart.
+  const branchStatus = new BranchStatusStore({ git, settings: settingsStore });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, git, ide, branchStatus });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
+  /** A session's directory: its row, or the registry for one not indexed yet. */
+  const cwdOf = (sessionId: string): string | undefined =>
+    db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, sessionId)).get()?.cwd ??
+    registry.get(sessionId)?.cwd;
 
   git.on('change', (_root: string, cwds: string[]) => republishCwds(publishCtx(), cwds));
   ide.on('change', (_root: string, cwds: string[]) => republishCwds(publishCtx(), cwds));
+  branchStatus.on('change', (_root: string, cwds: string[]) => republishCwds(publishCtx(), cwds));
 
   // One store for both message producers, so a live image and its reloaded
   // twin land as the same file and the same ref.
@@ -803,12 +813,24 @@ export async function buildServer(overrides: {
     startFollower(topic);
     // An ended session nobody had open was skipped by `republishCwds`, so its
     // branch and editor selection may be stale in the browser by now.
-    if (topic.startsWith('session:')) republish(topic.slice('session:'.length));
+    if (topic.startsWith('session:')) {
+      const id = topic.slice('session:'.length);
+      // Someone is looking at this working tree now; its branch status is
+      // read and kept fresh until nobody is. A browser-minted id has no row
+      // yet — `POST /api/sessions` starts the watch for that one.
+      const cwd = cwdOf(id);
+      if (cwd !== undefined) branchStatus.watchSession(id, cwd);
+      republish(id);
+    }
   });
   hub.onLastUnsubscriber((topic) => {
     stopTail(topic);
     stopFollower(topic);
-    if (topic.startsWith('session:')) liveStats.drop(topic.slice('session:'.length));
+    if (topic.startsWith('session:')) {
+      const id = topic.slice('session:'.length);
+      liveStats.drop(id);
+      branchStatus.unwatchSession(id);
+    }
   });
 
   // Initial index + re-index on transcript changes (debounced).
@@ -834,6 +856,17 @@ export async function buildServer(overrides: {
   const projectsWatcher = watchProjects(projectsDir, (batch) => {
     if (batch.all) indexProjects(db, projectsDir, statsWritten);
     else indexPaths(db, projectsDir, batch.paths, statsWritten);
+    // The same writes are what the line-change count follows: a tool that
+    // edited files, a turn that ended. Hooked here, where transcripts are
+    // read — Orbital's own sessions and the terminal's alike — and not in
+    // `publishSession`, which the store's own change republishes through and
+    // would feed back into a recount.
+    const ids = batchSessionIds(batch);
+    if (ids === null) branchStatus.transcriptActivityAnywhere();
+    else if (ids.length > 0) {
+      const rows = db.select({ cwd: sessions.cwd }).from(sessions).where(inArray(sessions.id, ids)).all();
+      branchStatus.transcriptActivity(rows.map((row) => row.cwd));
+    }
   });
 
   // Live registry → 'sessions' topic, REST-shaped (final-review ruling).
@@ -931,7 +964,7 @@ export async function buildServer(overrides: {
   }));
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, errors,
-    images, imagesDir, titler, narrator, git, ide,
+    images, imagesDir, titler, narrator, git, ide, branchStatus,
     settings: settingsStore,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,
@@ -945,6 +978,7 @@ export async function buildServer(overrides: {
     clearImmediate(statsBackfill);
     runner.dispose();
     registry.close();
+    branchStatus.close();
     git.close();
     ide.close();
     projectsWatcher.close();

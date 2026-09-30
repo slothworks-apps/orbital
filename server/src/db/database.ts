@@ -131,6 +131,23 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   header_session_stats: 'bar',
   /**
+   * Settings → Appearance → the PR in the header (canvas `Feature - Branch
+   * status` 1g, spec 2026-09-30-branch-pr-and-line-changes-design § Settings).
+   * On, the header shows the pull request of the session's branch, looked up
+   * with the user's own `gh`. Read as `=== 'true'`, so it is off unless
+   * turned on: it spawns `gh`, which goes to the network. When `gh` cannot
+   * be used the switch draws off, but the stored choice stays.
+   */
+  header_pull_request: 'false',
+  /**
+   * Settings → Appearance → line changes in the header (canvas `Feature -
+   * Branch status` 1g, same spec). `branch` shows one total against the
+   * parent branch; `split` also shows the uncommitted part on its own. For
+   * the server the two are the same reading, drawn differently. Anything
+   * else reads as off — the default, since it spawns `git`.
+   */
+  header_line_changes: 'off',
+  /**
    * Settings → Appearance → MAP → "State on the map" (canvas `Feature - State
    * colours` 24a / 24e, ADR state-labels-are-dots-first-on-the-map). `dot`
    * draws each planet's state pill as a small coloured disc that spells the
