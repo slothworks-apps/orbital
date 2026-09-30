@@ -22,6 +22,8 @@ import { Scroller } from './Scroller'
 import { STATS_PATH, readTurnParam, sessionStatsPath } from './route'
 import { StatsShell } from './StatsShell'
 import { TurnWaterfall, type WaterfallFocus } from './TurnWaterfall'
+import { sessionWaitCounts, waitCountLine } from './humanWait'
+import { useShowHumanWait, WaitTile } from './WaitParts'
 
 /**
  * `/stats/session/<id>` — canvas 10b. One session: where its time went, what
@@ -36,6 +38,8 @@ export function SessionDrilldown({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null)
   const [projects, setProjects] = useState<Array<{ cwd: string }>>([])
   const [models, setModels] = useState<OrbitalModel[]>([])
+  // Read here, switched on the dashboard: the drilldown follows the preference.
+  const [showWaits] = useShowHumanWait()
 
   // The turn to open on, from a finding the user clicked on the dashboard
   // (10e "click finding"). `seq` makes a repeat of the same request a new
@@ -131,11 +135,11 @@ export function SessionDrilldown({ id }: { id: string }) {
               models
             )}
           />
-          <SessionTiles detail={detail} />
+          <SessionTiles detail={detail} showWaits={showWaits} />
 
           <div className="flex min-h-0 flex-1 gap-8">
             <div className="flex min-w-0 flex-col" style={{ flex: '880 1 0' }}>
-              <TurnWaterfall turns={detail.turns} focus={focus} />
+              <TurnWaterfall turns={detail.turns} focus={focus} showWaits={showWaits} />
             </div>
             <div className="flex min-w-0 flex-col gap-4" style={{ flex: '448 1 0' }}>
               <SessionFindings detail={detail} onJump={jumpToTurn} />
@@ -221,11 +225,11 @@ function SessionMeta({
   )
 }
 
-/** 10b's tile row: busy of elapsed, tokens, cost, and the four-way split. */
-function SessionTiles({ detail }: { detail: SessionStatsDetail }) {
+/** 10b's tile row: busy of elapsed, tokens, cost, the four-way split, and the wait on the user beside it (10j). */
+function SessionTiles({ detail, showWaits }: { detail: SessionStatsDetail; showWaits: boolean }) {
   const { rollup, cost, session } = detail
   const busyMs = busyMsOf(rollup)
-  const { elapsedMs, idleMs } = spanOf(session, busyMs)
+  const { elapsedMs, idleMs } = spanOf(session, busyMs, showWaits ? rollup.humanWaitMs : 0)
 
   const inputTotal = rollup.inputTokens + rollup.cacheReadTokens + rollup.cacheCreationTokens
   const tokens = splitTokens(inputTotal + rollup.outputTokens)
@@ -234,7 +238,7 @@ function SessionTiles({ detail }: { detail: SessionStatsDetail }) {
 
   return (
     <div className="flex gap-3">
-      <Tile label="BUSY TIME" weight={214}>
+      <Tile label="BUSY TIME" weight={180}>
         <Hero value={formatStatsDuration(busyMs)} />
         <SubLine>
           {elapsedMs === null ? 'no measured span' : `of ${formatStatsDuration(elapsedMs)} elapsed`}
@@ -242,7 +246,7 @@ function SessionTiles({ detail }: { detail: SessionStatsDetail }) {
         </SubLine>
       </Tile>
 
-      <Tile label="TOKENS" weight={214}>
+      <Tile label="TOKENS" weight={180}>
         <Hero value={tokens.value} unit={tokens.unit} />
         <SubLine>
           out {formatTokens(rollup.outputTokens)}
@@ -252,7 +256,7 @@ function SessionTiles({ detail }: { detail: SessionStatsDetail }) {
 
       {/* The cost tile is the one 10b borders in the critical hue: uncached
           input is what a drilldown is usually opened to explain. */}
-      <Tile label="COST" weight={214} border="rgba(255,138,122,.3)">
+      <Tile label="COST" weight={180} border="rgba(255,138,122,.3)">
         <Hero value={formatCostAmount(cost.total)} unit="$" unitLeading />
         <SubLine tone="#ff8a7a">${formatCostAmount(cost.uncachedInput)} uncached input</SubLine>
       </Tile>
@@ -281,6 +285,13 @@ function SessionTiles({ detail }: { detail: SessionStatsDetail }) {
           ))}
         </div>
       </Tile>
+
+      <WaitTile
+        variant="drilldown"
+        timeShown={showWaits}
+        ms={rollup.humanWaitMs}
+        countLine={waitCountLine(sessionWaitCounts(rollup))}
+      />
     </div>
   )
 }
@@ -299,8 +310,9 @@ function Tile({
   return (
     <section
       aria-label={label}
-      // 10b's own widths (214 / 214 / 214 / 634 over its 1360 content column)
-      // as weights, so the row keeps the proportions at any window size.
+      // 10j's own widths (180 / 180 / 180 / 634, and the 138 wait tile, over
+      // its 1360 content column) as weights, so the row keeps the proportions
+      // at any window size.
       style={{ flex: `${weight} 1 0`, borderColor: border }}
       className={`${PANEL_CLASS} min-w-0 px-4 py-3.5`}
     >

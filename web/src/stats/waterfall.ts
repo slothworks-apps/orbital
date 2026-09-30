@@ -1,6 +1,6 @@
 import type { StatsTurnSegment } from '../lib/types'
 import { TIME_CATEGORIES } from './constants'
-import { formatToolName } from './format'
+import { formatStatsDuration, formatToolName } from './format'
 
 /**
  * The geometry of one turn lane, from canvas 10e's "waterfall lane" row and
@@ -26,6 +26,13 @@ export const MIN_SEGMENT_PX = 3
 /** The gap 10b leaves between two segments of one lane, so they read as two. */
 export const SEGMENT_GAP_PX = 2
 
+/**
+ * 10e "waterfall break": a wait on the user cuts the lane rather than
+ * extending it — fixed width whatever the wait, so the 5m axis stays a ruler
+ * of work. At most one per lane: every wait of the turn merges into it.
+ */
+export const BREAK_WIDTH_PX = 74
+
 /** 10b's page: "showing turns 1–9 of 44". */
 export const TURNS_PER_PAGE = 9
 
@@ -47,13 +54,36 @@ export interface LaneSegment {
   width: number
 }
 
+export interface LaneWait {
+  key: string
+  /** `AskUserQuestion`, `ExitPlanMode`, or `permission · Bash`. */
+  label: string
+  ms: number
+}
+
+/** The one break a lane draws for its waits on the user (10e, 10k). */
+export interface LaneBreak {
+  left: number
+  width: number
+  /** Summed, seconds dropped from ten minutes up, `×N` when more than one merged: `14m ×3`. */
+  label: string
+  totalMs: number
+  /** Each wait, in the order the turn ran into them — what the hover lists. */
+  waits: LaneWait[]
+}
+
 export interface Lane {
   turn: StatsTurnSegment
   /** Chronological position, 0-based — the number the lane is labelled with, whatever the sort. */
   index: number
-  /** API wait plus every tool call. Can exceed the turn's elapsed time: tool calls run in parallel. */
+  /**
+   * API wait plus every tool call. Can exceed the turn's elapsed time: tool
+   * calls run in parallel. Work only — a wait on the user is never in it.
+   */
   busyMs: number
   segments: LaneSegment[]
+  /** Null when the turn waited on nobody, or when waits are not being shown. */
+  waitBreak: LaneBreak | null
 }
 
 const API_CATEGORY = TIME_CATEGORIES[0]
@@ -81,16 +111,65 @@ interface Phase {
 function phasesOf(turn: StatsTurnSegment): Phase[] {
   return [
     { key: 'api', label: API_CATEGORY.label, color: API_CATEGORY.color, ms: turn.apiMs, isError: false },
-    ...turn.tools.map((tool, i) => ({
-      // `useId` is unique per transcript, but a malformed entry can repeat
-      // it; the position keeps the key unique regardless.
-      key: `${i}-${tool.useId}`,
-      label: formatToolName(tool.name),
-      color: colorOf(tool.kind),
-      ms: tool.ms,
-      isError: tool.isError,
-    })),
+    ...turn.tools.flatMap((tool, i) =>
+      // A question or a plan approval is the user answering, not work.
+      tool.kind === 'human'
+        ? []
+        : [
+            {
+              // `useId` is unique per transcript, but a malformed entry can
+              // repeat it; the position keeps the key unique regardless.
+              key: `${i}-${tool.useId}`,
+              label: formatToolName(tool.name),
+              color: colorOf(tool.kind),
+              ms: tool.ms,
+              isError: tool.isError,
+            },
+          ]
+    ),
   ]
+}
+
+/**
+ * The turn's waits on the user, each with the work phase it came before: a
+ * question sits after the work that led to it, a permission prompt before the
+ * call it gated. A prompt answered inside a subagent is placed before the
+ * `Agent` call it was cut from — the transcript does not say how far into
+ * the subagent's run it came.
+ */
+function waitsOf(turn: StatsTurnSegment): Array<LaneWait & { beforePhase: number }> {
+  const waits: Array<LaneWait & { beforePhase: number }> = []
+  // Phase 0 is the API wait; each work call adds the next one.
+  let nextPhase = 1
+  turn.tools.forEach((tool, i) => {
+    const key = `${i}-${tool.useId}`
+    if (tool.kind === 'human') {
+      if (tool.ms > 0) waits.push({ key, label: tool.name, ms: tool.ms, beforePhase: nextPhase })
+      return
+    }
+    const waitMs = tool.waitMs ?? 0
+    if (waitMs > 0) {
+      const gated = tool.kind === 'subagent' ? 'subagent' : formatToolName(tool.name)
+      waits.push({ key: `${key}-wait`, label: `permission · ${gated}`, ms: waitMs, beforePhase: nextPhase })
+    }
+    nextPhase++
+  })
+  return waits
+}
+
+/**
+ * The break's own label (10e, 10j): one wait prints as any duration does —
+ * `12m 30s` — but a merged one from ten minutes up drops its seconds to
+ * make room for the count: `14m ×3`.
+ */
+export function breakLabel(totalMs: number, count: number): string {
+  const TEN_MINUTES_MS = 10 * 60_000
+  const HOUR_MS = 60 * 60_000
+  const duration =
+    count > 1 && totalMs >= TEN_MINUTES_MS && totalMs < HOUR_MS
+      ? `${Math.floor(Math.round(totalMs / 1000) / 60)}m`
+      : formatStatsDuration(totalMs)
+  return count > 1 ? `${duration} ×${count}` : duration
 }
 
 function busyOf(phases: readonly Phase[]): number {
@@ -111,15 +190,34 @@ function busyOf(phases: readonly Phase[]): number {
  * than the track's span therefore fills it; the duration column is what says
  * by how much it overran.
  */
-export function laneOf(turn: StatsTurnSegment, index: number): Lane {
+export function laneOf(turn: StatsTurnSegment, index: number, showWaits = false): Lane {
   const phases = phasesOf(turn)
+  const waits = showWaits ? waitsOf(turn) : []
 
   const segments: LaneSegment[] = []
+  let waitBreak: LaneBreak | null = null
   let left = 0
 
-  for (const phase of phases) {
-    if (phase.ms <= 0) continue
-    if (left >= TRACK_WIDTH) continue
+  // Every wait merges into one break at the first one's place, and the work
+  // after it closes up behind it — three breaks would push the same work past
+  // the end of the track (10k "several waits in one turn").
+  const placeBreak = () => {
+    const totalMs = waits.reduce((sum, wait) => sum + wait.ms, 0)
+    const width = Math.min(BREAK_WIDTH_PX, Math.max(0, TRACK_WIDTH - left))
+    waitBreak = {
+      left,
+      width,
+      label: breakLabel(totalMs, waits.length),
+      totalMs,
+      waits: waits.map(({ key, label, ms }) => ({ key, label, ms })),
+    }
+    left += width + SEGMENT_GAP_PX
+  }
+
+  phases.forEach((phase, phaseIndex) => {
+    if (waitBreak === null && waits.length > 0 && waits[0].beforePhase === phaseIndex) placeBreak()
+    if (phase.ms <= 0) return
+    if (left >= TRACK_WIDTH) return
 
     const width = Math.min(
       Math.max(MIN_SEGMENT_PX, Math.round(phase.ms * PX_PER_MS)),
@@ -127,14 +225,16 @@ export function laneOf(turn: StatsTurnSegment, index: number): Lane {
     )
     segments.push({ ...phase, left, width })
     left += width + SEGMENT_GAP_PX
-  }
+  })
+  // A wait after the turn's last call — a question that closed the turn.
+  if (waitBreak === null && waits.length > 0) placeBreak()
 
-  return { turn, index, busyMs: busyOf(phases), segments }
+  return { turn, index, busyMs: busyOf(phases), segments, waitBreak }
 }
 
 /** Every turn of the session as a lane, in the order the session ran them. */
-export function lanesOf(turns: readonly StatsTurnSegment[]): Lane[] {
-  return turns.map(laneOf)
+export function lanesOf(turns: readonly StatsTurnSegment[], showWaits = false): Lane[] {
+  return turns.map((turn, index) => laneOf(turn, index, showWaits))
 }
 
 /**

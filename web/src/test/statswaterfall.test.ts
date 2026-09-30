@@ -1,14 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import type { StatsTurnSegment } from '../lib/types'
 import {
+  BREAK_WIDTH_PX,
   MIN_SEGMENT_PX,
   SEGMENT_GAP_PX,
   TRACK_SPAN_MS,
   TRACK_WIDTH,
   TURNS_PER_PAGE,
+  breakLabel,
   laneOf,
   orderLanes,
   pageBounds,
+  slowestTurns,
   turnLabel,
 } from '../stats/waterfall'
 import { findingTurnUuid } from '../stats/findingCopy'
@@ -89,6 +92,81 @@ describe('laneOf — the 10e scale', () => {
   it('carries the error flag of the tool it draws', () => {
     const lane = laneOf(turn({ tools: [tool({ ms: 1_000, isError: true })] }), 0)
     expect(lane.segments[0].isError).toBe(true)
+  })
+})
+
+describe('laneOf — waits on the user', () => {
+  const question = tool({ name: 'AskUserQuestion', kind: 'human', ms: 12 * MINUTE, useId: 'q' })
+
+  it('never counts a question as work, with or without the break drawn', () => {
+    const t = turn({ apiMs: MINUTE, tools: [question, tool({ ms: MINUTE, useId: 'r' })] })
+    for (const show of [false, true]) {
+      const lane = laneOf(t, 0, show)
+      expect(lane.busyMs).toBe(2 * MINUTE)
+      expect(lane.segments).toHaveLength(2)
+    }
+    expect(slowestTurns([t])[0].busyMs).toBe(2 * MINUTE)
+  })
+
+  it('draws no break while waits are hidden', () => {
+    expect(laneOf(turn({ apiMs: MINUTE, tools: [question] }), 0).waitBreak).toBeNull()
+  })
+
+  it('cuts the lane where the question came and shifts the work after it', () => {
+    const lane = laneOf(turn({ apiMs: MINUTE, tools: [question, tool({ ms: MINUTE, useId: 'r' })] }), 0, true)
+    const [api, read] = lane.segments
+    expect(lane.waitBreak?.left).toBe(api.width + SEGMENT_GAP_PX)
+    expect(lane.waitBreak?.width).toBe(BREAK_WIDTH_PX)
+    expect(read.left).toBe(api.width + SEGMENT_GAP_PX + BREAK_WIDTH_PX + SEGMENT_GAP_PX)
+  })
+
+  it('puts a permission prompt before the call it gated, and keeps the call at its execution time', () => {
+    const bash = tool({ name: 'Bash', ms: MINUTE, waitMs: 3 * MINUTE, useId: 'b' })
+    const lane = laneOf(turn({ apiMs: MINUTE, tools: [tool({ ms: MINUTE, useId: 'r' }), bash] }), 0, true)
+    const [, read, gated] = lane.segments
+    expect(lane.waitBreak?.left).toBe(read.left + read.width + SEGMENT_GAP_PX)
+    expect(gated.width).toBe(read.width)
+    expect(lane.waitBreak?.waits).toEqual([{ key: '1-b-wait', label: 'permission · Bash', ms: 3 * MINUTE }])
+    expect(lane.busyMs).toBe(3 * MINUTE)
+  })
+
+  it('merges every wait of a turn into one break at the first one, so the work closes up', () => {
+    const t = turn({
+      apiMs: MINUTE,
+      tools: [
+        question,
+        tool({ ms: MINUTE, useId: 'r' }),
+        tool({ name: 'Edit', ms: MINUTE, waitMs: 2 * MINUTE, useId: 'e' }),
+      ],
+    })
+    const merged = laneOf(t, 0, true)
+    const hidden = laneOf(t, 0)
+    expect(merged.waitBreak?.waits.map((w) => w.label)).toEqual(['AskUserQuestion', 'permission · Edit'])
+    expect(merged.waitBreak?.totalMs).toBe(14 * MINUTE)
+    expect(merged.waitBreak?.label).toBe('14m ×2')
+    // One break's worth of shift, however many waits it holds.
+    const shift = BREAK_WIDTH_PX + SEGMENT_GAP_PX
+    expect(merged.segments.slice(1).map((s) => s.left)).toEqual(hidden.segments.slice(1).map((s) => s.left + shift))
+  })
+
+  it('places a wait that closed the turn after its last call', () => {
+    const lane = laneOf(turn({ apiMs: MINUTE, tools: [tool({ ms: MINUTE, useId: 'r' }), question] }), 0, true)
+    const last = lane.segments[lane.segments.length - 1]
+    expect(lane.waitBreak?.left).toBe(last.left + last.width + SEGMENT_GAP_PX)
+  })
+
+  it('names a subagent\'s prompt by the subagent it was cut from', () => {
+    const agent = tool({ name: 'Agent', kind: 'subagent', ms: MINUTE, waitMs: MINUTE, useId: 'a' })
+    expect(laneOf(turn({ tools: [agent] }), 0, true).waitBreak?.waits[0].label).toBe('permission · subagent')
+  })
+})
+
+describe('breakLabel', () => {
+  it('prints one wait whole, and drops a merged wait\'s seconds from ten minutes up', () => {
+    expect(breakLabel(12 * MINUTE + 30_000, 1)).toBe('12m 30s')
+    expect(breakLabel(9 * MINUTE + 40_000, 2)).toBe('9m 40s ×2')
+    expect(breakLabel(14 * MINUTE + 5_000, 3)).toBe('14m ×3')
+    expect(breakLabel(65 * MINUTE, 2)).toBe('1h 05m ×2')
   })
 })
 

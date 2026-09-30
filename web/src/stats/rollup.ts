@@ -25,8 +25,19 @@ export interface SessionSpan {
  * negative number (controller ruling), and a session that ran parallel tools
  * honestly reports none.
  */
-export function spanOf(session: SessionStatsDetail['session'], busyMs: number): SessionSpan {
+export function spanOf(
+  session: SessionStatsDetail['session'],
+  busyMs: number,
+  /**
+   * Waiting on the user, taken out of idle too when it is shown beside the
+   * split (10k). Hidden, it is simply part of the not-busy remainder.
+   */
+  shownWaitMs = 0
+): SessionSpan {
   const elapsedMs =
     session.firstAt !== null && session.lastAt !== null ? session.lastAt - session.firstAt : null
-  return { elapsedMs, idleMs: elapsedMs === null ? null : Math.max(0, elapsedMs - busyMs) }
+  return {
+    elapsedMs,
+    idleMs: elapsedMs === null ? null : Math.max(0, elapsedMs - busyMs - shownWaitMs),
+  }
 }

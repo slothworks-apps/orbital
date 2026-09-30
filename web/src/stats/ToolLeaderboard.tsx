@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { StatsToolLeaderboard, StatsTotals } from '../lib/types'
+import type { StatsHumanRow, StatsToolLeaderboard, StatsTotals } from '../lib/types'
 import {
   CHARS_PER_TOKEN,
   LEADERBOARD_ROW_PITCH,
@@ -18,6 +18,7 @@ import {
   type LeaderboardTab as Tab,
 } from './leaderboard'
 import { Scroller } from './Scroller'
+import { YouChip } from './WaitParts'
 
 /**
  * TOOL LEADERBOARD (canvas 10a): the window's tools ranked by the time they
@@ -33,6 +34,10 @@ import { Scroller } from './Scroller'
  * The canvas draws the `slowest` tab only. `most expensive` reuses its
  * columns, swapping the share and the TOTAL column over to result tokens —
  * the ranking the endpoint returns under that name.
+ *
+ * With the switch on, the waits on the user follow the ranked list as a YOU
+ * group (10i): never ranked with the tools, no share bar, and only on the
+ * slowest tab — they have time, not result tokens.
  */
 
 const COLUMNS = 'grid-cols-[230px_1fr_78px_78px_72px]'
@@ -45,9 +50,11 @@ const TABS: Array<{ id: Tab; label: string }> = [
 export function ToolLeaderboard({
   leaderboard,
   totals,
+  showWaits,
 }: {
   leaderboard: StatsToolLeaderboard
   totals: StatsTotals
+  showWaits: boolean
 }) {
   const [tab, setTab] = useState<Tab>('slowest')
   const bars = leaderboardBars(
@@ -97,7 +104,57 @@ export function ToolLeaderboard({
           ))}
         </Scroller>
       )}
+
+      {showWaits && tab === 'slowest' && leaderboard.human.length > 0 && (
+        <div
+          className={`mt-[9px] grid ${COLUMNS} items-center gap-x-[14px] gap-y-[5px] border-t border-dashed border-[rgba(160,190,225,.2)] pt-2 font-mono text-[11.5px] text-[rgba(200,220,245,.7)]`}
+        >
+          {leaderboard.human.map((row) => (
+            <HumanRow
+              key={row.tool}
+              row={row}
+              partial={totals.timedSessionCount < totals.sessionCount}
+            />
+          ))}
+        </div>
+      )}
     </section>
+  )
+}
+
+const HUMAN_LABELS: Record<StatsHumanRow['tool'], { name: string; note: string }> = {
+  AskUserQuestion: { name: 'AskUserQuestion', note: 'waiting on you · not tool time, not ranked' },
+  ExitPlanMode: { name: 'ExitPlanMode', note: 'plan approval · not tool time, not ranked' },
+  permission: { name: 'permission prompts', note: '' },
+}
+
+/**
+ * One wait in the YOU group. The permission row says which tools were
+ * prompted instead of what it is — and, in a range that also holds terminal
+ * sessions, that its count covers the Orbital-run ones only (10e).
+ */
+function HumanRow({ row, partial }: { row: StatsHumanRow; partial: boolean }) {
+  const label = HUMAN_LABELS[row.tool]
+  const note =
+    row.tool === 'permission'
+      ? [
+          ...(partial ? ['Orbital sessions only'] : []),
+          ...Object.entries(row.byTool)
+            .sort(([, a], [, b]) => b - a)
+            .map(([tool, calls]) => `${formatToolName(tool)} ${calls}`),
+        ].join(' · ')
+      : label.note
+  return (
+    <>
+      <span className="flex min-w-0 items-center gap-[7px]">
+        <YouChip />
+        <span className="truncate">{label.name}</span>
+      </span>
+      <span className="truncate text-[10px] text-[rgba(160,190,225,.5)]">{note}</span>
+      <span className="text-right">{formatTokens(row.calls)}</span>
+      <span className="text-right">{row.p50Ms === null ? '—' : formatStatsDuration(row.p50Ms)}</span>
+      <span className="text-right">{formatStatsDuration(row.ms)}</span>
+    </>
   )
 }
 

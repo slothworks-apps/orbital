@@ -8,6 +8,7 @@ const day = (key: string, apiMs: number): StatsDayBusy => ({
   localToolMs: 0,
   mcpMs: 0,
   subagentMs: 0,
+  humanWaitMs: 0,
   busyMs: apiMs,
 })
 

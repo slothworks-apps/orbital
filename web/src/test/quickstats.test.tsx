@@ -37,6 +37,10 @@ function makeSession(patch: Partial<ApiSession> = {}): ApiSession {
 
 function rollup(patch: Partial<StatsRollup> = {}): StatsRollup {
   return {
+    humanWaitMs: 0,
+    humanBreakdown: {},
+    permissionBreakdown: {},
+    permissionTimed: true,
     apiMs: 600_000,
     localToolMs: 120_000,
     mcpMs: 0,

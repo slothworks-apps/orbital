@@ -17,6 +17,7 @@ import { readStatsFilters, statsUrl, type StatsFilters } from './filters'
 import { projectLabeller } from './projects'
 import type { StatsRoute } from './route'
 import { fillDaySeries } from './series'
+import { useShowHumanWait } from './WaitParts'
 
 /**
  * `/stats` — the two stats screens, mounted INSTEAD of `App` (see `main.tsx`),
@@ -45,6 +46,7 @@ function StatsDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [projects, setProjects] = useState<Array<{ cwd: string }>>([])
   const [models, setModels] = useState<OrbitalModel[]>([])
+  const [showWaits, setShowWaits] = useShowHumanWait()
 
   // Only the newest request may write: filters can change faster than the
   // server answers, and an older response landing last would show a window
@@ -113,6 +115,8 @@ function StatsDashboard() {
               }
         }
         onChange={applyFilters}
+        showWaits={showWaits}
+        onShowWaits={setShowWaits}
       />
 
       {error !== null && (
@@ -132,7 +136,7 @@ function StatsDashboard() {
           <StatsEmpty onStartSession={() => window.location.assign(`/?${NEW_SESSION_PARAM}=1`)} />
         ) : (
           <ErrorBoundary label="Stats">
-            <Dashboard overview={overview} projectLabel={projectLabel} />
+            <Dashboard overview={overview} projectLabel={projectLabel} showWaits={showWaits} />
           </ErrorBoundary>
         ))}
     </StatsShell>
@@ -146,9 +150,11 @@ function StatsDashboard() {
 function Dashboard({
   overview,
   projectLabel,
+  showWaits,
 }: {
   overview: StatsOverview
   projectLabel: (projectDir: string | null) => string | null
+  showWaits: boolean
 }) {
   const days = fillDaySeries(overview.daySeries, overview.windowStart, overview.windowEnd)
 
@@ -158,13 +164,18 @@ function Dashboard({
         totals={overview.totals}
         costDeltaPct={overview.costDeltaPct}
         window={overview.filters.window}
+        showWaits={showWaits}
       />
 
       <div className="flex min-h-0 flex-1 gap-8">
         <div className="flex min-w-0 flex-col gap-4" style={{ flex: '880 1 0' }}>
-          <BusyPerDayChart days={days} />
+          <BusyPerDayChart days={days} showWaits={showWaits} />
           <CacheRatioChart series={overview.cacheRatioSeries} ratio={overview.totals.cachedRatio} />
-          <ToolLeaderboard leaderboard={overview.toolLeaderboard} totals={overview.totals} />
+          <ToolLeaderboard
+            leaderboard={overview.toolLeaderboard}
+            totals={overview.totals}
+            showWaits={showWaits}
+          />
         </div>
         <div className="flex min-w-0 flex-col" style={{ flex: '448 1 0' }}>
           <FindingsFeed

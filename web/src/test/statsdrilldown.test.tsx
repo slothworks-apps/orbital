@@ -10,6 +10,10 @@ import { TURNS_PER_PAGE } from '../stats/waterfall'
 
 function rollup(patch: Partial<StatsRollup> = {}): StatsRollup {
   return {
+    humanWaitMs: 0,
+    humanBreakdown: {},
+    permissionBreakdown: {},
+    permissionTimed: true,
     apiMs: 600_000,
     localToolMs: 120_000,
     mcpMs: 0,
@@ -75,6 +79,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/stats/session/4b2f19c8-0000-4000-8000-000000000001')
   vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/Users/t/work/orbital', lastModel: null }])
   vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
+  vi.mocked(api.getSettings).mockResolvedValue({})
 })
 
 const route = { kind: 'session', id: '4b2f19c8-0000-4000-8000-000000000001' } as const

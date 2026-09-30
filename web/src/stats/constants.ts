@@ -132,3 +132,12 @@ export const LEADERBOARD_ROW_PITCH = 26
 export const RESOLVED_CLEAN_SESSIONS = 5
 export const RESOLVED_TTL_DAYS = 7
 export const CHARS_PER_TOKEN = 4
+
+/**
+ * Waiting on the user (10e): not a fifth category, so no fill colour — the
+ * neutral hatch of the track/idle family, and a dashed outline where only a
+ * count is shown.
+ */
+export const WAIT_HATCH =
+  'repeating-linear-gradient(135deg,rgba(160,190,225,.6) 0 1px,transparent 1px 3px)'
+export const WAIT_OUTLINE = 'rgba(160,190,225,.45)'

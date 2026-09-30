@@ -26,7 +26,7 @@ function dayStart(key: string): Date {
 }
 
 function emptyDay(day: string): StatsDayBusy {
-  return { day, apiMs: 0, localToolMs: 0, mcpMs: 0, subagentMs: 0, busyMs: 0 }
+  return { day, apiMs: 0, localToolMs: 0, mcpMs: 0, subagentMs: 0, busyMs: 0, humanWaitMs: 0 }
 }
 
 /**

@@ -4,6 +4,7 @@ import { Select } from '../ui/Select'
 import { Segmented } from '../ui/Segmented'
 import { STATS_WINDOWS, type StatsFilters } from './filters'
 import { projectOptions } from './projects'
+import { WaitSwitch } from './WaitParts'
 
 /**
  * The dashboard's filter bar (canvas 10a): window toggle, project and model,
@@ -20,6 +21,8 @@ export function StatsFilterBar({
   models,
   summary,
   onChange,
+  showWaits,
+  onShowWaits,
 }: {
   filters: StatsFilters
   projects: ReadonlyArray<{ cwd: string }>
@@ -27,6 +30,9 @@ export function StatsFilterBar({
   /** What the window turned out to cover; null until the first response lands. */
   summary: { sessionCount: number; windowStart: number | null; windowEnd: number } | null
   onChange: (next: StatsFilters) => void
+  /** "Show time spent waiting on you" — a preference, so it sits apart from the filters and never enters the URL. */
+  showWaits: boolean
+  onShowWaits: (next: boolean) => void
 }) {
   const projectChoices = projectOptions(projects).map((option) => ({
     ...option,
@@ -82,6 +88,9 @@ export function StatsFilterBar({
           local data only
         </div>
       )}
+      {/* 10i: a hairline divider, then the switch at the row's right end. */}
+      <span aria-hidden className="block h-5 w-px bg-[rgba(150,205,255,.14)]" />
+      <WaitSwitch on={showWaits} onChange={onShowWaits} />
     </div>
   )
 }

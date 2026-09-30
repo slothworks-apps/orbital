@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import type { StatsTotals, StatsWindow } from '../lib/types'
 import { PANEL_CLASS, PANEL_LABEL_CLASS, TIME_CATEGORIES, TRACK_COLOR } from './constants'
+import { waitCountLine, windowWaitCounts } from './humanWait'
+import { WaitTile } from './WaitParts'
 import {
   formatCostAmount,
   formatDeltaPercent,
@@ -11,10 +13,11 @@ import {
 } from './format'
 
 /**
- * The dashboard's three stat tiles (canvas 10a): total tokens, cost, and
- * agent busy time with its four-way split.
+ * The dashboard's stat tiles (canvas 10a, 10i): total tokens, cost, agent
+ * busy time with its four-way split, and the time spent waiting on the user
+ * beside it — a count by default, the time too with the switch on.
  *
- * Widths are the canvas's own 331 / 331 / 674 over its 1360px content column,
+ * Widths are 10i's own 244 / 244 / 674 / 162 over its 1360px content column,
  * expressed as flex weights so the row keeps those proportions at any window
  * size instead of pinning the page to a 1440px artboard.
  */
@@ -78,11 +81,14 @@ export function StatsTiles({
   totals,
   costDeltaPct,
   window: statsWindow,
+  showWaits,
 }: {
   totals: StatsTotals
   costDeltaPct: number | null
   window: StatsWindow
+  showWaits: boolean
 }) {
+  const waits = windowWaitCounts(totals)
   // "in" is everything that was priced as input — fresh, cached and written —
   // which is the number the cached ratio below is a share of.
   const inputTotal = totals.inputTokens + totals.cacheReadTokens + totals.cacheCreationTokens
@@ -93,7 +99,7 @@ export function StatsTiles({
 
   return (
     <div className="flex gap-3">
-      <Tile label="TOTAL TOKENS" weight={331}>
+      <Tile label="TOTAL TOKENS" weight={244}>
         <Hero value={tokens.value} unit={tokens.unit} />
         <div className={SUB_LINE_CLASS}>
           <span>in {formatTokens(inputTotal)}</span>
@@ -104,7 +110,7 @@ export function StatsTiles({
         </div>
       </Tile>
 
-      <Tile label="COST" weight={331}>
+      <Tile label="COST" weight={244}>
         <Hero value={formatCostAmount(totals.costTotal)} unit="$" unitLeading />
         <div className={SUB_LINE_CLASS}>
           {totals.costPerSession !== null && (
@@ -161,6 +167,20 @@ export function StatsTiles({
           </div>
         </div>
       </Tile>
+
+      <WaitTile
+        variant="dashboard"
+        timeShown={showWaits}
+        ms={totals.humanWaitMs}
+        countLine={waitCountLine(waits)}
+        // 10e: in a range that mixes terminal and Orbital-run sessions, the
+        // permission count covers the Orbital ones only, and the tile says so.
+        footnote={
+          waits.permissions !== null && totals.timedSessionCount < totals.sessionCount
+            ? 'Orbital sessions only'
+            : undefined
+        }
+      />
     </div>
   )
 }

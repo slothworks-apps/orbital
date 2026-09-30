@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { StatsTurnSegment } from '../lib/types'
 import { PANEL_CLASS, PANEL_LABEL_CLASS, TIME_CATEGORIES } from './constants'
 import { formatStatsDuration } from './format'
@@ -15,9 +16,11 @@ import {
   pageBounds,
   turnLabel,
   type Lane,
+  type LaneBreak,
   type LaneSegment,
   type TurnOrder,
 } from './waterfall'
+import { BreakGlyph } from './WaitParts'
 
 /**
  * TURN WATERFALL (canvas 10b): one lane per turn, the API wait it opened with
@@ -57,10 +60,13 @@ export interface WaterfallFocus {
 export function TurnWaterfall({
   turns,
   focus,
+  showWaits,
 }: {
   turns: StatsTurnSegment[]
   /** The turn to page to, highlight and scroll into view — from `?turn=` or a finding. */
   focus: WaterfallFocus | null
+  /** Cut each lane where the turn waited on the user (10j). Off, the waits are simply not drawn. */
+  showWaits: boolean
 }) {
   // 10b draws "longest first" as the active sort: the drilldown is opened to
   // find out where the time went, and that is the answer in one screen.
@@ -69,7 +75,10 @@ export function TurnWaterfall({
   const [hovered, setHovered] = useState<{ lane: number; segment: string } | null>(null)
   const laneRefs = useRef(new Map<string, HTMLDivElement>())
 
-  const ordered = useMemo(() => orderLanes(lanesOf(turns), order), [turns, order])
+  const ordered = useMemo(
+    () => orderLanes(lanesOf(turns, showWaits), order),
+    [turns, order, showWaits]
+  )
   const bounds = pageBounds(ordered.length, page)
   const visible = ordered.slice(bounds.start, bounds.end)
 
@@ -106,6 +115,15 @@ export function TurnWaterfall({
               {category.label}
             </span>
           ))}
+          {showWaits && (
+            <>
+              <span aria-hidden className="block h-2.5 w-px self-center bg-[rgba(150,205,255,.18)]" />
+              <span className="flex items-center gap-[5px] text-[rgba(160,190,225,.6)]">
+                <BreakGlyph />
+                waiting on you · axis break
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -248,6 +266,7 @@ function LaneRow({
             onHover={(on) => onHover(on ? { lane: lane.index, segment: segment.key } : null)}
           />
         ))}
+        {lane.waitBreak !== null && <WaitBreak cut={lane.waitBreak} />}
       </span>
 
       <span
@@ -303,6 +322,64 @@ function Segment({
   )
 }
 
+/**
+ * The break a turn's waits cut into its lane (10e "waterfall break"): a
+ * fixed-width gap on the track's own dark, two slashes and a dashed hairline
+ * around the summed wait. Hovering lists each wait and the total (10k).
+ *
+ * The list is portalled: the lanes sit in a horizontally scrolling box, which
+ * clips on both axes, and a list hanging below the last lane on a page would
+ * be cut off inside it (web/CLAUDE.md, "An overlay dies inside an overflow").
+ */
+function WaitBreak({ cut }: { cut: LaneBreak }) {
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  if (cut.width <= 0) return null
+  return (
+    <>
+      <span
+        role="img"
+        aria-label={`waiting on you ${formatStatsDuration(cut.totalMs)}`}
+        onMouseEnter={(event) => setAnchor(event.currentTarget.getBoundingClientRect())}
+        onMouseLeave={() => setAnchor(null)}
+        className="absolute -top-[3px] flex h-5 items-center gap-[3px] whitespace-nowrap bg-[#0a0e19] font-mono text-[9.5px] text-[rgba(200,220,245,.75)]"
+        style={{ left: cut.left, width: cut.width }}
+      >
+        <span className="block h-3.5 w-px shrink-0 rotate-[20deg] bg-[rgba(160,190,225,.6)]" />
+        <span className="block flex-1 border-t border-dashed border-[rgba(160,190,225,.45)]" />
+        {cut.label}
+        <span className="block flex-1 border-t border-dashed border-[rgba(160,190,225,.45)]" />
+        <span className="block h-3.5 w-px shrink-0 rotate-[20deg] bg-[rgba(160,190,225,.6)]" />
+      </span>
+      {anchor !== null &&
+        createPortal(
+          <div
+            role="tooltip"
+            // 10k: 25px under the break's top edge — 22 below the track it cuts.
+            style={{ left: anchor.left, top: anchor.top + 25 }}
+            className="pointer-events-none fixed z-50 box-border flex w-[210px] flex-col gap-1 rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-[11px] py-[9px] font-mono text-[10.5px] text-text-bright shadow-[0_18px_44px_rgba(0,0,0,.6)]"
+          >
+            <span className="text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+              WAITING ON YOU · {cut.waits.length}
+            </span>
+            {cut.waits.map((wait) => (
+              <span key={wait.key} className="flex">
+                {wait.label}
+                <span className="flex-1" />
+                {formatStatsDuration(wait.ms)}
+              </span>
+            ))}
+            <span className="flex border-t border-[rgba(150,205,255,.12)] pt-1 text-[rgba(160,190,225,.8)]">
+              total
+              <span className="flex-1" />
+              {formatStatsDuration(cut.totalMs)}
+            </span>
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
+
 function OrderButton({
   label,
   active,
@@ -350,23 +427,21 @@ function PagerButton({
 }
 
 /**
- * 10b's permission footnote, always on screen.
- *
- * The canvas's copy ends with a sentence saying which lanes are marked †.
- * Nothing in the transcript records that a permission prompt was shown, so no
- * lane can carry the mark honestly and the sentence is dropped (controller
- * ruling). The rest of the caveat is true of every lane, which is why it is
- * stated once here rather than per lane.
+ * The permission footnote, always on screen, in 10j's words: which sessions
+ * have their prompts cut out of tool time, and which cannot. Stated once
+ * rather than per lane — no lane of a terminal session can say whether a
+ * prompt was shown.
  */
 function PermissionCaveat() {
   return (
     <div className="flex gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-[13px] py-[11px]">
       <span className="font-mono text-[11px] text-[#ffbb7b]">†</span>
       <div className="text-[11.5px] leading-[1.55] text-pretty text-[rgba(160,190,225,.75)]">
-        Tool time in terminal sessions includes time spent waiting for you to answer a permission
-        prompt — Orbital cannot separate the two from the transcript. Treat local-tool totals in{' '}
-        <span className="font-mono">plan</span> and <span className="font-mono">acceptEdits</span>{' '}
-        sessions as an upper bound.
+        Permission prompts: Orbital-run sessions only — the runner times prompt shown → answered,
+        and the wait is cut out of the tool or subagent call exactly like a question. Terminal
+        sessions cannot measure it: their local-tool time still includes the wait, they are marked{' '}
+        <span className="font-mono text-[#ffbb7b]">†</span> and read as an upper bound, and their
+        count line has no permissions part.
       </div>
     </div>
   )

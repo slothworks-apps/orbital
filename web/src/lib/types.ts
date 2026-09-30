@@ -1054,6 +1054,20 @@ export interface StatsTotals {
   subagentMs: number
   /** The four categories above, summed. Never the wall clock. */
   busyMs: number
+  /**
+   * Time the sessions spent waiting on the user inside tool calls — questions,
+   * plan approvals, permission prompts. Never part of `busyMs` (spec
+   * 2026-09-30-human-wait-tools-design).
+   */
+  humanWaitMs: number
+  /** `AskUserQuestion` calls. */
+  questionCount: number
+  /** `ExitPlanMode` calls. */
+  planCount: number
+  /** Permission prompts, counted in Orbital-run sessions only. */
+  permissionCount: number
+  /** Sessions in range whose permission prompts were timed — Orbital-run ones. */
+  timedSessionCount: number
   wallClockMs: number
   costTotal: number
   /** Null for a window with no sessions — there is nothing to average over. */
@@ -1069,6 +1083,8 @@ export interface StatsDayBusy {
   mcpMs: number
   subagentMs: number
   busyMs: number
+  /** Beside the day's busy time, never inside it. */
+  humanWaitMs: number
 }
 
 /** One point of the cache-hit trend; null on a day that priced no input. */
@@ -1089,9 +1105,23 @@ export interface StatsToolRow {
   resultChars: number
 }
 
+export type StatsHumanTool = 'AskUserQuestion' | 'ExitPlanMode' | 'permission'
+
+/** One row of the leaderboard's YOU group: a wait on the user, not a tool's time. */
+export interface StatsHumanRow {
+  tool: StatsHumanTool
+  calls: number
+  ms: number
+  p50Ms: number | null
+  /** The permission row's calls per prompted tool; empty for the other two. */
+  byTool: Record<string, number>
+}
+
 export interface StatsToolLeaderboard {
   slowest: StatsToolRow[]
   mostExpensive: StatsToolRow[]
+  /** Never ranked with the tools above. The permission row is absent without an Orbital-run session in range. */
+  human: StatsHumanRow[]
 }
 
 /**
@@ -1156,11 +1186,24 @@ export interface StatsRollup {
   >
   toolCalls: number
   toolErrors: number
-  toolBreakdown: Record<
-    string,
-    { calls: number; errors: number; ms: number; resultChars: number; buckets: number[] }
-  >
+  toolBreakdown: Record<string, StatsToolStat>
+  /** Every human wait, summed — never part of the four categories above. */
+  humanWaitMs: number
+  /** `AskUserQuestion` and `ExitPlanMode`: their time is the user answering. */
+  humanBreakdown: Record<string, StatsToolStat>
+  /** Permission waits keyed by the prompted tool; `ms` is the wait, not the tool. */
+  permissionBreakdown: Record<string, StatsToolStat>
+  /** An Orbital-run session: its permission prompts were timed and cut out of tool time. */
+  permissionTimed: boolean
   findings: Array<{ rule: string; evidence: Record<string, unknown> }>
+}
+
+export interface StatsToolStat {
+  calls: number
+  errors: number
+  ms: number
+  resultChars: number
+  buckets: number[]
 }
 
 /** One turn of the drilldown waterfall — derived on demand, never stored. */
@@ -1174,8 +1217,14 @@ export interface StatsTurnSegment {
   tokens: { input: number; output: number; cacheRead: number; cacheCreation: number }
   tools: Array<{
     name: string
-    kind: 'local' | 'mcp' | 'subagent'
+    /** `human`: a question or a plan approval — its `ms` is the user answering. */
+    kind: 'local' | 'mcp' | 'subagent' | 'human'
     ms: number
+    /**
+     * The permission-prompt wait cut out of this call, already gone from `ms`.
+     * On an `Agent` call, the waits of the prompts its subagent raised.
+     */
+    waitMs?: number
     isError: boolean
     resultChars: number
     useId: string

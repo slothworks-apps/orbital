@@ -19,6 +19,8 @@ import { SEVERITY_STYLES, TIME_CATEGORIES, TRACK_COLOR } from './constants'
 import { findingCopy, findingTurnUuid, withSession } from './findingCopy'
 import { formatCostAmount, formatPercent, formatStatsDuration, splitTokens } from './format'
 import { busyMsOf, spanOf } from './rollup'
+import { sessionWaitCounts, waitCountLine } from './humanWait'
+import { WaitSwatch } from './WaitParts'
 import { sessionStatsPath } from './route'
 import { MIN_SEGMENT_PX, slowestTurns, turnLabel } from './waterfall'
 
@@ -47,8 +49,8 @@ import { MIN_SEGMENT_PX, slowestTurns, turnLabel } from './waterfall'
 const SLOWEST_TRACK_FILL_PCT = 94
 const SLOWEST_SEGMENT_GAP_PCT = 1
 
-/** The category whose time the † caveat is about (10e: local tool time
- * includes the wait on a permission prompt). */
+/** The category whose time the † caveat is about: in a terminal session,
+ * local tool time still includes the wait on a permission prompt (10k). */
 const CAVEAT_FIELD = 'localToolMs'
 
 const CAVEAT_INK = '#ffbb7b'
@@ -64,10 +66,19 @@ export interface QuickStatsDialogProps {
   title: string
   /** A session still running: its last turn is the one in flight (10e). */
   live: boolean
+  /** "Show time spent waiting on you", as switched on /stats. */
+  showWaits: boolean
   onClose: () => void
 }
 
-export function QuickStatsDialog({ open, detail, title, live, onClose }: QuickStatsDialogProps) {
+export function QuickStatsDialog({
+  open,
+  detail,
+  title,
+  live,
+  showWaits,
+  onClose,
+}: QuickStatsDialogProps) {
   useEscapeLayer(open, onClose)
   // Held mounted through the close transition, like every other modal surface.
   const { mounted, state } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
@@ -98,7 +109,7 @@ export function QuickStatsDialog({ open, detail, title, live, onClose }: QuickSt
 
   const { session, rollup, cost } = detail
   const busyMs = busyMsOf(rollup)
-  const { elapsedMs, idleMs } = spanOf(session, busyMs)
+  const { elapsedMs, idleMs } = spanOf(session, busyMs, showWaits ? rollup.humanWaitMs : 0)
   const inputTotal = rollup.inputTokens + rollup.cacheReadTokens + rollup.cacheCreationTokens
   const tokens = splitTokens(inputTotal + rollup.outputTokens)
 
@@ -175,7 +186,13 @@ export function QuickStatsDialog({ open, detail, title, live, onClose }: QuickSt
               </Tile>
             </div>
 
-            <TimeSplit busyMs={busyMs} elapsedMs={elapsedMs} idleMs={idleMs} rollup={rollup} />
+            <TimeSplit
+              busyMs={busyMs}
+              elapsedMs={elapsedMs}
+              idleMs={idleMs}
+              rollup={rollup}
+              showWaits={showWaits}
+            />
 
             <SlowestTurns detail={detail} live={live} />
 
@@ -185,10 +202,7 @@ export function QuickStatsDialog({ open, detail, title, live, onClose }: QuickSt
             ))}
 
             <div className="flex items-center gap-3">
-              <div className="flex-1 font-mono text-[10px] leading-[1.5] text-[rgba(160,190,225,.55)]">
-                <span style={{ color: CAVEAT_INK }}>†</span> tool time includes permission-prompt
-                waits
-              </div>
+              <span className="flex-1" />
               {/* A real link (10e "full stats → navigates to /stats/session/<id>"),
                   so the browser owns the navigation and ⌘-click opens a tab. */}
               <a
@@ -239,29 +253,42 @@ function Tile({
 }
 
 /**
- * TIME SPLIT (10f): the four categories as one bar and one row each. The bar
- * is a share of busy time, not of the clock — what the wall clock says is the
- * line above it, which is where `elapsed` and `idle` belong.
+ * TIME SPLIT (10f, 10k): the four categories as one bar and one row each. The
+ * bar is a share of busy time, not of the clock — what the wall clock says is
+ * the line above it, which is where `elapsed` and `idle` belong.
+ *
+ * Under the split, never in it: the session's waits on the user — a count, or
+ * with the switch on the time and the count under it. A terminal session is
+ * badged as one and carries the † caveat, because its prompts were not timed.
  */
 function TimeSplit({
   busyMs,
   elapsedMs,
   idleMs,
   rollup,
+  showWaits,
 }: {
   busyMs: number
   elapsedMs: number | null
   idleMs: number | null
   rollup: SessionStatsDetail['rollup']
+  showWaits: boolean
 }) {
   const share = (ms: number) => (busyMs > 0 ? ms / busyMs : 0)
+  const terminal = !rollup.permissionTimed
+  const countLine = waitCountLine(sessionWaitCounts(rollup))
 
   return (
     <section aria-label="Time split">
-      <div className="flex items-baseline">
+      <div className="flex items-baseline gap-2.5">
         <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
           TIME SPLIT
         </div>
+        {terminal && (
+          <span className="rounded-[4px] border border-[rgba(150,205,255,.18)] px-1.5 py-px font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.7)]">
+            TERMINAL
+          </span>
+        )}
         <span className="flex-1" />
         <div className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
           {elapsedMs === null
@@ -294,7 +321,7 @@ function TimeSplit({
             />
             <span className="text-[rgba(200,225,255,.85)]">
               {category.label}
-              {category.field === CAVEAT_FIELD && (
+              {terminal && category.field === CAVEAT_FIELD && (
                 <>
                   {' '}
                   <span style={{ color: CAVEAT_INK }}>†</span>
@@ -311,6 +338,33 @@ function TimeSplit({
           </div>
         ))}
       </div>
+
+      <div className="mt-3 flex items-center gap-2.5 border-t border-dashed border-[rgba(160,190,225,.2)] pt-2.5 font-mono text-[11px] text-[rgba(200,220,245,.8)]">
+        <WaitSwatch hatched={showWaits} size={9} />
+        {showWaits ? 'waiting on you' : countLine}
+        <span className="flex-1" />
+        {showWaits ? (
+          <span className="w-[70px] text-right">{formatStatsDuration(rollup.humanWaitMs)}</span>
+        ) : (
+          <span className="text-[rgba(160,190,225,.45)]">not work</span>
+        )}
+      </div>
+      {showWaits && (
+        <>
+          <div className="mt-1 pl-[19px] font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+            {countLine}
+          </div>
+          <div className="mt-2 font-mono text-[9.5px] text-[rgba(160,190,225,.45)]">
+            shown because “Show time spent waiting on you” is on in /stats
+          </div>
+        </>
+      )}
+      {terminal && (
+        <div className="mt-2.5 font-mono text-[10px] leading-[1.5] text-[rgba(160,190,225,.55)]">
+          <span style={{ color: CAVEAT_INK }}>†</span> terminal session — permission-prompt waits
+          can&apos;t be measured, local-tool time is an upper bound
+        </div>
+      )}
     </section>
   )
 }

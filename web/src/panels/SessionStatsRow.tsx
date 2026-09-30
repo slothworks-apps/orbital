@@ -5,6 +5,7 @@ import type { ApiSession, SessionStatsDetail } from '../lib/types'
 import { TIME_CATEGORIES, TRACK_COLOR } from '../stats/constants'
 import { formatCost, formatStatsDuration } from '../stats/format'
 import { QuickStatsDialog } from '../stats/QuickStatsDialog'
+import { showHumanWait } from '../stats/humanWait'
 import { busyMsOf, spanOf } from '../stats/rollup'
 import { useOrbital } from '../store/store'
 import { StatsGlyph, UtilityButton } from '../ui/UtilityButton'
@@ -192,6 +193,8 @@ export function useStatsReadout(session: ApiSession | null): StatsReadout {
   // the panel is already streaming — the same pairing the stop confirm uses to
   // name the call it would discard.
   const messages = useOrbital((s) => (sessionId !== null ? s.transcripts[sessionId] : undefined))
+  // The dialog follows the switch on /stats and has none of its own (10k).
+  const showWaits = useOrbital((s) => showHumanWait(s.settings))
   const inApiCall = useMemo(
     () => live && openToolUse(messages ?? []) === undefined,
     [live, messages]
@@ -221,6 +224,7 @@ export function useStatsReadout(session: ApiSession | null): StatsReadout {
       detail={dialogStats}
       title={session.title}
       live={live}
+      showWaits={showWaits}
       onClose={() => setOpenFor(null)}
     />
   )

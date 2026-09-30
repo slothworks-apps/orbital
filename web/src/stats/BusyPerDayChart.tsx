@@ -9,6 +9,7 @@ import {
   TIME_CATEGORIES,
 } from './constants'
 import { formatStatsDuration } from './format'
+import { WaitSwatch } from './WaitParts'
 
 /**
  * BUSY TIME PER DAY (canvas 10a): one stacked column per day, API wait at the
@@ -44,7 +45,7 @@ function tooltipHeading(key: string): string {
     .toUpperCase()
 }
 
-function DayTooltip({ day, flip }: { day: StatsDayBusy; flip: boolean }) {
+function DayTooltip({ day, flip, showWaits }: { day: StatsDayBusy; flip: boolean; showWaits: boolean }) {
   return (
     <div
       role="tooltip"
@@ -68,12 +69,21 @@ function DayTooltip({ day, flip }: { day: StatsDayBusy; flip: boolean }) {
           <span className="flex-1" />
           {formatStatsDuration(day.busyMs)}
         </div>
+        {/* Under busy, never in it: the columns stay work only (10i). */}
+        {showWaits && (
+          <div className="flex items-center gap-2 text-[rgba(160,190,225,.65)]">
+            <WaitSwatch hatched />
+            waiting on you
+            <span className="flex-1" />
+            {formatStatsDuration(day.humanWaitMs)}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-export function BusyPerDayChart({ days }: { days: StatsDayBusy[] }) {
+export function BusyPerDayChart({ days, showWaits }: { days: StatsDayBusy[]; showWaits: boolean }) {
   const [hovered, setHovered] = useState<string | null>(null)
 
   const peak = days.reduce((max, day) => Math.max(max, day.busyMs), 0)
@@ -151,7 +161,7 @@ export function BusyPerDayChart({ days }: { days: StatsDayBusy[] }) {
                     ].join(' ')}
                   />
                 ))}
-                {isHovered && <DayTooltip day={day} flip={index > days.length - 3} />}
+                {isHovered && <DayTooltip day={day} flip={index > days.length - 3} showWaits={showWaits} />}
               </div>
             )
           })}

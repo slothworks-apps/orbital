@@ -21,6 +21,11 @@ const totals: StatsTotals = {
   mcpMs: 300_000,
   subagentMs: 0,
   busyMs: 4_500_000,
+  humanWaitMs: 0,
+  questionCount: 0,
+  planCount: 0,
+  permissionCount: 0,
+  timedSessionCount: 0,
   wallClockMs: 9_000_000,
   costTotal: 12.5,
   costPerSession: 2.5,
@@ -44,6 +49,7 @@ function overview(patch: Partial<StatsOverview> = {}): StatsOverview {
         mcpMs: 300_000,
         subagentMs: 0,
         busyMs: 4_500_000,
+        humanWaitMs: 0,
       },
     ],
     cacheRatioSeries: [{ day: '2026-09-18', ratio: 0.6 }],
@@ -60,6 +66,7 @@ function overview(patch: Partial<StatsOverview> = {}): StatsOverview {
         },
       ],
       mostExpensive: [],
+      human: [],
     },
     findings: [
       {
@@ -80,6 +87,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/stats')
   vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/Users/t/work/api', lastModel: null }])
   vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
+  vi.mocked(api.getSettings).mockResolvedValue({})
 })
 
 describe('StatsPage', () => {
