@@ -1,7 +1,7 @@
 ---
 id: 2026-09-30-session-instructions
 title: Session instructions — implementation plan
-status: active
+status: done
 type: plan
 domain: sessions
 related:

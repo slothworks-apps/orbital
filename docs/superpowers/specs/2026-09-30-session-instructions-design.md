@@ -1,7 +1,7 @@
 ---
 id: 2026-09-30-session-instructions-design
 title: Session instructions — Orbital's tips and the user's own text, appended to every Orbital session
-status: active
+status: done
 type: spec
 domain: sessions
 related:
