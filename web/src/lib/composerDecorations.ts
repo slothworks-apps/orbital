@@ -26,6 +26,10 @@ export interface TokenSource {
   resolved: ReadonlySet<string>
   /** `argumentHint` per catalog name without its slash. */
   hints: ReadonlyMap<string, string>
+  /** Catalog names with a file behind them — a click opens the skill viewer,
+   * so the token wears the pointer (spec: 2026-09-30-skill-preview-design).
+   * Optional: a source without it paints no command as clickable. */
+  openable?: ReadonlySet<string>
 }
 
 const key = new PluginKey<DecorationSet>('composerTokens')
@@ -68,7 +72,15 @@ function tokenDecorations(doc: ProseMirrorNode, source: TokenSource): Decoration
       // Nor is anything inside inline code.
       if (code && doc.rangeHasMark(start, from, code)) continue
       if (token.kind === 'command') {
-        out.push(Decoration.inline(start, from, { class: COMMAND_CLASS, 'data-token': 'command' }))
+        // `data-command` is what the hover bubble and the skill viewer read
+        // the name back from (spec: 2026-09-30-skill-preview-design).
+        out.push(
+          Decoration.inline(start, from, {
+            class: source.openable?.has(token.name) ? `${COMMAND_CLASS} cursor-pointer` : COMMAND_CLASS,
+            'data-token': 'command',
+            'data-command': token.name,
+          }),
+        )
         continue
       }
       // An unconfirmed path stays plain ink (9b: "not tinted while you are

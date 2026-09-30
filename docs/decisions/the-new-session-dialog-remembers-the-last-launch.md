@@ -36,6 +36,20 @@ The model has no key of its own. `remember_model_per_project` already
 preselects the model last used in the directory, and the remembered directory
 brings that model with it.
 
+### A selected planet comes first
+
+When a planet is selected as the dialog opens (`openingLaunch`), the
+dialog takes that session's directory and its tag instead: the first of its
+tags that still exists, so the new planet lands next to the one you were
+looking at. The permission mode is still the last launch's, and the model
+follows the directory as above.
+
+The planet's tag is not a hand pick. A launch does not store it as
+`new_session_last_tag`, unless the user clicks it. Otherwise a tag a rule
+gave the planet would become a remembered choice. If the user changes the
+directory, the rules decide the tag. If the planet has no tag, the
+remembered hand pick applies when the directory matches.
+
 The Settings defaults (`default_project_dir`, `default_permission_mode`) are
 still used until the first launch, and whenever a stored value is missing.
 After that, the dialog shows the last launch's values instead. They still

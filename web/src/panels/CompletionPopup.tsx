@@ -41,20 +41,26 @@ const CLOSE_MS = 90
 const FILE_DEBOUNCE_MS = 90
 
 /** Right-hand badge copy, verbatim from canvas 9b. */
-function sourceLabel(source: CommandSource, name: string): string {
+export function sourceLabel(source: CommandSource, name: string): string {
+  if (source.startsWith('plugin')) {
+    // The server's scan names the plugin in the source (`plugin:<name>`).
+    // Otherwise plugin commands are named `plugin:skill` (spec § Command
+    // catalog), so the name can. Without either it stays generic rather than
+    // inventing one.
+    const bare = name.replace(/^\//, '')
+    const plugin = source.startsWith('plugin:')
+      ? source.slice('plugin:'.length)
+      : bare.includes(':')
+        ? bare.slice(0, bare.indexOf(':'))
+        : null
+    return plugin ? `plugin: ${plugin}` : 'plugin'
+  }
   switch (source) {
     case 'project':
       return 'project .claude'
     case 'user':
       return 'user ~/.claude'
-    case 'plugin': {
-      // Plugin commands are named `plugin:skill` (spec § Command catalog), so
-      // the badge can name the plugin. Without the prefix it stays generic
-      // rather than inventing one.
-      const plugin = name.includes(':') ? name.slice(0, name.indexOf(':')) : null
-      return plugin ? `plugin: ${plugin}` : 'plugin'
-    }
-    case 'built-in':
+    default:
       return 'built-in'
   }
 }

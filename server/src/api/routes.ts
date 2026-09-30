@@ -11,7 +11,7 @@ import { expandHome } from '../paths.js';
 import { readFilePreview } from '../files/preview.js';
 import { completeFilePath } from '../files/complete.js';
 import { OpenTabsReader } from '../files/openTabs.js';
-import { collectCommands, type CatalogCommand } from '../commands/catalog.js';
+import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
   compactionFailures,
@@ -548,24 +548,29 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * whole answer, built-ins deliberately absent: offering a command the CLI may
    * not honour is worse than omitting it.
    */
-  app.get('/api/commands', async (req, reply) => {
-    const q = req.query as Record<string, string>;
-    let cwd: string;
-    let sessionId: string | null = null;
+  /**
+   * The cwd both catalog routes scan: the session's, or the New Session
+   * dialog's hand-typed one. A string is the error to answer with.
+   */
+  function catalogCwd(q: Record<string, string>): { cwd: string; sessionId: string | null } | 'not_found' | 'missing_params' {
     if (q.session) {
       const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, q.session)).get() as
         | SessionRow
         | undefined;
-      if (!row) return reply.code(404).send({ error: 'not_found' });
-      cwd = row.cwd;
-      sessionId = q.session;
-    } else if (q.cwd) {
-      // The one door an unexpanded path comes through here, same as
-      // `POST /api/sessions`: the dialog's directory field is hand-typed.
-      cwd = expandHome(q.cwd);
-    } else {
-      return reply.code(400).send({ error: 'missing_params' });
+      if (!row) return 'not_found';
+      return { cwd: row.cwd, sessionId: q.session };
     }
+    // The one door an unexpanded path comes through here, same as
+    // `POST /api/sessions`: the dialog's directory field is hand-typed.
+    if (q.cwd) return { cwd: expandHome(q.cwd), sessionId: null };
+    return 'missing_params';
+  }
+
+  app.get('/api/commands', async (req, reply) => {
+    const where = catalogCwd(req.query as Record<string, string>);
+    if (where === 'not_found') return reply.code(404).send({ error: 'not_found' });
+    if (where === 'missing_params') return reply.code(400).send({ error: 'missing_params' });
+    const { cwd, sessionId } = where;
 
     const scanned = collectCommands({ claudeDir: ctx.claudeDir, cwd });
     const live = sessionId ? await ctx.runner.commands(sessionId) : null;
@@ -589,6 +594,28 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
     return { commands: withRewind(commands) };
+  });
+
+  /**
+   * One command's file, for the composer's skill viewer (spec
+   * 2026-09-30-skill-preview-design). `name` is matched against the catalog
+   * scan, never joined onto a path, so this serves only what `/api/commands`
+   * would list — a built-in, which has no file, is a 404 like any unknown.
+   */
+  app.get('/api/commands/content', async (req, reply) => {
+    const q = req.query as Record<string, string>;
+    const where = catalogCwd(q);
+    if (where === 'not_found') return reply.code(404).send({ error: 'not_found' });
+    if (where === 'missing_params' || !q.name) return reply.code(400).send({ error: 'missing_params' });
+    const found = findCommandFile({ claudeDir: ctx.claudeDir, cwd: where.cwd }, q.name.replace(/^\//, ''));
+    if (!found) return reply.code(404).send({ error: 'not_found' });
+    return {
+      name: found.name,
+      source: found.source,
+      path: found.path,
+      description: found.description,
+      body: found.body,
+    };
   });
 
   /**

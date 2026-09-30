@@ -890,7 +890,7 @@ export type FilePreview =
 export type CompletionKey = { session: string } | { cwd: string }
 
 /** Where a slash command comes from — the popup's right-hand badge (canvas 9b). */
-export type CommandSource = 'user' | 'project' | 'plugin' | 'built-in'
+export type CommandSource = 'user' | 'project' | 'plugin' | `plugin:${string}` | 'built-in'
 
 /** One row of `GET /api/commands`. */
 export interface SlashCommand {
@@ -901,6 +901,18 @@ export interface SlashCommand {
   /** What the command takes, ghosted after `/name ` in the composer (spec:
    * 2026-09-29-composer-rich-editor-design § 3). */
   argumentHint?: string
+}
+
+/** `GET /api/commands/content` — the file behind one catalog command, for the
+ * skill viewer (spec: 2026-09-30-skill-preview-design). */
+export interface CommandContent {
+  name: string
+  source: CommandSource
+  /** Absolute path of the SKILL.md or command file. */
+  path: string
+  description: string
+  /** The markdown with its frontmatter stripped. */
+  body: string
 }
 
 /** One row of `GET /api/files/complete`. `size` is absent for directories. */

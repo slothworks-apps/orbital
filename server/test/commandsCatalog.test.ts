@@ -2,7 +2,12 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { collectCommands, parseFrontmatter } from '../src/commands/catalog.js';
+import {
+  collectCommands,
+  findCommandFile,
+  parseFrontmatter,
+  stripFrontmatter,
+} from '../src/commands/catalog.js';
 
 /**
  * Fake `~/.claude` + project roots per test. Everything the scan reads is a
@@ -191,6 +196,21 @@ describe('collectCommands', () => {
       ]);
     });
 
+    it("finds a plugin skill's file by its plugin:entry name", () => {
+      const claudeDir = makeRoot('claude');
+      const installPath = join(claudeDir, 'plugins', 'cache', 'official', 'superpowers', 'v1');
+      skill(installPath, 'brainstorming');
+      installPlugins(
+        claudeDir,
+        { 'superpowers@official': installPath },
+        { 'superpowers@official': true },
+      );
+
+      const found = findCommandFile({ claudeDir, cwd: makeRoot('cwd') }, 'superpowers:brainstorming');
+      expect(found?.path).toBe(join(installPath, 'skills', 'brainstorming', 'SKILL.md'));
+      expect(found?.body).toBe('body\n');
+    });
+
     it('ignores a plugin that is installed but not enabled', () => {
       const claudeDir = makeRoot('claude');
       const installPath = join(claudeDir, 'plugins', 'cache', 'official', 'firebase', 'v1');
@@ -249,5 +269,43 @@ describe('collectCommands', () => {
     expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([
       { name: 'ok', description: '', source: 'user' },
     ]);
+  });
+});
+
+describe('findCommandFile', () => {
+  it('prefers the project file on a name collision, as the list does', () => {
+    const claudeDir = makeRoot('claude');
+    const cwd = makeRoot('cwd');
+    write(join(claudeDir, 'commands', 'ship.md'), 'user ship\n');
+    write(join(cwd, '.claude', 'commands', 'ship.md'), 'project ship\n');
+
+    expect(findCommandFile({ claudeDir, cwd }, 'ship')).toMatchObject({
+      source: 'project',
+      body: 'project ship\n',
+    });
+  });
+
+  it('is null for a name the scan did not find, path-shaped or not', () => {
+    const claudeDir = makeRoot('claude');
+    write(join(claudeDir, 'commands', 'ok.md'), '');
+    write(join(claudeDir, 'settings.json'), '{}');
+
+    expect(findCommandFile({ claudeDir, cwd: '' }, 'nope')).toBeNull();
+    expect(findCommandFile({ claudeDir, cwd: '' }, '../settings')).toBeNull();
+    expect(findCommandFile({ claudeDir, cwd: '' }, `${claudeDir}/settings.json`)).toBeNull();
+  });
+});
+
+describe('stripFrontmatter', () => {
+  it('drops the fenced block and the blank line after it', () => {
+    expect(stripFrontmatter('---\nname: x\n---\n\n# X\nbody\n')).toBe('# X\nbody\n');
+  });
+
+  it('leaves a file with no frontmatter whole', () => {
+    expect(stripFrontmatter('# X\n---\nmore\n')).toBe('# X\n---\nmore\n');
+  });
+
+  it('leaves an unclosed block whole rather than emptying the file', () => {
+    expect(stripFrontmatter('---\nname: x\nbody\n')).toBe('---\nname: x\nbody\n');
   });
 });

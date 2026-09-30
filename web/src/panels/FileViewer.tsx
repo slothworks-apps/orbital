@@ -42,8 +42,8 @@ const FILE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
 
 /** 8e transitions: surface .18s cubic-bezier(.2,.9,.25,1) 98%→100%, no
  * slide; close is the same reversed (slightly shorter, like the Lightbox). */
-const VIEWER_ENTER_MS = 180
-const VIEWER_EXIT_MS = 140
+export const VIEWER_ENTER_MS = 180
+export const VIEWER_EXIT_MS = 140
 
 /** Target-line accent (canvas 8e "target number"): oklch(88% .1 205). */
 const TARGET_ACCENT = 'oklch(88% .1 205)'
@@ -137,7 +137,7 @@ function SkeletonBody() {
  * red, no retry: a refusal is the viewer having nothing to show, not the
  * app going wrong.
  */
-function RefusalBody({ label, sentence }: { label: string; sentence: React.ReactNode | null }) {
+export function RefusalBody({ label, sentence }: { label: string; sentence: React.ReactNode | null }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[10px] px-10 text-center">
       <span aria-hidden className="h-4 w-4 rounded-[4px] border border-[rgba(160,190,225,.35)]" />
@@ -155,7 +155,7 @@ function RefusalBody({ label, sentence }: { label: string; sentence: React.React
 
 /** 8b: the transcript's markdown pipeline at reading size — 660px measure
  * centred, 15/1.75 body, 26px/700 h1, 18px block gap, 34px top inset. */
-function MarkdownBody({ content }: { content: string }) {
+export function MarkdownBody({ content }: { content: string }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto pb-10 pt-[34px]">
       <div

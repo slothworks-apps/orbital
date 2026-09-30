@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Extension, type Editor } from '@tiptap/core'
 import { Placeholder } from '@tiptap/extensions'
@@ -26,7 +26,10 @@ import {
   refreshDecorations,
   type TokenSource,
 } from '../lib/composerDecorations'
-import { CompletionPopup, type CompletionHandle } from './CompletionPopup'
+import { CompletionPopup, sourceLabel, type CompletionHandle } from './CompletionPopup'
+import { SkillViewer } from './SkillViewer'
+import { FloatingTooltip } from '../ui/Tooltip'
+import { PIN_TOOLTIP_DELAY_MS } from './UtilityStrip'
 import { AttachmentChip } from './AttachmentChip'
 import { ATTACHMENT_TYPES_LINE, MAX_ATTACHMENTS, filesFrom } from '../lib/attachments'
 import type { AttachmentsHandle } from './useAttachments'
@@ -81,6 +84,11 @@ const MAX_FIELD_PX = 176
 
 /** Debounce before a hand-typed path is checked against the filesystem. */
 const MENTION_PROBE_MS = 250
+
+/** How long the pointer rests on a tinted command before its card shows —
+ * the same wait as the pin tooltips, so a pointer crossing the field on its
+ * way somewhere else raises nothing. */
+const COMMAND_TOOLTIP_DELAY_MS = PIN_TOOLTIP_DELAY_MS
 
 /**
  * What the hint line says while the completion list is up (canvas 9b's well).
@@ -403,7 +411,9 @@ export function Composer({
    */
   const popupShown = activeDescendant !== null
 
-  const popupOpen = context !== null && !dismissed
+  /** The command whose file the skill viewer shows; the list stays shut under it. */
+  const [viewingSkill, setViewingSkill] = useState<string | null>(null)
+  const popupOpen = context !== null && !dismissed && viewingSkill === null
   useEffect(() => {
     if (context === null && dismissed) setDismissed(false)
   }, [context, dismissed])
@@ -435,6 +445,53 @@ export function Composer({
   }, [wantsCommands, commands, keyId])
 
   const knownCommands = useMemo(() => commandNameSet(commands ?? []), [commands])
+
+  // A tinted command explains itself on hover and opens on click (spec:
+  // 2026-09-30-skill-preview-design). The tokens are editor decorations, not
+  // React elements, so the well listens and reads the name back off
+  // `data-command`.
+  const commandsByName = useMemo(
+    () => new Map((commands ?? []).map((c) => [c.name.replace(/^\//, ''), c])),
+    [commands],
+  )
+  const [commandHover, setCommandHover] = useState<{ name: string; rect: DOMRect } | null>(null)
+  const hoveredName = useRef<string | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearCommandHover = () => {
+    if (hoverTimer.current !== null) clearTimeout(hoverTimer.current)
+    hoverTimer.current = null
+    hoveredName.current = null
+    setCommandHover(null)
+  }
+  useEffect(() => () => {
+    if (hoverTimer.current !== null) clearTimeout(hoverTimer.current)
+  }, [])
+  const commandTokenAt = (target: EventTarget): HTMLElement | null =>
+    target instanceof Element ? target.closest<HTMLElement>('[data-command]') : null
+  const handleWellMouseOver = (e: ReactMouseEvent) => {
+    const token = commandTokenAt(e.target)
+    const name = token?.dataset.command ?? null
+    if (name === hoveredName.current) return
+    clearCommandHover()
+    if (!token || !name) return
+    hoveredName.current = name
+    hoverTimer.current = setTimeout(
+      () => setCommandHover({ name, rect: token.getBoundingClientRect() }),
+      COMMAND_TOOLTIP_DELAY_MS,
+    )
+  }
+  const handleWellClick = (e: ReactMouseEvent) => {
+    const name = commandTokenAt(e.target)?.dataset.command
+    const command = name ? commandsByName.get(name) : undefined
+    // A built-in has no file behind it: the tooltip is all there is (the
+    // paint's `openable` makes the same call for the pointer cursor).
+    if (!name || !command || command.source === 'built-in') return
+    clearCommandHover()
+    // Keystrokes must not land in the field behind the viewer.
+    editor?.commands.blur()
+    setViewingSkill(name)
+  }
+  const hoveredCommand = commandHover ? commandsByName.get(commandHover.name) : undefined
   const note = useMemo(() => {
     if (commands === null) return null
     const slug = unknownCommand(value, knownCommands)
@@ -445,10 +502,13 @@ export function Composer({
   // of them moved.
   useEffect(() => {
     const hints = new Map<string, string>()
+    const openable = new Set<string>()
     for (const c of commands ?? []) {
-      if (c.argumentHint) hints.set(c.name.startsWith('/') ? c.name.slice(1) : c.name, c.argumentHint)
+      const name = c.name.startsWith('/') ? c.name.slice(1) : c.name
+      if (c.argumentHint) hints.set(name, c.argumentHint)
+      if (c.source !== 'built-in') openable.add(name)
     }
-    tokenSource.current = { known: knownCommands, resolved, hints }
+    tokenSource.current = { known: knownCommands, resolved, hints, openable }
     if (editor && !editor.isDestroyed) refreshDecorations(editor.view)
   }, [editor, commands, knownCommands, resolved])
 
@@ -586,6 +646,11 @@ export function Composer({
     <div className={className}>
       <div
         ref={wellRef}
+        onMouseOver={handleWellMouseOver}
+        onMouseLeave={clearCommandHover}
+        onClick={handleWellClick}
+        // Typing moves the text under a bubble that was placed for it.
+        onKeyDown={clearCommandHover}
         data-composer-well
         data-focused={focused || undefined}
         // Canvas 9a/9e: 10px radius over rgba(4,8,16,.6) inside a .18
@@ -791,6 +856,26 @@ export function Composer({
           onActiveDescendantChange={setActiveDescendant}
         />
       )}
+
+      {commandHover && hoveredCommand && !popupOpen && (
+        <FloatingTooltip
+          title={`/${commandHover.name}`}
+          aside={sourceLabel(hoveredCommand.source, hoveredCommand.name)}
+          description={hoveredCommand.description || undefined}
+          rect={commandHover.rect}
+        />
+      )}
+      <SkillViewer
+        commandKey={sessionKey}
+        name={viewingSkill}
+        onClose={() => {
+          setViewingSkill(null)
+          editor?.commands.focus()
+          // The click left the caret inside the slug; coming back to the
+          // field is not asking to complete it.
+          setDismissed(true)
+        }}
+      />
     </div>
   )
 }

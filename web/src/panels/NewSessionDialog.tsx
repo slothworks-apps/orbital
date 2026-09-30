@@ -61,6 +61,37 @@ export function lastLaunch(settings: Record<string, string | undefined>): {
 }
 
 /**
+ * What an open starts from: `lastLaunch`, unless a planet is selected — then
+ * that session's directory and its tag (the first that still exists), so the
+ * new planet lands next to it. The mode stays the last launch's. The planet's
+ * tag is not a hand pick (`pickedByHand` is false), so a launch does not store
+ * it. A planet without a tag falls back to the remembered tag when the
+ * directory is the same, and to the rules otherwise.
+ */
+export function openingLaunch(
+  settings: Record<string, string | undefined>,
+  selected: { cwd: string; tagIds: number[] } | null,
+  tags: Array<{ id: number }>,
+): {
+  cwd: string
+  permissionMode: PermissionMode
+  tag: { cwd: string; tagId: number; pickedByHand: boolean } | null
+} {
+  const last = lastLaunch(settings)
+  const cwd = selected?.cwd || last.cwd
+  const planetTagId = selected?.cwd ? selected.tagIds.find((id) => tags.some((t) => t.id === id)) : undefined
+  if (planetTagId != null) {
+    return { cwd, permissionMode: last.permissionMode, tag: { cwd, tagId: planetTagId, pickedByHand: false } }
+  }
+  // A tag deleted since the launch is not preselected.
+  const remembered =
+    last.tag && last.tag.cwd === cwd && tags.some((t) => t.id === last.tag!.tagId)
+      ? { ...last.tag, pickedByHand: true }
+      : null
+  return { cwd, permissionMode: last.permissionMode, tag: remembered }
+}
+
+/**
  * Stores a launch's choices for the next open. Fire-and-forget, like the
  * Settings panel's last section: a failed write costs the next open its
  * prefill and nothing else.
@@ -92,7 +123,8 @@ function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: stri
  * cwd/mode changes until the user manually picks a different tag — after
  * that, the manual choice wins over any further auto-match. The MODEL group
  * (canvas 4b) mirrors that same manual-override pattern for the model pick.
- * Each open starts from the previous launch's choices — see `lastLaunch`.
+ * Each open starts from the previous launch's choices, or from the selected
+ * planet — see `openingLaunch`.
  */
 export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
@@ -100,6 +132,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const rules = useOrbital(useShallow((s) => s.rules))
   const models = useOrbital(useShallow((s) => s.models))
   const select = useOrbital((s) => s.select)
+  const selectedSession = useOrbital((s) => (s.ui.selectedId ? (s.sessions[s.ui.selectedId] ?? null) : null))
   const launchSession = useOrbital((s) => s.launchSession)
 
   const [cwd, setCwd] = useState('')
@@ -121,8 +154,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [customInitial, setCustomInitial] = useState<string | null>(null)
   const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null }>>([])
   const [pending, setPending] = useState(false)
-  /** The previous launch's manual tag pick and the directory it belongs to. */
-  const [rememberedTag, setRememberedTag] = useState<{ cwd: string; tagId: number } | null>(null)
+  /**
+   * The tag the dialog opened with and the directory it belongs to: the
+   * previous launch's manual pick or the selected planet's tag.
+   */
+  const [rememberedTag, setRememberedTag] = useState<{ cwd: string; tagId: number; pickedByHand: boolean } | null>(
+    null,
+  )
 
   // Image intake, the same pair the detail panel mounts (spec:
   // 2026-09-20-composer-design § Image intake; canvas 9d-D). `null` is the
@@ -143,14 +181,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const wasOpenRef = useRef(false)
   useEffect(() => {
     if (open && !wasOpenRef.current) {
-      const last = lastLaunch(settings)
-      // A tag deleted since the launch is not preselected.
-      const tagHere = last.tag && tags.some((t) => t.id === last.tag!.tagId) ? last.tag : null
-      setCwd(last.cwd)
-      setPermissionMode(last.permissionMode)
+      const opening = openingLaunch(settings, selectedSession, tags)
+      setCwd(opening.cwd)
+      setPermissionMode(opening.permissionMode)
       setPrompt('')
-      setRememberedTag(tagHere)
-      setTagId(tagHere?.tagId ?? null)
+      setRememberedTag(opening.tag)
+      setTagId(opening.tag?.tagId ?? null)
       setManualOverride(false)
       setMatchedTagId(null)
       setMatchedRuleId(null)
@@ -172,7 +208,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     // waiting on its uploads is untouched by this.
     if (!open && wasOpenRef.current) resetAttachments()
     wasOpenRef.current = open
-    // Settings and tags are read on the open transition only: a launch writes
+    // Settings, tags and the selected planet are read on the open transition only: a launch writes
     // its choices back while the dialog is closing, and that must not re-run
     // the reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,9 +302,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         ...(refs.length > 0 ? { attachments: refs } : {}),
       }, images)
       // A tag is remembered only when it was the user's pick — this launch's,
-      // or the previous one's left standing — never a rule's match.
+      // or the previous one's left standing — never a rule's match or the
+      // selected planet's tag.
       const pickedTag =
-        tagId != null && (manualOverride || (rememberedTag?.cwd === cwd.trim() && rememberedTag.tagId === tagId))
+        tagId != null &&
+        (manualOverride ||
+          (rememberedTag?.pickedByHand && rememberedTag.cwd === cwd.trim() && rememberedTag.tagId === tagId))
       rememberLaunch({
         new_session_last_cwd: cwd.trim(),
         new_session_last_mode: permissionMode,

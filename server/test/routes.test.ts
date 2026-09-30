@@ -1787,6 +1787,54 @@ describe('GET /api/commands', () => {
   });
 });
 
+describe('GET /api/commands/content', () => {
+  function writeSkill(root: string, name: string, text: string) {
+    mkdirSync(join(root, 'skills', name), { recursive: true });
+    writeFileSync(join(root, 'skills', name, 'SKILL.md'), text);
+  }
+
+  it("serves a session's project skill: header fields plus the body without frontmatter", async () => {
+    const { app, db } = makeApp();
+    const cwd = mkdtempSync(join(tmpdir(), 'orbital-cmd-cwd-'));
+    db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
+    writeSkill(join(cwd, '.claude'), 'deploy', '---\ndescription: ship to prod\n---\n\n# Deploy\nsteps\n');
+
+    const res = await app.inject({ method: 'GET', url: '/api/commands/content?session=sc&name=deploy' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      name: 'deploy',
+      source: 'project',
+      path: join(cwd, '.claude', 'skills', 'deploy', 'SKILL.md'),
+      description: 'ship to prod',
+      body: '# Deploy\nsteps\n',
+    });
+  });
+
+  it('resolves a user skill from a bare cwd, and accepts the name with its slash', async () => {
+    const { app, claudeDir } = makeApp();
+    writeSkill(claudeDir, 'ask', '---\ndescription: answer only\n---\nbody\n');
+
+    const res = await app.inject({ method: 'GET', url: '/api/commands/content?cwd=/tmp&name=%2Fask' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ name: 'ask', source: 'user', body: 'body\n' });
+  });
+
+  it('404s a name the catalog does not list — a built-in, or a path', async () => {
+    const { app, claudeDir } = makeApp();
+    writeFileSync(join(claudeDir, 'settings.json'), '{}');
+    for (const name of ['compact', '../settings.json', encodeURIComponent(join(claudeDir, 'settings.json'))]) {
+      const res = await app.inject({ method: 'GET', url: `/api/commands/content?cwd=/tmp&name=${name}` });
+      expect(res.statusCode).toBe(404);
+    }
+  });
+
+  it('400s without a name', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'GET', url: '/api/commands/content?cwd=/tmp' });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe('GET /api/files/complete', () => {
   let app: FastifyInstance;
   let cwd: string;

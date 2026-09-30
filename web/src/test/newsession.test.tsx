@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import type { OrbitalModel, Tag } from '../lib/types'
+import type { ApiSession, OrbitalModel, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
 // Same shape as modelcards.test.tsx's fixture, so the two never disagree
@@ -23,7 +23,7 @@ vi.mock('../lib/socket', () => ({
 }))
 
 import { api } from '../lib/api'
-import { NewSessionDialog } from '../panels/NewSessionDialog'
+import { NewSessionDialog, openingLaunch } from '../panels/NewSessionDialog'
 import { editorOf, fieldValue, replaceField } from './composerField'
 
 /** RFC 4122 v4, the only shape the CLI accepts as a session id. */
@@ -749,5 +749,87 @@ describe('NewSessionDialog — image intake (9d-D)', () => {
     rerender(<NewSessionDialog open={false} onClose={vi.fn()} />)
     rerender(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(chips()).toHaveLength(0))
+  })
+})
+
+describe('NewSessionDialog — opens on the selected planet', () => {
+  const planet = (overrides: Partial<ApiSession> = {}): ApiSession => ({
+    id: 'p1',
+    cwd: '/home/tomin/planet',
+    title: 'planet',
+    firstAt: 1,
+    lastAt: 100,
+    messageCount: 1,
+    source: 'web',
+    permissionMode: 'acceptEdits',
+    model: null,
+    resolvedModel: null,
+    tagIds: [1],
+    status: 'idle',
+    subagents: [],
+    ...overrides,
+  })
+
+  it('takes the planet`s directory and tag, and keeps the last launch`s mode', () => {
+    const settings = {
+      new_session_last_cwd: '/home/tomin/orbital',
+      new_session_last_mode: 'plan',
+      new_session_last_tag: '2',
+    }
+    expect(openingLaunch(settings, planet(), [workTag, defaultTag])).toEqual({
+      cwd: '/home/tomin/planet',
+      permissionMode: 'plan',
+      tag: { cwd: '/home/tomin/planet', tagId: 1, pickedByHand: false },
+    })
+  })
+
+  it('skips a planet tag that no longer exists, and leaves another directory to the rules', () => {
+    const settings = { new_session_last_cwd: '/home/tomin/orbital', new_session_last_tag: '2' }
+    expect(openingLaunch(settings, planet({ tagIds: [99] }), [workTag, defaultTag]).tag).toBeNull()
+  })
+
+  it('falls back to the remembered hand pick when an untagged planet shares its directory', () => {
+    const settings = { new_session_last_cwd: '/home/tomin/planet', new_session_last_tag: '2' }
+    expect(openingLaunch(settings, planet({ tagIds: [] }), [workTag, defaultTag]).tag).toEqual({
+      cwd: '/home/tomin/planet',
+      tagId: 2,
+      pickedByHand: true,
+    })
+  })
+
+  it('is the last launch when nothing is selected', () => {
+    const settings = { new_session_last_cwd: '/home/tomin/orbital', new_session_last_tag: '2' }
+    expect(openingLaunch(settings, null, [workTag, defaultTag])).toEqual({
+      cwd: '/home/tomin/orbital',
+      permissionMode: 'acceptEdits',
+      tag: { cwd: '/home/tomin/orbital', tagId: 2, pickedByHand: true },
+    })
+  })
+
+  it('opens on the planet, and a launch does not store its tag as a hand pick', async () => {
+    vi.mocked(api.previewRule).mockResolvedValue({ tagId: 2, ruleId: 10 })
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    resetStore({
+      sessions: { p1: planet() },
+      order: ['p1'],
+      settings: { new_session_last_cwd: '/home/tomin/orbital' },
+      ui: { selectedId: 'p1' },
+    })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.previewRule).toHaveBeenCalled())
+
+    expect(screen.getByLabelText(/project directory/i)).toHaveValue('/home/tomin/planet')
+    expect(chip('work')).toHaveAttribute('data-active', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/home/tomin/planet', tagId: 1 })),
+    )
+    await waitFor(() =>
+      expect(api.patchSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ new_session_last_cwd: '/home/tomin/planet', new_session_last_tag: '' }),
+      ),
+    )
   })
 })

@@ -36,6 +36,13 @@ export interface CatalogCommand {
   argumentHint?: string;
 }
 
+/** A scanned command and the file it was read from — what the skill viewer
+ * resolves a name against. Kept off `CatalogCommand` so the path never rides
+ * the `/api/commands` wire. */
+interface ScannedCommand extends CatalogCommand {
+  path: string;
+}
+
 /** How deep under a `skills/` root a `SKILL.md` may sit. Two is what the real
  * nesting needs (`skills/synced/<uuid>/<skill>`); the cap is there so a
  * symlink loop or a vendored `node_modules` cannot turn this into a full
@@ -86,6 +93,19 @@ export function parseFrontmatter(text: string): Record<string, string> {
   return out;
 }
 
+/**
+ * The markdown after the leading `---` block, which is what the skill viewer
+ * renders — the frontmatter is already its header. A file with no fenced
+ * block, or one never closed, comes back whole rather than emptied.
+ */
+export function stripFrontmatter(text: string): string {
+  const lines = text.split('\n');
+  if (lines[0]?.trim() !== '---') return text;
+  const end = lines.findIndex((line, i) => i > 0 && line.trim() === '---');
+  if (end === -1) return text;
+  return lines.slice(end + 1).join('\n').replace(/^\s*\n/, '');
+}
+
 function unquote(value: string): string {
   const quoted = /^(["'])(.*)\1$/.exec(value);
   return quoted ? quoted[2] : value;
@@ -131,14 +151,16 @@ function frontmatterOf(path: string): Record<string, string> {
  * prompt and nothing else, and those get an empty description rather than
  * being skipped for lacking one.
  */
-function scanCommandsDir(dir: string, source: CommandSource, prefix: string): CatalogCommand[] {
-  const out: CatalogCommand[] = [];
+function scanCommandsDir(dir: string, source: CommandSource, prefix: string): ScannedCommand[] {
+  const out: ScannedCommand[] = [];
   for (const entry of entriesOf(dir)) {
     if (entry.isDir || !entry.name.endsWith('.md')) continue;
+    const path = join(dir, entry.name);
     out.push({
       name: prefix + entry.name.slice(0, -'.md'.length),
       source,
-      ...describe(frontmatterOf(join(dir, entry.name))),
+      path,
+      ...describe(frontmatterOf(path)),
     });
   }
   return out;
@@ -154,16 +176,17 @@ function scanSkillsDir(
   source: CommandSource,
   prefix: string,
   depth = 1,
-): CatalogCommand[] {
-  const out: CatalogCommand[] = [];
+): ScannedCommand[] {
+  const out: ScannedCommand[] = [];
   for (const entry of entriesOf(dir)) {
     if (!entry.isDir) continue;
     const child = join(dir, entry.name);
-    const manifest = readText(join(child, 'SKILL.md'));
+    const path = join(child, 'SKILL.md');
+    const manifest = readText(path);
     if (manifest !== null) {
       // The directory names the command, not the frontmatter's `name:` — the
       // directory is what the CLI resolves `/<name>` against.
-      out.push({ name: prefix + entry.name, source, ...describe(parseFrontmatter(manifest)) });
+      out.push({ name: prefix + entry.name, source, path, ...describe(parseFrontmatter(manifest)) });
     } else if (depth < SKILL_MAX_DEPTH) {
       out.push(...scanSkillsDir(child, source, prefix, depth + 1));
     }
@@ -227,8 +250,29 @@ function enabledPluginPaths(claudeDir: string): Array<{ plugin: string; installP
  * all — an agent is not something the composer's `/` offers.
  */
 export function collectCommands(opts: { claudeDir: string; cwd: string }): CatalogCommand[] {
+  return scanAll(opts).map(({ path: _path, ...command }) => command);
+}
+
+/**
+ * The file behind one catalog name, or null when the catalog has no such
+ * name. The lookup goes through the same scan as the list on purpose: a name
+ * is only ever matched against what the scan found, so no `name` — however
+ * path-shaped — can reach a file the catalog would not itself offer.
+ */
+export function findCommandFile(
+  opts: { claudeDir: string; cwd: string },
+  name: string,
+): (CatalogCommand & { path: string; body: string }) | null {
+  const found = scanAll(opts).find((c) => c.name === name);
+  if (!found) return null;
+  const text = readText(found.path);
+  if (text === null) return null;
+  return { ...found, body: stripFrontmatter(text) };
+}
+
+function scanAll(opts: { claudeDir: string; cwd: string }): ScannedCommand[] {
   const projectClaude = opts.cwd ? join(opts.cwd, '.claude') : null;
-  const found: CatalogCommand[] = [
+  const found: ScannedCommand[] = [
     ...(projectClaude
       ? [
           ...scanCommandsDir(join(projectClaude, 'commands'), 'project', ''),
@@ -245,7 +289,7 @@ export function collectCommands(opts: { claudeDir: string; cwd: string }): Catal
       ...scanCommandsDir(join(installPath, 'commands'), source, `${plugin}:`),
     );
   }
-  const byName = new Map<string, CatalogCommand>();
+  const byName = new Map<string, ScannedCommand>();
   for (const command of found) {
     if (!byName.has(command.name)) byName.set(command.name, command);
   }

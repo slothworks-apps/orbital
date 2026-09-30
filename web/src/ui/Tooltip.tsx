@@ -1,5 +1,6 @@
 import { cloneElement, useEffect, useId, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
+import { createPortal } from 'react-dom'
 import { useEscapeLayer } from './escapeLayer'
 import { shortcutLabel } from '../lib/keymap'
 
@@ -143,13 +144,13 @@ export function Tooltip({
             // travel are what make a delayed bubble read as an answer to the
             // pointer resting, not as a flicker.
             side === 'above' ? 'orbital-tooltip-up bottom-full mb-2' : 'orbital-tooltip-in top-full mt-2',
-            'orbital-no-drag absolute z-20 w-max border',
-            'border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]',
+            'orbital-no-drag absolute z-20',
+            BUBBLE_SHELL_CLASS,
             // 1f draws the one-line shell tighter and with a softer drop than
             // 2d's card, because it hangs off a text row rather than a control.
             variant === 'name'
               ? 'max-w-[300px] rounded-[7px] px-2 py-[5px] shadow-[0_10px_26px_rgba(0,0,0,.5)]'
-              : 'max-w-[340px] rounded-[9px] px-3 py-[9px] shadow-[0_16px_40px_rgba(0,0,0,.55)]',
+              : CARD_CLASS,
             align === 'right' ? 'right-0' : 'left-0',
           ].join(' ')}
         >
@@ -173,23 +174,80 @@ export function Tooltip({
                   // it caps the box at 300px while the text runs straight out
                   // the side.
                   'block whitespace-normal font-mono text-[11px] text-text-bright [overflow-wrap:anywhere]'
-                : 'block font-mono text-[11.5px] text-text-bright'
+                : CARD_TITLE_CLASS
             }
           >
             {title}
             {shortcut && (
-              <span className="ml-2 whitespace-nowrap text-[rgba(160,190,225,.55)]">
+              <span className={SHORTCUT_CLASS}>
                 {shortcutLabel(shortcut)}
               </span>
             )}
           </span>
-          {variant === 'card' && (
-            <span className="mt-1 block text-[11.5px] leading-[1.45] text-[rgba(160,190,225,.8)] [text-wrap:pretty]">
-              {description}
-            </span>
-          )}
+          {variant === 'card' && <span className={CARD_DESCRIPTION_CLASS}>{description}</span>}
         </span>
       )}
     </span>
+  )
+}
+
+const BUBBLE_SHELL_CLASS = 'w-max border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]'
+const CARD_CLASS = 'max-w-[340px] rounded-[9px] px-3 py-[9px] shadow-[0_16px_40px_rgba(0,0,0,.55)]'
+const CARD_TITLE_CLASS = 'block font-mono text-[11.5px] text-text-bright'
+const SHORTCUT_CLASS = 'ml-2 whitespace-nowrap text-[rgba(160,190,225,.55)]'
+const CARD_DESCRIPTION_CLASS =
+  'mt-1 block text-[11.5px] leading-[1.45] text-[rgba(160,190,225,.8)] [text-wrap:pretty]'
+
+/** The gap between a floating card and the run it explains — 2d's 8px. */
+const FLOATING_GAP_PX = 8
+/** Keeps a floating card's right edge off the window's. */
+const FLOATING_EDGE_PX = 8
+/** `CARD_CLASS`'s width cap, for the right-edge clamp. */
+const FLOATING_MAX_WIDTH_PX = 340
+
+/**
+ * The 2d card hung above a rectangle rather than wrapped around a React
+ * trigger — for a run of text some other renderer owns, like a token the
+ * composer's editor paints as a decoration (spec:
+ * 2026-09-30-skill-preview-design). Portalled and `fixed`, because the
+ * composer's field scrolls and clips; the caller owns the hover timing and
+ * passes the run's rect.
+ *
+ * Pointer-transparent: it describes the run under it and is never itself a
+ * target, so moving onto it cannot flicker the hover it answers.
+ */
+export function FloatingTooltip({
+  title,
+  aside,
+  description,
+  rect,
+}: {
+  title: string
+  /** Muted after the title, where `Tooltip` prints its shortcut. */
+  aside?: string
+  description?: string
+  rect: DOMRect
+}) {
+  const left = Math.max(
+    FLOATING_EDGE_PX,
+    Math.min(rect.left, window.innerWidth - FLOATING_MAX_WIDTH_PX - FLOATING_EDGE_PX),
+  )
+  return createPortal(
+    <span
+      role="tooltip"
+      style={{ left, bottom: window.innerHeight - rect.top + FLOATING_GAP_PX }}
+      className={[
+        'orbital-tooltip-up pointer-events-none fixed z-50 block',
+        BUBBLE_SHELL_CLASS,
+        CARD_CLASS,
+      ].join(' ')}
+    >
+      <span className={CARD_TITLE_CLASS}>
+        {title}
+        {aside && <span className={SHORTCUT_CLASS}>{aside}</span>}
+      </span>
+      {description && <span className={CARD_DESCRIPTION_CLASS}>{description}</span>}
+    </span>,
+    document.body,
   )
 }

@@ -2,6 +2,7 @@ import type {
   ApiSession,
   AttachmentUpload,
   ChatMessage,
+  CommandContent,
   CompletionKey,
   ImageRefEntry,
   ErrorKind,
@@ -554,6 +555,21 @@ export const api = {
     applyCompletionKey(url, key)
     const data = await request<{ commands: SlashCommand[] }>('GET', url.pathname + url.search)
     return data.commands
+  },
+
+  /** One command's file for the skill viewer (spec:
+   * 2026-09-30-skill-preview-design). Null when the catalog has no file for
+   * the name — a built-in, or a skill removed since the catalog was read. */
+  async commandContent(key: CompletionKey, name: string): Promise<CommandContent | null> {
+    const url = new URL('/api/commands/content', window.location.origin)
+    applyCompletionKey(url, key)
+    url.searchParams.set('name', name)
+    try {
+      return await request<CommandContent>('GET', url.pathname + url.search)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
   },
 
   /** `prefix` is sent verbatim, empty included — an empty prefix lists the cwd. */
