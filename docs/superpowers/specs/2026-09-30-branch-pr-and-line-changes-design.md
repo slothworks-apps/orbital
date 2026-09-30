@@ -62,9 +62,47 @@ Not everyone wants them, so both are opt-in.
 - The tooltip always splits the total into committed and uncommitted.
 - No changes at all: nothing is drawn.
 
-How the two parts look, and where they sit in the header strip and in its
-folded form ([[the-header-strip-folds-on-the-path-width]]), is decided on the
-canvas in Claude Design, not here.
+## The canvas
+
+`Feature - Branch status.dc.html`, status PROPOSAL. Artboards 1a (in situ,
+interactive), 1b (variants at 560 px), 1c (the fold), 1d (worst case), 1e
+(tooltips), 1f (does the number hint at state), 1g (Settings), 1h (parts,
+rules, trade-offs). The canvas owns geometry, ink and timing; what follows
+are the rules it settled that code has to honour.
+
+- Both are suffixes on row 1 of the header, after the branch:
+  path · mark · branch · #PR · lines.
+- The PR number is neutral in every state (1f, N1). State, review and checks
+  live only in the tooltip. It is a button: hover fill, pointer, focus ring,
+  the tooltip opens on focus too and ⏎ opens the PR.
+- The lines are a read-out, not a control: no hover fill, no cursor change,
+  hover opens the tooltip. For keyboard and screen readers they are part of
+  the where-cell's `aria-label`.
+- A hollow ring means "uncommitted" and nothing else: split mode's second
+  group, and the lone group on the default branch.
+- The only colour is the transcript's diff pair. No new hue.
+- Counts from 10 000 up are shortened (`12.4k`).
+- A merged or closed PR is still shown while the branch exists.
+- Values update in place with the branch's fade. A PR appearing or
+  disappearing fades in or out, and the fold is re-measured after the fade.
+
+### The fold order
+
+When the row runs out of width, each step gives up the cheapest thing left
+(1c, 1d):
+
+1. the path yields from its head, down to its leaf;
+2. split collapses to the total, the uncommitted part stays in the tooltip;
+3. the strip folds, the shipped mechanism
+   ([[the-header-strip-folds-on-the-path-width]]), now measured on the whole
+   where-cell;
+4. the branch is cut in the middle, down to a floor;
+5. the lines leave the row and move into the branch's tooltip, which then
+   shows the full branch name above them; the branch becomes hoverable;
+6. last resort: path to "…", branch to a lower floor.
+
+The PR number is never dropped. With both off, or nothing to show, the row
+and its fold point are exactly today's.
 
 ## Settings
 
@@ -78,9 +116,12 @@ Appearance section, next to the other header settings:
 - `branch`: one total, committed and uncommitted together.
 - `split`: the total plus the uncommitted part shown on its own. The tooltip
   splits it in both modes.
-- When `gh` is unusable, the PR toggle stays usable but carries a one-line
-  reason under it: "gh is not installed", "gh is not logged in". The reason
-  comes from the server.
+- When `gh` is unusable, the PR switch is disabled and drawn off, with a
+  one-line reason under it: "gh is not installed", "gh is not logged in".
+  The stored choice is kept: once `gh` works again the switch comes back
+  as it was left. The reason comes from the server, checked when Settings
+  opens and when the app regains focus (canvas 1g).
+- The lines row needs only `git` and never disables.
 - Both off: the server spawns nothing for this feature.
 
 ## Where the data comes from
@@ -114,7 +155,8 @@ session in that directory open (`session:<id>` has a subscriber).
 
 Lines:
 - when a panel opens on the directory;
-- when `HEAD` moves (the existing `GitStore` watcher);
+- when `HEAD` or the index moves (the `GitStore` watcher, extended to the
+  index, so a commit or `git add` from a terminal is picked up too);
 - after a tool that edits files finishes, and at the end of a turn. Both are
   debounced: the recount runs after a quiet interval, with a maximum wait so
   that a long run of edits still updates as it goes. Both intervals are
@@ -126,7 +168,8 @@ PR:
 - when a panel opens on the directory;
 - when the branch changes;
 - on a fixed interval while a panel stays open (a named constant, in the
-  order of a minute).
+  order of a minute);
+- when the app regains focus.
 
 Edits never trigger a PR lookup. Terminal sessions get both, because the key
 is the directory, not the session.
