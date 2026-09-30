@@ -1,7 +1,7 @@
 ---
 id: 2026-09-30-narrate-out-of-band-design
 title: Narrate out of band — a separate reader writes the walkthrough's narration
-status: draft
+status: done
 type: spec
 domain: walkthrough
 related:
@@ -78,12 +78,19 @@ Thinking blocks are never included, in any form. Orbital's own injected
 turns (command expansions, task notifications, old walkthrough tags) are left
 out as the spine already leaves them out.
 
+A step also names the subagent that made it, if one did, and what later
+steps did to it ("reverted later by step 4 on …"), which the spine already
+knows. A slash command the user typed is its name and what followed it;
+its expansion is left out.
+
 The digest is capped at `NARRATE_INPUT_MAX_CHARS`. When it is over, it is
-shortened in this order until it fits: call inputs are truncated per call,
-then the oldest assistant text is dropped, then the oldest user messages. A
-step line (id, ordinal, paths) is never dropped — every step must be
-nameable in the answer. A shortened digest says so in one line, so the model
-knows the record is partial.
+shortened in this order until it fits: call inputs are truncated per call
+(no shorter than `NARRATE_CALL_INPUT_MIN_CHARS`), then the oldest assistant
+text is dropped, then the oldest user messages, and only then are call
+inputs cut below that floor. A step line (id, ordinal, paths) is never
+dropped — every step must be nameable in the answer — so a session with more
+steps than fit comes out over the cap. A shortened digest says so in one
+line, so the model knows the record is partial.
 
 The prompt asks the model to describe only what the record shows. `considered`
 lists alternatives only where the record states them — the user or the agent
@@ -103,7 +110,7 @@ A new table holds one narration per session, replaced on each run:
 | `session_id` | the session (primary key) |
 | `status` | `running`, `done` or `failed` |
 | `model` | the model that was asked |
-| `intents` | the parsed intents, JSON; null unless `done` |
+| `intents` | the last `done` run's parsed intents, JSON; kept while a new run is `running`, null after a `failed` one |
 | `failure` | `refused`, `unparsable` or `error`; null unless `failed` |
 | `started_at`, `finished_at` | timestamps |
 
@@ -112,25 +119,36 @@ moves to `running`, and the walkthrough reports the last `done` intents
 alongside `narrationPending`. A `running` row left by a server that stopped
 is `failed` / `error` on the next start.
 
+The answer is read against the steps the digest listed, so every step the
+model saw is in an intent (`parseNarration` fills in the ones it did not
+name). When the walkthrough is served, the stored intents are laid over the
+steps the transcript has now: an id no step has any more is dropped, a step
+added since stands as its own untitled intent and counts in `staleSteps`,
+and a narration none of whose steps are left is no narration.
+
 The walkthrough's `narration`, `narrationFailed` and `narrationPending` keep
 their meaning and their shape on the wire; they are computed from this row
 instead of the transcript. `staleSteps` is still the number of current steps
 no intent names. `narrationFailed` gains a `narrationFailure` reason beside
 it, so the cover can say which of the three happened.
 
-When the query finishes, the server broadcasts the change on the WebSocket,
-so an open walkthrough page refetches.
+The server publishes `{ event: 'walkthrough_narration' }` on
+`session:<id>` when a run starts and again when it finishes, and an open
+walkthrough page refetches on it.
 
 Narrate turns already in old transcripts are no longer read as narration.
 The tag parser stays so they still fold behind their chip in the transcript.
 
 ## Failure
 
-- **`refused`** — the query ended in a refusal (stop reason or API error
-  saying so).
+- **`refused`** — the query ended in a refusal: stop reason `refusal` on an
+  assistant message or on the result, the SDK's `model_refusal_no_fallback`
+  notice, or a turn that ended in an error whose text says it was refused or
+  violated the usage policy (how the refusal of 2026-09-29 arrived).
 - **`unparsable`** — it answered, but `parseNarration` returned null.
 - **`error`** — anything else: the CLI failed to start, the call errored,
-  the server stopped mid-run.
+  the stream ended before its result, the server stopped mid-run. These are
+  also recorded in the error log.
 
 The cover shows the failure in one line with the button to try again. The
 steps stay readable without a narration, exactly as before narrate was
@@ -142,7 +160,8 @@ switch the model in Settings and try again.
 Two rows below the walkthrough switch, both ordinary settings keys:
 
 - **Narrate model** (`narrate_model`, default `sonnet`) — a picker over the
-  models `ModelCatalog` lists.
+  models `ModelCatalog` lists: the same cards as the default model, without
+  the Other field for a custom id.
 - **Comment for Narrate** (`narrate_commentary`, default off) — when on, the
   runner appends a short instruction to the `claude_code` preset system
   prompt (`systemPrompt.append`) of every query it starts, spawn and revive

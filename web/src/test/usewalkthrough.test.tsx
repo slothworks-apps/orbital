@@ -16,7 +16,7 @@ import { api, ApiError } from '../lib/api'
 import { useWalkthrough, WALKTHROUGH_REFETCH_DEBOUNCE_MS } from '../walkthrough/useWalkthrough'
 
 const session = { id: 'w1', title: 't', status: 'idle', source: 'web', cwd: '/w', ide: null, subagents: [] } as unknown as ApiSession
-const empty: Walkthrough = { steps: [], timeline: [], files: [], narration: null, narrationFailed: false, narrationPending: false, lastMessageId: null }
+const empty: Walkthrough = { steps: [], timeline: [], files: [], narration: null, narrationFailed: false, narrationPending: false, narrationFailure: null, lastMessageId: null }
 
 beforeEach(() => { handlers.clear(); vi.clearAllMocks(); vi.useFakeTimers() })
 
@@ -33,6 +33,15 @@ describe('useWalkthrough', () => {
       handlers.get('session:w1')!({ event: 'message', message: { id: 'm2', role: 'assistant', text: 'y' } })
     })
     expect(api.getWalkthrough).toHaveBeenCalledTimes(1)
+    await act(async () => { vi.advanceTimersByTime(WALKTHROUGH_REFETCH_DEBOUNCE_MS + 1); await Promise.resolve() })
+    expect(api.getWalkthrough).toHaveBeenCalledTimes(2)
+  })
+
+  it('refetches when a narrate query starts or lands', async () => {
+    vi.mocked(api.getWalkthrough).mockResolvedValue({ session, walkthrough: empty })
+    renderHook(() => useWalkthrough('w1'))
+    await act(async () => { await vi.runOnlyPendingTimersAsync() })
+    act(() => { handlers.get('session:w1')!({ event: 'walkthrough_narration' }) })
     await act(async () => { vi.advanceTimersByTime(WALKTHROUGH_REFETCH_DEBOUNCE_MS + 1); await Promise.resolve() })
     expect(api.getWalkthrough).toHaveBeenCalledTimes(2)
   })

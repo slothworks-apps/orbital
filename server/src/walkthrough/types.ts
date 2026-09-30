@@ -13,9 +13,6 @@ export interface StepCall { call: ChatMessage; result: ChatMessage | null }
 /** A later step that revised or reverted this step's work on `path`. */
 export interface StepFate { kind: FateKind; byStep: string; path: string }
 
-/** A question asked about a step and its answer (spec § Asking). */
-export interface StepQuestion { question: string; answer: string | null; messageId: string }
-
 /**
  * A run's direct writing calls, or one writing dispatch in it. `id` is the
  * `toolUseId` of its first writing call (falling back to that message's id),
@@ -25,7 +22,7 @@ export interface Step {
   id: string; ordinal: number; narration: string; calls: StepCall[];
   folded: Record<string, number>;
   subagent: { name: string; prompt: string; steps: Step[] } | null;
-  fate: StepFate[]; questions: StepQuestion[]; durationMs: number | null;
+  fate: StepFate[]; durationMs: number | null;
 }
 
 /** Everything between two steps: tool calls folded per tool, subagents that changed nothing, and what the agent said. */
@@ -44,15 +41,28 @@ export interface FileSummary { path: string; steps: string[]; created: boolean; 
 /** One intent the narration grouped steps under (spec § Narration). */
 export interface NarrationIntent { title: string; summary: string; steps: string[]; considered: string[]; abandoned: boolean }
 
-/** The narration turn's answer, read back from the transcript. */
-export interface Narration { intents: NarrationIntent[]; /** steps added after the narrate turn */ staleSteps: number }
+/** The last finished narration, laid over the current steps. */
+export interface Narration { intents: NarrationIntent[]; /** current steps no stored intent names */ staleSteps: number }
 
 /**
- * What the walkthrough page is built from. Nothing is stored; it is rebuilt
- * from the transcript on every request. `narration` is the last *answered*
- * narrate turn's; `narrationPending` says a newer narrate turn has no answer yet.
+ * Why the last narrate query failed (spec 2026-09-30-narrate-out-of-band-design
+ * § Failure): the model refused, it answered in a shape `parseNarration`
+ * could not read, or anything else went wrong.
+ */
+export type NarrationFailure = 'refused' | 'unparsable' | 'error';
+
+/**
+ * What the walkthrough page is built from. The spine is rebuilt from the
+ * transcript on every request; the narration fields come from the stored
+ * narration (spec 2026-09-30-narrate-out-of-band-design § Storage and state).
+ * `narration` is the last *finished* run's; `narrationPending` says a newer
+ * run is in flight; `narrationFailure` is set exactly when `narrationFailed` is.
  */
 export interface Walkthrough {
   steps: Step[]; timeline: TimelineEntry[]; files: FileSummary[];
-  narration: Narration | null; narrationFailed: boolean; narrationPending: boolean; lastMessageId: string | null;
+  narration: Narration | null; narrationFailed: boolean; narrationPending: boolean;
+  narrationFailure: NarrationFailure | null; lastMessageId: string | null;
 }
+
+/** The part of a walkthrough the transcript alone decides. */
+export type Spine = Omit<Walkthrough, 'narration' | 'narrationFailed' | 'narrationPending' | 'narrationFailure'>;

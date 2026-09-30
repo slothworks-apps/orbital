@@ -4,7 +4,6 @@ import { changeCounts, describeFileChange } from '../lib/fileEdit'
 import { formatDuration } from '../lib/format'
 import type { ApiSession, FateKind, StepCall, Walkthrough, WalkthroughStep } from '../lib/types'
 import { ChangeView } from '../panels/DiffView'
-import { AskField } from './AskField'
 import { callCounts, callsOf, foldedLine, intentFor, pathOf } from './derive'
 import { Counts, JumpLink, Words } from './parts'
 
@@ -14,7 +13,6 @@ interface StepBodyProps {
   walkthrough: Walkthrough
   step: WalkthroughStep
   onJump(stepId: string): void
-  onRefetch(): void
 }
 
 const FATE_GLYPH: Record<FateKind, string> = { revised: '↷', reverted: '↶' }
@@ -29,11 +27,11 @@ interface FateRow {
 }
 
 /**
- * One step (canvas 21b): what it was for, what it changed, what later became
- * of it, and the questions asked about it. A subagent's dispatch is one step
+ * One step (canvas 21b): what it was for, what it changed, and what later
+ * became of it. A subagent's dispatch is one step
  * whose own steps open in place (canvas 21d).
  */
-export function StepBody({ id, session, walkthrough, step, onJump, onRefetch }: StepBodyProps) {
+export function StepBody({ id, session, walkthrough, step, onJump }: StepBodyProps) {
   const total = walkthrough.steps.length
   const intent = intentFor(walkthrough, step.id)
   const title = intent?.title || step.narration || (step.subagent ? step.subagent.prompt : '')
@@ -126,27 +124,6 @@ export function StepBody({ id, session, walkthrough, step, onJump, onRefetch }: 
         ))
       )}
 
-      {/* canvas 21b: the ask well sits at the foot of the flow, the exchanges under it. */}
-      <section className="mt-auto flex flex-col gap-2 pt-2">
-        <AskField key={step.id} id={id} step={step} session={session} onSent={onRefetch} />
-        <div className="flex flex-col gap-1.5 px-1 pb-[18px]">
-          {step.questions.map((q) => (
-            <div key={q.messageId} className="flex flex-col gap-1.5">
-              <p className="max-w-[80%] self-end rounded-[12px_12px_4px_12px] border border-[oklch(80%_.13_210/.3)] bg-[oklch(80%_.13_210/.12)] px-3 py-2 text-[12.5px] leading-[1.5] text-text-bright">
-                {q.question}
-              </p>
-              <span className="self-end rounded-[7px] border border-[rgba(150,205,255,.14)] px-[9px] py-1 font-mono text-[10.5px] text-[rgba(200,220,245,.8)]">
-                ▸ walkthrough · ask<span className="text-[rgba(160,190,225,.5)]"> · step {step.ordinal}</span>
-              </span>
-              {q.answer === null ? (
-                <p className="font-mono text-[11px] text-text-muted">waiting for the answer…</p>
-              ) : (
-                <p className="max-w-[92%] self-start whitespace-pre-wrap text-[12.5px] leading-[1.55] text-[rgba(232,238,248,.92)]">{q.answer}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
     </article>
   )
 }

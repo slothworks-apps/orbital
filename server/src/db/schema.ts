@@ -346,6 +346,34 @@ export const rewinds = sqliteTable(
 );
 
 /**
+ * The walkthrough narration, one row per session, replaced on each run (spec
+ * 2026-09-30-narrate-out-of-band-design § Storage and state). Written only
+ * by `NarrationStore`. `intents` is the last `done` run's answer: a new run
+ * leaves it standing while `running`, so the page keeps its grouping until
+ * the new answer lands, and a `failed` run clears it. A row still
+ * `running` at boot is `failed` / `error`: its query died with the previous
+ * server.
+ */
+export const narrations = sqliteTable(
+  'narrations',
+  {
+    sessionId: text('session_id').primaryKey(),
+    status: text('status').$type<'running' | 'done' | 'failed'>().notNull(),
+    /** The model the query was asked on, as the setting named it. */
+    model: text('model').notNull(),
+    /** `NarrationIntent[]` as JSON text. Read it through `NarrationStore`, never raw. */
+    intents: text('intents'),
+    failure: text('failure').$type<'refused' | 'unparsable' | 'error'>(),
+    /** Epoch ms. */
+    startedAt: integer('started_at').notNull(),
+    finishedAt: integer('finished_at'),
+  },
+  (table) => [
+    check('narration_status_check', sql`${table.status} IN ('running','done','failed')`),
+  ],
+);
+
+/**
  * Every failure Orbital caught, from either side of the wire. See
  * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
  *

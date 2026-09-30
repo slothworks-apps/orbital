@@ -35,9 +35,13 @@ import { SCOPES, bindingCount, chordLabel, command } from '../lib/keymap'
 import { notifyDesktopSettingsChanged } from '../lib/desktop'
 import {
   EXPERIMENTAL_UNLOCKED_KEY,
+  NARRATE_COMMENTARY_KEY,
+  NARRATE_MODEL_KEY,
   WALKTHROUGH_ENABLED_KEY,
   experimentalUnlocked,
   isRevealChord,
+  narrateCommentary,
+  narrateModel,
   walkthroughEnabled,
 } from '../lib/experimental'
 import { Panel } from '../ui/Panel'
@@ -1124,13 +1128,36 @@ export function Settings({ open, onClose }: SettingsProps) {
                       <SectionLabel first>FEATURES</SectionLabel>
                       <Row
                         title="Walkthrough"
-                        desc="The step-by-step review of what an Orbital session changed. Off by default: narrating can get a session's turns refused, and Orbital cannot yet rewind past a refused turn."
+                        desc="The step-by-step review of what a session changed. Narrate reads the session's record separately and groups the steps under titles; the session itself is never touched."
                       >
                         <Toggle
                           aria-label="Walkthrough"
                           checked={walkthroughEnabled(settings)}
                           onChange={(checked) =>
                             void patchAndSet({ [WALKTHROUGH_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      <Row
+                        title="Narrate model"
+                        desc="The model that reads a session's record and writes its narration. Takes effect on the next Narrate."
+                      >
+                        <ModelCards
+                          compact
+                          models={models}
+                          value={narrateModel(settings)}
+                          onChange={(value) => void patchAndSet({ [NARRATE_MODEL_KEY]: value })}
+                        />
+                      </Row>
+                      <Row
+                        title="Comment for Narrate"
+                        desc="Asks Orbital's sessions to say what they change and why before each change, so Narrate has more to go on. Applies to sessions started or resumed while it is on, and makes them a little chattier."
+                      >
+                        <Toggle
+                          aria-label="Comment for Narrate"
+                          checked={narrateCommentary(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [NARRATE_COMMENTARY_KEY]: checked ? 'true' : 'false' })
                           }
                         />
                       </Row>

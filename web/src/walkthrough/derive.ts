@@ -1,4 +1,3 @@
-import { ApiError } from '../lib/api'
 import { changeCounts, describeFileChange } from '../lib/fileEdit'
 import type { ApiSession, Gap, NarrationIntent, StepCall, Walkthrough, WalkthroughStep } from '../lib/types'
 
@@ -166,10 +165,9 @@ export function prevScreen(screen: Screen, stepIds: string[]): Screen {
 }
 
 /**
- * Mid-turn: working, or parked on a decision. Asking and narrating are both
- * refused then (spec § Asking). `needs_input` alone is not mid-turn — it is
- * every live Orbital session between turns, which is when a walkthrough is
- * read — so the rule is the server's `refuseTurn`, not the status word.
+ * Mid-turn: working, or parked on a decision — steps may still be added.
+ * `needs_input` alone is not mid-turn: it is every live Orbital session
+ * between turns, which is when a walkthrough is read.
  */
 export function midTurn(session: Pick<ApiSession, 'status' | 'pendingDecision'>): boolean {
   return session.status === 'working' || (session.pendingDecision ?? null) !== null
@@ -198,15 +196,4 @@ export function sessionSpan(firstAt: number | null, lastAt: number | null): stri
   const clock = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   const sameDay = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
   return `${day(a)} ${clock(a)} → ${sameDay ? '' : `${day(b)} `}${clock(b)}`
-}
-
-/** Which of the two turn refusals a failed ask or narrate was, or null for any other failure. */
-export function refusalOf(err: unknown): 'busy' | 'terminal_session' | null {
-  if (!(err instanceof ApiError) || err.status !== 409) return null
-  try {
-    const body = JSON.parse(err.message) as { error?: unknown }
-    return body.error === 'busy' || body.error === 'terminal_session' ? body.error : null
-  } catch {
-    return null
-  }
 }

@@ -39,6 +39,7 @@ import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
 import { OutputFollower } from './files/taskOutput.js';
 import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
+import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
@@ -187,6 +188,8 @@ export async function buildServer(overrides: {
   queryFn?: QueryFn;
   /** The titler's one-shot call. Its own seam: it sends a whole prompt, not a stream. */
   titleQueryFn?: TitleQueryFn;
+  /** The walkthrough's narrate call — one-shot, like the titler's. */
+  narrateQueryFn?: NarrateQueryFn;
   /**
    * Built frontend to serve same-origin (`web/dist`). Unset in dev and tests,
    * where Vite serves it on DEV_WEB_PORT and proxies `/api` and `/ws` here.
@@ -385,6 +388,27 @@ export async function buildServer(overrides: {
       }),
   });
 
+  // The walkthrough's narration, written by a one-shot query outside the
+  // session and kept in SQLite (spec 2026-09-30-narrate-out-of-band-design).
+  // Loading fails whatever the previous server left running.
+  const narrator = new Narrator({
+    db,
+    queryFn: overrides.narrateQueryFn ?? query,
+    claudeExecutablePath: claudeCli.path,
+    model: () => settingsStore.get('narrate_model'),
+    onFinish: (sessionId) => hub.publish(`session:${sessionId}`, { event: 'walkthrough_narration' }),
+    onError: (sessionId, err) =>
+      errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: 'narrating a walkthrough' },
+      }),
+  });
+  narrator.load();
+
   /**
    * What a stopped process leaves behind — the user's End or Clear, the
    * sleep timer, or a CLI that exited on its own all arrive here, as the
@@ -455,6 +479,9 @@ export async function buildServer(overrides: {
     // editor).
     ide: ideApprovals(ide),
     subagentTranscripts,
+    // Read per start, never captured: the switch holds for a session from
+    // its next spawn or revive.
+    commentary: () => settingsStore.get('narrate_commentary') === 'true',
     onStatus: (sessionId, status) => {
       // A turn actually starting is what retires the interrupted mark — the
       // session has moved on from the turn the restart cut short. It hangs
@@ -904,7 +931,7 @@ export async function buildServer(overrides: {
   }));
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, errors,
-    images, imagesDir, titler, git, ide,
+    images, imagesDir, titler, narrator, git, ide,
     settings: settingsStore,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,

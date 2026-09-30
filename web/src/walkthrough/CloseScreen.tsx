@@ -167,8 +167,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
                   {session.status === 'working' ? 'the session is still working' : 'the session is waiting on a decision'}
                 </span>
                 <p className="text-[12.5px] text-[rgba(200,214,235,.8)]">
-                  Steps may still be added after {steps.length}; the cover&apos;s counts and this page update when it settles. Asking is
-                  paused until then.
+                  Steps may still be added after {steps.length}; the cover&apos;s counts and this page update when it settles.
                 </p>
               </div>
             )}

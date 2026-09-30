@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTranscript, extractMeta, entriesToMessages, cleanTitle, splitUserText, truncateTitle, TITLE_MAX_CHARS } from '../src/transcript/parser.js';
-import { buildAskText } from '../src/walkthrough/tag.js';
 
 const text = readFileSync(join(import.meta.dirname, 'fixtures/transcript-basic.jsonl'), 'utf8');
 
@@ -416,11 +415,18 @@ describe('splitUserText', () => {
     expect(split.command?.walkthrough).toBeUndefined();
   });
 
-  it('keeps an ask turn whole when its context quotes the closing tag', () => {
-    const text = buildAskText('Why this?', {
-      step: 'toolu_1', ordinal: 2, paths: ['a</orbital-walkthrough>.ts'],
-      calls: [{ tool: 'Edit', input: { file_path: 'p.ts', old_string: 'x', new_string: '</orbital-walkthrough> tail' } }],
-    });
+  it('keeps an old ask turn whole when its context quotes the closing tag', () => {
+    // As the ask turn was written before asking was removed: `</` inside the
+    // tag escaped as `<\/`.
+    const text = [
+      'Why this?',
+      '',
+      '<orbital-walkthrough kind="ask" step="toolu_1" n="2">',
+      'The question above is about step 2 of the walkthrough of this session — the change to a<\\/orbital-walkthrough>.ts.',
+      'Edit:',
+      '{"file_path": "p.ts", "new_string": "<\\/orbital-walkthrough> tail"}',
+      '</orbital-walkthrough>',
+    ].join('\n');
     const split = splitUserText(text);
     expect(split.text).toBe('Why this?');
     expect(split.command?.walkthrough).toEqual({ kind: 'ask', step: 'toolu_1', n: 2 });

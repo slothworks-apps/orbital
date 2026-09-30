@@ -49,8 +49,10 @@ import { registerStatsRoutes } from './stats.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
 import { readSubagentMessages, subagentDirOf } from '../walkthrough/subagents.js';
 import { StampedCache, dirStamp, fileStamp } from '../transcript/stampedCache.js';
-import { buildAskText, buildNarrateText } from '../walkthrough/tag.js';
-import type { Step, StepCall, Walkthrough } from '../walkthrough/types.js';
+import { buildNarrateDigest } from '../walkthrough/digest.js';
+import { narrationFields } from '../walkthrough/narration.js';
+import type { Narrator } from '../walkthrough/narrator.js';
+import type { Spine, Walkthrough } from '../walkthrough/types.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -84,6 +86,8 @@ export interface RouteContext {
   errors: ErrorLog;
   /** Names a session from its own contents; here, only ever on demand. */
   titler: SessionTitler;
+  /** The walkthrough's narrate queries and their stored rows (spec 2026-09-30-narrate-out-of-band-design). */
+  narrator: Narrator;
   settings: { get(key: string): string; set(key: string, value: string): void };
   /**
    * The retention sweep (spec 2026-09-21-settings-sections-design § 4).
@@ -249,8 +253,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const transcriptMessages = new StampedCache<BranchRead>(TRANSCRIPT_CACHE_SESSIONS);
   /** Pending and sent rewinds (spec 2026-09-29-rewind-design § Pending rewind). */
   const rewindStore = new RewindStore(db);
-  /** Walkthroughs by transcript path; selecting a session asks for one. */
-  const walkthroughs = new StampedCache<Walkthrough>(TRANSCRIPT_CACHE_SESSIONS);
+  /** Walkthrough spines by transcript path; selecting a session asks for one. */
+  const spines = new StampedCache<Spine>(TRANSCRIPT_CACHE_SESSIONS);
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -890,7 +894,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   /**
    * One delivery path for anything Orbital says INTO a session: the composer's
-   * text, and the walkthrough's narrate and ask turns. Sends if the runner
+   * text. Sends if the runner
    * holds the session; otherwise revives it by resuming — unless a terminal
    * owns it, which cannot be taken over.
    */
@@ -1191,7 +1195,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   // ---- Walkthrough (spec: 2026-09-23-walkthrough-design) ----------------
 
-  function walkthroughFor(id: string): { row: SessionRow; walkthrough: Walkthrough } | null {
+  function spineFor(id: string): { row: SessionRow; spine: Spine; transcriptPath: string } | null {
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
     if (!row) return null;
     const transcriptPath = join(ctx.projectsDir, row.project_dir, `${id}.jsonl`);
@@ -1199,39 +1203,35 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // stamp: an agent that writes on changes it while the parent file sits
     // still.
     const stamp = `${fileStamp(transcriptPath) ?? '-'}#${dirStamp(subagentDirOf(transcriptPath))}`;
-    const walkthrough = walkthroughs.get(transcriptPath, stamp, () =>
+    const spine = spines.get(transcriptPath, stamp, () =>
       buildWalkthrough(readTranscriptMessages(id) ?? [], readSubagentMessages(transcriptPath, ctx.images)),
     );
-    return { row, walkthrough };
+    return { row, spine, transcriptPath };
   }
 
-  /** A step's writing calls, a subagent step's sub-steps included. */
-  function stepCalls(step: Step): StepCall[] {
-    return step.subagent ? step.subagent.steps.flatMap(stepCalls) : step.calls;
-  }
-  function stepPaths(step: Step): string[] {
-    return stepCalls(step)
-      .map((c) => {
-        const input = c.call.toolInput as Record<string, unknown> | null;
-        const p = input?.file_path ?? input?.notebook_path;
-        return typeof p === 'string' ? p : null;
-      })
-      .filter((p): p is string => p !== null);
+  /**
+   * The spine with its narration. The narration is read per request, never
+   * cached with the spine: it changes when a query lands, not when the
+   * transcript does (spec 2026-09-30-narrate-out-of-band-design § Storage
+   * and state).
+   */
+  function walkthroughOf(id: string, spine: Spine): Walkthrough {
+    return { ...spine, ...narrationFields(ctx.narrator.state(id), spine.steps.map((s) => s.id)) };
   }
 
   app.get('/api/sessions/:id/walkthrough', (req, reply) => {
     const { id } = req.params as { id: string };
-    const found = walkthroughFor(id);
+    const found = spineFor(id);
     if (!found) return reply.code(404).send({ error: 'not found' });
-    return { session: toApiSession(ctx, found.row), walkthrough: found.walkthrough };
+    return { session: toApiSession(ctx, found.row), walkthrough: walkthroughOf(id, found.spine) };
   });
 
   /** The header's entry control asks this; it is the same parse, smaller answer. */
   app.get('/api/sessions/:id/walkthrough/summary', (req, reply) => {
     const { id } = req.params as { id: string };
-    const found = walkthroughFor(id);
+    const found = spineFor(id);
     if (!found) return reply.code(404).send({ error: 'not found' });
-    const w = found.walkthrough;
+    const w = found.spine;
     return {
       steps: w.steps.length,
       files: w.files.length,
@@ -1241,60 +1241,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   /**
-   * Both turn-sending routes refuse the same two things: a session Orbital did
-   * not run (a terminal owns it, or the row says so), and a session mid-turn —
-   * a question injected into a running turn is not the question it appears to
-   * be (spec § Asking). Mid-turn is working, or parked on a decision; the
-   * runner's `needs_input` alone is every live session between turns, which
-   * is exactly when a walkthrough is opened, so it does not refuse.
+   * Starts a narrate query and answers before it runs (spec
+   * 2026-09-30-narrate-out-of-band-design § The query). Nothing is sent into
+   * the session, so a running, ended or terminal session narrates the same;
+   * the one refusal besides an empty walkthrough is a query already in
+   * flight for it. The page hears the row change on `session:<id>` — now,
+   * as it goes pending, and again when the narrator finishes.
    */
-  function refuseTurn(row: SessionRow, id: string): { code: number; error: string } | null {
-    if (row.source === 'terminal' || ctx.registry.get(id)) return { code: 409, error: 'terminal_session' };
-    // The next turn of a session with a pending rewind is the edited prompt,
-    // not a walkthrough's (spec 2026-09-29-rewind-design § Runner).
-    if (rewindStore.pending(id)) return { code: 409, error: 'rewind_pending' };
-    if (ctx.runner.status(id) === 'working' || ctx.runner.pendingDecision(id) !== null) {
-      return { code: 409, error: 'busy' };
-    }
-    return null;
-  }
-
-  async function sendTurn(id: string, text: string, reply: FastifyReply) {
-    return deliveryReply(await deliverToSession(id, text), reply, 'terminal_session');
-  }
-
-  app.post('/api/sessions/:id/walkthrough/narrate', async (req, reply) => {
+  app.post('/api/sessions/:id/walkthrough/narrate', (req, reply) => {
     const { id } = req.params as { id: string };
-    const found = walkthroughFor(id);
+    const found = spineFor(id);
     if (!found) return reply.code(404).send({ error: 'not found' });
-    const refused = refuseTurn(found.row, id);
-    if (refused) return reply.code(refused.code).send({ error: refused.error });
-    if (found.walkthrough.steps.length === 0) return reply.code(400).send({ error: 'no_steps' });
-    const text = buildNarrateText(found.walkthrough.steps.map((s) => ({
-      id: s.id, ordinal: s.ordinal,
-      paths: [...new Set(stepPaths(s))],
-      firstLine: s.narration.split('\n')[0] ?? '',
-    })));
-    return sendTurn(id, text, reply);
-  });
-
-  app.post('/api/sessions/:id/walkthrough/ask', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { step?: unknown; question?: unknown };
-    if (typeof body.question !== 'string' || !body.question.trim()) {
-      return reply.code(400).send({ error: 'missing_question' });
-    }
-    const found = walkthroughFor(id);
-    if (!found) return reply.code(404).send({ error: 'not found' });
-    const step = found.walkthrough.steps.find((s) => s.id === body.step);
-    if (!step) return reply.code(400).send({ error: 'unknown_step' });
-    const refused = refuseTurn(found.row, id);
-    if (refused) return reply.code(refused.code).send({ error: refused.error });
-    const text = buildAskText(body.question, {
-      step: step.id, ordinal: step.ordinal, paths: [...new Set(stepPaths(step))],
-      calls: stepCalls(step).map((c) => ({ tool: c.call.toolName ?? '', input: c.call.toolInput })),
-    });
-    return sendTurn(id, text, reply);
+    if (found.spine.steps.length === 0) return reply.code(400).send({ error: 'no_steps' });
+    if (ctx.narrator.running(id)) return reply.code(409).send({ error: 'narrate_running' });
+    const digest = buildNarrateDigest(
+      found.spine,
+      readTranscriptMessages(id) ?? [],
+      readSubagentMessages(found.transcriptPath, ctx.images),
+    );
+    void ctx.narrator.start(id, digest, found.spine.steps.map((s) => s.id));
+    ctx.hub.publish(`session:${id}`, { event: 'walkthrough_narration' });
+    return reply.code(202).send({ ok: true });
   });
 
   /**

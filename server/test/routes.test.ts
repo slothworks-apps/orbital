@@ -18,7 +18,7 @@ import {
   RETENTION_KEY,
 } from '../src/retention.js';
 import {
-  sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
+  pendingRewinds, sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
 } from '../src/db/schema.js';
 import type { Finding } from '../src/stats/compute.js';
 import { registerRoutes } from '../src/api/routes.js';
@@ -33,6 +33,13 @@ import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.
 import { BackgroundTaskStore } from '../src/transcript/backgroundTasks.js';
 import { createImageStore } from '../src/images/store.js';
 import { ErrorLog } from '../src/errors/log.js';
+import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
+
+/**
+ * The narrate query when a test does not script one: it fails, which no
+ * test that leaves it in place ever reaches.
+ */
+const noNarrateQuery: NarrateQueryFn = () => { throw new Error('no narrate query in this test'); };
 
 /**
  * The retitle route's one dependency. No test in this file asks it to name
@@ -76,7 +83,7 @@ function retentionFor(db: OrbitalDb) {
   };
 }
 
-function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
+function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn } = {}) {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
   db.insert(sessions)
@@ -145,6 +152,10 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
   // An empty `~/.claude` per app: the command catalog reads real files, so a
   // test that wants commands writes them.
   const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-claude-'));
+  const narrator = new Narrator({
+    db, queryFn: opts.narrateQueryFn ?? noNarrateQuery, model: () => '',
+    onFinish: (id) => hub.publish(`session:${id}`, { event: 'walkthrough_narration' }),
+  });
   registerRoutes(app, {
     db, registry: registry as any, runner: runner as any, projectsDir: opts.projectsDir ?? '/nonexistent', hub,
     images: imageStore, imagesDir, claudeDir,
@@ -156,6 +167,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore } = {}) {
     subagentTranscripts,
     errors,
     titler: stubTitler(),
+    narrator,
     settings: {
       get: (k: string) =>
         db.select({ value: settingsTable.value }).from(settingsTable)
@@ -1088,6 +1100,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       subagentTranscripts: new SubagentTranscripts(),
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
+      narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
       claudeDir: '/nonexistent',
       settings: { get: () => '', set: () => {} },
@@ -2852,11 +2865,11 @@ describe('walkthrough routes', () => {
     line({ type: 'assistant', uuid: 'a1', timestamp: '2026-09-09T14:00:05.000Z', message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'Adding a margin.' }, { type: 'tool_use', id: 'toolu_E1', name: 'Edit', input: { file_path: 'src/a.ts', old_string: 'x', new_string: 'y' } }] } }) +
     line({ type: 'user', uuid: 'u2', timestamp: '2026-09-09T14:00:06.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_E1', content: 'ok' }] } });
 
-  function appWithTranscript(source: 'web' | 'terminal' = 'web') {
+  function appWithTranscript(source: 'web' | 'terminal' = 'web', narrateQueryFn?: NarrateQueryFn) {
     const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-wt-routes-'));
     mkdirSync(join(projectsDir, 'p'), { recursive: true });
     writeFileSync(join(projectsDir, 'p', 'w1.jsonl'), transcript);
-    const made = makeApp({ projectsDir });
+    const made = makeApp({ projectsDir, narrateQueryFn });
     made.db.insert(sessions).values({ id: 'w1', projectDir: 'p', cwd: '/w/z', title: 'wt', lastAt: 300, source, permissionMode: 'acceptEdits' }).run();
     return made;
   }
@@ -2885,78 +2898,135 @@ describe('walkthrough routes', () => {
     expect(res.json()).toEqual({ steps: 1, files: 1, blindAlleys: 0, subagents: 0 });
   });
 
-  it('POST narrate sends a tagged turn through the messages path', async () => {
-    const { app, sendCalls, startCalls } = appWithTranscript();
+  /** A narrate query that yields `frames` — or throws, when handed an Error. */
+  const scripted = (frames: unknown[] | Error): NarrateQueryFn => () => (async function* () {
+    if (frames instanceof Error) throw frames;
+    yield* frames;
+  })();
+  const answered = (text: string) => [
+    { type: 'assistant', message: { content: [{ type: 'text', text }] } },
+    { type: 'result', subtype: 'success', is_error: false, stop_reason: 'end_turn', result: text },
+  ];
+  const NARRATION = '```json\n{"intents":[{"title":"Margin","summary":"Adds a margin.","steps":["toolu_E1"]}]}\n```';
+
+  async function narrated(app: FastifyInstance) {
     const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
-    expect(res.statusCode).toBe(200);
-    // The stub runner's send() throws "not active", so the route revives.
-    expect(res.json()).toEqual({ ok: true, revived: true, uuid: expect.any(String) });
-    expect(sendCalls[0].text).toContain('<orbital-walkthrough kind="narrate">');
-    expect(sendCalls[0].text).toContain('toolu_E1');
-    expect(startCalls[0]).toMatchObject({ resume: 'w1', cwd: '/w/z' });
+    expect(res.statusCode).toBe(202);
+    let w: any;
+    await vi.waitFor(async () => {
+      w = (await app.inject({ method: 'GET', url: '/api/sessions/w1/walkthrough' })).json().walkthrough;
+      expect(w.narrationPending).toBe(false);
+    });
+    return w;
+  }
+
+  it('POST narrate answers 202 at once, goes pending, sends nothing into the session, and lands the narration', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const prompts: string[] = [];
+    const { app, sendCalls, startCalls, hub } = appWithTranscript('web', ({ prompt }) => (async function* () {
+      prompts.push(prompt);
+      await held;
+      yield* answered(NARRATION);
+    })());
+    const events = subscribeFake(hub, 'session:w1');
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
+    expect(res.statusCode).toBe(202);
+    const pending = (await app.inject({ method: 'GET', url: '/api/sessions/w1/walkthrough' })).json().walkthrough;
+    expect(pending).toMatchObject({ narration: null, narrationPending: true, narrationFailed: false });
+    expect(sendCalls).toEqual([]);
+    expect(startCalls).toEqual([]);
+    expect(prompts[0]).toContain('STEP 1 · id toolu_E1 · src/a.ts');
+
+    release();
+    await vi.waitFor(async () => {
+      const w = (await app.inject({ method: 'GET', url: '/api/sessions/w1/walkthrough' })).json().walkthrough;
+      expect(w.narrationPending).toBe(false);
+      expect(w.narration).toEqual({
+        intents: [{ title: 'Margin', summary: 'Adds a margin.', steps: ['toolu_E1'], considered: [], abandoned: false }],
+        staleSteps: 0,
+      });
+    });
+    // Once as it went pending, once as it landed.
+    expect(events.filter((e) => e.event === 'walkthrough_narration')).toHaveLength(2);
   });
 
-  it('POST narrate refuses a terminal session and a session with no steps', async () => {
-    const { app } = appWithTranscript('terminal');
-    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: 'terminal_session' });
+  it('POST narrate refuses a second run while one is in flight, and a walkthrough with no steps', async () => {
+    const { app } = appWithTranscript('web', () => (async function* () { await new Promise(() => {}); })());
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' })).statusCode).toBe(202);
+    const again = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
+    expect(again.statusCode).toBe(409);
+    expect(again.json()).toEqual({ error: 'narrate_running' });
 
     const { app: bare, db } = makeApp();
     db.insert(sessions).values({ id: 'w2', projectDir: 'p', cwd: '/w/z', title: 'empty', lastAt: 1, source: 'web', permissionMode: 'acceptEdits' }).run();
     const none = await bare.inject({ method: 'POST', url: '/api/sessions/w2/walkthrough/narrate' });
     expect(none.statusCode).toBe(400);
     expect(none.json()).toEqual({ error: 'no_steps' });
+    expect((await bare.inject({ method: 'POST', url: '/api/sessions/nope/walkthrough/narrate' })).statusCode).toBe(404);
   });
 
-  it('POST ask validates, then sends the question with the step context', async () => {
-    const { app, sendCalls } = appWithTranscript();
-    const missing = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'toolu_E1' } });
-    expect(missing.statusCode).toBe(400);
-    expect(missing.json()).toEqual({ error: 'missing_question' });
-    expect((await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'nope', question: 'q' } })).json()).toEqual({ error: 'unknown_step' });
-    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'toolu_E1', question: 'Why the margin?' } });
-    expect(res.statusCode).toBe(200);
-    expect(sendCalls.at(-1).text.startsWith('Why the margin?')).toBe(true);
-    expect(sendCalls.at(-1).text).toContain('kind="ask" step="toolu_E1" n="1"');
-    expect(sendCalls.at(-1).text).toContain('"old_string": "x"');
+  it('POST narrate accepts a terminal session, a running one and one with a pending rewind', async () => {
+    const terminal = appWithTranscript('terminal', scripted(answered(NARRATION)));
+    expect((await narrated(terminal.app)).narration.intents[0].title).toBe('Margin');
+
+    const running = appWithTranscript('web', scripted(answered(NARRATION)));
+    running.runner.status = () => 'working';
+    running.registry.get = (id: string) => (id === 'w1' ? { sessionId: 'w1', status: 'working' } : undefined);
+    expect((await narrated(running.app)).narration.intents[0].title).toBe('Margin');
+
+    const rewinding = appWithTranscript('web', scripted(answered(NARRATION)));
+    rewinding.db.insert(pendingRewinds).values({
+      sessionId: 'w1', targetUuid: 'u1', forkUuid: 'u0', dropsTurn: null, hiddenCount: 3, text: 'add margin', priorDraft: '', createdAt: 1,
+    }).run();
+    expect((await narrated(rewinding.app)).narration.intents[0].title).toBe('Margin');
   });
 
-  it('POST ask refuses while the session is working', async () => {
-    const { app, runner } = appWithTranscript();
-    runner.status = () => 'working';
-    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'toolu_E1', question: 'q' } });
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: 'busy' });
+  it('a refusal, a garbage answer and a thrown query each land as their own failure', async () => {
+    const refusedByStop = appWithTranscript('web', scripted([
+      { type: 'assistant', message: { content: [], stop_reason: 'refusal' } },
+      { type: 'result', subtype: 'success', is_error: true, stop_reason: 'refusal', result: '' },
+    ]));
+    expect(await narrated(refusedByStop.app)).toMatchObject({ narration: null, narrationFailed: true, narrationFailure: 'refused' });
+
+    // How the refusal of 2026-09-29 arrived: an API error whose text says so.
+    const refusedByError = appWithTranscript('web', scripted([
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'API Error: Claude Code is unable to respond to this request, which appears to violate our Usage Policy. Details: [reasoning_extraction]' }] } },
+      { type: 'result', subtype: 'success', is_error: true, stop_reason: null, result: 'API Error: Claude Code is unable to respond to this request, which appears to violate our Usage Policy.' },
+    ]));
+    expect((await narrated(refusedByError.app)).narrationFailure).toBe('refused');
+
+    const garbage = appWithTranscript('web', scripted(answered('Sure! Here is what happened: a margin.')));
+    expect(await narrated(garbage.app)).toMatchObject({ narrationFailed: true, narrationFailure: 'unparsable' });
+
+    const thrown = appWithTranscript('web', scripted(new Error('spawn claude ENOENT')));
+    expect(await narrated(thrown.app)).toMatchObject({ narrationFailed: true, narrationFailure: 'error' });
+
+    const overloaded = appWithTranscript('web', scripted([
+      { type: 'result', subtype: 'success', is_error: true, stop_reason: null, result: 'API Error: 529 Overloaded' },
+    ]));
+    expect((await narrated(overloaded.app)).narrationFailure).toBe('error');
   });
 
-  it('POST narrate refuses while the session is working', async () => {
-    const { app, runner } = appWithTranscript();
-    runner.status = () => 'working';
-    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: 'busy' });
-  });
+  it('a new run after a failure clears it; the previous intents stay while it is pending', async () => {
+    let answer: unknown[] | Error = new Error('boom');
+    let gate: Promise<void> = Promise.resolve();
+    const { app } = appWithTranscript('web', () => (async function* () {
+      await gate;
+      if (answer instanceof Error) throw answer;
+      yield* answer;
+    })());
+    expect((await narrated(app)).narrationFailure).toBe('error');
+    answer = answered(NARRATION);
+    expect((await narrated(app)).narration.intents[0].title).toBe('Margin');
 
-  it('a session between turns is not busy; one parked on a decision is', async () => {
-    // `needs_input` is every live Orbital session once its turn ends.
-    const { app, runner } = appWithTranscript();
-    runner.status = () => 'needs_input';
-    const idle = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
-    expect(idle.statusCode).toBe(200);
-
-    runner.pendingDecision = () => ({ id: 'd1', kind: 'question' });
-    const parked = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/ask', payload: { step: 'toolu_E1', question: 'q' } });
-    expect(parked.statusCode).toBe(409);
-    expect(parked.json()).toEqual({ error: 'busy' });
-  });
-
-  it('POST narrate refuses a web row the registry reports live in a terminal', async () => {
-    const { app, registry } = appWithTranscript();
-    registry.get = (id: string) => (id === 'w1' ? { sessionId: 'w1', status: 'working' } : undefined);
-    const res = await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: 'terminal_session' });
+    let open!: () => void;
+    gate = new Promise((r) => { open = r; });
+    await app.inject({ method: 'POST', url: '/api/sessions/w1/walkthrough/narrate' });
+    const pending = (await app.inject({ method: 'GET', url: '/api/sessions/w1/walkthrough' })).json().walkthrough;
+    expect(pending).toMatchObject({ narrationPending: true, narrationFailed: false, narrationFailure: null });
+    expect(pending.narration.intents[0].title).toBe('Margin');
+    open();
   });
 });
 

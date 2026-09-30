@@ -80,6 +80,12 @@ export type SessionEvent =
    */
   | { event: 'transcript_reset' }
   /**
+   * The walkthrough's stored narration changed — a narrate query started or
+   * landed (spec 2026-09-30-narrate-out-of-band-design § Storage and state).
+   * Carries nothing; an open walkthrough page asks again.
+   */
+  | { event: 'walkthrough_narration' }
+  /**
    * The CLI refused a pending rewind's send: nothing was sent, the hidden
    * messages are back (a `transcript_reset` follows) and the edited text
    * stays as an ordinary draft. `message` is the CLI's own words (spec

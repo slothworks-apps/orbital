@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hub } from '../src/api/hub.js';
 import {
   APPROVED_PLAN_MODE,
+  NARRATE_COMMENTARY_PROMPT,
   Runner,
   contextUsedFromAssistantUsage,
   contextUsedFromCompactBoundary,
@@ -3397,5 +3398,31 @@ describe('streaming output', () => {
     expect(idsA.size).toBe(1);
     expect(idsB.size).toBe(1);
     expect([...idsA][0]).not.toBe([...idsB][0]);
+  });
+});
+
+describe('Comment for Narrate', () => {
+  // Spec 2026-09-30-narrate-out-of-band-design § Settings › Experimental.
+  async function systemPromptOf(commentary: boolean | undefined, resume?: string) {
+    const seen: any[] = [];
+    const { fn } = capturingQueryFn();
+    const runner = new Runner({
+      hub: new Hub(), newSessionId: () => 'web-1',
+      queryFn: ((args: any) => { seen.push(args.options); return fn(args); }) as any,
+      ...(commentary === undefined ? {} : { commentary: () => commentary }),
+    });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan', resume });
+    return seen[0].systemPrompt;
+  }
+
+  it('appends the commentary instruction to the preset with the switch on, spawn and revive alike', async () => {
+    const on = { type: 'preset', preset: 'claude_code', append: NARRATE_COMMENTARY_PROMPT };
+    expect(await systemPromptOf(true)).toEqual(on);
+    expect(await systemPromptOf(true, 's-old')).toEqual(on);
+  });
+
+  it('leaves the preset alone with the switch off or unwired', async () => {
+    expect(await systemPromptOf(false)).toEqual({ type: 'preset', preset: 'claude_code' });
+    expect(await systemPromptOf(undefined, 's-old')).toEqual({ type: 'preset', preset: 'claude_code' });
   });
 });

@@ -141,16 +141,13 @@ export const api = {
     return request('GET', `/api/sessions/${id}/walkthrough/summary`)
   },
 
-  async narrateWalkthrough(id: string): Promise<{ ok: boolean; revived?: boolean }> {
+  /**
+   * Starts the narrate query and returns before it runs (spec
+   * 2026-09-30-narrate-out-of-band-design § The query); the page hears it
+   * land as `walkthrough_narration` on the session's topic.
+   */
+  async narrateWalkthrough(id: string): Promise<{ ok: boolean }> {
     return request('POST', `/api/sessions/${id}/walkthrough/narrate`, {})
-  },
-
-  async askWalkthrough(
-    id: string,
-    step: string,
-    question: string
-  ): Promise<{ ok: boolean; revived?: boolean }> {
-    return request('POST', `/api/sessions/${id}/walkthrough/ask`, { step, question })
   },
 
   /**

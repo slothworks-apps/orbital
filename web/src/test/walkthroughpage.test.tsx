@@ -22,12 +22,12 @@ const edit = (id: string, path: string, from: string, to: string) => ({
 })
 const walkthrough: Walkthrough = {
   steps: [
-    { id: 'e1', ordinal: 1, narration: 'Adding the margin.', calls: [edit('e1', 'src/refresh.ts', 'skew = 0', 'skew = 30')], folded: { Read: 2 }, subagent: null, fate: [{ kind: 'revised', byStep: 'e2', path: 'src/refresh.ts' }], questions: [{ question: 'Why?', answer: 'Because.', messageId: 'q1' }], durationMs: 14200 },
-    { id: 'e2', ordinal: 2, narration: 'Into config.', calls: [edit('e2', 'src/refresh.ts', 'skew = 30', 'skew = cfg')], folded: {}, subagent: null, fate: [], questions: [], durationMs: null },
+    { id: 'e1', ordinal: 1, narration: 'Adding the margin.', calls: [edit('e1', 'src/refresh.ts', 'skew = 0', 'skew = 30')], folded: { Read: 2 }, subagent: null, fate: [{ kind: 'revised', byStep: 'e2', path: 'src/refresh.ts' }], durationMs: 14200 },
+    { id: 'e2', ordinal: 2, narration: 'Into config.', calls: [edit('e2', 'src/refresh.ts', 'skew = 30', 'skew = cfg')], folded: {}, subagent: null, fate: [], durationMs: null },
   ],
   timeline: [{ kind: 'gap', durationMs: 5000, folded: { Read: 4 }, subagents: [], said: 'Looking around.' }, { kind: 'step', id: 'e1' }, { kind: 'step', id: 'e2' }],
   files: [{ path: 'src/refresh.ts', steps: ['e1', 'e2'], created: false, fate: 'revised', notApplied: false }],
-  narration: null, narrationFailed: false, narrationPending: false, lastMessageId: 'x',
+  narration: null, narrationFailed: false, narrationPending: false, narrationFailure: null, lastMessageId: 'x',
 }
 
 beforeEach(() => {
@@ -46,7 +46,7 @@ describe('WalkthroughPage', () => {
     vi.unstubAllGlobals()
   })
 
-  it('opens on the cover with the counts, starts into step 1, and shows the diff and the exchange', async () => {
+  it('opens on the cover with the counts, starts into step 1, and shows the diff', async () => {
     render(<WalkthroughPage id="w1" />)
     await screen.findByRole('heading', { name: 'auth-refactor' })
     expect(screen.getByLabelText('steps')).toHaveTextContent('2')
@@ -57,8 +57,6 @@ describe('WalkthroughPage', () => {
     expect(screen.getAllByText('Adding the margin.').length).toBeGreaterThan(0)
     expect(screen.getByText('Looking around.')).toBeInTheDocument()       // the gap before step 1, said verbatim
     expect(screen.getByText(/revised in/)).toBeInTheDocument()
-    expect(screen.getByText('Why?')).toBeInTheDocument()
-    expect(screen.getByText('Because.')).toBeInTheDocument()
   })
 
   it('goes up to the cover on ⌘↑ from a step, without leaving the page', async () => {
@@ -95,23 +93,12 @@ describe('WalkthroughPage', () => {
     }
   })
 
-  it('asks the session from a step', async () => {
-    vi.mocked(api.askWalkthrough).mockResolvedValue({ ok: true })
-    render(<WalkthroughPage id="w1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /start/i }))
-    const field = await screen.findByPlaceholderText(/ask the session/i)
-    fireEvent.change(field, { target: { value: 'Why the margin?' } })
-    fireEvent.keyDown(field, { key: 'Enter' })
-    await waitFor(() => expect(api.askWalkthrough).toHaveBeenCalledWith('w1', 'e1', 'Why the margin?'))
-  })
-
-  it('disables the field, with the reason, while the session is working', async () => {
+  it('narrates a session that is working, since nothing is sent into it', async () => {
     vi.mocked(api.getWalkthrough).mockResolvedValue({ session: session({ status: 'working' }), walkthrough })
+    vi.mocked(api.narrateWalkthrough).mockResolvedValue({ ok: true })
     render(<WalkthroughPage id="w1" />)
-    fireEvent.click(await screen.findByRole('button', { name: /start/i }))
-    const field = await screen.findByPlaceholderText(/ask the session/i)
-    expect((field as HTMLTextAreaElement).disabled).toBe(true)
-    expect(screen.getByText(/asking waits until it settles/i)).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /^narrate/i }))
+    await waitFor(() => expect(api.narrateWalkthrough).toHaveBeenCalledWith('w1'))
   })
 
   it('narrates on request from the cover', async () => {

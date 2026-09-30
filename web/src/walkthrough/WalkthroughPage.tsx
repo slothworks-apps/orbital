@@ -49,8 +49,8 @@ function WalkthroughScreens({ id }: { id: string }) {
   // page): the screen names its step by id and the index follows it.
   const screen = settleScreen(chosen, stepIds)
 
-  // ⏎ start · → / ← step (canvas 21a); esc and `global.up` are the page bar's. The
-  // question field's keys are skipped below, so typing never steps; Enter on a
+  // ⏎ start · → / ← step (canvas 21a); esc and `global.up` are the page bar's. A
+  // text field's keys are skipped below, so typing never steps; Enter on a
   // focused control is that control's own press, not a start. A chord (⌘←,
   // ⌥→) is the browser's or the system's, never a step.
   useEffect(() => {

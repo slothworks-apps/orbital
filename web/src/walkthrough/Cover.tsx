@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { reportError } from '../lib/errors'
-import type { ApiSession, Walkthrough } from '../lib/types'
-import { blindAlleySteps, midTurn, plural, refusalOf, sessionSpan } from './derive'
+import type { ApiSession, NarrationFailure, Walkthrough } from '../lib/types'
+import { blindAlleySteps, plural, sessionSpan } from './derive'
 import { WalkButton } from './parts'
 
 interface CoverProps {
@@ -65,7 +65,7 @@ export function Cover({ id, session, walkthrough, onStart, onRefetch, bar }: Cov
           <p className="font-mono text-[12px] text-text-muted">no file changes in this session</p>
         ) : (
           <>
-            <NarrationBlock id={id} session={session} walkthrough={walkthrough} onRefetch={onRefetch} />
+            <NarrationBlock id={id} walkthrough={walkthrough} onRefetch={onRefetch} />
             <div className="flex items-center gap-4">
               <WalkButton tone="accent" size="lg" onClick={onStart}>
                 Start →
@@ -81,22 +81,24 @@ export function Cover({ id, session, walkthrough, onStart, onRefetch, bar }: Cov
   )
 }
 
-const BUSY = 'the session is working — narrating waits until it settles'
-const PARKED = 'the session is waiting on a decision — narrating waits until it settles'
-const NOT_OURS = 'this session is not Orbital\'s to continue'
+/** The failure line's words, one per reason (spec 2026-09-30-narrate-out-of-band-design § Failure). */
+const FAILURE: Record<NarrationFailure, string> = {
+  refused: 'the model refused to narrate this record · another model can be picked in Settings',
+  unparsable: 'the narration came back in a shape Orbital could not read',
+  error: 'the narration failed',
+}
 
 /**
  * The narration's states (canvas 21a NARR): not asked, answered, answered but
- * steps have been added since, answered in a shape the server could not read
- * — and asked but not answered yet, while the previous narration (if any)
- * still groups the rail. The button asks the session for one turn.
+ * steps have been added since, failed — and asked but not landed yet, while
+ * the previous narration (if any) still groups the rail. The button starts a
+ * query outside the session, so nothing about the session — working, ended,
+ * live in a terminal — holds it back.
  */
-function NarrationBlock({ id, session, walkthrough, onRefetch }: Omit<CoverProps, 'onStart' | 'bar'>) {
+function NarrationBlock({ id, walkthrough, onRefetch }: Pick<CoverProps, 'id' | 'walkthrough' | 'onRefetch'>) {
   const [sending, setSending] = useState(false)
-  const [refusal, setRefusal] = useState<string | null>(null)
   const narration = walkthrough.narration
   const stale = narration?.staleSteps ?? 0
-  const busy = midTurn(session)
   const failed = walkthrough.narrationFailed && !walkthrough.narrationPending
 
   let heading: string
@@ -104,29 +106,28 @@ function NarrationBlock({ id, session, walkthrough, onRefetch }: Omit<CoverProps
   let action: string
   if (walkthrough.narrationPending) {
     heading = 'Narrating…'
-    sub = 'one turn, answered by this session'
+    sub = 'read from the session\'s record, outside the session'
     action = narration ? 'Narrate again' : 'Narrate'
   } else if (failed) {
     heading = 'Narrate this walkthrough'
-    sub = 'one turn, answered by this session · counts against your subscription'
+    sub = 'read from the session\'s record, outside the session · counts against your subscription'
     action = 'Try again'
   } else if (!narration) {
     heading = 'Narrate this walkthrough'
-    sub = 'one turn, answered by this session · intent titles for groups of steps · counts against your subscription'
+    sub = 'intent titles for groups of steps, read from the session\'s record · counts against your subscription'
     action = 'Narrate'
   } else if (stale > 0) {
     heading = `Narrated · ${plural(narration.intents.length, 'intent', 'intents')}`
-    sub = `${plural(stale, 'step', 'steps')} since the narration ${stale === 1 ? 'is' : 'are'} shown in the agent's own words · re-narrating is one more turn`
+    sub = `${plural(stale, 'step', 'steps')} since the narration ${stale === 1 ? 'is' : 'are'} shown in the agent's own words · re-narrating reads the record again`
     action = 'Narrate again'
   } else {
     heading = `Narrated · ${plural(narration.intents.length, 'intent', 'intents')}`
-    sub = 'one turn · the rail groups steps under intent titles'
+    sub = 'the rail groups steps under intent titles'
     action = 'Narrate again'
   }
 
   const narrate = () => {
     setSending(true)
-    setRefusal(null)
     api.narrateWalkthrough(id).then(
       () => {
         setSending(false)
@@ -134,15 +135,12 @@ function NarrationBlock({ id, session, walkthrough, onRefetch }: Omit<CoverProps
       },
       (err: unknown) => {
         setSending(false)
-        const why = refusalOf(err)
-        if (why === 'busy') setRefusal(BUSY)
-        else if (why === 'terminal_session') setRefusal(NOT_OURS)
-        else reportError(err, 'Could not ask the session to narrate')
+        // Another window started one a moment ago: show that one.
+        if (err instanceof ApiError && err.status === 409) onRefetch()
+        else reportError(err, 'Could not start the narration')
       },
     )
   }
-
-  const reason = refusal ?? (busy ? (session.status === 'working' ? BUSY : PARKED) : null)
 
   return (
     <section
@@ -161,16 +159,16 @@ function NarrationBlock({ id, session, walkthrough, onRefetch }: Omit<CoverProps
               </span>
             )}
           </span>
-          <span className="font-mono text-[10.5px] leading-[1.5] text-[rgba(160,190,225,.6)]">{reason ?? sub}</span>
+          <span className="font-mono text-[10.5px] leading-[1.5] text-[rgba(160,190,225,.6)]">{sub}</span>
         </div>
-        <WalkButton tone="lit" size="sm" disabled={sending || busy || walkthrough.narrationPending} onClick={narrate}>
+        <WalkButton tone="lit" size="sm" disabled={sending || walkthrough.narrationPending} onClick={narrate}>
           {action}
         </WalkButton>
       </div>
       {failed && (
         <div className="flex items-center gap-2 border-t border-dashed border-[rgba(150,205,255,.16)] px-5 py-[9px] font-mono text-[10.5px] text-text-bright">
           <span className="text-text-muted">notice ·</span>
-          <span>the narration did not come back as expected</span>
+          <span>{FAILURE[walkthrough.narrationFailure ?? 'error']}</span>
           <span className="flex-1" />
           <span className="text-text-muted">the steps below are intact, in the agent&apos;s own words</span>
         </div>

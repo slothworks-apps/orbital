@@ -1,8 +1,7 @@
 import type { ChatMessage } from '../types.js';
 import { SUBAGENT_TOOLS } from '../transcript/subagents.js';
-import type { FileSummary, Gap, Step, StepCall, StepFate, TimelineEntry, Walkthrough } from './types.js';
+import type { FileSummary, Gap, Spine, Step, StepCall, StepFate, TimelineEntry } from './types.js';
 import type { WalkthroughTag } from './tag.js';
-import { parseNarration } from './narration.js';
 
 /** Tools whose call is a change to a file. Mirrors `EDITING_TOOLS` in `web/src/lib/fileEdit.ts`. */
 export const WRITING_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'NotebookEdit']);
@@ -10,7 +9,7 @@ export const WRITING_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'Not
 /** The `Write` tool's creation sentence, as the CLI writes it (mirrors `writeOutcome` on the web). */
 const WRITE_CREATED = /^File created successfully at:/;
 
-type Segment =
+export type Segment =
   /** `machine`: nobody typed it — only an unnamed wrapping that is not a walkthrough tag (a task notification, a reminder). */
   | { kind: 'user'; message: ChatMessage; tag: WalkthroughTag | null; machine: boolean }
   | { kind: 'text'; message: ChatMessage; answers: boolean }
@@ -23,13 +22,16 @@ type Segment =
  * `toolUseId`; a result whose call is not in the open run is dropped.
  *
  * A user turn carrying a walkthrough tag keeps it, and the assistant texts
- * after it are marked as its answer. Read-only runs in between keep the answer
+ * after it are marked as its answer — such turns are only in transcripts from
+ * before narration moved out of the session (spec
+ * 2026-09-30-narrate-out-of-band-design § Storage and state), and their
+ * answers stay out of the story. Read-only runs in between keep the answer
  * open, and so does a machine-only user turn; a run with a writing call, or
  * the next user turn someone typed, ends it. The tag is the parser's
  * `command.walkthrough` — read from a top-level block only, never re-scanned
  * out of the body, where a quoted tag would pass for the turn's own.
  */
-function segment(messages: ChatMessage[], subagents: Map<string, ChatMessage[]>): Segment[] {
+export function segment(messages: ChatMessage[], subagents: Map<string, ChatMessage[]>): Segment[] {
   const out: Segment[] = [];
   let run: StepCall[] | null = null;
   let answering = false;
@@ -151,16 +153,14 @@ function subagentName(call: ChatMessage): string {
  * many); everything else between two steps accumulates into one gap. The
  * assistant text immediately before a run is the narration of every step it
  * produces and is NOT also said in the gap. A text answering a walkthrough
- * turn is neither. `stepSegment` maps every step id to the index of the run
- * it came from.
+ * turn is neither.
  */
 function walk(
   segments: Segment[],
   subagents: Map<string, ChatMessage[]>,
-): { steps: Step[]; timeline: TimelineEntry[]; stepSegment: Map<string, number> } {
+): { steps: Step[]; timeline: TimelineEntry[] } {
   const steps: Step[] = [];
   const timeline: TimelineEntry[] = [];
-  const stepSegment = new Map<string, number>();
   let gap = emptyGap();
   let gapStart: number | null = null;
   let gapEnd: number | null = null;
@@ -233,16 +233,14 @@ function walk(
         folded,
         subagent,
         fate: [],
-        questions: [],
         durationMs: spanMs(g === 0 ? [...writes, ...others] : writes),
       };
       steps.push(step);
-      stepSegment.set(step.id, i);
       timeline.push({ kind: 'step', id: step.id });
     });
   }
   flushGap();
-  return { steps, timeline, stepSegment };
+  return { steps, timeline };
 }
 
 /**
@@ -321,59 +319,14 @@ function summarizeFiles(steps: Step[]): FileSummary[] {
   return [...byPath.values()];
 }
 
-/**
- * The assistant texts answering the tagged user turn at `i`: past read-only
- * runs and machine-only user turns, up to a run with a writing call or the
- * next typed user turn (the same window `segment()` marks). `open` when the
- * transcript ends inside the window — an answer may still come.
- */
-function answerAfter(segs: Segment[], i: number, subagents: Map<string, ChatMessage[]>): { answer: string | null; open: boolean } {
-  const parts: string[] = [];
-  let open = true;
-  for (let j = i + 1; j < segs.length; j++) {
-    const s = segs[j];
-    if (s.kind === 'user' && s.machine) continue;
-    if (s.kind === 'user' || (s.kind === 'run' && runWrites(s.calls, subagents))) { open = false; break; }
-    if (s.kind === 'text' && s.answers) parts.push(s.message.text!.trim());
-  }
-  return { answer: parts.length ? parts.join('\n\n') : null, open };
-}
-
-export function buildWalkthrough(messages: ChatMessage[], subagents: Map<string, ChatMessage[]>): Walkthrough {
+export function buildWalkthrough(messages: ChatMessage[], subagents: Map<string, ChatMessage[]>): Spine {
   const segs = segment(messages, subagents);
-  const { steps, timeline, stepSegment } = walk(segs, subagents);
+  const { steps, timeline } = walk(segs, subagents);
   assignFate(steps);
-  const stepById = new Map(steps.map((s) => [s.id, s]));
-  let narration: Walkthrough['narration'] = null;
-  let narrationFailed = false;
-  let narrationPending = false;
-  for (let i = 0; i < segs.length; i++) {
-    const seg = segs[i];
-    if (seg.kind !== 'user' || !seg.tag) continue;
-    const { answer, open } = answerAfter(segs, i, subagents);
-    if (seg.tag.kind === 'ask') {
-      stepById.get(seg.tag.step)?.questions.push({ question: seg.message.text ?? '', answer, messageId: seg.message.id });
-      continue;
-    }
-    // narrate — the last ANSWERED one wins, whatever became of the earlier
-    // ones. A turn still waiting for its answer leaves the previous narration
-    // standing and says it is pending; one whose window closed unanswered
-    // (interrupted, superseded) changes nothing.
-    if (answer === null) { narrationPending = open; continue; }
-    narrationPending = false;
-    const intents = parseNarration(answer, steps.map((s) => s.id));
-    if (!intents) { narration = null; narrationFailed = true; continue; }
-    const covered = steps.filter((s) => (stepSegment.get(s.id) ?? Infinity) < i).length;
-    narration = { intents, staleSteps: steps.length - covered };
-    narrationFailed = false;
-  }
   return {
     steps,
     timeline,
     files: summarizeFiles(steps),
-    narration,
-    narrationFailed,
-    narrationPending,
     lastMessageId: messages.length ? messages[messages.length - 1].id : null,
   };
 }

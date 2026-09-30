@@ -216,7 +216,9 @@ describe('buildWalkthrough — subagents', () => {
   });
 });
 
-describe('buildWalkthrough — narration and questions', () => {
+describe('buildWalkthrough — old walkthrough turns', () => {
+  // Transcripts from before narration moved out of the session still hold
+  // tagged narrate and ask turns; their answers stay out of the story.
   const narrateTurn = (s = seq++): ChatMessage => ({
     id: `u${s}:0`, role: 'user', text: '', timestamp: ts(s),
     command: { name: 'walkthrough · narrate', body: '<orbital-walkthrough kind="narrate">x</orbital-walkthrough>', blocks: 1, walkthrough: { kind: 'narrate' } },
@@ -225,70 +227,26 @@ describe('buildWalkthrough — narration and questions', () => {
     id: `u${s}:0`, role: 'user', text: q, timestamp: ts(s),
     command: { name: 'walkthrough · ask · step 1', body: `<orbital-walkthrough kind="ask" step="${step}" n="1">ctx</orbital-walkthrough>`, blocks: 1, walkthrough: { kind: 'ask', step, n: 1 } },
   });
+  const said = (w: ReturnType<typeof buildWalkthrough>) =>
+    w.timeline.flatMap((t) => (t.kind === 'gap' ? [t.said] : [])).join('\n');
 
-  it('reads the last narration, counts steps added after it, and keeps its answer out of gaps and narrations', () => {
+  it('keeps a narrate answer out of gaps and step narrations', () => {
     const w = buildWalkthrough([
       user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
       narrateTurn(), say('```json\n{"intents":[{"title":"T","summary":"S","steps":["e1"]}]}\n```'),
       user('more'), say('2'), ...edit('b.ts', 'p', 'q', 'e2'),
     ], none);
-    expect(w.narration).toEqual({ intents: [{ title: 'T', summary: 'S', steps: ['e1'], considered: [], abandoned: false }, { title: '', summary: '', steps: ['e2'], considered: [], abandoned: false }], staleSteps: 1 });
-    expect(w.narrationFailed).toBe(false);
-    expect(w.steps[1].narration).toBe('2');
-    expect(w.timeline.some((t) => t.kind === 'gap' && t.said.includes('intents'))).toBe(false);
+    expect(w.steps.map((s) => s.narration)).toEqual(['1', '2']);
+    expect(said(w)).not.toContain('intents');
   });
 
-  it('a narration whose answer has no json block is a visible failure', () => {
-    const w = buildWalkthrough([
-      user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
-      narrateTurn(), say('I cannot do that right now.'),
-    ], none);
-    expect(w.narration).toBeNull();
-    expect(w.narrationFailed).toBe(true);
-  });
-
-  it('a narrate turn with no answer yet is neither a narration nor a failure', () => {
-    const w = buildWalkthrough([user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'), narrateTurn()], none);
-    expect(w.narration).toBeNull();
-    expect(w.narrationFailed).toBe(false);
-  });
-
-  it('attaches a question and its answer to the step the tag names', () => {
-    const ask = askTurn('e1', 'Why?');
-    const w = buildWalkthrough([
-      user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
-      ask, say('Because.'),
-      askTurn('e1', 'Sure?'),
-    ], none);
-    expect(w.steps[0].questions).toEqual([
-      { question: 'Why?', answer: 'Because.', messageId: ask.id },
-      { question: 'Sure?', answer: null, messageId: expect.any(String) },
-    ]);
-  });
-
-  it('a question about an unknown step is dropped', () => {
-    const w = buildWalkthrough([user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'), askTurn('nope', 'Why?'), say('Because.')], none);
-    expect(w.steps[0].questions).toEqual([]);
-  });
-
-  it('an answer given after a read-only run still answers the tagged turn', () => {
-    const w = buildWalkthrough([
-      user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
-      narrateTurn(), ...read('a.ts', 'r1'), say('```json\n{"intents":[{"title":"T","summary":"S","steps":["e1"]}]}\n```'),
-    ], none);
-    expect(w.narration?.intents[0].title).toBe('T');
-    expect(w.narrationFailed).toBe(false);
-    const gaps = w.timeline.flatMap((t) => (t.kind === 'gap' ? [t] : []));
-    expect(gaps.some((g) => g.said.includes('intents'))).toBe(false);
-    expect(gaps.some((g) => g.folded.Read === 1)).toBe(true);
-  });
-
-  it('a question answered after a read-only run keeps its answer', () => {
+  it('keeps an ask answer out, past a read-only run', () => {
     const w = buildWalkthrough([
       user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
       askTurn('e1', 'Why?'), ...read('a.ts', 'r1'), say('Because.'),
     ], none);
-    expect(w.steps[0].questions[0].answer).toBe('Because.');
+    expect(said(w)).not.toContain('Because.');
+    expect(w.timeline.some((t) => t.kind === 'gap' && t.folded.Read === 1)).toBe(true);
   });
 
   it('a tag quoted inside another block is an ordinary user turn', () => {
@@ -299,60 +257,28 @@ describe('buildWalkthrough — narration and questions', () => {
     };
     const w = buildWalkthrough([
       user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
-      narrateTurn(), say('```json\n{"intents":[{"title":"T","summary":"S","steps":["e1"]}]}\n```'),
+      narrateTurn(), say('answer'),
       quoted, say('Next, b.'), ...edit('b.ts', 'p', 'q', 'e2'),
     ], none);
-    expect(w.narration?.intents[0].title).toBe('T');
-    expect(w.narrationFailed).toBe(false);
     expect(w.steps[1].narration).toBe('Next, b.');
-    expect(w.steps[0].questions).toEqual([]);
   });
 
-  it('keeps the last answered narration while a newer narrate turn is pending', () => {
-    const w = buildWalkthrough([
-      user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
-      narrateTurn(), say('```json\n{"intents":[{"title":"First","summary":"S","steps":["e1"]}]}\n```'),
-      narrateTurn(),
-    ], none);
-    expect(w.narration?.intents[0].title).toBe('First');
-    expect(w.narrationPending).toBe(true);
-    expect(w.narrationFailed).toBe(false);
-  });
-
-  it('is not pending once the narrate turn is answered, or when there is none', () => {
-    const answered = buildWalkthrough([
-      user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
-      narrateTurn(), say('```json\n{"intents":[{"title":"T","summary":"S","steps":["e1"]}]}\n```'),
-    ], none);
-    expect(answered.narrationPending).toBe(false);
-    expect(buildWalkthrough([user('go')], none).narrationPending).toBe(false);
-  });
-
-  it('a machine-only user turn does not close the answer window', () => {
+  it('a machine-only user turn does not close the answer window; a typed slash command does', () => {
     const note: ChatMessage = {
       id: 'un:0', role: 'user', text: '', timestamp: ts(seq++),
       command: { name: null, body: '<task-notification>agent done</task-notification>', blocks: 1 },
     };
-    const w = buildWalkthrough([
-      user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
-      narrateTurn(), note, say('```json\n{"intents":[{"title":"T","summary":"S","steps":["e1"]}]}\n```'),
-    ], none);
-    expect(w.narration?.intents[0].title).toBe('T');
-    expect(w.narrationPending).toBe(false);
-  });
-
-  it('a typed slash command does close the answer window', () => {
     const slash: ChatMessage = {
       id: 'us:0', role: 'user', text: '', timestamp: ts(seq++),
       command: { name: '/commit', body: '<command-name>/commit</command-name>', blocks: 1 },
     };
     const w = buildWalkthrough([
       user('go'), say('1'), ...edit('a.ts', 'x', 'y', 'e1'),
-      narrateTurn(), slash, say('Committed.'),
+      narrateTurn(), note, say('still the answer'),
+      slash, say('Committed.'),
     ], none);
-    expect(w.narration).toBeNull();
-    expect(w.narrationFailed).toBe(false);
-    expect(w.narrationPending).toBe(false);
+    expect(said(w)).not.toContain('still the answer');
+    expect(said(w)).toContain('Committed.');
   });
 });
 

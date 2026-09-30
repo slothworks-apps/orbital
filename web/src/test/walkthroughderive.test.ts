@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import type { Walkthrough, WalkthroughStep } from '../lib/types'
-import { ApiError } from '../lib/api'
-import { blindAlleySteps, fileCounts, foldedLine, gapBefore, midTurn, nextScreen, prevScreen, railGroups, refusalOf, sessionSpan, settleScreen, stillOpen, type Screen } from '../walkthrough/derive'
+import { blindAlleySteps, fileCounts, foldedLine, gapBefore, midTurn, nextScreen, prevScreen, railGroups, sessionSpan, settleScreen, stillOpen, type Screen } from '../walkthrough/derive'
 
 const step = (id: string, ordinal: number, patch: Partial<WalkthroughStep> = {}): WalkthroughStep => ({
-  id, ordinal, narration: '', calls: [], folded: {}, subagent: null, fate: [], questions: [], durationMs: null, ...patch,
+  id, ordinal, narration: '', calls: [], folded: {}, subagent: null, fate: [], durationMs: null, ...patch,
 })
 const editCall = (path: string, from: string, to: string, isError = false) => ({
   call: { id: 'c', role: 'tool_use' as const, toolName: 'Edit', toolInput: { file_path: path, old_string: from, new_string: to }, toolUseId: 'c' },
@@ -13,7 +12,7 @@ const editCall = (path: string, from: string, to: string, isError = false) => ({
 const base = (patch: Partial<Walkthrough> = {}): Walkthrough => ({
   steps: [step('a', 1), step('b', 2), step('c', 3)],
   timeline: [{ kind: 'gap', durationMs: null, folded: { Read: 2 }, subagents: [], said: 'hm' }, { kind: 'step', id: 'a' }, { kind: 'step', id: 'b' }, { kind: 'gap', durationMs: null, folded: {}, subagents: ['survey'], said: '' }, { kind: 'step', id: 'c' }],
-  files: [], narration: null, narrationFailed: false, narrationPending: false, lastMessageId: null, ...patch,
+  files: [], narration: null, narrationFailed: false, narrationPending: false, narrationFailure: null, lastMessageId: null, ...patch,
 })
 
 describe('railGroups', () => {
@@ -100,18 +99,11 @@ describe('sessionSpan', () => {
   })
 })
 
-describe('midTurn / refusalOf', () => {
+describe('midTurn', () => {
   it('is working or parked on a decision — never needs_input alone', () => {
     expect(midTurn({ status: 'working', pendingDecision: null })).toBe(true)
     expect(midTurn({ status: 'needs_input', pendingDecision: null })).toBe(false)
     expect(midTurn({ status: 'needs_input' })).toBe(false)
     expect(midTurn({ status: 'needs_input', pendingDecision: { kind: 'permission' } as never })).toBe(true)
-  })
-  it('reads the 409 body the turn routes send, and nothing else', () => {
-    expect(refusalOf(new ApiError('{"error":"busy"}', 409))).toBe('busy')
-    expect(refusalOf(new ApiError('{"error":"terminal_session"}', 409))).toBe('terminal_session')
-    expect(refusalOf(new ApiError('{"error":"busy"}', 500))).toBeNull()
-    expect(refusalOf(new ApiError('Conflict', 409))).toBeNull()
-    expect(refusalOf(new Error('{"error":"busy"}'))).toBeNull()
   })
 })

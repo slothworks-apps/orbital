@@ -18,7 +18,8 @@ export interface WalkthroughData {
 /**
  * The page's data (spec § The page, "A live session grows under the page").
  * The spine is rebuilt server-side on every request, so the page simply asks
- * again whenever the session's topic delivers something; the row itself
+ * again whenever the session's topic delivers something — a narrate query
+ * starting or landing included; the row itself
  * (status, editor, title) is taken from the `sessions` topic without a
  * refetch. Only the newest request may write.
  */
@@ -56,7 +57,10 @@ export function useWalkthrough(id: string): WalkthroughData {
       timer = setTimeout(() => { timer = null; refetch() }, WALKTHROUGH_REFETCH_DEBOUNCE_MS)
     }
     const release = getSocket().subscribe(`session:${id}`, (msg: SessionEvent) => {
-      if (msg.event === 'message' || msg.event === 'status' || msg.event === 'transcript_reset') schedule()
+      if (
+        msg.event === 'message' || msg.event === 'status' || msg.event === 'transcript_reset' ||
+        msg.event === 'walkthrough_narration'
+      ) schedule()
     })
     return () => { release(); if (timer) clearTimeout(timer) }
   }, [id, refetch])

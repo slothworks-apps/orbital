@@ -408,13 +408,6 @@ export interface StepFate {
   path: string
 }
 
-/** A question asked about a step and its answer (spec § Asking). */
-export interface StepQuestion {
-  question: string
-  answer: string | null
-  messageId: string
-}
-
 /**
  * A run's direct writing calls, or one writing dispatch in it. `id` is the
  * `toolUseId` of its first writing call (falling back to that message's id),
@@ -428,7 +421,6 @@ export interface WalkthroughStep {
   folded: Record<string, number>
   subagent: { name: string; prompt: string; steps: WalkthroughStep[] } | null
   fate: StepFate[]
-  questions: StepQuestion[]
   durationMs: number | null
 }
 
@@ -466,17 +458,22 @@ export interface NarrationIntent {
   abandoned: boolean
 }
 
-/** The narration turn's answer, read back from the transcript. */
+/** The last finished narration, laid over the current steps. */
 export interface Narration {
   intents: NarrationIntent[]
-  /** Steps added after the narrate turn. */
+  /** Current steps no stored intent names — added since the narration. */
   staleSteps: number
 }
 
+/** Why the last narrate query failed (spec 2026-09-30-narrate-out-of-band-design § Failure). */
+export type NarrationFailure = 'refused' | 'unparsable' | 'error'
+
 /**
- * What the walkthrough page is built from. Nothing is stored; it is rebuilt
- * from the transcript on every request. `narration` is the last *answered*
- * narrate turn's; `narrationPending` says a newer narrate turn has no answer yet.
+ * What the walkthrough page is built from. The spine is rebuilt from the
+ * transcript on every request; the narration fields come from the stored
+ * narration. `narration` is the last *finished* run's; `narrationPending`
+ * says a newer run is in flight; `narrationFailure` is set exactly when
+ * `narrationFailed` is.
  */
 export interface Walkthrough {
   steps: WalkthroughStep[]
@@ -485,6 +482,7 @@ export interface Walkthrough {
   narration: Narration | null
   narrationFailed: boolean
   narrationPending: boolean
+  narrationFailure: NarrationFailure | null
   lastMessageId: string | null
 }
 

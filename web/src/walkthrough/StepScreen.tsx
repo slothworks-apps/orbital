@@ -16,7 +16,6 @@ interface StepScreenProps {
   onPrev(): void
   onNext(): void
   onJump(stepId: string): void
-  onRefetch(): void
   /** The page bar, which this screen places (canvas `Feature - Page headers` 25d). */
   bar: ReactNode
 }
@@ -26,7 +25,7 @@ const RAIL_WIDTH_PX = 320
 const RAIL_PAD_PX = 14
 
 /** Screen two (canvas 21b): the rail on the left, one step in the middle, and the way on. */
-export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, onJump, onRefetch, bar }: StepScreenProps) {
+export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, onJump, bar }: StepScreenProps) {
   // Windowed, the bar's mark moves right to clear the traffic lights, and the
   // rail widens by the same amount on its left so its list keeps its width
   // and its left edge follows the mark (canvas `Feature - Page headers` 25d,
@@ -57,7 +56,7 @@ export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, on
               label={prev ? `BETWEEN ${prev.ordinal} AND ${step.ordinal}` : `BEFORE STEP ${step.ordinal}`}
               prev={prev ? { ordinal: prev.ordinal, title: stepLabel(walkthrough, prev) } : undefined}
             />
-            <StepBody id={id} session={session} walkthrough={walkthrough} step={step} onJump={onJump} onRefetch={onRefetch} />
+            <StepBody id={id} session={session} walkthrough={walkthrough} step={step} onJump={onJump} />
           </div>
         </main>
       </div>

@@ -76,6 +76,16 @@ export interface RewindHooks {
 const SLEEP_AFTER_IDLE_MINUTES = 30;
 
 /**
+ * Appended to the `claude_code` preset while Settings › Experimental ›
+ * "Comment for Narrate" is on (spec 2026-09-30-narrate-out-of-band-design
+ * § Settings › Experimental). It asks for visible prose and nothing else, so
+ * the why of a change is in the record the narrate query reads.
+ */
+export const NARRATE_COMMENTARY_PROMPT =
+  'Before you change a file, say in a sentence or two what you are changing and why. ' +
+  'If you considered another way and rejected it, name it and say why in the same place.';
+
+/**
  * How many `Bash`/`Monitor` calls a session remembers for the background
  * task tracker. The tracker reads a call when the `task_started` it causes
  * arrives, right behind it on the stream, so only the newest few ever
@@ -711,6 +721,7 @@ export class Runner {
   private subagentTranscripts?: SubagentTranscripts;
   private claudeExecutablePath?: string | null;
   private ide?: IdeApprovals;
+  private commentary?: () => boolean;
 
   constructor(deps: {
     hub: Hub;
@@ -881,6 +892,12 @@ export class Runner {
     onCompaction?: (sessionId: string, event: CompactionEvent) => void;
     /** The session's stored context reading — a failed compaction's "before". */
     readContextUsed?: (sessionId: string) => number | null;
+    /**
+     * The `narrate_commentary` setting, read at every start — spawn and
+     * revive alike — so it holds for a query from the moment it starts and
+     * a change counts from the next one. Unwired, off.
+     */
+    commentary?: () => boolean;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -905,6 +922,7 @@ export class Runner {
     this.ide = deps.ide;
     this.onCompaction = deps.onCompaction;
     this.readContextUsed = deps.readContextUsed;
+    this.commentary = deps.commentary;
   }
 
   /**
@@ -1152,7 +1170,9 @@ export class Runner {
     const options: Record<string, unknown> = {
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      systemPrompt: this.commentary?.()
+        ? { type: 'preset', preset: 'claude_code', append: NARRATE_COMMENTARY_PROMPT }
+        : { type: 'preset', preset: 'claude_code' },
       settingSources: ['user', 'project', 'local'],
       // The subagent panel's whole feed: without this only tool_use/tool_result
       // blocks cross from a subagent to the stream, and prose/thinking never
