@@ -1,7 +1,7 @@
 ---
 id: walkthrough-narration-is-a-turn-in-the-session
 title: The walkthrough's narration is a turn in the session, not an ephemeral query
-status: in-force
+status: superseded
 type: adr
 domain: sessions
 related:
@@ -9,11 +9,15 @@ related:
   - walk-me-through-what-the-agent-did
   - ephemeral-title-queries
   - an-orbital-tag-marks-a-walkthrough-turn
+  - narration-is-written-by-a-separate-reader
 tags:
   - walkthrough
   - runner
 ---
 # The walkthrough's narration is a turn in the session, not an ephemeral query
+
+Superseded 2026-09-30 by [[narration-is-written-by-a-separate-reader]]: a
+refused narrate turn locked the session out of every later turn.
 
 ## The problem
 

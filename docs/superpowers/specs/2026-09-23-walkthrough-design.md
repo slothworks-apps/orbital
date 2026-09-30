@@ -7,6 +7,7 @@ domain: sessions
 related:
   - walk-me-through-what-the-agent-did
   - walkthrough-narration-is-a-turn-in-the-session
+  - 2026-09-30-narrate-out-of-band-design
   - an-orbital-tag-marks-a-walkthrough-turn
   - 2026-09-23-edit-diffs-in-the-transcript
   - one-syntax-palette-for-all-code
@@ -206,6 +207,9 @@ Every detection names the step that did it, so the page can say "revised in
 step 7" and link there. Anything subtler is the narration's job.
 
 ## Narration
+
+> Replaced by [[2026-09-30-narrate-out-of-band-design]] (narration) — this
+> section and § Asking describe the in-session design it superseded.
 
 The model layer. Decided in [[walkthrough-narration-is-a-turn-in-the-session]]:
 the session itself is asked, as one more turn, rather than an ephemeral query

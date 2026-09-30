@@ -7,6 +7,7 @@ domain: walkthrough
 related:
   - 2026-09-23-walkthrough-design
   - narrate-can-lock-a-session-out
+  - 2026-09-30-narrate-out-of-band-design
 tags:
   - walkthrough
   - settings
@@ -50,3 +51,8 @@ localhost.
 
 When Orbital can rewind a session past a refused turn, or narrate stops
 being refused, the switch can default to on or go away.
+
+Rewind shipped on 2026-09-29, and [[2026-09-30-narrate-out-of-band-design]]
+takes narration out of the session. The switch stays until the owner has
+tried the new narration; the Narrate model picker and the commentary switch
+live in the same section meanwhile.
