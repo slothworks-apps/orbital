@@ -11,7 +11,7 @@
  * means: the indexer then recomputes every session, including files whose
  * mtime and size have not changed since they were last indexed.
  */
-export const STATS_VERSION = 2;
+export const STATS_VERSION = 3;
 
 /**
  * How many turns a live session runs before the watcher tail recomputes its
@@ -47,6 +47,13 @@ export const ERROR_LOOP_MIN_REPEATS = 5;
 
 /** The prefix the CLI gives every MCP tool: `mcp__<server>__<tool>`. */
 export const MCP_TOOL_PREFIX = 'mcp__';
+
+/**
+ * Tools whose `tool_use` → `tool_result` gap is the user answering, not work:
+ * a question and a plan approval. Their runs are human wait, never tool time
+ * (spec 2026-09-30-human-wait-tools-design).
+ */
+export const HUMAN_WAIT_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
 /** cache-burn's severity crosses from WARNING to CRITICAL at this priced cost. */
 export const CACHE_BURN_CRITICAL_USD = 10;

@@ -30,7 +30,8 @@
 import { and, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { OrbitalDb } from './db/database.js';
 import {
-  backgroundTasks, compactionFailures, narrations, pendingRewinds, rewinds, sessions, sessionTags, sweptSessions,
+  backgroundTasks, compactionFailures, narrations, pendingRewinds, permissionWaits, rewinds, sessions, sessionTags,
+  sweptSessions,
 } from './db/schema.js';
 
 /** The "off" value, stored verbatim so the row reads as what the UI shows. */
@@ -125,6 +126,7 @@ export function sweepSessions(db: OrbitalDb, cutoff: number | null, now: number)
     tx.delete(pendingRewinds).where(inArray(pendingRewinds.sessionId, doomed)).run();
     tx.delete(rewinds).where(inArray(rewinds.sessionId, doomed)).run();
     tx.delete(narrations).where(inArray(narrations.sessionId, doomed)).run();
+    tx.delete(permissionWaits).where(inArray(permissionWaits.sessionId, doomed)).run();
     tx.delete(sessions).where(inArray(sessions.id, doomed)).run();
     // Stamped with `now`, not with the session's own `lastAt`: the question
     // the indexer asks later is "has this transcript been written to since we

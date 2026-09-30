@@ -8,7 +8,7 @@ import { liveBranch } from '../transcript/liveBranch.js';
 import { regenerateRuleTags } from '../tags/rules.js';
 import { computeStats } from '../stats/compute.js';
 import { STATS_VERSION } from '../stats/constants.js';
-import { upsertSessionStats, type SessionStatsWritten } from '../stats/store.js';
+import { readPermissionWaits, upsertSessionStats, type SessionStatsWritten } from '../stats/store.js';
 import { readSubagentEntries } from '../stats/transcript.js';
 
 /** One transcript to consider: the project directory it sits in, and its file name. */
@@ -157,8 +157,10 @@ function indexFiles(
         // it themselves, since a dead branch was still billed.
         const meta = extractMeta(liveBranch(entries));
         // Sidechains live in their own files beside this one, so stats read
-        // both; `extractMeta` above stays on the session's own entries.
-        const { rollup } = computeStats([...entries, ...readSubagentEntries(path)]);
+        // both; `extractMeta` above stays on the session's own entries. A
+        // permission wait needs no trigger of its own: it is recorded before
+        // its tool runs, so the line that closes the tool re-indexes it here.
+        const { rollup } = computeStats([...entries, ...readSubagentEntries(path)], readPermissionWaits(db, id));
         if (
           !existing ||
           existing.cwd !== meta.cwd ||

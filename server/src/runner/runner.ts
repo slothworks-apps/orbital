@@ -4,7 +4,13 @@ import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sd
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
-import { TASK_EVENT_SUBTYPES, type TaskEvent, type SubagentTranscripts } from '../transcript/subagents.js';
+import {
+  SUBAGENT_TOOLS,
+  TASK_EVENT_SUBTYPES,
+  type TaskEvent,
+  type SubagentTranscripts,
+} from '../transcript/subagents.js';
+import type { PermissionWait } from '../stats/compute.js';
 import { TASK_LAUNCHING_TOOLS, type LaunchingCall } from '../transcript/backgroundTasks.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import { noticeFromSdkMessage } from '../transcript/notices.js';
@@ -539,6 +545,18 @@ interface ManagedSession {
    */
   launchingCalls: Map<string, LaunchingCall>;
   /**
+   * Each subagent's dispatching `Agent` call, by the agent id `canUseTool`
+   * names it with (`agentID`) — `task_started` pairs the two, its `task_id`
+   * being that agent id.
+   */
+  agentCalls: Map<string, string>;
+  /**
+   * An `Agent` call made inside a subagent, and the `Agent` call that subagent
+   * came from — what walks a nested agent's prompt up to the main-chain call
+   * its time is counted in.
+   */
+  agentParents: Map<string, string>;
+  /**
    * The window reading from the most recent main-loop API call of the turn in
    * flight — the fallback the turn's end uses when the CLI cannot answer
    * `get_context_usage`.
@@ -714,6 +732,7 @@ export class Runner {
   private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
   private onDecision?: (sessionId: string) => void;
   private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
+  private onPermissionWait?: (sessionId: string, wait: PermissionWait) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
   private onCompaction?: (sessionId: string, event: CompactionEvent) => void;
   private readContextUsed?: (sessionId: string) => number | null;
@@ -857,6 +876,14 @@ export class Runner {
      */
     onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
     /**
+     * A parked permission prompt was settled, by any route: how long it sat
+     * in front of the user, for the stats to cut out of the tool's time (ADR
+     * `permission-waits-are-measured-by-the-runner-only`). Questions and plan
+     * approvals are not reported — the transcript times those — and neither
+     * is an ask `bypassPermissions` waved through, which waited for nobody.
+     */
+    onPermissionWait?: (sessionId: string, wait: PermissionWait) => void;
+    /**
      * Whatever the SDK generator threw, with the session it was running.
      * Called from `pump()`'s catch, where the only record of a session dying
      * on its own used to be a line on the server's terminal that nobody was
@@ -915,6 +942,7 @@ export class Runner {
     this.onTurnBoundary = deps.onTurnBoundary;
     this.onDecision = deps.onDecision;
     this.onPermissionMode = deps.onPermissionMode;
+    this.onPermissionWait = deps.onPermissionWait;
     this.onError = deps.onError;
     this.images = deps.images;
     this.subagentTranscripts = deps.subagentTranscripts;
@@ -1135,7 +1163,7 @@ export class Runner {
     }
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], stream: null, agentStreams: new Map(), generator: null, sleepTimer: null,
-      launchingCalls: new Map(),
+      launchingCalls: new Map(), agentCalls: new Map(), agentParents: new Map(),
       lastCall: null, turnEnded: false,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
@@ -1347,6 +1375,9 @@ export class Runner {
     // (`onTaskEvent`). Every other `system` subtype falls through unread,
     // as before.
     if (msg.type === 'system' && TASK_EVENT_SUBTYPES.has(msg.subtype)) {
+      if (msg.subtype === 'task_started' && typeof msg.task_id === 'string' && typeof msg.tool_use_id === 'string') {
+        state.agentCalls.set(msg.task_id, msg.tool_use_id);
+      }
       this.onTaskEvent?.(sessionId, msg as TaskEvent);
       // After the forward, never before: `hasLiveBackgroundWork` reads the very
       // store the line above just fed, and this message may be the one
@@ -1493,6 +1524,7 @@ export class Runner {
         }
       } else {
         const agent: string = msg.parent_tool_use_id;
+        this.noteNestedAgentCalls(state, msg, agent);
         // The same order as the main loop: the agent's deltas first, then
         // the block, which takes over the row they were filling. The
         // buffer below only ever holds complete messages.
@@ -1777,6 +1809,35 @@ export class Runner {
    * assistant frame with the call precedes the `task_started` it causes; the
    * result usually follows it, so a path found here is also handed on.
    */
+  private noteNestedAgentCalls(state: ManagedSession, msg: any, parent: string): void {
+    if (msg.type !== 'assistant') return;
+    const content = msg.message?.content;
+    if (!Array.isArray(content)) return;
+    for (const block of content) {
+      if (block?.type === 'tool_use' && SUBAGENT_TOOLS.has(block.name) && typeof block.id === 'string') {
+        state.agentParents.set(block.id, parent);
+      }
+    }
+  }
+
+  /**
+   * The main-chain `Agent` call a subagent's prompt belongs to, or null when
+   * the agent's `task_started` was never seen. A nested agent is walked up to
+   * the outermost call: that is the only `Agent` run the main chain times.
+   */
+  private dispatchingAgentCall(state: ManagedSession, agentId: string): string | null {
+    let call = state.agentCalls.get(agentId);
+    if (call === undefined) return null;
+    // Bounded by the map's size, so a cycle a malformed stream could build
+    // cannot hang the settle.
+    for (let hops = 0; hops < state.agentParents.size; hops++) {
+      const parent = state.agentParents.get(call);
+      if (parent === undefined) break;
+      call = parent;
+    }
+    return call;
+  }
+
   private noteLaunchingCalls(sessionId: string, state: ManagedSession, msg: any): void {
     const content = msg.message?.content;
     if (!Array.isArray(content)) return;
@@ -1980,6 +2041,7 @@ export class Runner {
         pending,
         settle: (result) => {
           opts.signal.removeEventListener('abort', onAbort);
+          if (kind === 'permission') this.reportPermissionWait(sessionId, s, pending, toolName, opts.agentID, result);
           resolve(result);
         },
         review: null,
@@ -2082,6 +2144,41 @@ export class Runner {
     }
     this.setStatus(sessionId, 'working');
     return true;
+  }
+
+  /**
+   * Hands a settled permission prompt to `onPermissionWait`. A user's refusal
+   * carries `user_reject` on every route that has one; any other deny is the
+   * prompt being cut short — an abort, an interrupt, the session ending.
+   */
+  private reportPermissionWait(
+    sessionId: string,
+    s: ManagedSession,
+    pending: PendingDecision,
+    toolName: string,
+    agentId: string | undefined,
+    result: PermissionResult,
+  ): void {
+    if (!this.onPermissionWait) return;
+    const outcome =
+      result.behavior === 'allow'
+        ? 'allowed'
+        : result.decisionClassification === 'user_reject'
+          ? 'denied'
+          : 'aborted';
+    try {
+      this.onPermissionWait(sessionId, {
+        toolUseId: pending.id,
+        agentToolUseId: agentId ? this.dispatchingAgentCall(s, agentId) : null,
+        toolName,
+        shownAt: pending.createdAt,
+        answeredAt: Date.now(),
+        outcome,
+      });
+    } catch (err) {
+      // A stats row is not worth a blocked tool: the settle goes ahead.
+      console.warn(`orbital: failed to record a permission wait for ${sessionId}:`, err);
+    }
   }
 
   /**

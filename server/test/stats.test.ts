@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeStats, toolKind } from '../src/stats/compute.js';
+import { computeStats, toolKind, type PermissionWait } from '../src/stats/compute.js';
 import {
   CACHE_BURN_MIN_TURNS,
   CHARS_PER_TOKEN,
@@ -640,5 +640,95 @@ describe('computeStats over a rewound transcript', () => {
     // The live turn's wait is measured from its own prompt, not from the
     // abandoned answer written before it.
     expect(turns[1].apiMs).toBe(1_000);
+  });
+});
+
+describe('computeStats — human wait leaves the work time', () => {
+  // A question left over lunch and a rejected plan, between two ordinary reads.
+  const entries: TranscriptEntry[] = [
+    ...toolCallPair(0, 400, 0),
+    assistant({ at: 1_000, requestId: 'req-q', content: [toolUse('ask', 'AskUserQuestion')] }),
+    toolResult({ at: 1_000 + 3_600_000, useId: 'ask' }),
+    assistant({ at: 3_700_000, requestId: 'req-p', content: [toolUse('plan', 'ExitPlanMode')] }),
+    toolResult({ at: 3_700_000 + 90_000, useId: 'plan', isError: true }),
+    ...toolCallPair(3_800_000, 600, 1),
+  ];
+
+  it('keeps questions and plan approvals out of every work number', () => {
+    const { rollup, turns } = computeStats(entries);
+    expect(rollup.localToolMs).toBe(400 + 600);
+    expect(rollup.toolCalls).toBe(2);
+    expect(rollup.toolErrors).toBe(0);
+    expect(Object.keys(rollup.toolBreakdown)).toEqual(['Read']);
+    expect(rollup.humanWaitMs).toBe(3_600_000 + 90_000);
+    expect(rollup.humanBreakdown.AskUserQuestion).toMatchObject({ calls: 1, ms: 3_600_000 });
+    expect(rollup.humanBreakdown.ExitPlanMode).toMatchObject({ calls: 1, errors: 1, ms: 90_000 });
+    // Still on the timeline, so the drilldown can draw the break.
+    expect(turns.flatMap((t) => t.tools).filter((t) => t.kind === 'human').map((t) => t.name))
+      .toEqual(['AskUserQuestion', 'ExitPlanMode']);
+  });
+
+  it('never reads a run of rejected plans as an error loop', () => {
+    const rejected: TranscriptEntry[] = [];
+    for (let i = 0; i < ERROR_LOOP_MIN_REPEATS + 1; i++) {
+      rejected.push(
+        assistant({ at: i * 100, requestId: `req-${i}`, content: [toolUse(`p${i}`, 'ExitPlanMode', { plan: 'x' })] }),
+        toolResult({ at: i * 100 + 50, useId: `p${i}`, isError: true }),
+      );
+    }
+    expect(computeStats(rejected).rollup.findings.some((f) => f.rule === 'error-loop')).toBe(false);
+  });
+});
+
+describe('computeStats — permission waits', () => {
+  const wait = (over: Partial<PermissionWait> & Pick<PermissionWait, 'toolUseId'>): PermissionWait => ({
+    agentToolUseId: null, toolName: 'Bash', shownAt: T0, answeredAt: T0, outcome: 'allowed', ...over,
+  });
+
+  it('cuts the wait out of the prompted tool and books it as human wait', () => {
+    const { rollup, turns } = computeStats(toolCallPair(0, 10_000, 0, 'Bash'), [
+      wait({ toolUseId: 'use-0', shownAt: T0 + 100, answeredAt: T0 + 8_100 }),
+    ]);
+    expect(rollup.localToolMs).toBe(2_000);
+    expect(rollup.toolBreakdown.Bash.ms).toBe(2_000);
+    // The tool's histogram holds the execution, not the wait.
+    const bucketOf = (ms: number) => HIST_BUCKET_BOUNDS_MS.filter((b) => ms >= b).length;
+    expect(rollup.toolBreakdown.Bash.buckets[bucketOf(2_000)]).toBe(1);
+    expect(rollup.humanWaitMs).toBe(8_000);
+    expect(rollup.permissionBreakdown.Bash).toMatchObject({ calls: 1, errors: 0, ms: 8_000 });
+    expect(rollup.permissionBreakdown.Bash.buckets[bucketOf(8_000)]).toBe(1);
+    expect(turns[0].tools[0]).toMatchObject({ ms: 2_000, waitMs: 8_000 });
+  });
+
+  it("takes a subagent's wait off the dispatching Agent run, and names it from the sidechain", () => {
+    const entries: TranscriptEntry[] = [
+      assistant({ at: 0, requestId: 'r1', content: [toolUse('agent-1', 'Agent')] }),
+      assistant({ at: 1_000, requestId: 'side-1', sidechain: true, content: [toolUse('side-edit', 'Edit')] }),
+      toolResult({ at: 60_000, useId: 'agent-1' }),
+    ];
+    const { rollup } = computeStats(entries, [
+      wait({ toolUseId: 'side-edit', agentToolUseId: 'agent-1', toolName: 'unknown', answeredAt: T0 + 45_000 }),
+    ]);
+    expect(rollup.subagentMs).toBe(15_000);
+    expect(rollup.permissionBreakdown).toEqual({ Edit: expect.objectContaining({ calls: 1, ms: 45_000 }) });
+  });
+
+  it('falls back to the stored name when the transcript lacks the tool_use', () => {
+    const { rollup } = computeStats([], [wait({ toolUseId: 'gone', toolName: 'Write', answeredAt: T0 + 10 })]);
+    expect(Object.keys(rollup.permissionBreakdown)).toEqual(['Write']);
+  });
+
+  it('clamps a wait longer than its tool at zero', () => {
+    const { rollup } = computeStats(toolCallPair(0, 1_000, 0, 'Bash'), [
+      wait({ toolUseId: 'use-0', answeredAt: T0 + 5_000 }),
+    ]);
+    expect(rollup.localToolMs).toBe(0);
+    expect(rollup.humanWaitMs).toBe(5_000);
+  });
+
+  it('computes exactly as before when there are no waits', () => {
+    const entries = [...toolCallPair(0, 1_000, 0, 'Bash'), ...toolCallPair(2_000, 300, 1, 'mcp__s__t')];
+    expect(computeStats(entries, [])).toEqual(computeStats(entries));
+    expect(computeStats(entries).rollup).toMatchObject({ humanWaitMs: 0, permissionBreakdown: {} });
   });
 });

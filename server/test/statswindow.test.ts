@@ -35,6 +35,7 @@ function rollup(overrides: Partial<StatsRollup> = {}): StatsRollup {
     cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, thinkingTokens: 0, subagentTokens: 0,
     subagentUsage: {},
     toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
+    humanWaitMs: 0, humanBreakdown: {}, permissionBreakdown: {},
     ...overrides,
   };
 }
@@ -440,5 +441,51 @@ describe('deltaVsPrevious', () => {
 
   it('returns null when previous is zero but current is not — no baseline to compare against', () => {
     expect(deltaVsPrevious(50, 0)).toBeNull();
+  });
+});
+
+describe('human wait across the window', () => {
+  const stat = (calls: number, ms: number): ToolStat => {
+    const buckets = emptyBuckets();
+    buckets[HIST_BUCKET_COUNT - 1] = calls;
+    return { calls, errors: 0, ms, resultChars: 0, buckets };
+  };
+  // A terminal session's permission breakdown is empty in practice; one is
+  // given here so the test shows it is ignored rather than merely absent.
+  const rows: WindowRow[] = [
+    row({
+      sessionId: 'orbital',
+      permissionTimed: true,
+      rollup: {
+        humanWaitMs: 1_000,
+        humanBreakdown: { AskUserQuestion: stat(2, 600) },
+        permissionBreakdown: { Bash: stat(3, 400) },
+      },
+    }),
+    row({
+      sessionId: 'terminal',
+      rollup: {
+        humanWaitMs: 500,
+        humanBreakdown: { AskUserQuestion: stat(1, 500) },
+        permissionBreakdown: { Edit: stat(9, 9) },
+      },
+    }),
+  ];
+
+  it('counts permissions only in timed sessions and leaves out rows with no calls', () => {
+    const { human, slowest } = toolLeaderboard(rows);
+    expect(slowest).toEqual([]);
+    expect(human.map((r) => r.tool)).toEqual(['AskUserQuestion', 'permission']);
+    expect(human[0]).toMatchObject({ calls: 3, ms: 1_100, byTool: {} });
+    expect(human[1]).toMatchObject({ calls: 3, ms: 400, byTool: { Bash: 3 } });
+    expect(windowTotals(rows)).toMatchObject({
+      humanWaitMs: 1_500, questionCount: 3, planCount: 0, permissionCount: 3, timedSessionCount: 1,
+    });
+  });
+
+  it('has no permission row when no session in range was timed', () => {
+    const terminalOnly = rows.slice(1);
+    expect(toolLeaderboard(terminalOnly).human.map((r) => r.tool)).toEqual(['AskUserQuestion']);
+    expect(windowTotals(terminalOnly)).toMatchObject({ permissionCount: 0, timedSessionCount: 0 });
   });
 });

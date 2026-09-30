@@ -21,6 +21,8 @@ import {
   pendingRewinds, sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
 } from '../src/db/schema.js';
 import type { Finding } from '../src/stats/compute.js';
+import { HIST_BUCKET_COUNT } from '../src/stats/constants.js';
+import { recordPermissionWait } from '../src/stats/store.js';
 import { registerRoutes } from '../src/api/routes.js';
 import { buildServer, publishLiveSession, republishCwds } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
@@ -2786,6 +2788,57 @@ describe('GET /api/stats/sessions/:id', () => {
     const res = await app.inject({ method: 'GET', url: '/api/stats/sessions/noFile?timeline=1' });
     expect(res.statusCode).toBe(200);
     expect(res.json().turns).toEqual([]);
+  });
+});
+
+describe('stats API — human wait', () => {
+  const buckets = () => new Array(HIST_BUCKET_COUNT).fill(0);
+  const stat = (calls: number, ms: number) => ({ calls, errors: 0, ms, resultChars: 0, buckets: buckets() });
+
+  it("reads permissionTimed off the session's source, and counts permissions in timed sessions only", async () => {
+    const { app, db } = makeApp();
+    const lastAt = Date.now() - 1000;
+    insertStatsSession(db, { id: 'orb', source: 'web', lastAt });
+    insertRollup(db, 'orb', { humanWaitMs: 700, permissionBreakdown: { Bash: stat(2, 700) } });
+    insertStatsSession(db, { id: 'term', source: 'terminal', lastAt });
+    insertRollup(db, 'term', { humanWaitMs: 50, humanBreakdown: { AskUserQuestion: stat(1, 50) } });
+
+    const overview = (await app.inject({ method: 'GET', url: '/api/stats/overview' })).json();
+    expect(overview.totals).toMatchObject({
+      humanWaitMs: 750, questionCount: 1, permissionCount: 2, timedSessionCount: 1,
+    });
+    expect(overview.toolLeaderboard.human.map((r: { tool: string }) => r.tool)).toEqual(['AskUserQuestion', 'permission']);
+
+    const orb = (await app.inject({ method: 'GET', url: '/api/stats/sessions/orb' })).json();
+    const term = (await app.inject({ method: 'GET', url: '/api/stats/sessions/term' })).json();
+    expect(orb.rollup).toMatchObject({ permissionTimed: true, humanWaitMs: 700 });
+    expect(term.rollup.permissionTimed).toBe(false);
+  });
+
+  it("cuts a recorded wait out of the drilldown's timeline", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-stats-wait-'));
+    mkdirSync(join(dir, 'proj'), { recursive: true });
+    const T0 = Date.parse('2026-09-20T10:00:00.000Z');
+    const lines = [
+      {
+        type: 'assistant', uuid: 'a1', timestamp: new Date(T0).toISOString(), requestId: 'req-1',
+        message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-bash', name: 'Bash', input: {} }] },
+      },
+      {
+        type: 'user', uuid: 'r1', parentUuid: 'a1', timestamp: new Date(T0 + 10_000).toISOString(),
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-bash', content: 'ok' }] },
+      },
+    ];
+    writeFileSync(join(dir, 'proj', 'sW.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n'));
+    const { app, db } = makeApp({ projectsDir: dir });
+    insertStatsSession(db, { id: 'sW', projectDir: 'proj', source: 'web', lastAt: T0 + 10_000 });
+    recordPermissionWait(db, 'sW', {
+      toolUseId: 'tu-bash', agentToolUseId: null, toolName: 'Bash',
+      shownAt: T0 + 1_000, answeredAt: T0 + 7_000, outcome: 'allowed',
+    });
+
+    const body = (await app.inject({ method: 'GET', url: '/api/stats/sessions/sW?timeline=1' })).json();
+    expect(body.turns[0].tools[0]).toMatchObject({ name: 'Bash', ms: 4_000, waitMs: 6_000 });
   });
 });
 
