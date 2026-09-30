@@ -9,6 +9,8 @@ import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
 import type { BackgroundTaskInfo, BackgroundTaskStore } from '../transcript/backgroundTasks.js';
 import type { GitStore } from '../git/store.js';
 import type { GitLocation } from '../git/gitState.js';
+import type { BranchStatusStore } from '../git/branchStatusStore.js';
+import type { BranchStatus } from '../git/branchStatus.js';
 import type { IdeStore } from '../ide/store.js';
 import type { IdeContext } from '../ide/protocol.js';
 
@@ -26,6 +28,7 @@ export interface ShapeContext {
   backgroundTasks: BackgroundTaskStore;
   git: GitStore;
   ide: IdeStore;
+  branchStatus: BranchStatusStore;
 }
 
 export interface ApiSession {
@@ -115,6 +118,16 @@ export interface ApiSession {
    * fork or tree mark from these facts; the mark itself is not on the wire.
    */
   git: GitLocation | null;
+  /**
+   * How far this session's working tree has got: its line changes and its
+   * pull request, each present only while its setting is on and a reading
+   * exists (spec 2026-09-30-branch-pr-and-line-changes-design § The wire).
+   * Live state of a directory, the standing `git` has (adr
+   * `git-location-is-ambient-not-recorded`), and read only for trees a
+   * window has open — so the key is absent more often than not. Absent, not
+   * null, when there is nothing to show.
+   */
+  branch?: BranchStatus;
   /**
    * The editor open on this session's workspace right now, or null when none
    * is — live state of a directory rather than a fact about the session, the
@@ -226,10 +239,17 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     backgroundTasks: ctx.backgroundTasks.all(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
     git: ctx.git.locate(row.cwd),
+    ...branchOf(ctx, row.cwd),
     ide: ctx.ide.locate(row.cwd),
     compacting: ctx.runner.compacting(row.id),
     lastCompactionFailed: lastCompactionFailed(ctx.db, row.id),
     lastCompacted: ctx.runner.lastCompacted(row.id),
     rewindPending: rewindPendingOf(ctx.db, row.id),
   };
+}
+
+/** `{ branch }` when there is one, `{}` otherwise — the key is omitted, not null. */
+function branchOf(ctx: ShapeContext, cwd: string): { branch?: BranchStatus } {
+  const branch = ctx.branchStatus.get(cwd);
+  return branch ? { branch } : {};
 }

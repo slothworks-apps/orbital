@@ -78,4 +78,17 @@ describe('GitStore', () => {
     expect(seen).toEqual([[dir, [nested]]]);
     expect(store.locate(nested)?.ref).toBe('other');
   });
+
+  it('tells index writes apart from HEAD moves, so a location republish does not follow every index write', () => {
+    const nested = join(dir, 'web');
+    mkdirSync(nested, { recursive: true });
+    store.locate(nested);
+    const heads: string[] = [];
+    const indexes: Array<[string, string[]]> = [];
+    store.on('change', (root: string) => heads.push(root));
+    store.on('index', (root: string, cwds: string[]) => indexes.push([root, cwds]));
+    store.applyIndexEvent(dir);
+    expect(indexes).toEqual([[dir, [nested]]]);
+    expect(heads).toEqual([]);
+  });
 });

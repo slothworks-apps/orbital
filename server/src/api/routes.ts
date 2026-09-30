@@ -36,6 +36,7 @@ import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { statusOf, toApiSession } from './shape.js';
 import type { GitStore } from '../git/store.js';
+import { LINES_SETTING, PR_SETTING, type BranchStatusStore } from '../git/branchStatusStore.js';
 import type { IdeStore } from '../ide/store.js';
 import type { SubagentStore, SubagentTranscripts } from '../transcript/subagents.js';
 import type { BackgroundTaskStore } from '../transcript/backgroundTasks.js';
@@ -73,6 +74,10 @@ export interface RouteContext {
   /** Git readings per working tree, cached and watched (spec
    * 2026-09-22-git-location-indicator-design). Read through `toApiSession`. */
   git: GitStore;
+  /** Line changes and the PR per working tree, for trees a window has open
+   * (spec 2026-09-30-branch-pr-and-line-changes-design). Read through
+   * `toApiSession`. */
+  branchStatus: BranchStatusStore;
   /** The editors open on this machine, per workspace (spec
    * 2026-09-23-ide-bridge-design). Read through `toApiSession`, and directly
    * by the open-files route. */
@@ -856,6 +861,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .onConflictDoNothing()
         .run();
     }
+    // A browser that minted the id subscribed before this row existed, when
+    // its `cwd` could not be looked up yet — so the watch starts here.
+    if (ctx.hub.subscriberCount(`session:${sessionId}`) > 0) ctx.branchStatus.watchSession(sessionId, cwd);
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
     return reply.code(201).send({ sessionId });
@@ -1782,13 +1790,35 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   });
   app.patch('/api/settings', (req) => {
+    let branchSettings = false;
     for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
       ctx.settings.set(k, String(v));
       // Applied now, not at the next boot: the dialog confirms "this will drop
       // N sessions" before saving, and deferring the sweep would make that
       // confirmation a promise about some later restart.
       if (k === RETENTION_KEY) ctx.retention.sweep();
+      if (k === PR_SETTING || k === LINES_SETTING) branchSettings = true;
     }
+    // Without a reload: a switch turned off drops the field from the open
+    // sessions, one turned on starts reading and fills it.
+    if (branchSettings) ctx.branchStatus.settingsChanged();
+    return { ok: true };
+  });
+
+  /**
+   * Whether `gh` can serve the PR switch, and if not, why — asked when
+   * Settings opens and when the app regains focus (spec
+   * 2026-09-30-branch-pr-and-line-changes-design § Settings).
+   */
+  app.get('/api/gh-status', async () => ({ status: await ctx.branchStatus.ghStatus() }));
+
+  /**
+   * The app regained focus: look again at the PR and the lines of every
+   * working tree a window has open. Answers at once; the readings arrive as
+   * session upserts.
+   */
+  app.post('/api/branch-status/refresh', () => {
+    ctx.branchStatus.refreshAll();
     return { ok: true };
   });
 

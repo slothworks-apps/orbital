@@ -3,6 +3,9 @@ import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { headPathOf, locateGit, readGitLocation, type GitDirs, type GitLocation } from './gitState.js';
 
+/** The git index's file name, beside `HEAD` in a working tree's git dir. */
+const INDEX_FILE = 'index';
+
 /**
  * One working tree's cached reading, plus the file that invalidates it.
  * Keyed by the working tree's root, not by session: git state belongs to a
@@ -20,7 +23,11 @@ interface Entry {
  * and let a watch on that tree's `HEAD` invalidate it.
  *
  * Emits `change` with a working tree root when its `HEAD` moved, which
- * `index.ts` turns back into the sessions to republish. A resolution that
+ * `index.ts` turns back into the sessions to republish, and `index` when the
+ * git index was rewritten — a commit or a `git add`, which the line-change
+ * count follows (spec 2026-09-30-branch-pr-and-line-changes-design § When it
+ * refreshes). They stay two events so the location republish does not fire
+ * on every index write. A resolution that
  * found no repository is cached too — the walk up the filesystem is the
  * expensive half, and repeating it for every shaped session is exactly what
  * the cache is for.
@@ -65,6 +72,22 @@ export class GitStore extends EventEmitter {
     return entry.location;
   }
 
+  /**
+   * The working tree root this directory sits in, or null outside any
+   * repository. Resolves through `locate`, so a `cwd` costs one walk and a
+   * map lookup after that.
+   */
+  rootOf(cwd: string): string | null {
+    this.locate(cwd);
+    return this.rootByCwd.get(cwd) ?? null;
+  }
+
+  /** One working tree's resolved directories and cached reading. */
+  treeOf(root: string): { dirs: GitDirs; location: GitLocation | null } | undefined {
+    const entry = this.byRoot.get(root);
+    return entry ? { dirs: entry.dirs, location: entry.location } : undefined;
+  }
+
   /** The `cwd`s that resolved to this working tree — its sessions' addresses. */
   cwdsFor(root: string): string[] {
     return [...(this.cwdsByRoot.get(root) ?? [])];
@@ -100,6 +123,10 @@ export class GitStore extends EventEmitter {
    * `recursive-fs-watch-instead-of-chokidar`). It also survives git
    * replacing `HEAD` by renaming `HEAD.lock` over it, which a watch on the
    * old file's inode does not.
+   *
+   * The same watch carries `index`, which lives beside `HEAD` in the working
+   * tree's own git dir. An event naming no file could be either, so it
+   * counts as both.
    */
   private startWatch(root: string, dirs: GitDirs): FSWatcher | null {
     if (!this.watch) return null;
@@ -107,7 +134,9 @@ export class GitStore extends EventEmitter {
     const name = basename(head);
     try {
       const watcher = watch(dirname(head), (_event, filename) => {
-        if (filename && String(filename) !== name) return;
+        const file = filename ? String(filename) : null;
+        if (file === null || file === INDEX_FILE) this.applyIndexEvent(root);
+        if (file !== null && file !== name) return;
         this.applyHeadEvent(root, existsSync(head) ? 'change' : 'unlink');
       });
       // The directory itself went away: as good as `HEAD` being removed.
@@ -130,6 +159,12 @@ export class GitStore extends EventEmitter {
     if (event === 'unlink') this.forget(root);
     else this.refresh(root);
     this.emit('change', root, cwds);
+  }
+
+  /** An index write: nothing cached changes, the listeners are only told. */
+  applyIndexEvent(root: string): void {
+    if (!this.byRoot.has(root)) return;
+    this.emit('index', root, this.cwdsFor(root));
   }
 
   private forget(root: string): void {

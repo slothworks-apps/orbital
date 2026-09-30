@@ -108,6 +108,15 @@ export interface ApiSession {
    */
   git?: GitLocation | null
   /**
+   * How far this session's working tree has got: line changes against the
+   * parent branch and the branch's pull request (spec
+   * 2026-09-30-branch-pr-and-line-changes-design § The wire). Each half is
+   * present only while its setting is on and a reading exists; the key is
+   * absent otherwise. Live state of a directory, like `git`. Mirrors
+   * `server/src/api/shape.ts`.
+   */
+  branch?: BranchStatus
+  /**
    * The editor open on this session's workspace right now, or null when there
    * is none (spec 2026-09-23-ide-bridge-design). Live state of a directory
    * rather than a fact about the session, exactly as `git` is — two sessions in
@@ -197,6 +206,38 @@ export interface GitLocation {
   /** Always false for a worktree or a detached HEAD, which draw their own mark. */
   defaultBranch: boolean
 }
+
+/** Mirrors `server/src/git/branchStatus.ts`. */
+export interface LineCounts {
+  added: number
+  removed: number
+}
+
+export interface BranchLines {
+  /** The branch the count is taken against; null: no parent, uncommitted only. */
+  parent: string | null
+  committed: LineCounts
+  uncommitted: LineCounts
+}
+
+export interface BranchPr {
+  number: number
+  url: string
+  state: 'open' | 'draft' | 'merged' | 'closed'
+  review: 'approved' | 'changes_requested' | 'review_required' | null
+  /** Null: the PR has no checks at all. */
+  checks: { passed: number; failed: number; pending: number } | null
+  /** The PR's base branch — the parent the line count is taken against. */
+  base: string
+}
+
+export interface BranchStatus {
+  lines?: BranchLines
+  pr?: BranchPr
+}
+
+/** `GET /api/gh-status`: whether the PR switch can be on, and if not, why. */
+export type GhAvailability = 'ready' | 'missing' | 'logged_out'
 
 /**
  * One option row of an `AskUserQuestion` question. `preview` is what the

@@ -25,6 +25,7 @@ import { registerRoutes } from '../src/api/routes.js';
 import { buildServer, publishLiveSession, republishCwds } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
 import { GitStore } from '../src/git/store.js';
+import { BranchStatusStore } from '../src/git/branchStatusStore.js';
 import { IdeStore } from '../src/ide/store.js';
 import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
@@ -65,6 +66,13 @@ const gitStore = new GitStore({ watch: false });
 const ideStore = new IdeStore({ claudeDir: '/nonexistent', watch: false });
 
 /**
+ * One branch status store for the suite, both settings off: it reads nothing,
+ * and every session shapes without a `branch` key. The branch status routes'
+ * own tests build one with injected readers.
+ */
+const branchStatusStore = new BranchStatusStore({ git: gitStore, settings: { get: () => '' } });
+
+/**
  * A real retention context wired to the test's own database, so the route
  * tests exercise the sweep and its preview rather than a stub that could
  * agree with a broken implementation.
@@ -83,7 +91,7 @@ function retentionFor(db: OrbitalDb) {
   };
 }
 
-function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn } = {}) {
+function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore } = {}) {
   const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
   db.insert(sessions)
@@ -164,6 +172,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     backgroundTasks,
     git: gitStore,
     ide: opts.ide ?? ideStore,
+    branchStatus: opts.branchStatus ?? branchStatusStore,
     subagentTranscripts,
     errors,
     titler: stubTitler(),
@@ -724,7 +733,7 @@ describe('REST routes', () => {
       sessionId: 's1', pid: 1, cwd: '/w/x', name: 'auth fix',
       status: 'working' as const, kind: 'claude', startedAt: 0, updatedAt: 500,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: 's1', status: 'working', tagIds: [10] });
@@ -736,7 +745,7 @@ describe('REST routes', () => {
       sessionId: 'term-9', pid: 1, cwd: '/w/z', name: 'untracked',
       status: 'idle' as const, kind: 'claude', startedAt: 0, updatedAt: 700,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({
@@ -748,7 +757,7 @@ describe('REST routes', () => {
   // A selection drag in a big workspace used to republish every session ever
   // run there (audit resource-usage-pass-2026-09-24, finding 4).
   it('a directory change republishes live sessions and open ones, not every ended one', () => {
-    const ctx = { hub, db, registry, runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore };
+    const ctx = { hub, db, registry, runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore };
     db.insert(sessions)
       .values({ id: 's3', projectDir: 'p', cwd: '/w/x', title: 'ended', lastAt: 50, source: 'web' })
       .run();
@@ -1134,6 +1143,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       backgroundTasks: new BackgroundTaskStore(),
       git: gitStore,
       ide: ideStore,
+      branchStatus: branchStatusStore,
       subagentTranscripts: new SubagentTranscripts(),
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
@@ -3153,5 +3163,75 @@ describe('background task routes', () => {
       expect(res.statusCode).toBe(404);
       expect(res.body).not.toContain('secret');
     }
+  });
+});
+
+describe('branch status routes', () => {
+  /** A repository on a feature branch, so a PR is looked up for it. */
+  function featureRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'orbital-branch-routes-'));
+    mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/feature\n');
+    writeFileSync(join(dir, '.git', 'refs/heads/main'), `${'a'.repeat(40)}\n`);
+    return dir;
+  }
+
+  function storeWith(settingValues: Record<string, string>, gh: 'ready' | 'missing' | 'logged_out' = 'ready') {
+    const lookupPr = vi.fn(async () => ({ kind: 'none' as const }));
+    const readLines = vi.fn(async () => null);
+    const store = new BranchStatusStore({
+      git: gitStore,
+      settings: { get: (k) => settingValues[k] ?? '' },
+      lookupPr, readLines,
+      ghAvailability: async () => gh,
+    });
+    return { store, lookupPr, readLines };
+  }
+
+  it('GET /api/gh-status reports why gh cannot serve the PR switch', async () => {
+    const { store } = storeWith({}, 'logged_out');
+    const { app } = makeApp({ branchStatus: store });
+    expect(res200(await app.inject({ method: 'GET', url: '/api/gh-status' }))).toEqual({ status: 'logged_out' });
+    store.close();
+  });
+
+  it('POST /api/branch-status/refresh looks up the PR of every watched working tree', async () => {
+    const dir = featureRepo();
+    const { store, lookupPr } = storeWith({ header_pull_request: 'true' });
+    store.watchSession('s1', dir);
+    await vi.waitFor(() => expect(lookupPr).toHaveBeenCalledTimes(1));
+    const { app } = makeApp({ branchStatus: store });
+    expect(res200(await app.inject({ method: 'POST', url: '/api/branch-status/refresh' }))).toEqual({ ok: true });
+    await vi.waitFor(() => expect(lookupPr).toHaveBeenCalledTimes(2));
+    expect(lookupPr).toHaveBeenLastCalledWith(dir, 'feature');
+    store.close();
+  });
+
+  it('PATCH /api/settings applies a branch status key at once, and leaves the store alone for others', async () => {
+    const { store } = storeWith({});
+    const settingsChanged = vi.spyOn(store, 'settingsChanged');
+    const { app } = makeApp({ branchStatus: store });
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { confirm_before_clear: 'false' } });
+    expect(settingsChanged).not.toHaveBeenCalled();
+    await app.inject({
+      method: 'PATCH', url: '/api/settings',
+      payload: { header_line_changes: 'split', header_pull_request: 'true' },
+    });
+    expect(settingsChanged).toHaveBeenCalledTimes(1);
+    store.close();
+  });
+
+  it('POST /api/sessions starts the watch for a browser that subscribed before the row existed', async () => {
+    const dir = featureRepo();
+    const { store } = storeWith({});
+    const watchSession = vi.spyOn(store, 'watchSession');
+    const { app, hub } = makeApp({ branchStatus: store });
+    subscribeFake(hub, 'session:web-9');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions', payload: { cwd: dir, prompt: 'go', permissionMode: 'default' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(watchSession).toHaveBeenCalledWith('web-9', dir);
+    store.close();
   });
 });
