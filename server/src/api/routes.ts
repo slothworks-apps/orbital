@@ -41,6 +41,7 @@ import type { IdeStore } from '../ide/store.js';
 import type { SubagentStore, SubagentTranscripts } from '../transcript/subagents.js';
 import type { BackgroundTaskStore } from '../transcript/backgroundTasks.js';
 import { readOutputTail } from '../files/taskOutput.js';
+import { SESSION_TIPS } from '../runner/sessionInstructions.js';
 import type { ChatMessage, ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
 import { isPermissionMode } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
@@ -1844,6 +1845,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (branchSettings) ctx.branchStatus.settingsChanged();
     return { ok: true };
   });
+
+  // Settings › Sessions › INSTRUCTIONS reads the tip list from here, never
+  // from a copy in the web bundle: the preview must show what the running
+  // server sends (spec 2026-09-30-session-instructions-design § 4).
+  app.get('/api/session-instructions/tips', () => ({ tips: SESSION_TIPS }));
 
   /**
    * Whether `gh` can serve the PR switch, and if not, why — asked when

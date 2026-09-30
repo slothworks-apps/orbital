@@ -222,6 +222,9 @@ describe('openDb', () => {
       notify_session_failed: 'true',
       notify_only_when_background: 'true',
       notify_sound: 'true',
+      session_instructions_tips: 'true',
+      session_instructions_custom: 'true',
+      session_instructions_custom_text: '',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

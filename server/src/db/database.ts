@@ -182,6 +182,16 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   notify_session_failed: 'true',
   notify_only_when_background: 'true',
   notify_sound: 'true',
+  /**
+   * Settings › Sessions › INSTRUCTIONS (spec
+   * 2026-09-30-session-instructions-design § 4). The two switches are
+   * default-on, read server-side as `!== 'false'`; the text is appended to
+   * every session Orbital starts, trimmed at compose time and stored as
+   * typed. No cap: it is the user's own prompt on their own machine.
+   */
+  session_instructions_tips: 'true',
+  session_instructions_custom: 'true',
+  session_instructions_custom_text: '',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };

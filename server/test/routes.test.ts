@@ -37,6 +37,7 @@ import { BackgroundTaskStore } from '../src/transcript/backgroundTasks.js';
 import { createImageStore } from '../src/images/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
+import { SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
 
 /**
  * The narrate query when a test does not script one: it fails, which no
@@ -834,6 +835,32 @@ describe('REST routes', () => {
     });
     const after = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(after.json().confirm_before_clear).toBe('false');
+  });
+
+  describe('GET /api/session-instructions/tips', () => {
+    // Spec 2026-09-30-session-instructions-design § 4: the preview shows what
+    // the running server sends, so the route and the composer share one list.
+    it('returns the shipped tips in the order the composer emits them', async () => {
+      const { app } = makeApp();
+      const res = await app.inject({ method: 'GET', url: '/api/session-instructions/tips' });
+      expect(res.statusCode).toBe(200);
+      const { tips } = res.json() as { tips: { id: string; title: string; text: string }[] };
+      expect(tips.map((t) => t.id)).toEqual(SESSION_TIPS.map((t) => t.id));
+      const appendix = composeAppendix({ tipsOn: true, commentary: false, customOn: false, customText: '' });
+      expect(appendix).toBe(tips.map((t) => t.text).join('\n\n'));
+      for (const tip of tips) {
+        expect(tip.title.length).toBeGreaterThan(0);
+        expect(tip.text.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('seeds the three instruction rows with their defaults', async () => {
+      const { app } = makeApp();
+      const settings = (await app.inject({ method: 'GET', url: '/api/settings' })).json();
+      expect(settings.session_instructions_tips).toBe('true');
+      expect(settings.session_instructions_custom).toBe('true');
+      expect(settings.session_instructions_custom_text).toBe('');
+    });
   });
 
   it('POST /api/sessions/:id/end stops the process, with the stamp already written', async () => {
