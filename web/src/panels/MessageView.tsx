@@ -220,6 +220,7 @@ export function Pre({ children, className, ...rest }: PreProps) {
 type AnchorProps = ComponentPropsWithoutRef<'a'> & {
   'data-path'?: string
   'data-line'?: string
+  'data-code'?: string
 }
 
 /**
@@ -239,7 +240,7 @@ function MarkdownLink({ children, node: _node, ...rest }: AnchorProps & { node?:
       <PathButton
         path={path}
         line={rawLine !== undefined ? Number(rawLine) : null}
-        variant="prose"
+        variant={rest['data-code'] !== undefined ? 'code' : 'prose'}
         suffix={text.startsWith(path) ? text.slice(path.length) : undefined}
       />
     )

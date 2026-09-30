@@ -3,6 +3,7 @@ import {
   findPathMatches,
   hasTextExtension,
   rehypePathLinks,
+  codeSpanPath,
   type HastRoot,
 } from '../lib/pathLinks'
 
@@ -128,11 +129,11 @@ describe('rehypePathLinks', () => {
     ])
   })
 
-  it('skips text inside code, pre and existing links', () => {
+  it('skips code blocks, code spans that are more than a path, and existing links', () => {
     const tree = {
       type: 'root',
       children: [
-        el('p', [el('code', [textNode('web/src/App.tsx')])]),
+        el('p', [el('code', [textNode('cat web/src/App.tsx')])]),
         el('pre', [el('code', [textNode('web/src/App.tsx:1')])]),
         el('a', [textNode('docs/readme.md')]),
       ],
@@ -140,7 +141,7 @@ describe('rehypePathLinks', () => {
     runPlugin(tree)
 
     const codeChild = (tree.children[0] as ReturnType<typeof el>).children[0] as ReturnType<typeof el>
-    expect(codeChild.children).toEqual([textNode('web/src/App.tsx')])
+    expect(codeChild.children).toEqual([textNode('cat web/src/App.tsx')])
     const preCode = (tree.children[1] as ReturnType<typeof el>).children[0] as ReturnType<typeof el>
     expect(preCode.children).toEqual([textNode('web/src/App.tsx:1')])
     expect((tree.children[2] as ReturnType<typeof el>).children).toEqual([
@@ -159,5 +160,41 @@ describe('rehypePathLinks', () => {
     }
     expect(link.properties.dataPath).toBe('docs/readme.md')
     expect(link.properties.dataLine).toBeUndefined()
+  })
+
+  it('links a code span that is exactly one path, inside the code element', () => {
+    const tree = {
+      type: 'root',
+      children: [el('p', [el('code', [textNode('docs/x.md:3')])])],
+    } as HastRoot
+    runPlugin(tree)
+
+    const code = (tree.children[0] as ReturnType<typeof el>).children[0] as ReturnType<typeof el>
+    expect(code.tagName).toBe('code')
+    const link = code.children[0] as { tagName: string; properties: Record<string, unknown>; children: unknown[] }
+    expect(link.tagName).toBe('a')
+    expect(link.properties).toMatchObject({ dataPath: 'docs/x.md', dataLine: '3', dataCode: '' })
+    expect(link.children).toEqual([textNode('docs/x.md:3')])
+  })
+})
+
+describe('codeSpanPath', () => {
+  it('takes a span that is exactly one path, with or without a line', () => {
+    expect(codeSpanPath('docs/decisions/x.md')).toMatchObject({ path: 'docs/decisions/x.md', line: null })
+    expect(codeSpanPath('web/src/App.tsx:42:7')).toMatchObject({ path: 'web/src/App.tsx', line: 42 })
+    expect(codeSpanPath(' web/src/App.tsx ')?.path).toBe('web/src/App.tsx')
+  })
+
+  it('refuses a span where the path is only part of it', () => {
+    expect(codeSpanPath('cat web/src/App.tsx')).toBeNull()
+    expect(codeSpanPath('web/src/App.tsx --watch')).toBeNull()
+    expect(codeSpanPath('web/a.ts web/b.ts')).toBeNull()
+    expect(codeSpanPath('web/src/App.tsx.')).toBeNull()
+  })
+
+  it('refuses what the prose matcher refuses', () => {
+    expect(codeSpanPath('README.md')).toBeNull()
+    expect(codeSpanPath('a/b.png')).toBeNull()
+    expect(codeSpanPath('https://example.com/a.md')).toBeNull()
   })
 })

@@ -722,8 +722,20 @@ describe('MessageView: pressable prose paths', () => {
     expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'web/src/App.tsx', line: 42 })
   })
 
-  it('never touches paths inside code spans or fenced blocks', () => {
-    const text = 'use `web/src/App.tsx` and\n\n```\ndocs/readme.md\n```'
+  it('turns a code span that is exactly a path into a path button inside the chip', () => {
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', text: 'spec: `docs/specs/x.md:12`' })} />
+    )
+
+    const button = container.querySelector('code [data-path-button]')!
+    expect(button).toHaveTextContent('docs/specs/x.md:12')
+
+    fireEvent.click(button)
+    expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'docs/specs/x.md', line: 12 })
+  })
+
+  it('never touches a path inside a longer code span or a fenced block', () => {
+    const text = 'run `cat web/src/App.tsx` and\n\n```\ndocs/readme.md\n```'
     const { container } = render(<MessageView message={makeMessage({ id: '1', text })} />)
     expect(container.querySelector('[data-path-button]')).toBeNull()
   })
