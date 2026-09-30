@@ -3518,13 +3518,13 @@ describe('system prompt appendix', () => {
 
   it('appends the composed text to the preset, spawn and revive alike', async () => {
     const on = { type: 'preset', preset: 'claude_code', append: 'Answer in Czech.' };
-    expect(await systemPromptOf(() => 'Answer in Czech.')).toEqual(on);
-    expect(await systemPromptOf(() => 'Answer in Czech.', 's-old')).toEqual(on);
+    expect(await systemPromptOf(() => 'Answer in Czech.')).toStrictEqual(on);
+    expect(await systemPromptOf(() => 'Answer in Czech.', 's-old')).toStrictEqual(on);
   });
 
   it('leaves the preset alone on null or unwired', async () => {
-    expect(await systemPromptOf(() => null)).toEqual({ type: 'preset', preset: 'claude_code' });
-    expect(await systemPromptOf(undefined, 's-old')).toEqual({ type: 'preset', preset: 'claude_code' });
+    expect(await systemPromptOf(() => null)).toStrictEqual({ type: 'preset', preset: 'claude_code' });
+    expect(await systemPromptOf(undefined, 's-old')).toStrictEqual({ type: 'preset', preset: 'claude_code' });
   });
 
   it('reads the dep at every start, not once', async () => {
@@ -3539,7 +3539,7 @@ describe('system prompt appendix', () => {
     await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
     text = 'later';
     await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan', resume: 's-old' });
-    expect(seen[0].systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' });
-    expect(seen[1].systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: 'later' });
+    expect(seen[0].systemPrompt).toStrictEqual({ type: 'preset', preset: 'claude_code' });
+    expect(seen[1].systemPrompt).toStrictEqual({ type: 'preset', preset: 'claude_code', append: 'later' });
   });
 });
