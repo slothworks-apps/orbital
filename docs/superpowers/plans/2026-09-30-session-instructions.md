@@ -43,9 +43,9 @@ tags:
 ## Review Focus
 
 1. **Custom text with only whitespace or newlines** — must count as empty and produce no block, not an appendix of blank lines. Pinned in Task 1.
-2. **Custom text with Windows line endings or trailing newlines pasted in** — stored verbatim, trimmed only at compose time so the field shows what was typed. Pinned in Task 1 (compose trims) and Task 4 (no trim on write).
+2. **Custom text with Windows line endings or trailing newlines pasted in** — stored verbatim, trimmed only at compose time so the field shows what was typed. Pinned in Task 1 (compose trims); the no-trim-on-write half is by inspection of the PATCH in `Settings.tsx`, since the plan adds no web tests.
 3. **`tipsOff` naming an id that no tip has** — ignored, every tip still emitted. Pinned in Task 1.
-4. **Settings row missing from an old database** — `get` returns `''` for an unknown key; `''` must read as "on" for the two booleans and "empty" for the text, so an upgraded install behaves exactly as a fresh one. Pinned in Task 2 (the index.ts closure test through the real settings-store shape).
+4. **Settings row missing from an old database** — `get` returns `''` for an unknown key; `''` must read as "on" for the two booleans and "empty" for the text, so an upgraded install behaves exactly as a fresh one. Covered by `server/test/database.test.ts`, which asserts the three keys are seeded into a pre-existing database on boot, and by inspection of the `!== 'false'` reads in `index.ts`; the closure is glue with no branching and gets no test of its own.
 5. **The tips route and the composer drifting apart** — the route must return the same ids in the same order the composer emits. Pinned in Task 3.
 
 ---
@@ -65,7 +65,7 @@ tags:
   - `export interface AppendixInput { tipsOn: boolean; tipsOff?: readonly string[]; commentary: boolean; customOn: boolean; customText: string }`
   - `export function composeAppendix(input: AppendixInput): string | null`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // server/test/sessionInstructions.test.ts
@@ -140,12 +140,12 @@ describe('composeAppendix', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm test -w server -- sessionInstructions`
 Expected: FAIL — cannot resolve `../src/runner/sessionInstructions.js`.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 ```ts
 // server/src/runner/sessionInstructions.ts
@@ -247,12 +247,12 @@ export function composeAppendix(input: AppendixInput): string | null {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm test -w server -- sessionInstructions`
 Expected: PASS, all cases.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/tomin/Projects/slothworks/orbital
@@ -273,7 +273,7 @@ git commit -m "feat(server): session instructions composer — Orbital's tips an
 - Consumes: `composeAppendix`, `NARRATE_COMMENTARY_PROMPT` from Task 1.
 - Produces: runner dep `appendix?: () => string | null`. `index.ts` wires it as `() => composeAppendix({...})` over `settingsStore`.
 
-- [ ] **Step 1: Rewrite the runner test block**
+- [x] **Step 1: Rewrite the runner test block**
 
 Replace the whole `describe('Comment for Narrate', …)` block in `server/test/runner.test.ts` with:
 
@@ -324,12 +324,12 @@ describe('system prompt appendix', () => {
 
 Then remove `NARRATE_COMMENTARY_PROMPT` from the import list at the top of `server/test/runner.test.ts` (line 5); nothing in the file uses it after this block.
 
-- [ ] **Step 2: Run the runner tests to verify the new block fails**
+- [x] **Step 2: Run the runner tests to verify the new block fails**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm test -w server -- runner -t "system prompt appendix"`
 Expected: FAIL — the two `append` assertions get the bare preset, because the runner still reads `commentary`.
 
-- [ ] **Step 3: Change the runner**
+- [x] **Step 3: Change the runner**
 
 In `server/src/runner/runner.ts`:
 
@@ -379,7 +379,7 @@ function systemPromptOption(append: string | null) {
 }
 ```
 
-- [ ] **Step 4: Wire `index.ts`**
+- [x] **Step 4: Wire `index.ts`**
 
 In `server/src/index.ts`, add to the imports:
 
@@ -404,12 +404,12 @@ and replace the `commentary: () => settingsStore.get('narrate_commentary') === '
       }),
 ```
 
-- [ ] **Step 5: Run the whole server suite and the typecheck**
+- [x] **Step 5: Run the whole server suite and the typecheck**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm run typecheck -w server && npm test -w server`
 Expected: PASS. If `routes.test.ts` or another file imports `NARRATE_COMMENTARY_PROMPT` from `runner.js`, point that import at `../src/runner/sessionInstructions.js` instead.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/tomin/Projects/slothworks/orbital
@@ -430,7 +430,7 @@ git commit -m "feat(server): runner takes the composed appendix in place of the 
 - Consumes: `SESSION_TIPS` from Task 1.
 - Produces: `GET /api/session-instructions/tips` → `{ tips: SessionTip[] }`. Web (Task 4) reads it.
 
-- [ ] **Step 1: Write the failing route test**
+- [x] **Step 1: Write the failing route test**
 
 Add to `server/test/routes.test.ts`, next to the existing `/api/settings` tests:
 
@@ -468,12 +468,12 @@ and add the import at the top of the file:
 import { SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm test -w server -- routes -t "session-instructions"`
 Expected: FAIL — 404 on the route, and the three settings keys undefined.
 
-- [ ] **Step 3: Seed the defaults**
+- [x] **Step 3: Seed the defaults**
 
 In `server/src/db/database.ts`, add to `DEFAULT_SETTINGS` after the `notify_sound` entry:
 
@@ -490,7 +490,7 @@ In `server/src/db/database.ts`, add to `DEFAULT_SETTINGS` after the `notify_soun
   session_instructions_custom_text: '',
 ```
 
-- [ ] **Step 4: Add the route**
+- [x] **Step 4: Add the route**
 
 In `server/src/api/routes.ts`, import at the top:
 
@@ -507,12 +507,12 @@ and after the `app.patch('/api/settings', …)` handler:
   app.get('/api/session-instructions/tips', () => ({ tips: SESSION_TIPS }));
 ```
 
-- [ ] **Step 5: Run the tests and the typecheck**
+- [x] **Step 5: Run the tests and the typecheck**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm run typecheck -w server && npm test -w server -- routes -t "session-instructions"`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/tomin/Projects/slothworks/orbital
@@ -532,7 +532,7 @@ git commit -m "feat(server): instruction settings rows and the tips route"
 - Consumes: `GET /api/session-instructions/tips` from Task 3; keys from Task 3.
 - Produces: `api.getSessionInstructionTips(): Promise<{ tips: SessionTip[] }>`; `export interface SessionTip { id: string; title: string; text: string }` in `web/src/lib/api.ts`.
 
-- [ ] **Step 1: Add the API call**
+- [x] **Step 1: Add the API call**
 
 In `web/src/lib/api.ts`, next to `ServerHealth`, add:
 
@@ -558,7 +558,7 @@ and in the `// Settings API` block, after `patchSettings`:
   },
 ```
 
-- [ ] **Step 2: Add the state and effects to `Settings()`**
+- [x] **Step 2: Add the state and effects to `Settings()`**
 
 In `web/src/panels/Settings.tsx`:
 
@@ -623,7 +623,7 @@ In `web/src/panels/Settings.tsx`:
     setInstructionsDraft(settings.session_instructions_custom_text ?? '')
 ```
 
-- [ ] **Step 3: Add the group to the Sessions section**
+- [x] **Step 3: Add the group to the Sessions section**
 
 In the *Sessions* section, after the last `<Row>` under `CLEAR & LIFECYCLE` (the row whose closing `</Row>` precedes the section's `</>` at ~line 1735), add:
 
@@ -724,19 +724,19 @@ and, with the other derived booleans near `const confirmBeforeClear = …` (sear
 
 If the `<ul>` opacity and the `Row` border classes look off next to the *Default planet size* preview, copy that preview's exact class strings (~line 1340–1380) rather than inventing new ones — the constraint is no new colours.
 
-- [ ] **Step 4: Typecheck, lint and look at it**
+- [x] **Step 4: Typecheck, lint and look at it**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm run typecheck -w web && npm run lint`
 Expected: clean.
 
 Then with `npm run dev` running, open Settings › Sessions and check, by eye: the `INSTRUCTIONS` kicker sits after `CLEAR & LIFECYCLE`; the tips row toggles; *Show the tips* expands to the three tips and dims when the toggle is off; typing in the field raises *saved · just now* about half a second after the last keystroke; reloading the page keeps the text and both toggles. Do not add tests for any of this (spec § 5).
 
-- [ ] **Step 5: Run the whole web suite**
+- [x] **Step 5: Run the whole web suite**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm run test:run -w web`
 Expected: PASS. If a Settings test in `web/src/test` mocks `api` with a fixed method list and now fails on `getSessionInstructionTips` being undefined, add it to that mock returning `Promise.resolve({ tips: [] })` — see `docs/decisions/test-api-mocks-derive-from-the-real-module.md` for how the mocks are built.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/tomin/Projects/slothworks/orbital
@@ -752,20 +752,20 @@ git commit -m "feat(web): Settings › Sessions › Instructions — Orbital's t
 - Modify: `docs/superpowers/specs/2026-09-30-session-instructions-design.md` — `status`
 - Modify: `docs/superpowers/plans/2026-09-30-session-instructions.md` — `status`
 
-- [ ] **Step 1: Prove the appendix reaches a real session**
+- [x] **Step 1: Prove the appendix reaches a real session**
 
 With `npm run dev` running and the tips on, put `Answer every message with the word ORBITAL-CHECK first.` in *Your instructions*, start a new session from the dialog with the prompt `Say hello.`, and confirm the reply begins with `ORBITAL-CHECK`. Then turn *Your instructions* off, start another session with the same prompt, and confirm the word is gone. Clear the field afterwards.
 
-- [ ] **Step 2: Full suite and validation**
+- [x] **Step 2: Full suite and validation**
 
 Run: `cd /Users/tomin/Projects/slothworks/orbital && npm run typecheck && npm test && atlas validate`
 Expected: all PASS, `atlas validate: all documents valid`. If the two server tests that break under Orbital's own env vars fail (see the session-env memory), run them outside the Orbital session or unset the `ORBITAL_*` variables first, and say so in the report.
 
-- [ ] **Step 3: Set the documents' status**
+- [x] **Step 3: Set the documents' status**
 
 In both the spec and this plan, change `status: active` to `status: done`. Run `atlas validate` again.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/tomin/Projects/slothworks/orbital
@@ -773,6 +773,6 @@ git add docs/superpowers/specs/2026-09-30-session-instructions-design.md docs/su
 git commit -m "docs: session instructions spec and plan done"
 ```
 
-- [ ] **Step 5: Ask about the version**
+- [x] **Step 5: Ask about the version**
 
 Server and web both changed, so the DMG changes. Before reporting the work done, ask whether to bump `version` in `desktop/package.json`, proposing **minor** (a new user-facing setting and a new behaviour for every Orbital session, nothing breaking). Do not bump without an answer. Check `git status` first — other sessions edit this checkout, and a bump commit must carry only the version files.
