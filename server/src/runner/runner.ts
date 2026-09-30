@@ -1234,6 +1234,10 @@ export class Runner {
         this.release(sessionId, state);
         return;
       }
+      // A process that exits non-zero after stop() let go of it — a rewind's
+      // "Stop and rewind" interrupting a turn, then closing the process — is
+      // the stop working, not the session failing.
+      if (this.sessions.get(sessionId) !== state) return;
       // Both, deliberately: the terminal keeps saying it, and the browser
       // finally gets to. A reporter that throws must not stop `release()`
       // below from running — a session that failed twice is still a session

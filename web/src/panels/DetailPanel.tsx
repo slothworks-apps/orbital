@@ -1215,18 +1215,26 @@ export function DetailPanel({
                     pick mode is on. Gone while a rewind is pending — Cancel
                     rewind is the way back. */}
                 {!rewindPending && (
-                  <Button
-                    variant={picking || rewindPicked ? 'toggle-on' : 'toggle'}
-                    size="icon"
-                    className="shrink-0"
-                    aria-label="Rewind to one of your messages"
-                    title="Rewind to one of your messages"
-                    aria-pressed={picking || rewindPicked !== null}
-                    disabled={composerLocked}
-                    onClick={() => id && togglePick(id)}
-                  >
-                    <RewindGlyph />
-                  </Button>
+                  <span className="flex shrink-0">
+                    <Tooltip
+                      title="Rewind"
+                      description="Take the conversation back to before one of your messages. Files on disk stay as they are."
+                      align="right"
+                      side="above"
+                      delayMs={PIN_TOOLTIP_DELAY_MS}
+                    >
+                      <Button
+                        variant={picking || rewindPicked ? 'toggle-on' : 'toggle'}
+                        size="icon"
+                        aria-label="Rewind to one of your messages"
+                        aria-pressed={picking || rewindPicked !== null}
+                        disabled={composerLocked}
+                        onClick={() => id && togglePick(id)}
+                      >
+                        <RewindGlyph />
+                      </Button>
+                    </Tooltip>
+                  </span>
                 )}
                 {session?.status === 'working' && (
                   <Button

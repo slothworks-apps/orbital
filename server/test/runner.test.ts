@@ -1570,6 +1570,31 @@ describe('Runner error reporting', () => {
     expect(warn).toHaveBeenCalledWith('orbital: runner pump error:', boom);
   });
 
+  // What "Stop and rewind" does to a working session: the process it closes
+  // exits non-zero, and that is the stop working, not the session failing.
+  it('does not report a process that fails after stop() let go of it', async () => {
+    const seen: unknown[] = [];
+    const runner = new Runner({
+      hub: new Hub(),
+      queryFn: (({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+        const sid = sessionIdOf(options);
+        async function* gen() {
+          yield { type: 'system', subtype: 'init', session_id: sid };
+          for await (const _ of prompt) { /* drain until stop() closes the input */ }
+          throw new Error('Claude Code process exited with code 1');
+        }
+        return gen();
+      }) as any,
+      onError: (_sessionId, err) => seen.push(err),
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    await runner.stopAndWait(id);
+
+    expect(seen).toEqual([]);
+    expect(runner.status(id)).toBeUndefined();
+  });
+
   it('releases the session even with no onError wired at all', async () => {
     const released: string[] = [];
     const runner = new Runner({

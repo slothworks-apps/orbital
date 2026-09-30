@@ -20,6 +20,12 @@ interface TooltipBase {
    */
   align?: 'left' | 'right'
   /**
+   * Whether the bubble drops below the trigger or rises above it. Above is for
+   * triggers at the bottom of the window — the composer's row — where a
+   * bubble below would fall off the screen.
+   */
+  side?: 'below' | 'above'
+  /**
    * How long the pointer must rest on the trigger before the bubble appears.
    * Keyboard focus ignores it — focusing a control is already deliberate,
    * while a pointer crosses controls on its way somewhere else.
@@ -79,6 +85,7 @@ export function Tooltip({
   description,
   variant = 'card',
   align = 'left',
+  side = 'below',
   delayMs = 0,
   anchor = 'trigger',
   children,
@@ -135,8 +142,8 @@ export function Tooltip({
             // 4d: it arrives rather than blinks on — the last few pixels of
             // travel are what make a delayed bubble read as an answer to the
             // pointer resting, not as a flicker.
-            'orbital-tooltip-in',
-            'orbital-no-drag absolute top-full z-20 mt-2 w-max border',
+            side === 'above' ? 'orbital-tooltip-up bottom-full mb-2' : 'orbital-tooltip-in top-full mt-2',
+            'orbital-no-drag absolute z-20 w-max border',
             'border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]',
             // 1f draws the one-line shell tighter and with a softer drop than
             // 2d's card, because it hangs off a text row rather than a control.

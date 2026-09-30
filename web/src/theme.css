@@ -462,6 +462,22 @@ body {
   animation: orbital-tooltip-in 0.16s ease;
 }
 
+/* The same arrival for a bubble above its trigger: it travels up into place. */
+@keyframes orbital-tooltip-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.orbital-tooltip-up {
+  animation: orbital-tooltip-up 0.16s ease;
+}
+
 /* A question card arriving in the transcript (canvas 9d "arrival"). Only the
    fade is ours — the scroll rule is the transcript's existing stick-to-bottom
    logic, which already says "never steal scroll from someone reading". */
