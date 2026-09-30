@@ -431,6 +431,8 @@ export function Settings({ open, onClose }: SettingsProps) {
     setSection(initialSection(useOrbital.getState().settings))
     setSaved(false)
     setPreviewOpen(true)
+    // Collapsed on every visit, like the planet-size preview above starts open.
+    setTipsOpen(false)
     setOtherModelPicked(false)
     // `settings` deliberately absent: this reseeds per visit, and reading it
     // through `getState` keeps a PATCH landing mid-visit from yanking the
@@ -657,8 +659,11 @@ export function Settings({ open, onClose }: SettingsProps) {
 
   // Sessions' tips list, fetched per visit the same way: it shows what the
   // running server appends, so a copy from before a restart would be wrong.
+  // Cleared first so a fetch that fails this visit shows no list rather than
+  // the previous visit's.
   useEffect(() => {
     if (!open) return
+    setTips(null)
     let live = true
     api
       .getSessionInstructionTips()
