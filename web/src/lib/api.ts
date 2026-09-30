@@ -695,6 +695,15 @@ export const api = {
   },
 
   /**
+   * Orbital's tips for Settings › Sessions › INSTRUCTIONS. Fetched from the
+   * server rather than bundled, so the preview shows what the running
+   * server appends (spec 2026-09-30-session-instructions-design § 4).
+   */
+  async getSessionInstructionTips(): Promise<{ tips: SessionTip[] }> {
+    return request<{ tips: SessionTip[] }>('GET', '/api/session-instructions/tips')
+  },
+
+  /**
    * Facts about how the server was started, for Settings → General. Not
    * settings: nothing writes them, and they would be stale the moment the
    * server restarted with a different environment. Fetched when the section
@@ -740,6 +749,13 @@ export type ServerHealth = {
   app?: string
   billing?: 'subscription' | 'api-key'
   paths?: { claudeDir?: string; dataDir?: string; dbPath?: string }
+}
+
+/** One of Orbital's shipped tips, as `GET /api/session-instructions/tips` returns it. */
+export interface SessionTip {
+  id: string
+  title: string
+  text: string
 }
 
 // Export types for convenience

@@ -31,7 +31,7 @@ import {
   MAP_FPS_FOCUSED_STEP,
   parseMapFps,
 } from '../map/frameSchedule'
-import { api, type ServerHealth } from '../lib/api'
+import { api, type ServerHealth, type SessionTip } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { SCOPES, bindingCount, chordLabel, command } from '../lib/keymap'
 import { notifyDesktopSettingsChanged } from '../lib/desktop'
@@ -61,7 +61,7 @@ import {
   SCRIM_OPEN,
   EXITING,
 } from '../ui/motion'
-import { Input } from '../ui/Input'
+import { Input, TextArea } from '../ui/Input'
 import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
 import { CustomModelField } from '../ui/CustomModelField'
@@ -381,6 +381,17 @@ export function Settings({ open, onClose }: SettingsProps) {
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
   const [claudeDirDraft, setClaudeDirDraft] = useState(settings.claude_directory ?? '')
+  const [instructionsDraft, setInstructionsDraft] = useState(
+    settings.session_instructions_custom_text ?? '',
+  )
+  /**
+   * Orbital's tips, from the server. Null until the fetch lands and after a
+   * failure: the list then simply does not draw, for the same reason
+   * General's read-only rows wait for `/api/health` — a placeholder list
+   * could be read as the real one.
+   */
+  const [tips, setTips] = useState<SessionTip[] | null>(null)
+  const [tipsOpen, setTipsOpen] = useState(false)
   /**
    * Facts about how the server was started, for General's read-only rows.
    * Null until the fetch lands and after a failure — those rows simply do not
@@ -448,6 +459,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     setProjectDirDraft(settings.default_project_dir ?? '')
     setCliPathDraft(settings.claude_executable_path ?? '')
     setClaudeDirDraft(settings.claude_directory ?? '')
+    setInstructionsDraft(settings.session_instructions_custom_text ?? '')
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
     // must not fight the user's current typing while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -606,6 +618,19 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claudeDirDraft, open])
 
+  // And the fourth: Sessions' own instructions. Stored as typed — the
+  // composer trims at compose time, so the field keeps showing what was
+  // written (spec 2026-09-30-session-instructions-design § 3).
+  useEffect(() => {
+    if (!open) return
+    if (instructionsDraft === (settings.session_instructions_custom_text ?? '')) return
+    const timer = setTimeout(() => {
+      void patchAndSet({ session_instructions_custom_text: instructionsDraft })
+    }, DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instructionsDraft, open])
+
   // General's read-only rows. Fetched per visit rather than kept in the store:
   // nothing else reads them, and a value from before a server restart would
   // be worse than no value at all. A failure leaves `health` null and the
@@ -624,6 +649,24 @@ export function Settings({ open, onClose }: SettingsProps) {
       })
       .catch(() => {
         /* rows stay unrendered; see the state's comment */
+      })
+    return () => {
+      live = false
+    }
+  }, [open])
+
+  // Sessions' tips list, fetched per visit the same way: it shows what the
+  // running server appends, so a copy from before a restart would be wrong.
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    api
+      .getSessionInstructionTips()
+      .then((answer) => {
+        if (live && answer) setTips(answer.tips)
+      })
+      .catch(() => {
+        /* the list stays unrendered; see the state's comment */
       })
     return () => {
       live = false
@@ -713,6 +756,8 @@ export function Settings({ open, onClose }: SettingsProps) {
   const defaultPermissionMode =
     (settings.default_permission_mode as PermissionMode) || 'acceptEdits'
   const confirmBeforeClear = settings.confirm_before_clear !== 'false'
+  const instructionTips = settings.session_instructions_tips !== 'false'
+  const instructionCustom = settings.session_instructions_custom !== 'false'
   // Opt-in, so the default is the absent key reading as off — the opposite of
   // every `!== 'false'` above it.
   const autoTitleSessions = settings.auto_title_sessions === 'true'
@@ -1732,6 +1777,91 @@ export function Settings({ open, onClose }: SettingsProps) {
                           label="Permission mode"
                         />
                       </Row>
+                      <SectionLabel>INSTRUCTIONS</SectionLabel>
+                      <Row
+                        title="Orbital's tips"
+                        desc="Short instructions every session Orbital starts receives, so the model uses what Orbital can show: choices as cards, clickable file paths, background tasks. Applies from the next start."
+                      >
+                        <Toggle
+                          aria-label="Orbital's tips"
+                          checked={instructionTips}
+                          onChange={(checked) =>
+                            void patchAndSet({ session_instructions_tips: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      {tips && (
+                        <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
+                          <button
+                            type="button"
+                            aria-expanded={tipsOpen}
+                            onClick={() => setTipsOpen((v) => !v)}
+                            className="flex items-start gap-2.5 text-left"
+                          >
+                            <span
+                              aria-hidden
+                              className="mt-[1px] grid h-4 w-4 flex-none place-items-center text-[9px] text-[rgba(160,190,225,.7)] transition-transform duration-[180ms]"
+                              style={{ transform: tipsOpen ? undefined : 'rotate(-90deg)' }}
+                            >
+                              ▾
+                            </span>
+                            <span className="flex-1">
+                              <span className="flex items-center gap-2">
+                                <span className="text-[13.5px] font-semibold text-text-bright">
+                                  Show the tips
+                                </span>
+                                {!tipsOpen && (
+                                  <span className="font-mono text-[10px] tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+                                    collapsed
+                                  </span>
+                                )}
+                              </span>
+                              <span className="mt-1 block text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                                The exact text the server appends. Read-only: to change a tip, turn
+                                the layer off and write your own version below.
+                              </span>
+                            </span>
+                          </button>
+                          {tipsOpen && (
+                            <ul
+                              className="flex flex-col gap-3 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)] px-5 py-4"
+                              style={{ opacity: instructionTips ? 1 : 0.5 }}
+                            >
+                              {tips.map((tip) => (
+                                <li key={tip.id}>
+                                  <div className="text-[12.5px] font-semibold text-text-bright">{tip.title}</div>
+                                  <div className="mt-1 text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                                    {tip.text}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                      <Row
+                        title="Your instructions"
+                        desc="Your own text, appended to every session Orbital starts, after the tips. Applies from the next start. For one project, use that project's CLAUDE.md instead."
+                      >
+                        <Toggle
+                          aria-label="Your instructions"
+                          checked={instructionCustom}
+                          onChange={(checked) =>
+                            void patchAndSet({ session_instructions_custom: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      <div className="border-t border-[rgba(150,205,255,.08)] py-[13px]">
+                        <TextArea
+                          aria-label="Your instructions text"
+                          size="sm"
+                          rows={5}
+                          value={instructionsDraft}
+                          onChange={(e) => setInstructionsDraft(e.target.value)}
+                          placeholder="For example: answer in Czech, keep replies short…"
+                          className="resize-y"
+                        />
+                      </div>
                     </>
                   )}
                 </div>
