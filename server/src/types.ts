@@ -45,6 +45,8 @@ export interface SessionRow {
   interrupted_at: number | null;
   /** When the user ended this session (epoch ms), or null. See db/schema.ts. */
   ended_at: number | null;
+  /** The session whose `spawn_session` started this one, or null. See db/schema.ts. */
+  spawned_by: string | null;
 }
 
 /**

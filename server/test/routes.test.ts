@@ -1244,6 +1244,55 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     expect(runner.active()).toEqual([SERVER_MINTED]);
     close();
   });
+
+  describe('spawn_session', () => {
+    const rowOf = (db: OrbitalDb, id: string) =>
+      db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
+
+    async function withParent(model?: string) {
+      const launched = makeLaunchApp();
+      const cwd = mkdtempSync(join(tmpdir(), 'orbital-spawn-'));
+      await launch(launched.app, { sessionId: CLIENT_ID, cwd, ...(model ? { model } : {}) });
+      return { ...launched, cwd };
+    }
+
+    it('starts a session in the parent\'s cwd, mode and model, marked with the parent', async () => {
+      const { db, runner, cwd, close } = await withParent('opus');
+      // The mode as it stands now, not as the parent was launched.
+      await runner.setPermissionMode(CLIENT_ID, 'bypassPermissions');
+      const result = await runner.spawner!(CLIENT_ID, { prompt: 'do the other thing' });
+      expect(result).toEqual({ sessionId: SERVER_MINTED, cwd });
+      expect(rowOf(db, SERVER_MINTED)).toMatchObject({
+        cwd, source: 'web', permission_mode: 'bypassPermissions', model: 'opus', spawned_by: CLIENT_ID,
+      });
+      expect(rowOf(db, CLIENT_ID)?.spawned_by).toBeNull();
+      close();
+    });
+
+    it('lets the tool pick another model', async () => {
+      const { db, runner, close } = await withParent('opus');
+      await runner.spawner!(CLIENT_ID, { prompt: 'go', model: 'haiku' });
+      expect(rowOf(db, SERVER_MINTED)?.model).toBe('haiku');
+      close();
+    });
+
+    it('refuses a cwd that is not a directory, and starts nothing', async () => {
+      const { db, runner, cwd, close } = await withParent();
+      await expect(runner.spawner!(CLIENT_ID, { prompt: 'go', cwd: join(cwd, 'missing') }))
+        .rejects.toThrow(/no such directory/);
+      await expect(runner.spawner!(CLIENT_ID, { prompt: 'go', cwd: 'relative/dir' }))
+        .rejects.toThrow(/absolute/);
+      expect(rowOf(db, SERVER_MINTED)).toBeUndefined();
+      expect(runner.active()).toEqual([CLIENT_ID]);
+      close();
+    });
+
+    it('refuses a parent that is not running', async () => {
+      const { runner, close } = await withParent();
+      await expect(runner.spawner!('not-running', { prompt: 'go' })).rejects.toThrow(/no longer running/);
+      close();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

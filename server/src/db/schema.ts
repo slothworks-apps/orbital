@@ -99,6 +99,14 @@ export const sessions = sqliteTable(
      * is over whatever this says.
      */
     endedAt: integer('ended_at'),
+    /**
+     * The session whose `spawn_session` call started this one, null for every
+     * session the user started (spec 2026-09-30-a-session-spawns-sessions-design
+     * § Chains). Nothing reads it yet: it is kept so a limit on chains can be
+     * added later without guessing which sessions were spawned. Declared last
+     * for the same reason as `runnerStatus`.
+     */
+    spawnedBy: text('spawned_by'),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );

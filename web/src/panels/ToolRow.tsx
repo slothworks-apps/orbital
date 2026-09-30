@@ -403,7 +403,10 @@ export function ToolRow({
               <InputJson input={toolUse.toolInput} />
             )}
           </div>
-          {toolResult && (
+          {/* A file change that went through says nothing its diff does
+              not ("has been updated successfully"); only a failed one's
+              result — the error — is worth the space. */}
+          {toolResult && (!change || failed) && (
             <div>
               <SectionLabel>RESULT</SectionLabel>
               {toolResult.images?.length ? (

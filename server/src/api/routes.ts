@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, statSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { parseTranscript } from '../transcript/parser.js';
 import { presentBranch, readTranscriptBranch, type BranchRead } from '../transcript/rewind.js';
 import { RewindStore, type PendingRewind } from '../rewind/store.js';
@@ -838,11 +838,51 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         return reply.code(409).send({ error: 'session id is already taken' });
       }
     }
-    const sessionId = await ctx.runner.start({ ...body, cwd, sessionId: clientId });
+    const sessionId = await launchSession({ ...body, cwd, sessionId: clientId });
+    return reply.code(201).send({ sessionId });
+  });
+
+  /**
+   * The back end of the `spawn_session` tool a running session calls (spec
+   * 2026-09-30-a-session-spawns-sessions-design). The new session takes the
+   * parent's permission mode as it stands now, and its model unless the tool
+   * named one. A rejection's message is what the model reads.
+   */
+  ctx.runner.spawner = async (parentId, input) => {
+    const permissionMode = ctx.runner.permissionModeOf(parentId);
+    const parent = db.select(sessionColumns).from(sessions).where(eq(sessions.id, parentId)).get() as
+      | SessionRow
+      | undefined;
+    if (!permissionMode || !parent) throw new Error('this session is no longer running');
+    const cwd = input.cwd ? expandHome(input.cwd) : parent.cwd;
+    if (!isAbsolute(cwd)) throw new Error(`cwd must be an absolute path: ${input.cwd}`);
+    if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+      throw new Error(`no such directory: ${cwd}`);
+    }
+    const model = input.model?.trim() || parent.model || undefined;
+    const sessionId = await launchSession({
+      cwd, prompt: input.prompt, permissionMode, model, spawnedBy: parentId,
+    });
+    return { sessionId, cwd };
+  };
+
+  /**
+   * Starts a web session and announces it: the run, the row born already
+   * claimed, the optional manual tag, the `upsert` the map draws the planet
+   * from. Shared by the new-session dialog's route and `spawn_session`.
+   */
+  async function launchSession(opts: {
+    cwd: string; prompt: string; permissionMode: PermissionMode;
+    tagId?: number; model?: string; resume?: string;
+    sessionId?: string; attachments?: string[]; spawnedBy?: string;
+  }): Promise<string> {
+    const { cwd, spawnedBy, tagId, ...start } = opts;
+    const sessionId = await ctx.runner.start({ ...start, cwd });
     db.insert(sessions)
       .values({
         id: sessionId, projectDir: '', cwd, source: 'web',
-        permissionMode: body.permissionMode, model: body.model ?? null,
+        permissionMode: opts.permissionMode, model: opts.model ?? null,
+        spawnedBy: spawnedBy ?? null,
         lastAt: Date.now(),
         // The row is born already claimed. `start()` above announced the
         // claim to a row that did not exist yet, so without this a session
@@ -855,9 +895,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       })
       .onConflictDoNothing()
       .run();
-    if (body.tagId != null) {
+    if (tagId != null) {
       db.insert(sessionTags)
-        .values({ sessionId, tagId: body.tagId, origin: 'manual' })
+        .values({ sessionId, tagId, origin: 'manual' })
         .onConflictDoNothing()
         .run();
     }
@@ -866,8 +906,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (ctx.hub.subscriberCount(`session:${sessionId}`) > 0) ctx.branchStatus.watchSession(sessionId, cwd);
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
-    return reply.code(201).send({ sessionId });
-  });
+    return sessionId;
+  }
 
   /**
    * The pin — a per-session, manual "keep this on the map", which holds even

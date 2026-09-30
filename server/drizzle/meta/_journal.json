@@ -141,6 +141,13 @@
       "when": 1790790142229,
       "tag": "0019_permission_waits",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1790790806355,
+      "tag": "0020_spawned_by",
+      "breakpoints": true
     }
   ]
 }

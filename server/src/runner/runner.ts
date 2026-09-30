@@ -22,6 +22,7 @@ import {
 } from '../transcript/compaction.js';
 import type { ImageStore, ImageWriter } from '../images/store.js';
 import type { IdeApprovals, IdeReviewVerdict } from '../ide/approvals.js';
+import { ORBITAL_MCP_SERVER, orbitalMcpServer, type Spawner } from './spawnTool.js';
 
 /**
  * How long a turn's end waits for the CLI to say how full the window is
@@ -741,6 +742,13 @@ export class Runner {
   private claudeExecutablePath?: string | null;
   private ide?: IdeApprovals;
   private commentary?: () => boolean;
+  /**
+   * Starts a session on behalf of a running one — the `spawn_session` tool's
+   * back end (spec 2026-09-30-a-session-spawns-sessions-design). Assigned by
+   * the routes, which own the row and the `sessions` topic the new planet is
+   * announced on; unset, sessions start without the tool.
+   */
+  spawner?: Spawner;
 
   constructor(deps: {
     hub: Hub;
@@ -1241,6 +1249,11 @@ export class Runner {
     // Absent, the SDK spawns its own bundled binary — which is what dev
     // wants and what the packaged app cannot have (spec § 2).
     if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
+    // Beside the servers the CLI loads from settings, not instead of them:
+    // `strictMcpConfig` stays off.
+    if (this.spawner) {
+      options.mcpServers = { [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, this.spawner) };
+    }
 
     const generator = this.queryFn({ prompt: input(), options });
     state.generator = generator;
@@ -2535,6 +2548,11 @@ export class Runner {
    */
   status(sessionId: string): SessionStatus | undefined {
     return this.sessions.get(sessionId)?.status;
+  }
+
+  /** The permission mode a running session is in right now, `undefined` when it is not running. */
+  permissionModeOf(sessionId: string): PermissionMode | undefined {
+    return this.sessions.get(sessionId)?.attempt.permissionMode;
   }
 
   /**
