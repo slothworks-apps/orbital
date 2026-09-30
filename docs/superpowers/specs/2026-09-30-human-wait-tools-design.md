@@ -1,6 +1,6 @@
 ---
 id: 2026-09-30-human-wait-tools-design
-title: Human-wait tools — AskUserQuestion and ExitPlanMode leave the work time
+title: Human wait — questions, plan approvals and permission prompts leave the work time
 status: draft
 type: spec
 domain: stats
@@ -9,98 +9,150 @@ related:
 tags:
   - server
   - web
+  - runner
 ---
-# Human-wait tools leave the work time
+# Human wait leaves the work time
+
+Canvas: `Feature - Stats.dc.html`, artboards 10i (dashboard, switch on),
+10j (drilldown, switch on), 10k (parts and states, off vs on) and the
+human-wait rows of 10e. Where this spec and the canvas disagree on a
+visual value, the canvas wins; where they disagree on what can be
+measured, this spec wins.
 
 ## Problem
 
 The stats spec (`2026-09-20-session-stats-design` § Time) rules that
 waiting for the user is not a metric: it measures where the laptop was,
-not the work. Two tools break that rule without anyone noticing,
-because they look like ordinary tool calls:
+not the work. Three kinds of wait break that rule today, because they
+sit inside tool calls:
 
-- `AskUserQuestion` — the `tool_use` → `tool_result` gap is the time the
-  user took to answer.
-- `ExitPlanMode` — the gap is the time the user took to approve the plan.
+- `AskUserQuestion` — the `tool_use` → `tool_result` gap is the user
+  answering.
+- `ExitPlanMode` — the gap is the user approving the plan.
+- A permission prompt — the gap of the prompted tool includes the time
+  the prompt sat unanswered.
 
-Both are counted as local tools today, so one unanswered question left
-over lunch inflates `localToolMs`, tops the slowest-tools leaderboard,
-skews its histogram and stretches a waterfall lane.
+One question left over lunch inflates `localToolMs`, tops the
+slowest-tools leaderboard, skews its histogram and stretches a
+waterfall lane. A prompt answered inside a subagent inflates
+`subagentMs` the same way.
 
 ## Rule
 
-`AskUserQuestion` and `ExitPlanMode` are **human-wait tools**. Their
-duration never enters work time, on any surface, with the switch on or
-off. What they contribute by default is a count: how often the session
-needed the user.
+Human wait never enters work time, on any surface, with the switch on
+or off. By default it contributes only a count: how often the session
+needed the user. With the switch on, its time is shown beside the
+work-time split, never inside it.
+
+## What can be measured
+
+| wait | Orbital-run session | terminal session |
+|---|---|---|
+| `AskUserQuestion` | transcript gap | transcript gap |
+| `ExitPlanMode` | transcript gap | transcript gap |
+| permission prompt | runner: prompt shown → answered | not separable — `†`, upper bound |
+
+Permission waits are Orbital-only on purpose. The CLI's transcript does
+not record them, and a CLI hook could only say when a prompt appeared,
+never when it was answered — so installing one into the user's
+`~/.claude/settings.json` would buy nothing measurable. Terminal
+sessions keep the existing `†` caveat, and their count line omits
+permissions rather than showing a partial number (a rejected prompt is
+visible in the transcript, an approved one is not).
+
+MCP elicitation (a server asking the user for input) would be the same
+kind of wait; the runner does not handle it today, so it is out of
+scope until it does.
 
 ## Server
+
+### Human-wait tools (transcript)
 
 - `toolKind` gains a fourth kind, `human`, for the names in a new
   `HUMAN_WAIT_TOOLS` set, checked the same way `SUBAGENT_TOOLS` is.
 - A closed `human` run does **not** touch `toolCalls`, `toolErrors`,
-  `localToolMs`, `mcpMs`, `subagentMs` or `toolBreakdown`. It goes to:
-  - `humanWaitMs` — the summed gap;
-  - `humanBreakdown: Record<string, ToolStat>` — the same shape as
-    `toolBreakdown` (calls, errors, ms, buckets), so the switch-on
-    leaderboard can reuse its rendering.
-
-  Keeping them in a separate record rather than tagging rows inside
-  `toolBreakdown` means every existing consumer (leaderboard, window
-  rollups, series, the `slow-mcp` rule) stays correct without learning
-  a new kind.
+  `localToolMs`, `mcpMs`, `subagentMs` or `toolBreakdown`. It goes to
+  `humanWaitMs` and to `humanBreakdown: Record<string, ToolStat>` — the
+  same shape as `toolBreakdown`, so the switch-on leaderboard reuses its
+  rendering. A separate record rather than a tag inside `toolBreakdown`
+  keeps every existing consumer (leaderboard, window rollups, series,
+  the `slow-mcp` rule) correct without learning a new kind.
 - Human runs are not `ToolRun`s for the findings: a rejected plan is
   not a failing tool, so `error-loop` and `obese-tool-result` never see
   them.
 - `TurnSegment.tools` still lists them, with `kind: 'human'`, so the
-  drilldown can link to the transcript and draw them when the switch is
-  on.
-- `STATS_VERSION` goes up, so every stored rollup is re-indexed under
-  the new definition. The new fields are persisted the same way as
-  `toolBreakdown`.
+  drilldown can link to the transcript and draw the break.
+
+### Permission waits (runner)
+
+- `Runner.decide` already knows both ends of a permission decision:
+  `createdAt` when it parks, and the moment `settle` runs. It records
+  each settled `permission`-kind decision in a new table
+  `permission_waits`: session id, `tool_use_id`, the dispatching
+  `Agent` tool_use id when the prompt came from a subagent (`agentID`
+  set; the runner resolves it from the subagent it is tracking), shown
+  at, answered at, and the outcome (allowed / denied / aborted).
+  Question and plan decisions are not recorded here — the transcript
+  already times them for every session.
+- A decision auto-allowed without parking (`bypassPermissions`) waited
+  for nobody and is not recorded.
+- `computeStats` takes the session's permission waits as a second input
+  and stays pure. For each wait:
+  - the prompted tool's duration drops by the wait (clamped at 0) and the
+    wait goes to `humanWaitMs` and `permissionWaits` (count and ms);
+  - when the prompt came from a subagent, the dispatching `Agent` run's
+    duration drops by the same amount, so `subagentMs` is work only.
+- A session with no recorded waits (a terminal session, or an Orbital
+  session from before this change) computes exactly as today.
+- `STATS_VERSION` goes up, so stored rollups re-index under the new
+  definition. The indexer re-indexes an Orbital session when a new wait
+  lands for it, the same way it does for a transcript change.
 
 ## Web
 
-- **Default:** the stats surfaces show a count only, e.g. "asked you 4×,
-  1 plan approval". No human-wait tool appears in the leaderboard or the
-  waterfall, and no human time appears anywhere.
-- **Switch:** "Show time spent waiting on you", on the stats page
-  itself, not in Settings. It is persisted as the server setting
-  `stats_show_human_wait` (`'true'` / absent), so it survives restarts
-  and sessions; the quick-stats dialog follows the same setting without
-  a switch of its own.
-- **Switch on:** human wait appears as its **own item beside** the
-  work-time split, never inside it, so busy time and its categories
-  read the same with the switch on or off. The two tools return to the
-  leaderboard, marked as waiting on the user, and the waterfall draws
-  them in a way that cannot be mistaken for a work lane.
-- Placement and look of the switch, the count and the switch-on item
-  come from Claude Design (brief below); this spec does not fix them.
-
-## Out of scope
-
-Permission-prompt waits inside ordinary tool runs in terminal sessions
-stay as they are: the transcript does not separate them from the run,
-and the existing on-screen caveat covers them.
+- **Default (switch off):** a count only — "asked you N× · M plan
+  approvals · K permissions", on the dashboard, the drilldown and the
+  quick-stats dialog. `K permissions` appears only when the range holds
+  Orbital-run sessions, and counts only those. No human wait appears in
+  the leaderboard or the waterfall, and no human time appears anywhere;
+  the wait is part of the not-busy remainder, like idle.
+- **Switch:** "Show time spent waiting on you", at the right end of the
+  `/stats` filter row, off by default. A persisted preference, not a
+  filter: the server setting `stats_show_human_wait` (`'true'` /
+  absent), never in the URL query, not in Settings. The quick-stats
+  dialog follows it and has no switch of its own.
+- **Switch on (10i–10k):**
+  - a `WAITING ON YOU` tile in the slot beside the busy / split tile,
+    with the time and the count line; the busy tile and the four
+    category percentages are identical to the switch-off state;
+  - the leaderboard gets a `YOU` group below the ranked list —
+    `AskUserQuestion`, `ExitPlanMode`, `permission prompts` — unranked,
+    no share bar;
+  - the waterfall cuts the lane with a fixed-width break at each wait,
+    the lane total on the right stays work only.
+- The `†` caveat of 10b / 10f stays for terminal sessions and for
+  Orbital sessions that predate the recording; it no longer applies to
+  Orbital sessions with recorded waits.
 
 ## Tests
 
-`computeStats`, on a transcript holding an `AskUserQuestion` and an
-`ExitPlanMode` run with long gaps next to ordinary tools:
+- `computeStats`, on a transcript holding an `AskUserQuestion` and an
+  `ExitPlanMode` run with long gaps next to ordinary tools: neither gap
+  is in `localToolMs`, `toolCalls` or `toolBreakdown`; `humanWaitMs`
+  and `humanBreakdown` counts match; a rejected `ExitPlanMode`
+  (`is_error`) raises no `error-loop`.
+- `computeStats` with permission waits: the prompted tool's time drops
+  by the wait; a subagent's wait comes off `subagentMs`; a wait longer
+  than its tool clamps at 0; no waits → the same rollup as today.
+- Runner: a parked-then-settled permission decision records one row
+  with both timestamps; a `bypassPermissions` auto-allow and a question
+  record none.
 
-- neither gap is in `localToolMs`, `toolCalls` or `toolBreakdown`;
-- `humanWaitMs` and `humanBreakdown` counts match;
-- a rejected `ExitPlanMode` (`is_error`) raises no `error-loop`.
+## Open with Claude Design
 
-## Claude Design brief
-
-> Feature - Stats: `AskUserQuestion` and `ExitPlanMode` no longer count
-> as tool time — their duration is the user answering, not work. Needed:
-> (1) a count shown by default on the dashboard, drilldown and
-> quick-stats dialog ("asked you N×, M plan approvals"); (2) a switch on
-> the stats page, "Show time spent waiting on you", off by default;
-> (3) with it on, human wait as its own item beside the work-time split,
-> never one of its categories; the two tools in the leaderboard marked
-> as waiting on the user; and a waterfall treatment that does not read as
-> a work lane. Constraints: the work-time split must look identical with
-> the switch on or off; keep to the existing 10e palette.
+- 10j and 10e describe permission timing as "Orbital's hook"; it is the
+  runner, and only for Orbital-run sessions (see § What can be
+  measured).
+- The waterfall break is a fixed 74 px and shifts the rest of the lane
+  right; a turn with several waits needs a rule so the lane cannot run
+  past the track.
