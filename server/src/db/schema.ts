@@ -19,7 +19,7 @@ import type {
   TagRule,
   TitleSource,
 } from '../types.js';
-import type { Finding, SubagentModelUsage, ToolStat } from '../stats/compute.js';
+import type { Finding, PermissionOutcome, SubagentModelUsage, ToolStat } from '../stats/compute.js';
 
 export const sessions = sqliteTable(
   'sessions',
@@ -145,7 +145,49 @@ export const sessionStats = sqliteTable('session_stats', {
   /** Per-session rules only; `slow-mcp` and RESOLVED are derived per window at query time. */
   findings: text('findings', { mode: 'json' }).$type<Finding[]>().notNull().default([]),
   statsVersion: integer('stats_version').notNull().default(0),
+  /** Waiting on the user inside tool calls — never part of the four work columns above. */
+  humanWaitMs: integer('human_wait_ms').notNull().default(0),
+  /** `AskUserQuestion` and `ExitPlanMode` runs, kept out of `toolBreakdown`. */
+  humanBreakdown: text('human_breakdown', { mode: 'json' })
+    .$type<Record<string, ToolStat>>()
+    .notNull()
+    .default({}),
+  /** Permission waits by the prompted tool's name; `ms` and `buckets` are the wait. */
+  permissionBreakdown: text('permission_breakdown', { mode: 'json' })
+    .$type<Record<string, ToolStat>>()
+    .notNull()
+    .default({}),
 });
+
+/**
+ * Every permission prompt the Runner parked and then settled — shown and
+ * answered — for the sessions Orbital runs (ADR
+ * `permission-waits-are-measured-by-the-runner-only`). `computeStats` reads a
+ * session's rows beside its transcript to cut the wait out of the prompted
+ * tool. Question and plan decisions are not here: the transcript times them.
+ */
+export const permissionWaits = sqliteTable(
+  'permission_waits',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: text('session_id').notNull(),
+    /** The prompted tool's `tool_use` id — a sidechain one for a subagent's prompt. */
+    toolUseId: text('tool_use_id').notNull(),
+    /** What the runner was asked about; the transcript's own name wins when it has one. */
+    toolName: text('tool_name').notNull(),
+    /** The main-chain `Agent` call a subagent's prompt came from; null for the main loop's own. */
+    agentToolUseId: text('agent_tool_use_id'),
+    /** Epoch ms. */
+    shownAt: integer('shown_at').notNull(),
+    /** Epoch ms. */
+    answeredAt: integer('answered_at').notNull(),
+    outcome: text('outcome').$type<PermissionOutcome>().notNull(),
+  },
+  (table) => [
+    index('idx_permission_waits_session').on(table.sessionId),
+    check('permission_wait_outcome_check', sql`${table.outcome} IN ('allowed','denied','aborted')`),
+  ],
+);
 
 export const tags = sqliteTable('tags', {
   id: integer('id').primaryKey({ autoIncrement: true }),

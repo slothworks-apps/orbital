@@ -16,6 +16,7 @@ import {
   type WindowTotals,
 } from '../stats/window.js';
 import { readSessionEntries } from '../stats/transcript.js';
+import { readPermissionWaits } from '../stats/store.js';
 import type { RouteContext } from './routes.js';
 
 type WindowParam = '24h' | '7d' | '30d' | 'all';
@@ -42,6 +43,20 @@ interface JoinedRow {
   lastAt: number;
   firstAt: number | null;
   rollup: StatsRollup;
+  permissionTimed: boolean;
+}
+
+/**
+ * The rollup as the drilldown serves it. `permissionTimed` is read off
+ * `sessions.source` at every read rather than stored with the rollup: a
+ * revive turns a terminal session into an Orbital one, and a stored copy
+ * would lag until the next re-index.
+ */
+type ServedRollup = StatsRollup & { permissionTimed: boolean };
+
+/** Every session Orbital runs has its permission prompts timed by the runner. */
+function isPermissionTimed(source: string): boolean {
+  return source !== 'terminal';
 }
 
 function emptyStatsRollup(): StatsRollup {
@@ -50,6 +65,7 @@ function emptyStatsRollup(): StatsRollup {
     inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
     cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, thinkingTokens: 0, subagentTokens: 0,
     subagentUsage: {}, toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
+    humanWaitMs: 0, humanBreakdown: {}, permissionBreakdown: {},
   };
 }
 
@@ -67,6 +83,7 @@ function fetchJoinedRows(ctx: RouteContext, conditions: SQL[]): JoinedRow[] {
       model: sessions.resolvedModel,
       lastAt: sessions.lastAt,
       firstAt: sessions.firstAt,
+      source: sessions.source,
       apiMs: sessionStats.apiMs,
       localToolMs: sessionStats.localToolMs,
       mcpMs: sessionStats.mcpMs,
@@ -85,6 +102,9 @@ function fetchJoinedRows(ctx: RouteContext, conditions: SQL[]): JoinedRow[] {
       toolErrors: sessionStats.toolErrors,
       toolBreakdown: sessionStats.toolBreakdown,
       findings: sessionStats.findings,
+      humanWaitMs: sessionStats.humanWaitMs,
+      humanBreakdown: sessionStats.humanBreakdown,
+      permissionBreakdown: sessionStats.permissionBreakdown,
     })
     .from(sessionStats)
     .innerJoin(sessions, eq(sessions.id, sessionStats.sessionId))
@@ -108,7 +128,9 @@ function fetchJoinedRows(ctx: RouteContext, conditions: SQL[]): JoinedRow[] {
       cacheCreation1hTokens: r.cacheCreation1hTokens, thinkingTokens: r.thinkingTokens,
       subagentTokens: r.subagentTokens, subagentUsage: r.subagentUsage,
       toolCalls: r.toolCalls, toolErrors: r.toolErrors, toolBreakdown: r.toolBreakdown, findings: r.findings,
+      humanWaitMs: r.humanWaitMs, humanBreakdown: r.humanBreakdown, permissionBreakdown: r.permissionBreakdown,
     },
+    permissionTimed: isPermissionTimed(r.source),
   }));
 }
 
@@ -122,6 +144,7 @@ function toWindowRow(r: JoinedRow): WindowRow {
     model: r.model ?? '',
     rollup: r.rollup,
     wallClockMs: r.firstAt !== null ? Math.max(0, r.lastAt - r.firstAt) : undefined,
+    permissionTimed: r.permissionTimed,
   };
 }
 
@@ -211,6 +234,7 @@ function rollupFromStoredRow(row: typeof sessionStats.$inferSelect): StatsRollup
     cacheCreation5mTokens: row.cacheCreation5mTokens, cacheCreation1hTokens: row.cacheCreation1hTokens,
     thinkingTokens: row.thinkingTokens, subagentTokens: row.subagentTokens, subagentUsage: row.subagentUsage,
     toolCalls: row.toolCalls, toolErrors: row.toolErrors, toolBreakdown: row.toolBreakdown, findings: row.findings,
+    humanWaitMs: row.humanWaitMs, humanBreakdown: row.humanBreakdown, permissionBreakdown: row.permissionBreakdown,
   };
 }
 
@@ -285,6 +309,7 @@ export function registerStatsRoutes(app: FastifyInstance, ctx: RouteContext): vo
         resolvedModel: sessions.resolvedModel,
         firstAt: sessions.firstAt,
         lastAt: sessions.lastAt,
+        source: sessions.source,
       })
       .from(sessions)
       .where(eq(sessions.id, id))
@@ -295,7 +320,10 @@ export function registerStatsRoutes(app: FastifyInstance, ctx: RouteContext): vo
     // first pass hasn't run) has a row but no rollup — an empty one, not a 404,
     // matches the "session stats · —" empty state the drilldown must render.
     const statsRow = db.select().from(sessionStats).where(eq(sessionStats.sessionId, id)).get();
-    const rollup = statsRow ? rollupFromStoredRow(statsRow) : emptyStatsRollup();
+    const rollup: ServedRollup = {
+      ...(statsRow ? rollupFromStoredRow(statsRow) : emptyStatsRollup()),
+      permissionTimed: isPermissionTimed(sessionRow.source),
+    };
 
     // The pricing table matches on the id the CLI actually ran, not the
     // requested value (`opus[1m]` vs `claude-opus-5`) — same as the overview.
@@ -311,7 +339,7 @@ export function registerStatsRoutes(app: FastifyInstance, ctx: RouteContext): vo
     if (wantTimeline && sessionRow.projectDir) {
       try {
         const path = join(ctx.projectsDir, sessionRow.projectDir, `${id}.jsonl`);
-        turns = computeStats(readSessionEntries(path)).turns;
+        turns = computeStats(readSessionEntries(path), readPermissionWaits(db, id)).turns;
       } catch (err) {
         // Transcript missing or unreadable: the waterfall is empty, the rest
         // of the drilldown (stored rollup, cost, findings) still answers. Name

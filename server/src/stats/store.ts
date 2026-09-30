@@ -1,8 +1,34 @@
+import { eq } from 'drizzle-orm';
 import type { OrbitalDb } from '../db/database.js';
-import { sessionStats } from '../db/schema.js';
-import { computeStats, type StatsRollup } from './compute.js';
+import { permissionWaits, sessionStats } from '../db/schema.js';
+import { computeStats, type PermissionWait, type StatsRollup } from './compute.js';
 import { STATS_VERSION } from './constants.js';
 import { readSessionEntries } from './transcript.js';
+
+/**
+ * Stores one settled permission prompt. Nothing recomputes here: the prompt
+ * was answered before its tool ran, so the transcript line that closes the
+ * tool is still to come, and the index pass that line triggers reads this row.
+ */
+export function recordPermissionWait(db: OrbitalDb, sessionId: string, wait: PermissionWait): void {
+  db.insert(permissionWaits).values({ sessionId, ...wait }).run();
+}
+
+/** The session's recorded permission waits — empty for every terminal session. */
+export function readPermissionWaits(db: OrbitalDb, sessionId: string): PermissionWait[] {
+  return db
+    .select({
+      toolUseId: permissionWaits.toolUseId,
+      agentToolUseId: permissionWaits.agentToolUseId,
+      toolName: permissionWaits.toolName,
+      shownAt: permissionWaits.shownAt,
+      answeredAt: permissionWaits.answeredAt,
+      outcome: permissionWaits.outcome,
+    })
+    .from(permissionWaits)
+    .where(eq(permissionWaits.sessionId, sessionId))
+    .all();
+}
 
 /** The rollup as columns — everything but the session id, which is the key. */
 function statsColumns(rollup: StatsRollup) {
@@ -25,6 +51,9 @@ function statsColumns(rollup: StatsRollup) {
     toolErrors: rollup.toolErrors,
     toolBreakdown: rollup.toolBreakdown,
     findings: rollup.findings,
+    humanWaitMs: rollup.humanWaitMs,
+    humanBreakdown: rollup.humanBreakdown,
+    permissionBreakdown: rollup.permissionBreakdown,
     statsVersion: STATS_VERSION,
   };
 }
@@ -67,7 +96,7 @@ export function recomputeSessionStats(
   transcriptPath: string,
   onWrite?: SessionStatsWritten,
 ): StatsRollup {
-  const { rollup } = computeStats(readSessionEntries(transcriptPath));
+  const { rollup } = computeStats(readSessionEntries(transcriptPath), readPermissionWaits(db, sessionId));
   upsertSessionStats(db, sessionId, rollup, onWrite);
   return rollup;
 }

@@ -10,6 +10,7 @@ function rollup(overrides: Partial<StatsRollup> = {}): StatsRollup {
     cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, thinkingTokens: 0, subagentTokens: 0,
     subagentUsage: {},
     toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
+    humanWaitMs: 0, humanBreakdown: {}, permissionBreakdown: {},
     ...overrides,
   };
 }

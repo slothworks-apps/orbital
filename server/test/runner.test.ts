@@ -11,6 +11,7 @@ import {
   sdkToChatMessages,
 } from '../src/runner/runner.js';
 import type { PermissionMode, SessionRow, SessionStatus } from '../src/types.js';
+import type { PermissionWait } from '../src/stats/compute.js';
 import { statusOf, type ShapeContext } from '../src/api/shape.js';
 import { entriesToMessages } from '../src/transcript/parser.js';
 import { MAX_SUBAGENT_MESSAGES, SubagentTranscripts } from '../src/transcript/subagents.js';
@@ -2460,6 +2461,85 @@ describe('Runner permission decisions', () => {
     expect(sent).toHaveLength(1);
     expect(runner.status(id)).toBe('working');
     expect(runner.pendingDecision(id)).toBeNull();
+  });
+});
+
+describe('Runner permission waits', () => {
+  async function recording(permissionMode: PermissionMode = 'acceptEdits', queryFn?: unknown) {
+    const waits: PermissionWait[] = [];
+    const taskEvents: unknown[] = [];
+    const asking = fakeQueryFnAsking();
+    const fn = (queryFn ?? asking.fn) as any;
+    const runner = new Runner({
+      hub: new Hub(), queryFn: fn, newSessionId: () => 'web-1',
+      onPermissionWait: (_sessionId, wait) => waits.push(wait),
+      onTaskEvent: (_sessionId, msg) => taskEvents.push(msg),
+    });
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode });
+    return { runner, id, waits, taskEvents, ask: asking.ask };
+  }
+
+  it('records a parked-then-settled prompt once, with both ends and the outcome', async () => {
+    const { runner, id, waits, ask } = await recording();
+    const decision = ask(BASH_INPUT, 'tu-1', 'Bash');
+    const shownAt = runner.pendingDecision(id)!.createdAt;
+    runner.answerDecision(id, 'tu-1', { approved: true });
+    await decision;
+    expect(waits).toEqual([{
+      toolUseId: 'tu-1', agentToolUseId: null, toolName: 'Bash',
+      shownAt, answeredAt: expect.any(Number), outcome: 'allowed',
+    }]);
+    expect(waits[0].answeredAt).toBeGreaterThanOrEqual(shownAt);
+
+    const refused = ask(BASH_INPUT, 'tu-2', 'Bash');
+    runner.answerDecision(id, 'tu-2', { approved: false });
+    await refused;
+    const cut = ask(BASH_INPUT, 'tu-3', 'Bash');
+    await runner.stop(id);
+    await cut;
+    expect(waits.map((w) => w.outcome)).toEqual(['allowed', 'denied', 'aborted']);
+  });
+
+  it('records nothing for a bypassPermissions auto-allow or a question', async () => {
+    const bypass = await recording('bypassPermissions');
+    await bypass.ask(BASH_INPUT, 'tu-1', 'Bash');
+    expect(bypass.waits).toEqual([]);
+
+    const question = await recording();
+    const answered = question.ask(ONE_QUESTION, 'tu-q');
+    question.runner.answerDecision(question.id, 'tu-q', { 'Which library should we use?': 'luxon' });
+    await answered;
+    expect(question.waits).toEqual([]);
+  });
+
+  it("names a nested subagent's prompt by the main-chain Agent call it runs under", async () => {
+    // The outer agent (task `agent-a`, call `outer`) spawns an inner one
+    // (task `agent-b`, call `inner`), and the inner one asks.
+    let options: any;
+    const fn = ({ prompt, options: o }: { prompt: AsyncIterable<any>; options: any }) => {
+      options = o;
+      const sid = sessionIdOf(o);
+      async function* gen(): AsyncGenerator<any> {
+        for await (const _msg of prompt) {
+          yield { type: 'system', subtype: 'task_started', task_id: 'agent-a', tool_use_id: 'outer', session_id: sid };
+          yield {
+            type: 'assistant', parent_tool_use_id: 'outer', session_id: sid,
+            message: { role: 'assistant', content: [{ type: 'tool_use', id: 'inner', name: 'Agent', input: {} }] },
+          };
+          yield { type: 'system', subtype: 'task_started', task_id: 'agent-b', tool_use_id: 'inner', session_id: sid };
+        }
+      }
+      return gen() as any;
+    };
+    const { runner, id, waits, taskEvents } = await recording('acceptEdits', fn);
+    await vi.waitFor(() => expect(taskEvents).toHaveLength(2), { timeout: 3000 });
+
+    const decision = options.canUseTool('Edit', {}, {
+      signal: new AbortController().signal, toolUseID: 'side-edit', agentID: 'agent-b',
+    });
+    runner.answerDecision(id, 'side-edit', { approved: true });
+    await decision;
+    expect(waits).toEqual([expect.objectContaining({ toolUseId: 'side-edit', agentToolUseId: 'outer' })]);
   });
 });
 

@@ -25,6 +25,7 @@ import { batchSessionIds, watchProjects } from './watcher/projects.js';
 import { SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { LiveSessionStats } from './watcher/liveStats.js';
+import { recordPermissionWait } from './stats/store.js';
 import { Hub } from './api/hub.js';
 import { Runner, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
@@ -599,6 +600,11 @@ export async function buildServer(overrides: {
       db.update(sessions).set({ permissionMode: mode }).where(eq(sessions.id, sessionId)).run();
       republish(sessionId);
     },
+    // How long each permission prompt waited on the user, for the stats
+    // (ADR `permission-waits-are-measured-by-the-runner-only`). No recompute
+    // from here: the transcript line that closes the tool follows the answer
+    // and re-indexes the session, reading this row.
+    onPermissionWait: (sessionId, wait) => recordPermissionWait(db, sessionId, wait),
     // What the session said, for the titler, in the shape the transcript
     // already converts to.
     onEntries: (sessionId, entries) => {

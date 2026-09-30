@@ -24,7 +24,17 @@ export interface WindowRow {
   model: string;
   rollup: StatsRollup;
   wallClockMs?: number;
+  /**
+   * Whether the runner timed this session's permission prompts — every session
+   * Orbital runs, never a terminal one (spec 2026-09-30-human-wait-tools-design).
+   * Absent reads as false.
+   */
+  permissionTimed?: boolean;
 }
+
+/** `AskUserQuestion` and `ExitPlanMode` — the two `HUMAN_WAIT_TOOLS`, by name. */
+const QUESTION_TOOL = 'AskUserQuestion';
+const PLAN_TOOL = 'ExitPlanMode';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -81,15 +91,37 @@ export interface ToolLeaderboardEntry {
   resultChars: number;
 }
 
+/**
+ * One row of the leaderboard's unranked `YOU` group: a question, a plan
+ * approval, or every permission prompt together. `ms` and `p50Ms` are the
+ * user's wait. `byTool` is the permission row's calls per prompted tool, and
+ * empty on the other two.
+ */
+export interface HumanWaitRow {
+  tool: typeof QUESTION_TOOL | typeof PLAN_TOOL | 'permission';
+  calls: number;
+  ms: number;
+  p50Ms: number | null;
+  byTool: Record<string, number>;
+}
+
 export interface ToolLeaderboard {
   slowest: ToolLeaderboardEntry[];
   mostExpensive: ToolLeaderboardEntry[];
+  /** In the order AskUserQuestion, ExitPlanMode, permission; a row with no calls is left out. */
+  human: HumanWaitRow[];
 }
 
-function aggregateToolBreakdown(rows: WindowRow[]) {
-  const agg = new Map<string, { calls: number; errors: number; ms: number; resultChars: number; buckets: number[] }>();
+type ToolAggregate = { calls: number; errors: number; ms: number; resultChars: number; buckets: number[] };
+
+/** Per tool name, summed across the rows' `pick`ed breakdown. */
+function aggregateBreakdown(
+  rows: WindowRow[],
+  pick: (row: WindowRow) => StatsRollup['toolBreakdown'],
+): Map<string, ToolAggregate> {
+  const agg = new Map<string, ToolAggregate>();
   for (const row of rows) {
-    for (const [name, stat] of Object.entries(row.rollup.toolBreakdown)) {
+    for (const [name, stat] of Object.entries(pick(row))) {
       const entry = agg.get(name) ?? {
         calls: 0,
         errors: 0,
@@ -108,9 +140,16 @@ function aggregateToolBreakdown(rows: WindowRow[]) {
   return agg;
 }
 
-/** Per tool across the window, both rankings capped at TOOL_LEADERBOARD_LIMIT (spec §API, overview endpoint). */
+/**
+ * Per tool across the window, both rankings capped at TOOL_LEADERBOARD_LIMIT
+ * (spec §API, overview endpoint), and the human-wait rows beside them, which
+ * are never ranked.
+ */
 export function toolLeaderboard(rows: WindowRow[]): ToolLeaderboard {
-  const agg = aggregateToolBreakdown(rows);
+  const agg = aggregateBreakdown(rows, (row) => row.rollup.toolBreakdown);
+  // A rollup stored before human-wait tools left `toolBreakdown` can still
+  // hold them until the re-index reaches it.
+  for (const name of agg.keys()) if (toolKind(name) === 'human') agg.delete(name);
   const entries: ToolLeaderboardEntry[] = Array.from(agg.entries()).map(([tool, v]) => ({
     tool,
     isMcp: toolKind(tool) === 'mcp',
@@ -122,7 +161,33 @@ export function toolLeaderboard(rows: WindowRow[]): ToolLeaderboard {
   }));
   const slowest = [...entries].sort((a, b) => b.ms - a.ms).slice(0, TOOL_LEADERBOARD_LIMIT);
   const mostExpensive = [...entries].sort((a, b) => b.resultChars - a.resultChars).slice(0, TOOL_LEADERBOARD_LIMIT);
-  return { slowest, mostExpensive };
+  return { slowest, mostExpensive, human: humanWaitRows(rows) };
+}
+
+function humanWaitRows(rows: WindowRow[]): HumanWaitRow[] {
+  const human = aggregateBreakdown(rows, (row) => row.rollup.humanBreakdown);
+  const out: HumanWaitRow[] = [];
+  for (const tool of [QUESTION_TOOL, PLAN_TOOL] as const) {
+    const v = human.get(tool);
+    if (!v || v.calls === 0) continue;
+    out.push({ tool, calls: v.calls, ms: v.ms, p50Ms: histogramP50(v.buckets), byTool: {} });
+  }
+  // Only timed sessions: a terminal session's prompts were never measured, so
+  // folding its zero in would read as "no prompts" rather than "not known".
+  const timed = rows.filter((row) => row.permissionTimed);
+  const permission = aggregateBreakdown(timed, (row) => row.rollup.permissionBreakdown);
+  let calls = 0;
+  let ms = 0;
+  let buckets = new Array<number>(HIST_BUCKET_COUNT).fill(0);
+  const byTool: Record<string, number> = {};
+  for (const [name, v] of permission) {
+    calls += v.calls;
+    ms += v.ms;
+    buckets = mergeHistograms(buckets, v.buckets);
+    byTool[name] = v.calls;
+  }
+  if (calls > 0) out.push({ tool: 'permission', calls, ms, p50Ms: histogramP50(buckets), byTool });
+  return out;
 }
 
 export interface SlowMcpFinding {
@@ -242,6 +307,8 @@ export interface DayBusy {
   mcpMs: number;
   subagentMs: number;
   busyMs: number;
+  /** Beside `busyMs`, never inside it. */
+  humanWaitMs: number;
 }
 
 /**
@@ -253,12 +320,15 @@ export function daySeries(rows: WindowRow[]): DayBusy[] {
   const byDay = new Map<string, DayBusy>();
   for (const row of rows) {
     const day = localDayKey(row.lastAt);
-    const entry = byDay.get(day) ?? { day, apiMs: 0, localToolMs: 0, mcpMs: 0, subagentMs: 0, busyMs: 0 };
+    const entry = byDay.get(day) ?? {
+      day, apiMs: 0, localToolMs: 0, mcpMs: 0, subagentMs: 0, busyMs: 0, humanWaitMs: 0,
+    };
     entry.apiMs += row.rollup.apiMs;
     entry.localToolMs += row.rollup.localToolMs;
     entry.mcpMs += row.rollup.mcpMs;
     entry.subagentMs += row.rollup.subagentMs;
     entry.busyMs = entry.apiMs + entry.localToolMs + entry.mcpMs + entry.subagentMs;
+    entry.humanWaitMs += row.rollup.humanWaitMs;
     byDay.set(day, entry);
   }
   return Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day));
@@ -304,6 +374,21 @@ export interface WindowTotals {
   costTotal: number;
   costPerSession: number | null;
   sessionCount: number;
+  /** Every human wait in the window; beside `busyMs`, never inside it. */
+  humanWaitMs: number;
+  /** `AskUserQuestion` calls. */
+  questionCount: number;
+  /** `ExitPlanMode` calls. */
+  planCount: number;
+  /** Permission prompts, counted in timed sessions only. */
+  permissionCount: number;
+  /** Sessions whose permission prompts were timed — zero means `permissionCount` is not known. */
+  timedSessionCount: number;
+}
+
+function breakdownCalls(breakdown: StatsRollup['toolBreakdown'], name?: string): number {
+  if (name !== undefined) return breakdown[name]?.calls ?? 0;
+  return Object.values(breakdown).reduce((sum, stat) => sum + stat.calls, 0);
 }
 
 /** The overview's stat tiles: tokens, busy split, wall clock and cost, each session priced by its own model. */
@@ -318,8 +403,20 @@ export function windowTotals(rows: WindowRow[]): WindowTotals {
   let subagentMs = 0;
   let wallClockMs = 0;
   let costTotal = 0;
+  let humanWaitMs = 0;
+  let questionCount = 0;
+  let planCount = 0;
+  let permissionCount = 0;
+  let timedSessionCount = 0;
 
   for (const row of rows) {
+    humanWaitMs += row.rollup.humanWaitMs;
+    questionCount += breakdownCalls(row.rollup.humanBreakdown, QUESTION_TOOL);
+    planCount += breakdownCalls(row.rollup.humanBreakdown, PLAN_TOOL);
+    if (row.permissionTimed) {
+      timedSessionCount++;
+      permissionCount += breakdownCalls(row.rollup.permissionBreakdown);
+    }
     inputTokens += row.rollup.inputTokens;
     outputTokens += row.rollup.outputTokens;
     cacheReadTokens += row.rollup.cacheReadTokens;
@@ -350,6 +447,11 @@ export function windowTotals(rows: WindowRow[]): WindowTotals {
     costTotal,
     costPerSession: rows.length > 0 ? costTotal / rows.length : null,
     sessionCount: rows.length,
+    humanWaitMs,
+    questionCount,
+    planCount,
+    permissionCount,
+    timedSessionCount,
   };
 }
 

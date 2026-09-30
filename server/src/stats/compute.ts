@@ -8,6 +8,7 @@ import {
   ERROR_LOOP_MIN_REPEATS,
   HIST_BUCKET_BOUNDS_MS,
   HIST_BUCKET_COUNT,
+  HUMAN_WAIT_TOOLS,
   MCP_TOOL_PREFIX,
   OBESE_RESULT_TOKENS,
 } from './constants.js';
@@ -43,6 +44,41 @@ export interface StatsRollup {
   toolErrors: number;
   toolBreakdown: Record<string, ToolStat>;
   findings: Finding[];
+  /**
+   * Time the session sat waiting on the user inside tool calls: the
+   * `HUMAN_WAIT_TOOLS` runs plus every recorded permission wait. Never part of
+   * the four work categories above (spec 2026-09-30-human-wait-tools-design).
+   */
+  humanWaitMs: number;
+  /** The `HUMAN_WAIT_TOOLS` runs, which `toolBreakdown` and `toolCalls` never see. */
+  humanBreakdown: Record<string, ToolStat>;
+  /**
+   * Permission waits keyed by the prompted tool's name; `ms` and `buckets` are
+   * the wait, not the tool, and `errors` counts prompts that were not allowed.
+   */
+  permissionBreakdown: Record<string, ToolStat>;
+}
+
+export type PermissionOutcome = 'allowed' | 'denied' | 'aborted';
+
+/**
+ * One permission prompt the runner parked and settled, as `permission_waits`
+ * stores it (ADR `permission-waits-are-measured-by-the-runner-only`).
+ */
+export interface PermissionWait {
+  /** The prompted tool's `tool_use` id — a sidechain one for a subagent's prompt. */
+  toolUseId: string;
+  /**
+   * The main-chain `Agent` call whose subagent raised the prompt, however deep
+   * the subagent was nested; null for the main loop's own prompt, and for a
+   * subagent's the runner could not place.
+   */
+  agentToolUseId: string | null;
+  /** The name the runner was asked about — the fallback when the transcript lacks the tool_use. */
+  toolName: string;
+  shownAt: number;
+  answeredAt: number;
+  outcome: PermissionOutcome;
 }
 
 export interface SubagentModelUsage {
@@ -63,7 +99,7 @@ export interface ToolStat {
   buckets: number[];
 }
 
-export type ToolKind = 'local' | 'mcp' | 'subagent';
+export type ToolKind = 'local' | 'mcp' | 'subagent' | 'human';
 
 export interface TurnSegment {
   /** Synthetic `turn-<index>` when the entry predates `requestId`. */
@@ -86,6 +122,11 @@ export interface TurnSegment {
     resultChars: number;
     /** The tool_use block id, so the UI can link into the transcript. */
     useId: string;
+    /**
+     * The permission wait cut out of `ms`, when there was one: the prompt on
+     * this call, or for an `Agent` call the prompts its subagent raised.
+     */
+    waitMs?: number;
   }>;
 }
 
@@ -128,7 +169,12 @@ function emptyRollup(): StatsRollup {
     cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, thinkingTokens: 0, subagentTokens: 0,
     subagentUsage: {},
     toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
+    humanWaitMs: 0, humanBreakdown: {}, permissionBreakdown: {},
   };
+}
+
+function emptyToolStat(): ToolStat {
+  return { calls: 0, errors: 0, ms: 0, resultChars: 0, buckets: new Array(HIST_BUCKET_COUNT).fill(0) };
 }
 
 function timestampOf(entry: TranscriptEntry): number | null {
@@ -175,6 +221,7 @@ export function toolKind(name: string): ToolKind {
   // SUBAGENT_TOOLS, not a local copy: the CLI has renamed this tool once
   // already and both names are on disk.
   if (SUBAGENT_TOOLS.has(name)) return 'subagent';
+  if (HUMAN_WAIT_TOOLS.has(name)) return 'human';
   if (name.startsWith(MCP_TOOL_PREFIX)) return 'mcp';
   return 'local';
 }
@@ -218,8 +265,17 @@ function usageTokens(usage: TranscriptUsage | undefined) {
  * toward the token totals; they open no turn, run no tool and time nothing,
  * so turns, tools, time and findings cover the live branch only (spec
  * 2026-09-29-rewind-design § After a rewind is sent).
+ *
+ * Human wait stays out of work time (spec 2026-09-30-human-wait-tools-design).
+ * A `HUMAN_WAIT_TOOLS` run is the user answering, so it goes to `humanWaitMs`
+ * and `humanBreakdown` and nowhere else. Each of `permissionWaits` is cut out
+ * of the prompted tool's run, or for a subagent's prompt out of the
+ * dispatching `Agent` run — the run a sidechain tool's time is counted in.
  */
-export function computeStats(entries: TranscriptEntry[]): SessionStats {
+export function computeStats(
+  entries: TranscriptEntry[],
+  permissionWaits: PermissionWait[] = [],
+): SessionStats {
   const rollup = emptyRollup();
   const turns: TurnSegment[] = [];
   /** Turn uuids kept beside the segments — evidence needs them, the wire does not. */
@@ -229,6 +285,8 @@ export function computeStats(entries: TranscriptEntry[]): SessionStats {
   const countedRequests = new Set<string>();
   const countedSidechainRequests = new Set<string>();
   const live = new Set(liveBranch(entries));
+  /** Permission wait to cut out of each main-chain tool run, by its tool_use id. */
+  const waitByUse = bankPermissionWaits(entries, permissionWaits, rollup);
 
   /**
    * Banks a request's usage in the totals, once per request; the tokens it
@@ -279,12 +337,30 @@ export function computeStats(entries: TranscriptEntry[]): SessionStats {
     // would vote "fast" in the p50 the window-level slow-mcp rule reads.
     const startTs = use.ts;
     const timed = startTs !== null && endTs !== null;
-    const ms = timed ? Math.max(0, endTs - startTs) : 0;
+    const rawMs = timed ? Math.max(0, endTs - startTs) : 0;
+    // Clamped at the run: the runner's clock is not the transcript's, and a
+    // wait must never leave a negative duration behind.
+    const waitMs = Math.min(rawMs, waitByUse.get(useId) ?? 0);
+    const ms = rawMs - waitMs;
     const isError = block.is_error === true;
     // The payload lives on the entry, not the block — the CLI never puts more
     // than one tool_result in an entry, so the two line up.
     const resultChars = serializedLength(entry.toolUseResult);
     const kind = toolKind(use.name);
+
+    if (kind === 'human') {
+      // The user answering, not work: no call, no error, no tool time — and no
+      // ToolRun, since a rejected plan is not a failing tool.
+      rollup.humanWaitMs += ms;
+      const stat = (rollup.humanBreakdown[use.name] ??= emptyToolStat());
+      stat.calls++;
+      if (isError) stat.errors++;
+      stat.ms += ms;
+      stat.resultChars += resultChars;
+      if (timed) stat.buckets[histogramBucket(ms)]++;
+      turns[use.turnIndex]?.tools.push({ name: use.name, kind, ms, isError, resultChars, useId });
+      return;
+    }
 
     rollup.toolCalls++;
     if (isError) rollup.toolErrors++;
@@ -292,16 +368,17 @@ export function computeStats(entries: TranscriptEntry[]): SessionStats {
     else if (kind === 'mcp') rollup.mcpMs += ms;
     else rollup.localToolMs += ms;
 
-    const stat = (rollup.toolBreakdown[use.name] ??= {
-      calls: 0, errors: 0, ms: 0, resultChars: 0, buckets: new Array(HIST_BUCKET_COUNT).fill(0),
-    });
+    const stat = (rollup.toolBreakdown[use.name] ??= emptyToolStat());
     stat.calls++;
     if (isError) stat.errors++;
     stat.ms += ms;
     stat.resultChars += resultChars;
     if (timed) stat.buckets[histogramBucket(ms)]++;
 
-    turns[use.turnIndex]?.tools.push({ name: use.name, kind, ms, isError, resultChars, useId });
+    turns[use.turnIndex]?.tools.push({
+      name: use.name, kind, ms, isError, resultChars, useId,
+      ...(waitMs > 0 ? { waitMs } : {}),
+    });
     toolRuns.push({
       name: use.name, inputKey: use.inputKey, isError, resultChars, useId,
       turnUuid: use.turnUuid,
@@ -392,6 +469,45 @@ export function computeStats(entries: TranscriptEntry[]): SessionStats {
   rollup.turns = turns.length;
   rollup.findings = sessionFindings(rollup, turns, turnUuids, toolRuns);
   return { rollup, turns };
+}
+
+/**
+ * Banks every permission wait in `humanWaitMs` and `permissionBreakdown`, and
+ * returns how much to cut out of each main-chain tool run: the prompted call's
+ * own for a main-loop prompt, the dispatching `Agent` call's for a subagent's.
+ * A wait is banked whether or not its run is ever found — the user waited all
+ * the same.
+ */
+function bankPermissionWaits(
+  entries: TranscriptEntry[],
+  waits: PermissionWait[],
+  rollup: StatsRollup,
+): Map<string, number> {
+  const cut = new Map<string, number>();
+  if (waits.length === 0) return cut;
+  // The prompted tool's name as the transcript wrote it, sidechains included:
+  // a subagent's tool_use lives only there.
+  const names = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.type !== 'assistant') continue;
+    for (const block of blocksOf(entry)) {
+      if (block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
+        names.set(block.id, block.name);
+      }
+    }
+  }
+  for (const wait of waits) {
+    const ms = Math.max(0, wait.answeredAt - wait.shownAt);
+    rollup.humanWaitMs += ms;
+    const stat = (rollup.permissionBreakdown[names.get(wait.toolUseId) || wait.toolName] ??= emptyToolStat());
+    stat.calls++;
+    if (wait.outcome !== 'allowed') stat.errors++;
+    stat.ms += ms;
+    stat.buckets[histogramBucket(ms)]++;
+    const target = wait.agentToolUseId ?? wait.toolUseId;
+    cut.set(target, (cut.get(target) ?? 0) + ms);
+  }
+  return cut;
 }
 
 /** One finding per rule at most — the worst instance the session offers. */
