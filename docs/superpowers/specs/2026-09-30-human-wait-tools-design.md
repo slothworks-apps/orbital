@@ -1,7 +1,7 @@
 ---
 id: 2026-09-30-human-wait-tools-design
 title: Human wait — questions, plan approvals and permission prompts leave the work time
-status: draft
+status: done
 type: spec
 domain: stats
 related:
@@ -99,16 +99,25 @@ scope until it does.
 - `computeStats` takes the session's permission waits as a second input
   and stays pure. For each wait:
   - the prompted tool's duration drops by the wait (clamped at 0) and the
-    wait goes to `humanWaitMs` and `permissionWaits` (count and ms);
+    wait goes to `humanWaitMs` and `permissionBreakdown`;
   - when the prompt came from a subagent, the dispatching `Agent` run's
     duration drops by the same amount, so `subagentMs` is work only.
 - A session with no recorded waits (a terminal session, or an Orbital
   session from before this change) computes exactly as today.
-- `permissionTimed` on the rollup is true for every session whose
-  `sessions.source` is not `terminal`. An Orbital session from before
+- `permissionTimed` is true for every session whose `sessions.source` is
+  not `terminal`. It is derived when the rollup is served, not stored: a
+  revive turns a terminal session's `source` into `web`, and a stored
+  copy would be wrong until the next re-index. An Orbital session from before
   this change counts as timed with no waits: its old prompt waits stay in
   its tool time. Accepted — it only touches history, and telling those
   sessions apart would need a cut-over marker nothing else uses.
+
+- `STATS_VERSION` goes up, so stored rollups re-index under the new
+  definition. Nothing re-indexes on a new wait by itself: the wait is
+  recorded when the prompt is answered, before the tool's result reaches
+  the transcript, and the index pass that result line triggers reads it.
+  Every stats computation — indexer, live and end-of-session recompute,
+  the drilldown's timeline — reads the waits.
 
 ### Wire shape
 
@@ -124,9 +133,14 @@ scope until it does.
 `TurnSegment.tools[]` entries gain `kind: 'human'` for the two tools, and
 an optional `waitMs` on any other entry: the permission wait cut out of
 it (for an `Agent` entry, the waits of the prompts its subagent raised).
-- `STATS_VERSION` goes up, so stored rollups re-index under the new
-  definition. The indexer re-indexes an Orbital session when a new wait
-  lands for it, the same way it does for a transcript change.
+
+`GET /api/stats/overview` gains, on `totals` and `previousTotals`:
+`humanWaitMs`, `questionCount`, `planCount`, `permissionCount` (timed
+sessions only) and `timedSessionCount`; on each `daySeries` day,
+`humanWaitMs`; and `toolLeaderboard.human` — rows for
+`AskUserQuestion`, `ExitPlanMode` and `permission` (calls, ms, p50,
+and per prompted tool for the last), a row with no calls left out, the
+permission row absent without a timed session in range.
 
 ## Web
 
@@ -139,7 +153,7 @@ it (for an `Agent` entry, the waits of the prompts its subagent raised).
 - **Switch:** "Show time spent waiting on you", at the right end of the
   `/stats` filter row, off by default. A persisted preference, not a
   filter: the server setting `stats_show_human_wait` (`'true'` /
-  absent), never in the URL query, not in Settings. The quick-stats
+  `'false'`), never in the URL query, not in Settings. The quick-stats
   dialog follows it and has no switch of its own.
 - **Switch on (10i–10k):**
   - a `WAITING ON YOU` tile in the slot beside the busy / split tile,
@@ -148,11 +162,15 @@ it (for an `Agent` entry, the waits of the prompts its subagent raised).
   - the leaderboard gets a `YOU` group below the ranked list —
     `AskUserQuestion`, `ExitPlanMode`, `permission prompts` — unranked,
     no share bar;
-  - the waterfall cuts the lane with a fixed-width break at each wait,
-    the lane total on the right stays work only.
-- The `†` caveat of 10b / 10f stays for terminal sessions and for
-  Orbital sessions that predate the recording; it no longer applies to
-  Orbital sessions with recorded waits.
+  - the waterfall cuts the lane with one fixed-width break: every wait of
+    the turn merges into it at the first one's place (`14m ×3`, hover
+    lists each), the lane total on the right stays work only. A prompt
+    raised inside a subagent is placed before the `Agent` call it was
+    cut from — 10j draws it mid-call, but nothing records how far into
+    the subagent's run it came.
+- The `†` caveat marks terminal sessions: the quick dialog badges one
+  `TERMINAL` and puts `†` on its local tools; the drilldown states the
+  rule once, under the waterfall, in 10j's words.
 
 ## Tests
 
@@ -168,11 +186,9 @@ it (for an `Agent` entry, the waits of the prompts its subagent raised).
   with both timestamps; a `bypassPermissions` auto-allow and a question
   record none.
 
-## Open with Claude Design
+## Settled with Claude Design
 
-- 10j and 10e describe permission timing as "Orbital's hook"; it is the
-  runner, and only for Orbital-run sessions (see § What can be
-  measured).
-- The waterfall break is a fixed 74 px and shifts the rest of the lane
-  right; a turn with several waits needs a rule so the lane cannot run
-  past the track.
+- 10j and 10e now describe permission timing as the runner's, for
+  Orbital-run sessions only.
+- Several waits in one turn merge into one break (10k), so a lane never
+  runs past the track.

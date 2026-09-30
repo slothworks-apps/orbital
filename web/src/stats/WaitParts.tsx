@@ -150,8 +150,7 @@ export function WaitTile({
             {formatStatsDuration(ms)}
           </div>
           <div className="mt-1.5 font-mono text-[10px] leading-[1.35] text-[rgba(160,190,225,.7)]">
-            {countLine}
-            {footnote !== undefined && '*'}
+            <CountLine line={countLine} starred={footnote !== undefined} />
           </div>
         </>
       ) : (
@@ -160,14 +159,34 @@ export function WaitTile({
             dashboard ? 'mt-3 text-[13px]' : 'mt-2.5 text-[12px]'
           }`}
         >
-          {countLine}
-          {footnote !== undefined && '*'}
+          <CountLine line={countLine} starred={footnote !== undefined} />
         </div>
       )}
       {footnote !== undefined && (
         <div className="mt-[3px] font-mono text-[9px] text-[rgba(160,190,225,.45)]">* {footnote}</div>
       )}
     </section>
+  )
+}
+
+/**
+ * The count line, allowed to wrap only between its parts: a tile this narrow
+ * would otherwise break "· 3⏎plan approvals" and part a number from its noun.
+ */
+function CountLine({ line, starred }: { line: string; starred: boolean }) {
+  const parts = line.split(' · ')
+  return (
+    <>
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && ' · '}
+          <span className="whitespace-nowrap">
+            {part}
+            {starred && i === parts.length - 1 && '*'}
+          </span>
+        </span>
+      ))}
+    </>
   )
 }
 
