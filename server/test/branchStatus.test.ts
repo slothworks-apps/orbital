@@ -258,7 +258,17 @@ describe('readLines', () => {
     write('b.txt', lines(3));
     git('add', '.');
     git('commit', '-qm', 'feat');
-    expect((await readLines(repo, 'trunk'))?.committed).toEqual({ added: 3, removed: 0 });
+    const res = await readLines(repo, 'trunk');
+    expect(res?.committed).toEqual({ added: 3, removed: 0 });
+    expect(res?.parent).toBe('trunk');
+  });
+
+  it('is null, not parentless, when merge-base times out', async () => {
+    const run: Runner = async (_file, args) =>
+      args[0] === 'merge-base'
+        ? { stdout: '', stderr: '', code: null, timedOut: true }
+        : { stdout: '', stderr: '', code: 0, timedOut: false };
+    expect(await readLines(repo, 'main', { run })).toBeNull();
   });
 
   it('is null outside a repository', async () => {
