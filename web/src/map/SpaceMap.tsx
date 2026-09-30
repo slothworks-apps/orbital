@@ -703,17 +703,30 @@ export function SpaceMap() {
     engaged: boolean
   } | null>(null)
 
-  const handleSelect = useCallback(
+  // A planet click is also the way back from a subagent's (or background
+  // task's) panel to its parent session. Selecting another planet already
+  // closes that panel (the store's selection subscription); clicking the
+  // parent itself changes no selection, so it is closed here.
+  const selectPlanet = useCallback(
     (id: string) => {
-      if (draggedRef.current) return
+      const { subagentPanel, taskOutput, closeSubagent, closeTaskOutput } = useOrbital.getState()
+      if (subagentPanel) closeSubagent()
+      if (taskOutput) closeTaskOutput()
       void select(id)
     },
     [select]
   )
+  const handleSelect = useCallback(
+    (id: string) => {
+      if (draggedRef.current) return
+      selectPlanet(id)
+    },
+    [selectPlanet]
+  )
   // The dot-mode pill's click. No drag guard: the disc keeps its presses from
   // the map, so no pan can have started on it, and `draggedRef` would only
   // hold whatever the previous gesture left there.
-  const handlePillSelect = useCallback((id: string) => void select(id), [select])
+  const handlePillSelect = selectPlanet
 
   // The moon's own click (task 9, spec § 5 "The moon"). `Moon` never imports
   // the store — this is the same "plain callback prop" shape as `onClick`
