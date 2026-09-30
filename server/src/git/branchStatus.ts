@@ -167,8 +167,9 @@ interface LinesOpts {
  * work included (spec § Line changes).
  *
  * The count is taken from the merge base, so commits that reached the parent
- * after the branch forked do not count. A parent that resolves neither as
- * given nor as `origin/<parent>` is treated like none: the uncommitted work
+ * after the branch forked do not count. The parent is tried as
+ * `origin/<parent>` first, then as given; one that resolves as neither is
+ * treated like none: the uncommitted work
  * alone. Null for anything else going wrong — not a repository, no `git`, a
  * timeout.
  */
@@ -183,8 +184,12 @@ export async function readLines(
 
   let base: string | null = null;
   if (parent !== null) {
-    for (const candidate of [parent, `origin/${parent}`]) {
-      const res = await git(['merge-base', 'HEAD', candidate]);
+    // The remote first: GitHub compares a PR against it, and a local copy
+    // that has fallen behind would count the parent's newer commits as the
+    // branch's own.
+    for (const candidate of [`origin/${parent}`, parent]) {
+      // A branch name may start with `-`; it must not read as an option.
+      const res = await git(['merge-base', '--end-of-options', 'HEAD', candidate]);
       // A slow repository is no answer, not a missing parent: the uncommitted
       // count alone would be passed off as the whole change.
       if (res.timedOut) return null;
@@ -382,7 +387,8 @@ export async function lookupPr(root: string, branch: string, opts: GhOpts = {}):
   const gh = (opts.resolve ?? resolveGh)();
   if (!gh) return { kind: 'unavailable', reason: 'missing' };
   const run = opts.run ?? execRunner;
-  const res = await run(gh, ['pr', 'view', branch, '--json', PR_FIELDS], {
+  // `--` so a branch name starting with `-` is not read as a flag.
+  const res = await run(gh, ['pr', 'view', '--json', PR_FIELDS, '--', branch], {
     cwd: root,
     env: ghEnv(),
     timeout: opts.timeoutMs ?? GH_TIMEOUT_MS,

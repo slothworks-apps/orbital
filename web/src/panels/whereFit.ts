@@ -27,7 +27,7 @@ import { FOLD_MIN_PATH_PX } from './stripFold'
 
 /** One character of the row's 11px JetBrains Mono. */
 export const CHAR_PX = 6.6
-/** 1h: gap 9 between every suffix — the path-to-mark gap, repeated. */
+/** 1h: the gap between every suffix — the path-to-mark gap, repeated. */
 export const SUFFIX_GAP_PX = 9
 /** 1h: gap inside a line group — ring, `+n`, `−n`. */
 export const LINE_PAIR_GAP_PX = 4

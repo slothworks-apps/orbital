@@ -120,7 +120,9 @@ describe('lookupPr', () => {
     const { run, calls } = fakeRun({ code: 0, stdout: JSON.stringify(view) });
     const res = await lookupPr('/repo', 'feat/x', { run, resolve: gh });
     expect(res).toMatchObject({ kind: 'pr', pr: { number: 123, state: 'open' } });
-    expect(calls[0].slice(0, 3)).toEqual(['pr', 'view', 'feat/x']);
+    // `--` last but one, so a branch starting with `-` is not a flag.
+    expect(calls[0].slice(0, 2)).toEqual(['pr', 'view']);
+    expect(calls[0].slice(-2)).toEqual(['--', 'feat/x']);
   });
 
   it('is unavailable/missing when gh is not found, without spawning', async () => {
@@ -252,8 +254,8 @@ describe('readLines', () => {
     });
   });
 
-  it('falls back to origin/<parent> when the name has no local branch', async () => {
-    git('update-ref', 'refs/remotes/origin/trunk', git('rev-parse', 'HEAD'));
+  it('falls back to the local <parent> when there is no origin/<parent>', async () => {
+    git('branch', 'trunk');
     git('checkout', '-qb', 'feat');
     write('b.txt', lines(3));
     git('add', '.');
@@ -261,6 +263,36 @@ describe('readLines', () => {
     const res = await readLines(repo, 'trunk');
     expect(res?.committed).toEqual({ added: 3, removed: 0 });
     expect(res?.parent).toBe('trunk');
+  });
+
+  it('prefers origin/<parent> over a local copy that has fallen behind', async () => {
+    // Local main stays at the base; origin/main moved on by five lines, and
+    // the branch forked from there. Against the stale local copy those five
+    // lines would count as the branch's own.
+    git('checkout', '-qb', 'upstream');
+    write('c.txt', lines(5));
+    git('add', '.');
+    git('commit', '-qm', 'upstream');
+    git('update-ref', 'refs/remotes/origin/main', git('rev-parse', 'HEAD'));
+    git('checkout', '-qb', 'feat');
+    write('b.txt', lines(3));
+    git('add', '.');
+    git('commit', '-qm', 'feat');
+    const res = await readLines(repo, 'main');
+    expect(res?.committed).toEqual({ added: 3, removed: 0 });
+    expect(res?.parent).toBe('main');
+  });
+
+  it('keeps a parent starting with a dash from reading as an option', async () => {
+    const calls: string[][] = [];
+    const run: Runner = async (_file, args) => {
+      calls.push(args);
+      return { stdout: '', stderr: '', code: 0, timedOut: false };
+    };
+    await readLines(repo, '-evil', { run });
+    const mergeBases = calls.filter((a) => a[0] === 'merge-base');
+    expect(mergeBases.length).toBeGreaterThan(0);
+    for (const args of mergeBases) expect(args.slice(0, 3)).toEqual(['merge-base', '--end-of-options', 'HEAD']);
   });
 
   it('is null, not parentless, when merge-base times out', async () => {

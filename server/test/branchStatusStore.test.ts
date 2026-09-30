@@ -367,4 +367,57 @@ describe('BranchStatusStore PR lookups', () => {
     expect(lookupPr).toHaveBeenLastCalledWith(dir, 'other');
     store.close();
   });
+
+  it("does not carry a PR across a branch switch when the new lookup fails", async () => {
+    settings = { [PR_SETTING]: 'true', [LINES_SETTING]: 'branch' };
+    const dir = repo('ref: refs/heads/feature\n', ['main', 'feature', 'other']);
+    let next: PrLookup = { kind: 'pr', pr: pr({ base: 'release' }) };
+    const { store, readLines } = makeStore({ lookup: async () => next });
+    store.watchSession('s1', dir);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.get(dir)?.pr?.base).toBe('release');
+
+    next = { kind: 'failed' };
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/other\n');
+    git.applyHeadEvent(dir, 'change');
+    await vi.advanceTimersByTimeAsync(LINES_MAX_WAIT_MS);
+    expect(store.get(dir)?.pr).toBeUndefined();
+    expect(readLines.mock.calls.at(-1)![1]).toBe('main');
+    store.close();
+  });
+
+  it('drops a PR whose branch changed while nobody watched', async () => {
+    settings = { [PR_SETTING]: 'true', [LINES_SETTING]: 'branch' };
+    const dir = repo('ref: refs/heads/feature\n', ['main', 'feature', 'other']);
+    let next: PrLookup = { kind: 'pr', pr: pr({ base: 'release' }) };
+    const { store, readLines } = makeStore({ lookup: async () => next });
+    store.watchSession('s1', dir);
+    await vi.advanceTimersByTimeAsync(0);
+    store.unwatchSession('s1');
+
+    // No watch runs, so the cache still names `feature` when the window comes back.
+    next = { kind: 'failed' };
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/other\n');
+    git.refresh(dir);
+    expect(store.get(dir)?.pr).toBeUndefined();
+    store.watchSession('s2', dir);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.get(dir)?.pr).toBeUndefined();
+    expect(readLines.mock.calls.at(-1)![1]).toBe('main');
+    store.close();
+  });
+
+  it('emits nothing for a reading that lands after close', async () => {
+    settings = { [LINES_SETTING]: 'branch' };
+    const dir = repo('ref: refs/heads/feature\n', ['main', 'feature']);
+    let release: () => void = () => {};
+    const { store, changes } = makeStore({
+      lines: () => new Promise((resolve) => { release = () => resolve(LINES); }),
+    });
+    store.watchSession('s1', dir);
+    store.close();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(changes).toEqual([]);
+  });
 });

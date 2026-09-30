@@ -36,6 +36,13 @@ interface Root {
   sessions: Set<string>;
   lines?: BranchLines;
   pr?: BranchPr;
+  /**
+   * The branch `pr` was looked up for. A PR is only ever read while this is
+   * still the branch checked out: after a switch — or one made while nobody
+   * watched — a lookup that fails must not leave the old branch's PR, or its
+   * base as the parent, on the new one.
+   */
+  prBranch?: string;
   /** The branch last seen, so a `HEAD` event can tell a switch from a commit. */
   ref?: string;
   quietTimer: ReturnType<typeof setTimeout> | null;
@@ -115,11 +122,13 @@ export class BranchStatusStore extends EventEmitter {
     const lines = this.linesOn();
     if (!pr && !lines) return undefined;
     const root = this.git.rootOf(cwd);
-    const entry = root === null ? undefined : this.roots.get(root);
+    if (root === null) return undefined;
+    const entry = this.roots.get(root);
     if (!entry) return undefined;
     const status: BranchStatus = {};
     if (lines && entry.lines) status.lines = entry.lines;
-    if (pr && entry.pr) status.pr = entry.pr;
+    const current = pr ? this.prOf(root, entry) : undefined;
+    if (current) status.pr = current;
     return status.lines || status.pr ? status : undefined;
   }
 
@@ -219,6 +228,8 @@ export class BranchStatusStore extends EventEmitter {
 
   private startWatching(root: string, entry: Root): void {
     entry.ref = this.git.treeOf(root)?.location?.ref;
+    // The branch may have changed while nobody watched.
+    if (entry.pr && !this.prOf(root, entry)) this.update(root, entry, () => clearPr(entry));
     if (this.linesOn()) void this.recountLines(root);
     if (this.prOn()) {
       void this.refreshPr(root);
@@ -249,6 +260,7 @@ export class BranchStatusStore extends EventEmitter {
     const ref = this.git.treeOf(root)?.location?.ref;
     if (ref !== entry.ref) {
       entry.ref = ref;
+      this.update(root, entry, () => clearPr(entry));
       void this.refreshPr(root);
     }
     this.triggerLines(root);
@@ -285,7 +297,8 @@ export class BranchStatusStore extends EventEmitter {
     const trunk = this.trunkOf(root);
     if (trunk === undefined) return undefined;
     if (trunk.onTrunk) return null;
-    const pr = this.roots.get(root)?.pr;
+    const entry = this.roots.get(root);
+    const pr = entry ? this.prOf(root, entry) : undefined;
     if (this.prOn() && pr) return pr.base;
     return trunk.defaultBranch;
   }
@@ -341,7 +354,7 @@ export class BranchStatusStore extends EventEmitter {
     // No PR is looked for on a detached HEAD or the default branch, and one
     // cached from the branch before is dropped.
     if (trunk.onTrunk) {
-      this.update(root, entry, () => { entry.pr = undefined; });
+      this.update(root, entry, () => clearPr(entry));
       return;
     }
     const parentBefore = this.parentOf(root);
@@ -353,8 +366,10 @@ export class BranchStatusStore extends EventEmitter {
       // the `HEAD` event already asked again.
       if (this.git.treeOf(root)?.location?.ref !== branch) return;
       this.update(root, entry, () => {
-        if (result.kind === 'pr') entry.pr = result.pr;
-        else if (result.kind !== 'failed') entry.pr = undefined;
+        if (result.kind === 'pr') {
+          entry.pr = result.pr;
+          entry.prBranch = branch;
+        } else if (result.kind !== 'failed') clearPr(entry);
       });
       if (this.parentOf(root) !== parentBefore) void this.recountLines(root);
     } finally {
@@ -366,11 +381,25 @@ export class BranchStatusStore extends EventEmitter {
     }
   }
 
+  /** The cached PR, only while it belongs to the branch checked out now. */
+  private prOf(root: string, entry: Root): BranchPr | undefined {
+    if (!entry.pr) return undefined;
+    const location = this.git.treeOf(root)?.location;
+    return location && !location.detached && location.ref === entry.prBranch ? entry.pr : undefined;
+  }
+
   /** Applies a change and emits `change` only when the value really moved. */
   private update(root: string, entry: Root, apply: () => void): void {
+    // A reading that lands after `close` has nobody left to tell.
+    if (this.closed) return;
     const before = JSON.stringify([entry.lines, entry.pr]);
     apply();
     if (JSON.stringify([entry.lines, entry.pr]) === before) return;
     this.emit('change', root, this.git.cwdsFor(root));
   }
+}
+
+function clearPr(entry: Root): void {
+  entry.pr = undefined;
+  entry.prBranch = undefined;
 }
