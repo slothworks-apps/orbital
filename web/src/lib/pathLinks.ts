@@ -7,6 +7,9 @@
  * or `:line:col` (line kept, column ignored, both part of the hit area).
  * False positives are cheap — the viewer refuses politely; false negatives
  * are the expensive kind (canvas 8b).
+ *
+ * An inline code span is pressable too, but only when the path is the whole
+ * span (adr `a-code-span-that-is-a-path-is-pressable`).
  */
 
 /**
@@ -116,15 +119,18 @@ export interface HastRoot {
   children: HastNode[]
 }
 
-/** Inside these, a path stays text: code is quoted material, links are taken. */
-const SKIP_TAGS = new Set(['code', 'pre', 'a', 'script', 'style'])
+/**
+ * Inside these, a path stays text: a block is quoted material, links are
+ * taken. Inline `code` is not here — {@link codeSpanPath} decides it whole.
+ */
+const SKIP_TAGS = new Set(['pre', 'a', 'script', 'style'])
 
 function isParent(node: HastNode): node is HastParent | HastElement {
   return Array.isArray((node as HastParent).children)
 }
 
 /** The `<a data-path data-line>` element the markdown `a` override recognizes. */
-function pathLinkElement(match: PathMatch): HastElement {
+function pathLinkElement(match: PathMatch, inCode = false): HastElement {
   return {
     type: 'element',
     tagName: 'a',
@@ -134,9 +140,33 @@ function pathLinkElement(match: PathMatch): HastElement {
       // tells these apart from authored links.
       dataPath: match.path,
       ...(match.line !== null ? { dataLine: String(match.line) } : {}),
+      // The button sits inside a code chip, which already sets the type
+      // and the box.
+      ...(inCode ? { dataCode: '' } : {}),
     },
     children: [{ type: 'text', value: match.text }],
   }
+}
+
+/**
+ * The match an inline code span stands for, or null. Only a span that is
+ * one path and nothing else qualifies: `` `web/src/App.tsx:42` `` is a
+ * reference, while `` `cat web/src/App.tsx` `` is a command that happens to
+ * contain one, and stays quoted material.
+ */
+export function codeSpanPath(text: string): PathMatch | null {
+  const trimmed = text.trim()
+  const matches = findPathMatches(trimmed)
+  if (matches.length !== 1) return null
+  const [match] = matches
+  return match.index === 0 && match.length === trimmed.length ? match : null
+}
+
+function linkCodeSpan(code: HastElement): void {
+  const [only] = code.children
+  if (code.children.length !== 1 || only.type !== 'text') return
+  const match = codeSpanPath((only as HastText).value)
+  if (match) code.children = [pathLinkElement(match, true)]
 }
 
 function splitTextNode(node: HastText): HastNode[] | null {
@@ -158,7 +188,13 @@ function walk(node: HastParent | HastElement): void {
   for (let i = 0; i < children.length; i += 1) {
     const child = children[i]
     if (child.type === 'element') {
-      if (SKIP_TAGS.has((child as HastElement).tagName)) continue
+      const tagName = (child as HastElement).tagName
+      if (SKIP_TAGS.has(tagName)) continue
+      // Reached only outside `pre`, so any `code` here is an inline span.
+      if (tagName === 'code') {
+        linkCodeSpan(child as HastElement)
+        continue
+      }
       walk(child)
       continue
     }
@@ -176,8 +212,9 @@ function walk(node: HastParent | HastElement): void {
 
 /**
  * Rehype plugin wrapping every prose path match in an `<a data-path>` the
- * markdown `components.a` override renders as a `PathButton`. Text inside
- * `code`, `pre` and existing `a` elements is never touched.
+ * markdown `components.a` override renders as a `PathButton`. An inline
+ * code span that is exactly one path gets the same link inside it; text in
+ * `pre` and existing `a` elements is never touched.
  */
 export function rehypePathLinks() {
   return (tree: HastRoot): void => {

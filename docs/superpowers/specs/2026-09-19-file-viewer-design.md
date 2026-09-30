@@ -7,6 +7,7 @@ domain: web
 related:
   - clickable-file-paths-in-the-transcript
   - 2026-09-18-transcript-images-design
+  - a-code-span-that-is-a-path-is-pressable
 tags:
   - detail-panel
   - transcript
@@ -123,11 +124,16 @@ Where paths come from:
   input render as `PathButton`s (8a's INPUT frame); everything else in
   the JSON stays text.
 - **Assistant prose.** A rehype plugin over text nodes (skipping
-  `code`, `pre` and existing `a`): a run of path characters with at
+  `pre` and existing `a`; inline `code` per the next item): a run of path characters with at
   least one `/` and a known text extension, optionally `:line` or
   `:line:col` (line kept, column ignored, both part of the hit area).
   False positives are cheap — the viewer refuses politely; false
   negatives are the expensive kind (8b's own copy).
+- **Inline code spans** (added 2026-09-30,
+  [[a-code-span-that-is-a-path-is-pressable]]): a span whose whole
+  content is one such path becomes a path button inside the chip. A span
+  where the path is only a part (`cat web/src/App.tsx`) stays text, as
+  do fenced blocks.
 - **Not pressable:** image and known-binary extensions (`.png`, `.jpg`,
   `.gif`, `.webp`, `.woff2`, …) stay text everywhere — image viewing
   belongs to [[2026-09-18-transcript-images-design]].
@@ -207,7 +213,8 @@ Text in the viewer selects; keystrokes do nothing.
 - Path matcher (pure function): matches with/without `:line`/`:line:col`,
   requires slash + known extension, image extensions refused.
 - Web: `sessionUrl` round-trips `file`/`line`; store open/close;
-  MessageView prose links (and none inside code spans); ToolRow — path
+  MessageView prose links (a code span only when it is exactly one
+  path, never a fenced block); ToolRow — path
   press opens without expanding, row press expands without opening,
   INPUT values pressable; FileViewer — markdown vs source vs degrade
   by size and by lines, target line marked, each refusal state from its
