@@ -255,8 +255,8 @@ describe('DetailPanel header', () => {
     expect(screen.getByRole('button', { name: 'My session' })).toBeInTheDocument()
     expect(screen.getByText(/orbital/)).toBeInTheDocument() // shortened cwd
     // The mode is a dot in a 24×22 box, not a word — it reaches a reader
-    // through the readout's accessible name and its tooltip.
-    expect(screen.getByRole('img', { name: 'permission mode: plan' })).toBeInTheDocument()
+    // through the switcher's accessible name and its tooltip.
+    expect(screen.getByRole('button', { name: /Change permission mode \(currently plan\)/ })).toBeInTheDocument()
     expect(screen.queryByText('plan')).toBeNull()
     expect(screen.getByText(/WORKING/)).toBeInTheDocument()
   })
@@ -612,6 +612,18 @@ describe('DetailPanel model chip', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Switch' })).not.toBeInTheDocument())
     expect(api.setSessionModel).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /Change model/ })).toHaveTextContent('Sonnet 5')
+  })
+
+  it('switches the permission mode at once, and puts it back when the server refuses', async () => {
+    vi.mocked(api.setSessionPermissionMode).mockRejectedValueOnce(new Error('boom'))
+    await renderDetail({ session: { ...webSession, permissionMode: 'acceptEdits' }, models: MODELS })
+    fireEvent.click(screen.getByRole('button', { name: /Change permission mode/ }))
+    fireEvent.click(screen.getByRole('option', { name: 'bypassPermissions' }))
+
+    expect(api.setSessionPermissionMode).toHaveBeenCalledWith(webSession.id, 'bypassPermissions')
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Change permission mode/ })).toHaveAttribute('data-mode', 'acceptEdits')
+    )
   })
 
   it('closes on an outside pointerdown, matching every other popover in the app (F4)', async () => {

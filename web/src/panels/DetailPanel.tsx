@@ -44,7 +44,7 @@ import {
 import { Badge } from '../ui/Badge'
 import { RefreshGlyph, RewindGlyph, UtilityButton } from '../ui/UtilityButton'
 import { Tooltip } from '../ui/Tooltip'
-import { ModeReadout } from '../ui/ModeDot'
+import { ModeSwitcher } from './ModeSwitcher'
 import { Select } from '../ui/Select'
 import type { SelectHandle } from '../ui/Select'
 import { Button } from '../ui/Button'
@@ -934,7 +934,7 @@ export function DetailPanel({
                   }
                 />
               )}
-              {session.permissionMode && <ModeReadout mode={session.permissionMode} />}
+              <ModeSwitcher session={session} disabled={isTerminalLive} />
             </div>
 
             {/* Row 4 — status + context (canvas `Feature - Detail header`

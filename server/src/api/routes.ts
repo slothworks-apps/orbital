@@ -41,6 +41,7 @@ import type { SubagentStore, SubagentTranscripts } from '../transcript/subagents
 import type { BackgroundTaskStore } from '../transcript/backgroundTasks.js';
 import { readOutputTail } from '../files/taskOutput.js';
 import type { ChatMessage, ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
+import { isPermissionMode } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
 import type { ImageStore } from '../images/store.js';
@@ -1358,6 +1359,29 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     db.update(sessions).set({ model }).where(eq(sessions.id, id)).run();
     const updated = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, updated) });
+    return { ok: true };
+  });
+
+  app.post('/api/sessions/:id/permission-mode', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { mode } = (req.body ?? {}) as { mode?: unknown };
+    if (!isPermissionMode(mode)) {
+      return reply.code(400).send({ error: 'mode must be a permission mode' });
+    }
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+      | SessionRow
+      | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    // Same rule as the model switch: a terminal-owned session is not ours.
+    if (ctx.registry.get(id)) {
+      return reply.code(409).send({ error: 'session is live in a terminal' });
+    }
+    if (ctx.runner.status(id)) {
+      await ctx.runner.setPermissionMode(id, mode);
+    }
+    // An ended session keeps the choice too: the revive resumes in it.
+    db.update(sessions).set({ permissionMode: mode }).where(eq(sessions.id, id)).run();
+    publishRow(id);
     return { ok: true };
   });
 

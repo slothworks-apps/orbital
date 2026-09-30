@@ -6,7 +6,10 @@ export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended';
  * repo has no shared types package, so the two must move together. The SDK
  * also ships `default` and `dontAsk`; Orbital offers neither, see
  * `docs/superpowers/specs/2026-09-17-permission-mode-dots-design.md`. */
-export type PermissionMode = 'plan' | 'acceptEdits' | 'auto' | 'bypassPermissions';
+export const PERMISSION_MODES = ['plan', 'acceptEdits', 'auto', 'bypassPermissions'] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+export const isPermissionMode = (value: unknown): value is PermissionMode =>
+  (PERMISSION_MODES as readonly unknown[]).includes(value);
 export type SubagentState = 'materializing' | 'working' | 'idle' | 'needs_input' | 'ended';
 /**
  * Where a session's title came from. `derived` is the indexer's read of the

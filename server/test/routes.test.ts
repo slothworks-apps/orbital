@@ -998,6 +998,43 @@ describe('REST routes', () => {
     expect(row.model).toBe('sonnet');
   });
 
+  it('switches the permission mode of a live session', async () => {
+    const { app, db, runner } = makeApp();
+    const calls: Array<[string, string]> = [];
+    (runner as any).setPermissionMode = async (id: string, mode: string) => { calls.push([id, mode]); };
+    (runner as any).status = (id: string) => (id === 's2' ? 'working' : undefined);
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s2/permission-mode', payload: { mode: 'bypassPermissions' } });
+    expect(res.statusCode).toBe(200);
+    expect(calls).toEqual([['s2', 'bypassPermissions']]);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.permission_mode).toBe('bypassPermissions');
+  });
+
+  it('records the permission mode of an ended session without touching the runner', async () => {
+    const { app, db, runner } = makeApp();
+    let called = false;
+    (runner as any).setPermissionMode = async () => { called = true; };
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s2/permission-mode', payload: { mode: 'plan' } });
+    expect(res.statusCode).toBe(200);
+    expect(called).toBe(false);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
+    expect(row.permission_mode).toBe('plan');
+  });
+
+  it('rejects a permission mode Orbital does not offer', async () => {
+    const { app } = makeApp();
+    for (const mode of ['default', 'dontAsk', '', 42, undefined]) {
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/s2/permission-mode', payload: { mode } });
+      expect(res.statusCode).toBe(400);
+    }
+  });
+
+  it('refuses to change the permission mode of a session live in a terminal', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/permission-mode', payload: { mode: 'plan' } });
+    expect(res.statusCode).toBe(409);
+  });
+
   it('refuses to switch a session that is live in a terminal', async () => {
     const { app, db } = makeApp();
     const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/model', payload: { model: 'haiku' } });

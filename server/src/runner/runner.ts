@@ -1170,6 +1170,10 @@ export class Runner {
     const options: Record<string, unknown> = {
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
+      // Without it the CLI refuses a later switch INTO `bypassPermissions`
+      // unless the session was launched in it. It grants nothing by itself:
+      // the mode stays whatever the user picked until they pick another.
+      allowDangerouslySkipPermissions: true,
       systemPrompt: this.commentary?.()
         ? { type: 'preset', preset: 'claude_code', append: NARRATE_COMMENTARY_PROMPT }
         : { type: 'preset', preset: 'claude_code' },
@@ -2354,6 +2358,19 @@ export class Runner {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error(`session ${sessionId} is not active`);
     await s.generator?.setModel?.(model);
+  }
+
+  /**
+   * Changes the permission mode of a running session. Unlike a model switch
+   * it applies at once — the CLI consults the mode on the next tool call,
+   * mid-turn included. `attempt.permissionMode` follows, because `decide()`
+   * reads it to wave permission asks through under `bypassPermissions`.
+   */
+  async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
+    const s = this.sessions.get(sessionId);
+    if (!s) throw new Error(`session ${sessionId} is not active`);
+    await s.generator?.setPermissionMode?.(mode);
+    s.attempt.permissionMode = mode;
   }
 
   /**

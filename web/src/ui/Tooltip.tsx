@@ -40,6 +40,11 @@ interface TooltipBase {
    * window` 22a). The caller makes that ancestor `relative`.
    */
   anchor?: 'trigger' | 'group'
+  /**
+   * Keeps the bubble down while the trigger's own popover is open — the
+   * popover already says what the bubble would, and they would overlap.
+   */
+  suppressed?: boolean
   /** The trigger. Must accept a ref-less `aria-describedby` prop. */
   children: ReactElement<{ 'aria-describedby'?: string }>
 }
@@ -89,13 +94,14 @@ export function Tooltip({
   side = 'below',
   delayMs = 0,
   anchor = 'trigger',
+  suppressed = false,
   children,
 }: TooltipProps) {
   const id = useId()
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const [dismissed, setDismissed] = useState(false)
-  const open = (hovered || focused) && !dismissed
+  const open = (hovered || focused) && !dismissed && !suppressed
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const cancelHover = () => {

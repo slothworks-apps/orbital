@@ -626,6 +626,27 @@ describe('Runner', () => {
     expect(setModel).toHaveBeenCalledWith('haiku');
   });
 
+  it('setPermissionMode forwards to the live query and bypass then waves asks through', async () => {
+    const hub = new Hub();
+    const setPermissionMode = vi.fn(async () => {});
+    let canUseTool: any;
+    const fn = ({ prompt, options }: any) => {
+      canUseTool = options.canUseTool;
+      expect(options.allowDangerouslySkipPermissions).toBe(true);
+      const sid = options.sessionId ?? options.resume;
+      async function* gen() { for await (const _m of prompt) { yield { type: 'result', subtype: 'success', session_id: sid, usage: {} }; } }
+      const g = gen() as any;
+      g.setPermissionMode = setPermissionMode;
+      return g;
+    };
+    const runner = new Runner({ hub, queryFn: fn });
+    const id = await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'acceptEdits' });
+    await runner.setPermissionMode(id, 'bypassPermissions');
+    expect(setPermissionMode).toHaveBeenCalledWith('bypassPermissions');
+    const verdict = await canUseTool('Bash', { command: 'ls' }, { signal: new AbortController().signal, toolUseID: 't1' });
+    expect(verdict.behavior).toBe('allow');
+  });
+
   it('setModel throws for a session it does not run', async () => {
     const runner = new Runner({ hub: new Hub(), queryFn: fakeQueryFn().fn });
     await expect(runner.setModel('nope', 'haiku')).rejects.toThrow('not active');
