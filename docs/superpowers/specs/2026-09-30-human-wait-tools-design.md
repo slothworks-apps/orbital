@@ -104,6 +104,26 @@ scope until it does.
     duration drops by the same amount, so `subagentMs` is work only.
 - A session with no recorded waits (a terminal session, or an Orbital
   session from before this change) computes exactly as today.
+- `permissionTimed` on the rollup is true for every session whose
+  `sessions.source` is not `terminal`. An Orbital session from before
+  this change counts as timed with no waits: its old prompt waits stay in
+  its tool time. Accepted — it only touches history, and telling those
+  sessions apart would need a cut-over marker nothing else uses.
+
+### Wire shape
+
+`StatsRollup` (stored and served) gains:
+
+| field | type | what |
+|---|---|---|
+| `humanWaitMs` | number | every human wait, summed |
+| `humanBreakdown` | `Record<string, ToolStat>` | `AskUserQuestion`, `ExitPlanMode` |
+| `permissionBreakdown` | `Record<string, ToolStat>` | permission waits, keyed by the prompted tool's name; `ms` and `buckets` are the wait, not the tool |
+| `permissionTimed` | boolean | see above |
+
+`TurnSegment.tools[]` entries gain `kind: 'human'` for the two tools, and
+an optional `waitMs` on any other entry: the permission wait cut out of
+it (for an `Agent` entry, the waits of the prompts its subagent raised).
 - `STATS_VERSION` goes up, so stored rollups re-index under the new
   definition. The indexer re-indexes an Orbital session when a new wait
   lands for it, the same way it does for a transcript change.
