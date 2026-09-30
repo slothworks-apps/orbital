@@ -83,16 +83,6 @@ export interface RewindHooks {
 const SLEEP_AFTER_IDLE_MINUTES = 30;
 
 /**
- * Appended to the `claude_code` preset while Settings › Experimental ›
- * "Comment for Narrate" is on (spec 2026-09-30-narrate-out-of-band-design
- * § Settings › Experimental). It asks for visible prose and nothing else, so
- * the why of a change is in the record the narrate query reads.
- */
-export const NARRATE_COMMENTARY_PROMPT =
-  'Before you change a file, say in a sentence or two what you are changing and why. ' +
-  'If you considered another way and rejected it, name it and say why in the same place.';
-
-/**
  * How many `Bash`/`Monitor` calls a session remembers for the background
  * task tracker. The tracker reads a call when the `task_started` it causes
  * arrives, right behind it on the stream, so only the newest few ever
@@ -107,6 +97,19 @@ const MAX_LAUNCHING_CALLS = 200;
  * (spec 2026-09-28-background-tasks-design § 4).
  */
 const OUTPUT_PATH_IN_RESULT = /Output is being written to: (\/.*?\.output)(?=[.\s]|$)/;
+
+/**
+ * Always the `claude_code` preset — replacing it would drop the CLI's own
+ * instructions and its CLAUDE.md loading — with the appendix as `append`
+ * when there is one. Bare (no `append` key at all) otherwise, so a
+ * database that has never seen the Instructions rows sends exactly what it
+ * sent before them.
+ */
+function systemPromptOption(append: string | null) {
+  return append
+    ? { type: 'preset', preset: 'claude_code', append }
+    : { type: 'preset', preset: 'claude_code' };
+}
 
 /** The text of a `tool_result` block's content, string or text-block array alike. */
 function toolResultText(content: unknown): string {
@@ -741,7 +744,8 @@ export class Runner {
   private subagentTranscripts?: SubagentTranscripts;
   private claudeExecutablePath?: string | null;
   private ide?: IdeApprovals;
-  private commentary?: () => boolean;
+  /** See the `appendix` dep. */
+  private appendix?: () => string | null;
   /**
    * Starts a session on behalf of a running one — the `spawn_session` tool's
    * back end (spec 2026-09-30-a-session-spawns-sessions-design). Assigned by
@@ -928,11 +932,14 @@ export class Runner {
     /** The session's stored context reading — a failed compaction's "before". */
     readContextUsed?: (sessionId: string) => number | null;
     /**
-     * The `narrate_commentary` setting, read at every start — spawn and
-     * revive alike — so it holds for a query from the moment it starts and
-     * a change counts from the next one. Unwired, off.
+     * The system-prompt appendix — Orbital's tips, the Narrate commentary
+     * and the user's own text, composed from settings by
+     * `composeAppendix` (spec 2026-09-30-session-instructions-design § 1).
+     * Read at every start — spawn and revive alike — so it holds for a
+     * query from the moment it starts and a change counts from the next
+     * one. Unwired or null, the bare preset goes out.
      */
-    commentary?: () => boolean;
+    appendix?: () => string | null;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -958,7 +965,7 @@ export class Runner {
     this.ide = deps.ide;
     this.onCompaction = deps.onCompaction;
     this.readContextUsed = deps.readContextUsed;
-    this.commentary = deps.commentary;
+    this.appendix = deps.appendix;
   }
 
   /**
@@ -1210,9 +1217,7 @@ export class Runner {
       // unless the session was launched in it. It grants nothing by itself:
       // the mode stays whatever the user picked until they pick another.
       allowDangerouslySkipPermissions: true,
-      systemPrompt: this.commentary?.()
-        ? { type: 'preset', preset: 'claude_code', append: NARRATE_COMMENTARY_PROMPT }
-        : { type: 'preset', preset: 'claude_code' },
+      systemPrompt: systemPromptOption(this.appendix?.() ?? null),
       settingSources: ['user', 'project', 'local'],
       // The subagent panel's whole feed: without this only tool_use/tool_result
       // blocks cross from a subagent to the stream, and prose/thinking never

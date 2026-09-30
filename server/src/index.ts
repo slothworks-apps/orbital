@@ -42,6 +42,7 @@ import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
 import { OutputFollower } from './files/taskOutput.js';
 import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
+import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
@@ -490,9 +491,18 @@ export async function buildServer(overrides: {
     // editor).
     ide: ideApprovals(ide),
     subagentTranscripts,
-    // Read per start, never captured: the switch holds for a session from
-    // its next spawn or revive.
-    commentary: () => settingsStore.get('narrate_commentary') === 'true',
+    // Read per start, never captured: every switch and the text hold for a
+    // session from its next spawn or revive (spec
+    // 2026-09-30-session-instructions-design § 1). Default-on rows read
+    // `!== 'false'` so an unknown key — an install from before the rows —
+    // counts as on, exactly like a fresh database.
+    appendix: () =>
+      composeAppendix({
+        tipsOn: settingsStore.get('session_instructions_tips') !== 'false',
+        commentary: settingsStore.get('narrate_commentary') === 'true',
+        customOn: settingsStore.get('session_instructions_custom') !== 'false',
+        customText: settingsStore.get('session_instructions_custom_text'),
+      }),
     onStatus: (sessionId, status) => {
       // A turn actually starting is what retires the interrupted mark — the
       // session has moved on from the turn the restart cut short. It hangs

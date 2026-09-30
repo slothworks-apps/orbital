@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hub } from '../src/api/hub.js';
 import {
   APPROVED_PLAN_MODE,
-  NARRATE_COMMENTARY_PROMPT,
   Runner,
   contextUsedFromAssistantUsage,
   contextUsedFromCompactBoundary,
@@ -3502,28 +3501,45 @@ describe('streaming output', () => {
   });
 });
 
-describe('Comment for Narrate', () => {
-  // Spec 2026-09-30-narrate-out-of-band-design § Settings › Experimental.
-  async function systemPromptOf(commentary: boolean | undefined, resume?: string) {
+describe('system prompt appendix', () => {
+  // Spec 2026-09-30-session-instructions-design § 1: the runner passes the
+  // dep's return as the preset's `append` and sends the bare preset on null.
+  async function systemPromptOf(appendix: (() => string | null) | undefined, resume?: string) {
     const seen: any[] = [];
     const { fn } = capturingQueryFn();
     const runner = new Runner({
       hub: new Hub(), newSessionId: () => 'web-1',
       queryFn: ((args: any) => { seen.push(args.options); return fn(args); }) as any,
-      ...(commentary === undefined ? {} : { commentary: () => commentary }),
+      ...(appendix === undefined ? {} : { appendix }),
     });
     await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan', resume });
     return seen[0].systemPrompt;
   }
 
-  it('appends the commentary instruction to the preset with the switch on, spawn and revive alike', async () => {
-    const on = { type: 'preset', preset: 'claude_code', append: NARRATE_COMMENTARY_PROMPT };
-    expect(await systemPromptOf(true)).toEqual(on);
-    expect(await systemPromptOf(true, 's-old')).toEqual(on);
+  it('appends the composed text to the preset, spawn and revive alike', async () => {
+    const on = { type: 'preset', preset: 'claude_code', append: 'Answer in Czech.' };
+    expect(await systemPromptOf(() => 'Answer in Czech.')).toEqual(on);
+    expect(await systemPromptOf(() => 'Answer in Czech.', 's-old')).toEqual(on);
   });
 
-  it('leaves the preset alone with the switch off or unwired', async () => {
-    expect(await systemPromptOf(false)).toEqual({ type: 'preset', preset: 'claude_code' });
+  it('leaves the preset alone on null or unwired', async () => {
+    expect(await systemPromptOf(() => null)).toEqual({ type: 'preset', preset: 'claude_code' });
     expect(await systemPromptOf(undefined, 's-old')).toEqual({ type: 'preset', preset: 'claude_code' });
+  });
+
+  it('reads the dep at every start, not once', async () => {
+    let text: string | null = null;
+    const seen: any[] = [];
+    const { fn } = capturingQueryFn();
+    const runner = new Runner({
+      hub: new Hub(), newSessionId: () => 'web-1',
+      queryFn: ((args: any) => { seen.push(args.options); return fn(args); }) as any,
+      appendix: () => text,
+    });
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan' });
+    text = 'later';
+    await runner.start({ cwd: '/w', prompt: 'hi', permissionMode: 'plan', resume: 's-old' });
+    expect(seen[0].systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' });
+    expect(seen[1].systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: 'later' });
   });
 });
