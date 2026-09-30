@@ -2,7 +2,7 @@
 id: branch-status-comes-from-git-and-gh-processes
 title: Branch status comes from spawned git and gh processes
 type: adr
-status: draft
+status: in-force
 domain: sessions
 related:
   - 2026-09-30-branch-pr-and-line-changes-design
