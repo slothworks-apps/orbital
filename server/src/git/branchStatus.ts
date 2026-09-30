@@ -185,6 +185,9 @@ export async function readLines(
   if (parent !== null) {
     for (const candidate of [parent, `origin/${parent}`]) {
       const res = await git(['merge-base', 'HEAD', candidate]);
+      // A slow repository is no answer, not a missing parent: the uncommitted
+      // count alone would be passed off as the whole change.
+      if (res.timedOut) return null;
       if (res.code === 0 && res.stdout.trim()) {
         base = res.stdout.trim();
         break;
