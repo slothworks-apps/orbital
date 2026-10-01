@@ -65,6 +65,7 @@ import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { SubagentChip } from './SubagentChip'
 import { TaskChip } from './TaskChip'
+import { HarnessChip } from './HarnessChip'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
 import { endedFootnote, formatContextWindow, formatTokens } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
@@ -273,7 +274,9 @@ export function DetailPanel({
   // allows from ever widening the panel past it (spec § 8 "Layout").
   const detailWidth = parseDetailPanelWidth(settings, windowWidth)
   // The side slot holds a subagent or a task's output; either narrows this panel the same way.
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
+  const subagentPanelOpen = useOrbital(
+    (s) => s.subagentPanel !== null || s.taskOutput !== null || s.harnessPanel !== null,
+  )
   const renderedDetailWidth = subagentPanelOpen
     ? resolvePanelPairWidths(detailWidth, SUBAGENT_PANEL_DEFAULT_PX, windowWidth).detailWidthPx
     : detailWidth
@@ -1001,6 +1004,7 @@ export function DetailPanel({
                 waiting={waiting}
                 withinRef={stateRowRef}
               />
+              <HarnessChip sessionId={session.id} />
               <span aria-hidden className="flex-1" />
               {showContext && contextNote && (
                 // 9d names the note but draws no state that carries one; it

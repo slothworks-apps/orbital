@@ -96,6 +96,9 @@ const initialSnapshot: OrbitalState = {
   subagentPanel: null,
   taskOutput: null,
   stoppingTasks: {},
+  harnesses: {},
+  harnessEvents: {},
+  harnessPanel: null,
   ui: {
     selectedId: null,
     filterTagId: 'all',

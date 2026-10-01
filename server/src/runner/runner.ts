@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, PermissionResult, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow } from '../types.js';
 import type { McpConfigSnapshot } from '../mcp/claudeJson.js';
@@ -69,6 +69,16 @@ export function rewindRefusal(text: unknown): string | null {
  * took it (`system/init` arrived — a refusal always comes before it), or it
  * refused, with the CLI's own words.
  */
+/** See `RunnerDeps.sessionTools`. */
+export interface SessionTools {
+  /** Tools for the session's `orbital` MCP server. */
+  tools: SdkMcpToolDefinition<any>[];
+  /** Server instructions shown to the model. */
+  instructions?: string;
+  /** The tools among them that need no permission card. */
+  allowedTools: string[];
+}
+
 export interface RewindHooks {
   started(): void;
   refused(message: string): void;
@@ -758,6 +768,8 @@ export class Runner {
   private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
   private onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
   private hasLiveBackgroundWork?: (sessionId: string) => boolean;
+  private sessionTools?: (sessionId: string) => SessionTools | undefined;
+  private autoAllow?: (sessionId: string, toolName: string, input: Record<string, unknown>) => boolean;
   private onTaskOutputPath?: (sessionId: string, toolUseId: string, path: string) => void;
   private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
   private onDecision?: (sessionId: string) => void;
@@ -876,6 +888,19 @@ export class Runner {
      */
     hasLiveBackgroundWork?: (sessionId: string) => boolean;
     /**
+     * Extra tools for the session's `orbital` MCP server, and the ones among
+     * them that need no permission card — the harness's checklist tools (spec
+     * 2026-09-30-session-harness-design § The agent's tools). Asked at every
+     * start, so a revive picks up a switch turned on since.
+     */
+    sessionTools?: (sessionId: string) => SessionTools | undefined;
+    /**
+     * A permission ask to allow without a card, decided per call rather than
+     * at start — the harness's local commits, while its session has one
+     * (spec 2026-09-30-harness-lucky-and-step-records-design § Commit per step).
+     */
+    autoAllow?: (sessionId: string, toolName: string, input: Record<string, unknown>) => boolean;
+    /**
      * The output path a background `Bash` or `Monitor` call's `tool_result`
      * named. The result usually lands after the `task_started` it belongs
      * to, so the tracker, which read the call at the start, learns the path
@@ -987,6 +1012,8 @@ export class Runner {
     this.onEntries = deps.onEntries;
     this.onTaskEvent = deps.onTaskEvent;
     this.hasLiveBackgroundWork = deps.hasLiveBackgroundWork;
+    this.sessionTools = deps.sessionTools;
+    this.autoAllow = deps.autoAllow;
     this.onTaskOutputPath = deps.onTaskOutputPath;
     this.onTurnBoundary = deps.onTurnBoundary;
     this.onDecision = deps.onDecision;
@@ -1291,9 +1318,15 @@ export class Runner {
     // wants and what the packaged app cannot have (spec § 2).
     if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
     // Beside the servers the CLI loads from settings, not instead of them:
-    // `strictMcpConfig` stays off.
-    if (this.spawner) {
-      options.mcpServers = { [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, this.spawner) };
+    // `strictMcpConfig` stays off. One `orbital` server holds every tool
+    // Orbital gives a session: `spawn_session`, and the harness's checklist
+    // tools while that feature is on.
+    const harnessTools = this.sessionTools?.(sessionId);
+    if (this.spawner || harnessTools) {
+      options.mcpServers = { [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, this.spawner, harnessTools) };
+    }
+    if (harnessTools) {
+      options.allowedTools = harnessTools.allowedTools;
     }
 
     const generator = this.queryFn({ prompt: input(), options });
@@ -2054,6 +2087,9 @@ export class Runner {
     // plan approvals are not permission prompts and are unaffected: the model
     // asked the human something, and no mode answers that on their behalf.
     if (kind === 'permission' && s.attempt.permissionMode === 'bypassPermissions') {
+      return Promise.resolve({ behavior: 'allow' });
+    }
+    if (kind === 'permission' && this.autoAllow?.(sessionId, toolName, input) === true) {
       return Promise.resolve({ behavior: 'allow' });
     }
     // Defensive: the model is blocked on the first ask, so a second cannot

@@ -20,6 +20,7 @@ import type {
   TitleSource,
 } from '../types.js';
 import type { Finding, PermissionOutcome, SubagentModelUsage, ToolStat } from '../stats/compute.js';
+import type { HarnessEventKind, HarnessInput, HarnessOptions, HarnessStep, StepState } from '../harness/types.js';
 
 export const sessions = sqliteTable(
   'sessions',
@@ -457,6 +458,65 @@ export const errors = sqliteTable(
     index('idx_errors_at').on(sql`${table.at} DESC`),
     check('error_source_check', sql`${table.source} IN ('server','web')`),
   ],
+);
+
+/**
+ * Harness templates: a checklist written down once for one kind of work
+ * (spec 2026-09-30-session-harness-design § Template). Steps and inputs are
+ * stored whole — the editor saves a template as one document.
+ */
+export const harnessTemplates = sqliteTable('harness_templates', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  inputs: text('inputs', { mode: 'json' }).$type<HarnessInput[]>().notNull().default([]),
+  steps: text('steps', { mode: 'json' }).$type<HarnessStep[]>().notNull().default([]),
+  /** Read through `normalizeOptions`: a field missing here is at its default. */
+  options: text('options', { mode: 'json' }).$type<Partial<HarnessOptions>>().notNull().default({}),
+  /** Epoch ms. */
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
+ * A session's harness: a snapshot of the template's steps with the inputs
+ * filled in, so editing the template never moves a session already running
+ * it. `template_id` is not a foreign key — the template may be deleted.
+ */
+export const sessionHarnesses = sqliteTable('session_harnesses', {
+  sessionId: text('session_id').primaryKey(),
+  templateId: integer('template_id'),
+  name: text('name').notNull(),
+  steps: text('steps', { mode: 'json' }).$type<HarnessStep[]>().notNull(),
+  inputs: text('inputs', { mode: 'json' }).$type<Record<string, string>>().notNull(),
+  state: text('state', { mode: 'json' }).$type<StepState[]>().notNull(),
+  options: text('options', { mode: 'json' }).$type<Partial<HarnessOptions>>().notNull().default({}),
+  paused: integer('paused').$type<0 | 1>().notNull().default(0),
+  pauseReason: text('pause_reason'),
+  autoRounds: integer('auto_rounds').notNull().default(0),
+  idleNudges: integer('idle_nudges').notNull().default(0),
+  /** Epoch ms. */
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
+ * What a harness did and why: ticks, verify failures, nudges, the watcher's
+ * verdicts, approvals. The panel's log, and the labelled data a trained
+ * continue-judge would need later (spec § What we ruled out).
+ */
+export const harnessEvents = sqliteTable(
+  'harness_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sessionId: text('session_id').notNull(),
+    /** Epoch ms. */
+    at: integer('at').notNull(),
+    kind: text('kind').$type<HarnessEventKind>().notNull(),
+    detail: text('detail', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (table) => [index('idx_harness_events_session').on(table.sessionId, table.at)],
 );
 
 /**

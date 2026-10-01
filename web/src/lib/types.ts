@@ -1258,6 +1258,129 @@ export interface SessionStatsDetail {
   turns: StatsTurnSegment[]
 }
 
+/** Harness types (spec: 2026-09-30-session-harness-design). Mirrors server/src/harness/types.ts. */
+
+export type StepMode = 'auto' | 'gate'
+
+export interface HarnessInput {
+  key: string
+  label: string
+  hint?: string
+}
+
+export interface HarnessStep {
+  id: string
+  title: string
+  instructions: string
+  mode: StepMode
+  doneWhen: string
+  verify?: string
+}
+
+export type StepStatus = 'pending' | 'active' | 'awaiting_approval' | 'done'
+
+export interface HarnessOptions {
+  commitPerStep: boolean
+  maxAutoRounds: number
+  maxIdleNudges: number
+  maxReviewerReopens: number
+  lucky: boolean
+}
+
+export const DEFAULT_HARNESS_OPTIONS: HarnessOptions = {
+  commitPerStep: true,
+  maxAutoRounds: 150,
+  maxIdleNudges: 5,
+  maxReviewerReopens: 5,
+  lucky: false,
+}
+
+export interface StepDecision {
+  what: string
+  why: string
+  alternatives?: string
+}
+
+export interface StepReview {
+  at: number
+  verdict: 'approve' | 'reopen'
+  uncertain: boolean
+  reasoning: string
+  checked: string[]
+  findings: string[]
+}
+
+export interface StepState {
+  status: StepStatus
+  summary?: string
+  decisions?: StepDecision[]
+  openQuestions?: string[]
+  /** Before step records; read-only. */
+  evidence?: string
+  startedAt?: number
+  completedAt?: number
+  startHead?: string
+  endHead?: string
+  startMessageUuid?: string
+  nudges?: number
+  approvedBy?: 'user' | 'reviewer'
+  reviews?: StepReview[]
+  reviewerReopens?: number
+}
+
+export interface HarnessTemplate {
+  id: number
+  name: string
+  description: string
+  tags: string[]
+  inputs: HarnessInput[]
+  steps: HarnessStep[]
+  options: HarnessOptions
+  createdAt: number
+  updatedAt: number
+}
+
+export interface SessionHarness {
+  sessionId: string
+  templateId: number | null
+  name: string
+  steps: HarnessStep[]
+  inputs: Record<string, string>
+  state: StepState[]
+  options: HarnessOptions
+  paused: boolean
+  pauseReason: string | null
+  autoRounds: number
+  idleNudges: number
+  createdAt: number
+  updatedAt: number
+}
+
+export type HarnessEventKind =
+  | 'attached'
+  | 'ticked'
+  | 'verify_failed'
+  | 'advanced'
+  | 'nudged'
+  | 'watcher_stop'
+  | 'approved'
+  | 'reopened'
+  | 'paused'
+  | 'resumed'
+  | 'finished'
+  | 'review_started'
+  | 'reviewed'
+  | 'review_failed'
+  | 'options'
+
+export interface HarnessEvent {
+  id: number
+  sessionId: string
+  at: number
+  kind: HarnessEventKind
+  detail: Record<string, unknown>
+}
+
 /**
  * One MCP server as the running session reports it (spec
  * 2026-10-01-mcp-servers-in-the-session-design § Runner). `status` is the

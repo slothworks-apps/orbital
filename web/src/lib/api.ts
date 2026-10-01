@@ -27,6 +27,10 @@ import type {
   StatsWindow,
   Walkthrough,
   WalkthroughSummary,
+  HarnessTemplate,
+  SessionHarness,
+  HarnessEvent,
+  HarnessOptions,
 } from './types'
 
 /**
@@ -791,6 +795,76 @@ export const api = {
       `/api/sessions/retention-preview?days=${encodeURIComponent(days)}`,
     )
   },
+
+  // Harness API
+  async listHarnessTemplates(): Promise<{ templates: HarnessTemplate[] }> {
+    return request('GET', '/api/harness/templates')
+  },
+
+  async createHarnessTemplate(body: Omit<HarnessTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<HarnessTemplate> {
+    return request('POST', '/api/harness/templates', body)
+  },
+
+  async updateHarnessTemplate(
+    id: number,
+    body: Partial<Omit<HarnessTemplate, 'id' | 'createdAt' | 'updatedAt'>>,
+  ): Promise<HarnessTemplate> {
+    return request('PUT', `/api/harness/templates/${id}`, body)
+  },
+
+  async deleteHarnessTemplate(id: number): Promise<void> {
+    return request('DELETE', `/api/harness/templates/${id}`)
+  },
+
+  /** A model's draft of a template, not saved (spec 2026-09-30-assisted-harness-templates-design). */
+  async draftHarnessTemplate(body: { description?: string; sessionId?: string }): Promise<{
+    template: Omit<HarnessTemplate, 'id' | 'createdAt' | 'updatedAt'>
+  }> {
+    return request('POST', '/api/harness/templates/draft', body)
+  },
+
+  async getHarnessInterviewPrompt(): Promise<{ prompt: string }> {
+    return request('GET', '/api/harness/interview')
+  },
+
+  async getSessionHarness(sessionId: string): Promise<{
+    harness: SessionHarness | null
+    events: HarnessEvent[]
+  }> {
+    return request('GET', `/api/sessions/${sessionId}/harness`)
+  },
+
+  async attachHarness(
+    sessionId: string,
+    templateId: number,
+    inputs: Record<string, string>,
+  ): Promise<{ harness: SessionHarness }> {
+    return request('POST', `/api/sessions/${sessionId}/harness`, { templateId, inputs })
+  },
+
+  async removeHarness(sessionId: string): Promise<void> {
+    return request('DELETE', `/api/sessions/${sessionId}/harness`)
+  },
+
+  async setHarnessPaused(sessionId: string, paused: boolean): Promise<{ harness: SessionHarness }> {
+    return request('PATCH', `/api/sessions/${sessionId}/harness`, { paused })
+  },
+
+  async setHarnessOptions(sessionId: string, options: Partial<HarnessOptions>): Promise<{ harness: SessionHarness }> {
+    return request('PATCH', `/api/sessions/${sessionId}/harness`, { options })
+  },
+
+  async getHarnessStepDiff(sessionId: string, index: number): Promise<{ range: string; stat: string; patch: string }> {
+    return request('GET', `/api/sessions/${sessionId}/harness/steps/${index}/diff`)
+  },
+
+  async approveHarnessStep(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
+    return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/approve`)
+  },
+
+  async reopenHarnessStep(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
+    return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/reopen`)
+  },
 }
 
 export type ServerHealth = {
@@ -842,4 +916,12 @@ export type {
   StatsTotals,
   StatsTurnSegment,
   StatsWindow,
+  HarnessTemplate,
+  HarnessStep,
+  HarnessInput,
+  SessionHarness,
+  HarnessEvent,
+  StepStatus,
+  StepState,
+  StepMode,
 } from './types'

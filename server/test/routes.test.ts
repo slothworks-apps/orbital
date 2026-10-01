@@ -46,6 +46,17 @@ import { SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions
  */
 const noNarrateQuery: NarrateQueryFn = () => { throw new Error('no narrate query in this test'); };
 
+import { HarnessService } from '../src/harness/service.js';
+
+/** A harness that is switched off and sends nowhere — enough for routes that do not use it. */
+function stubHarness(db: OrbitalDb) {
+  return new HarnessService({
+    db, isEnabled: () => false, cwdOf: () => undefined, decisionPending: () => false,
+    backgroundWork: () => false, isWaiting: () => false, send: () => null,
+    askWatcher: async () => 'STOP', askDrafter: async () => '', askReviewer: async () => '', publish: () => {},
+  });
+}
+
 /**
  * The retitle route's one dependency. No test in this file asks it to name
  * anything — `autoTitleEndToEnd.test.ts` drives it against a real titler with
@@ -176,6 +187,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     onFinish: (id) => hub.publish(`session:${id}`, { event: 'walkthrough_narration' }),
   });
   registerRoutes(app, {
+    harness: stubHarness(db),
     db, registry: registry as any, runner: runner as any, projectsDir: opts.projectsDir ?? '/nonexistent', hub,
     images: imageStore, imagesDir, claudeDir,
     models: modelCatalog as any,
@@ -1171,6 +1183,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     });
     const app = Fastify();
     registerRoutes(app, {
+      harness: stubHarness(db),
       db,
       registry: { get: () => undefined, all: () => [] } as any,
       runner,

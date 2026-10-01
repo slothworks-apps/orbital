@@ -96,6 +96,9 @@ export function useSceneModel(): SceneModel {
           subagentPanel: null,
           taskOutput: null,
           stoppingTasks: {},
+          harnesses: {},
+          harnessEvents: {},
+          harnessPanel: null,
           ui: {
             selectedId,
             filterTagId,

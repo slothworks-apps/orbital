@@ -48,6 +48,8 @@ import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
 import type { ImageStore } from '../images/store.js';
 import type { SessionTitler } from '../titler/titler.js';
+import type { HarnessService } from '../harness/service.js';
+import { registerHarnessRoutes } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import type { McpConfig } from '../mcp/config.js';
@@ -97,6 +99,8 @@ export interface RouteContext {
   titler: SessionTitler;
   /** The walkthrough's narrate queries and their stored rows (spec 2026-09-30-narrate-out-of-band-design). */
   narrator: Narrator;
+  /** Harness templates and session checklists (spec 2026-09-30-session-harness-design). */
+  harness: HarnessService;
   settings: { get(key: string): string; set(key: string, value: string): void };
   /** MCP config through `claude mcp`, and the read of `~/.claude.json` the edit form needs
    * (spec 2026-10-01-mcp-servers-in-the-session-design § Config). */
@@ -1902,4 +1906,5 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   registerStatsRoutes(app, ctx);
   registerMcpRoutes(app, ctx);
+  registerHarnessRoutes(app, ctx, deliverToSession, readTranscriptMessages);
 }

@@ -40,11 +40,13 @@ import {
   NARRATE_COMMENTARY_KEY,
   NARRATE_MODEL_KEY,
   WALKTHROUGH_ENABLED_KEY,
+  HARNESS_ENABLED_KEY,
   experimentalUnlocked,
   isRevealChord,
   narrateCommentary,
   narrateModel,
   walkthroughEnabled,
+  harnessEnabled,
 } from '../lib/experimental'
 import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
@@ -75,6 +77,7 @@ import { LineGroups } from './BranchSuffixes'
 import type { MapStatePills } from '../lib/stateStyle'
 import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
+import { HarnessTemplatesSection } from './HarnessTemplates'
 // The desktop version names the DMG, and the DMG ships this frontend.
 import { version as orbitalVersion } from '../../../desktop/package.json'
 
@@ -153,6 +156,7 @@ const NAV_ITEMS = [
   { key: 'notifications', label: 'Notifications', disabled: false },
   { key: 'permissions', label: 'Permissions', disabled: false },
   { key: 'tags', label: 'Tags & rules', disabled: false },
+  { key: 'harness', label: 'Harness templates', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
   { key: 'shortcuts', label: 'Shortcuts', disabled: false },
   // Listed only once the reveal chord has unlocked it (`lib/experimental`).
@@ -179,9 +183,13 @@ export function initialSection(settings: Record<string, string | undefined>): Se
   return match && !match.disabled ? match.key : NAV_ITEMS[0].key
 }
 
-/** The nav as drawn: Experimental stays out of it until it is unlocked. */
+/** The nav as drawn: Experimental stays out until unlocked, Harness until enabled. */
 function visibleNavItems(settings: Record<string, string | undefined>) {
-  return NAV_ITEMS.filter((item) => item.key !== 'experimental' || experimentalUnlocked(settings))
+  return NAV_ITEMS.filter(
+    (item) =>
+      (item.key !== 'experimental' || experimentalUnlocked(settings)) &&
+      (item.key !== 'harness' || harnessEnabled(settings))
+  )
 }
 
 /** Debounce for the free-text fields — the rest of this panel's controls
@@ -950,6 +958,8 @@ export function Settings({ open, onClose }: SettingsProps) {
               is ever mounted, so their order here is not the nav's. */}
               {section === 'tags' ? (
                 <TagsRulesSection active onSaved={() => setSaved(true)} />
+              ) : section === 'harness' ? (
+                <HarnessTemplatesSection active onSaved={() => setSaved(true)} />
               ) : section === 'shortcuts' ? (
                 <ShortcutsSection />
               ) : (
@@ -1270,6 +1280,18 @@ export function Settings({ open, onClose }: SettingsProps) {
                           checked={narrateCommentary(settings)}
                           onChange={(checked) =>
                             void patchAndSet({ [NARRATE_COMMENTARY_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      <Row
+                        title="Harness"
+                        desc="Automated checklists that guide a session through a multi-step task. The session runs steps automatically until it needs your approval or answer."
+                      >
+                        <Toggle
+                          aria-label="Harness"
+                          checked={harnessEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [HARNESS_ENABLED_KEY]: checked ? 'true' : 'false' })
                           }
                         />
                       </Row>

@@ -15,6 +15,7 @@ export const NARRATE_MODEL_KEY = 'narrate_model'
 export const NARRATE_COMMENTARY_KEY = 'narrate_commentary'
 /** What the server asks when `NARRATE_MODEL_KEY` is unset — mirrors `DEFAULT_NARRATE_MODEL` there. */
 export const DEFAULT_NARRATE_MODEL = 'sonnet'
+export const HARNESS_ENABLED_KEY = 'harness_enabled'
 
 type Settings = Record<string, string | undefined>
 
@@ -32,6 +33,10 @@ export function narrateModel(settings: Settings): string {
 
 export function narrateCommentary(settings: Settings): boolean {
   return settings[NARRATE_COMMENTARY_KEY] === 'true'
+}
+
+export function harnessEnabled(settings: Settings): boolean {
+  return settings[HARNESS_ENABLED_KEY] === 'true'
 }
 
 /**

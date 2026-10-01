@@ -24,6 +24,8 @@ import type {
   PermissionMode,
   SessionSource,
   SessionStatus,
+  SessionHarness,
+  HarnessEvent,
   Subagent,
   Tag,
   TagRule,
@@ -93,6 +95,8 @@ export type SessionEvent =
    * 2026-09-29-rewind-design § Behaviour 8). Handled by the rewind UI step.
    */
   | { event: 'rewind_refused'; message: string; hiddenCount: number | null }
+  /** The session's harness changed (added, updated, or removed). */
+  | { event: 'harness'; harness: SessionHarness | null }
 
 /**
  * Events delivered on the `subagent:<sessionId>:<toolUseId>` topic — one
@@ -395,6 +399,18 @@ export interface OrbitalState {
    * says the task ended (spec § 3), and shows the stop as pending meanwhile.
    */
   stoppingTasks: Record<string, true>
+  /**
+   * Each session's harness if it has one running, keyed by session id.
+   * null means no harness, undefined means not yet fetched.
+   */
+  harnesses: Record<string, SessionHarness | null | undefined>
+  /** Each session's harness log, newest first, as last fetched. */
+  harnessEvents: Record<string, HarnessEvent[]>
+  /**
+   * The Harness panel in the side slot, which it shares with the subagent
+   * panel and the task output view (spec 2026-09-30-session-harness-design § UI).
+   */
+  harnessPanel: { sessionId: string } | null
 }
 
 /**
@@ -553,6 +569,10 @@ export interface OrbitalActions {
   openTaskOutput(sessionId: string, taskId: string): Promise<void>
   /** Releases the output subscription and clears the view. Safe when nothing is open. */
   closeTaskOutput(): void
+  /** Reads a session's harness and its log into `harnesses` / `harnessEvents`. */
+  loadHarness(sessionId: string): Promise<void>
+  openHarness(sessionId: string): void
+  closeHarness(): void
   /** Applies one event off the open view's `task-output:` topic. */
   applyTaskOutputEvent(sessionId: string, taskId: string, msg: TaskOutputEvent): void
   /** Stops a background task or a subagent by its task id. */
@@ -915,6 +935,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   subagentPanel: null,
   taskOutput: null,
   stoppingTasks: {},
+  harnesses: {},
+  harnessEvents: {},
+  harnessPanel: null,
 
   async loadInitial() {
     const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] =
@@ -1333,6 +1356,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         // what it needs is a moment to be compared against, not a reset.
         lastTurnResultAt: { ...state.lastTurnResultAt, [sessionId]: Date.now() },
       })
+      return
+    }
+
+    if (msg.event === 'harness') {
+      set({ harnesses: { ...state.harnesses, [sessionId]: msg.harness } })
+      // The log only rides the REST read; an open panel reads it again.
+      if (state.harnessPanel?.sessionId === sessionId) void get().loadHarness(sessionId)
+      return
     }
   },
 
@@ -2002,6 +2033,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   async openSubagent(sessionId, subagent) {
     // One slot: an open task output view gives way.
     get().closeTaskOutput()
+    get().closeHarness()
     // Release first, not last: the old subscription must be gone before the
     // new one is even requested, or the two topics could both be live for a
     // beat and the outgoing agent's messages would land in the incoming
@@ -2203,6 +2235,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   async openTaskOutput(sessionId, taskId) {
     // One slot: the subagent panel and this view take turns in it.
     get().closeSubagent()
+    get().closeHarness()
     releaseTaskOutputSubscription()
     if (get().ui.selectedId !== sessionId) void get().select(sessionId)
 
@@ -2238,6 +2271,31 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   closeTaskOutput() {
     releaseTaskOutputSubscription()
     if (get().taskOutput) set({ taskOutput: null })
+  },
+
+  async loadHarness(sessionId) {
+    try {
+      const { harness, events } = await api.getSessionHarness(sessionId)
+      set((state) => ({
+        harnesses: { ...state.harnesses, [sessionId]: harness },
+        harnessEvents: { ...state.harnessEvents, [sessionId]: events },
+      }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load the harness'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
+
+  openHarness(sessionId) {
+    get().closeSubagent()
+    get().closeTaskOutput()
+    if (get().ui.selectedId !== sessionId) void get().select(sessionId)
+    set({ harnessPanel: { sessionId } })
+    void get().loadHarness(sessionId)
+  },
+
+  closeHarness() {
+    if (get().harnessPanel) set({ harnessPanel: null })
   },
 
   applyTaskOutputEvent(sessionId, taskId, msg) {
@@ -2304,6 +2362,8 @@ useOrbital.subscribe((state, prevState) => {
   if (panel && panel.sessionId !== state.ui.selectedId) useOrbital.getState().closeSubagent()
   const output = state.taskOutput
   if (output && output.sessionId !== state.ui.selectedId) useOrbital.getState().closeTaskOutput()
+  const harness = state.harnessPanel
+  if (harness && harness.sessionId !== state.ui.selectedId) useOrbital.getState().closeHarness()
   const left = prevState.ui.selectedId
   if (left) dropTranscript(left)
 })
@@ -2383,6 +2443,7 @@ function sessionsEventPatch(
       const store = useOrbital.getState()
       if (store.subagentPanel?.sessionId === msg.sessionId) store.closeSubagent()
       if (store.taskOutput?.sessionId === msg.sessionId) store.closeTaskOutput()
+      if (store.harnessPanel?.sessionId === msg.sessionId) store.closeHarness()
     })
     return {
       sessions,

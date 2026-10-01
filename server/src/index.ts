@@ -43,6 +43,11 @@ import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
 import { OutputFollower } from './files/taskOutput.js';
 import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
+import { HarnessService } from './harness/service.js';
+import { askWatcher } from './harness/watcher.js';
+import { askOnce } from './harness/ask.js';
+import { DRAFT_SYSTEM_PROMPT } from './harness/drafter.js';
+import { askReviewer } from './harness/reviewer.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog } from './models/catalog.js';
@@ -402,6 +407,40 @@ export async function buildServer(overrides: {
       }),
   });
 
+  // Templates and the checklists sessions follow (spec
+  // 2026-09-30-session-harness-design). `runner` is declared below; every
+  // use of it here runs after it exists.
+  const harness: HarnessService = new HarnessService({
+    db,
+    isEnabled: () => settingsStore.get('harness_enabled') === 'true',
+    cwdOf: (sessionId) =>
+      db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, sessionId)).get()?.cwd,
+    decisionPending: (sessionId): boolean => runner.pendingDecision(sessionId) !== null,
+    backgroundWork: (sessionId) =>
+      subagents.running(sessionId).length > 0 || backgroundTasks.running(sessionId).length > 0,
+    isWaiting: (sessionId): boolean => runner.status(sessionId) === 'needs_input',
+    send: (sessionId, text): string | null => runner.send(sessionId, text),
+    askWatcher: (prompt) =>
+      askWatcher(overrides.titleQueryFn ?? query, prompt, { claudeExecutablePath: claudeCli.path }),
+    askReviewer: (prompt, cwd) =>
+      askReviewer(overrides.titleQueryFn ?? query, prompt, { cwd, claudeExecutablePath: claudeCli.path }),
+    // Sonnet: a template is used for a long time, its quality is worth the call.
+    askDrafter: (prompt) =>
+      askOnce(overrides.titleQueryFn ?? query, prompt, {
+        systemPrompt: DRAFT_SYSTEM_PROMPT, model: 'sonnet', claudeExecutablePath: claudeCli.path,
+      }),
+    publish: (sessionId, h) => hub.publish(`session:${sessionId}`, { event: 'harness', harness: h }),
+    onError: (sessionId, err, during) =>
+      errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: during },
+      }),
+  });
+
   // The walkthrough's narration, written by a one-shot query outside the
   // session and kept in SQLite (spec 2026-09-30-narrate-out-of-band-design).
   // Loading fails whatever the previous server left running.
@@ -473,6 +512,7 @@ export async function buildServer(overrides: {
     // is declared below, like `runner` in `publishCtx`.
     liveStats.end(sessionId);
     titler.forget(sessionId);
+    harness.forget(sessionId);
     // Both topics: the selected session's panel listens on `session:<id>`,
     // the map on `sessions`.
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as
@@ -590,6 +630,10 @@ export async function buildServer(overrides: {
     // background tasks still running is working, not waiting for the human
     // (fix: `a-turn-that-launched-an-agent-reads-as-needs-input`; spec
     // 2026-09-28-background-tasks-design § 2 "Working while a task runs").
+    // The harness's checklist tools, for as long as the feature is on.
+    sessionTools: (sessionId) => harness.tools(sessionId),
+    // The step commits the harness asks for, while commit-per-step is on.
+    autoAllow: (sessionId, toolName, input) => harness.allowsWithoutAsking(sessionId, toolName, input),
     hasLiveBackgroundWork: (sessionId) =>
       subagents.running(sessionId).length > 0 || backgroundTasks.running(sessionId).length > 0,
     // A launch's tool_result named the output file after its task started:
@@ -607,6 +651,7 @@ export async function buildServer(overrides: {
     // moves the status at all.
     onTurnBoundary: (sessionId, ended) => {
       if (ended) void titler.considerTurnEnd(sessionId);
+      if (ended) harness.onTurnEnd(sessionId);
       // A turn the CLI started by itself is a next turn too, and it moves no
       // status for `onStatus` above to see.
       else clearCompactionFailure(sessionId);
@@ -631,7 +676,9 @@ export async function buildServer(overrides: {
     // What the session said, for the titler, in the shape the transcript
     // already converts to.
     onEntries: (sessionId, entries) => {
-      titler.feed(sessionId, entriesToMessages(entries));
+      const messages = entriesToMessages(entries);
+      titler.feed(sessionId, messages);
+      harness.feed(sessionId, messages);
     },
     // A session that dies on its own used to say nothing at all: `pump()`
     // logged to the server's terminal and `finish()` greyed the planet out,
@@ -993,7 +1040,7 @@ export async function buildServer(overrides: {
   }));
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, errors,
-    images, imagesDir, titler, narrator, git, ide, branchStatus,
+    images, imagesDir, titler, narrator, git, ide, branchStatus, harness,
     settings: settingsStore,
     mcp: mcpConfig,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
