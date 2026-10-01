@@ -118,6 +118,12 @@ for `section === 'mobile'` the way Harness templates and Shortcuts are.
   server resolved). Debounced like the other text fields
   (`DEBOUNCE_MS`). Saving an empty string means "use the network name".
   The caption says it is set here only and the phone cannot rename it.
+  A name change does **not** restart the remote (amended 2026-10-01 in
+  review): the server reads the name fresh when it makes a pairing code
+  and publishes a status so the section's sentence updates, and nothing
+  else depends on it — restarting would drop every phone session and
+  clear an open code at every pause in typing. Only `remote_enabled` and
+  `remote_relay_url` restart it.
 - **Status line** (9q), only while the switch is on, one mono line with a
   7 px dot that never blinks. Derived by a pure function from the status:
   - `relay === 'connecting'` and `relayAttempts < 2` → dim dot,
@@ -152,7 +158,14 @@ rendered with `qrcode-generator` (no dependencies, synchronous SVG). The
 QR text is the server's `QrPayload` JSON; the web never parses it. A 409
 `offline` or `disabled` answer means the status changed under the user;
 the section re-renders from the next status and shows nothing special.
-Any other failure goes through `reportError`.
+A 409 `relay_error` (the relay refused the token) leaves the relay
+`online`, so no status will redraw anything: it is reported like any
+other failure. Any other failure goes through `reportError`.
+
+**PAIRED PHONES while off.** The phones stay paired while the remote is
+off, so the list is shown while off when it has rows (Remove still
+works); the empty state "No phones yet" with its hint to scan the code
+appears only while on — 9m has no list.
 
 **PAIRED PHONES.** Header "PAIRED PHONES · N" with the caption
 "NOTIFICATIONS ARE SET ON EACH PHONE". One row per device: name,
