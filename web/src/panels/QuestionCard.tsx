@@ -8,6 +8,7 @@ import {
   chosenOptions,
   confirmLabel,
   joinSelection,
+  selectionCount,
   moveFocus,
   notTakenLine,
   optionIndexForDigit,
@@ -637,7 +638,12 @@ function LiveBody({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
-                  if (otherText.trim()) onAnswer(otherText)
+                  if (!otherText.trim()) return
+                  // In a multiSelect the text joins the ticked options
+                  // instead of replacing them.
+                  onAnswer(
+                    question.multiSelect ? joinSelection(selected, otherText) : otherText,
+                  )
                 }
               }}
               // Grows with what is written, then scrolls: a long answer
@@ -712,16 +718,16 @@ function LiveBody({
         // real answer — the button never disables.
         <div className="mt-[11px] flex items-center gap-2.5">
           <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">
-            {selected.length} selected
+            {selectionCount(selected, otherText)} selected
           </span>
           <span aria-hidden className="flex-1" />
           <button
             type="button"
-            onClick={() => onAnswer(joinSelection(selected))}
+            onClick={() => onAnswer(joinSelection(selected, otherText))}
             // 9d METRICS: "confirm button — 6px 14px · r8 · 12px 600".
             className="shrink-0 cursor-pointer rounded-[8px] border border-accent/50 bg-accent/16 px-3.5 py-1.5 text-[12px] font-semibold text-[#e8eef8] transition-[border-color,background-color] duration-[160ms] ease-[ease] hover:border-accent/80 hover:bg-accent/26"
           >
-            {confirmLabel(selected.length)}
+            {confirmLabel(selectionCount(selected, otherText))}
           </button>
         </div>
       )}

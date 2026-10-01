@@ -40,12 +40,22 @@ export function chipLabel(header: string): string {
 }
 
 /**
- * The answer string for a multiSelect question. An empty selection is
- * `NONE_ANSWER`, never an empty string — the model has to be able to tell
- * "none of these" apart from a blank.
+ * The answer string for a multiSelect question: the ticked labels, then the
+ * Other… text when there is any. Other… adds to the selection rather than
+ * replacing it — someone who ticks two options and writes a third expects
+ * all three to arrive. An empty selection is `NONE_ANSWER`, never an empty
+ * string — the model has to be able to tell "none of these" apart from a
+ * blank.
  */
-export function joinSelection(labels: readonly string[]): string {
-  return labels.length === 0 ? NONE_ANSWER : labels.join(MULTI_SELECT_JOIN)
+export function joinSelection(labels: readonly string[], otherText = ''): string {
+  const other = otherText.trim()
+  const parts = other ? [...labels, other] : labels
+  return parts.length === 0 ? NONE_ANSWER : parts.join(MULTI_SELECT_JOIN)
+}
+
+/** How many items a multiSelect confirm sends — the Other… text counts as one. */
+export function selectionCount(labels: readonly string[], otherText = ''): number {
+  return labels.length + (otherText.trim() ? 1 : 0)
 }
 
 /** Ticks/unticks one label, preserving the options' own order. */

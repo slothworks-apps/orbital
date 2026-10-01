@@ -60,6 +60,15 @@ describe('joinSelection', () => {
   it('leaves a single ticked label alone', () => {
     expect(joinSelection(['Typecheck'])).toBe('Typecheck')
   })
+
+  it('appends the Other… text to the ticked labels instead of dropping them', () => {
+    expect(joinSelection(['Typecheck', 'Unit tests'], '  e2e too ')).toBe(
+      'Typecheck, Unit tests, e2e too',
+    )
+    expect(joinSelection([], 'only this')).toBe('only this')
+    expect(joinSelection(['Typecheck'], '   ')).toBe('Typecheck')
+    expect(joinSelection([], '  ')).toBe(NONE_ANSWER)
+  })
 })
 
 describe('toggleSelection', () => {
