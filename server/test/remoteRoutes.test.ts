@@ -68,6 +68,18 @@ describe('/api/remote', () => {
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json()).toMatchObject({ relay: 'connecting', error: null });
     await app.close();
   });
+  it('restart tries again with the same settings and answers the new status', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const app = await server(true, 'foo');
+    warn.mockClear();
+    const res = await app.inject({ method: 'POST', url: '/api/remote/restart' });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[remote] could not start'));
+    warn.mockRestore();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ enabled: true, relay: 'off' });
+    expect(res.json().error).toEqual(expect.any(String));
+    await app.close();
+  });
   it('confirm needs the phone the user verified', async () => {
     const app = await server(false);
     const noPhone = await app.inject({ method: 'POST', url: '/api/remote/pair/confirm', payload: { accept: true } });

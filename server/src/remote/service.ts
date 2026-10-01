@@ -25,6 +25,8 @@ import { wakeSecret, wakeToken } from './wake.js';
 export type RemoteStatus = {
   enabled: boolean;
   relay: 'off' | 'connecting' | 'online';
+  /** The relay client's consecutive failed connection attempts; 0 with no client. */
+  relayAttempts: number;
   relayUrl: string;
   macId: string | null;
   macName: string;
@@ -142,6 +144,7 @@ export class RemoteService {
     return {
       enabled: this.enabled,
       relay: this.client?.status ?? 'off',
+      relayAttempts: this.client?.attempts ?? 0,
       relayUrl: this.relayUrl,
       macId: this.identity ? deviceId(this.identity.publicKey) : null,
       macName: this.macName,
