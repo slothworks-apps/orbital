@@ -78,6 +78,7 @@ import type { MapStatePills } from '../lib/stateStyle'
 import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
+import { MobileSection } from './MobileSection'
 // The desktop version names the DMG, and the DMG ships this frontend.
 import { version as orbitalVersion } from '../../../desktop/package.json'
 
@@ -158,6 +159,9 @@ const NAV_ITEMS = [
   { key: 'tags', label: 'Tags & rules', disabled: false },
   { key: 'harness', label: 'Harness templates', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
+  // Always listed, not behind Experimental: the section is inert until its
+  // switch is on (spec 2026-10-01-settings-mobile-design).
+  { key: 'mobile', label: 'Mobile', disabled: false },
   { key: 'shortcuts', label: 'Shortcuts', disabled: false },
   // Listed only once the reveal chord has unlocked it (`lib/experimental`).
   { key: 'experimental', label: 'Experimental', disabled: false },
@@ -195,14 +199,14 @@ function visibleNavItems(settings: Record<string, string | undefined>) {
 /** Debounce for the free-text fields — the rest of this panel's controls
  * (cards, segmented steps, toggles, selects) are discrete clicks and PATCH
  * immediately. */
-const DEBOUNCE_MS = 400
+export const DEBOUNCE_MS = 400
 
 /** Nav row geometry from canvas 1h: 9px/12px padding, 8px radius, 13px. */
 const NAV_ROW = 'flex items-center gap-2.5 rounded-lg border px-3 py-[9px] text-left text-[13px]'
 
 /** Mono section kicker inside the settings content column (canvas 1h):
  * 8px/4px above the first group, 14px/4px above every later one. */
-function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }) {
+export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }) {
   return (
     <div
       className={`pb-1 font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)] ${first ? 'pt-2' : 'pt-3.5'}`}
@@ -214,7 +218,7 @@ function SectionLabel({ children, first = false }: { children: ReactNode; first?
 
 /** One settings row per canvas 1h: label + description left, 320px control
  * column right, 13px vertical padding over a hairline top rule. */
-function Row({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
+export function Row({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[1fr_320px] items-start gap-6 border-t border-[rgba(150,205,255,.08)] py-[13px]">
       <div>
@@ -960,6 +964,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                 <TagsRulesSection active onSaved={() => setSaved(true)} />
               ) : section === 'harness' ? (
                 <HarnessTemplatesSection active onSaved={() => setSaved(true)} />
+              ) : section === 'mobile' ? (
+                <MobileSection patchAndSet={patchAndSet} onSaved={() => setSaved(true)} />
               ) : section === 'shortcuts' ? (
                 <ShortcutsSection />
               ) : (
