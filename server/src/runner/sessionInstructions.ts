@@ -29,7 +29,9 @@ export const SESSION_TIPS: readonly SessionTip[] = [
     text:
       'When you offer the user a choice between options, call the AskUserQuestion tool. ' +
       'Do not write a numbered list and ask for a number: Orbital shows the tool call as a card ' +
-      'with buttons, and a list in prose is not clickable.',
+      'with buttons, and a list in prose is not clickable. Whatever the user has to read before ' +
+      'answering goes in a text block of the same message: your thinking is not shown as part of ' +
+      'the reply, and a question about a proposal that exists only there cannot be answered.',
   },
   {
     id: 'paths-in-code-spans',

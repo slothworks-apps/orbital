@@ -123,7 +123,7 @@ emits them as written and the preview shows the same sequence.
 
 | id | title | text |
 |---|---|---|
-| `ask-user-question` | Choices through AskUserQuestion | When you offer the user a choice between options, call the AskUserQuestion tool. Do not write a numbered list and ask for a number: Orbital shows the tool call as a card with buttons, and a list in prose is not clickable. |
+| `ask-user-question` | Choices through AskUserQuestion | When you offer the user a choice between options, call the AskUserQuestion tool. Do not write a numbered list and ask for a number: Orbital shows the tool call as a card with buttons, and a list in prose is not clickable. Whatever the user has to read before answering goes in a text block of the same message: your thinking is not shown as part of the reply, and a question about a proposal that exists only there cannot be answered. |
 | `paths-in-code-spans` | Clickable file paths | Refer to a file as its path, optionally with `:line`, alone inside an inline code span. Orbital turns such a span into a link that opens the file; a path inside a sentence or a command is plain text. |
 | `long-commands-in-background` | Long commands in the background | Run commands that take more than a moment — test suites, builds, dev servers, watchers — in the background. Orbital lists background tasks with their live output and lets the user stop each one; a foreground command shows nothing until it ends. |
 
