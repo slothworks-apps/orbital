@@ -56,16 +56,25 @@ One row per server the running session reports:
   string from a newer CLI is shown as text);
 - the error message, when failed;
 - origin — the SDK's `source`, falling back to `scope` on a CLI that
-  predates `source` (user, local, project, plugin, claudeai, managed …);
+  predates `source` (user, local, project, plugin, claudeai, managed …).
+  Orbital's own server reads `built-in`. A plugin's server reads
+  `plugin · <plugin>`, the plugin taken from a `plugin:<plugin>:<server>`
+  name, and the row shows `<server>` as its name;
 - tool count, when connected.
+
+Status is neutral; only `failed` takes the error-log red. A server that
+is off dims its name.
 
 Per-row actions:
 
 - **Reconnect** — on a `failed` server.
 - **On/off** — on every server except Orbital's own
-  (`ORBITAL_MCP_SERVER`). The control says before use that the change
-  holds for the whole project, terminal sessions included, until switched
-  back (adr `the-mcp-toggle-is-project-wide`).
+  (`ORBITAL_MCP_SERVER`). A strip above the list, in every state that
+  shows switches, says that the change holds for the whole project,
+  terminal sessions included, until switched back (adr
+  `the-mcp-toggle-is-project-wide`). The switch acts on the running
+  session at once — no restart; a server switched on shows as starting
+  until it connects.
 - **Edit** and **Remove** — only on servers whose origin is `user` or
   `local`, the two scopes Orbital writes (below). A `project` server
   (`.mcp.json`), a plugin's, a claude.ai connector or a managed one is
@@ -73,29 +82,57 @@ Per-row actions:
 - `needs-auth` — a note that the server needs a login; Orbital cannot do
   it yet (idea `mcp-login-from-orbital`).
 
+A row with an action in flight is locked and says what is happening
+(switching off…, reconnecting…, removing…).
+
 The list loads when the dialog opens and is replaced by every action's
-response. While any row is `pending` it is fetched again on a short
-interval, only while the dialog is open.
+response. While any row is `pending` it is fetched again every
+`MCP_REFRESH_MS` (canvas: 2 s), only while the dialog is open. A list
+that cannot be read — the session does not answer within
+`MCP_STATUS_TIMEOUT_MS` (canvas: 10 s), or the request fails — shows the
+error and a Retry, nothing else.
 
 ### Add and edit
 
 A form with:
 
-- **name** — required; the CLI's own validation is the authority, its
-  error is shown as is;
+- **name** — required, no whitespace;
 - **scope** — `local` (this project, only me; the default) or `user`
   (all my projects). `project` is not offered (adr
   `mcp-config-is-written-by-the-cli-in-private-scopes`);
 - **transport** — `stdio`, `http` or `sse`;
-- for `stdio`: command, arguments, environment variables (key/value);
-- for `http` / `sse`: URL, headers (key/value).
+- for `stdio`: command (required), arguments as one line, environment
+  variables (key/value rows);
+- for `http` / `sse`: URL (must start with `http://` or `https://`),
+  headers (key/value rows).
+
+The arguments line is split into words by shell rules — whitespace
+separates, single and double quotes group, a backslash escapes — and
+nothing is expanded (no variables, no globs). An unterminated quote is a
+field error. Edit joins the stored list back into one line, quoting a
+word that needs it, so that splitting it again gives the same list.
+
+The checks above run in the form, before anything is sent; the CLI's own
+validation still has the last word. A CLI refusal keeps the form filled
+and shows a block "CLI refused · nothing was saved" with the command
+Orbital ran — every env and header value replaced by `***` — and the
+CLI's own output.
+
+Env and header values are masked; one row at a time can be revealed. Esc
+or "← Servers" on a form with unsaved changes asks before throwing them
+away.
 
 Edit opens the same form filled with the server's current definition.
 Renaming is remove-then-add under the new name. Moving between `local`
 and `user` is the same.
 
-Remove asks for confirmation; the server's definition, env vars and
-headers go with it.
+Remove asks once, inline, naming the server and the config it leaves;
+the server's definition, env vars and headers go with it.
+
+When a change does not reach the running session on its own (Verify
+first, 2), a banner above the footer says it applies after the session
+restarts, the transcript kept, with a Restart button. A toggle never
+raises it.
 
 ## Server
 
@@ -113,8 +150,10 @@ New Runner methods, each throwing `session … is not active` for a session
 it does not run, like `setModel`:
 
 - `mcpServers(sessionId)` — `mcpServerStatus()`, or the init snapshot
-  when the CLI does not answer. Returns `McpServerRow[]`, never the SDK's
-  raw object.
+  when the generator lacks the method. A call that throws, or does not
+  answer within `MCP_STATUS_TIMEOUT_MS`, is an error (the route's 502 /
+  504) — the snapshot is not a stand-in for a session that stopped
+  answering. Returns `McpServerRow[]`, never the SDK's raw object.
 - `reconnectMcpServer(sessionId, name)`,
   `toggleMcpServer(sessionId, name, enabled)` — pass through. A method the
   generator lacks is an error, not a silent no-op. Toggling
@@ -126,10 +165,11 @@ The CLI pushes no status change, so the list is pulled.
 
 ```ts
 type McpServerRow = {
-  name: string;
+  name: string;          // the SDK's name, the key every action uses
   status: string;        // the SDK's status, passed through
   error?: string;
   origin?: string;       // source ?? scope
+  plugin?: string;       // from a plugin:<plugin>:<server> name
   toolCount?: number;
   toggleable: boolean;   // false for ORBITAL_MCP_SERVER
   editable: boolean;     // origin is 'user' or 'local'
@@ -149,6 +189,10 @@ session's cwd so `local` lands on the right project:
 - remove: `claude mcp remove --scope <local|user> <name>`;
 - edit: remove, then add. When the add fails, the old definition is added
   back and the CLI's error is returned. No step leaves the server gone.
+
+A refusal returns the CLI's output and the command line it ran, with
+every env and header value masked; the unmasked line is never logged or
+sent.
 
 Arguments go through `execFile`, never a shell. The JSON is built by the
 server from validated fields, not passed through from the client.
@@ -179,14 +223,16 @@ live session.
 Unknown session → 404. Session not running → 409. Invalid body → 400.
 Unknown server name → 404. Scope `project`, or editing a server that is
 not `user`/`local` → 400. CLI missing → 503. CLI refuses → 502 with its
-message.
+message and the masked command. Session does not answer the status
+request in time → 504.
 
 ## Web
 
 `api.mcpServers`, `api.reconnectMcpServer`, `api.setMcpServerEnabled`,
 `api.mcpServerConfig`, `api.addMcpServer`, `api.updateMcpServer`,
 `api.removeMcpServer`; a `/mcp` intercept in the composer; the dialog.
-How the dialog looks is decided in Claude Design.
+How the dialog looks is canvas `Feature - MCP dialog.dc.html`
+(artboards 12a–12d) in Claude Design.
 
 ## Verify first
 
@@ -210,7 +256,11 @@ Before building on them, check with a throwaway session:
   `ORBITAL_MCP_SERVER` toggle refused.
 - Config module: argument lists built for add/remove per scope; `project`
   refused; edit restores the old definition when the add fails (fake
-  CLI); the `~/.claude.json` reader on user, local, missing and malformed
-  entries.
+  CLI); the masked command carries no secret value; the `~/.claude.json`
+  reader on user, local, missing and malformed entries.
+- Argument line: split and join round-trip — quotes, escapes, empty
+  words, words with spaces; an unterminated quote is an error.
+- Plugin name parsing: `plugin:<plugin>:<server>`, and names that only
+  look like it.
 - Routes: each status code above, and each happy path.
 - No UI tests.
