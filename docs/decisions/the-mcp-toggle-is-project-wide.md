@@ -1,7 +1,7 @@
 ---
 id: the-mcp-toggle-is-project-wide
 title: The MCP server toggle is project-wide and persistent, not runtime-only
-status: draft
+status: in-force
 type: adr
 domain: sessions
 related:
@@ -22,9 +22,11 @@ SDK, and leaves the servers from settings files (`~/.claude.json`,
 `.mcp.json`) and from plugins alone. Those are the servers the user
 actually has.
 
-What does reach them is `query.toggleMcpServer(name, enabled)`. In the
-CLI it runs the same code as `/mcp disable`, which writes the name into
-`disabledMcpServers` in the project's entry of `~/.claude.json`. So the
+What does reach them is `query.toggleMcpServer(name, enabled)`. Verified
+on 2026-10-01 (SDK 0.3.278): it writes the name into
+`disabledMcpServers` in the project's entry of `~/.claude.json` — the
+same write as `/mcp disable` — for `.mcp.json` servers too, and the
+running session applies it at once. So the
 change holds for every session in that project, terminal sessions
 included, and survives restarts.
 

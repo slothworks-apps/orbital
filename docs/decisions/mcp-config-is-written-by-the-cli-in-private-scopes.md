@@ -1,7 +1,7 @@
 ---
 id: mcp-config-is-written-by-the-cli-in-private-scopes
 title: Orbital edits MCP config only through `claude mcp`, and only in the local and user scopes
-status: draft
+status: in-force
 type: adr
 domain: sessions
 related:

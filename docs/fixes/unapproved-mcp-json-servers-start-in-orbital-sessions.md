@@ -1,0 +1,41 @@
+---
+id: unapproved-mcp-json-servers-start-in-orbital-sessions
+title: An Orbital session starts a project's .mcp.json servers without the CLI's approval
+status: backlog
+type: fix
+domain: sessions
+related:
+  - 2026-10-01-mcp-servers-in-the-session-design
+  - mcp-config-is-written-by-the-cli-in-private-scopes
+tags:
+  - mcp
+  - security
+---
+# Unapproved .mcp.json servers start in Orbital sessions
+
+## What happens
+
+A terminal session asks before it connects a server from a project's
+`.mcp.json` (the approval lands in `enabledMcpjsonServers` in
+`~/.claude.json`). An Orbital session does not: under the SDK, with
+`settingSources: ['user', 'project', 'local']`, such a server connects
+straight away.
+
+Seen on 2026-10-01 with SDK 0.3.278 and an isolated `CLAUDE_CONFIG_DIR`:
+the project entry had `hasTrustDialogAccepted: false` and
+`enabledMcpjsonServers: []`, and the `.mcp.json` server still reported
+`connected`, `source: 'project'`.
+
+## Why it matters
+
+Opening an Orbital session in a freshly cloned repository runs whatever
+command that repository's `.mcp.json` names, with no prompt.
+
+## Possible fix
+
+Before starting a session, compare the project's `.mcp.json` servers
+with `enabledMcpjsonServers` / `disabledMcpjsonServers` /
+`enableAllProjectMcpServers`; for any server not yet decided, ask in the
+UI, and record the answer through the CLI rather than by writing
+`~/.claude.json`. Check first whether a CLI option makes the SDK honour
+the approval itself.

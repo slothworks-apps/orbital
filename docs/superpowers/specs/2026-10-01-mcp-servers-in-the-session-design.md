@@ -1,7 +1,7 @@
 ---
 id: 2026-10-01-mcp-servers-in-the-session-design
 title: MCP servers — a /mcp dialog that shows, toggles, adds, edits and removes a session's servers
-status: draft
+status: active
 type: spec
 domain: sessions
 related:
@@ -158,8 +158,8 @@ it does not run, like `setModel`:
   `toggleMcpServer(sessionId, name, enabled)` — pass through. A method the
   generator lacks is an error, not a silent no-op. Toggling
   `ORBITAL_MCP_SERVER` is refused here, not only hidden in the UI.
-- `reloadMcpConfig(sessionId)` — makes the running session pick up a
-  config change (see Verify first).
+- `reloadMcpConfig(sessionId)` — `reloadPlugins()`, which makes the
+  running session connect a server just added (Verify first, 2).
 
 The CLI pushes no status change, so the list is pulled.
 
@@ -172,7 +172,7 @@ type McpServerRow = {
   plugin?: string;       // from a plugin:<plugin>:<server> name
   toolCount?: number;
   toggleable: boolean;   // false for ORBITAL_MCP_SERVER
-  editable: boolean;     // origin is 'user' or 'local'
+  editable: boolean;     // found in the user or local config (Verify first)
 };
 ```
 
@@ -217,8 +217,9 @@ live session.
 - `GET /api/sessions/:id/mcp/:name/config` → the definition for the
   form
 - `POST /api/sessions/:id/mcp` (add), `PUT /api/sessions/:id/mcp/:name`
-  (edit), `DELETE /api/sessions/:id/mcp/:name` (remove) → `{ servers }`,
-  after `reloadMcpConfig`
+  (edit), `DELETE /api/sessions/:id/mcp/:name` (remove) →
+  `{ servers, restartNeeded }` — add runs `reloadMcpConfig` and answers
+  `restartNeeded: false`; edit and remove answer `true`
 
 Unknown session → 404. Session not running → 409. Invalid body → 400.
 Unknown server name → 404. Scope `project`, or editing a server that is
@@ -236,18 +237,32 @@ How the dialog looks is canvas `Feature - MCP dialog.dc.html`
 
 ## Verify first
 
-Before building on them, check with a throwaway session:
+Checked on 2026-10-01 with SDK 0.3.278, a throwaway session and an
+isolated `CLAUDE_CONFIG_DIR`:
 
-1. `toggleMcpServer(name, false)` writes `disabledMcpServers` into the
-   project's entry in `~/.claude.json`. If it does not, the toggle is
-   runtime-only and the warning text and the adr change.
-2. After `claude mcp add-json` / `remove`, does `reloadPlugins()` make the
-   running session connect / drop the server? If not, the dialog says the
-   change applies from the session's next start, and offers that restart
-   (the Runner's stop + resume) as an explicit button.
-3. How a `.mcp.json` server the user has not approved shows up in
-   `mcpServerStatus()` under the SDK. Only to label it; Orbital does not
-   approve it.
+1. **The toggle persists.** `toggleMcpServer(name, false)` adds the name
+   to `disabledMcpServers` in the project's entry of `~/.claude.json`;
+   `true` takes it out. A `.mcp.json` server goes to the same list. The
+   running session reflects it at once (`disabled`, then `connected`).
+2. **Add reaches the running session, edit and remove do not.** After
+   `claude mcp add-json`, `reloadPlugins()` connects the new server — but
+   it reports `source: 'dynamic'`, not its scope, until the session
+   restarts. After `claude mcp remove`, the server stays connected
+   through `reloadPlugins()`. So: add → `reloadPlugins()`, no banner;
+   edit and remove → the restart banner.
+3. **An unapproved `.mcp.json` server connects anyway**, reported as
+   `source: 'project'`. Out of scope here; fix
+   `unapproved-mcp-json-servers-start-in-orbital-sessions`.
+
+Two consequences for the build:
+
+- The project key in `~/.claude.json` is the **real path** of the cwd
+  (`/private/tmp/…` for `/tmp/…`); the reader resolves it with `realpath`
+  before looking the project up.
+- Whether a row is editable, and its origin when the SDK says `dynamic`,
+  comes from the reader: a name found in the `user` or `local` config is
+  editable and shows that scope. `source` alone would leave a server just
+  added uneditable until the restart.
 
 ## Testing
 
