@@ -8,6 +8,10 @@ needs your input and what has ended, and a session can be opened, continued
 or spawned directly from the browser (through the Claude Agent SDK, billed
 to your subscription the same way the CLI is).
 
+`docs/why-orbital.md` holds what Orbital is for and the calm it keeps. Read
+it before you design anything the user sees or hears — states, motion,
+notifications, sound — and do not build what it rules out.
+
 Three npm workspaces:
 
 - `server/` — Fastify API + WebSocket. Watches `~/.claude` for the CLI's

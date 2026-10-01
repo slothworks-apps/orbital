@@ -15,6 +15,14 @@ at which its running subagents can be read —
 [`docs/domains/subagents-in-transcripts.md`](docs/domains/subagents-in-transcripts.md)
 has the measurements.
 
+## Why Orbital
+
+Orbital is meant to replace the Claude Code CLI for anyone running several
+sessions at once, and to do it calmly: nothing blinks, a session waiting for
+you is not an alarm, there is no sound unless you turn it on, and nothing
+ends behind your back. [`docs/why-orbital.md`](docs/why-orbital.md) has the
+principles in full.
+
 ## Screenshot
 
 ![Orbital map view](docs/screenshot.png)
