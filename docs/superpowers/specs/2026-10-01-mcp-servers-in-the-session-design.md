@@ -221,6 +221,13 @@ live session.
   `{ servers, restartNeeded }` — add runs `reloadMcpConfig` and answers
   `restartNeeded: false`; edit and remove answer `true`
 
+- `POST /api/sessions/:id/mcp/restart` → `{ servers }` — the banner's
+  Restart: `stopAndWait`, then `start` with `resume: id`, an empty prompt
+  (which parks the process until the next send, `needs_input`), and the
+  row's model and permission mode, as `revive` does. Refused with 409
+  while a turn is running or a decision is pending; the button is
+  disabled then too.
+
 Unknown session → 404. Session not running → 409. Invalid body → 400.
 Unknown server name → 404. Scope `project`, or editing a server that is
 not `user`/`local` → 400. CLI missing → 503. CLI refuses → 502 with its
