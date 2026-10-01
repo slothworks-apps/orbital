@@ -7,7 +7,6 @@ import {
   SUBAGENT_PANEL_DEFAULT_PX,
 } from './store/store'
 import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent } from './store/store'
-import { api } from './lib/api'
 import { getSocket } from './lib/socket'
 import { useCommand } from './lib/commands'
 import { setMenuCommands } from './lib/desktop'
@@ -68,7 +67,7 @@ export default function App() {
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const applyErrorsEvent = useOrbital((s) => s.applyErrorsEvent)
   const applyRemoteEvent = useOrbital((s) => s.applyRemoteEvent)
-  const setRemote = useOrbital((s) => s.setRemote)
+  const refreshRemote = useOrbital((s) => s.refreshRemote)
   const setWsStatus = useOrbital((s) => s.setWsStatus)
   const setDialog = useOrbital((s) => s.setDialog)
   const selectedId = useOrbital((s) => s.ui.selectedId)
@@ -194,15 +193,9 @@ export default function App() {
   useEffect(() => {
     return socket.onStatusChange((status) => {
       setWsStatus(status)
-      if (status !== 'open') return
-      api
-        .getRemote()
-        .then((remote) => {
-          if (remote) setRemote(remote)
-        })
-        .catch((err: unknown) => console.warn('orbital: failed to read the mobile remote status', err))
+      if (status === 'open') void refreshRemote()
     })
-  }, [setWsStatus, setRemote])
+  }, [setWsStatus, refreshRemote])
 
   // `remote` topic — the mobile remote's status, for the app's whole lifetime
   // because a pairing request must reach the user wherever they are (spec

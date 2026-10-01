@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import qrcode from 'qrcode-generator'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
@@ -12,7 +12,7 @@ import { Toggle } from '../ui/Checkbox'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
 import { Input } from '../ui/Input'
-import { DEBOUNCE_MS, Row, SectionLabel } from './Settings'
+import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
 
 const MUTED = 'text-[rgba(160,190,225,.6)]'
 const CAPTION = 'font-mono text-[11px] text-[rgba(160,190,225,.55)]'
@@ -69,15 +69,24 @@ export function MobileSection({
   const enabled = settings.remote_enabled === 'true'
   const savedMacName = settings.remote_mac_name ?? ''
   const [macNameDraft, setMacNameDraft] = useState(savedMacName)
+  /** The last name this field saved, so its own save landing is not mistaken for a change from elsewhere. */
+  const sentMacName = useRef<string | null>(null)
 
   useEffect(() => {
     if (macNameDraft === (useOrbital.getState().settings.remote_mac_name ?? '')) return
     const timer = setTimeout(() => {
+      sentMacName.current = macNameDraft
       void patchAndSet({ remote_mac_name: macNameDraft })
     }, DEBOUNCE_MS)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [macNameDraft])
+
+  // A change from elsewhere (another window) moves the field; this field's
+  // own save landing does not, or it would undo what was typed since.
+  useEffect(() => {
+    if (savedMacName !== sentMacName.current) setMacNameDraft(savedMacName)
+  }, [savedMacName])
 
   const line = enabled && remote ? relayLine(remote) : null
 
@@ -125,7 +134,8 @@ export function MobileSection({
         </>
       )}
 
-      <PairedPhones devices={remote?.devices ?? []} onSaved={onSaved} />
+      {/* Not before the first status: "No phones yet" from nothing would be a guess. */}
+      {remote && <PairedPhones devices={remote.devices} onSaved={onSaved} />}
 
       <Advanced patchAndSet={patchAndSet} saved={settings.remote_relay_url ?? ''} remote={remote} />
     </div>
@@ -142,7 +152,9 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
   // only the expiry, never the QR text.
   const [code, setCode] = useState<{ qr: string; expiresAt: number; svg: string } | null>(null)
   const [busy, setBusy] = useState(false)
-  const now = useNow(code !== null)
+  // Ticks only while the code is open; stopped once it ran out or was used.
+  const [ticking, setTicking] = useState(false)
+  const now = useNow(ticking)
 
   async function newCode() {
     if (busy) return
@@ -178,6 +190,26 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
     }
   }
 
+  // Still the server's code. Once the status drops it before its time, it was
+  // used — confirmed or rejected — and the area goes back to "New code".
+  const live = code !== null && remote.pairing?.expiresAt === code.expiresAt
+  // Timed out by the clock: the server clears an expired code only inside its
+  // next status, and the label must not wait for that. A dropped code is
+  // judged against the wall clock, not the stopped tick, so one dropped at
+  // its expiry still reads as expired.
+  const left = code ? codeLeft(code.expiresAt, live ? now : Date.now()) : null
+  const expired = left?.expired === true
+  const open = live && !expired
+
+  useEffect(() => setTicking(open), [open])
+
+  // A code dropped before its time was used: forget it, so it never comes
+  // back as "expired" once its time has passed.
+  useEffect(() => {
+    if (code && !live && !codeLeft(code.expiresAt, Date.now()).expired) setCode(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live])
+
   if (kind === 'off' || kind === 'connecting') {
     return <div className={`${BLOCK} text-[12.5px] ${MUTED}`}>Waiting for the relay</div>
   }
@@ -195,14 +227,7 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
     )
   }
 
-  const left = code ? codeLeft(code.expiresAt, now) : null
-  // Over when the status stops carrying it, or when the clock says so first:
-  // the server clears an expired code only on its next status, and the label
-  // must not wait for that publish.
-  const expired = code !== null && (left?.expired === true || remote.pairing?.expiresAt !== code.expiresAt)
-  const open = code !== null && left !== null && !expired
-
-  if (open) {
+  if (open && left) {
     return (
       <div className={`${BLOCK} flex items-start gap-5`}>
         <div className="shrink-0 rounded-[12px] bg-[#eef3fa] p-3">
@@ -373,6 +398,8 @@ function Advanced({
       for (const device of useOrbital.getState().remote?.devices ?? []) {
         await api.removeDevice(device.id)
       }
+      // Known limitation: `patchAndSet` reports its own failure and does not
+      // throw, so a failed save leaves the phones removed and the old URL kept.
       await patchAndSet({ remote_relay_url: asking })
       setAsking(null)
     } catch (err) {

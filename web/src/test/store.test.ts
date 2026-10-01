@@ -2539,3 +2539,26 @@ describe('applySessionEvent: delta', () => {
     expect(row.partial).toBeUndefined()
   })
 })
+
+describe('refreshRemote', () => {
+  const remoteStatus = (macName: string) => ({
+    enabled: true, relay: 'online' as const, relayAttempts: 0, relayUrl: 'https://r.example', macId: 'm',
+    macName, devices: [], pendingPair: null, pairing: null, error: null,
+  })
+
+  it('stores the answer when nothing newer arrived meanwhile', async () => {
+    vi.mocked(api.getRemote).mockResolvedValueOnce(remoteStatus('fetched'))
+    await useOrbital.getState().refreshRemote()
+    expect(useOrbital.getState().remote?.macName).toBe('fetched')
+  })
+
+  it('drops the answer when a status was published while it was in flight', async () => {
+    let answer!: (s: ReturnType<typeof remoteStatus>) => void
+    vi.mocked(api.getRemote).mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    const pending = useOrbital.getState().refreshRemote()
+    useOrbital.getState().applyRemoteEvent({ event: 'status', ...remoteStatus('published') })
+    answer(remoteStatus('stale'))
+    await pending
+    expect(useOrbital.getState().remote?.macName).toBe('published')
+  })
+})

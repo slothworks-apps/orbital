@@ -42,6 +42,14 @@ export function PairConfirmDialog() {
   // A different request (or none) starts without the last one's failure.
   useEffect(() => setRelayFailed(false), [pending?.phone])
 
+  // The server publishes nothing when the code runs out; it clears the request
+  // inside its next `status()`. So at zero the dialog asks once, and closes
+  // from the answer — never on its own clock.
+  const timedOut = pending !== null && pairing !== null && codeLeft(pairing.expiresAt, now).expired
+  useEffect(() => {
+    if (timedOut) void useOrbital.getState().refreshRemote()
+  }, [timedOut])
+
   async function answer(accept: boolean) {
     if (!pending || busy) return
     const { phone, name } = pending
@@ -53,9 +61,12 @@ export function PairConfirmDialog() {
         useOrbital.setState({ toast: { kind: 'info', message: accept ? `Paired with ${name}` : 'Request rejected' } })
       } else if (res.error === 'relay_error') {
         setRelayFailed(true)
+      } else {
+        // `no_pending` / `mismatch`: what the dialog shows is stale. No publish
+        // may follow (an expired request is cleared silently), so the status
+        // is read back; the dialog closes or redraws from the store.
+        void useOrbital.getState().refreshRemote()
       }
-      // `no_pending` and `mismatch` need nothing here: the next status closes
-      // the dialog or redraws it with the request the server actually holds.
     } catch (err) {
       reportError(err, 'Failed to answer the pairing request')
     } finally {

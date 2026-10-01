@@ -477,8 +477,16 @@ export interface OrbitalActions {
   markErrorsSeen(target: number[] | 'all'): Promise<void>
   /** A `status` replaces the whole object; a `pair_request` is left to the `status` after it. */
   applyRemoteEvent(msg: RemoteEvent): void
-  /** The `GET /api/remote` answer, fetched on every socket open. */
+  /** Stores a status the caller just got from the server. */
   setRemote(status: RemoteStatus): void
+  /**
+   * Re-reads `GET /api/remote` — on every socket open, and from the pairing
+   * dialog when its request may have expired (the server clears an expired
+   * request only inside a `status()`, and publishes nothing on expiry).
+   * The answer is dropped if a status arrived while it was in flight: that
+   * one is newer. Never throws.
+   */
+  refreshRemote(): Promise<void>
   launchSession(body: {
     cwd: string
     prompt: string
@@ -1442,6 +1450,16 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   setRemote(status) {
     set({ remote: status })
+  },
+
+  async refreshRemote() {
+    const before = get().remote
+    try {
+      const status = await api.getRemote()
+      if (status && get().remote === before) set({ remote: status })
+    } catch (err) {
+      console.warn('orbital: failed to read the mobile remote status', err)
+    }
   },
 
   async launchSession(body, images) {
