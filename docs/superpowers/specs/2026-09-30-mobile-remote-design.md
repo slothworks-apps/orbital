@@ -14,6 +14,7 @@ related:
   - 2026-10-01-mobile-remote-backend
   - remote-identity-is-ed25519-with-ephemeral-session-keys
   - the-phone-tunnels-the-api-behind-an-allowlist
+  - 2026-10-01-settings-mobile-design
 tags:
   - mobile
   - relay
@@ -27,12 +28,13 @@ built: [[2026-10-01-mobile-remote-backend]] implements everything below
 except the phone itself — `shared/` (the wire protocol), `relay/` and
 `server/src/remote/` are done and reviewed. § 1's key handling is amended
 from what was brainstormed here; see the note at its head. What remains
-is the phone client (§ 4) and the Mac-side pairing screens on the canvas.
+is the phone client (§ 4); the Mac-side section has its own spec,
+[[2026-10-01-settings-mobile-design]].
 
-Canvas: `Feature - Mobile.dc.html` (artboards 9a–9g, parts and states in
-9p), drawn 2026-10-01. It covers the phone only; the Mac-side screens
-(Settings → Mobile: pairing QR, the fingerprint confirmation, the device
-list) are not drawn yet and have to be before implementation.
+Canvas: `Feature - Mobile.dc.html`. Phone artboards 9a–9i (parts and
+states in 9p), drawn 2026-10-01; the Mac side — Settings → Mobile off and
+on, the confirmation dialog, relay status states and the relay-change
+confirm — is 9m, 9n, 9o, 9q and 9r, drawn the same day.
 
 ## Problem
 
@@ -400,9 +402,8 @@ deliberately, rather than incidentally.
 
 ## Before implementation
 
-- Draw the Mac side on the canvas: Settings → Mobile with the QR, the
-  fingerprint confirmation dialog and the device list; and on the phone the
-  revoked and version-mismatch states.
-- Pick the default relay hostname (9e shows a placeholder).
+- ~~Draw the Mac side on the canvas~~ — done 2026-10-01 (9m–9r), specified
+  in [[2026-10-01-settings-mobile-design]].
+- Pick the default relay hostname (9e and 9n show placeholders).
 - Spike the Android WebView composer.
 - Write the plan from this spec once the idea is no longer non-binding.
