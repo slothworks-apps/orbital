@@ -6,7 +6,8 @@ import {
   PANEL_GUTTER_PX,
   SUBAGENT_PANEL_DEFAULT_PX,
 } from './store/store'
-import type { ErrorsEvent, SessionEvent, SessionsEvent } from './store/store'
+import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent } from './store/store'
+import { api } from './lib/api'
 import { getSocket } from './lib/socket'
 import { useCommand } from './lib/commands'
 import { setMenuCommands } from './lib/desktop'
@@ -27,6 +28,7 @@ import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
 import { McpDialog } from './panels/McpDialog'
+import { PairConfirmDialog } from './panels/PairConfirmDialog'
 import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
@@ -65,6 +67,8 @@ export default function App() {
   const queueSessionsEvent = useOrbital((s) => s.queueSessionsEvent)
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const applyErrorsEvent = useOrbital((s) => s.applyErrorsEvent)
+  const applyRemoteEvent = useOrbital((s) => s.applyRemoteEvent)
+  const setRemote = useOrbital((s) => s.setRemote)
   const setWsStatus = useOrbital((s) => s.setWsStatus)
   const setDialog = useOrbital((s) => s.setDialog)
   const selectedId = useOrbital((s) => s.ui.selectedId)
@@ -182,9 +186,30 @@ export default function App() {
   // Returned unsubscribe is used as this effect's cleanup — without it,
   // StrictMode's dev-only double mount/cleanup/mount (or any real remount
   // over the page's lifetime) would register a second callback forever.
+  //
+  // Every open (the first connect and each reconnect) also re-reads the
+  // mobile remote's status: a reconnect can have missed a pairing request or
+  // a device change on the `remote` topic below, and the first open is its
+  // initial fetch. Folded into this one registration rather than a second.
   useEffect(() => {
-    return socket.onStatusChange((status) => setWsStatus(status))
-  }, [setWsStatus])
+    return socket.onStatusChange((status) => {
+      setWsStatus(status)
+      if (status !== 'open') return
+      api
+        .getRemote()
+        .then((remote) => {
+          if (remote) setRemote(remote)
+        })
+        .catch((err: unknown) => console.warn('orbital: failed to read the mobile remote status', err))
+    })
+  }, [setWsStatus, setRemote])
+
+  // `remote` topic — the mobile remote's status, for the app's whole lifetime
+  // because a pairing request must reach the user wherever they are (spec
+  // 2026-10-01-settings-mobile-design § 1).
+  useEffect(() => {
+    return socket.subscribe('remote', (msg: RemoteEvent) => applyRemoteEvent(msg))
+  }, [applyRemoteEvent])
 
   // `session:<id>` topic follows the current selection: subscribing to the
   // newly-selected session and unsubscribing the previous one is exactly
@@ -315,6 +340,8 @@ export default function App() {
       <CompactDialog />
       {/* `/mcp` from the composer (spec 2026-10-01-mcp-servers-in-the-session-design). */}
       <McpDialog />
+      {/* A phone asking to pair (spec 2026-10-01-settings-mobile-design § 4). */}
+      <PairConfirmDialog />
 
       {/* The way into the error log lives in SpaceMap's HUD now — an icon
           with the unseen count as its badge, riding the zoom column. */}
