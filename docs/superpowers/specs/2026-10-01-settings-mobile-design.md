@@ -193,25 +193,31 @@ phone's name and platform, the six characters in large mono boxes grouped
 box — and the line "Confirm only if your phone shows the same code".
 Buttons Reject and Confirm.
 
-- Confirm → `confirmPairing(true, pendingPair.phone)`; Reject, Esc and a
-  click on the scrim → `confirmPairing(false, pendingPair.phone)`. The
-  `phone` sent is the one the dialog shows; the server refuses a
-  mismatch, which is the point of sending it.
+- Confirm → `confirmPairing(true, pendingPair.phone)`; Reject and Esc →
+  `confirmPairing(false, pendingPair.phone)`. A click on the scrim does
+  nothing: `ui/Dialog` has no scrim handler and the two explicit ways out
+  are enough (decided 2026-10-01 in review). The `phone` sent is the one
+  the dialog shows; the server refuses a mismatch, which is the point of
+  sending it.
 - `{ ok }` → the dialog closes with the next status (the server clears
   `pendingPair`); an info toast "Paired with <name>" or "Request
   rejected".
-- `no_pending` → close; the request is gone (expired or already answered
-  from another window).
-- `mismatch` → stay open; the next status carries the request the server
-  actually holds and the dialog re-renders from it. (The server only
-  ever holds one pending request per code, so this is a race between two
-  Orbital windows, not two phones.)
+- `no_pending` → the request is gone (expired or already answered from
+  another window). The server publishes nothing on expiry — it only
+  clears the request inside its next `status()` — so the web fetches
+  `GET /api/remote` and stores the answer; the dialog closes from the
+  store.
+- `mismatch` → the next status carries the request the server actually
+  holds; the web fetches `GET /api/remote` the same way and the dialog
+  re-renders from it. (The server only ever holds one pending request
+  per code, so this is a race between two Orbital windows, not two
+  phones.)
 - `relay_error` → stay open, the message "The relay didn't answer. Try
   again." under the buttons; both buttons stay live.
-- While `pendingPair` is set and the code expires, the server clears
-  both on its next `status()`; the dialog closes with that status. The
-  web does not close it on its own clock, because an answer that reaches
-  the server a second after expiry is refused anyway (`no_pending`).
+- When the dialog's own countdown reaches zero it fetches `GET
+  /api/remote` once, for the same reason: the server clears the expired
+  request only when asked. The web never decides on its own clock that
+  the request is over — it asks, and the store answers.
 
 There is no "always allow" and no auto-accept; the dialog has no timer
 that accepts.
