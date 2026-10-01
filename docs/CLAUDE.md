@@ -1,4 +1,4 @@
-<!-- atlas:begin 2026-09-16 -->
+<!-- atlas:begin 2026-09-28 -->
 # Documentation in orbital
 
 Every markdown file under `docs/` carries atlas frontmatter. A file
@@ -6,6 +6,30 @@ without it fails `atlas validate`, which runs in the PR gate.
 
 `CLAUDE.md` and `AGENTS.md` are the exception. They are instructions for a tool,
 not documents, and `atlas validate` skips them.
+
+## Installing atlas is optional
+
+atlas is the npm package `@slothworks/atlas`. You do not need it to write a
+document here. This file has every rule, and the PR gate runs `atlas validate`
+for you.
+
+To check the documents before you push, run it once without installing:
+
+```bash
+bunx @slothworks/atlas validate
+```
+
+To keep it on the machine, install it once. That also gives the agent an MCP
+server and gives you a local console over the documents:
+
+```bash
+bun install -g @slothworks/atlas
+```
+
+atlas runs on bun (https://bun.sh), so both commands need `bun` first. When
+`atlas` is still not found after the install, `~/.bun/bin` is missing from the
+`PATH`. Do not install bun or atlas without asking the user. Tell them the
+command instead.
 
 ## Write the document, do not just answer
 
@@ -71,7 +95,8 @@ document that is finished. Set its status.
 ## Before you commit
 
 ```bash
-atlas validate
+atlas validate                      # when atlas is installed
+bunx @slothworks/atlas validate     # when it is not
 ```
 
 It reports every document whose frontmatter is missing or wrong.
