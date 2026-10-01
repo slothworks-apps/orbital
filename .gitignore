@@ -6,3 +6,5 @@ server/dist/
 desktop/dist/
 desktop/release/
 .claude/worktrees/
+
+CLAUDE.local.md

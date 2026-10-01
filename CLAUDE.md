@@ -98,40 +98,4 @@ reason other than someone deliberately changing the value it asserts.
 
 ## Visual design
 
-The design lives in Claude Design, not in this repository. Always read it
-from there, through the `DesignSync` MCP:
-
-```
-projectId  df77470e-1384-436c-8b25-5e01acfc497f
-canvas     https://claude.ai/design/p/df77470e-1384-436c-8b25-5e01acfc497f?file=Orbital.dc.html
-```
-
-`list_files` for the file list, `get_file` for one file. `Orbital.dc.html` is
-the main canvas; artboards are `<div id="1a">`, `<div id="2b">` and so on, and
-the id is how they are referred to in conversation ("section 2a"). The project
-also holds `Planet Variants.dc.html` and several `Feature - *.dc.html`.
-
-Two things that will otherwise waste your time:
-
-- **Any export committed under `design/` is stale.** New artboards are added to
-  the canvas and never re-exported. Do not read the local copy, do not answer a
-  design question from it, and do not conclude an artboard does not exist
-  because it is missing there.
-- **Only the MCP works.** `WebFetch` on the canvas URL returns 403, and the
-  Claude in Chrome extension is often not connected. If a `DesignSync` read
-  fails on authorization, ask the user to run `/design-login`.
-
-`get_file` returns a JSON envelope whose `content` is escaped; unescape `\n`
-before reading it, and grep for the artboard id rather than paging the whole
-file — the canvas is ~240 KB.
-
-**`get_file` truncates at 256 KiB, silently.** Before writing a canvas file
-back, check that what you read ends in `</html>`. If it does not, or if it is
-exactly 262144 bytes, you have half a file — writing it back destroys
-everything past the cut, and there is no version history in Claude Design to
-undo it with. `Orbital.dc.html` sits on that limit, so it cannot be
-round-tripped through `write_files` at all. This happened: 2026-09-22, the
-tail of artboard 1e and whatever followed it.
-
-Verifying a substitution by reversing it proves nothing about truncation —
-both sides are already cut. Verify against the closing tag.
+The visual design is maintained outside this repository by the maintainer.

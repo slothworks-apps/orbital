@@ -173,7 +173,7 @@ above already needed a fallback once.
 
 Measured 2026-09-22, directly against the files rather than taken on faith:
 one session directory
-(`~/.claude/projects/-Users-tomin-Projects-acme-acme-mobile-app/83e11349-9a79-47c2-9333-14f819646ee1/subagents/`)
+(`~/.claude/projects/-Users-tomin-Projects-acme-mobile-app/83e11349-9a79-47c2-9333-14f819646ee1/subagents/`)
 holds exactly 15 agent files. Across all 15, the file's birthtime matches its
 first entry's `timestamp` and its mtime matches its last entry's `timestamp`
 (within seconds, both ways, on every file) — confirming the file is created

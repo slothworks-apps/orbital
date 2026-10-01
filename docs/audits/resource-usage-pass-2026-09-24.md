@@ -145,7 +145,7 @@ directory. chokidar has been removed. A throwaway server against the same
 
 `ide/store.ts` coalesces selection bursts, then `republishCwds`
 (`server/src/index.ts`) upserts *every* session row for that cwd: 140 for
-acme-monorepo, 72 for orbital. Dragging a selection in WebStorm therefore
+a large work monorepo, 72 for orbital. Dragging a selection in WebStorm therefore
 means hundreds of full session upserts per flush over the WebSocket. Each costs
 2–3 queries and a re-render in the browser.
 
