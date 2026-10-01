@@ -43,12 +43,25 @@ export function PairConfirmDialog() {
   useEffect(() => setRelayFailed(false), [pending?.phone])
 
   // The server publishes nothing when the code runs out; it clears the request
-  // inside its next `status()`. So at zero the dialog asks once, and closes
-  // from the answer — never on its own clock.
+  // inside its next `status()`. So at zero the dialog asks, and closes from the
+  // answer — never on its own clock. One read at a time, and asked again only
+  // while the server's answer is still missing: on each status that lands
+  // meanwhile (it may have superseded the answer in flight) and once more when
+  // an answer was dropped for a newer status. Never on the store's own answer,
+  // so this is no polling loop.
   const timedOut = pending !== null && pairing !== null && codeLeft(pairing.expiresAt, now).expired
+  const reading = useRef(false)
+  const answered = useRef<RemoteStatus | null>(null)
+  const [superseded, setSuperseded] = useState(0)
   useEffect(() => {
-    if (timedOut) void useOrbital.getState().refreshRemote()
-  }, [timedOut])
+    if (!timedOut || reading.current || remote === answered.current) return
+    reading.current = true
+    void useOrbital.getState().refreshRemote().then((outcome) => {
+      reading.current = false
+      if (outcome === 'stored') answered.current = useOrbital.getState().remote
+      else if (outcome === 'superseded') setSuperseded((n) => n + 1)
+    })
+  }, [timedOut, remote, superseded])
 
   async function answer(accept: boolean) {
     if (!pending || busy) return

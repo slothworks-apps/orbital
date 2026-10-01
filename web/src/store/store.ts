@@ -484,9 +484,10 @@ export interface OrbitalActions {
    * dialog when its request may have expired (the server clears an expired
    * request only inside a `status()`, and publishes nothing on expiry).
    * The answer is dropped if a status arrived while it was in flight: that
-   * one is newer. Never throws.
+   * one is newer. Never throws; answers what became of the read, so a caller
+   * waiting on the server's answer knows whether it got one.
    */
-  refreshRemote(): Promise<void>
+  refreshRemote(): Promise<'stored' | 'superseded' | 'failed'>
   launchSession(body: {
     cwd: string
     prompt: string
@@ -1456,9 +1457,13 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const before = get().remote
     try {
       const status = await api.getRemote()
-      if (status && get().remote === before) set({ remote: status })
+      if (!status) return 'failed'
+      if (get().remote !== before) return 'superseded'
+      set({ remote: status })
+      return 'stored'
     } catch (err) {
       console.warn('orbital: failed to read the mobile remote status', err)
+      return 'failed'
     }
   },
 

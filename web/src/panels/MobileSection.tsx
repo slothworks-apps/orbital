@@ -134,8 +134,11 @@ export function MobileSection({
         </>
       )}
 
-      {/* Not before the first status: "No phones yet" from nothing would be a guess. */}
-      {remote && <PairedPhones devices={remote.devices} onSaved={onSaved} />}
+      {/* Not before the first status: "No phones yet" from nothing would be a
+          guess. While off only with rows (canvas 9m has no list): the phones
+          stay paired and Remove still works, but the empty state's hint to
+          scan a code means nothing without one. */}
+      {remote && (enabled || remote.devices.length > 0) && <PairedPhones devices={remote.devices} onSaved={onSaved} />}
 
       <Advanced patchAndSet={patchAndSet} saved={settings.remote_relay_url ?? ''} remote={remote} />
     </div>
@@ -161,8 +164,13 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
     setBusy(true)
     try {
       const res = await api.startPairing()
-      // A refusal means the status moved under the user; the next one redraws this.
-      if ('error' in res) return
+      if ('error' in res) {
+        // The relay refused the token but stays online, so no status will
+        // redraw anything: say so. `offline` / `disabled` mean the status
+        // moved under the user, and the next one redraws this.
+        if (res.error === 'relay_error') reportError(null, "The relay didn't answer. Try again.")
+        return
+      }
       setCode({ ...res, svg: qrSvg(res.qr) })
       // The server publishes the status with this code before it answers, but
       // the answer can still overtake that publish; a status without the
@@ -272,7 +280,7 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
   )
 }
 
-/** PAIRED PHONES (canvas 9n). Listed whether the switch is on or off: the phones stay paired while it is off. */
+/** PAIRED PHONES (canvas 9n). The phones stay paired while the switch is off; the caller decides when it shows. */
 function PairedPhones({ devices, onSaved }: { devices: RemoteDevice[]; onSaved: () => void }) {
   const [confirming, setConfirming] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
@@ -362,10 +370,18 @@ function Advanced({
   remote: RemoteStatus | null
 }) {
   const [draft, setDraft] = useState(saved)
-  /** The URL waiting on the 9r confirm. */
-  const [asking, setAsking] = useState<string | null>(null)
+  /**
+   * The URL waiting on the 9r confirm, and the phone count as it was when the
+   * dialog opened: each removal publishes a status, and the text must not
+   * count down while they go.
+   */
+  const [asking, setAsking] = useState<{ url: string; count: number } | null>(null)
+  // The count stays drawn through the close transition after `asking` clears.
+  const askedCount = useRef(0)
+  if (asking) askedCount.current = asking.count
   const [busy, setBusy] = useState(false)
-  const pairedCount = remote?.devices.length ?? 0
+  // Unknown until the first status: whether to ask cannot be decided from nothing.
+  const pairedCount = remote ? remote.devices.length : null
 
   // A save, a reset or another window moves the saved value: the field follows.
   useEffect(() => setDraft(saved), [saved])
@@ -375,11 +391,14 @@ function Advanced({
       case 'none':
         setDraft(saved)
         return
+      case 'unknown':
+        // The draft stays in the field; the next commit decides.
+        return
       case 'save':
         void patchAndSet({ remote_relay_url: typed.trim() })
         return
       case 'ask':
-        setAsking(typed.trim())
+        setAsking({ url: typed.trim(), count: pairedCount ?? 0 })
     }
   }
 
@@ -400,7 +419,7 @@ function Advanced({
       }
       // Known limitation: `patchAndSet` reports its own failure and does not
       // throw, so a failed save leaves the phones removed and the old URL kept.
-      await patchAndSet({ remote_relay_url: asking })
+      await patchAndSet({ remote_relay_url: asking.url })
       setAsking(null)
     } catch (err) {
       reportError(err, 'Failed to change the relay')
@@ -466,7 +485,8 @@ function Advanced({
         }
       >
         <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-          {phoneCount(pairedCount)} will be removed and {pairedCount === 1 ? 'has' : 'have'} to pair again on the
+          {phoneCount(askedCount.current)} will be removed and {askedCount.current === 1 ? 'has' : 'have'} to pair
+          again on the
           new relay.
         </p>
       </Dialog>

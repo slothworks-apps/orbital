@@ -2548,8 +2548,16 @@ describe('refreshRemote', () => {
 
   it('stores the answer when nothing newer arrived meanwhile', async () => {
     vi.mocked(api.getRemote).mockResolvedValueOnce(remoteStatus('fetched'))
-    await useOrbital.getState().refreshRemote()
+    expect(await useOrbital.getState().refreshRemote()).toBe('stored')
     expect(useOrbital.getState().remote?.macName).toBe('fetched')
+  })
+
+  it('answers failed, and keeps the status, when the read fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    useOrbital.getState().setRemote(remoteStatus('kept'))
+    vi.mocked(api.getRemote).mockRejectedValueOnce(new Error('down'))
+    expect(await useOrbital.getState().refreshRemote()).toBe('failed')
+    expect(useOrbital.getState().remote?.macName).toBe('kept')
   })
 
   it('drops the answer when a status was published while it was in flight', async () => {
@@ -2558,7 +2566,7 @@ describe('refreshRemote', () => {
     const pending = useOrbital.getState().refreshRemote()
     useOrbital.getState().applyRemoteEvent({ event: 'status', ...remoteStatus('published') })
     answer(remoteStatus('stale'))
-    await pending
+    expect(await pending).toBe('superseded')
     expect(useOrbital.getState().remote?.macName).toBe('published')
   })
 })

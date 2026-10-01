@@ -66,9 +66,16 @@ export function codeLeft(expiresAt: number, now: number): CodeLeft {
 /**
  * What committing the Relay URL field does: nothing when the trimmed value is
  * what is saved, save it when no phone is paired, and otherwise ask first —
- * the paired phones are removed with the change.
+ * the paired phones are removed with the change. With the count unknown (no
+ * status yet) a change is `unknown`: it can neither skip the confirm nor ask
+ * about phones it cannot count, so it waits.
  */
-export function relayUrlCommit(saved: string, typed: string, pairedCount: number): 'none' | 'save' | 'ask' {
+export function relayUrlCommit(
+  saved: string,
+  typed: string,
+  pairedCount: number | null,
+): 'none' | 'unknown' | 'save' | 'ask' {
   if (typed.trim() === saved.trim()) return 'none'
+  if (pairedCount === null) return 'unknown'
   return pairedCount === 0 ? 'save' : 'ask'
 }

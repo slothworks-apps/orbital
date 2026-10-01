@@ -93,6 +93,11 @@ describe('relayUrlCommit', () => {
     expect(relayUrlCommit('', 'https://b.example', 2)).toBe('ask')
     expect(relayUrlCommit('https://b.example', '', 1)).toBe('ask')
   })
+
+  it('cannot decide a change before the phones are known', () => {
+    expect(relayUrlCommit('', 'https://b.example', null)).toBe('unknown')
+    expect(relayUrlCommit('https://b.example', ' https://b.example ', null)).toBe('none')
+  })
 })
 
 describe('remote api', () => {
