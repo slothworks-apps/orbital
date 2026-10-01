@@ -5,6 +5,7 @@ import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow } from '../types.js';
 import type { McpConfigSnapshot } from '../mcp/claudeJson.js';
 import { shapeMcpServers } from '../mcp/rows.js';
+import { mcpLoginUrl } from '../mcp/login.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
 import {
   SUBAGENT_TOOLS,
@@ -149,6 +150,8 @@ type McpControl = {
   reconnectMcpServer?: (serverName: string) => Promise<void>;
   toggleMcpServer?: (serverName: string, enabled: boolean) => Promise<void>;
   reloadPlugins?: () => Promise<unknown>;
+  /** In the SDK's bundle, not in `sdk.d.ts` — hence `unknown` (idea mcp-login-from-orbital). */
+  mcpAuthenticate?: (serverName: string, redirectUri?: string) => Promise<unknown>;
 };
 
 /**
@@ -2622,6 +2625,17 @@ export class Runner {
   async toggleMcpServer(sessionId: string, name: string, enabled: boolean): Promise<void> {
     if (name === ORBITAL_MCP_SERVER) throw new Error(`the ${ORBITAL_MCP_SERVER} MCP server cannot be switched`);
     await this.mcpControl(sessionId, 'toggleMcpServer')(name, enabled);
+  }
+
+  /**
+   * Starts the login of a server that needs one and answers the URL the user
+   * finishes it at. The CLI catches the browser's callback itself, so the
+   * server connects without Orbital in the loop; a login that would need
+   * Orbital to relay the callback is refused, not half-started.
+   */
+  async mcpLogin(sessionId: string, name: string): Promise<{ authUrl: string }> {
+    const answer = await this.mcpControl(sessionId, 'mcpAuthenticate')(name);
+    return { authUrl: mcpLoginUrl(answer) };
   }
 
   /** Makes the running session connect a server just added to its config (spec § Verify first, 2). */

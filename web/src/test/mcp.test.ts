@@ -3,6 +3,11 @@ import { ApiError } from '../lib/api'
 import {
   emptyMcpForm,
   isMcpCommand,
+  isMcpLoginable,
+  mcpLoginFocus,
+  settleMcpLoginWaits,
+  shouldRefreshMcpList,
+  startMcpLoginWait,
   isMcpFormDirty,
   isSessionNotRunning,
   joinArgs,
@@ -15,6 +20,7 @@ import {
   validateMcpForm,
 } from '../lib/mcp'
 import type { McpForm } from '../lib/mcp'
+import type { McpServerRow } from '../lib/types'
 
 function words(line: string): string[] {
   const result = splitArgs(line)
@@ -305,5 +311,56 @@ describe('isMcpCommand', () => {
     expect(isMcpCommand(' /mcp ')).toBe(true)
     expect(isMcpCommand('/mcp list')).toBe(false)
     expect(isMcpCommand('/mcpx')).toBe(false)
+  })
+})
+
+describe('MCP login', () => {
+  const row = (name: string, status: string, origin?: string): McpServerRow => ({
+    name,
+    status,
+    origin,
+    toggleable: true,
+    editable: false,
+  })
+
+  it('is offered on a needs-auth row unless it is a claude.ai connector', () => {
+    expect(isMcpLoginable(row('a', 'needs-auth', 'user'))).toBe(true)
+    expect(isMcpLoginable(row('a', 'needs-auth'))).toBe(true)
+    expect(isMcpLoginable(row('a', 'needs-auth', 'claudeai'))).toBe(false)
+    expect(isMcpLoginable(row('a', 'failed', 'user'))).toBe(false)
+    expect(isMcpLoginable(row('a', 'connected', 'user'))).toBe(false)
+  })
+
+  it('keeps a wait while its row still needs a login and drops it otherwise', () => {
+    let waits = startMcpLoginWait({}, 'a')
+    waits = startMcpLoginWait(waits, 'b')
+    waits = startMcpLoginWait(waits, 'gone')
+    const settled = settleMcpLoginWaits(waits, [row('a', 'needs-auth'), row('b', 'connected')])
+    expect(Object.keys(settled)).toEqual(['a'])
+  })
+
+  it('answers the same waits when nothing settled, so a setter does not loop', () => {
+    const waits = startMcpLoginWait({}, 'a')
+    expect(settleMcpLoginWaits(waits, [row('a', 'needs-auth')])).toBe(waits)
+  })
+
+  it('reconnects a waiting row on focus once per login attempt', () => {
+    const servers = [row('a', 'needs-auth'), row('b', 'pending')]
+    let waits = startMcpLoginWait(startMcpLoginWait({}, 'a'), 'b')
+    const first = mcpLoginFocus(waits, servers)
+    // b is starting, not waiting for a login, so focus leaves it alone.
+    expect(first.reconnect).toEqual(['a'])
+    waits = first.waits
+    const second = mcpLoginFocus(waits, servers)
+    expect(second.reconnect).toEqual([])
+    expect(second.waits).toBe(waits)
+    // A fresh attempt may reconnect again.
+    expect(mcpLoginFocus(startMcpLoginWait(waits, 'a'), servers).reconnect).toEqual(['a'])
+  })
+
+  it('refreshes the list while a server starts or a login waits', () => {
+    expect(shouldRefreshMcpList([row('a', 'connected')], {})).toBe(false)
+    expect(shouldRefreshMcpList([row('a', 'pending')], {})).toBe(true)
+    expect(shouldRefreshMcpList([row('a', 'needs-auth')], startMcpLoginWait({}, 'a'))).toBe(true)
   })
 })

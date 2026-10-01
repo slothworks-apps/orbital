@@ -12,17 +12,22 @@ import {
   hasOwnServers,
   isCliMissing,
   isMcpFormDirty,
+  isMcpLoginable,
   isSessionNotRunning,
   mcpFailure,
   mcpFormFromDefinition,
+  mcpLoginFocus,
   mcpRequestBody,
   mcpRowLabels,
   mcpStatusKind,
   mcpStatusLabel,
+  settleMcpLoginWaits,
+  shouldRefreshMcpList,
+  startMcpLoginWait,
   startingCount,
   validateMcpForm,
 } from '../lib/mcp'
-import type { McpForm, McpFormErrors, McpKvRow, McpStatusKind } from '../lib/mcp'
+import type { McpForm, McpFormErrors, McpKvRow, McpLoginWaits, McpStatusKind } from '../lib/mcp'
 import type { McpScope, McpServerRow, McpTransport } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
@@ -114,6 +119,10 @@ function McpPanel({
   const [restarting, setRestarting] = useState(false)
   const [cliMissing, setCliMissing] = useState(false)
   const [formState, setFormState] = useState<FormState | null>(null)
+  /** Rows whose login page is open in the browser (spec § Log in). */
+  const [loginWaits, setLoginWaits] = useState<McpLoginWaits>({})
+  /** A login that could not be started, by row: the server's message. */
+  const [loginErrors, setLoginErrors] = useState<Record<string, string>>({})
 
   // Every request takes a number; a response older than one already shown is
   // dropped, so a slow refresh cannot undo what an action just answered.
@@ -159,15 +168,24 @@ function McpPanel({
     if (!ended) void load()
   }, [ended, load])
 
-  // The CLI pushes no status change, so a starting server is pulled again
-  // every MCP_REFRESH_MS — only while the dialog is open. Keyed on the list,
-  // so each answer arms the next pull.
-  const starting = list.kind === 'ready' ? startingCount(list.servers) : 0
+  // A login stops waiting once its row leaves needs-auth (or is gone), and
+  // every wait ends with the dialog.
+  const listServers = list.kind === 'ready' ? list.servers : null
   useEffect(() => {
-    if (!open || starting === 0) return
+    if (!open) setLoginWaits({})
+    else if (listServers) setLoginWaits((w) => settleMcpLoginWaits(w, listServers))
+  }, [open, listServers])
+
+  // The CLI pushes no status change, so a starting server — or a login being
+  // finished in the browser — is pulled again every MCP_REFRESH_MS, only while
+  // the dialog is open. Keyed on the list, so each answer arms the next pull.
+  const starting = listServers ? startingCount(listServers) : 0
+  const refresh = listServers !== null && shouldRefreshMcpList(listServers, loginWaits)
+  useEffect(() => {
+    if (!open || !refresh) return
     const timer = setTimeout(() => void load(), MCP_REFRESH_MS)
     return () => clearTimeout(timer)
-  }, [open, starting, list, load])
+  }, [open, refresh, list, load])
 
   /** A failed action: the CLI missing turns add/edit/remove off; anything else is a toast and an error-log entry. */
   const actionFailed = useCallback((err: unknown, what: string) => {
@@ -214,10 +232,62 @@ function McpPanel({
     [accept, actionFailed],
   )
 
-  const reconnect = (row: McpServerRow) =>
-    void runRowAction(row.name, 'reconnecting…', `Couldn't reconnect ${row.name}`, () =>
-      api.reconnectMcpServer(sessionId, row.name),
-    )
+  const reconnectByName = useCallback(
+    (name: string) =>
+      void runRowAction(name, 'reconnecting…', `Couldn't reconnect ${name}`, () =>
+        api.reconnectMcpServer(sessionId, name),
+      ),
+    [runRowAction, sessionId],
+  )
+  const reconnect = (row: McpServerRow) => reconnectByName(row.name)
+
+  // Back from the browser: a row that still needs a login is reconnected once
+  // per attempt — the CLI may not connect it by itself after the callback.
+  useEffect(() => {
+    if (!open || !listServers || Object.keys(loginWaits).length === 0) return
+    const onFocus = () => {
+      const { reconnect: names, waits } = mcpLoginFocus(loginWaits, listServers)
+      if (names.length === 0) return
+      setLoginWaits(waits)
+      for (const name of names) reconnectByName(name)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [open, listServers, loginWaits, reconnectByName])
+
+  const logIn = async (row: McpServerRow) => {
+    const name = row.name
+    setBusy((b) => ({ ...b, [name]: 'opening login…' }))
+    setConfirmRemove(null)
+    setLoginErrors((e) => {
+      if (!(name in e)) return e
+      const next = { ...e }
+      delete next[name]
+      return next
+    })
+    try {
+      const { authUrl } = await api.mcpLogin(sessionId, name)
+      if (!alive.current) return
+      // The desktop app hands a new window's URL to the system browser.
+      window.open(authUrl, '_blank', 'noopener')
+      setLoginWaits((w) => startMcpLoginWait(w, name))
+    } catch (err) {
+      if (!alive.current) return
+      if (isSessionNotRunning(err)) {
+        actionFailed(err, `Couldn't log in to ${name}`)
+        return
+      }
+      setLoginErrors((e) => ({ ...e, [name]: mcpFailure(err).message }))
+    } finally {
+      if (alive.current) {
+        setBusy((b) => {
+          const next = { ...b }
+          delete next[name]
+          return next
+        })
+      }
+    }
+  }
   const toggle = (row: McpServerRow, enabled: boolean) =>
     void runRowAction(
       row.name,
@@ -505,9 +575,12 @@ function McpPanel({
                 key={row.name}
                 row={row}
                 busy={busy[row.name]}
+                waiting={row.name in loginWaits}
+                loginError={loginErrors[row.name]}
                 confirming={confirmRemove === row.name}
                 canEdit={row.editable && !cliMissing}
                 onReconnect={() => reconnect(row)}
+                onLogIn={() => void logIn(row)}
                 onToggle={(enabled) => toggle(row, enabled)}
                 onEdit={() => openEdit(row)}
                 onAskRemove={() => setConfirmRemove(row.name)}
@@ -645,9 +718,14 @@ function StatusMark({ kind }: { kind: McpStatusKind }) {
 interface ServerRowProps {
   row: McpServerRow
   busy: string | undefined
+  /** Its login page is open in the browser (spec § Log in). */
+  waiting: boolean
+  /** Why the login could not be started — the server's message. */
+  loginError: string | undefined
   confirming: boolean
   canEdit: boolean
   onReconnect(): void
+  onLogIn(): void
   onToggle(enabled: boolean): void
   onEdit(): void
   onAskRemove(): void
@@ -659,9 +737,12 @@ interface ServerRowProps {
 function ServerRow({
   row,
   busy,
+  waiting,
+  loginError,
   confirming,
   canEdit,
   onReconnect,
+  onLogIn,
   onToggle,
   onEdit,
   onAskRemove,
@@ -671,6 +752,10 @@ function ServerRow({
   const kind = mcpStatusKind(row.status)
   const { name, origin } = mcpRowLabels(row)
   const on = kind !== 'off'
+  const loginable = isMcpLoginable(row)
+  // Waiting reads like an action in flight but does not lock the toggle: a
+  // login abandoned in the browser must not freeze the row until the dialog closes.
+  const activity = busy ?? (waiting ? 'waiting for the browser…' : undefined)
   const separator = (
     <span aria-hidden className="text-[rgba(150,205,255,.28)]">
       ·
@@ -716,17 +801,22 @@ function ServerRow({
             </>
           )}
         </div>
-        {kind === 'login' && (
+        {kind === 'login' && !loginable && (
           <div className="text-xs leading-[1.45] text-[rgba(160,190,225,.75)] text-pretty">
-            Needs sign-in. Log in from a terminal session in this project — Orbital can't open the
-            login flow.
+            A claude.ai connector — it is logged in on claude.ai, in its connector settings, not
+            here.
+          </div>
+        )}
+        {loginable && loginError && (
+          <div className="text-xs leading-[1.45] text-[rgba(160,190,225,.75)] text-pretty">
+            Log in from a terminal session in this project — Orbital couldn't open the login flow.
           </div>
         )}
       </div>
       <div className="flex items-center gap-1.5 pt-px">
-        {busy ? (
+        {activity ? (
           <span className="font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.7)]">
-            <Working label={busy} />
+            <Working label={activity} />
           </span>
         ) : confirming ? (
           <>
@@ -745,6 +835,11 @@ function ServerRow({
             {kind === 'failed' && (
               <Button variant="pill-active" size="pill" onClick={onReconnect}>
                 Reconnect
+              </Button>
+            )}
+            {loginable && (
+              <Button variant="pill-active" size="pill" onClick={onLogIn}>
+                Log in
               </Button>
             )}
             {canEdit && (
@@ -778,6 +873,11 @@ function ServerRow({
       {kind === 'failed' && row.error && (
         <pre className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
           {row.error}
+        </pre>
+      )}
+      {loginable && loginError && (
+        <pre className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
+          {loginError}
         </pre>
       )}
     </li>

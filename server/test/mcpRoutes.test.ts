@@ -8,6 +8,7 @@ import { sessions } from '../src/db/schema.js';
 import { registerMcpRoutes } from '../src/api/mcp.js';
 import { McpConfig, addArgs, removeArgs, type McpCliRun } from '../src/mcp/config.js';
 import { McpStatusTimeoutError } from '../src/runner/runner.js';
+import { McpLoginUnsupportedError } from '../src/mcp/login.js';
 import type { McpServerRow, SessionStatus } from '../src/types.js';
 
 const ROWS: McpServerRow[] = [
@@ -56,6 +57,7 @@ function makeApp(opts: { cliPath?: string | null; cli?: Array<{ ok: boolean; out
     reconnectMcpServer: vi.fn(async () => {}),
     toggleMcpServer: vi.fn(async () => {}),
     reloadMcpConfig: vi.fn(async () => {}),
+    mcpLogin: vi.fn(async (_id: string, _name: string): Promise<{ authUrl: string }> => ({ authUrl: '' })),
     stopAndWait: vi.fn(async () => {}),
     start: vi.fn(async () => 'run'),
   };
@@ -238,5 +240,47 @@ describe('MCP routes — restart', () => {
     const res = await app.inject({ method: 'POST', url: '/api/sessions/run/mcp/restart' });
     expect(res.statusCode).toBe(504);
     expect(runner.start).not.toHaveBeenCalled();
+  });
+});
+
+describe('MCP routes — login', () => {
+  const LOGIN_ROWS: McpServerRow[] = [
+    { name: 'cf', status: 'needs-auth', origin: 'plugin', plugin: 'cloudflare', toggleable: true, editable: false },
+    { name: 'claude.ai Gmail', status: 'needs-auth', origin: 'claudeai', toggleable: true, editable: false },
+    { name: 'gh', status: 'connected', origin: 'local', toggleable: true, editable: true },
+  ];
+
+  it('starts the login of a server that needs one and answers its URL', async () => {
+    const { app, runner } = makeApp();
+    runner.mcpServers.mockResolvedValue(LOGIN_ROWS);
+    runner.mcpLogin.mockResolvedValue({ authUrl: 'https://auth.example/authorize' });
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/run/mcp/cf/login' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ authUrl: 'https://auth.example/authorize' });
+    expect(runner.mcpLogin).toHaveBeenCalledWith('run', 'cf');
+  });
+
+  it('400 for a server with no login to start, or a claude.ai connector; 404 for an unknown one', async () => {
+    const { app, runner } = makeApp();
+    runner.mcpServers.mockResolvedValue(LOGIN_ROWS);
+    const connected = await app.inject({ method: 'POST', url: '/api/sessions/run/mcp/gh/login' });
+    expect([connected.statusCode, connected.json().error]).toEqual([400, 'not_loginable']);
+    const claudeai = await app.inject({ method: 'POST', url: `/api/sessions/run/mcp/${encodeURIComponent('claude.ai Gmail')}/login` });
+    expect([claudeai.statusCode, claudeai.json().error]).toEqual([400, 'not_loginable']);
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/run/mcp/nope/login' })).statusCode).toBe(404);
+    expect(runner.mcpLogin).not.toHaveBeenCalled();
+  });
+
+  it('502 login_unsupported when the CLI wants its callback relayed', async () => {
+    const { app, runner } = makeApp();
+    runner.mcpServers.mockResolvedValue(LOGIN_ROWS);
+    runner.mcpLogin.mockRejectedValue(new McpLoginUnsupportedError('the login redirects to custom'));
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/run/mcp/cf/login' });
+    expect([res.statusCode, res.json().error]).toEqual([502, 'login_unsupported']);
+  });
+
+  it('409 for a session not running here', async () => {
+    const { app } = makeApp();
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/asleep/mcp/cf/login' })).statusCode).toBe(409);
   });
 });

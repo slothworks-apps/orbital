@@ -11,6 +11,7 @@ import {
   parseDefinition,
   type McpConfig,
 } from '../mcp/config.js';
+import { McpLoginUnsupportedError } from '../mcp/login.js';
 import type { PermissionMode, SessionRow } from '../types.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 
@@ -21,7 +22,7 @@ export interface McpRouteContext {
   runner: Pick<
     Runner,
     | 'status' | 'pendingDecision' | 'stopAndWait' | 'start'
-    | 'mcpServers' | 'reconnectMcpServer' | 'toggleMcpServer' | 'reloadMcpConfig'
+    | 'mcpServers' | 'reconnectMcpServer' | 'toggleMcpServer' | 'reloadMcpConfig' | 'mcpLogin'
   >;
   mcp: McpConfig;
   settings: { get(key: string): string };
@@ -65,6 +66,7 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
       return reply.code(502).send({ error: 'cli_refused', message: err.output, command: err.command });
     }
     if (err instanceof McpStatusTimeoutError) return reply.code(504).send({ error: 'timeout', message });
+    if (err instanceof McpLoginUnsupportedError) return reply.code(502).send({ error: 'login_unsupported', message });
     // The session stopped between the check and the call.
     if (/is not active/.test(message)) return reply.code(409).send({ error: 'not_running', message });
     return reply.code(502).send({ error: 'session_error', message });
@@ -107,6 +109,26 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
       }
       await runner.reconnectMcpServer(id, name);
       return { servers: await runner.mcpServers(id) };
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  /**
+   * Starts a server's login and answers `{ authUrl }` for the browser. Only a
+   * server that says it needs one, and not a claude.ai connector — those are
+   * logged in on claude.ai, never through the CLI.
+   */
+  app.post('/api/sessions/:id/mcp/:name/login', async (req, reply) => {
+    const { id, name } = req.params as { id: string; name: string };
+    if (!runningRow(id, reply)) return reply;
+    try {
+      const row = (await runner.mcpServers(id)).find((s) => s.name === name);
+      if (!row) return reply.code(404).send({ error: 'unknown_server' });
+      if (row.status !== 'needs-auth' || row.origin === 'claudeai') {
+        return reply.code(400).send({ error: 'not_loginable', message: `${name} has no login to start here` });
+      }
+      return await runner.mcpLogin(id, name);
     } catch (err) {
       return failure(reply, err);
     }

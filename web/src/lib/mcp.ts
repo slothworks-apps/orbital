@@ -14,7 +14,7 @@ export function isMcpCommand(text: string): boolean {
   return text.trim() === MCP_COMMAND
 }
 
-/** How often the list is fetched again while a server is starting, only while the dialog is open (spec § The list). */
+/** How often the list is fetched again while a server is starting or a login waits, only while the dialog is open (spec § The list). */
 export const MCP_REFRESH_MS = 2000
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,8 @@ export function mcpStatusLabel(status: string): string {
 /**
  * The name a row shows and the origin chip beside it. A plugin's server reads
  * `<server>` under `plugin · <plugin>`; Orbital's own — the one row that cannot
- * be switched — reads `built-in`.
+ * be switched — reads `built-in`; a claude.ai connector reads `claude.ai`
+ * (canvas `Feature - MCP dialog` 12d), not the SDK's `claudeai`.
  */
 export function mcpRowLabels(
   row: Pick<McpServerRow, 'name' | 'origin' | 'plugin' | 'toggleable'>,
@@ -75,12 +76,85 @@ export function mcpRowLabels(
         : row.name
     return { name, origin: `plugin · ${row.plugin}` }
   }
+  if (row.origin === CLAUDEAI_ORIGIN) return { name: row.name, origin: 'claude.ai' }
   return { name: row.name, origin: row.origin ?? null }
 }
 
 /** How many servers are still starting — while any is, the list is fetched again. */
 export function startingCount(servers: readonly McpServerRow[]): number {
   return servers.filter((s) => mcpStatusKind(s.status) === 'starting').length
+}
+
+// ---------------------------------------------------------------------------
+// Log in (spec § Log in)
+// ---------------------------------------------------------------------------
+
+/** The `origin` of a claude.ai connector: logged in on claude.ai, never from Orbital. */
+export const CLAUDEAI_ORIGIN = 'claudeai'
+
+/** A row Orbital can start a login for: it needs one, and it is not a claude.ai connector. */
+export function isMcpLoginable(row: Pick<McpServerRow, 'status' | 'origin'>): boolean {
+  return mcpStatusKind(row.status) === 'login' && row.origin !== CLAUDEAI_ORIGIN
+}
+
+/**
+ * The rows whose login page was opened and that now wait for the browser,
+ * keyed by server name. `reconnected` is set once the window's regaining
+ * focus has reconnected the row — once per login attempt.
+ */
+export type McpLoginWaits = Readonly<Record<string, { reconnected: boolean }>>
+
+/** A login page was opened for `name`: it waits, and a fresh attempt may reconnect again. */
+export function startMcpLoginWait(waits: McpLoginWaits, name: string): McpLoginWaits {
+  return { ...waits, [name]: { reconnected: false } }
+}
+
+/**
+ * Drops every wait whose row is gone or no longer needs a login. Answers the
+ * same object when nothing changed, so it can feed a state setter safely.
+ */
+export function settleMcpLoginWaits(
+  waits: McpLoginWaits,
+  servers: readonly McpServerRow[],
+): McpLoginWaits {
+  const stillWaiting = new Set(
+    servers.filter((s) => mcpStatusKind(s.status) === 'login').map((s) => s.name),
+  )
+  const names = Object.keys(waits)
+  const kept = names.filter((name) => stillWaiting.has(name))
+  if (kept.length === names.length) return waits
+  const next: Record<string, { reconnected: boolean }> = {}
+  for (const name of kept) next[name] = waits[name]
+  return next
+}
+
+/**
+ * What the window regaining focus does: every waiting row that still needs a
+ * login and has not been reconnected in this attempt is reconnected, and is
+ * marked so the next focus leaves it alone.
+ */
+export function mcpLoginFocus(
+  waits: McpLoginWaits,
+  servers: readonly McpServerRow[],
+): { reconnect: string[]; waits: McpLoginWaits } {
+  const needsLogin = new Set(
+    servers.filter((s) => mcpStatusKind(s.status) === 'login').map((s) => s.name),
+  )
+  const reconnect = Object.keys(waits).filter(
+    (name) => !waits[name].reconnected && needsLogin.has(name),
+  )
+  if (reconnect.length === 0) return { reconnect, waits }
+  const next = { ...waits }
+  for (const name of reconnect) next[name] = { reconnected: true }
+  return { reconnect, waits: next }
+}
+
+/** The list is fetched again every MCP_REFRESH_MS while a server is starting or a login waits for the browser. */
+export function shouldRefreshMcpList(
+  servers: readonly McpServerRow[],
+  waits: McpLoginWaits,
+): boolean {
+  return startingCount(servers) > 0 || Object.keys(waits).length > 0
 }
 
 /** Only Orbital's own server: the dialog's "no servers of your own yet" state (canvas 12c, NO SERVERS). */

@@ -79,8 +79,10 @@ Per-row actions:
   `local`, the two scopes Orbital writes (below). A `project` server
   (`.mcp.json`), a plugin's, a claude.ai connector or a managed one is
   shown and can be toggled, nothing more.
-- `needs-auth` — a note that the server needs a login; Orbital cannot do
-  it yet (idea `mcp-login-from-orbital`).
+- **Log in** — on a `needs-auth` server that is not a claude.ai
+  connector. Opens the server's login page in the browser; the row then
+  waits for the browser (below). A claude.ai connector gets a note that
+  it is logged in on claude.ai instead.
 
 A row with an action in flight is locked and says what is happening
 (switching off…, reconnecting…, removing…).
@@ -91,6 +93,24 @@ response. While any row is `pending` it is fetched again every
 that cannot be read — the session does not answer within
 `MCP_STATUS_TIMEOUT_MS` (canvas: 10 s), or the request fails — shows the
 error and a Retry, nothing else.
+
+### Log in
+
+The SDK's `mcpAuthenticate(name)` answers an `authUrl`, and the session's
+`claude` process listens for the browser's callback itself (idea
+`mcp-login-from-orbital` § Spike). So Orbital only opens the URL: through
+`window.open`, which the desktop app hands to the system browser.
+
+While the user is in the browser the row says it is waiting and the list
+is fetched every `MCP_REFRESH_MS`, as for a starting server, until the
+row leaves `needs-auth` or the dialog closes. When the window regains
+focus and the row still needs a login, Orbital reconnects it once — the
+spike could not show whether the CLI connects the server by itself after
+the callback.
+
+An answer that would need Orbital to relay the callback (`redirectScheme`
+not `localhost`, `callbackExpected: false`) or carries no http(s) URL is
+refused: 502 `login_unsupported`, shown in the row with the old note.
 
 ### Add and edit
 
@@ -214,6 +234,8 @@ live session.
 - `POST /api/sessions/:id/mcp/:name/reconnect` → `{ servers }`
 - `POST /api/sessions/:id/mcp/:name/enabled`, body `{ enabled }` →
   `{ servers }`
+- `POST /api/sessions/:id/mcp/:name/login` → `{ authUrl }`; 400
+  `not_loginable` for a server not in `needs-auth` or from `claudeai`
 - `GET /api/sessions/:id/mcp/:name/config` → the definition for the
   form
 - `POST /api/sessions/:id/mcp` (add), `PUT /api/sessions/:id/mcp/:name`

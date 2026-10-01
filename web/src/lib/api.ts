@@ -370,6 +370,15 @@ export const api = {
     return request('GET', `/api/sessions/${id}/mcp`)
   },
 
+  /**
+   * Starts a server's login and answers the page to open in the browser
+   * (spec § Log in). 400 `not_loginable`, 502 `login_unsupported` with the
+   * SDK's message.
+   */
+  async mcpLogin(id: string, name: string): Promise<{ authUrl: string }> {
+    return request('POST', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/login`)
+  },
+
   async reconnectMcpServer(id: string, name: string): Promise<{ servers: McpServerRow[] }> {
     return request('POST', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/reconnect`)
   },

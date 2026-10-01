@@ -85,3 +85,17 @@ describe('Runner — MCP servers', () => {
     expect(toggleMcpServer).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Runner — MCP login', () => {
+  it('asks the CLI to start the login and answers the URL it gave', async () => {
+    const mcpAuthenticate = vi.fn(async () => ({ authUrl: 'https://auth.example/a', redirectScheme: 'localhost' }));
+    const runner = await started({ mcpAuthenticate });
+    expect(await runner.mcpLogin('web-1', 'cf')).toEqual({ authUrl: 'https://auth.example/a' });
+    expect(mcpAuthenticate).toHaveBeenCalledWith('cf');
+  });
+
+  it('a CLI without the control is an error', async () => {
+    const runner = await started();
+    await expect(runner.mcpLogin('web-1', 'cf')).rejects.toThrow(/cannot mcpAuthenticate/);
+  });
+});
