@@ -192,6 +192,8 @@ export class HarnessService {
   /** Sessions whose gate a reviewer is looking at right now. */
   private reviewing = new Set<string>();
   private deliver: Deliver | null = null;
+  /** Set once the server closes: work deferred past that point has no database. */
+  private disposed = false;
 
   constructor(private deps: HarnessDeps) {}
 
@@ -415,7 +417,7 @@ export class HarnessService {
   private reviewIfWaiting(h: SessionHarness): void {
     const i = activeIndex(h.state);
     if (!h.paused && h.options.lucky && i !== -1 && h.state[i].status === 'awaiting_approval') {
-      void this.review(h.sessionId, i).catch((err) => this.deps.onError?.(h.sessionId, err, 'reviewing a harness gate'));
+      void this.review(h.sessionId, i).catch((err) => this.report(h.sessionId, err, 'reviewing a harness gate'));
     }
   }
 
@@ -604,8 +606,22 @@ export class HarnessService {
   onTurnEnd(sessionId: string): void {
     const defer = this.deps.defer ?? ((fn) => setImmediate(fn));
     defer(() => {
-      void this.handleTurnEnd(sessionId).catch((err) => this.deps.onError?.(sessionId, err, 'ending a harness turn'));
+      if (this.disposed) return;
+      void this.handleTurnEnd(sessionId).catch((err) => this.report(sessionId, err, 'ending a harness turn'));
     });
+  }
+
+  /**
+   * Called as the server closes, before the database does. A turn that ended
+   * just before is still queued, and a review may be mid-call; neither may
+   * touch the closed database, and neither may report a failure into it.
+   */
+  dispose(): void {
+    this.disposed = true;
+  }
+
+  private report(sessionId: string, err: unknown, during: string): void {
+    if (!this.disposed) this.deps.onError?.(sessionId, err, during);
   }
 
   /**
@@ -626,7 +642,7 @@ export class HarnessService {
       }
       return this.deps.send(h.sessionId, text);
     } catch (err) {
-      this.deps.onError?.(h.sessionId, err, 'sending the next harness step');
+      this.report(h.sessionId, err, 'sending the next harness step');
       this.save({ ...h, paused: true, pauseReason: 'Orbital could not send the next message into the session.' });
       return null;
     }
@@ -666,7 +682,7 @@ export class HarnessService {
         );
         parsed = parseReviewReply(reply);
       } catch (err) {
-        this.deps.onError?.(sessionId, err, 'running the harness reviewer');
+        this.report(sessionId, err, 'running the harness reviewer');
         parsed = { ok: false as const, error: err instanceof Error ? err.message : String(err) };
       }
       const current = this.get(sessionId);
@@ -738,7 +754,7 @@ export class HarnessService {
       );
       verdict = parseWatcherReply(reply);
     } catch (err) {
-      this.deps.onError?.(sessionId, err, 'asking the harness watcher');
+      this.report(sessionId, err, 'asking the harness watcher');
       verdict = { continue: false as const, reason: 'The watcher could not be asked.' };
     }
     // The user may have typed, paused or removed the harness while the watcher thought.

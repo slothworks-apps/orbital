@@ -1062,6 +1062,7 @@ export async function buildServer(overrides: {
     for (const tail of tails.values()) tail.stop();
     for (const follower of followers.values()) follower.stop();
     backgroundTasks.dispose();
+    harness.dispose();
     db.$client.close();
     done();
   });
