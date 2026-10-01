@@ -49,6 +49,8 @@ import type { ErrorLog } from '../errors/log.js';
 import type { ImageStore } from '../images/store.js';
 import type { SessionTitler } from '../titler/titler.js';
 import { registerStatsRoutes } from './stats.js';
+import { registerMcpRoutes } from './mcp.js';
+import type { McpConfig } from '../mcp/config.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
 import { readSubagentMessages, subagentDirOf } from '../walkthrough/subagents.js';
 import { StampedCache, dirStamp, fileStamp } from '../transcript/stampedCache.js';
@@ -96,6 +98,9 @@ export interface RouteContext {
   /** The walkthrough's narrate queries and their stored rows (spec 2026-09-30-narrate-out-of-band-design). */
   narrator: Narrator;
   settings: { get(key: string): string; set(key: string, value: string): void };
+  /** MCP config through `claude mcp`, and the read of `~/.claude.json` the edit form needs
+   * (spec 2026-10-01-mcp-servers-in-the-session-design § Config). */
+  mcp: McpConfig;
   /**
    * The retention sweep (spec 2026-09-21-settings-sections-design § 4).
    * Injected rather than called directly because the sweep has to publish a
@@ -162,9 +167,25 @@ const REWIND_COMMAND: CatalogCommand = {
   source: 'built-in',
 };
 
-/** A session's command list with `/rewind` in it, Orbital's description winning. */
-function withRewind<T extends { name: string }>(commands: T[]): Array<T | CatalogCommand> {
-  return [...commands.filter((c) => c.name !== REWIND_COMMAND.name), REWIND_COMMAND]
+/**
+ * `/mcp`, which opens the MCP dialog and is never sent: the CLI has no
+ * interactive `/mcp` under the SDK (spec
+ * 2026-10-01-mcp-servers-in-the-session-design § Where it lives). Listed the
+ * same way as `/rewind`.
+ */
+const MCP_COMMAND: CatalogCommand = {
+  name: 'mcp',
+  description: 'Servers for this session',
+  source: 'built-in',
+};
+
+/** The commands Orbital answers itself. */
+const ORBITAL_COMMANDS = [REWIND_COMMAND, MCP_COMMAND];
+
+/** A session's command list with Orbital's own commands in it, Orbital's descriptions winning. */
+function withOrbitalCommands<T extends { name: string }>(commands: T[]): Array<T | CatalogCommand> {
+  const own = new Set(ORBITAL_COMMANDS.map((c) => c.name));
+  return [...commands.filter((c) => !own.has(c.name)), ...ORBITAL_COMMANDS]
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -585,7 +606,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
     const scanned = collectCommands({ claudeDir: ctx.claudeDir, cwd });
     const live = sessionId ? await ctx.runner.commands(sessionId) : null;
-    if (!live) return { commands: sessionId ? withRewind(scanned) : scanned };
+    if (!live) return { commands: sessionId ? withOrbitalCommands(scanned) : scanned };
     const byName = new Map(scanned.map((c) => [c.name, c]));
     const commands = live
       .map((c) => {
@@ -604,7 +625,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-    return { commands: withRewind(commands) };
+    return { commands: withOrbitalCommands(commands) };
   });
 
   /**
@@ -1130,7 +1151,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   }
 
   /** What only Orbital answers: sent as a message, it would reach the agent as text. */
-  const LOCAL_COMMANDS = new Set(['/rewind']);
+  const LOCAL_COMMANDS = new Set(ORBITAL_COMMANDS.map((c) => `/${c.name}`));
 
   app.post('/api/sessions/:id/messages', async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -1880,4 +1901,5 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   registerStatsRoutes(app, ctx);
+  registerMcpRoutes(app, ctx);
 }

@@ -24,6 +24,7 @@ import type { Finding } from '../src/stats/compute.js';
 import { HIST_BUCKET_COUNT } from '../src/stats/constants.js';
 import { recordPermissionWait } from '../src/stats/store.js';
 import { registerRoutes } from '../src/api/routes.js';
+import { McpConfig } from '../src/mcp/config.js';
 import { buildServer, publishLiveSession, republishCwds } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
 import { GitStore } from '../src/git/store.js';
@@ -74,6 +75,13 @@ const ideStore = new IdeStore({ claudeDir: '/nonexistent', watch: false });
  * own tests build one with injected readers.
  */
 const branchStatusStore = new BranchStatusStore({ git: gitStore, settings: { get: () => '' } });
+
+/**
+ * MCP config with no CLI and no config file: nothing here touches it, and
+ * nothing may reach the real `~/.claude.json`. `mcpRoutes.test.ts` drives
+ * the MCP routes against an injected one.
+ */
+const noMcp = new McpConfig({ cliPath: null, claudeJsonPath: '/nonexistent/.claude.json' });
 
 /**
  * A real retention context wired to the test's own database, so the route
@@ -191,6 +199,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
           .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
           .run(),
     },
+    mcp: noMcp,
     retention: retentionFor(db),
   });
   return {
@@ -1180,6 +1189,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
       claudeDir: '/nonexistent',
       settings: { get: () => '', set: () => {} },
+      mcp: noMcp,
       retention: retentionFor(db),
     });
     return { app, db, runner, hub, close: () => { runner.dispose(); db.$client.close(); } };
@@ -1819,6 +1829,8 @@ describe('tag anchors', () => {
 describe('GET /api/commands', () => {
   /** Orbital answers `/rewind` itself, so every session lists it (spec 2026-09-29-rewind-design). */
   const REWIND = { name: 'rewind', description: 'Take the conversation back to before one of your messages', source: 'built-in' };
+  /** And `/mcp`, which opens the MCP dialog (spec 2026-10-01-mcp-servers-in-the-session-design). */
+  const MCP = { name: 'mcp', description: 'Servers for this session', source: 'built-in' };
 
   /** A command on disk, the flat `~/.claude/commands/<name>.md` shape. */
   function writeCommand(claudeDir: string, name: string, description: string) {
@@ -1846,7 +1858,7 @@ describe('GET /api/commands', () => {
     expect(res.json()).toEqual({
       commands: [
         { name: 'deploy', description: 'deploy', source: 'project' },
-        REWIND,
+        MCP, REWIND,
         { name: 'ship', description: 'ship it', source: 'user' },
       ],
     });
@@ -1870,7 +1882,7 @@ describe('GET /api/commands', () => {
     expect(res.json()).toEqual({
       commands: [
         { name: 'clear', description: 'Clear conversation history', source: 'built-in' },
-        REWIND,
+        MCP, REWIND,
         { name: 'ship', description: 'ship it', source: 'user' },
         { name: 'usage', description: 'Show plan usage', source: 'built-in', aliases: ['cost'] },
       ],
@@ -1885,7 +1897,7 @@ describe('GET /api/commands', () => {
     runner.commands = async () => [{ name: 'ship', description: '' }];
 
     expect(res200(await app.inject({ method: 'GET', url: '/api/commands?session=sc' })).commands)
-      .toEqual([REWIND, { name: 'ship', description: 'ship it', source: 'user' }]);
+      .toEqual([MCP, REWIND, { name: 'ship', description: 'ship it', source: 'user' }]);
   });
 
   it('carries an argument hint through when the CLI gives one', async () => {
@@ -1898,7 +1910,7 @@ describe('GET /api/commands', () => {
     expect(res200(await app.inject({ method: 'GET', url: '/api/commands?session=sc' })).commands)
       .toEqual([
         { name: 'add-dir', description: 'Add a directory', source: 'built-in', argumentHint: '<path>' },
-        REWIND,
+        MCP, REWIND,
       ]);
   });
 

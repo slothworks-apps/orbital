@@ -1,7 +1,7 @@
 ---
 id: 2026-10-01-mcp-servers-in-the-session-design
 title: MCP servers — a /mcp dialog that shows, toggles, adds, edits and removes a session's servers
-status: active
+status: done
 type: spec
 domain: sessions
 related:
@@ -37,7 +37,7 @@ transcript are not touched.
 
 The composer intercepts `/mcp` the way it intercepts `/compact`. The
 server adds `/mcp` to the completion list the way it adds `/rewind`
-(`withRewind` in `routes.ts`), so it can be found by typing `/`.
+(`withOrbitalCommands` in `routes.ts`), so it can be found by typing `/`.
 
 `/mcp` on a session without a running process (asleep, ended) does not
 start one: the dialog opens with a note that the list needs a running

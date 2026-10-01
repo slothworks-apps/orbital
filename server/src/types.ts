@@ -247,3 +247,54 @@ export interface ErrorRecord {
   /** When the error list showed this row. Null until then. */
   seenAt: number | null;
 }
+
+/**
+ * One MCP server of a running Orbital session, as the `/mcp` dialog lists it
+ * (spec 2026-10-01-mcp-servers-in-the-session-design § Runner). Built from
+ * the SDK's `McpServerStatus`, never the raw object: the config and the tool
+ * list it carries stay on the server.
+ *
+ * Mirrored in `web/src/lib/types.ts`; this repo has no shared types package,
+ * so the two must move together.
+ */
+export interface McpServerRow {
+  /** The SDK's name, the key every action uses — a plugin's server keeps its `plugin:<plugin>:<server>` form here. */
+  name: string;
+  /** The SDK's status (`connected | failed | needs-auth | pending | disabled`), passed through; a newer CLI may say something else. */
+  status: string;
+  error?: string;
+  /** The SDK's `source`, else its `scope`; `built-in` for Orbital's own server, and the config scope for a server the reader found in `user` or `local`. */
+  origin?: string;
+  /** The plugin named by a `plugin:<plugin>:<server>` name. */
+  plugin?: string;
+  /** How many tools the server offers; only when connected. */
+  toolCount?: number;
+  /** False for Orbital's own server, which nothing may switch off. */
+  toggleable: boolean;
+  /** Found in the `user` or `local` config, so Edit and Remove apply. */
+  editable: boolean;
+}
+
+/** The two config scopes Orbital writes (adr mcp-config-is-written-by-the-cli-in-private-scopes). */
+export type McpScope = 'local' | 'user';
+
+/**
+ * One MCP server's definition as the add/edit form sends it and the config
+ * route answers it. Mirrored in `web/src/lib/types.ts`.
+ */
+export type McpServerDefinition =
+  | {
+      name: string;
+      scope: McpScope;
+      transport: 'stdio';
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+    }
+  | {
+      name: string;
+      scope: McpScope;
+      transport: 'http' | 'sse';
+      url: string;
+      headers: Record<string, string>;
+    };

@@ -1257,3 +1257,59 @@ export interface SessionStatsDetail {
   findings: Array<{ rule: string; severity: FindingSeverity; evidence: Record<string, unknown> }>
   turns: StatsTurnSegment[]
 }
+
+/**
+ * One MCP server as the running session reports it (spec
+ * 2026-10-01-mcp-servers-in-the-session-design § Runner). `status` is the
+ * SDK's string, passed through — a newer CLI may send one this client does
+ * not know. `name` is the key every action uses, `plugin:<plugin>:<server>`
+ * for a plugin's server.
+ */
+export interface McpServerRow {
+  name: string
+  status: string
+  error?: string
+  /** The SDK's `source`, or `scope` on an older CLI: user, local, project, plugin, claudeai, managed … */
+  origin?: string
+  /** Parsed by the server out of a `plugin:<plugin>:<server>` name. */
+  plugin?: string
+  toolCount?: number
+  /** False only for Orbital's own server. */
+  toggleable: boolean
+  /** Found in the user or local config — the two scopes Orbital writes. */
+  editable: boolean
+}
+
+/** The scopes Orbital writes; `project` is never offered (adr mcp-config-is-written-by-the-cli-in-private-scopes). */
+export type McpScope = 'local' | 'user'
+
+export type McpTransport = 'stdio' | 'http' | 'sse'
+
+/**
+ * One server's definition: what the add/edit form sends (`POST …/mcp`, and
+ * `PUT …/mcp/:name`, which may rename it or move its scope) and what
+ * `GET …/mcp/:name/config` answers. Mirrors `McpServerDefinition` in
+ * `server/src/types.ts`.
+ */
+export type McpServerDefinition =
+  | {
+      name: string
+      scope: McpScope
+      transport: 'stdio'
+      command: string
+      args: string[]
+      env: Record<string, string>
+    }
+  | {
+      name: string
+      scope: McpScope
+      transport: 'http' | 'sse'
+      url: string
+      headers: Record<string, string>
+    }
+
+/** What add, edit and remove answer: the new list, and whether the change needs a restart to reach the session. */
+export interface McpMutationResult {
+  servers: McpServerRow[]
+  restartNeeded: boolean
+}

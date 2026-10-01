@@ -12,6 +12,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'pill'
     | 'pill-active'
     | 'pill-muted'
+    | 'pill-danger'
     | 'strip'
     | 'toggle'
     | 'toggle-on'
@@ -49,6 +50,10 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
     'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)]',
   'pill-muted':
     'bg-transparent text-[rgba(190,212,238,.6)] font-semibold border border-[rgba(150,205,255,.1)] hover:bg-white/5',
+  // The MCP dialog's confirming Remove (canvas `Feature - MCP dialog` 12a/12b): the error-log
+  // red, oklch(60% .2 25) → #de3b3d, as a hairline and a wash, with oklch(86% .08 25) → #ffbdb7 ink.
+  'pill-danger':
+    'bg-[#de3b3d]/14 text-[#ffbdb7] font-semibold border border-[#de3b3d]/55 hover:bg-[#de3b3d]/25',
   // Canvas 27a: the composer strip's Cancel / Cancel rewind — a hairline
   // chip in regular weight that lights its fill on hover.
   strip:

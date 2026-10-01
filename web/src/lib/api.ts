@@ -19,6 +19,9 @@ import type {
   PermissionMode,
   OrbitalModel,
   ModelValidation,
+  McpMutationResult,
+  McpServerDefinition,
+  McpServerRow,
   SessionStatsDetail,
   StatsOverview,
   StatsWindow,
@@ -351,6 +354,51 @@ export const api = {
    */
   async reopenSession(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('POST', `/api/sessions/${id}/reopen`)
+  },
+
+  /**
+   * The running session's MCP servers (spec
+   * 2026-10-01-mcp-servers-in-the-session-design § Routes). 409 when the
+   * session has no process — the dialog's asleep note — and 504 when it does
+   * not answer in time.
+   */
+  async mcpServers(id: string): Promise<{ servers: McpServerRow[] }> {
+    return request('GET', `/api/sessions/${id}/mcp`)
+  },
+
+  async reconnectMcpServer(id: string, name: string): Promise<{ servers: McpServerRow[] }> {
+    return request('POST', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/reconnect`)
+  },
+
+  /** Holds for the whole project, terminal sessions included (adr the-mcp-toggle-is-project-wide). */
+  async setMcpServerEnabled(id: string, name: string, enabled: boolean): Promise<{ servers: McpServerRow[] }> {
+    return request('POST', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/enabled`, { enabled })
+  },
+
+  async mcpServerConfig(id: string, name: string): Promise<McpServerDefinition> {
+    return request('GET', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/config`)
+  },
+
+  /**
+   * Add, edit and remove go through the CLI: 503 when it is missing, 502 when
+   * it refuses — the body then carries its output and the masked command.
+   */
+  async addMcpServer(id: string, server: McpServerDefinition): Promise<McpMutationResult> {
+    return request('POST', `/api/sessions/${id}/mcp`, server)
+  },
+
+  /** `name` is the server's current name; a rename is `server.name`. */
+  async updateMcpServer(id: string, name: string, server: McpServerDefinition): Promise<McpMutationResult> {
+    return request('PUT', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}`, server)
+  },
+
+  async removeMcpServer(id: string, name: string): Promise<McpMutationResult> {
+    return request('DELETE', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}`)
+  },
+
+  /** The restart banner's Restart: the transcript is kept. 409 while a turn runs or a decision is pending. */
+  async restartMcpSession(id: string): Promise<{ servers: McpServerRow[] }> {
+    return request('POST', `/api/sessions/${id}/mcp/restart`)
   },
 
   async clearSession(id: string, startNew: boolean): Promise<{ ok: boolean; sessionId?: string }> {

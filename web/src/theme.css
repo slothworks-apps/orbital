@@ -667,3 +667,26 @@ body {
     animation: none;
   }
 }
+
+/* The MCP dialog's loading rows (`Feature - MCP dialog` 12c, `mcp-skel`):
+   placeholders breathing between .45 and .9, staggered per row by the
+   caller. */
+@keyframes orbital-skel {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.orbital-skel {
+  animation: orbital-skel 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-skel {
+    animation: none;
+  }
+}

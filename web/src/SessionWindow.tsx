@@ -19,6 +19,7 @@ import { SubagentPanel } from './panels/SubagentPanel'
 import { TaskOutputPanel } from './panels/TaskOutputPanel'
 import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
+import { McpDialog } from './panels/McpDialog'
 import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary } from './ui/escapeLayer'
@@ -216,6 +217,7 @@ export function SessionWindow({ id }: { id: string }) {
         <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
         {/* A `/compact` past running subagents, from the composer or the map's badge. */}
         <CompactDialog />
+        <McpDialog />
         <Toasts />
       </div>
     </EscapeBoundary>

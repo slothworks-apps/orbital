@@ -29,6 +29,20 @@ export function sdkBundledCliAvailable(): boolean {
   }
 }
 
+/**
+ * The bundled binary's own path, for the one place Orbital runs the CLI
+ * itself rather than through the SDK — `claude mcp` (spec
+ * 2026-10-01-mcp-servers-in-the-session-design § Config). Null when the
+ * package is not resolvable.
+ */
+export function sdkBundledCliPath(): string | null {
+  try {
+    return createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk-darwin-arm64/claude');
+  } catch {
+    return null;
+  }
+}
+
 /** Search PATH dirs then fallbackPathDirs(home) for an existing `claude`. `exists` injected for tests. */
 export function findClaudeOnDisk(opts: {
   pathVar: string | undefined;

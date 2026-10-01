@@ -144,6 +144,12 @@ export interface ComposerProps {
   enter: 'send' | 'newline'
   /** Called with the trimmed markdown when ⏎ sends. */
   onSend?: (text: string) => void
+  /**
+   * A completion that acts instead of being inserted — `/mcp` opens its
+   * dialog straight from the popup (canvas `Feature - MCP dialog` 12d).
+   * Returning true means it acted, and the accept inserts nothing.
+   */
+  actOnAccept?: (insert: string) => boolean
   /** The popup opens above on the panel floor, below in the dialog (canvas 9b/9d). */
   placement: 'above' | 'below'
   /** Well geometry: 12/12/10 in the panel, 12/14/10 over a 96px floor in the dialog (9e). */
@@ -222,6 +228,7 @@ export function Composer({
   onChange,
   enter,
   onSend,
+  actOnAccept,
   placement,
   variant,
   hint,
@@ -569,6 +576,7 @@ export function Composer({
   const handleAccept = useCallback(
     (insert: string, keepOpen: boolean) => {
       if (context === null || !editor) return
+      if (!keepOpen && actOnAccept?.(insert)) return
       // One trailing space on accept; a directory gets none, because the popup
       // stays open and keeps completing inside it (canvas 9b).
       const tail = keepOpen ? '' : ' '
@@ -578,7 +586,7 @@ export function Composer({
       const { state } = editor
       editor.view.dispatch(state.tr.insertText(insert + tail, context.start, state.selection.from))
     },
-    [context, editor],
+    [context, editor, actOnAccept],
   )
 
   // The editor slot's two rates, run once for the slot and the hint line both

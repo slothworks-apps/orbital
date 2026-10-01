@@ -59,6 +59,8 @@ import { EndDialog } from './EndDialog'
 import { RewindDialog } from './RewindDialog'
 import { cancelRewind, useRewindUi } from '../store/rewind'
 import { isRewindCommand } from '../lib/rewind'
+import { MCP_COMMAND, isMcpCommand } from '../lib/mcp'
+import { useMcpUi } from '../store/mcp'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { SubagentChip } from './SubagentChip'
@@ -557,6 +559,18 @@ export function DetailPanel({
    * goes out when the last upload settles. A chip that failed is left behind and
    * is not in the turn.
    */
+  /**
+   * `/mcp` picked from the completion popup opens its dialog there and then,
+   * not after a second ⏎ (canvas `Feature - MCP dialog` 12d) — but only when
+   * the draft is nothing more than the command being typed.
+   */
+  function handleAcceptAction(insert: string): boolean {
+    if (insert !== MCP_COMMAND || attachments.armed) return false
+    if (!MCP_COMMAND.startsWith(prompt.trim())) return false
+    handleSend(MCP_COMMAND)
+    return true
+  }
+
   function handleSend(draft: string = prompt) {
     const text = draft.trim()
     const sessionId = id
@@ -570,6 +584,15 @@ export function DetailPanel({
       if (rewindPending) return
       setPrompt('')
       if (!picking) togglePick(sessionId)
+      return
+    }
+    // `/mcp` is Orbital's too: it opens the MCP dialog and nothing is sent —
+    // the CLI has no interactive `/mcp` under the SDK, and the server refuses
+    // it as a message (spec 2026-10-01-mcp-servers-in-the-session-design
+    // § Where it lives).
+    if (isMcpCommand(text) && !attachments.armed) {
+      setPrompt('')
+      useMcpUi.getState().open(sessionId)
       return
     }
     // A turn sent from pick mode ends it.
@@ -1128,6 +1151,7 @@ export function DetailPanel({
             onChange={setPrompt}
             enter="send"
             onSend={handleSend}
+            actOnAccept={handleAcceptAction}
             placement="above"
             variant="panel"
             // Canvas 9c: one hint line rewritten while a question is open —

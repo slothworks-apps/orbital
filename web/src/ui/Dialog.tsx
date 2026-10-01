@@ -18,8 +18,12 @@ import type { ReactNode } from 'react'
 export interface DialogProps {
   open: boolean
   title: string
-  /** Mono uppercase kicker above the title (e.g. "LAUNCH", "/clear"). */
-  eyebrow?: string
+  /**
+   * Mono uppercase kicker above the title (e.g. "LAUNCH", "/clear"). A node
+   * for the MCP dialog's form, whose kicker is its "← SERVERS" back link
+   * (canvas `Feature - MCP dialog` 12a).
+   */
+  eyebrow?: ReactNode
   /**
    * Panel width and chrome, straight off the export:
    * `sm` = 440px stop confirm (1b), `md` = 560px clear confirm (1g),
@@ -40,6 +44,18 @@ export interface DialogProps {
   footer?: ReactNode
   /** Left side of the footer row — mono muted keyboard hints or captions. */
   footerCaption?: ReactNode
+  /**
+   * The footer's far left, before the caption: the MCP dialog's "+ Add
+   * server" and its form's "Remove server" (canvas 12a/12b), which sit where
+   * the other dialogs put their hints.
+   */
+  footerLead?: ReactNode
+  /**
+   * A block between the scrolling body and the footer that stays put while
+   * the body scrolls — the MCP dialog's restart banner and its "CLI refused"
+   * block (canvas 12a/12b).
+   */
+  aboveFooter?: ReactNode
   /**
    * Attaches to the dialog's own surface. The New Session dialog's image intake
    * needs it because 9d-D's drop target is the DIALOG, not the composer's well
@@ -160,6 +176,8 @@ export function Dialog({
   headerMeta,
   footer,
   footerCaption,
+  footerLead,
+  aboveFooter,
   surfaceRef,
   dropArmed = false,
   onClose,
@@ -286,7 +304,10 @@ export function Dialog({
         >
           {children}
         </div>
-        {(footer || footerCaption) && (
+        {aboveFooter != null && (
+          <div className={['shrink-0 pb-3.5', gutter[size]].join(' ')}>{aboveFooter}</div>
+        )}
+        {(footer || footerCaption || footerLead) && (
           <footer
             className={[
               'flex shrink-0 items-center gap-2.5 border-t border-[rgba(150,205,255,.1)]',
@@ -294,6 +315,7 @@ export function Dialog({
               gutter[size],
             ].join(' ')}
           >
+            {footerLead != null && <div className="flex min-w-0 items-center gap-2">{footerLead}</div>}
             <div className="min-w-0 flex-1 truncate font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
               {footerCaption}
             </div>

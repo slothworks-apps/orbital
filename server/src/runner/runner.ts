@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
-import type { PermissionMode, SessionStatus, ChatMessage } from '../types.js';
+import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow } from '../types.js';
+import type { McpConfigSnapshot } from '../mcp/claudeJson.js';
+import { shapeMcpServers } from '../mcp/rows.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
 import {
   SUBAGENT_TOOLS,
@@ -121,16 +123,35 @@ function toolResultText(content: unknown): string {
 }
 
 /**
+ * How long the `/mcp` dialog's list waits for the session to answer
+ * `mcpServerStatus` before the route says it did not (504). A session that
+ * stopped answering is not stood in for by its `init` snapshot (spec
+ * 2026-10-01-mcp-servers-in-the-session-design § Runner).
+ */
+export const MCP_STATUS_TIMEOUT_MS = 10_000;
+
+/** The session did not answer the MCP status request within `MCP_STATUS_TIMEOUT_MS`. */
+export class McpStatusTimeoutError extends Error {}
+
+/** The live query's MCP control methods — optional for the same reasons as the rest of `QueryFn`. */
+type McpControl = {
+  mcpServerStatus?: () => Promise<unknown[]>;
+  reconnectMcpServer?: (serverName: string) => Promise<void>;
+  toggleMcpServer?: (serverName: string, enabled: boolean) => Promise<void>;
+  reloadPlugins?: () => Promise<unknown>;
+};
+
+/**
  * The subset of the SDK's `Query` object Orbital uses. `supportedModels`,
- * `supportedCommands`, `setModel`, `setPermissionMode` and `getContextUsage`
- * are optional because a fake in a test may implement only what that test
- * exercises — and because a CLI too old to answer a control request must
- * degrade to "unknown", never to a crash.
+ * `supportedCommands`, `setModel`, `setPermissionMode`, `getContextUsage` and
+ * the MCP controls are optional because a fake in a test may implement only
+ * what that test exercises — and because a CLI too old to answer a control
+ * request must degrade to "unknown", never to a crash.
  */
 export type QueryFn = (args: {
   prompt: AsyncIterable<unknown>;
   options: Record<string, unknown>;
-}) => AsyncGenerator<any> & {
+}) => AsyncGenerator<any> & McpControl & {
   interrupt?: () => Promise<void>;
   setModel?: (model?: string) => Promise<void>;
   setPermissionMode?: (mode: PermissionMode) => Promise<void>;
@@ -531,7 +552,7 @@ interface ManagedSession {
    * session rather than consumed and forgotten.
    */
   generator:
-    | (AsyncGenerator<any> & {
+    | (AsyncGenerator<any> & McpControl & {
         interrupt?: () => Promise<void>;
         setModel?: (model?: string) => Promise<void>;
         setPermissionMode?: (mode: PermissionMode) => Promise<void>;
@@ -621,6 +642,11 @@ interface ManagedSession {
    * read the transcript again.
    */
   danglingCall: 'none' | 'left' | 'resetAtTurnEnd';
+  /**
+   * The MCP servers `system/init` listed — the last known list, which
+   * `mcpServers` answers from when the live query cannot be asked.
+   */
+  mcpSnapshot: unknown[] | null;
 }
 
 /**
@@ -746,6 +772,8 @@ export class Runner {
   private ide?: IdeApprovals;
   /** See the `appendix` dep. */
   private appendix?: () => string | null;
+  /** See the `mcpConfig` dep. */
+  private mcpConfig?: (cwd: string) => McpConfigSnapshot;
   /**
    * Starts a session on behalf of a running one — the `spawn_session` tool's
    * back end (spec 2026-09-30-a-session-spawns-sessions-design). Assigned by
@@ -940,6 +968,12 @@ export class Runner {
      * one. Unwired or null, the bare preset goes out.
      */
     appendix?: () => string | null;
+    /**
+     * The `user` and `local` MCP servers of a project, read from the CLI's
+     * config — what makes a `/mcp` row editable (see `shapeMcpServers`).
+     * Unwired (most tests), no row is.
+     */
+    mcpConfig?: (cwd: string) => McpConfigSnapshot;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -966,6 +1000,7 @@ export class Runner {
     this.onCompaction = deps.onCompaction;
     this.readContextUsed = deps.readContextUsed;
     this.appendix = deps.appendix;
+    this.mcpConfig = deps.mcpConfig;
   }
 
   /**
@@ -1186,6 +1221,7 @@ export class Runner {
       turnPrompt: opts.prompt,
       rewind: opts.rewind ?? null, rewindRefused: false,
       openToolUses: new Set(), danglingCall: 'none',
+      mcpSnapshot: null,
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -1381,6 +1417,7 @@ export class Runner {
           console.warn('orbital: failed to record a sent rewind:', err);
         }
       }
+      if (Array.isArray(msg.mcpServers)) state.mcpSnapshot = msg.mcpServers;
       this.onInit?.(sessionId, typeof msg.model === 'string' ? msg.model : null);
       return;
     }
@@ -2486,6 +2523,74 @@ export class Runner {
     if (!s) throw new Error(`session ${sessionId} is not active`);
     await s.generator?.setPermissionMode?.(mode);
     s.attempt.permissionMode = mode;
+  }
+
+  /** The session this Runner runs, or the `setModel` error for one it does not. */
+  private activeSession(sessionId: string): ManagedSession {
+    const s = this.sessions.get(sessionId);
+    if (!s) throw new Error(`session ${sessionId} is not active`);
+    return s;
+  }
+
+  /** The live query's MCP control `name`, or an error when this CLI has none — never a silent no-op. */
+  private mcpControl<K extends keyof McpControl>(sessionId: string, name: K): NonNullable<McpControl[K]> {
+    const generator = this.activeSession(sessionId).generator;
+    const method = generator?.[name];
+    if (!generator || typeof method !== 'function') {
+      throw new Error(`this session's CLI cannot ${name}`);
+    }
+    return (method as (...args: never[]) => unknown).bind(generator) as NonNullable<McpControl[K]>;
+  }
+
+  /**
+   * The session's MCP servers as the `/mcp` dialog lists them (spec
+   * 2026-10-01-mcp-servers-in-the-session-design § Runner). Asked live; the
+   * `system/init` snapshot answers only when the CLI has no
+   * `mcpServerStatus` at all. A call that throws or outlasts
+   * `MCP_STATUS_TIMEOUT_MS` is an error — the snapshot would show a session
+   * that stopped answering as fine.
+   */
+  async mcpServers(sessionId: string, timeoutMs = MCP_STATUS_TIMEOUT_MS): Promise<McpServerRow[]> {
+    const s = this.activeSession(sessionId);
+    const config = this.mcpConfig?.(s.attempt.cwd);
+    const generator = s.generator;
+    if (!generator?.mcpServerStatus) {
+      if (!s.mcpSnapshot) throw new Error("this session's CLI cannot list its MCP servers yet");
+      return shapeMcpServers(s.mcpSnapshot, config);
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new McpStatusTimeoutError(`the session did not answer within ${timeoutMs / 1000} s`)),
+        timeoutMs,
+      );
+    });
+    try {
+      const raw = await Promise.race([generator.mcpServerStatus(), timeout]);
+      return shapeMcpServers(raw, config);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async reconnectMcpServer(sessionId: string, name: string): Promise<void> {
+    await this.mcpControl(sessionId, 'reconnectMcpServer')(name);
+  }
+
+  /**
+   * Switches one MCP server on or off. The CLI persists it for the whole
+   * project (adr the-mcp-toggle-is-project-wide). Orbital's own server is
+   * refused here, not only hidden in the UI: without it a session cannot
+   * spawn sessions.
+   */
+  async toggleMcpServer(sessionId: string, name: string, enabled: boolean): Promise<void> {
+    if (name === ORBITAL_MCP_SERVER) throw new Error(`the ${ORBITAL_MCP_SERVER} MCP server cannot be switched`);
+    await this.mcpControl(sessionId, 'toggleMcpServer')(name, enabled);
+  }
+
+  /** Makes the running session connect a server just added to its config (spec § Verify first, 2). */
+  async reloadMcpConfig(sessionId: string): Promise<void> {
+    await this.mcpControl(sessionId, 'reloadPlugins')();
   }
 
   /**

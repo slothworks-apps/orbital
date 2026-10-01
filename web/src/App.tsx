@@ -25,6 +25,7 @@ import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
+import { McpDialog } from './panels/McpDialog'
 import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
@@ -306,6 +307,8 @@ export default function App() {
       <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
       {/* A `/compact` past running subagents, from the composer or the map's badge. */}
       <CompactDialog />
+      {/* `/mcp` from the composer (spec 2026-10-01-mcp-servers-in-the-session-design). */}
+      <McpDialog />
 
       {/* The way into the error log lives in SpaceMap's HUD now — an icon
           with the unseen count as its badge, riding the zoom column. */}

@@ -29,7 +29,9 @@ import { recordPermissionWait } from './stats/store.js';
 import { Hub } from './api/hub.js';
 import { Runner, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
-import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable } from './runner/claudeCli.js';
+import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledCliPath } from './runner/claudeCli.js';
+import { McpConfig } from './mcp/config.js';
+import { claudeJsonPath } from './mcp/claudeJson.js';
 import { GitStore } from './git/store.js';
 import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
@@ -480,6 +482,15 @@ export async function buildServer(overrides: {
     republish(sessionId);
   };
 
+  // MCP config changes run `claude mcp` itself, outside the SDK, so they need
+  // an executable path even when the session CLI is the SDK's bundled one,
+  // whose path `claudeCli` leaves null (spec
+  // 2026-10-01-mcp-servers-in-the-session-design § Config).
+  const mcpConfig = new McpConfig({
+    cliPath: claudeCli.path ?? (claudeCli.source === 'bundled' ? sdkBundledCliPath() : null),
+    claudeJsonPath: claudeJsonPath(),
+  });
+
   const runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
@@ -491,6 +502,8 @@ export async function buildServer(overrides: {
     // editor).
     ide: ideApprovals(ide),
     subagentTranscripts,
+    // Which `/mcp` rows are editable: read per call, the CLI rewrites it.
+    mcpConfig: (cwd) => mcpConfig.read(cwd),
     // Read per start, never captured: every switch and the text hold for a
     // session from its next spawn or revive (spec
     // 2026-09-30-session-instructions-design § 1). Default-on rows read
@@ -982,6 +995,7 @@ export async function buildServer(overrides: {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, errors,
     images, imagesDir, titler, narrator, git, ide, branchStatus,
     settings: settingsStore,
+    mcp: mcpConfig,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,
     retention: {
