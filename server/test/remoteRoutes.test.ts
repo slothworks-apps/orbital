@@ -7,6 +7,8 @@ import { openDb } from '../src/db/database.js';
 import { settings as settingsTable } from '../src/db/schema.js';
 import type { OrbitalDb } from '../src/db/database.js';
 import { DeviceStore } from '../src/remote/devices.js';
+import { RemoteService } from '../src/remote/service.js';
+import { Hub } from '../src/api/hub.js';
 import { remoteInjectOptions } from '../src/remote/inject.js';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
@@ -66,6 +68,34 @@ describe('/api/remote', () => {
     expect((await app.inject({ method: 'GET', url: '/api/sessions' })).statusCode).toBe(200);
     await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:1' } });
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json()).toMatchObject({ relay: 'connecting', error: null });
+    await app.close();
+  });
+  it('a Mac-name change publishes the new name without restarting; a relay URL change restarts', async () => {
+    const app = await server(true);
+    const stop = vi.spyOn(RemoteService.prototype, 'stop');
+    const publish = vi.spyOn(Hub.prototype, 'publish');
+    try {
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_mac_name: 'Studio' } });
+      expect(stop).not.toHaveBeenCalled();
+      expect(publish).toHaveBeenCalledWith('remote', expect.objectContaining({ event: 'status', macName: 'Studio' }));
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } });
+      expect(stop).toHaveBeenCalledTimes(1);
+    } finally {
+      stop.mockRestore();
+      publish.mockRestore();
+      await app.close();
+    }
+  });
+  it('restart tries again with the same settings and answers the new status', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const app = await server(true, 'foo');
+    warn.mockClear();
+    const res = await app.inject({ method: 'POST', url: '/api/remote/restart' });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[remote] could not start'));
+    warn.mockRestore();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ enabled: true, relay: 'off' });
+    expect(res.json().error).toEqual(expect.any(String));
     await app.close();
   });
   it('confirm needs the phone the user verified', async () => {

@@ -83,6 +83,7 @@ const initialSnapshot: OrbitalState = {
   statsRevision: {},
   errors: [],
   errorsUnseen: 0,
+  remote: null,
   pendingDecisions: {},
   decisionAnswers: {},
   decisionVerdicts: {},
@@ -2536,5 +2537,36 @@ describe('applySessionEvent: delta', () => {
     const [row] = useOrbital.getState().transcripts.s1
     expect(row).toMatchObject({ id: 'r1', role: 'thinking', text: 'unclaimed' })
     expect(row.partial).toBeUndefined()
+  })
+})
+
+describe('refreshRemote', () => {
+  const remoteStatus = (macName: string) => ({
+    enabled: true, relay: 'online' as const, relayAttempts: 0, relayUrl: 'https://r.example', macId: 'm',
+    macName, devices: [], pendingPair: null, pairing: null, error: null,
+  })
+
+  it('stores the answer when nothing newer arrived meanwhile', async () => {
+    vi.mocked(api.getRemote).mockResolvedValueOnce(remoteStatus('fetched'))
+    expect(await useOrbital.getState().refreshRemote()).toBe('stored')
+    expect(useOrbital.getState().remote?.macName).toBe('fetched')
+  })
+
+  it('answers failed, and keeps the status, when the read fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    useOrbital.getState().setRemote(remoteStatus('kept'))
+    vi.mocked(api.getRemote).mockRejectedValueOnce(new Error('down'))
+    expect(await useOrbital.getState().refreshRemote()).toBe('failed')
+    expect(useOrbital.getState().remote?.macName).toBe('kept')
+  })
+
+  it('drops the answer when a status was published while it was in flight', async () => {
+    let answer!: (s: ReturnType<typeof remoteStatus>) => void
+    vi.mocked(api.getRemote).mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    const pending = useOrbital.getState().refreshRemote()
+    useOrbital.getState().applyRemoteEvent({ event: 'status', ...remoteStatus('published') })
+    answer(remoteStatus('stale'))
+    expect(await pending).toBe('superseded')
+    expect(useOrbital.getState().remote?.macName).toBe('published')
   })
 })

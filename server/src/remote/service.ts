@@ -25,6 +25,8 @@ import { wakeSecret, wakeToken } from './wake.js';
 export type RemoteStatus = {
   enabled: boolean;
   relay: 'off' | 'connecting' | 'online';
+  /** The relay client's consecutive failed connection attempts; 0 with no client. */
+  relayAttempts: number;
   relayUrl: string;
   macId: string | null;
   macName: string;
@@ -130,10 +132,19 @@ export class RemoteService {
     this.pairing = null;
   }
 
-  /** Re-reads every setting: a toggle, a relay URL or a name change applies now. */
+  /** Re-reads every setting: a toggle or a relay URL change applies now. */
   settingsChanged(): void {
     this.stop();
     this.start();
+  }
+
+  /**
+   * The Mac's name changed. `macName` is read fresh for every pairing code and
+   * every new phone session, so nothing restarts; the status is published so
+   * every window shows the new name.
+   */
+  nameChanged(): void {
+    this.publishStatus();
   }
 
   status(): RemoteStatus {
@@ -142,6 +153,7 @@ export class RemoteService {
     return {
       enabled: this.enabled,
       relay: this.client?.status ?? 'off',
+      relayAttempts: this.client?.attempts ?? 0,
       relayUrl: this.relayUrl,
       macId: this.identity ? deviceId(this.identity.publicKey) : null,
       macName: this.macName,

@@ -5,6 +5,12 @@ import type { RemoteService } from '../remote/service.js';
 export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService): void {
   app.get('/api/remote', () => remote.status());
 
+  // "Try again": a failed start does not retry on identical settings by itself.
+  app.post('/api/remote/restart', () => {
+    remote.settingsChanged();
+    return remote.status();
+  });
+
   app.post('/api/remote/pair', async (_req, reply) => {
     const res = await remote.startPairing();
     if ('error' in res) return reply.code(409).send(res);

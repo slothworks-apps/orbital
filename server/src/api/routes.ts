@@ -1862,11 +1862,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
   app.patch('/api/settings', (req) => {
     let branchSettings = false;
-    let remoteSettings = false;
+    let remoteRestart = false;
+    let remoteName = false;
     for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
       // A restart of the remote drops every connected phone; saving a value
       // that did not change must not do that.
-      if (k.startsWith('remote_') && ctx.settings.get(k) !== String(v)) remoteSettings = true;
+      if (k.startsWith('remote_') && ctx.settings.get(k) !== String(v)) {
+        if (k === 'remote_mac_name') remoteName = true;
+        else remoteRestart = true;
+      }
       ctx.settings.set(k, String(v));
       // Applied now, not at the next boot: the dialog confirms "this will drop
       // N sessions" before saving, and deferring the sweep would make that
@@ -1877,8 +1881,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // Without a reload: a switch turned off drops the field from the open
     // sessions, one turned on starts reading and fills it.
     if (branchSettings) ctx.branchStatus.settingsChanged();
-    // The switch, the relay URL and the Mac's name all apply now, not at the next boot.
-    if (remoteSettings) ctx.remote.settingsChanged();
+    // The switch and the relay URL apply now, not at the next boot. The Mac's
+    // name restarts nothing: the service reads it fresh for every pairing
+    // code, and a restart would drop every phone session and an open code at
+    // each pause in typing. It only republishes the status that shows it.
+    if (remoteRestart) ctx.remote.settingsChanged();
+    else if (remoteName) ctx.remote.nameChanged();
     return { ok: true };
   });
 

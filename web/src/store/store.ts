@@ -22,6 +22,7 @@ import type {
   OrbitalModel,
   PendingDecision,
   PermissionMode,
+  RemoteStatus,
   SessionSource,
   SessionStatus,
   SessionHarness,
@@ -143,6 +144,15 @@ export type TaskOutputEvent = { event: 'output'; offset: number; text: string } 
 export type ErrorsEvent =
   | { event: 'error'; error: ErrorRecord; unseen: number }
   | { event: 'seen'; ids: number[] | null; unseen: number }
+
+/**
+ * Events on the `remote` topic (`server/src/remote/service.ts`). A
+ * `pair_request` is always followed by a `status` carrying the same request
+ * as `pendingPair`, so only `status` is read.
+ */
+export type RemoteEvent =
+  | ({ event: 'status' } & RemoteStatus)
+  | { event: 'pair_request'; phone: string; name: string; platform: string; fingerprint: string }
 
 export interface Toast {
   /**
@@ -297,6 +307,12 @@ export interface OrbitalState {
    * event, a `markErrorsSeen` response) and never recomputed from `errors`.
    */
   errorsUnseen: number
+  /**
+   * The mobile remote (spec 2026-10-01-settings-mobile-design § 1). Null
+   * until `GET /api/remote` lands; nothing renders a pairing state from null.
+   * `pendingPair` set is what puts the pairing dialog up, wherever the user is.
+   */
+  remote: RemoteStatus | null
   /**
    * The question each session is blocked on right now, keyed by session id
    * (spec: 2026-09-20-interactive-decisions-design). A session has at most
@@ -459,6 +475,19 @@ export interface OrbitalActions {
   applySessionEvent(sessionId: string, msg: SessionEvent): void
   applyErrorsEvent(msg: ErrorsEvent): void
   markErrorsSeen(target: number[] | 'all'): Promise<void>
+  /** A `status` replaces the whole object; a `pair_request` is left to the `status` after it. */
+  applyRemoteEvent(msg: RemoteEvent): void
+  /** Stores a status the caller just got from the server. */
+  setRemote(status: RemoteStatus): void
+  /**
+   * Re-reads `GET /api/remote` — on every socket open, and from the pairing
+   * dialog when its request may have expired (the server clears an expired
+   * request only inside a `status()`, and publishes nothing on expiry).
+   * The answer is dropped if a status arrived while it was in flight: that
+   * one is newer. Never throws; answers what became of the read, so a caller
+   * waiting on the server's answer knows whether it got one.
+   */
+  refreshRemote(): Promise<'stored' | 'superseded' | 'failed'>
   launchSession(body: {
     cwd: string
     prompt: string
@@ -921,6 +950,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   statsRevision: {},
   errors: [],
   errorsUnseen: 0,
+  remote: null,
   pendingDecisions: {},
   decisionAnswers: {},
   decisionVerdicts: {},
@@ -1409,6 +1439,31 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       }))
     } catch (err) {
       console.error('orbital: failed to mark errors seen', err)
+    }
+  },
+
+  applyRemoteEvent(msg) {
+    if (msg.event !== 'status') return
+    // The hub merges its `topic` in; the store keeps only the status fields.
+    const { event: _event, topic: _topic, ...status } = msg as typeof msg & { topic?: string }
+    set({ remote: status })
+  },
+
+  setRemote(status) {
+    set({ remote: status })
+  },
+
+  async refreshRemote() {
+    const before = get().remote
+    try {
+      const status = await api.getRemote()
+      if (!status) return 'failed'
+      if (get().remote !== before) return 'superseded'
+      set({ remote: status })
+      return 'stored'
+    } catch (err) {
+      console.warn('orbital: failed to read the mobile remote status', err)
+      return 'failed'
     }
   },
 

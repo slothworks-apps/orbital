@@ -60,6 +60,11 @@ export class RelayClient extends EventEmitter {
     return deviceId(this.opts.identity.publicKey);
   }
 
+  /** Consecutive failed connection attempts; the relay's `ok` resets it. */
+  get attempts(): number {
+    return this.attempt;
+  }
+
   start(): void {
     if (this.status !== 'off') return;
     this.connect();
@@ -177,8 +182,10 @@ export class RelayClient extends EventEmitter {
       this.ws = null;
       this.peersOnline.clear();
       if (this.status === 'off') return;
-      this.setStatus('connecting');
       const delay = Math.min(this.baseDelay * 2 ** this.attempt++, RECONNECT_MAX_MS);
+      // Forced: a repeated failure leaves the status `connecting`, but
+      // `attempts` changed and listeners must hear about it.
+      this.setStatus('connecting', true);
       this.timer = setTimeout(() => this.connect(), delay);
     });
   }
@@ -195,8 +202,8 @@ export class RelayClient extends EventEmitter {
     this.silenceTimer = null;
   }
 
-  private setStatus(status: RelayStatus): void {
-    if (this.status === status) return;
+  private setStatus(status: RelayStatus, force = false): void {
+    if (this.status === status && !force) return;
     this.status = status;
     this.emit('status', status);
   }

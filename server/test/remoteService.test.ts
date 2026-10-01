@@ -13,8 +13,8 @@ import { openDb } from '../src/db/database.js';
 import { createImageStore } from '../src/images/store.js';
 import { DeviceStore } from '../src/remote/devices.js';
 import { IDENTITY_FILE } from '../src/remote/identity.js';
-import type { RelayClient } from '../src/remote/relayClient.js';
-import { RemoteService } from '../src/remote/service.js';
+import { RelayClient } from '../src/remote/relayClient.js';
+import { RemoteService, type RemoteServiceOptions } from '../src/remote/service.js';
 
 type Answer = { status: number; body: unknown };
 
@@ -42,7 +42,10 @@ const NOW = 1_000_000;
  */
 let qrSecret: Uint8Array = new Uint8Array(PAIRING_SECRET_BYTES);
 
-function build(seed?: (devices: DeviceStore) => void, opts: { corruptIdentity?: boolean } = {}) {
+function build(
+  seed?: (devices: DeviceStore) => void,
+  opts: { corruptIdentity?: boolean; clientFactory?: RemoteServiceOptions['clientFactory'] } = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-svc-'));
   const db = openDb(join(dir, 'index.db'));
   const devices = new DeviceStore(db);
@@ -61,7 +64,7 @@ function build(seed?: (devices: DeviceStore) => void, opts: { corruptIdentity?: 
     settings: { get: (k) => settings[k] ?? '' },
     allSettings: () => settings,
     now: () => now,
-    clientFactory: () => fake as unknown as RelayClient,
+    clientFactory: opts.clientFactory ?? (() => fake as unknown as RelayClient),
   });
   const startPairing = service.startPairing.bind(service);
   service.startPairing = async () => {
@@ -203,6 +206,28 @@ describe('RemoteService pairing', () => {
   });
 });
 
+describe('RemoteService relay status', () => {
+  it('counts refused connection attempts and publishes each one, though the relay stays connecting', async () => {
+    const { service, hub } = build(undefined, {
+      // Nothing listens on port 1: every attempt is refused straight away.
+      clientFactory: (o) => new RelayClient({ ...o, relayUrl: 'http://127.0.0.1:1', reconnectDelayMs: 20 }),
+    });
+    const published: Record<string, unknown>[] = [];
+    const publish = vi.spyOn(hub, 'publish').mockImplementation((topic, payload) => {
+      if (topic === 'remote') published.push(payload);
+    });
+    try {
+      await waitFor(() => published.some((p) => p.relayAttempts === 2));
+      expect(service.status()).toMatchObject({ relay: 'connecting', relayAttempts: 2 });
+      expect(published.find((p) => p.relayAttempts === 2)).toMatchObject({ event: 'status', relay: 'connecting' });
+    } finally {
+      publish.mockRestore();
+      service.stop();
+    }
+    expect(service.status().relayAttempts).toBe(0);
+  });
+});
+
 describe('RemoteService revoke', () => {
   it('removes the device even when the relay revoke fails', async () => {
     const phone = phoneId();
@@ -287,3 +312,11 @@ describe('RemoteService identity', () => {
     expect(ours).toHaveLength(1);
   });
 });
+
+async function waitFor(cond: () => boolean, ms = 2000): Promise<void> {
+  const until = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > until) throw new Error('timeout');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
