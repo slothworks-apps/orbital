@@ -94,10 +94,12 @@ Always run that from the repo root: it builds the server and the web app first,
 where `npm run dist -w desktop` on its own would package whatever stale output
 happens to be lying in `server/dist` and `web/dist`.
 
-macOS arm64 only, and the DMG is unsigned. On first launch the Mac will
-quarantine it, so open it with **right-click → Open** rather than a
-double-click, and enable Orbital under **System Settings → Notifications** if
-macOS never offers the permission prompt by itself.
+macOS arm64 only. The release DMG is signed with a Developer ID and
+notarized, so it opens with a plain double-click
+([`docs/decisions/desktop-app-is-developer-id-signed.md`](docs/decisions/desktop-app-is-developer-id-signed.md)).
+`npm run desktop:build` makes a local, un-notarized one instead. Enable
+Orbital under **System Settings → Notifications** if macOS never offers the
+permission prompt by itself.
 
 The packaged app does **not** bundle a Claude Code CLI — it spawns the one
 already installed on the Mac, so that the CLI writing transcripts and the
@@ -167,3 +169,11 @@ list and live-tail running sessions. **These formats are undocumented,
 internal details of the Claude Code CLI, not a public/stable API.** They can
 change — or break Orbital — without notice when you update the CLI. If
 Orbital stops seeing sessions after a CLI update, that's the likely cause.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
+
+Orbital is an independent project built on Anthropic's Claude Agent SDK. It
+is not made, endorsed or supported by Anthropic. Claude and Claude Code are
+trademarks of Anthropic.

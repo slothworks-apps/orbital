@@ -865,7 +865,7 @@ describe('REST routes', () => {
       const { app } = makeApp();
       const res = await app.inject({ method: 'GET', url: '/api/session-instructions/tips' });
       expect(res.statusCode).toBe(200);
-      const { tips } = res.json() as { tips: { id: string; title: string; text: string }[] };
+      const { tips } = res.json<{ tips: { id: string; title: string; text: string }[] }>();
       expect(tips.map((t) => t.id)).toEqual(SESSION_TIPS.map((t) => t.id));
       const appendix = composeAppendix({ tipsOn: true, commentary: false, customOn: false, customText: '' });
       expect(appendix).toBe(tips.map((t) => t.text).join('\n\n'));

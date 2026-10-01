@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in Orbital does not work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: And what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      placeholder: |
+        1. Start a session from Orbital
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: orbital
+    attributes:
+      label: Orbital version
+      description: The desktop app's version, or the commit if you run it from source.
+    validations:
+      required: true
+  - type: dropdown
+    id: how
+    attributes:
+      label: How you run it
+      options:
+        - Desktop app
+        - From source (npm run dev)
+    validations:
+      required: true
+  - type: input
+    id: cli
+    attributes:
+      label: Claude Code CLI version
+      description: The output of `claude --version`. Orbital reads the CLI's files, and a CLI update can break it.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: macOS version
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Leave out anything private — transcripts can contain your code and prompts.

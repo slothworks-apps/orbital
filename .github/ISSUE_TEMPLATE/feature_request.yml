@@ -1,0 +1,21 @@
+name: Idea
+description: Something Orbital could do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Orbital is weighed against [docs/why-orbital.md](https://github.com/slothworks-apps/orbital/blob/main/docs/why-orbital.md). Ideas that pull for attention, or that drive terminal sessions, will be declined.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What gets in your way
+      description: The situation, not the solution yet.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+    validations:
+      required: true

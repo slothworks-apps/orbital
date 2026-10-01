@@ -116,8 +116,15 @@ export default tseslint.config(
 
   // This file, and anything else plain JS: no type information to lint with.
   {
-    files: ['**/*.js'],
+    files: ['**/*.{js,mjs,cjs}'],
     extends: [tseslint.configs.disableTypeChecked],
+  },
+  // The icon and signing scripts electron-builder runs under Node; the `.cjs`
+  // hook has to be CommonJS, so `require` is how it imports.
+  {
+    files: ['desktop/build/*.{mjs,cjs}'],
+    languageOptions: { globals: globals.node },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 
   prettier,

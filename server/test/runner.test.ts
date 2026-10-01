@@ -2821,7 +2821,7 @@ describe('Runner decisions — the editor as a second route', () => {
       ide: {
         offers: () => true,
         review: () => Promise.reject(new Error('the socket went away')),
-      } as any,
+      },
     });
     const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'auto' });
     const decision = ask(EDIT_INPUT, 'tu-1', 'Edit');

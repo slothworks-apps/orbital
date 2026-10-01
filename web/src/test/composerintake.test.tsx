@@ -42,6 +42,7 @@ function makeDataTransfer(files: File[]) {
     files,
     items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
     types: files.length > 0 ? ['Files'] : [],
+    getData: () => '',
     dropEffect: '',
     effectAllowed: '',
   } as unknown as DataTransfer

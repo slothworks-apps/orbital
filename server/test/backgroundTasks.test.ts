@@ -26,12 +26,12 @@ const started = (over: Record<string, unknown>): TaskEvent =>
 const notified = (task_id: string, status: string, over: Record<string, unknown> = {}): TaskEvent =>
   ({ type: 'system', subtype: 'task_notification', session_id: 's', task_id, status, summary: '', ...over }) as TaskEvent;
 const updated = (task_id: string, patch: Record<string, unknown>): TaskEvent =>
-  ({ type: 'system', subtype: 'task_updated', session_id: 's', task_id, patch }) as TaskEvent;
+  ({ type: 'system', subtype: 'task_updated', session_id: 's', task_id, patch });
 const changed = (ids: string[]): TaskEvent =>
   ({
     type: 'system', subtype: 'background_tasks_changed', session_id: 's',
     tasks: ids.map((task_id) => ({ task_id, task_type: 'local_bash', description: '' })),
-  }) as TaskEvent;
+  });
 
 /** The launching calls a Runner would have seen, by tool_use id. */
 function calls(map: Record<string, LaunchingCall>) {

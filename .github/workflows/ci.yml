@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Orbital ships for macOS arm64 only, and the server resolves the Agent
+    # SDK's darwin-arm64 CLI package; a Linux runner tests a platform that is
+    # never shipped (docs/fixes/a-settings-test-assumes-the-darwin-arm64-cli.md).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - uses: oven-sh/setup-bun@v2
+      - run: bunx @slothworks/atlas validate

@@ -530,7 +530,7 @@ describe('isMeta entries are the harness, not the human', () => {
   };
 
   it('drops an image-size note but keeps the human turn', () => {
-    const msgs = entriesToMessages([prompt, imageNote] as any);
+    const msgs = entriesToMessages([prompt, imageNote]);
     expect(msgs).toHaveLength(1);
     expect(msgs[0]).toMatchObject({ id: 'u1:0', role: 'user', text: 'Why does the map jitter on zoom?' });
   });
@@ -548,7 +548,7 @@ describe('isMeta entries are the harness, not the human', () => {
   });
 
   it('leaves meta entries out of the count and the time span', () => {
-    const meta = extractMeta([caveat, prompt, imageNote] as any);
+    const meta = extractMeta([caveat, prompt, imageNote]);
     expect(meta.messageCount).toBe(1);
     expect(meta.firstAt).toBe(Date.parse(prompt.timestamp));
     expect(meta.lastAt).toBe(Date.parse(prompt.timestamp));

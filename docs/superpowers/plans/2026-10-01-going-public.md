@@ -65,4 +65,5 @@ later record a GIF.
 ## 3. After the flip
 
 Turn on secret scanning with push protection and Dependabot in the GitHub
-repository settings.
+repository settings, and private vulnerability reporting — `SECURITY.md`
+sends reports there, and the link is dead until it is on.
