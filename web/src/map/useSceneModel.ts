@@ -83,6 +83,7 @@ export function useSceneModel(): SceneModel {
           statsRevision: {},
           errors: [],
           errorsUnseen: 0,
+          remote: null,
           pendingDecisions: {},
           decisionAnswers: {},
           decisionVerdicts: {},

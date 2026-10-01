@@ -31,6 +31,7 @@ import type {
   SessionHarness,
   HarnessEvent,
   HarnessOptions,
+  RemoteStatus,
 } from './types'
 
 /**
@@ -874,6 +875,85 @@ export const api = {
   async reopenHarnessStep(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
     return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/reopen`)
   },
+
+  // Mobile remote — Settings → Mobile and the pairing dialog (spec
+  // 2026-10-01-settings-mobile-design § 1). The pairing calls read their
+  // refusals as values, like `uploadAttachment`: each one is a state the UI
+  // shows (or quietly waits out), not an error to toast.
+  async getRemote(): Promise<RemoteStatus> {
+    return request('GET', '/api/remote')
+  },
+
+  /** A new code. 409 when the remote is off or the relay is not online right now. */
+  async startPairing(): Promise<
+    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' }
+  > {
+    return remoteCall('POST', '/api/remote/pair', undefined, {
+      409: ['disabled', 'offline', 'relay_error'],
+    })
+  },
+
+  /**
+   * The answer to the pending request. `phone` is the request the dialog
+   * showed; the server refuses any other (409 `mismatch`). 404 means there is
+   * nothing left to answer, 502 that the relay did not take it.
+   */
+  async confirmPairing(
+    accept: boolean,
+    phone: string,
+  ): Promise<{ ok: true } | { error: 'no_pending' | 'mismatch' | 'relay_error' }> {
+    return remoteCall('POST', '/api/remote/pair/confirm', { accept, phone }, {
+      404: ['no_pending'],
+      409: ['mismatch'],
+      502: ['relay_error'],
+    })
+  },
+
+  /** `false` when the phone was already gone (404) — the next status drops its row either way. */
+  async removeDevice(id: string): Promise<boolean> {
+    try {
+      await request('DELETE', `/api/remote/devices/${encodeURIComponent(id)}`)
+      return true
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return false
+      throw err
+    }
+  },
+
+  /** "Try again": stops the remote and starts it with the same settings. */
+  async restartRemote(): Promise<RemoteStatus> {
+    return request('POST', '/api/remote/restart')
+  },
+}
+
+/**
+ * A remote route whose listed statuses answer `{ error }` as part of its
+ * contract: those come back as values, anything else throws `ApiError`.
+ */
+async function remoteCall<T, E extends string>(
+  method: string,
+  url: string,
+  body: unknown,
+  refusals: Partial<Record<number, readonly E[]>>,
+): Promise<T | { error: E }> {
+  const init: RequestInit = { method }
+  if (body !== undefined) {
+    init.headers = { 'Content-Type': 'application/json' }
+    init.body = JSON.stringify(body)
+  }
+  const response = await fetch(url, init)
+  if (response.ok) return (await response.json()) as T
+
+  const text = await response.text()
+  let parsed: { error?: unknown } = {}
+  try {
+    parsed = JSON.parse(text) as typeof parsed
+  } catch {
+    // A refusal without a JSON body falls through to the ApiError below.
+  }
+  const refusal = refusals[response.status]?.find((e) => e === parsed.error)
+  if (refusal !== undefined) return { error: refusal }
+  throw new ApiError(text || response.statusText, response.status, url)
 }
 
 export type ServerHealth = {

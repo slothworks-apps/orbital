@@ -101,6 +101,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     detachedIds: [],
     errors: [],
     errorsUnseen: 0,
+    remote: null,
     sessionsTotal: 0,
     leavingSince: {},
     toast: null,

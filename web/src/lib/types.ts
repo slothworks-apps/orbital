@@ -1436,3 +1436,36 @@ export interface McpMutationResult {
   servers: McpServerRow[]
   restartNeeded: boolean
 }
+
+/**
+ * One paired phone. Mirrors `RemoteDevice` in `server/src/remote/devices.ts`
+ * without its notification settings — those are the phone's own and are
+ * edited only there — plus `online` from the status.
+ */
+export interface RemoteDevice {
+  id: string
+  name: string
+  platform: string
+  pairedAt: number
+  lastSeenAt: number | null
+  online: boolean
+}
+
+/**
+ * The mobile remote as `GET /api/remote` answers it and the hub's `remote`
+ * topic publishes it. Mirrors `RemoteStatus` in `server/src/remote/service.ts`.
+ */
+export interface RemoteStatus {
+  enabled: boolean
+  relay: 'off' | 'connecting' | 'online'
+  /** Consecutive failed connection attempts; back to 0 once the relay answers. */
+  relayAttempts: number
+  relayUrl: string
+  macId: string | null
+  macName: string
+  devices: RemoteDevice[]
+  pendingPair: { phone: string; name: string; platform: string; fingerprint: string } | null
+  pairing: { expiresAt: number } | null
+  /** Why the last start failed; null while it is fine. */
+  error: string | null
+}
