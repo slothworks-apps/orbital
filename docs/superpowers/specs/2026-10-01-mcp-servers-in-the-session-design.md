@@ -1,16 +1,19 @@
 ---
 id: 2026-10-01-mcp-servers-in-the-session-design
-title: MCP servers in the session — status, reconnect and a project-wide toggle in the detail panel
+title: MCP servers — a /mcp dialog that shows, toggles, adds, edits and removes a session's servers
 status: draft
 type: spec
 domain: sessions
 related:
   - mcp-servers-in-the-session
   - the-mcp-toggle-is-project-wide
+  - mcp-config-is-written-by-the-cli-in-private-scopes
+  - mcp-server-templates
+  - mcp-login-from-orbital
 tags:
   - server
   - runner
-  - detail-panel
+  - composer
   - mcp
 ---
 # MCP servers in the session
@@ -22,128 +25,192 @@ An Orbital session loads the same MCP servers a terminal session would
 Orbital shows nothing about them. A session with six servers and one
 with none look the same, and a server that failed to connect fails
 silently — the user finds out only when the model says a tool is
-missing.
+missing. Adding or changing a server means leaving Orbital for a
+terminal, which is exactly what Orbital exists to avoid.
 
-## What the user gets
+## Where it lives
 
-For a **running Orbital session**, the detail panel lists the session's
-MCP servers. Each row carries:
+Typing `/mcp` in the composer of a running Orbital session opens the
+**MCP dialog**. Nothing is sent to the session — the CLI has no
+interactive `/mcp` under the SDK anyway. The detail panel and the
+transcript are not touched.
 
-- the server's name;
-- its status — connected, failed, needs login, starting, off (the SDK's
-  `connected | failed | needs-auth | pending | disabled`);
-- the error message, when the status is failed;
-- where the server comes from — the SDK's `source`, falling back to
-  `scope` on a CLI that predates `source` (user, project, local, plugin,
-  claudeai, managed …);
-- how many tools it offers, when connected.
+The composer intercepts `/mcp` the way it intercepts `/compact`. The
+server adds `/mcp` to the completion list the way it adds `/rewind`
+(`withRewind` in `routes.ts`), so it can be found by typing `/`.
 
-Actions per row:
+`/mcp` on a session without a running process (asleep, ended) does not
+start one: the dialog opens with a note that the list needs a running
+session. Terminal sessions have no composer for it; Orbital has no
+control channel to them.
 
-- **Reconnect** — on a server that is `failed`. Calls
-  `reconnectMcpServer(name)`.
-- **On/off switch** — on every server except Orbital's own
-  (`ORBITAL_MCP_SERVER`, `source: 'sdk'`). Calls
-  `toggleMcpServer(name, enabled)`. The control says, before it is used,
-  that the change applies to the whole project — terminal sessions
-  included — and lasts until the server is switched back on. See
-  adr `the-mcp-toggle-is-project-wide`.
+## The dialog
 
-A `needs-auth` server gets a note, not an action: log in through `/mcp`
-in a terminal session. Orbital does not run the MCP OAuth flow.
+### The list
 
-## What it does not do
+One row per server the running session reports:
 
-- **Terminal sessions** show nothing. Orbital has no control channel to
-  them; features may be Orbital-only on purpose.
-- **An Orbital session without a running process** (asleep, ended)
-  shows nothing either. The list is a reading of a live process; a stale
-  copy would be wrong exactly when it matters (a server that has since
-  been fixed).
-- **No configuration editing** — layer 3 of the idea. Orbital does not
-  write `.mcp.json` or `~/.claude.json` itself; the toggle's write is the
-  CLI's own, the same one `/mcp disable` makes.
+- name;
+- status — connected, failed, needs login, starting, off (the SDK's
+  `connected | failed | needs-auth | pending | disabled`; an unknown
+  string from a newer CLI is shown as text);
+- the error message, when failed;
+- origin — the SDK's `source`, falling back to `scope` on a CLI that
+  predates `source` (user, local, project, plugin, claudeai, managed …);
+- tool count, when connected.
+
+Per-row actions:
+
+- **Reconnect** — on a `failed` server.
+- **On/off** — on every server except Orbital's own
+  (`ORBITAL_MCP_SERVER`). The control says before use that the change
+  holds for the whole project, terminal sessions included, until switched
+  back (adr `the-mcp-toggle-is-project-wide`).
+- **Edit** and **Remove** — only on servers whose origin is `user` or
+  `local`, the two scopes Orbital writes (below). A `project` server
+  (`.mcp.json`), a plugin's, a claude.ai connector or a managed one is
+  shown and can be toggled, nothing more.
+- `needs-auth` — a note that the server needs a login; Orbital cannot do
+  it yet (idea `mcp-login-from-orbital`).
+
+The list loads when the dialog opens and is replaced by every action's
+response. While any row is `pending` it is fetched again on a short
+interval, only while the dialog is open.
+
+### Add and edit
+
+A form with:
+
+- **name** — required; the CLI's own validation is the authority, its
+  error is shown as is;
+- **scope** — `local` (this project, only me; the default) or `user`
+  (all my projects). `project` is not offered (adr
+  `mcp-config-is-written-by-the-cli-in-private-scopes`);
+- **transport** — `stdio`, `http` or `sse`;
+- for `stdio`: command, arguments, environment variables (key/value);
+- for `http` / `sse`: URL, headers (key/value).
+
+Edit opens the same form filled with the server's current definition.
+Renaming is remove-then-add under the new name. Moving between `local`
+and `user` is the same.
+
+Remove asks for confirmation; the server's definition, env vars and
+headers go with it.
 
 ## Server
 
-### Runner
+### Runner — the live session
 
-`QueryFn` and the per-session `generator` type gain three optional
-methods, optional for the same reason as the others (a fake in a test, an
-old CLI): `mcpServerStatus`, `reconnectMcpServer`, `toggleMcpServer`.
+`QueryFn` and the per-session `generator` type gain optional
+`mcpServerStatus`, `reconnectMcpServer`, `toggleMcpServer` and
+`reloadPlugins`, optional for the same reason as the others (a fake in a
+test, an old CLI).
 
 The `system/init` handler keeps `msg.mcpServers` on the session state as
-the session's last known list.
+the last known list.
 
-New Runner methods, each throwing `session … is not active` for a
-session it does not run, like `setModel`:
+New Runner methods, each throwing `session … is not active` for a session
+it does not run, like `setModel`:
 
-- `mcpServers(sessionId)` — asks `mcpServerStatus()`; when the CLI does
-  not answer it (method missing, or the call throws), returns the init
-  snapshot. Returns `McpServerRow[]` (below), never the SDK's raw object.
-- `reconnectMcpServer(sessionId, name)` and
-  `toggleMcpServer(sessionId, name, enabled)` — pass through; a missing
-  method on the generator is an error ("this CLI cannot …"), not a
-  silent no-op. Toggling `ORBITAL_MCP_SERVER` is refused in the Runner,
-  not only hidden in the UI.
+- `mcpServers(sessionId)` — `mcpServerStatus()`, or the init snapshot
+  when the CLI does not answer. Returns `McpServerRow[]`, never the SDK's
+  raw object.
+- `reconnectMcpServer(sessionId, name)`,
+  `toggleMcpServer(sessionId, name, enabled)` — pass through. A method the
+  generator lacks is an error, not a silent no-op. Toggling
+  `ORBITAL_MCP_SERVER` is refused here, not only hidden in the UI.
+- `reloadMcpConfig(sessionId)` — makes the running session pick up a
+  config change (see Verify first).
 
-The CLI announces no status change on its own — there is no system
-message for it — so the list is pulled, never pushed.
-
-### Row shape
+The CLI pushes no status change, so the list is pulled.
 
 ```ts
 type McpServerRow = {
   name: string;
-  status: 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled';
+  status: string;        // the SDK's status, passed through
   error?: string;
-  origin?: string;      // source ?? scope
-  toolCount?: number;   // tools.length, when present
-  toggleable: boolean;  // false for ORBITAL_MCP_SERVER
+  origin?: string;       // source ?? scope
+  toolCount?: number;
+  toggleable: boolean;   // false for ORBITAL_MCP_SERVER
+  editable: boolean;     // origin is 'user' or 'local'
 };
 ```
 
-An unknown status string from a newer CLI passes through as is and the
-UI shows it as text. Names and errors are untrusted text from config
-files; React escapes them, nothing renders them as HTML.
+Names, errors and config values are untrusted text from config files;
+React escapes them, nothing renders them as HTML.
+
+### Config — through the CLI
+
+A new module under `server/src/mcp/` does every write by running the CLI
+Orbital already resolves (`resolveClaudeCli`), with `cwd` set to the
+session's cwd so `local` lands on the right project:
+
+- add: `claude mcp add-json --scope <local|user> <name> <json>`;
+- remove: `claude mcp remove --scope <local|user> <name>`;
+- edit: remove, then add. When the add fails, the old definition is added
+  back and the CLI's error is returned. No step leaves the server gone.
+
+Arguments go through `execFile`, never a shell. The JSON is built by the
+server from validated fields, not passed through from the client.
+
+Reading a definition for the edit form is the one read Orbital does
+itself: `mcpServers` at the top of `~/.claude.json` (`user`) and
+`projects[<cwd>].mcpServers` (`local`), read-only — the precedent is the
+command catalog, which reads CLI-owned files the same way. An entry the
+reader does not understand is reported as "cannot be edited here", not
+guessed at.
+
+When the CLI is `missing`, add/edit/remove answer 503 and the dialog
+says why; the list and the toggle still work, since they go through the
+live session.
 
 ### Routes
 
-- `GET /api/sessions/:id/mcp` → `{ servers: McpServerRow[] }`.
-- `POST /api/sessions/:id/mcp/:name/reconnect` → `{ servers }`, the list
-  read again after the call.
-- `POST /api/sessions/:id/mcp/:name/enabled` with body
-  `{ enabled: boolean }` → `{ servers }`.
+- `GET /api/sessions/:id/mcp` → `{ servers }`
+- `POST /api/sessions/:id/mcp/:name/reconnect` → `{ servers }`
+- `POST /api/sessions/:id/mcp/:name/enabled`, body `{ enabled }` →
+  `{ servers }`
+- `GET /api/sessions/:id/mcp/:name/config` → the definition for the
+  form
+- `POST /api/sessions/:id/mcp` (add), `PUT /api/sessions/:id/mcp/:name`
+  (edit), `DELETE /api/sessions/:id/mcp/:name` (remove) → `{ servers }`,
+  after `reloadMcpConfig`
 
-Unknown session → 404. Session not running → 409. A body without a
-boolean `enabled` → 400. A name the session's list does not contain →
-404. A CLI that refuses → 502 with its message.
+Unknown session → 404. Session not running → 409. Invalid body → 400.
+Unknown server name → 404. Scope `project`, or editing a server that is
+not `user`/`local` → 400. CLI missing → 503. CLI refuses → 502 with its
+message.
 
 ## Web
 
-`api.mcpServers(id)`, `api.reconnectMcpServer(id, name)`,
-`api.setMcpServerEnabled(id, name, enabled)`.
+`api.mcpServers`, `api.reconnectMcpServer`, `api.setMcpServerEnabled`,
+`api.mcpServerConfig`, `api.addMcpServer`, `api.updateMcpServer`,
+`api.removeMcpServer`; a `/mcp` intercept in the composer; the dialog.
+How the dialog looks is decided in Claude Design.
 
-The list loads when the user opens it and is replaced by every action's
-response. While any row is `pending`, it is fetched again on a short
-interval, and only while it is open. A failed fetch shows the error in
-place of the list.
+## Verify first
 
-Where the list lives in the panel and how it looks is decided in Claude
-Design, not here.
+Before building on them, check with a throwaway session:
+
+1. `toggleMcpServer(name, false)` writes `disabledMcpServers` into the
+   project's entry in `~/.claude.json`. If it does not, the toggle is
+   runtime-only and the warning text and the adr change.
+2. After `claude mcp add-json` / `remove`, does `reloadPlugins()` make the
+   running session connect / drop the server? If not, the dialog says the
+   change applies from the session's next start, and offers that restart
+   (the Runner's stop + resume) as an explicit button.
+3. How a `.mcp.json` server the user has not approved shows up in
+   `mcpServerStatus()` under the SDK. Only to label it; Orbital does not
+   approve it.
 
 ## Testing
 
-- Runner: init snapshot kept; `mcpServers` prefers the live answer and
-  falls back to the snapshot; inactive session throws; missing toggle
-  method throws; toggling `ORBITAL_MCP_SERVER` refused.
-- Routes: 404 / 409 / 400 / unknown name, and the happy path of each.
+- Runner: init snapshot kept; live answer preferred, snapshot as
+  fallback; inactive session throws; missing method throws;
+  `ORBITAL_MCP_SERVER` toggle refused.
+- Config module: argument lists built for add/remove per scope; `project`
+  refused; edit restores the old definition when the add fails (fake
+  CLI); the `~/.claude.json` reader on user, local, missing and malformed
+  entries.
+- Routes: each status code above, and each happy path.
 - No UI tests.
-
-## First step of the implementation
-
-Confirm, with a throwaway session, that `toggleMcpServer(name, false)`
-writes `disabledMcpServers` into the project's entry in
-`~/.claude.json`. The binary's code points that way, but it was not run.
-If the write does not happen, the toggle is runtime-only and the warning
-text in the UI and the adr change accordingly.
