@@ -1,7 +1,7 @@
 ---
 id: release-the-dmg-from-github-actions
 title: Build, sign, notarize and release the DMG from GitHub Actions
-status: backlog
+status: active
 type: idea
 domain: desktop
 related:
@@ -19,6 +19,14 @@ the Developer ID identity in the local keychain, and notarization uses the
 keychain profile named by `APPLE_KEYCHAIN_PROFILE`. Releases on GitHub are
 uploaded by hand, so they fall behind: the release marked Latest is older
 than `version` in `desktop/package.json`, and a stale draft sits next to it.
+
+## Where it stands
+
+`.github/workflows/release-mac.yml` exists, started by hand only
+(`workflow_dispatch`). The runbook `run-the-desktop-app` → "Releasing from
+GitHub Actions" lists the secrets it needs. It has not run yet: the secrets
+are not set. Left to do: the first run, then deciding whether a tag push
+should start it too.
 
 ## The idea
 

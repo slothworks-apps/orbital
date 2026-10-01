@@ -152,6 +152,47 @@ cd desktop && npx electron-builder --mac --arm64 -c.mac.identity=- -c.mac.notari
 An ad-hoc build loses every privacy grant on each rebuild. That is why it is
 not the default.
 
+### Releasing from GitHub Actions
+
+`.github/workflows/release-mac.yml` does what `npm run desktop:release` does, on
+a GitHub-hosted Mac, and attaches the DMG to a **draft** release tagged
+`v<version>`. Start it by hand: Actions → Release macOS → Run workflow. It refuses
+to run when a release for the current `version` in `desktop/package.json`
+already exists, so bump the version first.
+
+There is no keychain on the runner, so the credentials are repository
+secrets (Settings → Secrets and variables → Actions):
+
+| secret | what it holds |
+|---|---|
+| `MAC_CERT_P12_BASE64` | the Developer ID Application certificate with its private key, exported as `.p12` and base64-encoded |
+| `MAC_CERT_PASSWORD` | the password chosen when exporting the `.p12` |
+| `APPLE_API_KEY_P8` | the contents of an App Store Connect API key file (`AuthKey_….p8`) |
+| `APPLE_API_KEY_ID` | that key's ID |
+| `APPLE_API_ISSUER` | the issuer ID shown above the key list |
+
+1. **Export the certificate.** In Keychain Access → login → My Certificates,
+   right-click *Developer ID Application: SlothWorks s.r.o.* → Export → `.p12`,
+   with a password. Then:
+
+   ```bash
+   base64 -i Certificates.p12 | pbcopy    # paste as MAC_CERT_P12_BASE64
+   ```
+
+   Delete the `.p12` file afterwards.
+
+2. **Create the API key.** App Store Connect → Users and Access →
+   Integrations → App Store Connect API → Team Keys → `+`, access
+   *Developer*. The `.p8` downloads once only. Its ID is in the list, the
+   issuer ID above it. Paste the file's whole contents as
+   `APPLE_API_KEY_P8`.
+
+   The API key is used rather than the Apple ID with an app-specific password
+   the local setup uses: it belongs to the team, not to a person, and can be
+   revoked on its own.
+
+After the run, open the draft release, check the notes, and publish it.
+
 ### After a `node_modules` wipe: Electron's binary is missing
 
 This machine's npm policy does not run install scripts it has not been told to
