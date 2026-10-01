@@ -1,7 +1,7 @@
 ---
 id: mcp-servers-in-the-session
 title: Show a session's MCP servers, and let them be toggled
-status: backlog
+status: active
 type: idea
 domain: sessions
 related:
