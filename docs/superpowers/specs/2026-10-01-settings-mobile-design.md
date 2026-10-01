@@ -1,7 +1,7 @@
 ---
 id: 2026-10-01-settings-mobile-design
 title: Settings → Mobile — pairing a phone from the desktop
-status: active
+status: done
 type: spec
 domain: remote
 related:
@@ -18,9 +18,10 @@ tags:
 ---
 # Settings → Mobile
 
-**Status: active.** Brainstormed 2026-10-01, the first phase after
+**Status: done.** Brainstormed and built 2026-10-01, the first phase after
 [[2026-10-01-mobile-remote-backend]] landed. The backend exposes everything
-a phone needs; without this section nobody can pair the first phone.
+a phone needs; without this section nobody can pair the first phone. §§ 3
+and 4 carry the amendments made in review while building (marked inline).
 
 Canvas: `Feature - Mobile.dc.html`, artboards **9m** (off), **9n** (on,
 code and paired phones), **9o** (the confirmation dialog), **9q** (relay

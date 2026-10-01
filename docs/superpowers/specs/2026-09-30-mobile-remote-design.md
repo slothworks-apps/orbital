@@ -385,10 +385,10 @@ deliberately, rather than incidentally.
   revoked while the Mac was asleep can still open a WebSocket to the
   relay and receive `presence`/`paired` control traffic until someone
   revokes it again (or redeploys) while the remote is on.
-- **A failed start does not retry on identical settings.** If the Mac
-  fails to connect (say, a bad relay URL), saving the exact same
-  settings again does not retry the connection — some value has to
-  change, or the user has to toggle `remote_enabled` off and on.
+- ~~**A failed start does not retry on identical settings.**~~ Closed by
+  [[2026-10-01-settings-mobile-design]] § 2: `POST /api/remote/restart`
+  stops and starts the remote with the same settings, and Settings →
+  Mobile's "Try again" calls it.
 - **No chunked JSON.** A hub frame or REST answer larger than one relay
   frame is not split: the REST answer becomes a 413 and the hub frame a
   `dropped` notice (§ 7). A single message too large for one frame (one

@@ -110,13 +110,15 @@ picks the wrong one, the `claude_executable_path` setting overrides it.
 [`docs/ops/run-the-desktop-app.md`](docs/ops/run-the-desktop-app.md) has the
 forked-mode recipe, the notification smoke test and the troubleshooting table.
 
-## Mobile remote (backend)
+## Mobile remote
 
 `relay/` is a small Fastify + `ws` service that lets a phone pair with
 this Mac and drive Orbital's API over an end-to-end encrypted tunnel, for
 deployment on Dokploy. The backend (relay, wire protocol in `shared/`,
-and the Mac side in `server/src/remote/`) is built; there is no phone
-client yet, so the feature stays off until one exists.
+and the Mac side in `server/src/remote/`) and the desktop's Settings →
+Mobile (the switch, the pairing QR, the fingerprint confirmation, the
+paired phones) are built; there is no phone client yet, so nothing can
+pair until one exists. Off is the default.
 
 ```bash
 npm run dev -w relay     # relay on :4840, SQLite under relay/data/
