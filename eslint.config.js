@@ -42,6 +42,8 @@ export default tseslint.config(
             'web/vitest.config.ts',
             'server/vitest.config.ts',
             'server/drizzle.config.ts',
+            'shared/vitest.config.ts',
+            'relay/vitest.config.ts',
           ],
         },
         tsconfigRootDir: import.meta.dirname,
@@ -97,6 +99,20 @@ export default tseslint.config(
       // A store action read through a selector (`useOrbital((s) => s.load)`)
       // is not a method that needs its `this` — no store method uses one.
       '@typescript-eslint/unbound-method': 'off',
+    },
+  },
+  // shared/ also runs in the phone's WebView, where Node globals do not
+  // exist; a `Buffer` here would only fail on the device.
+  {
+    files: ['shared/src/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'Buffer', message: 'shared/ runs in a WebView; use Uint8Array.' },
+        { name: 'process', message: 'shared/ runs in a WebView.' },
+        { name: 'require', message: 'shared/ runs in a WebView.' },
+        { name: '__dirname', message: 'shared/ runs in a WebView.' },
+      ],
     },
   },
   {

@@ -35,7 +35,8 @@ import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 import type { SessionRow, SessionStatus } from '../src/types.js';
 import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.js';
 import { BackgroundTaskStore } from '../src/transcript/backgroundTasks.js';
-import { createImageStore } from '../src/images/store.js';
+import { createImageStore, type ImageStore } from '../src/images/store.js';
+import { RemoteService } from '../src/remote/service.js';
 import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
 import { SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
@@ -64,6 +65,20 @@ function stubHarness(db: OrbitalDb) {
  */
 const stubTitler = () =>
   ({ retitleNow: async () => ({ title: '', changed: false }) }) as any;
+
+/**
+ * A real remote service that stays off: no test here sets `remote_enabled`,
+ * so it never builds an identity or dials a relay. Its routes are covered in
+ * `remoteRoutes.test.ts`.
+ */
+const stubRemote = (
+  db: OrbitalDb, hub: Hub, images: ImageStore, imagesDir: string, settings: { get(key: string): string },
+) =>
+  new RemoteService({
+    db, hub, images, imagesDir, dataDir: imagesDir, serverVersion: 'test', settings,
+    inject: async () => ({ statusCode: 404, body: '' }),
+    allSettings: () => ({}),
+  });
 
 /**
  * One git store for the whole suite. These tests use invented cwds like
@@ -186,6 +201,17 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     db, queryFn: opts.narrateQueryFn ?? noNarrateQuery, model: () => '',
     onFinish: (id) => hub.publish(`session:${id}`, { event: 'walkthrough_narration' }),
   });
+  const settings = {
+    get: (k: string) =>
+      db.select({ value: settingsTable.value }).from(settingsTable)
+        .where(eq(settingsTable.key, k)).get()?.value ?? '',
+    set: (k: string, v: string) =>
+      void db
+        .insert(settingsTable)
+        .values({ key: k, value: v })
+        .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
+        .run(),
+  };
   registerRoutes(app, {
     harness: stubHarness(db),
     db, registry: registry as any, runner: runner as any, projectsDir: opts.projectsDir ?? '/nonexistent', hub,
@@ -200,18 +226,10 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     errors,
     titler: stubTitler(),
     narrator,
-    settings: {
-      get: (k: string) =>
-        db.select({ value: settingsTable.value }).from(settingsTable)
-          .where(eq(settingsTable.key, k)).get()?.value ?? '',
-      set: (k: string, v: string) =>
-        void db
-          .insert(settingsTable)
-          .values({ key: k, value: v })
-          .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
-          .run(),
-    },
     mcp: noMcp,
+    // Off (no `remote_enabled` row), so nothing starts; `remoteRoutes.test.ts` covers it.
+    remote: stubRemote(db, hub, imageStore, imagesDir, settings),
+    settings,
     retention: retentionFor(db),
   });
   return {
@@ -1201,6 +1219,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
       claudeDir: '/nonexistent',
+      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null }, '/nonexistent', { get: () => '' }),
       settings: { get: () => '', set: () => {} },
       mcp: noMcp,
       retention: retentionFor(db),

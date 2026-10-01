@@ -4,9 +4,11 @@
   "license": "MIT",
   "type": "module",
   "workspaces": [
+    "shared",
     "server",
     "web",
-    "desktop"
+    "desktop",
+    "relay"
   ],
   "scripts": {
     "dogfood": "npm run build -w server && npm run build -w web && ORBITAL_STATIC_DIR=\"$PWD/web/dist\" ORBITAL_MIGRATIONS_DIR=\"$PWD/server/drizzle\" node server/dist/index.mjs",
@@ -21,8 +23,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm test -w server && npm run test:run -w web && npm test -w desktop",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w web && npm run typecheck -w desktop"
+    "test": "npm test -w shared && npm test -w server && npm run test:run -w web && npm test -w desktop && npm test -w relay",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w web && npm run typecheck -w desktop && npm run typecheck -w relay"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

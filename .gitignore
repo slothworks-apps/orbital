@@ -5,6 +5,8 @@ node_modules/
 server/dist/
 desktop/dist/
 desktop/release/
+relay/dist/
+relay/data/
 .claude/worktrees/
 
 CLAUDE.local.md

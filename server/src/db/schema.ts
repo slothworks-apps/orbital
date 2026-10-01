@@ -425,6 +425,22 @@ export const narrations = sqliteTable(
 );
 
 /**
+ * Phones paired with this Mac (spec 2026-09-30-mobile-remote-design § 3).
+ * `id` is the phone's device id (its public key, base64url). `notifications`
+ * is the phone's own five rows as JSON — copied from the desktop's at pairing
+ * and edited only from the phone (§ 5).
+ */
+export const remoteDevices = sqliteTable('remote_devices', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  platform: text('platform').notNull(),
+  pairedAt: integer('paired_at').notNull(),
+  lastSeenAt: integer('last_seen_at'),
+  notifications: text('notifications').notNull(),
+});
+export type RemoteDeviceRow = typeof remoteDevices.$inferSelect;
+
+/**
  * Every failure Orbital caught, from either side of the wire. See
  * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
  *

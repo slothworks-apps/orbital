@@ -1,6 +1,6 @@
 {
   "name": "@orbital/desktop",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "description": "Orbital as a macOS desktop app: the window, the notifications and the server's lifecycle.",
   "author": "SlothWorks s.r.o.",
   "private": true,
@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@orbital/shared": "*",
     "@types/node": "^22.20.2",
     "electron": "44.4.3",
     "electron-builder": "^26.15.3",

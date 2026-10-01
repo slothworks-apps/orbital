@@ -1,0 +1,376 @@
+/**
+ * The Mac side of the mobile remote, assembled: identity, the relay
+ * connection, pairing, one `DeviceWatcher` per paired phone (alive while the
+ * service runs) and one `PhoneSession` per connected phone (alive per
+ * connection). Off is the default and off means nothing here is constructed
+ * (spec 2026-09-30-mobile-remote-design § 3).
+ */
+import { randomBytes } from 'node:crypto';
+import { deviceId, fingerprint, publicKeyOf, toBase64Url, type Identity } from '@orbital/shared/remote/keys';
+import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
+import {
+  DEFAULT_RELAY_URL, PAIRING_SECRET_BYTES, verifyPairingProof, type QrPayload, type RelayToDevice,
+} from '@orbital/shared/remote/relayApi';
+import { parseNotificationSettings } from '@orbital/shared/notifications';
+import type { Hub } from '../api/hub.js';
+import type { OrbitalDb } from '../db/database.js';
+import type { ImageStore } from '../images/store.js';
+import { DeviceStore, type RemoteDevice } from './devices.js';
+import { DeviceWatcher } from './deviceWatcher.js';
+import { loadOrCreateIdentity, macDisplayName } from './identity.js';
+import { PhoneSession, type InjectFn } from './phoneSession.js';
+import { RelayClient, type RelayClientOptions } from './relayClient.js';
+import { wakeSecret, wakeToken } from './wake.js';
+
+export type RemoteStatus = {
+  enabled: boolean;
+  relay: 'off' | 'connecting' | 'online';
+  relayUrl: string;
+  macId: string | null;
+  macName: string;
+  devices: (RemoteDevice & { online: boolean })[];
+  pendingPair: { phone: string; name: string; platform: string; fingerprint: string } | null;
+  pairing: { expiresAt: number } | null;
+  /** Why the last `start` failed; null while it is fine. */
+  error: string | null;
+};
+
+export type RemoteServiceOptions = {
+  db: OrbitalDb;
+  hub: Hub;
+  dataDir: string;
+  images: ImageStore;
+  imagesDir: string;
+  serverVersion: string;
+  inject: InjectFn;
+  settings: { get(key: string): string };
+  allSettings: () => Record<string, string>;
+  now?: () => number;
+  clientFactory?: (opts: RelayClientOptions) => RelayClient;
+};
+
+export class RemoteService {
+  private identity: Identity | null = null;
+  private client: RelayClient | null = null;
+  private readonly devices: DeviceStore;
+  private readonly watchers = new Map<string, DeviceWatcher>();
+  private readonly sessions = new Map<string, PhoneSession>();
+  private pendingPair: RemoteStatus['pendingPair'] = null;
+  /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
+  private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
+  private error: string | null = null;
+  private readonly now: () => number;
+
+  constructor(private readonly opts: RemoteServiceOptions) {
+    this.devices = new DeviceStore(opts.db);
+    this.now = opts.now ?? Date.now;
+  }
+
+  private get enabled(): boolean {
+    return this.opts.settings.get('remote_enabled') === 'true';
+  }
+
+  private get relayUrl(): string {
+    return this.opts.settings.get('remote_relay_url').trim() || DEFAULT_RELAY_URL;
+  }
+
+  private get macName(): string {
+    return macDisplayName(this.opts.settings.get('remote_mac_name'));
+  }
+
+  start(): void {
+    if (!this.enabled || this.client) return;
+    // The server boots from `buildServer`, and a remote that cannot start (an
+    // unparseable relay URL, an unreadable identity file) must not take the
+    // rest of Orbital down with it: it reports the reason and stays off.
+    try {
+      const loaded = loadOrCreateIdentity(this.opts.dataDir);
+      this.identity = loaded.identity;
+      if (loaded.regenerated) this.forgetAllDevices();
+      const client = (this.opts.clientFactory ?? ((o) => new RelayClient(o)))({
+        relayUrl: this.relayUrl, identity: this.identity,
+      });
+      this.client = client;
+      client.on('status', () => {
+        // A new connection means new session keys: every phone re-handshakes.
+        if (client.status !== 'online') this.closeSessions();
+        this.publishStatus();
+      });
+      client.on('control', (msg: RelayToDevice) => this.onControl(msg));
+      client.on('data', (frame: Uint8Array) => this.onData(frame));
+      for (const device of this.devices.list()) this.watch(device.id);
+      client.start();
+      this.error = null;
+    } catch (err) {
+      this.teardown();
+      this.error = err instanceof Error ? err.message : String(err);
+      console.warn(`[remote] could not start: ${this.error}`);
+    }
+    this.publishStatus();
+  }
+
+  stop(): void {
+    this.teardown();
+    this.error = null;
+    this.publishStatus();
+  }
+
+  /** Everything `stop` undoes, without publishing: a failed `start` publishes once, at its end. */
+  private teardown(): void {
+    this.closeSessions();
+    for (const w of this.watchers.values()) w.stop();
+    this.watchers.clear();
+    const client = this.client;
+    this.client = null;
+    // Detached first, so its last `status` event does not publish mid-teardown.
+    client?.removeAllListeners();
+    client?.stop();
+    this.identity = null;
+    this.pendingPair = null;
+    this.pairing = null;
+  }
+
+  /** Re-reads every setting: a toggle, a relay URL or a name change applies now. */
+  settingsChanged(): void {
+    this.stop();
+    this.start();
+  }
+
+  status(): RemoteStatus {
+    this.pairingOpen();
+    const online = this.client?.peersOnline ?? new Set<string>();
+    return {
+      enabled: this.enabled,
+      relay: this.client?.status ?? 'off',
+      relayUrl: this.relayUrl,
+      macId: this.identity ? deviceId(this.identity.publicKey) : null,
+      macName: this.macName,
+      devices: this.listDevices().map((d) => ({ ...d, online: online.has(d.id) })),
+      pendingPair: this.pendingPair,
+      pairing: this.pairing ? { expiresAt: this.pairing.expiresAt } : null,
+      error: this.error,
+    };
+  }
+
+  /**
+   * `status()` runs inside `stop()`, which runs inside the server's close
+   * hook: a database that is already gone (or a table a stale migration set
+   * never created) must read as no devices, not throw through shutdown.
+   */
+  private listDevices(): RemoteDevice[] {
+    try {
+      return this.devices.list();
+    } catch (err) {
+      console.warn(`[remote] could not list devices: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  /**
+   * Also clears an expired code and the request made with it: neither may
+   * outlive the code — the relay prunes the pending row past its expiry, so
+   * a confirm would only fail there.
+   */
+  private pairingOpen(): boolean {
+    if (this.pairing && this.pairing.expiresAt <= this.now()) {
+      this.pairing = null;
+      this.pendingPair = null;
+    }
+    return this.pairing !== null;
+  }
+
+  async startPairing(): Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' }> {
+    if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
+    if (this.client.status !== 'online') return { error: 'offline' };
+    const res = await this.client.post<{ token: string; expiresAt: number }>('/pair/token', 'pair.token', { name: this.macName });
+    if (res.status !== 200) return { error: 'relay_error' };
+    const secret = new Uint8Array(randomBytes(PAIRING_SECRET_BYTES));
+    this.pairing = { expiresAt: res.body.expiresAt, secret };
+    this.pendingPair = null;
+    const qr: QrPayload = {
+      v: 1, relay: this.relayUrl, mac: deviceId(this.identity.publicKey), name: this.macName, token: res.body.token,
+      secret: toBase64Url(secret),
+    };
+    this.publishStatus();
+    return { qr: JSON.stringify(qr), expiresAt: res.body.expiresAt };
+  }
+
+  /**
+   * `phone` is the request the user actually looked at: the fingerprint on
+   * screen belongs to it, so a confirm never applies to any other phone.
+   */
+  async confirmPairing(accept: boolean, phone: string): Promise<boolean> {
+    const pending = this.pairingOpen() ? this.pendingPair : null;
+    if (!pending || pending.phone !== phone || !this.client) return false;
+    // The relay tells the phone `paired` before it answers this post, and a
+    // phone handshakes the moment it hears that — so the device must exist
+    // here first, or its handshake frame is dropped as from a stranger.
+    const existed = this.devices.get(pending.phone) !== null;
+    if (accept) {
+      this.devices.add({
+        id: pending.phone, name: pending.name, platform: pending.platform, pairedAt: this.now(),
+        notifications: parseNotificationSettings(this.opts.allSettings()),
+      });
+      this.watch(pending.phone);
+    }
+    const res = await this.client.post('/pair/confirm', 'pair.confirm', { phone: pending.phone, accept });
+    if (res.status !== 200) {
+      // The relay never paired it: undo what was added above. A device that
+      // was already paired before this confirm is not ours to remove.
+      if (accept && !existed) {
+        this.sessions.get(pending.phone)?.close();
+        this.sessions.delete(pending.phone);
+        this.watchers.get(pending.phone)?.stop();
+        this.watchers.delete(pending.phone);
+        this.devices.remove(pending.phone);
+      }
+      return false;
+    }
+    // A stop/start during the post replaced the state; leave the new one be.
+    if (this.pendingPair === pending) {
+      this.pendingPair = null;
+      this.pairing = null;
+    }
+    this.publishStatus();
+    return true;
+  }
+
+  /**
+   * Local first and unconditionally: the phone loses access on this Mac the
+   * moment the user asks, remote on or off. Telling the relay is best effort
+   * on top — a phone it still thinks is paired can reach nothing here.
+   */
+  async revoke(id: string): Promise<boolean> {
+    if (!this.devices.get(id)) return false;
+    this.sessions.get(id)?.close('revoked');
+    this.sessions.delete(id);
+    this.watchers.get(id)?.stop();
+    this.watchers.delete(id);
+    this.devices.remove(id);
+    this.publishStatus();
+    const client = this.client;
+    if (client && client.status === 'online') {
+      const res = await client.post('/pair/revoke', 'pair.revoke', { phone: id });
+      if (res.status !== 200) console.warn(`[remote] relay revoke of ${id} failed: ${res.status}`);
+    }
+    return true;
+  }
+
+  /**
+   * After the identity file was unreadable and replaced: every phone paired
+   * with the old key verifies the Mac against that key and can never
+   * handshake again, so listing them would only lie.
+   */
+  private forgetAllDevices(): void {
+    const all = this.devices.list();
+    if (all.length === 0) return;
+    for (const d of all) this.devices.remove(d.id);
+    console.warn(`[remote] the Mac's identity was regenerated; removed ${all.length} paired phone(s), which must pair again`);
+  }
+
+  private onControl(msg: RelayToDevice): void {
+    if (msg.type === 'pair_request' && this.identity) {
+      // Only while the user has a code on screen, and only the first phone
+      // to redeem it: a second request must not swap the fingerprint the
+      // user is comparing.
+      if (!this.pairingOpen() || !this.pairing || this.pendingPair) return;
+      const phoneKey = publicKeyOf(msg.phone);
+      if (!phoneKey) return;
+      // The relay could otherwise substitute a key of its own whose 30-bit
+      // fingerprint it ground to match; only the phone that scanned the QR
+      // holds the secret the proof is made with.
+      if (!verifyPairingProof(this.pairing.secret, phoneKey, msg.proof)) {
+        console.warn(`[remote] ignored a pairing request from ${msg.phone.slice(0, 8)}: its proof does not match this code`);
+        return;
+      }
+      this.pendingPair = {
+        phone: msg.phone, name: msg.name, platform: msg.platform,
+        fingerprint: fingerprint(this.identity.publicKey, phoneKey),
+      };
+      this.opts.hub.publish('remote', { event: 'pair_request', ...this.pendingPair });
+      this.publishStatus();
+      return;
+    }
+    if (msg.type === 'presence') {
+      // Online or offline, the phone's previous session is over: a phone
+      // that reconnects on a new socket supersedes the old one without the
+      // relay ever saying `offline`, and it handshakes afresh. The relay
+      // sends this presence before any frame from the new socket, so the
+      // new handshake meets no stale cipher.
+      this.sessions.get(msg.peer)?.close();
+      this.sessions.delete(msg.peer);
+      if (msg.online) this.devices.touch(msg.peer, this.now());
+      this.publishStatus();
+    }
+  }
+
+  private onData(buf: Uint8Array): void {
+    const frame = decodeFrame(buf);
+    if (!frame || !this.identity || !this.client) return;
+    const from = deviceId(frame.peer);
+    const device = this.devices.get(from);
+    if (!device || frame.body.length === 0) return;
+    let session = this.sessions.get(from);
+    if (!session) {
+      const phonePublicKey = new Uint8Array(frame.peer);
+      const client = this.client;
+      session = new PhoneSession({
+        deviceId: from, identity: this.identity, phonePublicKey, hub: this.opts.hub,
+        inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir,
+        serverVersion: this.opts.serverVersion, macName: this.macName,
+        notifications: {
+          get: () => this.devices.get(from)?.notifications ?? device.notifications,
+          set: (s) => this.devices.setNotifications(from, s),
+        },
+        send: (body) => client.sendData(encodeFrame({ peer: phonePublicKey, flags: 0, wake: ZERO_WAKE, body })),
+        onSeen: (sessionId) => this.watchers.get(from)?.seen(sessionId),
+        onClose: () => {
+          if (this.sessions.get(from) === session) this.sessions.delete(from);
+        },
+      });
+      this.sessions.set(from, session);
+    }
+    session.receive(frame.body);
+  }
+
+  private watch(id: string): void {
+    if (this.watchers.has(id) || !this.identity) return;
+    const secret = wakeSecret(this.identity);
+    const phoneKey = publicKeyOf(id);
+    if (!phoneKey) return;
+    const watcher = new DeviceWatcher({
+      deviceId: id, hub: this.opts.hub,
+      settings: () => this.devices.get(id)?.notifications ?? parseNotificationSettings({}),
+      // Sent whether or not the phone is connected: the relay forwards to a
+      // connected phone (which ignores an empty body) and pushes otherwise.
+      onWake: (sessionId) => this.client?.sendData(encodeFrame({
+        peer: phoneKey, flags: FLAG_WAKE | FLAG_STATE, wake: wakeToken(secret, sessionId), body: new Uint8Array(0),
+      })),
+    });
+    void this.opts.inject({ method: 'GET', url: '/api/sessions?limit=200' }).then((res) => {
+      let initial: unknown[] = [];
+      try {
+        // The route answers `{ sessions: [...] }` (routes.ts, GET /api/sessions).
+        const parsed = JSON.parse(res.body) as { sessions?: unknown };
+        if (Array.isArray(parsed.sessions)) initial = parsed.sessions;
+      } catch {
+        /* an empty seed only means the first sighting of each session is not news */
+      }
+      if (this.watchers.get(id) === watcher) watcher.start(initial);
+    }).catch((err: unknown) => {
+      // No seed is a lesser loss than no watcher: start it anyway.
+      console.warn(`[remote] could not seed the watcher for ${id}: ${err instanceof Error ? err.message : String(err)}`);
+      if (this.watchers.get(id) === watcher) watcher.start([]);
+    });
+    this.watchers.set(id, watcher);
+  }
+
+  private closeSessions(): void {
+    for (const s of this.sessions.values()) s.close();
+    this.sessions.clear();
+  }
+
+  private publishStatus(): void {
+    this.opts.hub.publish('remote', { event: 'status', ...this.status() });
+  }
+}

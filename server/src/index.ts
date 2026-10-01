@@ -53,6 +53,8 @@ import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog } from './models/catalog.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
+import { RemoteService } from './remote/service.js';
+import { remoteInjectOptions } from './remote/inject.js';
 import type { SessionRow } from './types.js';
 
 /**
@@ -213,6 +215,8 @@ export async function buildServer(overrides: {
   devTools?: boolean;
   /** How long a rewind waits for a stopped process; tests shorten it (see `Runner.stopAndWait`). */
   rewindStopTimeoutMs?: number;
+  /** Where the identity file and images live; tests point it at a temp dir. */
+  dataDir?: string;
 } = {}): Promise<FastifyInstance> {
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
@@ -368,7 +372,8 @@ export async function buildServer(overrides: {
 
   // One store for both message producers, so a live image and its reloaded
   // twin land as the same file and the same ref.
-  const imagesDir = join(CONFIG.dataDir, 'images');
+  const dataDir = overrides.dataDir ?? CONFIG.dataDir;
+  const imagesDir = join(dataDir, 'images');
   const images = createImageStore(imagesDir);
 
   // Names a session from its own contents. On its own it reaches web sessions
@@ -1036,11 +1041,25 @@ export async function buildServer(overrides: {
     // server was started, not preferences, so they ride the health payload
     // rather than becoming settings rows nothing would ever write.
     billing,
-    paths: { claudeDir, dataDir: CONFIG.dataDir, dbPath: overrides.dbPath ?? CONFIG.dbPath },
+    paths: { claudeDir, dataDir, dbPath: overrides.dbPath ?? CONFIG.dbPath },
   }));
+  // The mobile remote (spec 2026-09-30-mobile-remote-design § 3). Built
+  // whether or not it is enabled — `start()` is what reads the switch — so the
+  // routes always have something to ask. `inject` is how a phone's REST call
+  // enters: in-process, same routes, same host guard satisfied by the header.
+  const remote = new RemoteService({
+    db, hub, dataDir, images, imagesDir,
+    serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
+    inject: async (req) => {
+      const res = await app.inject(remoteInjectOptions(req));
+      return { statusCode: res.statusCode, body: res.body };
+    },
+    settings: settingsStore,
+    allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
+  });
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, errors,
-    images, imagesDir, titler, narrator, git, ide, branchStatus, harness,
+    images, imagesDir, titler, narrator, git, ide, branchStatus, harness, remote,
     settings: settingsStore,
     mcp: mcpConfig,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
@@ -1051,7 +1070,15 @@ export async function buildServer(overrides: {
         countSweepable(db, retentionCutoff(parseRetentionDays(value), Date.now())),
     },
   });
+  remote.start();
   app.addHook('onClose', (_instance, done) => {
+    // First, while the db is still open — and guarded, so nothing it throws
+    // can skip the runner and the db below and leave close hanging.
+    try {
+      remote.stop();
+    } catch (err) {
+      console.warn(`[remote] stop failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
     clearImmediate(statsBackfill);
     runner.dispose();
     registry.close();

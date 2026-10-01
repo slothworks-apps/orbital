@@ -7,6 +7,7 @@ domain: desktop
 related:
   - 2026-09-16-electron-wrapper-design
   - trim-and-sign-the-desktop-package
+  - 2026-10-01-mobile-remote-backend
 tags:
   - desktop
   - server
@@ -62,3 +63,9 @@ when their files are next open.
   `npm run dev -w desktop` (which does not) stopped being the same script: the
   bare form probes 4737 and attaches to the *dogfood* instance. README and the
   runbook also both still claimed `npm run dev` serves on 4737.
+- **`ORBITAL_VERSION` is not passed to the forked server.** The mobile
+  remote's `hello` handshake (`server/src/remote/`) reports
+  `server: 'dev'` because nothing sets that env var for the child process
+  `desktop/src/main.ts` forks. Pass the desktop app's own `version` from
+  `desktop/package.json` through so a paired phone can tell which build
+  of Orbital it is talking to.

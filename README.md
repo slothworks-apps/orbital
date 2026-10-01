@@ -110,6 +110,22 @@ picks the wrong one, the `claude_executable_path` setting overrides it.
 [`docs/ops/run-the-desktop-app.md`](docs/ops/run-the-desktop-app.md) has the
 forked-mode recipe, the notification smoke test and the troubleshooting table.
 
+## Mobile remote (backend)
+
+`relay/` is a small Fastify + `ws` service that lets a phone pair with
+this Mac and drive Orbital's API over an end-to-end encrypted tunnel, for
+deployment on Dokploy. The backend (relay, wire protocol in `shared/`,
+and the Mac side in `server/src/remote/`) is built; there is no phone
+client yet, so the feature stays off until one exists.
+
+```bash
+npm run dev -w relay     # relay on :4840, SQLite under relay/data/
+```
+
+See [`docs/superpowers/specs/2026-09-30-mobile-remote-design.md`](docs/superpowers/specs/2026-09-30-mobile-remote-design.md)
+for the design and [`docs/ops/run-the-relay.md`](docs/ops/run-the-relay.md)
+for deploying it.
+
 ## Test
 
 ```bash

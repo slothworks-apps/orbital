@@ -1,7 +1,7 @@
 ---
 id: 2026-09-30-mobile-remote-design
 title: Mobile remote — a phone client over an end-to-end encrypted relay
-status: draft
+status: active
 type: spec
 domain: remote
 related:
@@ -11,6 +11,9 @@ related:
   - 2026-09-22-ws-reconnect-resync-design
   - 2026-09-18-transcript-images-design
   - 2026-09-16-electron-wrapper-design
+  - 2026-10-01-mobile-remote-backend
+  - remote-identity-is-ed25519-with-ephemeral-session-keys
+  - the-phone-tunnels-the-api-behind-an-allowlist
 tags:
   - mobile
   - relay
@@ -19,9 +22,12 @@ tags:
 ---
 # Mobile remote
 
-**Status: draft.** Brainstormed 2026-09-30 as a non-binding idea. Nothing
-here is built and no plan exists; the design is written down so it does not
-have to be rediscovered.
+**Status: active.** Brainstormed 2026-09-30 as a non-binding idea, then
+built: [[2026-10-01-mobile-remote-backend]] implements everything below
+except the phone itself — `shared/` (the wire protocol), `relay/` and
+`server/src/remote/` are done and reviewed. § 1's key handling is amended
+from what was brainstormed here; see the note at its head. What remains
+is the phone client (§ 4) and the Mac-side pairing screens on the canvas.
 
 Canvas: `Feature - Mobile.dc.html` (artboards 9a–9g, parts and states in
 9p), drawn 2026-10-01. It covers the phone only; the Mac-side screens
@@ -68,12 +74,18 @@ Ruled out, and why:
 
 ## 1. Pairing and keys
 
-- The Mac generates a permanent identity when the feature is first enabled
-  in Settings: an X25519 pair for key agreement and an Ed25519 pair for
-  signing, stored in Orbital's data dir. The server is a Node process with
-  no UI, so the Keychain is not an option there.
-- The phone generates the same two pairs and keeps them in the platform
-  secure store (Android Keystore, iOS Keychain) through a Capacitor plugin.
+**Amended 2026-10-01 by [[remote-identity-is-ed25519-with-ephemeral-session-keys]]:**
+each device's permanent identity is a single Ed25519 pair, used only to
+sign. There is no permanent X25519 pair; every connection instead runs a
+fresh, signed ephemeral X25519 handshake (§ "Session keys" below is
+superseded by that ADR — read it for the actual key schedule).
+
+- The Mac generates a permanent Ed25519 identity when the feature is
+  first enabled in Settings, stored in Orbital's data dir. The server is
+  a Node process with no UI, so the Keychain is not an option there.
+- The phone generates the same Ed25519 identity and keeps it in the
+  platform secure store (Android Keystore, iOS Keychain) through a
+  Capacitor plugin.
 - **Pairing flow.** The Mac asks the relay for a one-time pairing token
   (minutes of validity) and shows a QR with the relay URL, its public keys
   and the token. The phone scans it, encrypts its own public keys to the
@@ -83,6 +95,11 @@ Ruled out, and why:
   the device stored and the pair active. Confirmation on the Mac is
   mandatory: a photographed QR is otherwise enough to pair within the
   token's window.
+- **The QR also carries a one-time secret** the relay never sees; the
+  phone's redeem includes an HMAC of its public key under that secret,
+  and the Mac ignores a pairing request whose proof does not verify — the
+  30-bit fingerprint alone is a human check a relay could grind a key to
+  match (amended 2026-10-01, see the ADR).
 - **Session keys.** X25519 shared secret → HKDF → AES-256-GCM key. Every
   frame carries its own nonce with a counter and a direction bit, so a
   frame cannot be replayed in the other direction. Library: `@noble/curves`
@@ -121,9 +138,11 @@ pending pairing tokens — nothing else).
   `offline`, and the reverse, so the phone can label stale state as stale.
 - **Caps.** A maximum frame size; a per-connection buffered-bytes limit
   past which the relay stops reading from the other side (backpressure via
-  `ws`'s `bufferedAmount`); a short queue for state events only, never
-  transcript, for a phone that is not connected; rate limits on pairing and
-  connect.
+  `ws`'s `bufferedAmount`); a short queue for a phone that is not
+  connected, holding empty-body wake frames only (a frame with content is
+  sealed under keys the phone's next handshake replaces, so it could never
+  be read) and bounded in devices as well as frames; rate limits on
+  pairing, per client IP, counted only for signed requests.
 - **Push.** If a frame is flagged `wake` and the phone is not connected, the
   relay sends a Firebase Cloud Messaging notification with generic text
   ("a session needs your input" and the Mac's name). Content never leaves
@@ -133,7 +152,12 @@ pending pairing tokens — nothing else).
   that the relay can count them is the one deliberate leak. Decrypting
   content inside the notification (iOS
   Notification Service Extension) is a v2 option.
-- **Logs.** Metadata only: connections, frame counts, errors.
+- **Logs.** Metadata only, `relay:`-prefixed lines: a device connecting
+  and disconnecting (an id prefix of `LOG_ID_PREFIX_CHARS`), pairing
+  tokens minted, redeemed, confirmed, rejected and pairs revoked (id
+  prefixes), pushes sent or failed (a push-token prefix and the count). Never a
+  frame body, never a display name. The runbook [[run-the-relay]] lists
+  them exactly.
 
 The relay deliberately cannot: serve history, store transcripts, or do
 anything that needs to read a body. The relay URL is a setting on the Mac
@@ -288,6 +312,91 @@ Ordered by how much they can sink or inflate the plan.
   4. composer and images;
   5. spawn;
   6. iOS.
+
+## 7. Phone client contract
+
+Added 2026-10-01, from building [[2026-10-01-mobile-remote-backend]]:
+what the backend already assumes about a phone client, so the phone's
+own implementation does not have to rediscover it by reading the server.
+
+- **Build query strings with `URLSearchParams`.** The allowlist
+  (`server/src/remote/allowlist.ts`) rejects a raw space or a `'` in a
+  query string outright, along with anything else that is not the exact
+  canonical path Fastify's router would produce. `URLSearchParams`
+  percent-encodes correctly by construction; hand-built query strings are
+  not guaranteed to.
+- **Page transcripts small.** An `http_res` frame is one WebSocket frame
+  and is capped at `MAX_FRAME_BYTES` (`shared/src/remote/frame.ts`); a
+  response over the inner limit comes back as a 413 (§ 3 and the ADR
+  [[the-phone-tunnels-the-api-behind-an-allowlist]]). Request history
+  pages, do not try to fetch a whole transcript in one call.
+- **Subscribe to `sessions` and `errors` after `hello`.** Those are the
+  two hub topics the phone needs for the session list and wake
+  notifications. Only the topics the web client uses are open to a phone
+  (`PHONE_ALLOWED_TOPICS` and its prefixes `session:`, `subagent:`,
+  `task-output:` in `server/src/remote/phoneSession.ts`); any other
+  subscribe, `remote` included, is ignored. After a re-handshake the
+  phone says `hello` and subscribes again: the Mac drops the old
+  connection's subscriptions.
+- **On a `dropped` hub frame, refetch over REST.** A hub frame too large
+  for one relay frame arrives as `{ topic, event: 'dropped', reason:
+  'too_large', id? }` instead (`id` is the message's id when the frame
+  carried one). Refetch that session's page over REST with a smaller
+  `limit`; chunked JSON is a known gap (§ 8).
+- **Ignore an empty-body frame.** A wake frame has no body; what it says
+  lives in the clear header (§ 2), and the relay queues only those for an
+  offline phone.
+- **Handshake whenever the Mac is reachable, not only on `paired`.**
+  Send the initiator's handshake message on `paired`, on `ok` when it
+  lists the Mac as online, and on the Mac's `presence` with `online:
+  true`. The relay's `paired` is sent before the Mac's `POST
+  /pair/confirm` answers, so the Mac already expects the phone's identity
+  by then — do not wait for anything else.
+- **A redeem can answer 200 and still go nowhere.** The relay forwards the
+  request; the Mac ignores it when its code is no longer on screen, a
+  request is already pending, or the pairing proof does not verify.
+  Time out the "confirm on your Mac" wait after `PAIRING_TOKEN_TTL_MS`
+  and offer to scan again.
+- **Send `push_token` again after `paired`.** The relay keeps no row for
+  a device that has not redeemed a code, so a push token sent before the
+  redeem is dropped.
+- **Local notifications come from the hub, not the wake frame.** A wake
+  frame names no session; a connected phone decides what to show from the
+  `sessions` and `errors` frames it receives, under its own notification
+  settings.
+- **The relay's `?mac=` query parameter is the Mac's id from the QR**,
+  the same id the QR's `mac` field carries. It is not read by the relay
+  today (see [[run-the-relay]]'s "More than one instance"), but a client
+  should send it on every connection anyway, since a future sticky-
+  routing deployment depends on every client already doing so.
+
+## 8. Known gaps after the backend plan
+
+Added 2026-10-01: things [[2026-10-01-mobile-remote-backend]] left as is,
+deliberately, rather than incidentally.
+
+- **A revoke while the remote is off never reaches the relay.** `revoke()`
+  always removes the device locally first; telling the relay is best
+  effort and is simply not attempted when there is no live client. The
+  relay keeps a pair that is dead on the Mac side — harmless, since the
+  Mac no longer accepts frames from that phone, but it means a phone
+  revoked while the Mac was asleep can still open a WebSocket to the
+  relay and receive `presence`/`paired` control traffic until someone
+  revokes it again (or redeploys) while the remote is on.
+- **A failed start does not retry on identical settings.** If the Mac
+  fails to connect (say, a bad relay URL), saving the exact same
+  settings again does not retry the connection — some value has to
+  change, or the user has to toggle `remote_enabled` off and on.
+- **No chunked JSON.** A hub frame or REST answer larger than one relay
+  frame is not split: the REST answer becomes a 413 and the hub frame a
+  `dropped` notice (§ 7). A single message too large for one frame (one
+  huge tool result) cannot reach the phone at all until JSON travels in
+  chunks the way images do.
+- **`ORBITAL_VERSION` is not set by the desktop fork yet.** `hello.server`
+  (`server/src/index.ts`) reads `process.env.ORBITAL_VERSION ?? 'dev'`,
+  and `desktop/src/main.ts` does not set it when forking the server, so
+  a paired phone always sees `server: 'dev'`. Tracked in
+  `docs/chores/desktop-follow-ups.md`.
 
 ## Before implementation
 

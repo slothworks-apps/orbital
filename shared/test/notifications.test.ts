@@ -3,7 +3,7 @@ import {
   DEFAULT_NOTIFICATION_SETTINGS,
   parseNotificationSettings,
   SessionNotifier,
-} from '../src/lib/notifications';
+} from '../src/notifications.js';
 
 /** An `upsert` frame as the hub publishes it (the full ApiSession, trimmed). */
 function upsert(session: Record<string, unknown>) {

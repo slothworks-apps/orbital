@@ -225,6 +225,9 @@ describe('openDb', () => {
       session_instructions_tips: 'true',
       session_instructions_custom: 'true',
       session_instructions_custom_text: '',
+      remote_enabled: 'false',
+      remote_relay_url: '',
+      remote_mac_name: '',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

@@ -53,6 +53,8 @@ import { registerHarnessRoutes } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import type { McpConfig } from '../mcp/config.js';
+import { registerRemoteRoutes } from './remoteRoutes.js';
+import type { RemoteService } from '../remote/service.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
 import { readSubagentMessages, subagentDirOf } from '../walkthrough/subagents.js';
 import { StampedCache, dirStamp, fileStamp } from '../transcript/stampedCache.js';
@@ -101,6 +103,8 @@ export interface RouteContext {
   narrator: Narrator;
   /** Harness templates and session checklists (spec 2026-09-30-session-harness-design). */
   harness: HarnessService;
+  /** The mobile remote (spec 2026-09-30-mobile-remote-design § 3): its routes, and the settings hook. */
+  remote: RemoteService;
   settings: { get(key: string): string; set(key: string, value: string): void };
   /** MCP config through `claude mcp`, and the read of `~/.claude.json` the edit form needs
    * (spec 2026-10-01-mcp-servers-in-the-session-design § Config). */
@@ -275,6 +279,7 @@ class RewindStopError extends Error {}
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
   if (ctx.devTools) registerDevRoutes(app, ctx);
+  registerRemoteRoutes(app, ctx.remote);
   /**
    * One reader for the whole server, because its whole job is to hold a tab
    * list still for a moment across the burst of requests one `@` produces
@@ -1857,7 +1862,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
   app.patch('/api/settings', (req) => {
     let branchSettings = false;
+    let remoteSettings = false;
     for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
+      // A restart of the remote drops every connected phone; saving a value
+      // that did not change must not do that.
+      if (k.startsWith('remote_') && ctx.settings.get(k) !== String(v)) remoteSettings = true;
       ctx.settings.set(k, String(v));
       // Applied now, not at the next boot: the dialog confirms "this will drop
       // N sessions" before saving, and deferring the sweep would make that
@@ -1868,6 +1877,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // Without a reload: a switch turned off drops the field from the open
     // sessions, one turned on starts reading and fills it.
     if (branchSettings) ctx.branchStatus.settingsChanged();
+    // The switch, the relay URL and the Mac's name all apply now, not at the next boot.
+    if (remoteSettings) ctx.remote.settingsChanged();
     return { ok: true };
   });
 

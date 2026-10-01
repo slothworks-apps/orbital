@@ -1,7 +1,7 @@
 ---
 id: 2026-10-01-mobile-remote-backend
 title: Mobile remote backend — relay, shared protocol and the Mac side
-status: draft
+status: done
 type: plan
 domain: remote
 related:
@@ -79,7 +79,7 @@ Tasks 1–5 build `shared/` and are sequential. After Task 5, the relay (6–9) 
 - Consumes: nothing.
 - Produces: `Identity`, `generateIdentity()`, `identityFromSecret(secretKey)`, `sign(secretKey, message)`, `verify(publicKey, message, signature)`, `deviceId(publicKey): string`, `publicKeyOf(id): Uint8Array | null`, `fingerprint(a, b): string`, `formatFingerprint(fp): string`, `toBase64Url`, `fromBase64Url`, `concat(...parts)`.
 
-- [ ] **Step 1: Create the workspace**
+- [x] **Step 1: Create the workspace**
 
 `shared/package.json`:
 
@@ -149,7 +149,7 @@ Root `package.json`: add `"shared"` as the FIRST entry of `workspaces` (server a
 Run: `npm install`
 Expected: `node_modules/@orbital/shared` is a symlink to `shared/`.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `shared/test/keys.test.ts`:
 
@@ -196,12 +196,12 @@ describe('identity keys', () => {
 });
 ```
 
-- [ ] **Step 3: Run it to see it fail**
+- [x] **Step 3: Run it to see it fail**
 
 Run: `npm test -w shared`
 Expected: FAIL, cannot find `../src/remote/keys.ts`.
 
-- [ ] **Step 4: Implement `keys.ts`**
+- [x] **Step 4: Implement `keys.ts`**
 
 ```ts
 /**
@@ -302,12 +302,12 @@ function compare(a: Uint8Array, b: Uint8Array): number {
 
 If `ed25519.keygen` is not exported by the installed `@noble/curves`, open `node_modules/@noble/curves/ed25519.d.ts` and use the pair the file exports (`utils.randomSecretKey()` + `getPublicKey`); do not downgrade the package.
 
-- [ ] **Step 5: Run the tests and the typecheck**
+- [x] **Step 5: Run the tests and the typecheck**
 
 Run: `npm test -w shared && npm run typecheck -w shared`
 Expected: PASS, no type errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add shared package.json package-lock.json eslint.config.js
@@ -326,7 +326,7 @@ git commit -m "feat(shared): workspace with device identities and pairing finger
 - Consumes: `concat` from Task 1.
 - Produces: `FRAME_VERSION`, `FRAME_HEADER_BYTES`, `MAX_FRAME_BYTES`, `FLAG_WAKE`, `FLAG_STATE`, `WAKE_BYTES`, `ZERO_WAKE`, `type Frame = { peer: Uint8Array; flags: number; wake: Uint8Array; body: Uint8Array }`, `encodeFrame(frame): Uint8Array`, `decodeFrame(buf): Frame | null`, `rewritePeer(buf, peer): void`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `shared/test/frame.test.ts`:
 
@@ -378,12 +378,12 @@ describe('outer frame', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `npm test -w shared -- frame`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3: Implement `frame.ts`**
+- [x] **Step 3: Implement `frame.ts`**
 
 ```ts
 /**
@@ -448,12 +448,12 @@ export function rewritePeer(buf: Uint8Array, peer: Uint8Array): void {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npm test -w shared`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add shared/src/remote/frame.ts shared/test/frame.test.ts
@@ -470,11 +470,11 @@ git commit -m "feat(shared): the outer frame the relay routes by"
 
 **Interfaces:**
 - Consumes: `Identity`, `sign`, `verify`, `concat` from Task 1.
-- Produces: `HANDSHAKE_BYTES` (96), `type Role = 'initiator' | 'responder'`, `startHandshake(identity, peerPublicKey, role): Handshake`, `interface Handshake { message: Uint8Array; complete(peerMessage: Uint8Array): SessionCipher | null }`, `class SessionCipher { seal(plain: Uint8Array): Uint8Array; open(body: Uint8Array): Uint8Array | null }`, `NONCE_BYTES` (12).
+- Produces: `HANDSHAKE_BYTES` (96), `type Role = 'initiator' | 'responder'`, `startHandshake(identity, peerPublicKey, role): Handshake`, `interface Handshake { message: Uint8Array | null; complete(peerMessage: Uint8Array): SessionCipher | null }`, `class SessionCipher { seal(plain: Uint8Array): Uint8Array; open(body: Uint8Array): Uint8Array | null }`, `NONCE_BYTES` (12).
 
-The phone is always the initiator, the Mac always the responder. Both send their handshake message as the body of a plain data frame (flags 0) as the first thing after the relay says `ok`; the Mac waits for the phone's before replying.
+The phone is always the initiator, the Mac always the responder. The phone sends its handshake message as the body of a plain data frame (flags 0) as the first thing after the relay says `ok`; the Mac completes with it and only then has a `message` to send back. (Amended 2026-10-01 after the Task 3 review: the responder signs `CONTEXT ‖ ownEph ‖ initiatorEph`, so its half cannot exist before the initiator's arrived, and `complete` is single-use — a second call returns null. The code block below predates the amendment; the committed `shared/src/remote/handshake.ts` is the reference.)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `shared/test/handshake.test.ts`:
 
@@ -536,12 +536,12 @@ describe('handshake', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `npm test -w shared -- handshake`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3: Implement `handshake.ts`**
+- [x] **Step 3: Implement `handshake.ts`**
 
 ```ts
 /**
@@ -640,12 +640,12 @@ function lessOrEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npm test -w shared`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add shared/src/remote/handshake.ts shared/test/handshake.test.ts
@@ -684,7 +684,7 @@ Message vocabulary (the whole of it; nothing else goes through the tunnel):
 | Mac → phone | `blob_put_done` | `id`, `entry` (ImageRefEntry) or `error` | answer to a finished `blob_put` |
 | Mac → phone | `notifications` | `settings` | answer to `notifications_get` / `_set` |
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `shared/test/messages.test.ts`:
 
@@ -755,12 +755,12 @@ describe('message schemas', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `npm test -w shared -- messages`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3: Implement `messages.ts`**
+- [x] **Step 3: Implement `messages.ts`**
 
 ```ts
 /**
@@ -887,12 +887,12 @@ export const MacMessage = z.discriminatedUnion('t', [
 export type MacMessage = z.infer<typeof MacMessage>;
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npm test -w shared`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add shared/src/remote/messages.ts shared/test/messages.test.ts
@@ -921,7 +921,7 @@ Relay HTTP endpoints (implemented in Task 8; named here because `action` strings
 | `POST /pair/revoke` | `pair.revoke` | `{ phone }` | `{ ok: true }` |
 | `GET /health` | — | — | `{ app: 'orbital-relay' }` |
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `shared/test/relayApi.test.ts`:
 
@@ -987,12 +987,12 @@ describe('schemas and urls', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `npm test -w shared -- relayApi`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3: Implement `relayApi.ts`**
+- [x] **Step 3: Implement `relayApi.ts`**
 
 ```ts
 /**
@@ -1116,12 +1116,12 @@ export function relayWsUrl(httpUrl: string, mac: string): string {
 }
 ```
 
-- [ ] **Step 4: Run the tests and the typecheck**
+- [x] **Step 4: Run the tests and the typecheck**
 
 Run: `npm test -w shared && npm run typecheck -w shared`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add shared/src/remote/relayApi.ts shared/test/relayApi.test.ts
@@ -1141,7 +1141,7 @@ git commit -m "feat(shared): signed relay requests, control messages and the QR 
 - Consumes: `PAIRING_TOKEN_TTL_MS` from Task 5.
 - Produces: `CONFIG` (`port`, `dataDir`, `fcmServiceAccountPath`, `databaseUrl`), `interface RelayStore` (every method async: `upsertDevice`, `device`, `touch`, `setPushToken`, `createPairingToken`, `redeemPairingToken`, `pending`, `confirmPair`, `rejectPair`, `revokePair`, `isPaired`, `peersOf`, `phonesOf`, `pruneExpiredTokens`, `clearForTests`, `close`), `KyselyRelayStore`, `openRelayDb(target)`, `openRelayStore(target): Promise<RelayStore>`.
 
-- [ ] **Step 1: Create the workspace**
+- [x] **Step 1: Create the workspace**
 
 `relay/package.json`:
 
@@ -1186,7 +1186,7 @@ Root `package.json`: `"relay"` goes last in `workspaces`. Add to the ignore list
 Run: `npm install`
 Expected: `node_modules/@orbital/relay` symlink exists; `npm run typecheck -w relay` passes on the empty workspace once `src/index.ts` exists (Step 5).
 
-- [ ] **Step 2: `config.ts`**
+- [x] **Step 2: `config.ts`**
 
 ```ts
 import { join } from 'node:path';
@@ -1202,7 +1202,7 @@ export const CONFIG = {
 };
 ```
 
-- [ ] **Step 3: Write the failing store test**
+- [x] **Step 3: Write the failing store test**
 
 `relay/test/store.test.ts` — one suite, run against SQLite always and against Postgres when `RELAY_TEST_DATABASE_URL` is set (a local `postgres://relay:relay@127.0.0.1:5432/relay_test`; the suite empties its tables before each test):
 
@@ -1274,7 +1274,7 @@ describe.each(backends)('RelayStore (%s)', (_name, open) => {
 });
 ```
 
-- [ ] **Step 4: Implement the database, the migration and the store**
+- [x] **Step 4: Implement the database, the migration and the store**
 
 One table description serves both dialects; Kysely picks the driver at runtime. Migrations use Kysely's schema builder, which is dialect-agnostic for everything these tables need, and are registered statically so the esbuild bundle carries them (a `FileMigrationProvider` would look for files on disk at runtime).
 
@@ -1573,7 +1573,7 @@ export async function openRelayStore(target: string): Promise<RelayStore> {
 
 Adding a table or a column later: a new file `relay/migrations/0002_<name>.ts` exporting `migration`, one line in `MIGRATIONS`; it runs on the next boot of every instance, SQLite and Postgres alike.
 
-- [ ] **Step 5: `index.ts`, Dockerfile and the root scripts**
+- [x] **Step 5: `index.ts`, Dockerfile and the root scripts**
 
 `relay/src/index.ts` (the app factory `buildRelay` arrives in Task 7; until then this file only opens the store so the typecheck has an entry point — replace the body in Task 7):
 
@@ -1615,7 +1615,7 @@ CMD ["node", "relay/dist/index.mjs"]
 Run: `npm test -w relay && npm run typecheck -w relay && npm run build -w relay && npm run test && npm run typecheck`
 Expected: the store tests pass; the root `test` and `typecheck` scripts from Task 1 now run through every workspace.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add relay package.json package-lock.json .gitignore eslint.config.js
@@ -1635,7 +1635,7 @@ git commit -m "feat(relay): workspace, store and Dockerfile"
 - Consumes: `RelayStore` (Task 6); `decodeFrame`, `rewritePeer`, `FLAG_WAKE`, `FLAG_STATE`, `MAX_FRAME_BYTES` (Task 2); `deviceId`, `publicKeyOf` (Task 1); `RelayToDevice`, `DeviceToRelay`, `verifyAuthSignature`, `RELAY_PING_INTERVAL_MS` (Task 5).
 - Produces: `MAX_BUFFERED_BYTES`, `OFFLINE_QUEUE_MAX`, `AUTH_TIMEOUT_MS` (10000), `type Conn = { socket; id; peers: Set<string> }`, `class Connections` (`add`, `remove`, `get`, `isOnline`, `sendControl(id, msg)`), `class OfflineQueue` (`push`, `drain`), `type WakeHook = (from: string, to: string, wake: Uint8Array) => void | Promise<void>`, `handleSocket(socket, ctx)`, `buildRelay(opts: { store: RelayStore; onWake?: WakeHook; now?: () => number; pingIntervalMs?: number }): FastifyInstance` with `app.relay = { connections, queue }` decorated for tests.
 
-- [ ] **Step 1: Test helpers**
+- [x] **Step 1: Test helpers**
 
 `relay/test/helpers.ts`:
 
@@ -1704,7 +1704,7 @@ export async function connectDevice(base: string, identity: Identity, mac = devi
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `relay/test/ws.test.ts`:
 
@@ -1804,12 +1804,12 @@ describe('relay websocket', () => {
 });
 ```
 
-- [ ] **Step 3: Run them to see them fail**
+- [x] **Step 3: Run them to see them fail**
 
 Run: `npm test -w relay -- ws`
 Expected: FAIL, `../src/app.ts` not found.
 
-- [ ] **Step 4: Implement `connections.ts`**
+- [x] **Step 4: Implement `connections.ts`**
 
 ```ts
 import type { WebSocket } from 'ws';
@@ -1886,7 +1886,7 @@ export class OfflineQueue {
 }
 ```
 
-- [ ] **Step 5: Implement `ws.ts`**
+- [x] **Step 5: Implement `ws.ts`**
 
 ```ts
 /**
@@ -2027,7 +2027,7 @@ function toBytes(raw: unknown): Uint8Array {
 export { RELAY_PING_INTERVAL_MS };
 ```
 
-- [ ] **Step 6: Implement `app.ts` and wire `index.ts`**
+- [x] **Step 6: Implement `app.ts` and wire `index.ts`**
 
 `relay/src/app.ts`:
 
@@ -2090,12 +2090,12 @@ await app.listen({ port: CONFIG.port, host: '0.0.0.0' });
 console.log(`orbital relay listening on ${CONFIG.port}`);
 ```
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 Run: `npm test -w relay && npm run typecheck -w relay`
 Expected: PASS. If the `superseded` close races the presence test, the second `connectDevice` for the same identity is not in these tests; leave it.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add relay/src relay/test
@@ -2124,7 +2124,7 @@ Routes and answers (the `action` strings are from Task 5's table):
 | `POST /pair/confirm` | `{ ok: true }` | 401; 404 `no_pending` |
 | `POST /pair/revoke` | `{ ok: true }` | 401 |
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `relay/test/pairing.test.ts`:
 
@@ -2223,12 +2223,12 @@ describe('pairing', () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `npm test -w relay -- pairing`
 Expected: FAIL with 404s (no routes).
 
-- [ ] **Step 3: Implement `pairing.ts`**
+- [x] **Step 3: Implement `pairing.ts`**
 
 ```ts
 /**
@@ -2341,12 +2341,12 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
 
 In `app.ts`, after the `/health` route: `registerPairingRoutes(app, ctx);` with the import.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npm test -w relay && npm run typecheck -w relay`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add relay/src/pairing.ts relay/src/app.ts relay/test/pairing.test.ts
@@ -2368,7 +2368,7 @@ git commit -m "feat(relay): signed pairing endpoints"
 
 Push text is fixed (9g): title `Orbital · <macName>`, body `A session needs your input` or `<count> sessions need your input`. The relay sends on every wake frame that meets an offline phone; the Mac debounces per session, so a repeat here is a repeat on purpose.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `relay/test/push.test.ts`:
 
@@ -2450,12 +2450,12 @@ describe('FcmPushSender', () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `npm test -w relay -- push`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3: Implement `push.ts`**
+- [x] **Step 3: Implement `push.ts`**
 
 ```ts
 /**
@@ -2587,18 +2587,18 @@ function b64(text: string): string {
 }
 ```
 
-- [ ] **Step 4: Wire it**
+- [x] **Step 4: Wire it**
 
 `app.ts`: `RelayOptions` gains `push?: PushSender`; when `onWake` is not given, build `wakeHook(opts.store, tracker, opts.push ?? new LogPushSender())` with a `WakeTracker` held on `ctx` (add `tracker: WakeTracker` to `WsContext`), and in `ws.ts` `attach()` call `ctx.tracker.clear(id)` right after `connections.add` — a phone that came online has seen everything.
 
 `index.ts`: `push: CONFIG.fcmServiceAccountPath ? new FcmPushSender(loadServiceAccount(CONFIG.fcmServiceAccountPath)) : new LogPushSender()`.
 
-- [ ] **Step 5: Run everything in the relay**
+- [x] **Step 5: Run everything in the relay**
 
 Run: `npm test -w relay && npm run typecheck -w relay && npm run build -w relay`
 Expected: PASS; `relay/dist/index.mjs` exists.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add relay/src relay/test
@@ -2619,7 +2619,7 @@ git commit -m "feat(relay): wake tracking and FCM push for offline phones"
 - Consumes: `generateIdentity`, `identityFromSecret`, `toBase64Url`, `fromBase64Url`, `type Identity` (1); `NotificationSettings` (4).
 - Produces: `loadOrCreateIdentity(dataDir): Identity`, `IDENTITY_FILE` (`remote-identity.json`), `macDisplayName(stored: string, hostname?: string): string`, `class DeviceStore` (`list()`, `get(id)`, `add(d)`, `remove(id)`, `touch(id, now)`, `setNotifications(id, s)`), `type RemoteDeviceRow`.
 
-- [ ] **Step 1: Schema and migration**
+- [x] **Step 1: Schema and migration**
 
 `server/package.json` dependencies: add `"@orbital/shared": "*"`. Run `npm install`.
 
@@ -2660,7 +2660,7 @@ Expected: `server/drizzle/0021_remote_devices.sql` with one `CREATE TABLE`, and 
   remote_mac_name: '',
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `server/test/remoteDevices.test.ts`:
 
@@ -2719,12 +2719,12 @@ describe('DeviceStore', () => {
 
 If `db.run` with a raw string does not type-check, use `import { sql } from 'drizzle-orm'` and `db.run(sql\`UPDATE remote_devices SET notifications = 'junk' WHERE id = 'p1'\`)`.
 
-- [ ] **Step 3: Run it to see it fail**
+- [x] **Step 3: Run it to see it fail**
 
 Run: `npm test -w server -- remoteDevices`
 Expected: FAIL, modules not found.
 
-- [ ] **Step 4: Implement `identity.ts`**
+- [x] **Step 4: Implement `identity.ts`**
 
 ```ts
 /**
@@ -2763,7 +2763,7 @@ export function macDisplayName(stored: string, host: string = hostname()): strin
 }
 ```
 
-- [ ] **Step 5: Implement `devices.ts`**
+- [x] **Step 5: Implement `devices.ts`**
 
 ```ts
 import { eq } from 'drizzle-orm';
@@ -2831,12 +2831,12 @@ function fromRow(row: typeof remoteDevices.$inferSelect): RemoteDevice {
 }
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `npm test -w server -- remoteDevices && npm test -w server -- database && npm run typecheck -w server`
 Expected: PASS. `database.test.ts` may assert the full `DEFAULT_SETTINGS` key list; if so, add the three keys there.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add server/src/remote/identity.ts server/src/remote/devices.ts server/src/db/schema.ts server/src/db/database.ts server/drizzle server/package.json package-lock.json server/test/remoteDevices.test.ts server/test/database.test.ts
@@ -2858,7 +2858,7 @@ git commit -m "feat(server): remote identity, paired devices table and settings 
 
 The spec (§ 3, § 5) wants one set of rules deciding both the desktop's notifications and the Mac's `wake` frames. The class is already pure (it imports nothing from electron); it moves, and the desktop keeps importing the same names from the same path.
 
-- [ ] **Step 1: Move the file**
+- [x] **Step 1: Move the file**
 
 ```bash
 git mv desktop/src/lib/notifications.ts shared/src/notifications.ts
@@ -2876,7 +2876,7 @@ function basename(path: string): string {
 
 In `shared/test/notifications.test.ts`: the import becomes `'../src/notifications.js'`. `NotificationSettings` here and `NotificationSettings` from `messages.ts` (Task 4) have the same five fields; make `notifications.ts` import the type from `./remote/messages.js` and delete its own declaration so there is one.
 
-- [ ] **Step 2: The desktop re-exports**
+- [x] **Step 2: The desktop re-exports**
 
 `desktop/src/lib/notifications.ts`:
 
@@ -2891,12 +2891,12 @@ export * from '@orbital/shared/notifications';
 
 `desktop/package.json`: add `"dependencies": { "@orbital/shared": "*" }` (the file has only devDependencies today). Run `npm install`.
 
-- [ ] **Step 3: Run every suite that touches it**
+- [x] **Step 3: Run every suite that touches it**
 
 Run: `npm test -w shared && npm test -w desktop && npm run typecheck -w desktop && npm run build -w desktop`
 Expected: PASS; `desktop/dist/main.cjs` builds with the shared code inlined (esbuild follows the symlink).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add shared/src/notifications.ts shared/test/notifications.test.ts desktop/src/lib/notifications.ts desktop/test desktop/package.json package-lock.json
@@ -2915,7 +2915,7 @@ git commit -m "refactor: session notification rules move to shared for the remot
 - Consumes: nothing.
 - Produces: `isAllowed(method: string, path: string): boolean`, `ALLOWED_ROUTES` (readonly list of `[method, template]`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `server/test/remoteAllowlist.test.ts`:
 
@@ -2968,12 +2968,12 @@ describe('remote allowlist', () => {
 
 Note `GET /api/sessions/retention-preview` is denied while `GET /api/sessions/:id` is allowed: the literal segment `retention-preview` is checked before the template.
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `npm test -w server -- remoteAllowlist`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3: Implement `allowlist.ts`**
+- [x] **Step 3: Implement `allowlist.ts`**
 
 ```ts
 /**
@@ -3035,12 +3035,12 @@ export function isAllowed(method: string, rawPath: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npm test -w server -- remoteAllowlist`
 Expected: PASS. (`GET /api/sessions/count` is allowed by its own literal line and `count` is reserved so `/api/sessions/:id` never claims it.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/remote/allowlist.ts server/test/remoteAllowlist.test.ts
@@ -3061,7 +3061,7 @@ git commit -m "feat(server): the remote allowlist"
 
 This is the same job `web/src/lib/ws.ts` does towards the server, in Node: connect, authenticate, reconnect with backoff, and tell everyone when the state changes. `post` is the signed HTTP side for pairing.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `server/test/remoteRelayClient.test.ts`:
 
@@ -3159,12 +3159,12 @@ async function waitFor(cond: () => boolean, ms = 2000): Promise<void> {
 }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `npm test -w server -- remoteRelayClient`
 Expected: FAIL, module not found.
 
-- [ ] **Step 3: Implement `relayClient.ts`**
+- [x] **Step 3: Implement `relayClient.ts`**
 
 ```ts
 /**
@@ -3315,12 +3315,12 @@ export class RelayClient extends EventEmitter {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `npm test -w server -- remoteRelayClient`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/remote/relayClient.ts server/test/remoteRelayClient.test.ts
@@ -3337,7 +3337,7 @@ git commit -m "feat(server): outbound relay client with signed auth and reconnec
 - Test: `server/test/remotePhoneSession.test.ts`
 
 **Interfaces:**
-- Consumes: `Hub` (existing `server/src/api/hub.ts`), `ImageStore` (existing), `startHandshake`, `SessionCipher` (3), `encodeInner`, `decodeInner`, `chunkBlob`, `PhoneMessage`, `MacMessage`, `PROTOCOL_VERSION`, `NotificationSettings` (4), `encodeFrame`, `FLAG_WAKE`, `FLAG_STATE`, `ZERO_WAKE` (2), `SessionNotifier` (11), `isAllowed` (12), `DeviceStore` (10).
+- Consumes: `Hub` (existing `server/src/api/hub.ts`), `ImageStore` (existing), `startHandshake`, `SessionCipher` (3), `encodeInner`, `decodeInner`, `chunkBlob`, `PhoneMessage`, `MacMessage`, `PROTOCOL_VERSION`, `NotificationSettings` (4), `encodeFrame`, `FLAG_WAKE`, `FLAG_STATE`, `ZERO_WAKE` (2), `SessionNotifier` (11), `allowedPath` (12), `DeviceStore` (10).
 - Produces:
   - `wakeToken(secret: Uint8Array, sessionId: string): Uint8Array` (16 bytes, HMAC-SHA256 truncated), `wakeSecret(identity): Uint8Array`.
   - `class DeviceWatcher` — `constructor(opts: { deviceId: string; hub: Hub; settings: () => NotificationSettings; onWake: (sessionId: string) => void })`, `start(initialSessions: unknown[])`, `seen(sessionId)`, `stop()`.
@@ -3346,7 +3346,7 @@ git commit -m "feat(server): outbound relay client with signed auth and reconnec
 
 Two objects per paired phone: the **watcher** lives as long as the remote service runs and decides wakes (so a phone that is offline still gets its push); the **session** lives per connection and does the tunnelling. The watcher is a hub subscriber on `sessions` and `errors` through a virtual socket, feeding a `SessionNotifier` with that phone's settings.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `server/test/remotePhoneSession.test.ts`:
 
@@ -3535,12 +3535,12 @@ describe('wakeToken', () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `npm test -w server -- remotePhoneSession`
 Expected: FAIL, modules not found.
 
-- [ ] **Step 3: Implement `wake.ts`**
+- [x] **Step 3: Implement `wake.ts`**
 
 ```ts
 import { hmac } from '@noble/hashes/hmac.js';
@@ -3562,7 +3562,7 @@ export function wakeToken(secret: Uint8Array, sessionId: string): Uint8Array {
 }
 ```
 
-- [ ] **Step 4: Implement `deviceWatcher.ts`**
+- [x] **Step 4: Implement `deviceWatcher.ts`**
 
 ```ts
 /**
@@ -3638,7 +3638,7 @@ export class DeviceWatcher {
 
 The notifier's `needs_input` rule fires on the transition into `needs_input` and `sessionEnded` on `working → ended`; both are wakes. The test's expectation of three wakes for three transitions (with a `working` in between each) follows from that.
 
-- [ ] **Step 5: Implement `phoneSession.ts`**
+- [x] **Step 5: Implement `phoneSession.ts`**
 
 ```ts
 /**
@@ -3660,7 +3660,7 @@ import {
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
-import { isAllowed } from './allowlist.js';
+import { allowedPath } from './allowlist.js';
 
 export const BLOB_PUT_MAX_BYTES = ATTACHMENT_MAX_BYTES;
 
@@ -3691,8 +3691,6 @@ type Upload = { mediaType: string; expected: number; parts: Uint8Array[]; receiv
 
 export class PhoneSession {
   private handshake: Handshake | null;
-  /** The responder's half, built with the handshake and sent exactly once. */
-  private readonly responderMessage: Uint8Array;
   private cipher: SessionCipher | null = null;
   private greeted = false;
   private closed = false;
@@ -3701,7 +3699,6 @@ export class PhoneSession {
 
   constructor(readonly opts: PhoneSessionOptions) {
     this.handshake = startHandshake(opts.identity, opts.phonePublicKey, 'responder');
-    this.responderMessage = this.handshake.message;
     this.socket = Object.assign(new EventEmitter(), {
       send: (data: string) => {
         if (!this.greeted) return;
@@ -3721,11 +3718,15 @@ export class PhoneSession {
   receive(body: Uint8Array): void {
     if (this.closed) return;
     if (!this.cipher) {
-      const cipher = this.handshake?.complete(body) ?? null;
-      if (!cipher) return;
+      // The responder's half is signed over both ephemerals, so it exists only
+      // once the phone's half verified (`Handshake.message` is set by
+      // `complete` for a responder); `complete` is single-use.
+      const handshake = this.handshake;
+      const cipher = handshake?.complete(body) ?? null;
+      if (!cipher || !handshake?.message) return;
       this.cipher = cipher;
       this.handshake = null;
-      this.opts.send(this.responderMessage);
+      this.opts.send(handshake.message);
       return;
     }
     const plain = this.cipher.open(body);
@@ -3785,11 +3786,15 @@ export class PhoneSession {
   }
 
   private async onHttp(msg: Extract<PhoneMessage, { t: 'http' }>): Promise<void> {
-    if (!isAllowed(msg.method, msg.path)) {
+    // `allowedPath` returns the canonical string Fastify will route, or null;
+    // the raw `msg.path` is never handed to `inject()` (Task 12 review: the
+    // WHATWG parser would otherwise rewrite `\` and `#` into a denied route).
+    const path = allowedPath(msg.method, msg.path);
+    if (path === null) {
       return this.sendJson({ t: 'http_res', id: msg.id, status: 403, body: { error: 'not_allowed' } });
     }
     try {
-      const res = await this.opts.inject({ method: msg.method, url: msg.path, payload: msg.body });
+      const res = await this.opts.inject({ method: msg.method, url: path, payload: msg.body });
       let body: unknown = res.body;
       try {
         body = JSON.parse(res.body);
@@ -3848,12 +3853,12 @@ export class PhoneSession {
 
 `wake.ts` imports `@noble/hashes` directly, so `server/package.json` gains `"@noble/hashes": "^2.0.0"` in `dependencies` (run `npm install`); relying on hoisting from `shared/` would break the esbuild bundle the desktop ships.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `npm test -w server -- remotePhoneSession && npm run typecheck -w server`
 Expected: PASS. If `images.read` is not on `ImageStore`'s public type in the test, assert through `readFileSync(join(dir, entry.ref))` instead.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add server/src/remote/wake.ts server/src/remote/deviceWatcher.ts server/src/remote/phoneSession.ts server/test/remotePhoneSession.test.ts server/package.json package-lock.json
@@ -3872,13 +3877,13 @@ git commit -m "feat(server): phone session tunnel and the per-device wake watche
 **Interfaces:**
 - Consumes: everything from 10, 12, 13, 14; `Hub`, `OrbitalDb`, `ImageStore`; `fingerprint`, `publicKeyOf`, `deviceId` (1); `encodeFrame`, `decodeFrame`, `FLAG_WAKE`, `FLAG_STATE`, `ZERO_WAKE` (2); `QrPayload`, `DEFAULT_RELAY_URL` (5); `parseNotificationSettings` (11).
 - Produces:
-  - `class RemoteService` — `constructor(opts: RemoteServiceOptions)`, `start()`, `stop()`, `settingsChanged()`, `status(): RemoteStatus`, `startPairing(): Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' }>`, `confirmPairing(accept: boolean): Promise<boolean>`, `revoke(id: string): Promise<boolean>`.
+  - `class RemoteService` — `constructor(opts: RemoteServiceOptions)`, `start()`, `stop()`, `settingsChanged()`, `status(): RemoteStatus`, `startPairing(): Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' }>`, `confirmPairing(accept: boolean, phone: string): Promise<boolean>`, `revoke(id: string): Promise<boolean>`.
   - `type RemoteStatus = { enabled: boolean; relay: 'off' | 'connecting' | 'online'; relayUrl: string; macId: string | null; macName: string; devices: (RemoteDevice & { online: boolean })[]; pendingPair: { phone: string; name: string; platform: string; fingerprint: string } | null; pairing: { expiresAt: number } | null }`.
   - Hub topic `remote`: `{ event: 'status', ...RemoteStatus }` on every change; `{ event: 'pair_request', phone, name, platform, fingerprint }` when a phone redeemed a code.
-  - Routes: `GET /api/remote` → `RemoteStatus`; `POST /api/remote/pair` → `{ qr, expiresAt }` or 409 `{ error }`; `POST /api/remote/pair/confirm` body `{ accept: boolean }` → `{ ok: true }` or 404; `DELETE /api/remote/devices/:id` → `{ ok: true }` or 404.
+  - Routes: `GET /api/remote` → `RemoteStatus`; `POST /api/remote/pair` → `{ qr, expiresAt }` or 409 `{ error }`; `POST /api/remote/pair/confirm` body `{ accept: boolean, phone: string }` → `{ ok: true }`, 404 when nothing is pending, 409 `mismatch` when `phone` is not the pending one (amended 2026-10-01, Task 15 review); `DELETE /api/remote/devices/:id` → `{ ok: true }` or 404.
   - `RemoteServiceOptions = { db; hub; dataDir; images; imagesDir; serverVersion; inject: InjectFn; settings: { get(key): string }; allSettings: () => Record<string, string>; now?: () => number; clientFactory?: (opts: RelayClientOptions) => RelayClient }`.
 
-- [ ] **Step 1: Write the failing route test**
+- [x] **Step 1: Write the failing route test**
 
 `server/test/remoteRoutes.test.ts`:
 
@@ -3936,12 +3941,12 @@ describe('/api/remote', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `npm test -w server -- remoteRoutes`
 Expected: FAIL (404s; `dataDir` is not an override yet).
 
-- [ ] **Step 3: Implement `service.ts`**
+- [x] **Step 3: Implement `service.ts`**
 
 ```ts
 /**
@@ -4202,7 +4207,7 @@ export class RemoteService {
 }
 ```
 
-- [ ] **Step 4: Implement `remoteRoutes.ts` and hook the settings PATCH**
+- [x] **Step 4: Implement `remoteRoutes.ts` and hook the settings PATCH**
 
 `server/src/api/remoteRoutes.ts`:
 
@@ -4237,7 +4242,7 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
 
 `routes.ts`: add `remote: RemoteService;` to `RouteContext` (import the type), call `registerRemoteRoutes(app, ctx.remote)` next to the other registrations at the top of `registerRoutes`, and in `PATCH /api/settings` track `let remoteSettings = false;` set when `k.startsWith('remote_')`, then after the loop `if (remoteSettings) ctx.remote.settingsChanged();`.
 
-- [ ] **Step 5: Wire it in `index.ts`**
+- [x] **Step 5: Wire it in `index.ts`**
 
 Add `dataDir?: string;` to `buildServer`'s overrides (doc: "where the identity file and images live; tests point it at a temp dir"), and use `const dataDir = overrides.dataDir ?? CONFIG.dataDir;` for `imagesDir` too (`join(dataDir, 'images')`).
 
@@ -4267,12 +4272,12 @@ Pass `remote` in the `registerRoutes` context; call `remote.start()` right after
 
 `ORBITAL_VERSION` is not set by anything yet; the desktop's fork of the server is where it belongs and is a follow-up outside this plan (`docs/chores/desktop-follow-ups.md` gets a line in Task 17).
 
-- [ ] **Step 6: Run the server suite**
+- [x] **Step 6: Run the server suite**
 
 Run: `npm test -w server && npm run typecheck -w server && npm run lint`
 Expected: PASS. `routes.test.ts` builds its own `registerRoutes` context by hand in places — those now need a `remote`; give them `new RemoteService({...})` with the test's db and hub, or if the test's context object is typed loosely, `remote: { status: () => ({}) } as any` is acceptable there since nothing in those tests calls the remote routes.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add server/src/remote/service.ts server/src/api/remoteRoutes.ts server/src/api/routes.ts server/src/index.ts server/test/remoteRoutes.test.ts server/test/routes.test.ts
@@ -4291,7 +4296,7 @@ git commit -m "feat(server): the remote service, pairing routes and settings hoo
 - Consumes: `buildRelay`, `openRelayStore` (6–9); `buildServer` (15); the whole of `shared/`.
 - Produces: `class FakePhone` for later tests: `connect(relayUrl)`, `redeem(qr)`, `handshake(macId)`, `hello()`, `send(msg)`, `next(t)`, `nextBlob()`, `close()`.
 
-- [ ] **Step 1: The fake phone**
+- [x] **Step 1: The fake phone**
 
 `server/test/remoteFakePhone.ts`:
 
@@ -4447,7 +4452,7 @@ export class FakePhone {
 }
 ```
 
-- [ ] **Step 2: The end-to-end test**
+- [x] **Step 2: The end-to-end test**
 
 `server/test/remoteEndToEnd.test.ts`:
 
@@ -4514,7 +4519,7 @@ describe('mobile remote, end to end', () => {
     const status = (await api('GET', '/api/remote')).json();
     expect(status.pendingPair).toMatchObject({ phone: phone.id, name: 'Pixel', platform: 'android' });
     expect(status.pendingPair.fingerprint).toBe(fingerprint(publicKeyOf(status.macId)!, phone.identity.publicKey));
-    expect((await api('POST', '/api/remote/pair/confirm', { accept: true })).statusCode).toBe(200);
+    expect((await api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id })).statusCode).toBe(200);
     expect(await phone.nextControl('paired')).toMatchObject({ type: 'paired', name: 'studio' });
     await until(async () => (await api('GET', '/api/remote')).json().devices.some((d: any) => d.id === phone.id && d.online));
 
@@ -4559,17 +4564,17 @@ describe('mobile remote, end to end', () => {
 
 `server/package.json` devDependencies: `"@orbital/relay": "*"`; the relay's `package.json` gets `"exports": { "./*": "./src/*.ts" }` so `@orbital/relay/app` resolves to source. Run `npm install`.
 
-- [ ] **Step 3: Run it**
+- [x] **Step 3: Run it**
 
 Run: `npm test -w server -- remoteEndToEnd`
 Expected: PASS. The three likeliest failures and their meaning: the `online` wait times out (the Mac's `RelayClient` is not auth'ing — check `relayWsUrl`); `pendingPair` never appears (the relay's `pair_request` is not reaching `onControl` — check `RelayClient` emits `control` for every message); `bye` never arrives (`revoke()` closes the session after the post instead of before — order in Task 15 is close first).
 
-- [ ] **Step 4: Whole repository**
+- [x] **Step 4: Whole repository**
 
 Run: `npm run test && npm run typecheck && npm run lint && atlas validate`
 Expected: all green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/test/remoteFakePhone.ts server/test/remoteEndToEnd.test.ts server/package.json relay/package.json package-lock.json
@@ -4586,7 +4591,7 @@ git commit -m "test(server): relay, Mac and a fake phone end to end"
 - Create: `docs/decisions/remote-identity-is-ed25519-with-ephemeral-session-keys.md` (adr)
 - Modify: `docs/superpowers/specs/2026-09-30-mobile-remote-design.md` (§ 1 amendment, status `active`), this plan (status `done`), `docs/chores/desktop-follow-ups.md` (one line: pass `ORBITAL_VERSION` to the forked server), `README.md` (a short "Mobile remote" section pointing at the spec and the runbook)
 
-- [ ] **Step 1: The runbook**
+- [x] **Step 1: The runbook**
 
 `docs/ops/run-the-relay.md`, frontmatter `type: runbook`, `status: in-force`, `domain: remote`, related `2026-09-30-mobile-remote-design`. Body, in this order, each a short section:
 
@@ -4598,15 +4603,15 @@ git commit -m "test(server): relay, Mac and a fake phone end to end"
 5. **Rotate or wipe** — deleting `/data/relay.db` unpairs everyone; there is nothing else to lose.
 6. **Logs** — what is logged (connections, pushes, errors) and what is never logged (bodies).
 
-- [ ] **Step 2: The two ADRs**
+- [x] **Step 2: The two ADRs**
 
 Both `type: adr`, `status: in-force`, `domain: remote`, related to the spec. Each: Context (two paragraphs at most), Decision (one), Consequences (bullets), Alternatives ruled out (bullets with why). The first records tunnelling the existing API + hub behind a literal allowlist over a purpose-built mobile protocol and over the claude.ai bridge. The second records one Ed25519 identity per device with a signed ephemeral X25519 handshake per connection, superseding the spec's "X25519 pair + Ed25519 pair", and why (forward secrecy, no persisted counters, the relay cannot substitute a key the fingerprint would not catch).
 
-- [ ] **Step 3: Spec and plan status**
+- [x] **Step 3: Spec and plan status**
 
 In the spec's § 1, replace the first two bullets with the one-identity version and add "Amended 2026-10-01 by [[remote-identity-is-ed25519-with-ephemeral-session-keys]]". Set the spec's `status: active` (the backend is built, the phone is not). Set this plan's `status: done` and tick every box above.
 
-- [ ] **Step 4: Validate and commit**
+- [x] **Step 4: Validate and commit**
 
 ```bash
 atlas validate
@@ -4614,7 +4619,7 @@ git add docs README.md
 git commit -m "docs: relay runbook, two ADRs, spec amended for the backend"
 ```
 
-- [ ] **Step 5: The pull request**
+- [x] **Step 5: The pull request**
 
 ```bash
 git push -u origin feat/mobile-remote-backend

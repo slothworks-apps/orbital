@@ -192,6 +192,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   session_instructions_tips: 'true',
   session_instructions_custom: 'true',
   session_instructions_custom_text: '',
+  /**
+   * Mobile remote (spec 2026-09-30-mobile-remote-design). Off by default:
+   * nothing connects anywhere until the user turns it on in Settings → Mobile.
+   */
+  remote_enabled: 'false',
+  /** Empty means the hosted default, `DEFAULT_RELAY_URL`; anyone may run their own. */
+  remote_relay_url: '',
+  /** Empty means the machine's network name (`macDisplayName`). */
+  remote_mac_name: '',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
