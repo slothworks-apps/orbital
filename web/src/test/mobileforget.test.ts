@@ -103,8 +103,23 @@ describe('forgetEverything', () => {
   it('writes the unpaired flag before the pairing goes, so a kill in between still lands on 9h', async () => {
     useMobile.setState({ pairing: PAIRING })
     await forgetEverything({ unpaired: true })
-    expect(io.calls.indexOf('setUnpaired')).toBeLessThan(io.calls.indexOf('clearPairing'))
-    expect(io.calls.indexOf('clearPairing')).toBeLessThan(io.calls.indexOf('clearCaches'))
+    // The clears run independently of each other after the flag, so only the flag's place is guaranteed.
+    expect(io.calls[0]).toBe('setUnpaired')
+    expect(io.calls).toEqual(expect.arrayContaining(['clearPairing', 'forgetIdentity', 'clearCaches', 'clearImageCache']))
+  })
+
+  it('clears what it can when one clear fails, and still reaches 9h', async () => {
+    io.clearPairing.mockRejectedValueOnce(new Error('boom'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      useMobile.setState({ pairing: PAIRING })
+      await forgetEverything({ unpaired: true })
+      expect(io.calls).toEqual(expect.arrayContaining(['setUnpaired', 'forgetIdentity', 'clearCaches', 'clearImageCache']))
+      expect(warn).toHaveBeenCalled()
+      expect(useMobile.getState()).toMatchObject({ screen: 'unpaired', unpaired: true, pairing: null })
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('goes to the scanner without the flag when the user chose to forget', async () => {

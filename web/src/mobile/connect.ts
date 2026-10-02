@@ -30,19 +30,30 @@ export function newClient(
 }
 
 /**
+ * Guards overlapping `recheckMac` calls (a foreground check racing a Retry
+ * tap): each call takes the next token, and only the call still holding the
+ * latest one when its answer lands may clear `rechecking` or write it.
+ */
+let recheckToken = 0
+
+/**
  * One bounded presence check (9a's Retry, 9i's Try again, every return to
  * the foreground; `windowMs` is RETRY_WINDOW_MS). The relay link is rebuilt
  * on the way, so `rechecking` holds the offline presentation steady until
  * the answer is in (`isMacAsleep`).
  */
 export async function recheckMac(windowMs: number): Promise<boolean> {
+  const token = ++recheckToken
   useMobile.setState((s) => ({ rechecking: { asleep: isMacAsleep(s) } }))
   try {
     const online = await clientRef.recheck(windowMs)
-    useMobile.setState({ checkedAt: Date.now(), macOnline: online })
+    // A superseded call never writes; nor does one outlived by forgetEverything.
+    if (token === recheckToken && useMobile.getState().pairing) {
+      useMobile.setState({ checkedAt: Date.now(), macOnline: online })
+    }
     return online
   } finally {
-    useMobile.setState({ rechecking: null })
+    if (token === recheckToken) useMobile.setState({ rechecking: null })
   }
 }
 

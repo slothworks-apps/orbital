@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '../mobile/version'
-import { back, initialMobileState, isMacAsleep, isPairGone, reduce, type MobileState } from '../mobile/state'
+import { back, initialMobileState, isMacAsleep, isPairGone, reduce, useMobile, type MobileState } from '../mobile/state'
+
+// `recheck` is the only part of `clientRef` the module under test calls.
+vi.mock('../mobile/transport/clientRef', () => ({ clientRef: { recheck: vi.fn() } }))
+import { recheckMac } from '../mobile/connect'
+import { clientRef } from '../mobile/transport/clientRef'
+import type { Pairing } from '../mobile/platform/parse'
 
 const NOW = 1_000
 const state = (patch: Partial<MobileState> = {}): MobileState => ({ ...initialMobileState, ...patch })
@@ -117,5 +123,61 @@ describe('isMacAsleep', () => {
     expect(isMacAsleep(state({ link: 'online', macOnline: false, rechecking: { asleep: false } }))).toBe(false)
     // An asleep Mac: the relay going to connecting mid-check does not hide the card.
     expect(isMacAsleep(state({ link: 'connecting', macOnline: false, rechecking: { asleep: true } }))).toBe(true)
+  })
+})
+
+const PAIRING: Pairing = { relay: 'https://relay.test', mac: 'm1', macName: 'studio', fingerprint: 'f', pairedAt: 1 }
+
+/** A promise this test resolves from the outside, to control the order two `recheckMac` calls settle in. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
+describe('recheckMac', () => {
+  beforeEach(() => {
+    useMobile.setState({ ...initialMobileState, pairing: PAIRING })
+    vi.mocked(clientRef.recheck).mockReset()
+  })
+
+  it('lets only the call still current when it resolves clear rechecking and write', async () => {
+    const first = deferred<boolean>()
+    const second = deferred<boolean>()
+    vi.mocked(clientRef.recheck).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+
+    // The foreground check starts, then a Retry tap starts a second one while it is still in flight.
+    const call1 = recheckMac(1000)
+    const call2 = recheckMac(1000)
+
+    // The earlier call's answer lands first, but it has been superseded: rechecking must hold.
+    first.resolve(true)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(useMobile.getState().rechecking).not.toBeNull()
+    expect(useMobile.getState().checkedAt).toBeNull()
+
+    // The later call's answer lands: it clears rechecking and writes what it found.
+    second.resolve(false)
+    await Promise.all([call1, call2])
+    expect(useMobile.getState().rechecking).toBeNull()
+    expect(useMobile.getState().macOnline).toBe(false)
+    expect(useMobile.getState().checkedAt).not.toBeNull()
+  })
+
+  it('writes nothing for a check that resolves after the pairing is gone', async () => {
+    const check = deferred<boolean>()
+    vi.mocked(clientRef.recheck).mockReturnValueOnce(check.promise)
+
+    const call = recheckMac(1000)
+    // forgetEverything's reset, mid-flight.
+    useMobile.setState({ pairing: null, checkedAt: null, macOnline: false, rechecking: null })
+    check.resolve(true)
+    await call
+
+    expect(useMobile.getState().checkedAt).toBeNull()
+    expect(useMobile.getState().macOnline).toBe(false)
   })
 })

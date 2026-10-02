@@ -349,6 +349,12 @@ Built from [[2026-10-02-mobile-app-read]]. Decisions the spec left open:
   decrypted.
 - **The system bars are dark** whatever the system theme (SystemBars
   `style: DARK`), so the status bar icons are light on the app's background.
+- **Two notification rows are reworded for the phone.** The desktop's
+  "Only when Orbital is in the background" and "Play a sound" descriptions
+  name desktop concepts (the window, Notification Centre) that do not hold
+  on a phone; `SettingsScreen.tsx` rephrases those two and keeps the
+  desktop's words for the other three. The canvas gives no copy for these
+  rows, so this is the controller's call, not a design read.
 
 ## 8. Known limits of 2a
 

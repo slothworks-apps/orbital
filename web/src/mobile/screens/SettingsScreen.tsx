@@ -9,7 +9,13 @@ import { useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, Toggle } from '../ui'
 
-/** The desktop's five rows, in its order and with its words (Settings → Notifications). */
+/**
+ * The desktop's five rows, in its order (Settings → Notifications). Three
+ * keep the desktop's words; `onlyWhenBackground` and `sound` are reworded
+ * for the phone (spec "As built (2a)") since the desktop's copy ("Only
+ * when Orbital is in the background", "they still appear in Notification
+ * Centre") names desktop-only concepts.
+ */
 export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; label: string; desc: string }[] = [
   {
     key: 'needsInput',
@@ -29,12 +35,12 @@ export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; labe
   {
     key: 'onlyWhenBackground',
     label: 'Only when Orbital is in the background',
-    desc: 'A focused map already shows every one of these states, so interrupting over it is noise. Turn this off to be notified even with the window in front of you.',
+    desc: 'Skip while the app is open — you can already see it.',
   },
   {
     key: 'sound',
     label: 'Play a sound',
-    desc: 'Off delivers them silently — they still appear in Notification Centre.',
+    desc: 'Off delivers them silently.',
   },
 ]
 
