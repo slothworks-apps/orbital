@@ -87,7 +87,43 @@ adb exec-out screencap -p > /tmp/orbital-mobile.png
 
 ## Pair with a relay on this Mac
 
-Task 9 of the 2a plan adds this section, with the script that types a pairing code into the emulator.
+A throwaway Mac, a local relay and the phone UI, each in its own terminal
+(or in the background):
+
+```bash
+env -u ORBITAL_MIGRATIONS_DIR -u ORBITAL_STATIC_DIR ORBITAL_PORT=4848 \
+  ORBITAL_DATA_DIR=/tmp/orbital-mobile-dev npm run dev -w server
+RELAY_PORT=4840 RELAY_DATA_DIR=/tmp/orbital-mobile-relay npm run dev -w relay
+curl -s -X PATCH http://127.0.0.1:4848/api/settings -H 'content-type: application/json' \
+  -d '{"remote_enabled":"true","remote_relay_url":"http://127.0.0.1:4840","remote_mac_name":"studio"}'
+```
+
+**In a desktop browser:** `ORBITAL_MOBILE_DEV=1 npm run dev:mobile -w @orbital/web`,
+open `http://localhost:4841`, then copy a code and paste it into the field:
+
+```bash
+curl -s -X POST http://127.0.0.1:4848/api/remote/pair \
+  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).qr))' | pbcopy
+```
+
+Accept it on the Mac: `curl -s http://127.0.0.1:4848/api/remote` shows
+`pendingPair.phone`; post it to `/api/remote/pair/confirm` as
+`{"accept":true,"phone":"<id>"}`.
+
+**On the emulator:** install a dev build (`ORBITAL_MOBILE_DEV=1 npm run build -w @orbital/mobile && npm run apk -w @orbital/mobile`),
+launch it, dismiss the system scanner if it opened (`adb shell input keyevent KEYCODE_BACK`),
+then `mobile/scripts/pair-emulator.sh 4848`. It reverses the relay port into
+the emulator, opens a code, types it into the focused paste field and
+accepts the request on the Mac. A real device pairs the same way through
+`adb reverse`, or by scanning the code in Settings → Mobile.
+
+To see the other states from the same stack:
+
+- **Mac asleep (9a offline):** stop the server on 4848.
+- **Unpaired (9h):** `curl -s -X DELETE http://127.0.0.1:4848/api/remote/devices/<phone id>`.
+- **Version mismatch (9i):** restart the server with `ORBITAL_VERSION=0.16.0` in its environment.
+
+Stop everything afterwards: `kill $(lsof -t -iTCP:4848 -sTCP:LISTEN) $(lsof -t -iTCP:4840 -sTCP:LISTEN)`.
 
 ## Troubleshooting
 

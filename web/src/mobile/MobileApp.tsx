@@ -1,3 +1,4 @@
+import { PairingScreen } from './screens/PairingScreen'
 import { ScreenPending } from './screens/ScreenPending'
 import { useMobile } from './state'
 
@@ -6,7 +7,7 @@ export function MobileApp() {
   const screen = useMobile((s) => s.screen)
   return (
     <div className="h-full bg-space font-sans text-text-bright">
-      {screen === 'pairing' && <ScreenPending name="pairing" />}
+      {screen === 'pairing' && <PairingScreen />}
       {screen === 'list' && <ScreenPending name="list" />}
       {screen === 'session' && <ScreenPending name="session" />}
       {screen === 'settings' && <ScreenPending name="settings" />}
