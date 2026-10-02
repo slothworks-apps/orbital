@@ -162,4 +162,17 @@ describe('the phone client against a real relay and a real Mac', () => {
     expect(await unpaired).toEqual({ type: 'unpaired' });
     expect(back.status).toBe('off');
   }, 20_000);
+
+  it('the client that paired learns of a revoke on its own next connect', async () => {
+    const { api } = await startMacAndRelay(closers);
+    // Built while pairing, without `expectPaired`: the same object, never rebuilt.
+    const { client } = await pairPhone(api, closers);
+    client.stop();
+    await until(async () => (await api('GET', '/api/remote')).json().devices.find((d: any) => d.id === client.id)?.online === false);
+    expect((await api('DELETE', `/api/remote/devices/${client.id}`)).statusCode).toBe(200);
+    const unpaired = nextEvent(client, 'unpaired');
+    client.start();
+    expect(await unpaired).toEqual({ type: 'unpaired' });
+    expect(client.status).toBe('off');
+  }, 20_000);
 });

@@ -99,7 +99,8 @@ export type RemoteClientOptions = {
    * True when the client is built from a stored pairing: the relay then
    * answers `unpaired` on connect if the Mac no longer has this phone, which
    * is the only way a phone revoked while it was away ever learns it. Off
-   * while pairing, when no pair exists yet.
+   * while pairing, when no pair exists yet; the client turns it on itself
+   * once it hears `paired`.
    */
   expectPaired?: boolean;
   now?: () => number;
@@ -132,6 +133,8 @@ export class RemoteClient {
   private greeted = false;
   private nextId = 1;
   private token: string | null = null;
+  /** Starts as `opts.expectPaired`; turns true on `paired`, so every later connect asks the relay to confirm the pair. */
+  private expectPaired: boolean;
   private readonly topics = new Set<string>();
   private readonly requests = new Map<number, Waiter<TunnelResponse>>();
   private readonly blobs = new Map<number, BlobWaiter>();
@@ -145,6 +148,7 @@ export class RemoteClient {
     if (!macKey) throw new Error('mac is not a device id');
     this.opts = opts;
     this.macKey = macKey;
+    this.expectPaired = opts.expectPaired === true;
   }
 
   get id(): string {
@@ -310,7 +314,7 @@ export class RemoteClient {
     this.setStatus('connecting');
     let ws: SocketLike;
     try {
-      ws = new this.opts.WebSocketImpl(relayWsUrl(this.opts.relayUrl, this.opts.mac, { paired: this.opts.expectPaired === true }));
+      ws = new this.opts.WebSocketImpl(relayWsUrl(this.opts.relayUrl, this.opts.mac, { paired: this.expectPaired }));
     } catch {
       // A relay URL no socket can open will not open on the next attempt either.
       this.stopped = true;
@@ -384,6 +388,8 @@ export class RemoteClient {
         return;
       case 'paired':
         if (msg.mac !== this.opts.mac) return;
+        // A pair exists from here on: a revoke while this client is away must reach it on its next connect.
+        this.expectPaired = true;
         this.emit({ type: 'paired', macName: msg.name });
         this.sendPushToken();
         this.setMacOnline(true);

@@ -145,6 +145,20 @@ describe('RemoteClient relay link', () => {
     expecting.stop();
   });
 
+  it('asks the relay to confirm the pair on every connect after it hears paired', async () => {
+    const s = setup();
+    expect(s.sock.url).not.toContain('paired=');
+    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    s.sock.control({ type: 'ok', peers: [] });
+    s.sock.control({ type: 'paired', mac: s.mac.id, name: 'studio' });
+    const answer = s.client.recheck(1_000);
+    const fresh = FakeSocket.all.at(-1)!;
+    expect(fresh).not.toBe(s.sock);
+    expect(fresh.url).toContain('paired=1');
+    fresh.control({ type: 'ok', peers: [] });
+    await answer;
+  });
+
   it('gives up on a socket that never reaches ok and retries with backoff', () => {
     vi.useFakeTimers();
     const s = setup();
