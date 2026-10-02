@@ -13,6 +13,21 @@ export const PAIR_RATE_LIMIT_PER_MIN = 20;
 /** Past this many tracked IPs, the idle ones are forgotten. */
 export const RATE_LIMIT_MAX_IPS = 4096;
 const RATE_WINDOW_MS = 60_000;
+/**
+ * The phone redeems from a WebView whose page is https://localhost (and from
+ * a desktop browser while its layout is worked on), so `/pair/redeem` is a
+ * cross-origin JSON POST: the browser asks first, and reads the answer only
+ * when it carries an allow-origin. Any origin may: the request is signed,
+ * the token single-use, and no cookie is involved. Only redeem — the other
+ * three routes are the Mac's, which is not a browser (ADR
+ * the-relay-answers-cors-for-redeem).
+ */
+const REDEEM_CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'POST',
+  'access-control-allow-headers': 'content-type',
+  'access-control-max-age': '600',
+};
 
 const TokenPayload = z.object({ name: z.string().max(80) });
 // `proof` is opaque here: only the Mac holds the QR secret it is checked against.
@@ -73,7 +88,12 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     return { token, expiresAt };
   });
 
+  app.options('/pair/redeem', (_req, reply) => {
+    void reply.code(204).headers(REDEEM_CORS).send();
+  });
+
   app.post('/pair/redeem', async (req, reply) => {
+    void reply.header('access-control-allow-origin', REDEEM_CORS['access-control-allow-origin']);
     const s = signed(req.body, 'pair.redeem', RedeemPayload, req.ip, reply);
     if (!s) return;
     const { token, name, platform, proof } = s.payload;
