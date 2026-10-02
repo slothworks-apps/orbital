@@ -4,7 +4,7 @@ import { configureApi } from '../lib/api'
 import { configureImages } from '../lib/images'
 import { configureSocket, getSocket } from '../lib/socket'
 import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
-import { connect } from './connect'
+import { connect, recheckMac } from './connect'
 import { wireCache } from './cacheWriter'
 import { RETRY_WINDOW_MS, TRANSCRIPT_PAGE_SIZE } from './constants'
 import { forgetEverything } from './forget'
@@ -79,6 +79,7 @@ export async function resync(): Promise<void> {
   try {
     const id = useOrbital.getState().ui.selectedId
     await useOrbital.getState().loadSessions()
+    useMobile.setState({ listedAt: Date.now() })
     if (!id) return
     if (useOrbital.getState().historyLoaded[id]) await useOrbital.getState().reloadTranscript(id)
     else await useOrbital.getState().select(id)
@@ -103,6 +104,5 @@ async function installLifecycle(): Promise<void> {
 /** Android kills a backgrounded socket without a word: on return, never trust it (parent § 4). */
 async function foreground(): Promise<void> {
   if (!clientRef.client) return
-  const online = await clientRef.recheck(RETRY_WINDOW_MS)
-  useMobile.setState({ checkedAt: Date.now(), macOnline: online })
+  await recheckMac(RETRY_WINDOW_MS)
 }

@@ -89,6 +89,19 @@ export function isExactModelMatch(session: ApiSession, model: OrbitalModel): boo
 }
 
 /**
+ * What a session's model reads as in a header — the desktop's model chip
+ * (`ModelSwitcher`) and the phone's 9b. The variant only belongs on the label
+ * when the match is exact (F2): the stripped-suffix fallback exists so a
+ * terminal session has a name at all, and letting it also claim a variant
+ * would promise a context size nothing can back up.
+ */
+export function sessionModelLabel(session: ApiSession, models: OrbitalModel[]): string {
+  const current = matchModel(session, models)
+  if (current) return isExactModelMatch(session, current) ? modelChipLabel(current) : current.shortVersion
+  return session.resolvedModel ?? session.model ?? 'unknown model'
+}
+
+/**
  * Tokens the context bar is drawn against, or `null` when we do not
  * genuinely know. Matches by requested value or by EXACT resolved model
  * only: `claude-opus-5` must not inherit `claude-opus-5[1m]`'s 1M, because

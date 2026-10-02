@@ -42,7 +42,8 @@ function store(): SecretStore {
 let loading: Promise<Identity> | null = null
 
 export function loadOrCreateIdentity(): Promise<Identity> {
-  loading ??= (async () => {
+  if (loading) return loading
+  const current = (async () => {
     const secrets = store()
     const existing = parseIdentity(await secrets.get())
     if (existing) return existing
@@ -50,7 +51,12 @@ export function loadOrCreateIdentity(): Promise<Identity> {
     await secrets.set(serializeIdentity(fresh))
     return fresh
   })()
-  return loading
+  loading = current
+  // A failed read (a Keystore hiccup) is not remembered: the next call tries again.
+  current.catch(() => {
+    if (loading === current) loading = null
+  })
+  return current
 }
 
 export async function forgetIdentity(): Promise<void> {

@@ -10,12 +10,32 @@ import { clientRef } from '../transport/clientRef'
 import { MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, Toggle } from '../ui'
 
 /** The desktop's five rows, in its order and with its words (Settings → Notifications). */
-export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; label: string }[] = [
-  { key: 'needsInput', label: 'A session needs your input' },
-  { key: 'sessionEnded', label: 'A session ends' },
-  { key: 'sessionFailed', label: 'A session fails' },
-  { key: 'onlyWhenBackground', label: 'Only when Orbital is in the background' },
-  { key: 'sound', label: 'Play a sound' },
+export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; label: string; desc: string }[] = [
+  {
+    key: 'needsInput',
+    label: 'A session needs your input',
+    desc: 'A turn finished, a permission prompt is waiting, or the session asked a question.',
+  },
+  {
+    key: 'sessionEnded',
+    label: 'A session ends',
+    desc: 'Only when it was working — a terminal session ageing out on the idle timer is the clock talking, not the session, and never notifies.',
+  },
+  {
+    key: 'sessionFailed',
+    label: 'A session fails',
+    desc: 'The process died or never started. The body stays on the map and the error is kept in the log either way.',
+  },
+  {
+    key: 'onlyWhenBackground',
+    label: 'Only when Orbital is in the background',
+    desc: 'A focused map already shows every one of these states, so interrupting over it is noise. Turn this off to be notified even with the window in front of you.',
+  },
+  {
+    key: 'sound',
+    label: 'Play a sound',
+    desc: 'Off delivers them silently — they still appear in Notification Centre.',
+  },
 ]
 
 /** 9f (spec § 5): the Mac, this phone's notification rules, the relay. */
@@ -94,14 +114,18 @@ export function SettingsScreen() {
         </div>
         <div className="mt-3">
           <SecondaryButton onClick={() => setConfirming(true)}>Pair a different Mac</SecondaryButton>
+          <p className="mt-2 text-center font-mono text-[10.5px] text-text-muted">one Mac per phone · the name is set on the Mac</p>
         </div>
       </div>
 
       <SectionLabel>NOTIFICATIONS</SectionLabel>
       <div className="mx-4 rounded-[12px] border border-panel-border">
         {NOTIFICATION_ROWS.map((row) => (
-          <div key={row.key} className="flex min-h-12 items-center gap-3 border-b border-panel-border px-4 last:border-b-0">
-            <span className="flex-1 text-[14px] text-text-soft">{row.label}</span>
+          <div key={row.key} className="flex min-h-12 items-center gap-3 border-b border-panel-border px-4 py-3 last:border-b-0">
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] text-text-soft">{row.label}</span>
+              <span className="mt-0.5 block text-[12px] leading-[1.45] text-text-muted">{row.desc}</span>
+            </span>
             <Toggle
               label={row.label}
               checked={rules?.[row.key] ?? false}
@@ -123,8 +147,8 @@ export function SettingsScreen() {
       </div>
 
       <footer className="px-4 py-8 text-center font-mono text-[10.5px] text-text-muted">
-        <div>orbital mobile {__MOBILE_VERSION__}</div>
-        {pairing && <div className="mt-1">{formatFingerprint(pairing.fingerprint)}</div>}
+        orbital mobile {__MOBILE_VERSION__}
+        {pairing && ` · fingerprint ${formatFingerprint(pairing.fingerprint)}`}
       </footer>
 
       {confirming && (
@@ -141,10 +165,10 @@ export function SettingsScreen() {
           >
             <h2 className="text-[17px] font-semibold">Replace {name}?</h2>
             <p className="mt-2 text-[14px] text-text-soft">
-              This phone forgets {name}, the sessions it showed and its own key. You scan the new Mac&apos;s code next.
+              This phone forgets {name} and its key, then opens the scanner. Sessions on the Mac keep running.
             </p>
             <div className="mt-5 flex flex-col gap-2">
-              <PrimaryButton onClick={() => void replace()}>Pair a different Mac</PrimaryButton>
+              <PrimaryButton onClick={() => void replace()}>Forget and scan</PrimaryButton>
               <SecondaryButton onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
             </div>
           </div>

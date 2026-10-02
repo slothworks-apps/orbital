@@ -2,6 +2,7 @@ import { RemoteClient } from '@orbital/shared/remote/client'
 import type { Identity } from '@orbital/shared/remote/keys'
 import { loadOrCreateIdentity } from './platform/identity'
 import type { Pairing } from './platform/parse'
+import { isMacAsleep, useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 
 /**
@@ -26,6 +27,23 @@ export function newClient(
 ): RemoteClient {
   // The WebView's own WebSocket; `ws` plays it in the server's end-to-end test.
   return new RemoteClient({ relayUrl, mac, identity, WebSocketImpl: WebSocket, app: mobileApp(), expectPaired })
+}
+
+/**
+ * One bounded presence check (9a's Retry, 9i's Try again, every return to
+ * the foreground; `windowMs` is RETRY_WINDOW_MS). The relay link is rebuilt
+ * on the way, so `rechecking` holds the offline presentation steady until
+ * the answer is in (`isMacAsleep`).
+ */
+export async function recheckMac(windowMs: number): Promise<boolean> {
+  useMobile.setState((s) => ({ rechecking: { asleep: isMacAsleep(s) } }))
+  try {
+    const online = await clientRef.recheck(windowMs)
+    useMobile.setState({ checkedAt: Date.now(), macOnline: online })
+    return online
+  } finally {
+    useMobile.setState({ rechecking: null })
+  }
 }
 
 /** The paired Mac's link, started and live behind `clientRef`. */

@@ -27,6 +27,14 @@ export interface MobileState {
   asOf: number | null
   /** When the last Retry or foreground check finished ("checked just now"). */
   checkedAt: number | null
+  /**
+   * Set while a Retry or a foreground check is in flight, holding what
+   * `isMacAsleep` answered when it began: the check rebuilds the relay link,
+   * and the drop it makes on the way must not flash the offline card.
+   */
+  rechecking: { asleep: boolean } | null
+  /** When the Mac's session list was last read over the tunnel (9e's "N live sessions are waiting."). */
+  listedAt: number | null
   mismatch: { macVersion: string | null; needed: string } | null
   unpaired: boolean
   pairing: Pairing | null
@@ -35,7 +43,19 @@ export interface MobileState {
 
 export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, link: 'off', macOnline: false, ready: false,
-  asOf: null, checkedAt: null, mismatch: null, unpaired: false, pairing: null, macName: null,
+  asOf: null, checkedAt: null, rechecking: null, listedAt: null,
+  mismatch: null, unpaired: false, pairing: null, macName: null,
+}
+
+/**
+ * The Mac is away while the relay is not (spec § 5, "Transport states"): the
+ * 9a offline card and 9b's offline transcript. A relay still connecting is
+ * the header's dim dot and nothing else; while a check runs (`rechecking`)
+ * the answer from before it holds.
+ */
+export function isMacAsleep(state: Pick<MobileState, 'link' | 'macOnline' | 'rechecking'>): boolean {
+  if (state.rechecking) return state.rechecking.asleep
+  return state.link === 'online' && !state.macOnline
 }
 
 /** The pair is over, by the Mac's hand or the relay's word (spec § 4). */
@@ -88,6 +108,8 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
     case 'settings':
       return { screen: 'list' }
     case 'pairing':
+      // Paired already (back on "Paired with", or while it waits for hello): the list, not where pairing began.
+      if (state.pairing) return { screen: 'list', previous: null }
       return state.previous ? { screen: state.previous, previous: null } : 'exit'
     default:
       return 'exit'

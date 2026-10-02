@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Logo } from '../ui/Logo'
 
 /**
  * One phone screen (9a–9i): the header pinned at the top, the body
@@ -92,4 +93,27 @@ export function Toggle({
 
 export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="px-4 pb-1.5 pt-5 font-mono text-[10.5px] tracking-[0.14em] text-text-muted">{children}</div>
+}
+
+/**
+ * The Orbital mark at screen size (9e paired, 9h): `ui/Logo`'s drawing
+ * scaled up. `checked` adds the check of "Paired with"; `muted` is 9h's
+ * grey mark — no red, no icon.
+ */
+export function MobileMark({ checked = false, muted = false }: { checked?: boolean; muted?: boolean }) {
+  return (
+    <div className={['relative flex h-12 w-12 items-center justify-center', muted ? 'opacity-50 grayscale' : ''].join(' ')}>
+      <span className="block [&>svg]:h-12 [&>svg]:w-12">
+        <Logo />
+      </span>
+      {checked && (
+        <span
+          aria-hidden
+          className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[rgba(89,228,243,.5)] bg-space text-[11px] text-accent"
+        >
+          ✓
+        </span>
+      )}
+    </div>
+  )
 }

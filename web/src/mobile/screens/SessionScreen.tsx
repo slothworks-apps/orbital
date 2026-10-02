@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getSocket } from '../../lib/socket'
+import { timeAgo } from '../../lib/format'
+import { sessionModelLabel } from '../../lib/models'
 import { stateColor } from '../../lib/stateStyle'
 import { isReadOnly, sessionStateKey, tagColor, type ChatMessage } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useOrbital, type SessionEvent } from '../../store/store'
+import { ModeDot } from '../../ui/ModeDot'
 import { CLOCK_TICK_MS } from '../constants'
 import { basename } from '../format'
 import { readTranscriptCache } from '../platform/cache'
 import { stateLine } from '../sessionList'
-import { useMobile } from '../state'
+import { isMacAsleep, useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
 import { Glyph } from './Glyph'
@@ -32,10 +35,11 @@ function SessionView({ id }: { id: string }) {
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const ready = useMobile((s) => s.ready)
   const asOf = useMobile((s) => s.asOf)
+  const macName = useMobile((s) => s.macName)
+  const offline = useMobile(isMacAsleep)
   const goBack = useMobile((s) => s.goBack)
   const [exhausted, setExhausted] = useState(false)
-  const offline = !ready
-  const now = useNow(offline, CLOCK_TICK_MS)
+  const now = useNow(true, CLOCK_TICK_MS)
 
   // Open: from the cache while the Mac is away, over the tunnel when it is
   // not (spec § 4). Seated as loaded, so the reconnect's resync replaces it
@@ -83,18 +87,31 @@ function SessionView({ id }: { id: string }) {
           ‹
         </button>
         <h1 className="min-w-0 flex-1 truncate text-[16px] font-semibold">{session?.title || 'Untitled session'}</h1>
-        {session && key && (
-          <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] tracking-[0.1em]" style={{ color: stateColor(key) }}>
-            <Glyph session={session} offline={offline} />
-            {stateLine(key, offline, asOf, now)}
+        {session && (
+          <span className="flex min-w-0 max-w-[45%] shrink items-center gap-1.5 font-mono text-[11px] text-text-muted">
+            <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
+            <span className="truncate">{basename(session.cwd)}</span>
+            {session.git && <span className="truncate">⎇ {session.git.ref}</span>}
           </span>
         )}
       </div>
-      {session && (
-        <div className="flex min-w-0 items-center gap-2 pl-11 pr-4 font-mono text-[11px] text-text-muted">
-          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
-          <span className="truncate">{basename(session.cwd)}</span>
-          {session.git && <span className="truncate">⎇ {session.git.ref}</span>}
+      {session && key && (
+        <div className="flex min-w-0 items-center gap-2 pl-11 pr-4 font-mono text-[10.5px] text-text-muted">
+          <span className="flex shrink-0 items-center gap-1.5 tracking-[0.1em]" style={{ color: stateColor(key) }}>
+            <Glyph session={session} offline={offline} />
+            {stateLine(key, offline, asOf, now)}
+          </span>
+          {/* Live, the last activity; offline, the state line already says when. */}
+          {!offline && session.lastAt !== null && <span className="shrink-0">· {timeAgo(session.lastAt, now)}</span>}
+          {session.subagents.length > 0 && (
+            <span className="shrink-0">
+              · {session.subagents.length} {session.subagents.length === 1 ? 'subagent' : 'subagents'}
+            </span>
+          )}
+          {(session.model || session.resolvedModel) && (
+            <span className="min-w-0 truncate">· {sessionModelLabel(session, models)}</span>
+          )}
+          {session.permissionMode && <ModeDot mode={session.permissionMode} className="ml-auto" />}
         </div>
       )}
     </div>
@@ -109,13 +126,18 @@ function SessionView({ id }: { id: string }) {
     </div>
   ) : undefined
 
-  // The composer's place: 9p's line for a terminal session; nothing for an Orbital one until 2b.
-  const footer =
-    session && isReadOnly(session) ? (
-      <div className="border-t border-panel-border px-4 py-3 text-center font-mono text-[11px] text-text-muted">
-        terminal session · no composer
-      </div>
-    ) : undefined
+  // The composer's place: 9p's locked line while the Mac sleeps; its line for a
+  // terminal session; nothing for an Orbital one until 2b.
+  const footerLine = offline
+    ? `${macName ?? 'Your Mac'} is asleep — read only`
+    : session && isReadOnly(session)
+      ? 'terminal session · no composer'
+      : null
+  const footer = footerLine ? (
+    <div className="border-t border-panel-border px-4 py-3 text-center font-mono text-[11px] text-text-muted">
+      {footerLine}
+    </div>
+  ) : undefined
 
   return (
     <MobileScreen header={header} footer={footer} scroll={false}>

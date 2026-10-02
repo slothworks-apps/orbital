@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '../mobile/version'
-import { back, initialMobileState, isPairGone, reduce, type MobileState } from '../mobile/state'
+import { back, initialMobileState, isMacAsleep, isPairGone, reduce, type MobileState } from '../mobile/state'
 
 const NOW = 1_000
 const state = (patch: Partial<MobileState> = {}): MobileState => ({ ...initialMobileState, ...patch })
@@ -90,5 +90,32 @@ describe('back', () => {
   it('returns from pairing to where it came from, and stays when there is nowhere to go', () => {
     expect(back(state({ screen: 'pairing', previous: 'unpaired' }))).toEqual({ screen: 'unpaired', previous: null })
     expect(back(state({ screen: 'pairing', previous: null }))).toBe('exit')
+  })
+})
+
+describe('back from pairing once paired', () => {
+  it('goes to the list, not to where pairing began', () => {
+    const pairing = { relay: 'https://relay.test', mac: 'm', macName: 'studio', fingerprint: 'ABC123', pairedAt: 1 }
+    expect(back(state({ screen: 'pairing', previous: 'unpaired', pairing }))).toEqual({ screen: 'list', previous: null })
+    expect(back(state({ screen: 'pairing', previous: null, pairing }))).toEqual({ screen: 'list', previous: null })
+  })
+})
+
+describe('isMacAsleep', () => {
+  it('is false while the relay is still connecting, whatever the Mac', () => {
+    expect(isMacAsleep(state({ link: 'connecting', macOnline: false }))).toBe(false)
+    expect(isMacAsleep(state({ link: 'off', macOnline: false }))).toBe(false)
+  })
+
+  it('is true only with the relay online and the Mac away', () => {
+    expect(isMacAsleep(state({ link: 'online', macOnline: false }))).toBe(true)
+    expect(isMacAsleep(state({ link: 'online', macOnline: true }))).toBe(false)
+  })
+
+  it('holds its answer from before a check while the check rebuilds the link', () => {
+    // A healthy Mac: the check drops presence and reconnects, and the card must not flash.
+    expect(isMacAsleep(state({ link: 'online', macOnline: false, rechecking: { asleep: false } }))).toBe(false)
+    // An asleep Mac: the relay going to connecting mid-check does not hide the card.
+    expect(isMacAsleep(state({ link: 'connecting', macOnline: false, rechecking: { asleep: true } }))).toBe(true)
   })
 })

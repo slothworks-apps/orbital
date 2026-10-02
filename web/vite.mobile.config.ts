@@ -12,10 +12,12 @@ import { defineConfig, type Plugin } from 'vite'
  */
 /** `orbital mobile <version>` in 9f's footer and the `hello` app string: the shell's version. */
 const mobileVersion = (
-  JSON.parse(readFileSync(new URL('../mobile/package.json', import.meta.url), 'utf8')) as { version: string }
+  JSON.parse(readFileSync(new URL('../mobile/package.json', import.meta.url), 'utf8')) as {
+    version: string
+  }
 ).version
 
-const ENTRY ='index.mobile.html'
+const ENTRY = 'index.mobile.html'
 
 function mobileEntry(): Plugin {
   return {
@@ -47,7 +49,11 @@ function chunkModules(): Plugin {
       for (const item of Object.values(bundle)) {
         if (item.type === 'chunk') modules[item.fileName] = item.moduleIds
       }
-      this.emitFile({ type: 'asset', fileName: '.vite/chunk-modules.json', source: JSON.stringify(modules, null, 2) })
+      this.emitFile({
+        type: 'asset',
+        fileName: '.vite/chunk-modules.json',
+        source: JSON.stringify(modules, null, 2),
+      })
     },
   }
 }

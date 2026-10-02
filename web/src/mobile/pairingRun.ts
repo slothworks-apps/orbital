@@ -52,7 +52,9 @@ export async function runPairing(
   const held: { client: RemoteClient | null } = { client: null }
   try {
     await pair(qr, report, cancelled, held)
-  } catch {
+  } catch (err) {
+    // The error only: never the code, whose text carries the pairing secret.
+    console.warn('[mobile] pairing failed', err)
     if (cancelled()) return
     if (held.client && clientRef.client === held.client) clientRef.set(null)
     report({ kind: 'scan', error: PAIRING_FAILED })

@@ -22,10 +22,15 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
   useMobile.setState({ ready: false, pairing: null })
   cancelCacheWrite()
   clientRef.set(null)
-  // The flag before the pairing goes: a kill in between still lands on 9h, not the scanner.
-  if (opts.unpaired) await setUnpaired(name)
-  await clearPairing()
-  await Promise.all([forgetIdentity(), clearCaches(), clearImageCache()])
+  try {
+    // The flag before the pairing goes: a kill in between still lands on 9h, not the scanner.
+    if (opts.unpaired) await setUnpaired(name)
+    await clearPairing()
+    await Promise.all([forgetIdentity(), clearCaches(), clearImageCache()])
+  } catch (err) {
+    // A storage call that failed must not leave the old Mac on screen: what follows runs regardless.
+    console.warn('[mobile] could not clear everything stored for the Mac', err)
+  }
   useOrbital.getState().seatSessions([], [])
   // No store action leaves a session without side effects, so the old Mac's
   // selection and transcripts are dropped here: the next pairing's resync
@@ -34,7 +39,8 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
     transcripts: {}, historyLoaded: {}, ui: { ...s.ui, selectedId: null, fileViewer: null },
   }))
   useMobile.setState({
-    pairing: null, link: 'off', macOnline: false, ready: false, asOf: null, checkedAt: null,
+    pairing: null, link: 'off', macOnline: false, ready: false,
+    asOf: null, checkedAt: null, rechecking: null, listedAt: null,
     sessionId: null, mismatch: null, previous: null,
     unpaired: opts.unpaired,
     macName: opts.unpaired ? name : null,

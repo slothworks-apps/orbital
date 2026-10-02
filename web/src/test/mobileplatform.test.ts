@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deviceId, generateIdentity, toBase64Url } from '@orbital/shared/remote/keys'
 import { base64ToBytes, bytesToBase64 } from '../mobile/platform/base64'
+import { forgetIdentity, IDENTITY_KEY, loadOrCreateIdentity } from '../mobile/platform/identity'
 import { readCachedImage } from '../mobile/platform/imageCache'
 import {
   FALLBACK_DEVICE_NAME, acceptMessages, acceptNotifications, acceptSessions, deviceName, identityBackend,
@@ -105,5 +106,23 @@ describe('readCachedImage', () => {
     readFile.mockClear()
     expect(await readCachedImage('../etc')).toBeNull()
     expect(readFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('loadOrCreateIdentity', () => {
+  it('does not remember a failed read: the next call reads again', async () => {
+    // jsdom is no native platform, so the identity lives in localStorage here.
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementationOnce(() => {
+      throw new Error('keystore hiccup')
+    })
+    try {
+      await expect(loadOrCreateIdentity()).rejects.toThrow('keystore hiccup')
+      const identity = await loadOrCreateIdentity()
+      expect(localStorage.getItem(IDENTITY_KEY)).not.toBeNull()
+      expect(await loadOrCreateIdentity()).toBe(identity)
+    } finally {
+      getItem.mockRestore()
+      await forgetIdentity()
+    }
   })
 })

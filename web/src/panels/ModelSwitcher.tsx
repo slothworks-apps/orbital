@@ -5,7 +5,7 @@ import { reportError } from '../lib/errors'
 import { useCommand } from '../lib/commands'
 import { command, matches, shortcutLabel } from '../lib/keymap'
 import { formatTokens } from '../lib/format'
-import { matchModel, modelChipLabel, isExactModelMatch } from '../lib/models'
+import { matchModel, modelChipLabel, sessionModelLabel } from '../lib/models'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
@@ -42,13 +42,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason, h
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
   const current = matchModel(session, models)
-  // The variant only belongs on the label when the match is exact (F2): the
-  // stripped-suffix fallback exists so a terminal session has a name at all,
-  // and letting it also claim a variant would have the chip promise a
-  // context size the read-out below cannot back up.
-  const label = current
-    ? (isExactModelMatch(session, current) ? modelChipLabel(current) : current.shortVersion)
-    : (session.resolvedModel ?? session.model ?? 'unknown model')
+  const label = sessionModelLabel(session, models)
 
   useEscapeLayer(open, () => setOpen(false))
 

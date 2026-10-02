@@ -4,11 +4,11 @@ import { timeAgo } from '../../lib/format'
 import { isReadOnly, sessionStateKey, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { useOrbital } from '../../store/store'
+import { recheckMac } from '../connect'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
 import { agoLabel, asOfLabel, basename, checkedLabel } from '../format'
 import { GROUP_LABEL, decisionReason, groupSessions, latestActivity, tagChips } from '../sessionList'
-import { useMobile } from '../state'
-import { clientRef } from '../transport/clientRef'
+import { isMacAsleep, useMobile } from '../state'
 import { MobileScreen } from '../ui'
 import { Glyph } from './Glyph'
 
@@ -18,8 +18,8 @@ export function SessionListScreen() {
     useShallow((s) => s.order.map((id) => s.sessions[id]).filter((x): x is ApiSession => x !== undefined)),
   )
   const tags = useOrbital((s) => s.tags)
-  const { macOnline, link, macName, asOf, checkedAt } = useMobile(
-    useShallow((s) => ({ macOnline: s.macOnline, link: s.link, macName: s.macName, asOf: s.asOf, checkedAt: s.checkedAt })),
+  const { offline, link, macName, asOf, checkedAt } = useMobile(
+    useShallow((s) => ({ offline: isMacAsleep(s), link: s.link, macName: s.macName, asOf: s.asOf, checkedAt: s.checkedAt })),
   )
   const openSession = useMobile((s) => s.openSession)
   const go = useMobile((s) => s.go)
@@ -28,7 +28,6 @@ export function SessionListScreen() {
   const [checking, setChecking] = useState(false)
   const now = useNow(true, CLOCK_TICK_MS)
 
-  const offline = !macOnline
   const mac = macName ?? 'Your Mac'
   const groups = useMemo(() => groupSessions(sessions, tagId), [sessions, tagId])
   const chips = useMemo(() => tagChips(sessions, tags), [sessions, tags])
@@ -37,13 +36,13 @@ export function SessionListScreen() {
   // One bounded presence check, never a loop (spec § 5, RETRY_WINDOW_MS).
   const retry = async () => {
     setChecking(true)
-    const online = await clientRef.recheck(RETRY_WINDOW_MS)
-    useMobile.setState({ checkedAt: Date.now(), macOnline: online })
+    await recheckMac(RETRY_WINDOW_MS)
     setChecking(false)
   }
 
   const header = (
     <div className="flex items-center gap-3 px-4 py-2">
+      <span className="shrink-0 font-mono text-[10.5px] tracking-[0.2em] text-text-muted">ORBITAL</span>
       <h1 className="truncate text-[17px] font-semibold">{mac}</h1>
       {link === 'connecting' && (
         <span role="img" aria-label="connecting to the relay" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--state-neutral)] opacity-60" />
@@ -58,12 +57,16 @@ export function SessionListScreen() {
     <MobileScreen header={header}>
       {offline && (
         <section className="mx-4 mt-3 rounded-[12px] border border-panel-border bg-[rgba(10,16,28,.7)] px-4 py-3">
-          <p className="text-[14px] text-text-soft">
-            {mac} is asleep · Showing what it last sent
+          <p className="text-[15px] font-semibold text-text-bright">{mac} is asleep</p>
+          <p className="mt-1 text-[13px] text-text-soft">
+            Showing what it last sent. Reconnects on its own when the Mac wakes.
           </p>
           <div className="mt-1 flex items-center gap-3 font-mono text-[11px] text-text-muted">
-            {asOf !== null && <span>{asOfLabel(asOf, now)}</span>}
-            {checkedAt !== null && <span>{checkedLabel(checkedAt, now)}</span>}
+            <span className="min-w-0 truncate">
+              {[asOf !== null ? asOfLabel(asOf, now) : null, checkedAt !== null ? checkedLabel(checkedAt, now) : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
             <button type="button" disabled={checking} onClick={() => void retry()} className="ml-auto min-h-11 px-2 text-text-soft disabled:opacity-40">
               Retry
             </button>
@@ -135,11 +138,9 @@ export function SessionListScreen() {
       {/* 9d is 2b: drawn, disabled, with its reason. */}
       <div className="px-4 py-6">
         <button type="button" disabled className="min-h-11 w-full rounded-[10px] border border-panel-border text-[15px] text-text-muted opacity-60">
-          + New session
+          {offline ? `New session · needs ${mac} awake` : '+ New session'}
         </button>
-        <p className="mt-1.5 text-center font-mono text-[10.5px] text-text-muted">
-          {offline ? `needs ${mac} awake` : 'coming with 2b'}
-        </p>
+        {!offline && <p className="mt-1.5 text-center font-mono text-[10.5px] text-text-muted">coming with 2b</p>}
       </div>
     </MobileScreen>
   )
