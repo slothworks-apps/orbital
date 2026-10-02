@@ -109,6 +109,15 @@ export function acceptNotifications(value: unknown): NotificationSettings | null
   return parsed.success ? parsed.data : null
 }
 
+// Twin of `ImageRef` in shared/src/remote/messages.ts: a content hash plus
+// its extension, nothing else — in particular no `/` or `..`, so a ref used
+// as a filesystem path segment can never escape the image cache directory.
+const IMAGE_REF_RE = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/
+
+export function isImageRef(ref: string): boolean {
+  return IMAGE_REF_RE.test(ref)
+}
+
 /** What the Mac's confirm and its device list call a phone whose model is unknown (spec § 5, 9e). */
 export const FALLBACK_DEVICE_NAME = 'Android phone'
 

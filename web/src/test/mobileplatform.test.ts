@@ -1,10 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { deviceId, generateIdentity, toBase64Url } from '@orbital/shared/remote/keys'
 import { base64ToBytes, bytesToBase64 } from '../mobile/platform/base64'
+import { readCachedImage } from '../mobile/platform/imageCache'
 import {
   FALLBACK_DEVICE_NAME, acceptMessages, acceptNotifications, acceptSessions, deviceName, identityBackend,
-  parseCached, parseIdentity, parsePairing, serializeIdentity,
+  isImageRef, parseCached, parseIdentity, parsePairing, serializeIdentity,
 } from '../mobile/platform/parse'
+
+// Stubbed so `readCachedImage`'s ref check is provably checked before any
+// plugin call reaches native code — never a real file read in this suite.
+// `vi.mock` is hoisted above every import, so the fake it returns must be
+// built with `vi.hoisted` rather than a plain top-level `const`.
+const { readFile } = vi.hoisted(() => ({ readFile: vi.fn() }))
+vi.mock('@capacitor/filesystem', () => ({
+  Directory: { Cache: 'CACHE' },
+  Filesystem: { readFile },
+}))
 
 describe('identity', () => {
   it('round-trips through its stored form', () => {
@@ -76,5 +87,23 @@ describe('deviceName', () => {
     expect(deviceName({ model: 'Pixel 8' })).toBe('Pixel 8')
     expect(deviceName({ model: '  ' })).toBe(FALLBACK_DEVICE_NAME)
     expect(deviceName(null)).toBe(FALLBACK_DEVICE_NAME)
+  })
+})
+
+describe('isImageRef', () => {
+  it('accepts the one canonical shape and rejects a path escape, a wrong case, a wrong extension or nothing', () => {
+    expect(isImageRef(`${'a'.repeat(64)}.png`)).toBe(true)
+    expect(isImageRef('../x.png')).toBe(false)
+    expect(isImageRef(`${'A'.repeat(64)}.png`)).toBe(false)
+    expect(isImageRef(`${'a'.repeat(64)}.bmp`)).toBe(false)
+    expect(isImageRef('')).toBe(false)
+  })
+})
+
+describe('readCachedImage', () => {
+  it('rejects a ref that could escape the cache directory without touching the plugin', async () => {
+    readFile.mockClear()
+    expect(await readCachedImage('../etc')).toBeNull()
+    expect(readFile).not.toHaveBeenCalled()
   })
 })
