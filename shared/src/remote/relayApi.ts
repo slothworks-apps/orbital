@@ -9,7 +9,6 @@ import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { deviceId, fromBase64Url, publicKeyOf, sign, toBase64Url, verify, type Identity } from './keys.js';
 
-export const DEFAULT_RELAY_URL = 'https://orbital-relay.slothworks.io';
 /** How far a signed request's timestamp may sit from the relay's clock. */
 export const SIGNED_REQUEST_SKEW_MS = 60_000;
 /** How long a pairing QR is good for (9e: "code expires in 1:48"). */

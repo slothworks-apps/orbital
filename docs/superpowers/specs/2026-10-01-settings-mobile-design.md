@@ -141,6 +141,9 @@ for `section === 'mobile'` the way Harness templates and Shortcuts are.
 **PAIRING CODE** (9n, 9q). What the QR area shows follows the status
 line:
 - connecting → "Waiting for the relay", nothing else;
+- couldn't start with no relay URL set (`relayUrl` empty) → "Set a relay
+  URL under Advanced to pair a phone.", no button (amended 2026-10-02: no
+  default relay);
 - can't reach / couldn't start → "The relay didn't answer. Check the URL
   under Advanced, or try again." and one secondary "Try again" that calls
   `POST /api/remote/restart`;
@@ -179,9 +182,15 @@ gone from the next status. Empty list: "No phones yet" with the hint to
 scan the code above.
 
 **ADVANCED** (9m, 9r). Folded by default, the fold's caption shows
-"default" or "edited". The Relay URL input's value is
-`settings.remote_relay_url`, placeholder is the default URL; "Reset to
-default" saves an empty string. The URL is committed on Enter or blur,
+"not set" while `remote_relay_url` is empty and "set" otherwise. There is
+no default relay: every Mac names its own, and nothing fills the setting
+in. The Relay URL input's value is `settings.remote_relay_url`, its
+placeholder an example URL; there is no reset link. While the setting is
+empty, turning the remote on is a failed start: the server sets `error`
+to `NO_RELAY_URL_ERROR` without constructing a relay client, so the
+status line reads "couldn't start" with that reason, and `relayUrl` in
+the status is empty (amended 2026-10-02: no default relay). The URL is
+committed on Enter or blur,
 not debounced: a relay change drops every phone session, so it must not
 fire mid-typing. Under the field the caption from 9m about paired phones.
 On commit:

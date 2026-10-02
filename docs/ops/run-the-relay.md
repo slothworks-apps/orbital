@@ -78,7 +78,8 @@ change, not built, because there is nothing to route to yet.
 
 Settings → Mobile → Advanced → Relay URL on the Mac (the `remote_relay_url`
 setting). The pairing QR carries that URL to the phone, so it only has to
-be set once, on the Mac.
+be set once, on the Mac. There is no default relay: until this is set, the
+remote does not start and the status line reads "couldn't start".
 
 ## Run it locally
 

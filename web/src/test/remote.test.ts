@@ -51,6 +51,10 @@ describe('relayLine', () => {
     expect(relayLine(status({ relay: 'online', relayUrl: 'not a url' })).text).toBe('online · not a url')
   })
 
+  it('names no host when the status carries no relay URL', () => {
+    expect(relayLine(status({ relay: 'online', relayUrl: '' })).text).toBe('online')
+  })
+
   it('lets a start error win over the relay state, carrying the reason verbatim', () => {
     const line = relayLine(status({ relay: 'off', error: 'Invalid URL: ftp:/x' }))
     expect(line).toEqual({ kind: 'failed', text: "couldn't start", detail: 'Invalid URL: ftp:/x' })

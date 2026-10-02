@@ -14,7 +14,7 @@ import { createImageStore } from '../src/images/store.js';
 import { DeviceStore } from '../src/remote/devices.js';
 import { IDENTITY_FILE } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
-import { RemoteService, type RemoteServiceOptions } from '../src/remote/service.js';
+import { NO_RELAY_URL_ERROR, RemoteService, type RemoteServiceOptions } from '../src/remote/service.js';
 
 type Answer = { status: number; body: unknown };
 
@@ -44,7 +44,7 @@ let qrSecret: Uint8Array = new Uint8Array(PAIRING_SECRET_BYTES);
 
 function build(
   seed?: (devices: DeviceStore) => void,
-  opts: { corruptIdentity?: boolean; clientFactory?: RemoteServiceOptions['clientFactory'] } = {},
+  opts: { corruptIdentity?: boolean; clientFactory?: RemoteServiceOptions['clientFactory']; relayUrl?: string } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-svc-'));
   const db = openDb(join(dir, 'index.db'));
@@ -56,7 +56,9 @@ function build(
   const fake = new FakeClient();
   fake.answers['/pair/token'] = { status: 200, body: { token: 'tok', expiresAt: NOW + 60_000 } };
   const desktop = { notify_needs_input: 'false' };
-  const settings: Record<string, string> = { remote_enabled: 'true', ...desktop };
+  const settings: Record<string, string> = {
+    remote_enabled: 'true', remote_relay_url: opts.relayUrl ?? 'https://relay.test', ...desktop,
+  };
   const service = new RemoteService({
     db, hub, dataDir: dir, images: createImageStore(join(dir, 'images')), imagesDir: join(dir, 'images'),
     serverVersion: 'test',
@@ -294,6 +296,24 @@ describe('RemoteService data', () => {
     expect(frame.wake).toHaveLength(WAKE_BYTES);
     expect(frame.wake.some((b) => b !== 0)).toBe(true);
     expect(frame.body).toHaveLength(0);
+  });
+});
+
+describe('RemoteService relay URL', () => {
+  it('enabled with no relay URL is a failed start that constructs no client, until a URL is set', () => {
+    const factory = vi.fn<NonNullable<RemoteServiceOptions['clientFactory']>>();
+    const { service, fake, settings } = build(undefined, { relayUrl: '  ', clientFactory: factory });
+    expect(factory).not.toHaveBeenCalled();
+    expect(service.status()).toMatchObject({
+      enabled: true, relay: 'off', relayAttempts: 0, relayUrl: '', macId: null, error: NO_RELAY_URL_ERROR,
+    });
+
+    factory.mockImplementation(() => fake as unknown as RelayClient);
+    settings.remote_relay_url = 'https://relay.test';
+    service.settingsChanged();
+    expect(factory).toHaveBeenCalledWith(expect.objectContaining({ relayUrl: 'https://relay.test' }));
+    expect(service.status()).toMatchObject({ relay: 'online', relayUrl: 'https://relay.test', error: null });
+    service.stop();
   });
 });
 
