@@ -39,7 +39,12 @@ function hostOf(url: string): string {
 /** The status line under the switch (canvas 9q). A start error wins over whatever the relay says. */
 export function relayLine(status: RemoteStatus): RelayLine {
   if (status.error !== null) return { kind: 'failed', text: "couldn't start", detail: status.error }
-  if (status.relay === 'online') return { kind: 'online', text: `online · ${hostOf(status.relayUrl)}` }
+  if (status.relay === 'online') {
+    // Online implies a URL, but the status is the server's word: an empty one
+    // must not leave a dangling separator.
+    const host = status.relayUrl.trim() === '' ? '' : hostOf(status.relayUrl)
+    return { kind: 'online', text: host === '' ? 'online' : `online · ${host}` }
+  }
   if (status.relay === 'connecting') {
     return status.relayAttempts >= RELAY_UNREACHABLE_AFTER_ATTEMPTS
       ? { kind: 'unreachable', text: "can't reach the relay" }

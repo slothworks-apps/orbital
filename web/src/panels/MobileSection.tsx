@@ -222,6 +222,13 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
     return <div className={`${BLOCK} text-[12.5px] ${MUTED}`}>Waiting for the relay</div>
   }
 
+  // No relay URL yet: nothing answered, and trying again cannot help.
+  if (kind === 'failed' && remote.relayUrl === '') {
+    return (
+      <div className={`${BLOCK} text-[12.5px] leading-[1.5] ${MUTED}`}>Set a relay URL under Advanced to pair a phone.</div>
+    )
+  }
+
   if (kind === 'unreachable' || kind === 'failed') {
     return (
       <div className={`${BLOCK} flex flex-col items-start gap-2.5`}>
@@ -383,7 +390,7 @@ function Advanced({
   // Unknown until the first status: whether to ask cannot be decided from nothing.
   const pairedCount = remote ? remote.devices.length : null
 
-  // A save, a reset or another window moves the saved value: the field follows.
+  // A save or another window moves the saved value: the field follows.
   useEffect(() => setDraft(saved), [saved])
 
   function commit(typed: string) {
@@ -436,7 +443,7 @@ function Advanced({
         <span aria-hidden className="mr-1.5 inline-block transition-transform group-open:rotate-90">
           ›
         </span>
-        ADVANCED · relay URL · {saved === '' ? 'default' : 'edited'}
+        ADVANCED · relay URL · {saved === '' ? 'not set' : 'set'}
       </summary>
       <Row title="Relay URL" desc="Self-host if you prefer. The pairing code carries it, so phones never type it.">
         <Input
@@ -444,7 +451,7 @@ function Advanced({
           font="mono"
           size="sm"
           value={draft}
-          placeholder={saved === '' ? remote?.relayUrl : undefined}
+          placeholder="https://relay.example.com"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             // Blurring commits, so Enter and a click away cannot both save.
@@ -453,15 +460,6 @@ function Advanced({
           onBlur={(e) => commit(e.target.value)}
           className="w-full"
         />
-        {saved !== '' && (
-          <button
-            type="button"
-            onClick={() => commit('')}
-            className="font-mono text-[11px] text-accent/80 transition-colors hover:text-accent"
-          >
-            Reset to default
-          </button>
-        )}
         <span className={`text-[11.5px] leading-[1.5] ${MUTED}`}>
           Paired phones stay on the relay they paired through. Changing this removes them; pair them again on the new
           relay.

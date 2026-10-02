@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { deviceId, fingerprint, publicKeyOf, toBase64Url, type Identity } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import {
-  DEFAULT_RELAY_URL, PAIRING_SECRET_BYTES, verifyPairingProof, type QrPayload, type RelayToDevice,
+  PAIRING_SECRET_BYTES, verifyPairingProof, type QrPayload, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Hub } from '../api/hub.js';
@@ -36,6 +36,12 @@ export type RemoteStatus = {
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
 };
+
+/**
+ * A failed start's reason while `remote_relay_url` is empty: there is no
+ * default relay, every Mac names its own.
+ */
+export const NO_RELAY_URL_ERROR = 'no relay URL — set one under Advanced';
 
 export type RemoteServiceOptions = {
   db: OrbitalDb;
@@ -72,8 +78,9 @@ export class RemoteService {
     return this.opts.settings.get('remote_enabled') === 'true';
   }
 
+  /** Empty while the user has not set one; the remote cannot start then. */
   private get relayUrl(): string {
-    return this.opts.settings.get('remote_relay_url').trim() || DEFAULT_RELAY_URL;
+    return this.opts.settings.get('remote_relay_url').trim();
   }
 
   private get macName(): string {
@@ -82,6 +89,12 @@ export class RemoteService {
 
   start(): void {
     if (!this.enabled || this.client) return;
+    // Nothing to connect to: a failed start, before the identity is touched.
+    if (this.relayUrl === '') {
+      this.error = NO_RELAY_URL_ERROR;
+      this.publishStatus();
+      return;
+    }
     // The server boots from `buildServer`, and a remote that cannot start (an
     // unparseable relay URL, an unreadable identity file) must not take the
     // rest of Orbital down with it: it reports the reason and stays off.

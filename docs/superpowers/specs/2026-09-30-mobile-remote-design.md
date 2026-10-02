@@ -404,6 +404,8 @@ deliberately, rather than incidentally.
 
 - ~~Draw the Mac side on the canvas~~ — done 2026-10-01 (9m–9r), specified
   in [[2026-10-01-settings-mobile-design]].
-- Pick the default relay hostname (9e and 9n show placeholders).
+- ~~Pick the default relay hostname (9e and 9n show placeholders)~~ —
+  decided 2026-10-02 that there is no default: every Mac names its own
+  relay ([[2026-10-01-settings-mobile-design]] § 3, ADVANCED).
 - Spike the Android WebView composer.
 - Write the plan from this spec once the idea is no longer non-binding.

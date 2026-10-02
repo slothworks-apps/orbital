@@ -197,7 +197,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * nothing connects anywhere until the user turns it on in Settings → Mobile.
    */
   remote_enabled: 'false',
-  /** Empty means the hosted default, `DEFAULT_RELAY_URL`; anyone may run their own. */
+  /** Empty means not set: there is no default relay, and the remote cannot start until the user names one. */
   remote_relay_url: '',
   /** Empty means the machine's network name (`macDisplayName`). */
   remote_mac_name: '',
