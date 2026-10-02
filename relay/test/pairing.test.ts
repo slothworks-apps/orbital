@@ -38,6 +38,26 @@ describe('pairing', () => {
     expect((await r.store.device(m.id))?.name).toBe('studio');
   });
 
+  it('lets a WebView redeem across origins, and only redeem', async () => {
+    const r = await relay();
+    const preflight = await r.app.inject({
+      method: 'OPTIONS', url: '/pair/redeem',
+      headers: { origin: 'https://localhost', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
+    });
+    expect(preflight.statusCode).toBe(204);
+    expect(preflight.headers['access-control-allow-origin']).toBe('*');
+    expect(preflight.headers['access-control-allow-methods']).toBe('POST');
+    expect(preflight.headers['access-control-allow-headers']).toBe('content-type');
+    // A refusal must be readable too, or the phone sees a network error where it should say "code expired".
+    const refused = await r.post('/pair/redeem', signRequest(r.phone, 'pair.redeem', { token: 'nope', name: 'P', platform: 'android', proof: 'p' }, r.now()));
+    expect(refused.statusCode).toBe(404);
+    expect(refused.headers['access-control-allow-origin']).toBe('*');
+    // The Mac's routes stay closed to browsers.
+    const minted = await r.post('/pair/token', signRequest(r.mac, 'pair.token', { name: 'studio' }, r.now()));
+    expect(minted.headers['access-control-allow-origin']).toBeUndefined();
+    expect((await r.app.inject({ method: 'OPTIONS', url: '/pair/confirm' })).statusCode).toBe(404);
+  });
+
   it('a token redeems once and not after its ttl', async () => {
     const r = await relay();
     await connectDevice(r.base, r.mac);

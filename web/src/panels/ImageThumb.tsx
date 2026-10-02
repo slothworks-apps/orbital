@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ImageRefEntry } from '../lib/types'
 import { formatBytes } from '../lib/format'
 import { Lightbox } from '../ui/Lightbox'
+import { useImageUrl } from '../lib/images'
 
 /**
  * One transcript image thumbnail (canvas 7a/7b/7d), clicking through to
@@ -62,6 +63,8 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
   const [missing, setMissing] = useState(false)
   const [open, setOpen] = useState(false)
   const box = boxFor(image, variant, widthCapPx)
+  const { url, failed, async: fadeIn, retry } = useImageUrl(image.ref)
+  const [loaded, setLoaded] = useState(false)
 
   if (missing) {
     return (
@@ -74,6 +77,23 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
           NOT IN CACHE
         </span>
       </div>
+    )
+  }
+
+  // The bytes did not arrive over the tunnel (9p): the box stays, and a tap asks again.
+  if (failed) {
+    return (
+      <button
+        type="button"
+        onClick={retry}
+        style={box}
+        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)]"
+      >
+        <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-[rgba(160,190,225,.35)]" />
+        <span className="font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.5)]">
+          COULDN&apos;T LOAD · RETRY
+        </span>
+      </button>
     )
   }
 
@@ -99,16 +119,23 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
           FRAME_CLASSES[variant],
         ].join(' ')}
       >
-        <img
-          src={`/api/images/${image.ref}`}
-          alt=""
-          loading="lazy"
-          onError={() => setMissing(true)}
-          // The reserved box already carries the aspect ratio; unknown dims
-          // fall back to the height cap and let the image size itself.
-          className="block h-full w-full"
-          style={image.w && image.h ? undefined : { width: 'auto', maxHeight: '100%' }}
-        />
+        {url && (
+          <img
+            src={url}
+            alt=""
+            loading="lazy"
+            onError={() => setMissing(true)}
+            onLoad={() => setLoaded(true)}
+            // The reserved box already carries the aspect ratio; unknown dims
+            // fall back to the height cap and let the image size itself.
+            className="block h-full w-full"
+            style={{
+              ...(image.w && image.h ? {} : { width: 'auto', maxHeight: '100%' }),
+              // Only bytes that arrived later fade in; a URL known at first paint just shows.
+              ...(fadeIn ? { opacity: loaded ? 1 : 0, transition: 'opacity 160ms ease-out' } : {}),
+            }}
+          />
+        )}
       </button>
       <Lightbox open={open} image={image} caption={caption} onClose={() => setOpen(false)} />
     </>

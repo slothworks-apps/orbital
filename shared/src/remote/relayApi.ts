@@ -140,15 +140,20 @@ export function verifyPairingProof(secret: Uint8Array, phonePublicKey: Uint8Arra
 
 /**
  * `mac` is the pair's anchor: the Mac sends its own id, the phone the id
- * from the QR. The relay ignores it; a load balancer in front of several
- * relays hashes on it so both halves of a pair land on one instance
- * (runbook `run-the-relay`). One instance needs nothing of the kind.
+ * from the QR. A load balancer in front of several relays hashes on it so
+ * both halves of a pair land on one instance (runbook `run-the-relay`). One
+ * instance needs nothing of the kind.
+ *
+ * `paired` says the device believes it is paired with that Mac, so the relay
+ * answers `unpaired` on connect when it is not (relay/src/ws.ts). A phone
+ * that is only about to pair leaves it off.
  */
-export function relayWsUrl(httpUrl: string, mac: string): string {
+export function relayWsUrl(httpUrl: string, mac: string, opts: { paired?: boolean } = {}): string {
   const url = new URL(httpUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.pathname = '/ws';
   url.search = '';
   url.searchParams.set('mac', mac);
+  if (opts.paired) url.searchParams.set('paired', '1');
   return url.toString();
 }

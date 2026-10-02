@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The space colour of web/src/theme.css: the app's background, under the system bars too. -->
+    <color name="orbitalSpace">#05070d</color>
+</resources>

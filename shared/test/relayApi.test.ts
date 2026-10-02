@@ -74,4 +74,8 @@ describe('schemas and urls', () => {
     expect(relayWsUrl('https://orbital-relay.example', 'm1')).toBe('wss://orbital-relay.example/ws?mac=m1');
     expect(relayWsUrl('http://127.0.0.1:5555/?x=1', 'm1')).toBe('ws://127.0.0.1:5555/ws?mac=m1');
   });
+  it('adds paired=1 only when asked', () => {
+    expect(relayWsUrl('https://orbital-relay.example', 'm1', { paired: true })).toBe('wss://orbital-relay.example/ws?mac=m1&paired=1');
+    expect(relayWsUrl('https://orbital-relay.example', 'm1', { paired: false })).toBe('wss://orbital-relay.example/ws?mac=m1');
+  });
 });

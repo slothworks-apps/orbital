@@ -7,17 +7,9 @@ import { useNow } from '../lib/useNow'
 import type { RemoteStatus } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
+import { FingerprintBoxes } from '../ui/FingerprintBoxes'
 
 type PendingPair = NonNullable<RemoteStatus['pendingPair']>
-
-/** One character of the fingerprint, boxed as the phone boxes it (canvas 9o, 9e). */
-function CodeBox({ char }: { char: string }) {
-  return (
-    <span className="flex h-14 w-10 items-center justify-center rounded-[10px] border border-[rgba(150,205,255,.24)] bg-[rgba(4,8,16,.6)] font-mono text-[28px] text-text-bright">
-      {char}
-    </span>
-  )
-}
 
 /**
  * A phone asking to pair (spec 2026-10-01-settings-mobile-design § 4; canvas
@@ -90,7 +82,6 @@ export function PairConfirmDialog() {
   const eyebrow = pairing
     ? `PAIRING REQUEST · EXPIRES IN ${codeLeft(pairing.expiresAt, now).label}`
     : 'PAIRING REQUEST'
-  const chars = (request?.fingerprint ?? '').split('')
 
   return (
     <Dialog
@@ -121,15 +112,7 @@ export function PairConfirmDialog() {
           <div className="font-mono text-[11.5px] text-[rgba(160,190,225,.7)]">
             {request.name} · {request.platform} · via relay
           </div>
-          <div className="flex items-center justify-center gap-2" aria-label={`Code ${request.fingerprint}`}>
-            {chars.slice(0, 3).map((c, i) => (
-              <CodeBox key={i} char={c} />
-            ))}
-            <span aria-hidden className="mx-1 block h-[2px] w-2.5 rounded-full bg-[rgba(150,205,255,.35)]" />
-            {chars.slice(3).map((c, i) => (
-              <CodeBox key={i + 3} char={c} />
-            ))}
-          </div>
+          <FingerprintBoxes value={request.fingerprint} />
           <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)]">
             Confirm only if your phone shows the same code.
           </p>

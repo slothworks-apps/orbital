@@ -8,6 +8,8 @@ related:
   - 2026-09-30-mobile-remote-design
   - 2026-10-01-mobile-remote-backend
   - the-relay-store-is-kysely-over-sqlite-and-postgres
+  - 2026-10-02-mobile-app-read
+  - the-relay-answers-cors-for-redeem
 tags:
   - relay
   - deploy
@@ -55,12 +57,19 @@ The schema is created on boot (`relay/migrations/`, run by a static,
 bundled migration provider). There is nothing to run by hand and no
 separate migrate step.
 
+A relay deployed before 2026-10-02 must be redeployed before a phone can
+pair with it or be told `unpaired`: it needs the CORS answer on
+`/pair/redeem` ([[the-relay-answers-cors-for-redeem]]) and the `paired=1`
+handling on connect, both added by [[2026-10-02-mobile-app-read]].
+
 ## More than one instance
 
 Not needed today, and not built. What is built is the hook for it: every
 device connects to `/ws?mac=<id>` — the Mac's own id, or on a phone the
 id from the QR it scanned. A load balancer that hashes on that query
-parameter keeps both halves of a pair on one instance.
+parameter keeps both halves of a pair on one instance. Since 2026-10-02 the
+same query may carry `paired=1`, which the relay does read: a device that
+expects a pair the relay no longer holds is told `unpaired` on connect.
 
 Dokploy's Traefik cannot hash on a query parameter. Put nginx in front
 instead, with `hash $arg_mac consistent;` in the `upstream` block.

@@ -22,8 +22,8 @@ export type Device = {
 };
 
 /** Opens a socket, answers the challenge, resolves after `ok`. */
-export async function connectDevice(base: string, identity: Identity, mac = deviceId(identity.publicKey)): Promise<Device> {
-  const ws = new WebSocket(`${base.replace(/^http/, 'ws')}/ws?mac=${mac}`);
+export async function connectDevice(base: string, identity: Identity, mac = deviceId(identity.publicKey), query = ''): Promise<Device> {
+  const ws = new WebSocket(`${base.replace(/^http/, 'ws')}/ws?mac=${mac}${query}`);
   const control: Control[] = [];
   const data: Uint8Array[] = [];
   const waiters: { type: string; resolve: (v: any) => void }[] = [];

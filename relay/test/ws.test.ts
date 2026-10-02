@@ -31,6 +31,24 @@ describe('relay websocket', () => {
     return { store, app, base, mac, phone };
   }
 
+  it('tells a phone that expects its pair that the pair is gone, and says nothing to one that is about to pair', async () => {
+    const { base, store, mac, phone } = await relay();
+    const macId = deviceId(mac.publicKey);
+    // Still paired: the flag earns no answer.
+    const still = await connectDevice(base, phone, macId, '&paired=1');
+    // About to pair: no pair yet, but no flag either.
+    const fresh = await connectDevice(base, generateIdentity(), macId);
+    await sleep(50);
+    expect(still.control.find((m) => m.type === 'unpaired')).toBeUndefined();
+    expect(fresh.control.find((m) => m.type === 'unpaired')).toBeUndefined();
+    still.ws.close(); fresh.ws.close();
+    // Revoked while the phone was away: it hears so on its next connect.
+    await store.revokePair(macId, deviceId(phone.publicKey));
+    const back = await connectDevice(base, phone, macId, '&paired=1');
+    expect(await back.next('unpaired')).toMatchObject({ type: 'unpaired', mac: macId });
+    back.ws.close();
+  });
+
   it('forwards only within a pair, rewriting the peer to the sender', async () => {
     const { base, mac, phone } = await relay();
     const m = await connectDevice(base, mac);

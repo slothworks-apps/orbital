@@ -44,7 +44,12 @@ export async function buildRelay(opts: RelayOptions): Promise<FastifyInstance> {
   };
   app.decorate('relay', ctx);
   await app.register(websocket, { options: { maxPayload: MAX_FRAME_BYTES } });
-  app.get('/ws', { websocket: true }, (socket) => handleSocket(socket, ctx));
+  app.get('/ws', { websocket: true }, (socket, req) => {
+    // `?mac=` names the Mac the device is anchored to; `paired=1` says the
+    // device believes it is paired with it, and asks to be told if it is not.
+    const q = req.query as { mac?: string; paired?: string };
+    handleSocket(socket, ctx, q.paired === '1' && typeof q.mac === 'string' ? q.mac : null);
+  });
   app.get('/health', () => ({ app: 'orbital-relay' }));
   registerPairingRoutes(app, ctx);
   app.addHook('onClose', async () => { await opts.store.close(); });

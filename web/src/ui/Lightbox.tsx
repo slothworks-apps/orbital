@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom'
 import { EscapeBoundary, useEscapeLayer } from './escapeLayer'
 import { usePresence } from './usePresence'
 import type { ImageRefEntry } from '../lib/types'
+import { useImageUrl } from '../lib/images'
 
 /**
  * Full-size image preview (canvas 7c). Deliberately NOT `Dialog`: that is
@@ -27,6 +28,7 @@ export interface LightboxProps {
 }
 
 export function Lightbox({ open, image, caption, onClose }: LightboxProps) {
+  const { url } = useImageUrl(image.ref)
   useEscapeLayer(open, onClose)
   const { mounted, state } = usePresence(open, LIGHTBOX_ENTER_MS, LIGHTBOX_EXIT_MS)
   if (!mounted) return null
@@ -45,7 +47,7 @@ export function Lightbox({ open, image, caption, onClose }: LightboxProps) {
         className="orbital-no-drag fixed inset-0 z-50 flex flex-col items-center justify-center gap-3.5 bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
       >
         <img
-          src={`/api/images/${image.ref}`}
+          src={url ?? undefined}
           alt={caption}
           onClick={(event) => event.stopPropagation()}
           style={{
