@@ -1,8 +1,9 @@
+import { MismatchScreen } from './screens/MismatchScreen'
 import { PairingScreen } from './screens/PairingScreen'
 import { SessionListScreen } from './screens/SessionListScreen'
 import { SessionScreen } from './screens/SessionScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
-import { ScreenPending } from './screens/ScreenPending'
+import { UnpairedScreen } from './screens/UnpairedScreen'
 import { useMobile } from './state'
 
 /** One screen at a time, chosen by in-memory state (spec § 5). */
@@ -14,8 +15,8 @@ export function MobileApp() {
       {screen === 'list' && <SessionListScreen />}
       {screen === 'session' && <SessionScreen />}
       {screen === 'settings' && <SettingsScreen />}
-      {screen === 'unpaired' && <ScreenPending name="unpaired" />}
-      {screen === 'mismatch' && <ScreenPending name="mismatch" />}
+      {screen === 'unpaired' && <UnpairedScreen />}
+      {screen === 'mismatch' && <MismatchScreen />}
     </div>
   )
 }
