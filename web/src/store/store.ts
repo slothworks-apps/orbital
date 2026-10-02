@@ -444,6 +444,16 @@ export interface SentAttachment {
 export interface OrbitalActions {
   loadInitial(): Promise<void>
   /**
+   * Seats a full session list as the authoritative snapshot — what
+   * `loadInitial` does with its sessions — for a caller that has only the
+   * list and the tags: the phone, from its cache or over the tunnel, where
+   * `loadInitial`'s settings, rules and errors routes are not allowed (spec
+   * 2026-10-02-mobile-app-design § 3).
+   */
+  seatSessions(sessions: ApiSession[], tags: Tag[]): void
+  /** The phone's `loadInitial`: sessions, tags and the model catalog, each a route the tunnel allows. */
+  loadSessions(): Promise<void>
+  /**
    * The catch-up after the socket was away (spec:
    * 2026-09-22-ws-reconnect-resync-design). Nothing is replayed over the WS,
    * so every event published during the outage is only recoverable over REST.
@@ -1022,6 +1032,28 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         sidebarCollapsed: settings.sidebar_collapsed === 'true',
       },
     }))
+  },
+
+  seatSessions(list, tags) {
+    const sessionsMap: Record<string, ApiSession> = {}
+    const pendingDecisions: Record<string, PendingDecision> = {}
+    for (const session of list) {
+      sessionsMap[session.id] = session
+      if (session.pendingDecision) pendingDecisions[session.id] = session.pendingDecision
+    }
+    // As in `loadInitial`: anything queued goes in first, the snapshot over it.
+    flushSessionsEvents()
+    set({ sessions: sessionsMap, order: sortIdsByLastAtDesc(sessionsMap), pendingDecisions, tags })
+  },
+
+  async loadSessions() {
+    const [list, tags, modelsPayload] = await Promise.all([
+      api.listSessions(),
+      api.listTags(),
+      api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {} })),
+    ])
+    get().seatSessions(list, tags)
+    set({ models: modelsPayload.models, contextWindows: modelsPayload.contextWindows })
   },
 
   async resyncAfterReconnect() {

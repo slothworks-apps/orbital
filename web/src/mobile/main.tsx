@@ -7,11 +7,18 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { MobileApp } from './MobileApp'
+import { boot } from './boot'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary label="Orbital">
-      <MobileApp />
-    </ErrorBoundary>
-  </StrictMode>,
-)
+// The seams must be in place before anything renders: the first screen
+// may open the socket or ask for an image.
+void boot()
+  .catch((err: unknown) => console.warn('orbital: boot failed', err))
+  .finally(() => {
+    createRoot(document.getElementById('root')!).render(
+      <StrictMode>
+        <ErrorBoundary label="Orbital">
+          <MobileApp />
+        </ErrorBoundary>
+      </StrictMode>,
+    )
+  })
