@@ -3,10 +3,10 @@ import type { RemoteClientEvent } from '@orbital/shared/remote/client'
 import { configureApi } from '../lib/api'
 import { configureImages } from '../lib/images'
 import { configureSocket, getSocket } from '../lib/socket'
-import { useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
+import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
 import { connect } from './connect'
 import { wireCache } from './cacheWriter'
-import { RETRY_WINDOW_MS } from './constants'
+import { RETRY_WINDOW_MS, TRANSCRIPT_PAGE_SIZE } from './constants'
 import { forgetEverything } from './forget'
 import { readSessionsCache } from './platform/cache'
 import { readCachedImage, writeCachedImage } from './platform/imageCache'
@@ -23,6 +23,7 @@ import { TunnelSocket } from './transport/tunnelSocket'
  * lifecycle, and the paired Mac's link when there is one.
  */
 export async function boot(): Promise<void> {
+  configureTranscriptPages(TRANSCRIPT_PAGE_SIZE)
   configureApi({ fetch: makeTunnelFetch(clientRef) })
   configureSocket({ WebSocketImpl: () => new TunnelSocket(clientRef) as unknown as WebSocket })
   configureImages({ resolve: makeImageResolver(clientRef, { read: readCachedImage, write: writeCachedImage }) })

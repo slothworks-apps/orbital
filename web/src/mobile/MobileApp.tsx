@@ -1,5 +1,6 @@
 import { PairingScreen } from './screens/PairingScreen'
 import { SessionListScreen } from './screens/SessionListScreen'
+import { SessionScreen } from './screens/SessionScreen'
 import { ScreenPending } from './screens/ScreenPending'
 import { useMobile } from './state'
 
@@ -10,7 +11,7 @@ export function MobileApp() {
     <div className="h-full bg-space font-sans text-text-bright">
       {screen === 'pairing' && <PairingScreen />}
       {screen === 'list' && <SessionListScreen />}
-      {screen === 'session' && <ScreenPending name="session" />}
+      {screen === 'session' && <SessionScreen />}
       {screen === 'settings' && <ScreenPending name="settings" />}
       {screen === 'unpaired' && <ScreenPending name="unpaired" />}
       {screen === 'mismatch' && <ScreenPending name="mismatch" />}

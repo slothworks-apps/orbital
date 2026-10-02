@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 import type { ApiSession, PendingDecision, Tag } from '../lib/types'
-import { useOrbital } from '../store/store'
+import { configureTranscriptPages, useOrbital } from '../store/store'
 
 function session(id: string, lastAt: number, patch: Partial<ApiSession> = {}): ApiSession {
   return {
@@ -44,5 +44,25 @@ describe('loadSessions', () => {
     expect(api.getSettings).not.toHaveBeenCalled()
     expect(api.listTagRules).not.toHaveBeenCalled()
     expect(api.listErrors).not.toHaveBeenCalled()
+  })
+})
+
+describe('configureTranscriptPages', () => {
+  afterEach(() => configureTranscriptPages(undefined))
+
+  it('asks for pages of the configured size, the first and the older ones', async () => {
+    configureTranscriptPages(30)
+    vi.mocked(api.getMessages).mockResolvedValue([{ id: 'm1', role: 'user', text: 'hi' }])
+    useOrbital.setState({ transcripts: {}, historyLoaded: {}, detachedIds: [] })
+    await useOrbital.getState().select('s1')
+    expect(api.getMessages).toHaveBeenCalledWith('s1', { limit: 30 })
+    await useOrbital.getState().loadOlder('s1')
+    expect(api.getMessages).toHaveBeenLastCalledWith('s1', { before: 'm1', limit: 30 })
+  })
+
+  it("leaves the server's default alone when nothing is configured", async () => {
+    vi.mocked(api.getMessages).mockResolvedValue([])
+    await useOrbital.getState().select('s2')
+    expect(api.getMessages).toHaveBeenCalledWith('s2')
   })
 })

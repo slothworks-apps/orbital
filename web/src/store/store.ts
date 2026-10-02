@@ -945,6 +945,26 @@ function withSessionPatch(
   return { sessions: { ...state.sessions, [id]: next }, ...leavingStamp(state, current, next) }
 }
 
+/**
+ * How many messages a transcript fetch asks for; undefined leaves it to the
+ * server's default, as the desktop always has. The phone sets
+ * `TRANSCRIPT_PAGE_SIZE` (spec 2026-10-02-mobile-app-design § 5): one
+ * answer must fit one relay frame.
+ */
+let transcriptPageSize: number | undefined
+
+export function configureTranscriptPages(size: number | undefined): void {
+  transcriptPageSize = size
+}
+
+/** One page of a transcript: the newest, or the one before `before`. */
+function messagesPage(id: string, before?: string): Promise<ChatMessage[]> {
+  if (before === undefined) {
+    return transcriptPageSize === undefined ? api.getMessages(id) : api.getMessages(id, { limit: transcriptPageSize })
+  }
+  return api.getMessages(id, transcriptPageSize === undefined ? { before } : { before, limit: transcriptPageSize })
+}
+
 export const useOrbital = create<OrbitalStore>()((set, get) => ({
   sessions: {},
   order: [],
@@ -1069,7 +1089,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // it, at the cost of scrolling up through them again.
       const selectedId = get().ui.selectedId
       // Fetched before the swap, so the open transcript never flashes empty.
-      const fetched = selectedId ? await api.getMessages(selectedId) : null
+      const fetched = selectedId ? await messagesPage(selectedId) : null
 
       set(
         selectedId && fetched
@@ -1115,7 +1135,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   async reloadTranscript(id) {
     if (!get().historyLoaded[id]) return
-    const fetched = await api.getMessages(id)
+    const fetched = await messagesPage(id)
     set((state) => {
       // Left while the fetch was out: the next open fetches anyway.
       if (!state.historyLoaded[id]) return {}
@@ -1601,7 +1621,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (get().historyLoaded[id]) return
 
     try {
-      const fetched = await api.getMessages(id)
+      const fetched = await messagesPage(id)
       set((state) => {
         // Left again while the fetch was in flight: seating the history now
         // would mark a session nobody listens to as loaded, and the next
@@ -1640,7 +1660,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
     let fetched: ChatMessage[]
     try {
-      fetched = await api.getMessages(id, { before: firstId })
+      fetched = await messagesPage(id, firstId)
     } catch {
       return null
     }
