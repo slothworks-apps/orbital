@@ -5,9 +5,10 @@ import { configureImages } from '../lib/images'
 import { configureSocket, getSocket } from '../lib/socket'
 import { useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
 import { connect } from './connect'
-import { CACHE_WRITE_DEBOUNCE_MS, RETRY_WINDOW_MS, TRANSCRIPT_PAGE_SIZE } from './constants'
+import { wireCache } from './cacheWriter'
+import { RETRY_WINDOW_MS } from './constants'
 import { forgetEverything } from './forget'
-import { readSessionsCache, writeSessionsCache, writeTranscriptCache } from './platform/cache'
+import { readSessionsCache } from './platform/cache'
 import { readCachedImage, writeCachedImage } from './platform/imageCache'
 import { loadPairing, loadUnpaired } from './platform/pairing'
 import { isPairGone, useMobile } from './state'
@@ -48,7 +49,7 @@ function onClientEvent(event: RemoteClientEvent): void {
   useMobile.getState().apply(event)
   if (isPairGone(event)) {
     // Deleted on first contact, then 9h (spec § 4).
-    void forgetEverything({ unpaired: true })
+    forgetEverything({ unpaired: true }).catch((err: unknown) => console.warn('[mobile] could not forget the pair', err))
     return
   }
   if (event.type === 'hub') refetchDropped(event.frame)
@@ -58,7 +59,8 @@ function onClientEvent(event: RemoteClientEvent): void {
 function refetchDropped(frame: unknown): void {
   const f = frame as { topic?: unknown; event?: unknown } | null
   if (f?.event !== 'dropped' || typeof f.topic !== 'string' || !f.topic.startsWith('session:')) return
-  void useOrbital.getState().reloadTranscript(f.topic.slice('session:'.length))
+  const id = f.topic.slice('session:'.length)
+  useOrbital.getState().reloadTranscript(id).catch((err: unknown) => console.warn('[mobile] could not reload a dropped transcript', err))
 }
 
 function wireSocket(): void {
@@ -81,38 +83,6 @@ export async function resync(): Promise<void> {
     else await useOrbital.getState().select(id)
   } catch {
     // The next open, or the next return to the foreground, tries again.
-  }
-}
-
-/** Writes what is live to the cache, so the next offline launch has something honest to show. */
-function wireCache(): void {
-  let timer: ReturnType<typeof setTimeout> | null = null
-  useOrbital.subscribe((state, prev) => {
-    if (!useMobile.getState().ready) return
-    const id = state.ui.selectedId
-    const changed =
-      state.sessions !== prev.sessions ||
-      state.tags !== prev.tags ||
-      (id !== null && state.transcripts[id] !== prev.transcripts[id])
-    if (!changed) return
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = null
-      void persist()
-    }, CACHE_WRITE_DEBOUNCE_MS)
-  })
-}
-
-async function persist(): Promise<void> {
-  const { sessions, tags, ui, transcripts } = useOrbital.getState()
-  const now = Date.now()
-  try {
-    await writeSessionsCache({ sessions: Object.values(sessions), tags }, now)
-    const id = ui.selectedId
-    const messages = id ? transcripts[id] : undefined
-    if (id && messages) await writeTranscriptCache(id, messages.slice(-TRANSCRIPT_PAGE_SIZE), now)
-  } catch (err) {
-    console.warn('orbital: could not write the offline cache', err)
   }
 }
 
