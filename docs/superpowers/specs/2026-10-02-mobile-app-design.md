@@ -308,6 +308,34 @@ Worth a test:
 
 Not tested: screens render their rows, 9p sizes, motion.
 
+## As built (2a)
+
+Built from [[2026-10-02-mobile-app-read]]. Decisions the spec left open:
+
+- **Redeem across origins.** The WebView's page is `https://localhost`, so
+  the relay now answers CORS for `/pair/redeem` and nothing else
+  ([[the-relay-answers-cors-for-redeem]]). A deployed relay must be
+  redeployed before a phone can pair through it.
+- **The bundle guard reads a module list.** A Vite manifest names chunks,
+  not the modules in them; `vite.mobile.config.ts` also writes
+  `.vite/chunk-modules.json`, and `web/src/test/mobilebundle.test.ts` reads
+  both. `npm test` skips it without a build; `npm run build -w @orbital/mobile`
+  runs it after every build, where a missing build fails.
+- **Groups.** WAITING sits with WORKING; DONE and INTERRUPTED sit with IDLE
+  and keep their own word on the row (`web/src/mobile/sessionList.ts`).
+- **`MIN_SERVER_VERSION` is `0.17.1`**, the release that shipped Settings → Mobile.
+- **The relay link's silence watchdog runs only while a tunnel is up.** The
+  relay's pings never reach page code, so a quiet link with the Mac away
+  cannot be told from a dead one; every return to the foreground rebuilds
+  the link instead (`recheck`).
+- **The paste field** shows when there is no scanner and in every dev build
+  (`ORBITAL_MOBILE_DEV=1`), where a complete code pairs as it is typed —
+  that is how `mobile/scripts/pair-emulator.sh` pairs the emulator.
+- **A phone revoked while it was away** is told so by the relay on its
+  next connect: the client connects with `paired=1` when built from a
+  stored pairing, and the relay answers `unpaired` when the Mac has no pair
+  with it (Task 14; parent spec § 7).
+
 ## 8. Known limits of 2a
 
 - Wake frames reach only a connected phone: no push until 2b.

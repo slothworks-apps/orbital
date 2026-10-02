@@ -117,8 +117,11 @@ this Mac and drive Orbital's API over an end-to-end encrypted tunnel, for
 deployment on Dokploy. The backend (relay, wire protocol in `shared/`,
 and the Mac side in `server/src/remote/`) and the desktop's Settings →
 Mobile (the switch, the pairing QR, the fingerprint confirmation, the
-paired phones) are built. The phone app is `mobile/` (the Capacitor shell)
-around `web/src/mobile/`; see
+paired phones) are built. The phone app is `mobile/` (the Capacitor shell,
+Android only) around `web/src/mobile/`: it pairs by scanning a QR or
+pasting a code, then reads the session list and a session's transcript,
+offline, unpaired and version-mismatch states included. It cannot answer
+anything yet — no composer, no decisions, no push — that is phase 2b. See
 [`docs/ops/build-the-android-app.md`](docs/ops/build-the-android-app.md).
 Off is the default.
 

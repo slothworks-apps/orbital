@@ -8,6 +8,8 @@ related:
   - 2026-09-30-mobile-remote-design
   - 2026-10-01-mobile-remote-backend
   - the-relay-store-is-kysely-over-sqlite-and-postgres
+  - 2026-10-02-mobile-app-read
+  - the-relay-answers-cors-for-redeem
 tags:
   - relay
   - deploy
@@ -54,6 +56,11 @@ relay can count ("2 sessions need your input") but not name.
 The schema is created on boot (`relay/migrations/`, run by a static,
 bundled migration provider). There is nothing to run by hand and no
 separate migrate step.
+
+A relay deployed before 2026-10-02 must be redeployed before a phone can
+pair with it or be told `unpaired`: it needs the CORS answer on
+`/pair/redeem` ([[the-relay-answers-cors-for-redeem]]) and the `paired=1`
+handling on connect, both added by [[2026-10-02-mobile-app-read]].
 
 ## More than one instance
 

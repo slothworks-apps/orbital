@@ -1,7 +1,7 @@
 ---
 id: 2026-10-02-mobile-app-read
 title: Mobile app phase 2a (read) — implementation plan
-status: active
+status: done
 type: plan
 domain: remote
 related:
