@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { deviceId, generateIdentity, type Identity } from '../src/remote/keys.js';
+import { deviceId, fromBase64Url, generateIdentity, toBase64Url, type Identity } from '../src/remote/keys.js';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '../src/remote/frame.js';
 import { HANDSHAKE_BYTES, startHandshake, type SessionCipher } from '../src/remote/handshake.js';
 import {
   PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type Inner, type MacMessage, type PhoneMessage,
 } from '../src/remote/messages.js';
-import { verifyAuthSignature, type RelayToDevice } from '../src/remote/relayApi.js';
+import { verifyAuthSignature, verifyPairingProof, type RelayToDevice } from '../src/remote/relayApi.js';
 import {
   CONNECT_TIMEOUT_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, REQUEST_TIMEOUT_MS, RemoteClient, TunnelError,
   type RemoteClientEvent, type SocketLike,
@@ -118,6 +118,7 @@ function connect(s: ReturnType<typeof setup>): void {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('RemoteClient relay link', () => {
@@ -293,6 +294,19 @@ describe('RemoteClient blobs, hub and wake', () => {
     await expect(blob).resolves.toEqual({ status: 404, bytes: new Uint8Array(0), mediaType: null });
   });
 
+  it('rejects a blob whose chunks arrive out of order', async () => {
+    const s = setup();
+    connect(s);
+    const blob = s.client.getBlob(REF);
+    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_get' }>;
+    const chunks = chunkBlob(get.id, new Uint8Array(150_000));
+    s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 200, bytes: 150_000, mediaType: 'image/png' });
+    s.mac.sendInner(s.sock, chunks[0]);
+    s.mac.sendInner(s.sock, chunks[0]);
+    await expect(blob).rejects.toMatchObject({ reason: 'lost' });
+    expect(s.client.ready).toBe(true);
+  });
+
   it('reports an empty-body frame as a wake with its flags and nothing else', () => {
     const s = setup();
     connect(s);
@@ -337,5 +351,56 @@ describe('RemoteClient endings', () => {
     });
     connect(s);
     expect(s.client.ready).toBe(true);
+  });
+});
+
+describe('RemoteClient notifications', () => {
+  const SETTINGS = { needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: false, sound: true };
+
+  it('settles overlapping calls one reply each, in order', async () => {
+    const s = setup();
+    connect(s);
+    const current = s.client.getNotifications();
+    const changed = s.client.setNotifications({ ...SETTINGS, sound: false });
+    expect(s.mac.read(s.sock)).toEqual({ t: 'notifications_get' });
+    expect(s.mac.read(s.sock)).toMatchObject({ t: 'notifications_set' });
+    s.mac.send(s.sock, { t: 'notifications', settings: SETTINGS });
+    s.mac.send(s.sock, { t: 'notifications', settings: { ...SETTINGS, sound: false } });
+    await expect(current).resolves.toEqual(SETTINGS);
+    await expect(changed).resolves.toEqual({ ...SETTINGS, sound: false });
+  });
+});
+
+describe('RemoteClient redeem', () => {
+  const secret = toBase64Url(new Uint8Array(16).fill(7));
+
+  it('posts a signed redeem carrying the proof and answers the relay JSON', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const s = setup();
+    await expect(s.client.redeem('tok', secret, 'phone', 'ios')).resolves.toEqual({ status: 200, body: { ok: true } });
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://relay.test/pair/redeem');
+    const sent = JSON.parse(init.body as string);
+    expect(sent.payload).toMatchObject({ token: 'tok', name: 'phone', platform: 'ios' });
+    expect(verifyPairingProof(fromBase64Url(secret), s.phone.publicKey, sent.payload.proof)).toBe(true);
+  });
+
+  it('wraps a body that is not JSON as its error text', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('Bad Gateway', { status: 502 })));
+    const s = setup();
+    await expect(s.client.redeem('tok', secret, 'phone', 'ios')).resolves.toEqual({
+      status: 502, body: { error: 'Bad Gateway' },
+    });
+  });
+
+  it('answers status 0 when the relay is unreachable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    }));
+    const s = setup();
+    await expect(s.client.redeem('tok', secret, 'phone', 'ios')).resolves.toEqual({
+      status: 0, body: { error: 'network' },
+    });
   });
 });

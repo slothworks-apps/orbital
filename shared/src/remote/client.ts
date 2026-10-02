@@ -74,6 +74,7 @@ export type RemoteClientEvent =
 
 export type TunnelResponse = { status: number; body: unknown };
 export type BlobResult = { status: number; bytes: Uint8Array; mediaType: string | null };
+/** `lost` also covers a blob whose chunks arrived out of order: what came is unusable and the rest is not coming. */
 export type TunnelFailure = 'offline' | 'timeout' | 'lost' | 'bye';
 
 export class TunnelError extends Error {
@@ -105,7 +106,7 @@ export type RemoteClientOptions = {
 
 type Timer = ReturnType<typeof setTimeout>;
 type Waiter<T> = { resolve: (value: T) => void; reject: (err: Error) => void; timer: Timer };
-type BlobWaiter = Waiter<BlobResult> & { mediaType: string | null; parts: Uint8Array[] };
+type BlobWaiter = Waiter<BlobResult> & { mediaType: string | null; parts: Uint8Array[]; nextSeq: number };
 
 export class RemoteClient {
   status: LinkStatus = 'off';
@@ -210,7 +211,7 @@ export class RemoteClient {
     const id = this.nextId++;
     return new Promise<BlobResult>((resolve, reject) => {
       const timer = setTimeout(() => this.fail(this.blobs, id, new TunnelError('timeout')), this.requestTimeoutMs);
-      this.blobs.set(id, { resolve, reject, timer, mediaType: null, parts: [] });
+      this.blobs.set(id, { resolve, reject, timer, mediaType: null, parts: [], nextSeq: 0 });
       if (!this.sendJson({ t: 'blob_get', id, ref })) this.fail(this.blobs, id, new TunnelError('lost'));
     });
   }
@@ -515,23 +516,31 @@ export class RemoteClient {
         waiter.resolve({ status: msg.status, bytes: new Uint8Array(0), mediaType: null });
         return;
       }
-      case 'notifications':
-        for (const waiter of this.notificationWaiters.splice(0)) {
-          clearTimeout(waiter.timer);
-          waiter.resolve(msg.settings);
-        }
+      case 'notifications': {
+        // The Mac answers each notifications call once, in order: a reply settles the oldest waiter only.
+        const waiter = this.notificationWaiters.shift();
+        if (!waiter) return;
+        clearTimeout(waiter.timer);
+        waiter.resolve(msg.settings);
         return;
+      }
       case 'blob_put_done':
         return; // 2b's `putBlob` reads these
     }
   }
 
-  private onChunk(chunk: { id: number; last: boolean; bytes: Uint8Array }): void {
+  private onChunk(chunk: { id: number; seq: number; last: boolean; bytes: Uint8Array }): void {
     const waiter = this.blobs.get(chunk.id);
     if (!waiter) {
       this.dropped++;
       return;
     }
+    // A gap or a repeat makes the bytes wrong, not late; the Mac's `PhoneSession` refuses an upload the same way.
+    if (chunk.seq !== waiter.nextSeq) {
+      this.fail(this.blobs, chunk.id, new TunnelError('lost'));
+      return;
+    }
+    waiter.nextSeq++;
     waiter.parts.push(chunk.bytes);
     if (!chunk.last) {
       this.rearmBlob(chunk.id, waiter);
