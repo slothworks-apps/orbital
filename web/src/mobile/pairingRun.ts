@@ -18,6 +18,8 @@ export type PairingStep =
 
 export const RELAY_UNREACHABLE = "Can't reach the relay in this code."
 export const RELAY_BUSY = 'The relay is busy. Try again in a minute.'
+/** A run that threw — a Keystore read, a storage write — goes back to scan with this. */
+export const PAIRING_FAILED = "Couldn't pair on this phone. Try again."
 
 function waitFor(client: RemoteClient, match: (event: RemoteClientEvent) => boolean, ms: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -39,17 +41,37 @@ function waitFor(client: RemoteClient, match: (event: RemoteClientEvent) => bool
  * code's relay, the redeem with this phone's name, the Mac's confirm, then
  * the handshake and hello. `report` hears every step. `cancelled` is asked
  * after every wait; a cancelled run reports nothing more — its caller has
- * already closed the link.
+ * already closed the link. Never rejects: a run that throws reports scan
+ * with `PAIRING_FAILED`, and drops its client if it still holds the app's.
  */
 export async function runPairing(
   qr: QrPayload,
   report: (step: PairingStep) => void,
   cancelled: () => boolean,
 ): Promise<void> {
+  const held: { client: RemoteClient | null } = { client: null }
+  try {
+    await pair(qr, report, cancelled, held)
+  } catch {
+    if (cancelled()) return
+    if (held.client && clientRef.client === held.client) clientRef.set(null)
+    report({ kind: 'scan', error: PAIRING_FAILED })
+  }
+}
+
+async function pair(
+  qr: QrPayload,
+  report: (step: PairingStep) => void,
+  cancelled: () => boolean,
+  held: { client: RemoteClient | null },
+): Promise<void> {
   report({ kind: 'connecting' })
   const identity = await loadOrCreateIdentity()
+  // Before any client exists: a Cancel during the key load leaves nothing behind.
+  if (cancelled()) return
   const fingerprint = fingerprintFor(qr.mac, identity.publicKey)
   const client = newClient(qr.relay, qr.mac, identity)
+  held.client = client
   clientRef.set(client)
   const online = waitFor(client, (e) => e.type === 'status' && e.status === 'online', CONNECT_TIMEOUT_MS)
   client.start()
@@ -65,6 +87,8 @@ export async function runPairing(
   // Listening before the redeem goes out: the Mac's answer must not slip past.
   const outcome = client.waitForPairing(PAIRING_TOKEN_TTL_MS)
   const device = await thisDevice()
+  // Before the redeem: a cancelled run must not use up the token or ask the Mac.
+  if (cancelled()) return
   const verdict = redeemOutcome((await client.redeem(qr.token, qr.secret, device.name, device.platform)).status)
   if (cancelled()) return
   if (verdict !== 'wait') {

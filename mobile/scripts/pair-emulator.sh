@@ -2,11 +2,11 @@
 # Dev only (runbook build-the-android-app): opens a pairing code on a local
 # Orbital server, types it into the paste field of a dev build running on
 # the emulator, and accepts the pairing on the Mac once the phone redeemed.
-# Usage: mobile/scripts/pair-emulator.sh [server-port]   (default 4838)
+# Usage: mobile/scripts/pair-emulator.sh [server-port]   (default 4848, the runbook's throwaway Mac)
 # The Mac's name must be plain ASCII without quotes (`input text` types
 # nothing else); the runbook's local stack names it studio.
 set -eu
-PORT="${1:-4838}"
+PORT="${1:-4848}"
 . "$(dirname "$0")/android-env.sh"
 adb reverse tcp:4840 tcp:4840 >/dev/null
 
