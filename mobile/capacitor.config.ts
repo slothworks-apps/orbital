@@ -17,6 +17,9 @@ const config: CapacitorConfig = {
   appName: 'Orbital',
   webDir: '../web/dist-mobile',
   android: { allowMixedContent: dev },
+  // The app is dark whatever the system theme. `DARK` names the bars' background, so their icons are light;
+  // the default follows the system and draws dark icons on our dark background in light mode.
+  plugins: { SystemBars: { style: 'DARK' } },
 };
 
 export default config;
