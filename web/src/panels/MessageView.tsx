@@ -10,6 +10,8 @@ import { rehypeSentTokens } from '../lib/sentTokens'
 import { ImageThumb } from './ImageThumb'
 import { PathButton } from './PathButton'
 import { parseSentSelection, stripSentOpenFile } from '../lib/ideSelection'
+import { parseSentFiles } from '../lib/attachedFiles'
+import { FileGlyph } from './AttachmentChip'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { copyToClipboard } from '../lib/clipboard'
@@ -326,7 +328,13 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
    */
   const sentSelection = isUser ? parseSentSelection(message.text) : null
   const openFile = useOrbital((s) => s.openFile)
-  const bodyText = sentSelection ? sentSelection.text : (stripSentOpenFile(message.text) ?? message.text ?? '')
+  const typedText = sentSelection ? sentSelection.text : (stripSentOpenFile(message.text) ?? message.text ?? '')
+  // The files the turn carried ride as a list at the end of its text (spec
+  // 2026-10-01-file-attachments-design § Transcript): read back here, shown as
+  // receipts under the bubble.
+  const sentFiles = isUser ? parseSentFiles(typedText) : null
+  const bodyText = sentFiles ? sentFiles.text : typedText
+  const files = sentFiles?.paths ?? []
   // Typed nothing → no empty bubble, the chip is the whole turn (6c B).
   const hasText = Boolean(bodyText.trim())
   // Transcript images (canvas 7a): an image-only turn renders the
@@ -345,14 +353,14 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
    * A turn that has both keeps its right alignment: the human did speak, and
    * the chip trails what they said.
    */
-  const authored = hasText || hasImages
+  const authored = hasText || hasImages || files.length > 0
 
   return (
     <div
       data-role={message.role}
       className={['flex flex-col gap-1', isUser && authored ? 'items-end' : 'items-start'].join(' ')}
     >
-      {(hasText || (!command && !hasImages)) && (
+      {(hasText || (!command && !hasImages && files.length === 0)) && (
       <div
         className={[
           'message-markdown [text-wrap:pretty]',
@@ -425,6 +433,23 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
             </span>
           </span>
         </button>
+      )}
+      {files.length > 0 && (
+        <div data-sent-files className="flex max-w-[86%] flex-wrap justify-end gap-1.5">
+          {files.map((path, i) => {
+            const name = path.slice(path.lastIndexOf('/') + 1)
+            return (
+              <span
+                key={`${i}:${path}`}
+                title={path}
+                className="flex min-w-0 items-center gap-1.5 rounded-[6px] border border-[rgba(150,205,255,.16)] bg-[rgba(150,205,255,.05)] py-1 pl-1 pr-2"
+              >
+                <FileGlyph name={name} small />
+                <span className="truncate font-mono text-[10.5px] text-text-bright">{name}</span>
+              </span>
+            )
+          })}
+        </div>
       )}
       {hasImages && (
         // 7a: one wrapping row, 6px gap; under a bubble the image sits at

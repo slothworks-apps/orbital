@@ -12,6 +12,7 @@ import { Input } from '../ui/Input'
 import { Composer } from './Composer'
 import { useAttachments } from './useAttachments'
 import { useImageDrop } from './useImageDrop'
+import { promptWithFiles } from '../lib/attachedFiles'
 import { Chip } from '../ui/Chip'
 import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
@@ -170,8 +171,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // 418 px well is too small a thing to aim at while holding a file"), so the
   // ref goes to `Dialog`.
   const attachments = useAttachments(null)
-  const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files) =>
-    attachments.accept(files, 'file'),
+  const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files, folders) =>
+    attachments.accept(files, 'file', folders),
   )
   /** Stable across renders (`useAttachments` memoises it), so it can be an effect dep. */
   const resetAttachments = attachments.reset
@@ -285,7 +286,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       // `takeForSend` empties the well now and resolves with whatever landed. A
       // failed chip is not in the turn and stays behind, so this is skipped
       // entirely when nothing is armed.
-      const images = attachments.armed ? await attachments.takeForSend() : []
+      const { images, files } = attachments.armed
+        ? await attachments.takeForSend()
+        : { images: [], files: [] }
       const refs = images.map((image) => image.entry.ref)
       // Through the store, not `api.createSession` directly: the launch has to
       // subscribe to the new session's topic before its request goes out, and
@@ -293,7 +296,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       // See `docs/fixes/first-turn-can-outrun-the-ws-subscription.md`.
       const sessionId = await launchSession({
         cwd: cwd.trim(),
-        prompt,
+        prompt: promptWithFiles(prompt, files.map((file) => file.path)),
         permissionMode,
         tagId: tagId ?? undefined,
         model: model ?? undefined,

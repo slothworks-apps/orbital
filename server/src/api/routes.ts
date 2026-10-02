@@ -47,6 +47,7 @@ import { isPermissionMode } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
 import type { ImageStore } from '../images/store.js';
+import type { FileStore } from '../files/store.js';
 import type { SessionTitler } from '../titler/titler.js';
 import type { HarnessService } from '../harness/service.js';
 import { registerHarnessRoutes } from './harness.js';
@@ -76,6 +77,9 @@ export interface RouteContext {
    * from (spec: 2026-09-18-transcript-images-design). */
   images: ImageStore;
   imagesDir: string;
+  /** Composer attachments that are not images, read by the agent by path
+   * (spec: 2026-10-01-file-attachments-design). */
+  files: FileStore;
   models: ModelCatalog;
   subagents: SubagentStore;
   /** Git readings per working tree, cached and watched (spec
@@ -251,6 +255,17 @@ const IMAGE_REF_RE = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/;
  * honest server fact — see the spec's Deviations.
  */
 export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * The ceiling on one attachment that rides by path instead (spec:
+ * 2026-10-01-file-attachments-design). The agent opens it itself and never
+ * reads it whole into the context, so the limit is only what one upload
+ * should hold in memory.
+ */
+export const FILE_ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024;
+
+/** The media types the image store takes — what rides as an `image` block. */
+const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
 /**
  * How many sessions' parsed transcripts (and, separately, walkthroughs) the
@@ -775,25 +790,24 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * One composer attachment, multipart, one file per request — the body of both
    * attachment routes.
    *
-   * The bytes go straight into the content-addressed image store, so the
-   * response is an `ImageRefEntry` and nothing on Orbital's own wire ever
-   * carries base64 — the send path reads the ref back out again for the single
-   * hop into the SDK. The whitelist is the store's own (it is what decides
-   * which extension a ref can wear), so a refusal is `putBytes` saying no
-   * rather than a second list here that could drift from it.
+   * An image within `ATTACHMENT_MAX_BYTES` goes into the content-addressed
+   * image store and answers an `ImageRefEntry`: it rides into the turn as an
+   * `image` block, and nothing on Orbital's own wire ever carries base64.
+   * Everything else — an `.xlsx`, an image too big for the API — goes into the
+   * file store and answers a `FileEntry`, whose path the composer puts in the
+   * turn's text (spec: 2026-10-01-file-attachments-design).
    */
   async function storeAttachment(req: FastifyRequest, reply: FastifyReply) {
     // Read past the ceiling but not without limit: the 413 names the size it
-    // measured, which takes reading the whole file, and a wall at twice the
-    // ceiling keeps that from being unbounded memory. `truncated` says so when
-    // even the wall was hit, so the size in the body is never read as exact.
+    // measured, and `truncated` says when even the wall was hit, so the size
+    // in the body is never read as exact.
     const part = await req.file({
-      limits: { fileSize: ATTACHMENT_MAX_BYTES * 2 },
+      limits: { fileSize: FILE_ATTACHMENT_MAX_BYTES + 1 },
       throwFileSizeLimit: false,
     });
     if (!part) return reply.code(400).send({ error: 'missing_file' });
     const bytes = await part.toBuffer();
-    if (part.file.truncated || bytes.length > ATTACHMENT_MAX_BYTES) {
+    if (part.file.truncated || bytes.length > FILE_ATTACHMENT_MAX_BYTES) {
       return reply.code(413).send({
         error: 'too_large',
         size: bytes.length,
@@ -801,8 +815,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       });
     }
     if (bytes.length === 0) return reply.code(400).send({ error: 'empty_file' });
-    const entry = ctx.images.putBytes(part.mimetype, bytes);
-    if (!entry) return reply.code(415).send({ error: 'not_image', mediaType: part.mimetype });
+    if (IMAGE_MEDIA_TYPES.has(part.mimetype) && bytes.length <= ATTACHMENT_MAX_BYTES) {
+      const entry = ctx.images.putBytes(part.mimetype, bytes);
+      if (entry) return reply.code(201).send(entry);
+    }
+    const entry = ctx.files.putBytes(part.filename, bytes);
+    if (!entry) return reply.code(400).send({ error: 'empty_file' });
     return reply.code(201).send(entry);
   }
 

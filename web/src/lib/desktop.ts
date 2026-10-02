@@ -15,6 +15,7 @@ type DesktopBridge = {
   onFullScreenChanged?: (cb: (fullScreen: boolean) => void) => void
   setMenuCommands?: (items: MenuCommand[]) => void
   onCommand?: (cb: (id: string) => void) => void
+  pathForFile?: (file: File) => string
 }
 
 /**
@@ -56,6 +57,20 @@ function bridge(): DesktopBridge | undefined {
  */
 export function hasDesktopBridge(): boolean {
   return bridge() !== undefined
+}
+
+/**
+ * The absolute path of a dropped file, when the desktop app can tell — the
+ * composer then sends the path and uploads nothing (spec:
+ * 2026-10-01-file-attachments-design). Null in a browser, and for a file with
+ * no path behind it.
+ */
+export function desktopPathFor(file: File): string | null {
+  try {
+    return bridge()?.pathForFile?.(file) || null
+  } catch {
+    return null
+  }
 }
 
 /**

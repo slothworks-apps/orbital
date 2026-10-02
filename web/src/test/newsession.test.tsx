@@ -698,12 +698,12 @@ describe('NewSessionDialog — image intake (9d-D)', () => {
     render(<NewSessionDialog open onClose={vi.fn()} />)
 
     fireEvent.paste(field(), {
-      clipboardData: makeDataTransfer([fakeFile('spec.pdf', 'application/pdf')]),
+      clipboardData: makeDataTransfer([fakeFile('dump.bin', 'application/octet-stream', 130 * 1024 * 1024)]),
     })
 
     await waitFor(() => expect(refusal()).not.toBeNull())
-    expect(refusal()).toHaveTextContent('IMAGES ONLY')
-    expect(refusal()).toHaveTextContent('application/pdf')
+    expect(refusal()).toHaveTextContent('TOO LARGE TO ATTACH')
+    expect(refusal()).toHaveTextContent('dump.bin')
     expect(chips()).toHaveLength(0)
     expect(api.uploadAttachment).not.toHaveBeenCalled()
     expect(

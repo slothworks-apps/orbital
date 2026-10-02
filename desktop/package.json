@@ -10,6 +10,7 @@
     "dev": "npm run build && ORBITAL_DESKTOP_DEV=1 electron .",
     "dist": "npm run build && APPLE_KEYCHAIN_PROFILE=${APPLE_KEYCHAIN_PROFILE:-orbital-notary} electron-builder --mac --arm64",
     "dist:local": "npm run build && electron-builder --mac --arm64 -c.mac.notarize=false -c.directories.output=release/local '-c.dmg.artifactName=${productName}-${version}-${arch}-local.${ext}'",
+    "dist:self": "npm run build && electron-builder --mac --arm64 '-c.mac.identity=Orbital Local' -c.mac.notarize=false -c.directories.output=release/local '-c.dmg.artifactName=${productName}-${version}-${arch}-local.${ext}'",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

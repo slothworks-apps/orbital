@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   CommandContent,
   CompletionKey,
+  FileEntry,
   ImageRefEntry,
   ErrorKind,
   ErrorRecord,
@@ -254,7 +255,7 @@ export const api = {
     const response = await fetch(url, { method: 'POST', body, signal: opts?.signal })
 
     if (response.ok) {
-      return { kind: 'ok', entry: (await response.json()) as ImageRefEntry }
+      return { kind: 'ok', entry: (await response.json()) as ImageRefEntry | FileEntry }
     }
 
     const text = await response.text()

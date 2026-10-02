@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseFullScreen } from './lib/mainWindow';
 import { parseDetachedIds } from './lib/sessionWindows';
 
@@ -6,6 +6,13 @@ import { parseDetachedIds } from './lib/sessionWindows';
 // user clicks a native notification; `web/src/lib/desktop.ts` is the other end,
 // and turns it into an ordinary selection in the store.
 contextBridge.exposeInMainWorld('orbitalDesktop', {
+  // A dropped file's own path, so the composer can hand the agent the file
+  // where it lies instead of uploading a copy (spec:
+  // 2026-10-01-file-attachments-design). Empty for a file with no path behind
+  // it — pasted from the clipboard, dragged out of a mail.
+  pathForFile(file: File): string {
+    return webUtils.getPathForFile(file);
+  },
   onSelectSession(cb: (id: string) => void) {
     ipcRenderer.on('select-session', (_e, id) => cb(String(id)));
   },

@@ -138,6 +138,35 @@ takes a few minutes. Afterwards, check the app:
 spctl -a -vv desktop/release/mac-arm64/Orbital.app   # source=Notarized Developer ID
 ```
 
+### A self-signed identity for one Mac
+
+Without the Developer ID certificate, a self-signed `Orbital Local` identity
+keeps privacy grants and notification permission across rebuilds on the Mac
+that holds it. Gatekeeper on any other Mac refuses the build. Newer macOS has
+no Certificate Assistant in Keychain Access, so create it on the command line
+once:
+
+```bash
+D=$(mktemp -d) && cd "$D"
+printf '[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=Orbital Local\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n' > cert.cnf
+openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 3650 -config cert.cnf
+openssl pkcs12 -export -legacy -inkey key.pem -in cert.pem -name "Orbital Local" -out id.p12 -passout pass:tmp
+security import id.p12 -k ~/Library/Keychains/login.keychain-db -P tmp -T /usr/bin/codesign
+security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db cert.pem   # asks for your password
+rm key.pem id.p12
+security find-identity -v -p codesigning   # "Orbital Local"
+```
+
+Homebrew's OpenSSL 3 needs `-legacy`, or `security import` cannot read the
+`.p12`. Then build with:
+
+```bash
+npm run desktop:build:self     # from the repo root
+```
+
+It writes to `desktop/release/local/`, like `desktop:build`. Signing takes
+several minutes, because each file in the bundle is signed separately.
+
 **On a machine without the certificate,** the build fails in the `afterSign`
 hook with *"is not signed as configured"*. It is not a skipped warning:
 without the hook, electron-builder would ship an unsigned bundle whose

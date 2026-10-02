@@ -3,12 +3,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
-import { ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
+import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
 import { openDb, type OrbitalDb } from '../src/db/database.js';
 import {
   countSweepable,
@@ -37,6 +37,7 @@ import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.
 import { BackgroundTaskStore } from '../src/transcript/backgroundTasks.js';
 import { createImageStore, type ImageStore } from '../src/images/store.js';
 import { RemoteService } from '../src/remote/service.js';
+import { createFileStore } from '../src/files/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
 import { SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
@@ -194,6 +195,8 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
   const errors = new ErrorLog({ db, hub });
   const imagesDir = mkdtempSync(join(tmpdir(), 'orbital-images-'));
   const imageStore = createImageStore(imagesDir);
+  const filesDir = mkdtempSync(join(tmpdir(), 'orbital-files-'));
+  const fileStore = createFileStore(filesDir);
   // An empty `~/.claude` per app: the command catalog reads real files, so a
   // test that wants commands writes them.
   const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-claude-'));
@@ -215,7 +218,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
   registerRoutes(app, {
     harness: stubHarness(db),
     db, registry: registry as any, runner: runner as any, projectsDir: opts.projectsDir ?? '/nonexistent', hub,
-    images: imageStore, imagesDir, claudeDir,
+    images: imageStore, imagesDir, files: fileStore, claudeDir,
     models: modelCatalog as any,
     subagents,
     backgroundTasks,
@@ -234,7 +237,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
-    imageStore, imagesDir, claudeDir,
+    imageStore, imagesDir, filesDir, claudeDir,
   };
 }
 
@@ -1218,6 +1221,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       titler: stubTitler(),
       narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
       images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
+      files: { putBytes: () => null },
       claudeDir: '/nonexistent',
       remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null }, '/nonexistent', { get: () => '' }),
       settings: { get: () => '', set: () => {} },
@@ -2177,32 +2181,34 @@ describe('POST /api/sessions/:id/attachments', () => {
     });
   });
 
-  it('415s a file that is not an image the store will take, naming the type', async () => {
-    const { app } = makeApp();
-    const res = await upload(app, 's1', 'notes.pdf', 'application/pdf', Buffer.from('%PDF-1.4'));
-    expect(res.statusCode).toBe(415);
-    expect(res.json()).toEqual({ error: 'not_image', mediaType: 'application/pdf' });
+  it('stores a non-image in the file store under its own name, and answers its path', async () => {
+    const { app, filesDir } = makeApp();
+    const xlsx = Buffer.from('PK\x03\x04 not really a workbook');
+    const res = await upload(app, 's1', 'report.xlsx', 'application/vnd.ms-excel', xlsx);
+    expect(res.statusCode).toBe(201);
+    const entry = res.json();
+    expect(entry).toMatchObject({ kind: 'file', name: 'report.xlsx', bytes: xlsx.length });
+    expect(entry.path.startsWith(filesDir)).toBe(true);
+    expect(entry.path).toMatch(/\/[a-f0-9]{64}\/report\.xlsx$/);
+    expect(readFileSync(entry.path)).toEqual(xlsx);
   });
 
-  it('413s over ATTACHMENT_MAX_BYTES, with the measured size', async () => {
+  it('sends an image too big for an image block to the file store instead', async () => {
     const { app } = makeApp();
     const big = Buffer.concat([png, Buffer.alloc(ATTACHMENT_MAX_BYTES)]);
     const res = await upload(app, 's1', 'huge.png', 'image/png', big);
-    expect(res.statusCode).toBe(413);
-    expect(res.json()).toEqual({ error: 'too_large', size: big.length });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ kind: 'file', name: 'huge.png', bytes: big.length });
   });
 
-  it('still 413s past the read wall, saying the size is not the whole file', async () => {
-    // Far over the ceiling: the route stops reading rather than buffering
-    // whatever was sent, so the size it reports is what it read, flagged.
+  it('413s past FILE_ATTACHMENT_MAX_BYTES, saying the size is not the whole file', async () => {
     const { app } = makeApp();
     const res = await upload(
-      app, 's1', 'enormous.png', 'image/png',
-      Buffer.concat([png, Buffer.alloc(ATTACHMENT_MAX_BYTES * 3)]),
+      app, 's1', 'dump.bin', 'application/octet-stream',
+      Buffer.alloc(FILE_ATTACHMENT_MAX_BYTES + 10),
     );
     expect(res.statusCode).toBe(413);
     expect(res.json()).toMatchObject({ error: 'too_large', truncated: true });
-    expect(res.json().size).toBeLessThanOrEqual(ATTACHMENT_MAX_BYTES * 2);
   });
 
   it('404s an unknown session', async () => {
@@ -2252,11 +2258,11 @@ describe('POST /api/sessions/:id/attachments', () => {
       });
     });
 
-    it('refuses a non-image exactly as the scoped route does', async () => {
+    it('takes a non-image into the file store as the scoped route does', async () => {
       const { app } = makeApp();
       const res = await uploadSessionless(app, 'notes.pdf', 'application/pdf', Buffer.from('%PDF-1.4'));
-      expect(res.statusCode).toBe(415);
-      expect(res.json()).toEqual({ error: 'not_image', mediaType: 'application/pdf' });
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({ kind: 'file', name: 'notes.pdf' });
     });
   });
 });

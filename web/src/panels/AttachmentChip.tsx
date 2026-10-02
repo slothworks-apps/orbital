@@ -1,4 +1,5 @@
 import { ATTACHMENT_RETRY_LIMIT, attachmentMeta, type Attachment } from '../lib/attachments'
+import { extensionLabel } from '../lib/attachedFiles'
 
 /**
  * One pending attachment in the well (canvas 9c-2, 9d-A, 9d-B).
@@ -42,15 +43,23 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
     >
       {/* 9e: 36px square thumb at 5px radius. The preview is the LOCAL file, so
           it is on screen before a byte has been uploaded (9d-A). */}
-      <img
-        data-chip-thumb
-        src={chip.previewUrl}
-        alt=""
-        className={[
-          'block h-9 w-9 flex-none rounded-[5px] border border-[rgba(150,205,255,.12)] object-cover',
-          failed ? 'opacity-45' : uploading ? 'opacity-50' : '',
-        ].join(' ')}
-      />
+      {chip.previewUrl ? (
+        <img
+          data-chip-thumb
+          src={chip.previewUrl}
+          alt=""
+          className={[
+            'block h-9 w-9 flex-none rounded-[5px] border border-[rgba(150,205,255,.12)] object-cover',
+            failed ? 'opacity-45' : uploading ? 'opacity-50' : '',
+          ].join(' ')}
+        />
+      ) : (
+        // A file rides by path and has no preview: the square names its kind.
+        <FileGlyph
+          name={chip.name}
+          className={failed ? 'opacity-45' : uploading ? 'opacity-50' : ''}
+        />
+      )}
 
       {/* `flex-1` only while uploading or failed, exactly as the canvas has it
           (9d-A/9d-B carry it, the resting chip in 9c-2 does not): those two
@@ -117,5 +126,22 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
         </span>
       )}
     </div>
+  )
+}
+
+/** The 36px square a file chip has in place of a thumbnail, and a receipt has at a smaller size. */
+export function FileGlyph({ name, className = '', small = false }: { name: string; className?: string; small?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      data-chip-thumb
+      className={[
+        'grid flex-none place-items-center rounded-[5px] border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.06)] font-mono tracking-[0.04em] text-[rgba(200,220,245,.8)]',
+        small ? 'h-5 w-7 text-[7.5px]' : 'h-9 w-9 text-[9px]',
+        className,
+      ].join(' ')}
+    >
+      {extensionLabel(name) || 'FILE'}
+    </span>
   )
 }

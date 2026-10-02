@@ -191,8 +191,20 @@ export function truncateTitle(text: string): string {
 const IDE_SELECTION_BLOCK = /^Selected in the editor — @\S+ lines \d+–\d+:\n\n(`{3,})\n[\s\S]*?\n\1(?:\n|$)/;
 const IDE_OPEN_FILE_LINE = /^The user opened the file .+? in the IDE\. This may or may not be related to the current task\.(?:\n|$)/;
 
+/**
+ * The list of attached files the composer appends after a prompt
+ * (`promptWithFiles` in `web/src/lib/attachedFiles.ts` — a contract with it,
+ * as the two above are with the IDE helpers). Paths, not what the session is
+ * about.
+ */
+const ATTACHED_FILES_BLOCK = /(?:^|\n\n)Attached files:\n(?:- \/[^\n]*(?:\n|$))+$/;
+
 export function cleanTitle(text: string): string {
-  text = text.replace(IDE_SELECTION_BLOCK, '').replace(IDE_OPEN_FILE_LINE, '');
+  text = text
+    .trimEnd()
+    .replace(ATTACHED_FILES_BLOCK, '')
+    .replace(IDE_SELECTION_BLOCK, '')
+    .replace(IDE_OPEN_FILE_LINE, '');
   const commandName = /<command-name>([^<\n]+)<\/command-name>/.exec(text)?.[1]?.trim();
   const commandArgs = /<command-args>([^<\n]*)/.exec(text)?.[1]?.trim();
   const stripped = text.replace(NOISE_BLOCK, ' ').replace(/\s+/g, ' ').trim();

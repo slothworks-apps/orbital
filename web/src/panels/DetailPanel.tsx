@@ -51,6 +51,7 @@ import { Button } from '../ui/Button'
 import { Composer } from './Composer'
 import { useAttachments } from './useAttachments'
 import { useImageDrop } from './useImageDrop'
+import { promptWithFiles } from '../lib/attachedFiles'
 import { Transcript } from './Transcript'
 import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
@@ -254,8 +255,8 @@ export function DetailPanel({
   // while holding a file" (canvas 9c-1). The empty-string key is the render
   // before a session is selected, on which nothing can be dropped anyway.
   const attachments = useAttachments(id ?? '')
-  const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files) =>
-    attachments.accept(files, 'file'),
+  const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files, folders) =>
+    attachments.accept(files, 'file', folders),
   )
 
   // Resizable width (docs/ideas/resizable-detail-panel.md). The store value
@@ -613,11 +614,14 @@ export function DetailPanel({
       void sendPrompt(sessionId, text)
       return
     }
-    void attachments.takeForSend().then((images) => {
-      if (images.length > 0) void sendPrompt(sessionId, text, images)
+    void attachments.takeForSend().then(({ images, files }) => {
+      // Files ride by path at the end of the text (spec
+      // 2026-10-01-file-attachments-design § The wire into the session).
+      const outgoing = promptWithFiles(text, files.map((file) => file.path))
+      if (images.length > 0) void sendPrompt(sessionId, outgoing, images)
       // Every upload failed after the well was cleared: send the text alone
       // rather than swallowing the turn.
-      else if (text) void sendPrompt(sessionId, text)
+      else if (outgoing) void sendPrompt(sessionId, outgoing)
     })
   }
 

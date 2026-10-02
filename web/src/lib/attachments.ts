@@ -12,7 +12,7 @@
  */
 
 import { formatBytes } from './format'
-import type { AttachmentSource, ImageRefEntry } from './types'
+import type { AttachmentSource, FileEntry, ImageRefEntry } from './types'
 
 /**
  * The store's own whitelist. Not a second opinion — a refusal here must be a
@@ -34,6 +34,13 @@ export const ATTACHMENT_MEDIA_TYPES: ReadonlySet<string> = new Set([
  */
 export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024
 
+/**
+ * The route's ceiling for a file that rides by path (`FILE_ATTACHMENT_MAX_BYTES`
+ * in `server/src/api/routes.ts`). Only an upload is held to it: a desktop drop
+ * with a path behind it sends no bytes at all.
+ */
+export const FILE_ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024
+
 /** Chips per composer (canvas 9e). The sixth hides the placeholder, never text. */
 export const MAX_ATTACHMENTS = 6
 
@@ -43,34 +50,41 @@ export const MAX_ATTACHMENTS = 6
  */
 export const ATTACHMENT_RETRY_LIMIT = 2
 
-/** How the ceiling reads in prose — one derivation, every caller. */
+/** How the ceilings read in prose — one derivation, every caller. */
 const CEILING = formatBytes(ATTACHMENT_MAX_BYTES)
+const FILE_CEILING = formatBytes(FILE_ATTACHMENT_MAX_BYTES)
 
 /** The drop marker's sub-line (canvas 9c-1), with the ceiling above baked in. */
-export const ATTACHMENT_TYPES_LINE = `png · jpg · gif · webp · up to ${CEILING} each`
+export const ATTACHMENT_TYPES_LINE = `any file · images up to ${CEILING} go inline`
 
 /**
- * One file the composer would not even try to upload, and why. Both kinds
+ * One file the composer would not even try to take, and why. Both kinds
  * carry the measured fact the refusal line prints — a refusal that cannot name
  * what it measured is just a "no".
  */
 export type Refusal =
   | { kind: 'too_large'; name: string; size: number }
-  | { kind: 'not_image'; name: string; mediaType: string }
+  | { kind: 'folder'; name: string }
 
 /**
- * The client pre-check (canvas 9d-C). Type first: a 99 MB PDF is refused for
- * being a PDF, because "mention the path instead" is the useful sentence and
- * "too large" would send the reader to shrink a file that would never be
- * accepted at any size.
- *
- * A typeless file — which is what a dropped FOLDER is — is not an image.
+ * Whether a file rides as an `image` block. Anything else — an `.xlsx`, an
+ * image too big for the API — rides by path (spec:
+ * 2026-10-01-file-attachments-design § What is an image and what is a file).
  */
-export function precheckFile(file: File): Refusal | null {
-  if (!ATTACHMENT_MEDIA_TYPES.has(file.type)) {
-    return { kind: 'not_image', name: file.name, mediaType: file.type || 'unknown' }
-  }
-  if (file.size > ATTACHMENT_MAX_BYTES) {
+export function isInlineImage(file: File): boolean {
+  return ATTACHMENT_MEDIA_TYPES.has(file.type) && file.size <= ATTACHMENT_MAX_BYTES
+}
+
+/**
+ * The client pre-check (canvas 9d-C). `hasPath` is a desktop drop the agent
+ * can read where it lies: nothing is uploaded, so no ceiling applies and a
+ * folder is as good as a file. Without one, a folder cannot be uploaded and a
+ * file past the route's ceiling would only be refused by it.
+ */
+export function precheckFile(file: File, opts: { hasPath: boolean; folder: boolean }): Refusal | null {
+  if (opts.hasPath || isInlineImage(file)) return null
+  if (opts.folder) return { kind: 'folder', name: file.name }
+  if (file.size > FILE_ATTACHMENT_MAX_BYTES) {
     return { kind: 'too_large', name: file.name, size: file.size }
   }
   return null
@@ -89,15 +103,8 @@ export interface RefusalNotice {
 
 /**
  * One notice for a whole gesture — refusals collapse, they never stack
- * (canvas 9d-C: "Drop five files where two are PDFs … one line says `2 files
- * weren't images`").
- *
- * A single refusal names the file and its fact. Several of one kind collapse
- * to a count, which is the only fact that stays true of all of them — summing
- * sizes would invent a number no file has. A mixed gesture collapses further
- * still, to the count alone: with two different reasons there is no shared
- * sentence left, and the label stops claiming one (judgement call — the canvas
- * shows the single-kind collapse only).
+ * (canvas 9d-C). A single refusal names the file and its fact; several of one
+ * kind collapse to a count; a mixed gesture collapses to the count alone.
  */
 export function refusalNotice(refusals: readonly Refusal[]): RefusalNotice | null {
   if (refusals.length === 0) return null
@@ -108,23 +115,19 @@ export function refusalNotice(refusals: readonly Refusal[]): RefusalNotice | nul
       ? {
           label: 'TOO LARGE TO ATTACH',
           fact: only.name,
-          tail: `${formatBytes(only.size)} over the ${CEILING} ceiling.`,
+          tail: `${formatBytes(only.size)} over the ${FILE_CEILING} ceiling.`,
         }
-      : {
-          label: 'IMAGES ONLY',
-          fact: only.mediaType,
-          tail: '— mention the path instead.',
-        }
+      : { label: "CAN'T ATTACH", fact: only.name, tail: '— a folder needs the desktop app.' }
   }
 
   const fact = `${refusals.length} files`
   const kinds = new Set(refusals.map((r) => r.kind))
   if (kinds.size === 1) {
     return refusals[0].kind === 'too_large'
-      ? { label: 'TOO LARGE TO ATTACH', fact, tail: `over the ${CEILING} ceiling.` }
-      : { label: 'IMAGES ONLY', fact, tail: "weren't images." }
+      ? { label: 'TOO LARGE TO ATTACH', fact, tail: `over the ${FILE_CEILING} ceiling.` }
+      : { label: "CAN'T ATTACH", fact: `${refusals.length} folders`, tail: '— folders need the desktop app.' }
   }
-  return { label: "CAN'T ATTACH", fact, tail: "weren't images or were too large." }
+  return { label: "CAN'T ATTACH", fact, tail: 'were folders or too large.' }
 }
 
 /**
@@ -134,7 +137,7 @@ export function refusalNotice(refusals: readonly Refusal[]): RefusalNotice | nul
  * same line for the same reason.
  */
 export function attachmentName(file: File, source: AttachmentSource): string {
-  if (source === 'clipboard' || !file.name) return 'Clipboard image'
+  if ((source === 'clipboard' && file.type.startsWith('image/')) || !file.name) return 'Clipboard image'
   return file.name
 }
 
@@ -145,15 +148,17 @@ export type AttachmentState = 'uploading' | 'uploaded' | 'failed'
 export interface Attachment {
   /** Local id — the chips are a list of files, and two files can be identical. */
   id: string
+  /** `image` rides as an image block; `file` rides by path. */
+  kind: 'image' | 'file'
   name: string
   source: AttachmentSource
   /** The local file's byte length; the stored entry's `bytes` once uploaded. */
   size: number
-  /** `createObjectURL` of the local file — revoked on remove and on unmount. */
-  previewUrl: string
+  /** `createObjectURL` of the local image — revoked on remove and on unmount. Null for a file. */
+  previewUrl: string | null
   state: AttachmentState
-  /** Present exactly when `state` is `uploaded`. */
-  entry?: ImageRefEntry
+  /** Present exactly when `state` is `uploaded`: the stored image, or the file's path. */
+  entry?: ImageRefEntry | FileEntry
   /** Percent, or null before the first tick / when there is nothing to show. */
   progress: number | null
   /** Failed attempts spent. Past `ATTACHMENT_RETRY_LIMIT` the word goes away. */
@@ -176,29 +181,38 @@ export function attachmentMeta(
     return `${formatBytes(chip.size)} · uploading${pct}`
   }
   const entry = chip.entry
-  const dims = entry?.w && entry?.h ? `${entry.w}×${entry.h} · ` : ''
+  const dims = entry && 'w' in entry && entry.w && entry.h ? `${entry.w}×${entry.h} · ` : ''
   return `${dims}${formatBytes(entry?.bytes ?? chip.size)}`
 }
 
 /**
- * Whether a drag should arm the drop state (canvas 9c-1: "A drag carrying no
- * image files never arms the state — no flash, no 'can't drop that'").
- *
- * `items` is the authority, because during a drag it is the only thing that
- * reports a per-file media type; a dragged FOLDER reports an empty one, which
- * is what keeps a folder from arming. `types` is a fallback for a DataTransfer
- * without items, and a string drag (a tag rule being reordered) matches
- * neither.
+ * Whether a drag should arm the drop state (canvas 9c-1: a drag carrying no
+ * files never arms — no flash, no "can't drop that"). Any file arms it now,
+ * folders included (spec: 2026-10-01-file-attachments-design § Composer);
+ * text out of the transcript or a tag rule being reordered still does not.
  */
-export function dragCarriesImages(dt: DataTransfer | null | undefined): boolean {
+export function dragCarriesFiles(dt: DataTransfer | null | undefined): boolean {
   if (!dt) return false
   const items = dt.items
   if (items && items.length > 0) {
-    return Array.from(items).some(
-      (item) => item.kind === 'file' && item.type.startsWith('image/'),
-    )
+    return Array.from(items).some((item) => item.kind === 'file')
   }
-  return Array.from(dt.types ?? []).some((type) => type.startsWith('image/'))
+  return Array.from(dt.types ?? []).includes('Files')
+}
+
+/**
+ * The names of the folders a drop carries. Only a drop can tell — `items`
+ * answers `webkitGetAsEntry` only while the event is being dispatched — and a
+ * folder's `File` looks like any typeless file otherwise.
+ */
+export function folderNames(dt: DataTransfer | null | undefined): Set<string> {
+  const names = new Set<string>()
+  for (const item of Array.from(dt?.items ?? [])) {
+    if (item.kind !== 'file') continue
+    const entry = item.webkitGetAsEntry?.()
+    if (entry?.isDirectory) names.add(entry.name)
+  }
+  return names
 }
 
 /**

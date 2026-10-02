@@ -9,7 +9,7 @@ import { Composer } from '../panels/Composer'
 import { useAttachments } from '../panels/useAttachments'
 import { useImageDrop } from '../panels/useImageDrop'
 import { MAX_ATTACHMENTS } from '../lib/attachments'
-import type { AttachmentUpload, ImageRefEntry } from '../lib/types'
+import type { AttachmentUpload, FileEntry, ImageRefEntry } from '../lib/types'
 import type { SentAttachment } from '../store/store'
 import { fieldValue, replaceField } from './composerField'
 
@@ -71,12 +71,13 @@ function deferred<T>() {
 // ---------------------------------------------------------------------------
 
 let sent: SentAttachment[] | null = null
+let sentFiles: FileEntry[] | null = null
 
 function Harness({ placeholder = 'Send a message…' }: { placeholder?: string }) {
   const [value, setValue] = useState('')
   const attachments = useAttachments('s1')
-  const { armed: dropArmed, ref: dropRef } = useImageDrop((files) =>
-    attachments.accept(files, 'file'),
+  const { armed: dropArmed, ref: dropRef } = useImageDrop((files, folders) =>
+    attachments.accept(files, 'file', folders),
   )
 
   return (
@@ -98,7 +99,8 @@ function Harness({ placeholder = 'Send a message…' }: { placeholder?: string }
         type="button"
         onClick={() => {
           void attachments.takeForSend().then((taken) => {
-            sent = taken
+            sent = taken.images
+            sentFiles = taken.files
           })
         }}
       >
@@ -163,6 +165,7 @@ URL.revokeObjectURL = vi.fn()
 
 beforeEach(() => {
   sent = null
+  sentFiles = null
   vi.useFakeTimers()
   vi.mocked(api.uploadAttachment).mockReset()
   vi.mocked(api.uploadAttachment).mockResolvedValue({ kind: 'ok', entry: entry('ok.png') })
@@ -334,29 +337,35 @@ describe('Composer intake — the upload', () => {
 describe('Composer intake — refusals', () => {
   it('creates no chip and replaces the hint line in place, naming the fact', async () => {
     render(<Harness />)
-    paste([fakeFile('capture.png', 'image/png', 13 * MB)])
+    paste([fakeFile('dump.bin', 'application/octet-stream', 130 * MB)])
     await act(async () => {})
 
     expect(chips()).toHaveLength(0)
     expect(api.uploadAttachment).not.toHaveBeenCalled()
     expect(refusal()).toHaveTextContent('TOO LARGE TO ATTACH')
-    expect(refusal()).toHaveTextContent('capture.png')
-    expect(refusal()).toHaveTextContent('13 MB over the 5 MB ceiling.')
+    expect(refusal()).toHaveTextContent('dump.bin')
+    expect(refusal()).toHaveTextContent('130 MB over the 100 MB ceiling.')
     expect(screen.queryByText('⏎ send · ⇧⏎ newline · ⌘V paste image')).not.toBeInTheDocument()
   })
 
-  it('points a non-image at the mention instead', async () => {
+  it('refuses a dropped folder it would have to upload', async () => {
     render(<Harness />)
-    paste([fakeFile('spec.pdf', 'application/pdf')])
+    const dt = makeDataTransfer([fakeFile('src', '', 0)])
+    ;(dt.items[0] as unknown as { webkitGetAsEntry: () => unknown }).webkitGetAsEntry = () => ({
+      name: 'src',
+      isDirectory: true,
+    })
+    fireEvent.dragEnter(panel(), { dataTransfer: dt })
+    fireEvent.drop(panel(), { dataTransfer: dt })
     await act(async () => {})
-    expect(refusal()).toHaveTextContent('IMAGES ONLY')
-    expect(refusal()).toHaveTextContent('application/pdf')
-    expect(refusal()).toHaveTextContent('— mention the path instead.')
+    expect(chips()).toHaveLength(0)
+    expect(refusal()).toHaveTextContent("CAN'T ATTACH")
+    expect(refusal()).toHaveTextContent('src')
   })
 
   it('gives the hint line back after the hold', async () => {
     render(<Harness />)
-    paste([fakeFile('spec.pdf', 'application/pdf')])
+    paste([fakeFile('dump.bin', '', 130 * MB)])
     await act(async () => {})
     expect(refusal()).not.toBeNull()
 
@@ -367,37 +376,89 @@ describe('Composer intake — refusals', () => {
     expect(screen.getByText('⏎ send · ⇧⏎ newline · ⌘V paste image')).toBeInTheDocument()
   })
 
-  it('collapses a mixed drop: chips for the images, one line for the rest', async () => {
+  it('collapses a mixed drop: chips for what fits, one line for the rest', async () => {
     render(<Harness />)
     drop([
       png('a.png'),
-      png('b.png'),
-      png('c.png'),
-      fakeFile('one.pdf', 'application/pdf'),
-      fakeFile('two.pdf', 'application/pdf'),
+      fakeFile('report.xlsx', 'application/vnd.ms-excel'),
+      fakeFile('one.bin', '', 130 * MB),
+      fakeFile('two.bin', '', 140 * MB),
     ])
-    await waitFor(() => expect(chips()).toHaveLength(3))
-    expect(refusal()).toHaveTextContent("2 files")
-    expect(refusal()).toHaveTextContent("weren't images.")
+    await waitFor(() => expect(chips()).toHaveLength(2))
+    expect(refusal()).toHaveTextContent('2 files')
+    expect(refusal()).toHaveTextContent('over the 100 MB ceiling.')
   })
 
   it('rewrites the line on a second refusal rather than stacking', async () => {
     render(<Harness />)
-    paste([fakeFile('spec.pdf', 'application/pdf')])
+    paste([fakeFile('one.bin', '', 130 * MB)])
     await act(async () => {
       vi.advanceTimersByTime(3000)
     })
-    paste([fakeFile('capture.png', 'image/png', 13 * MB)])
+    paste([fakeFile('two.bin', '', 140 * MB)])
     await act(async () => {})
 
     expect(screen.getAllByTestId('composer-refusal')).toHaveLength(1)
-    expect(refusal()).toHaveTextContent('TOO LARGE TO ATTACH')
+    expect(refusal()).toHaveTextContent('two.bin')
 
     // The timer restarted with the new line: the first one's 4s is already up.
     await act(async () => {
       vi.advanceTimersByTime(2000)
     })
     expect(refusal()).not.toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Files that ride by path (spec 2026-10-01-file-attachments-design)
+// ---------------------------------------------------------------------------
+
+describe('Composer intake — files', () => {
+  afterEach(() => {
+    delete (window as { orbitalDesktop?: unknown }).orbitalDesktop
+  })
+
+  it('uploads a non-image in a browser and hands the turn its path', async () => {
+    const stored: FileEntry = { kind: 'file', path: '/data/files/abc/report.xlsx', name: 'report.xlsx', bytes: 1000 }
+    vi.mocked(api.uploadAttachment).mockResolvedValue({ kind: 'ok', entry: stored })
+    render(<Harness />)
+    drop([fakeFile('report.xlsx', 'application/vnd.ms-excel')])
+    await waitFor(() => expect(chip()).toHaveAttribute('data-state', 'uploaded'))
+    expect(chip().querySelector('[data-chip-thumb]')).toHaveTextContent('XLSX')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'take' }))
+    })
+    expect(sent).toEqual([])
+    expect(sentFiles).toEqual([stored])
+  })
+
+  it('takes a desktop drop by its own path, uploading nothing', async () => {
+    ;(window as { orbitalDesktop?: unknown }).orbitalDesktop = {
+      pathForFile: (file: File) => `/Users/me/Downloads/${file.name}`,
+    }
+    render(<Harness />)
+    drop([fakeFile('dump.bin', '', 130 * MB)])
+    await waitFor(() => expect(chips()).toHaveLength(1))
+    expect(chip()).toHaveAttribute('data-state', 'uploaded')
+    expect(api.uploadAttachment).not.toHaveBeenCalled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'take' }))
+    })
+    expect(sentFiles).toEqual([
+      { kind: 'file', path: '/Users/me/Downloads/dump.bin', name: 'dump.bin', bytes: 130 * MB },
+    ])
+  })
+
+  it('still sends a small image from the desktop as an image', async () => {
+    ;(window as { orbitalDesktop?: unknown }).orbitalDesktop = {
+      pathForFile: (file: File) => `/Users/me/${file.name}`,
+    }
+    render(<Harness />)
+    drop([png('shot.png')])
+    await waitFor(() => expect(chip()).toHaveAttribute('data-state', 'uploaded'))
+    expect(api.uploadAttachment).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -427,6 +488,9 @@ describe('Composer intake — the ceiling', () => {
 
 // ---------------------------------------------------------------------------
 // Drop (canvas 9c-1)
+
+// ---------------------------------------------------------------------------
+// Drop (canvas 9c-1)
 // ---------------------------------------------------------------------------
 
 describe('Composer intake — the drop state', () => {
@@ -437,16 +501,15 @@ describe('Composer intake — the drop state', () => {
 
     expect(panel()).toHaveAttribute('data-drop-armed', 'true')
     expect(marker()).toHaveTextContent('DROP TO ATTACH')
-    expect(marker()).toHaveTextContent('png · jpg · gif · webp · up to 5 MB each')
+    expect(marker()).toHaveTextContent('any file · images up to 5 MB go inline')
     // Typed text is kept, hidden under the marker (9c-1).
     expect(fieldValue(field())).toBe('kept under the marker')
   })
 
-  it('never arms for a folder — no flash, no "can`t drop that"', () => {
+  it('arms for a folder too — the desktop app can send its path', () => {
     render(<Harness />)
     fireEvent.dragEnter(panel(), { dataTransfer: FOLDER_DRAG })
-    expect(panel()).not.toHaveAttribute('data-drop-armed')
-    expect(marker()).toBeNull()
+    expect(panel()).toHaveAttribute('data-drop-armed', 'true')
   })
 
   it('never arms for a drag with no files at all', () => {

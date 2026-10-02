@@ -264,6 +264,16 @@ describe('extractMeta', () => {
 });
 
 describe('cleanTitle', () => {
+  it('drops the composer\'s list of attached files', () => {
+    expect(cleanTitle('Sum the Q3 column\n\nAttached files:\n- /Users/me/report.xlsx\n- /tmp/b.csv'))
+      .toBe('Sum the Q3 column');
+    expect(cleanTitle('Attached files:\n- /Users/me/report.xlsx')).toBe('');
+  });
+
+  it('keeps a lookalike line that is not the trailing list', () => {
+    expect(cleanTitle('Attached files:\n- /a\n\nwhat are these?')).toBe('Attached files: - /a what are these?');
+  });
+
   it('passes plain prompts through', () => {
     expect(cleanTitle('Fix the login bug')).toBe('Fix the login bug');
   });

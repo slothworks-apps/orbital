@@ -55,6 +55,7 @@ import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { RemoteService } from './remote/service.js';
 import { remoteInjectOptions } from './remote/inject.js';
+import { createFileStore } from './files/store.js';
 import type { SessionRow } from './types.js';
 
 /**
@@ -375,6 +376,7 @@ export async function buildServer(overrides: {
   const dataDir = overrides.dataDir ?? CONFIG.dataDir;
   const imagesDir = join(dataDir, 'images');
   const images = createImageStore(imagesDir);
+  const files = createFileStore(join(CONFIG.dataDir, 'files'));
 
   // Names a session from its own contents. On its own it reaches web sessions
   // only, because the stream that feeds it is the Runner's and only they come
@@ -1059,7 +1061,7 @@ export async function buildServer(overrides: {
   });
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, errors,
-    images, imagesDir, titler, narrator, git, ide, branchStatus, harness, remote,
+    images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote,
     settings: settingsStore,
     mcp: mcpConfig,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',

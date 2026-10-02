@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import { desktopPathFor } from '../lib/desktop'
 import {
   MAX_ATTACHMENTS,
   attachmentName,
+  isInlineImage,
   precheckFile,
   refusalNotice,
   type Attachment,
   type Refusal,
   type RefusalNotice,
 } from '../lib/attachments'
-import type { AttachmentSource } from '../lib/types'
+import type { AttachmentSource, FileEntry } from '../lib/types'
 import type { SentAttachment } from '../store/store'
 
 /**
@@ -81,20 +83,29 @@ export interface AttachmentsHandle {
   armed: boolean
   /** Any upload still in flight, which is what makes a send queue. */
   uploading: boolean
-  /** Take a gesture's files: pre-check, chip the keepers, collapse the refusals. */
-  accept(files: readonly File[], source: AttachmentSource): void
+  /**
+   * Take a gesture's files: pre-check, chip the keepers, collapse the
+   * refusals. `folders` names the folders a drop carries (`folderNames`).
+   */
+  accept(files: readonly File[], source: AttachmentSource, folders?: ReadonlySet<string>): void
   remove(id: string): void
   retry(id: string): void
   /**
-   * Hands the turn its images and clears the row in the same beat (canvas 9c-3:
-   * "Text and chips clear together"). Every chip that is not failed leaves at
-   * once; the promise resolves when the uploads among them have settled, with
-   * the entries that landed. Failed chips stay behind — not in the turn, and
-   * not lost either.
+   * Hands the turn its attachments and clears the row in the same beat (canvas
+   * 9c-3: "Text and chips clear together"). Every chip that is not failed
+   * leaves at once; the promise resolves when the uploads among them have
+   * settled, with the images and the files that landed. Failed chips stay
+   * behind — not in the turn, and not lost either.
    */
-  takeForSend(): Promise<SentAttachment[]>
+  takeForSend(): Promise<TakenAttachments>
   /** Drops everything, revoking the previews. */
   reset(): void
+}
+
+/** What a send takes out of the well: images ride as blocks, files by path. */
+export interface TakenAttachments {
+  images: SentAttachment[]
+  files: FileEntry[]
 }
 
 /** Per-chip bookkeeping that never needs to re-render anything. */
@@ -104,8 +115,8 @@ interface ChipWork {
   /** Resolves when the current attempt settles, however it settles. */
   run?: Promise<void>
   ticker?: ReturnType<typeof setInterval>
-  /** Set once the bytes are stored — what the send path collects. */
-  result?: SentAttachment
+  /** Set once the bytes are stored (or the path is known) — what the send path collects. */
+  result?: SentAttachment | FileEntry
 }
 
 let chipCounter = 0
@@ -183,7 +194,12 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
             fail()
             return
           }
-          entry.result = { entry: result.entry, name: chip.name, source: chip.source }
+          // The server decides where the bytes went: an image within the
+          // block ceiling answers a ref, anything else a path.
+          entry.result =
+            'kind' in result.entry
+              ? result.entry
+              : { entry: result.entry, name: chip.name, source: chip.source }
           patch(chip.id, { state: 'uploaded', entry: result.entry, progress: null })
         })
         .catch(() => {
@@ -229,30 +245,47 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
   }, [])
 
   const accept = useCallback(
-    (picked: readonly File[], source: AttachmentSource) => {
+    (picked: readonly File[], source: AttachmentSource, folders?: ReadonlySet<string>) => {
       if (picked.length === 0) return
       const refusals: Refusal[] = []
-      const keepers: File[] = []
+      const keepers: { file: File; path: string | null }[] = []
       for (const file of picked) {
-        const refused = precheckFile(file)
+        const path = desktopPathFor(file)
+        const refused = precheckFile(file, {
+          hasPath: path !== null,
+          folder: folders?.has(file.name) ?? false,
+        })
         if (refused) refusals.push(refused)
-        else keepers.push(file)
+        else keepers.push({ file, path })
       }
 
       // Judgement call: files past the ceiling are simply not taken. The canvas
       // gives the ceiling but no copy for overflowing it, and a line invented
       // here would be the only invented copy in the feature.
       const room = Math.max(0, MAX_ATTACHMENTS - listRef.current.length)
-      const fresh: Attachment[] = keepers.slice(0, room).map((file) => {
+      const fresh: Attachment[] = keepers.slice(0, room).map(({ file, path }) => {
         chipCounter += 1
         const id = `chip:${chipCounter}`
+        const name = attachmentName(file, source)
+        if (!isInlineImage(file) && path) {
+          // A desktop drop the agent can read where it lies: nothing to
+          // upload, the chip is done the moment it appears.
+          const entry: FileEntry = { kind: 'file', path, name: file.name || name, bytes: file.size }
+          work.current.set(id, { file, result: entry })
+          return {
+            id, kind: 'file', name, source, size: file.size, previewUrl: null,
+            state: 'uploaded', entry, progress: null, retries: 0,
+          }
+        }
         work.current.set(id, { file })
+        const image = isInlineImage(file)
         return {
           id,
-          name: attachmentName(file, source),
+          kind: image ? 'image' : 'file',
+          name,
           source,
           size: file.size,
-          previewUrl: URL.createObjectURL(file),
+          previewUrl: image ? URL.createObjectURL(file) : null,
           state: 'uploading',
           progress: null,
           retries: 0,
@@ -262,7 +295,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
       if (fresh.length > 0) {
         listRef.current = [...listRef.current, ...fresh]
         sync()
-        for (const chip of fresh) startUpload(chip, false)
+        for (const chip of fresh) if (chip.state === 'uploading') startUpload(chip, false)
       }
       showRefusal(refusals)
     },
@@ -277,7 +310,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
       patch(id, { exiting: true })
       setTimeout(() => {
         listRef.current = listRef.current.filter((c) => c.id !== id)
-        URL.revokeObjectURL(chip.previewUrl)
+        if (chip.previewUrl) URL.revokeObjectURL(chip.previewUrl)
         sync()
       }, CHIP_EXIT_MS)
     },
@@ -305,15 +338,16 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
       taken.map((chip) => work.current.get(chip.id)?.run).filter((run) => run !== undefined),
     )
 
-    const out: SentAttachment[] = []
+    const out: TakenAttachments = { images: [], files: [] }
     for (const chip of taken) {
       const result = work.current.get(chip.id)?.result
       // A chip that failed during the wait is simply not in the turn. It is not
       // put back either: the send already cleared the well, and resurrecting a
       // chip under a message the user has moved on from would be worse.
-      if (result) out.push(result)
+      if (result && 'kind' in result) out.files.push(result)
+      else if (result) out.images.push(result)
       release(chip.id, { abort: false })
-      URL.revokeObjectURL(chip.previewUrl)
+      if (chip.previewUrl) URL.revokeObjectURL(chip.previewUrl)
     }
     return out
   }, [release, sync])
@@ -321,7 +355,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
   const reset = useCallback(() => {
     for (const chip of listRef.current) {
       release(chip.id, { abort: true })
-      URL.revokeObjectURL(chip.previewUrl)
+      if (chip.previewUrl) URL.revokeObjectURL(chip.previewUrl)
     }
     listRef.current = []
     sync()
@@ -343,7 +377,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
       }
       work.current.clear()
       for (const timer of refusalTimers.current) clearTimeout(timer)
-      for (const chip of listRef.current) URL.revokeObjectURL(chip.previewUrl)
+      for (const chip of listRef.current) if (chip.previewUrl) URL.revokeObjectURL(chip.previewUrl)
       listRef.current = []
     },
     [],

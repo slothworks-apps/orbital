@@ -557,6 +557,20 @@ export interface ImageRefEntry {
 export type AttachmentSource = 'clipboard' | 'file'
 
 /**
+ * An attachment that is not an image: the agent reads it by path (spec:
+ * 2026-10-01-file-attachments-design). What the upload route answers for a
+ * file it kept in the server's file store, and what the composer builds
+ * itself for a desktop drop that already has a path. Mirrors
+ * `server/src/files/store.ts`.
+ */
+export interface FileEntry {
+  kind: 'file'
+  path: string
+  name: string
+  bytes: number
+}
+
+/**
  * What the client knows about one sent image that the wire does not. An SDK
  * image block carries no name, so this is LOCAL-ONLY state: it exists on the
  * optimistic message and on the WS replacement that supersedes it, and is gone
@@ -576,7 +590,7 @@ export interface ImageProvenance {
  * throwing. Only a status outside the contract is a real failure.
  */
 export type AttachmentUpload =
-  | { kind: 'ok'; entry: ImageRefEntry }
+  | { kind: 'ok'; entry: ImageRefEntry | FileEntry }
   /** `truncated` means the server stopped at its 2× wall — the size is a floor. */
   | { kind: 'too_large'; size: number; truncated: boolean }
   | { kind: 'not_image'; mediaType: string }

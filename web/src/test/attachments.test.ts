@@ -6,7 +6,9 @@ import {
   MAX_ATTACHMENTS,
   attachmentMeta,
   attachmentName,
-  dragCarriesImages,
+  dragCarriesFiles,
+  folderNames,
+  isInlineImage,
   filesFrom,
   precheckFile,
   refusalNotice,
@@ -38,107 +40,97 @@ describe('client attachment facts (they mirror the server`s)', () => {
   })
 
   it('spells the accepted types the way the drop marker does (canvas 9c-1)', () => {
-    expect(ATTACHMENT_TYPES_LINE).toBe('png · jpg · gif · webp · up to 5 MB each')
+    expect(ATTACHMENT_TYPES_LINE).toBe('any file · images up to 5 MB go inline')
+  })
+})
+
+describe('isInlineImage — what rides as an image block', () => {
+  it('takes an image the store accepts within the ceiling', () => {
+    expect(isInlineImage(fakeFile('a.png', 'image/png', 4 * MB))).toBe(true)
+  })
+
+  it('sends an image over the ceiling by path instead', () => {
+    expect(isInlineImage(fakeFile('capture.png', 'image/png', 13 * MB))).toBe(false)
+  })
+
+  it('sends anything else by path', () => {
+    expect(isInlineImage(fakeFile('report.xlsx', 'application/vnd.ms-excel', 1000))).toBe(false)
+    expect(isInlineImage(fakeFile('shot.svg', 'image/svg+xml', 1000))).toBe(false)
   })
 })
 
 describe('precheckFile — refuse before uploading', () => {
-  it('passes an image inside the ceiling', () => {
-    expect(precheckFile(fakeFile('a.png', 'image/png', 4 * MB))).toBeNull()
+  const browser = { hasPath: false, folder: false }
+
+  it('passes an image inside the ceiling and an ordinary file', () => {
+    expect(precheckFile(fakeFile('a.png', 'image/png', 4 * MB), browser)).toBeNull()
+    expect(precheckFile(fakeFile('report.xlsx', 'application/vnd.ms-excel', 4 * MB), browser)).toBeNull()
   })
 
-  it('refuses a type the store would not take, naming the media type', () => {
-    expect(precheckFile(fakeFile('spec.pdf', 'application/pdf', 1000))).toEqual({
-      kind: 'not_image',
-      name: 'spec.pdf',
-      mediaType: 'application/pdf',
-    })
-  })
-
-  it('refuses a typeless drop (a folder) as not an image', () => {
-    expect(precheckFile(fakeFile('src', '', 0))).toMatchObject({ kind: 'not_image' })
-  })
-
-  it('refuses an image over the ceiling, carrying the size it measured', () => {
-    expect(precheckFile(fakeFile('capture.png', 'image/png', 13 * MB))).toEqual({
+  it('refuses an upload past the file ceiling, carrying the size it measured', () => {
+    expect(precheckFile(fakeFile('dump.bin', '', 130 * MB), browser)).toEqual({
       kind: 'too_large',
-      name: 'capture.png',
-      size: 13 * MB,
+      name: 'dump.bin',
+      size: 130 * MB,
     })
   })
 
-  it('checks the type first — a huge PDF is refused for being a PDF', () => {
-    expect(precheckFile(fakeFile('big.pdf', 'application/pdf', 99 * MB))).toMatchObject({
-      kind: 'not_image',
+  it('refuses a folder it would have to upload', () => {
+    expect(precheckFile(fakeFile('src', '', 0), { hasPath: false, folder: true })).toEqual({
+      kind: 'folder',
+      name: 'src',
     })
   })
 
-  // A zero-byte image is deliberately NOT pre-checked: the canvas has no copy
-  // for it, and the server's own `400 empty_file` turns into an ordinary chip
-  // failure ("didn't upload") that needs none invented.
-  it('lets a zero-byte image through to the server`s own 400', () => {
-    expect(precheckFile(fakeFile('empty.png', 'image/png', 0))).toBeNull()
+  it('takes anything with a desktop path, at any size, folders included', () => {
+    expect(precheckFile(fakeFile('dump.bin', '', 130 * MB), { hasPath: true, folder: false })).toBeNull()
+    expect(precheckFile(fakeFile('src', '', 0), { hasPath: true, folder: true })).toBeNull()
   })
 })
 
 describe('refusalNotice — one line, never a stack (canvas 9d-C)', () => {
   it('names the measured fact for a single oversize file', () => {
-    const refusals: Refusal[] = [{ kind: 'too_large', name: 'capture.png', size: 13_000_000 }]
+    const refusals: Refusal[] = [{ kind: 'too_large', name: 'dump.bin', size: 130 * MB }]
     expect(refusalNotice(refusals)).toEqual({
       label: 'TOO LARGE TO ATTACH',
-      fact: 'capture.png',
-      tail: '12.4 MB over the 5 MB ceiling.',
+      fact: 'dump.bin',
+      tail: '130 MB over the 100 MB ceiling.',
     })
   })
 
-  it('names the media type for a single non-image', () => {
-    const refusals: Refusal[] = [
-      { kind: 'not_image', name: 'spec.pdf', mediaType: 'application/pdf' },
-    ]
-    expect(refusalNotice(refusals)).toEqual({
-      label: 'IMAGES ONLY',
-      fact: 'application/pdf',
-      tail: '— mention the path instead.',
-    })
-  })
-
-  it('collapses several non-images into the canvas`s count line', () => {
-    const refusals: Refusal[] = [
-      { kind: 'not_image', name: 'a.pdf', mediaType: 'application/pdf' },
-      { kind: 'not_image', name: 'b.zip', mediaType: 'application/zip' },
-    ]
-    expect(refusalNotice(refusals)).toEqual({
-      label: 'IMAGES ONLY',
-      fact: '2 files',
-      tail: "weren't images.",
+  it('names a single folder', () => {
+    expect(refusalNotice([{ kind: 'folder', name: 'src' }])).toEqual({
+      label: "CAN'T ATTACH",
+      fact: 'src',
+      tail: '— a folder needs the desktop app.',
     })
   })
 
   it('collapses several oversize files without inventing a combined size', () => {
     const refusals: Refusal[] = [
-      { kind: 'too_large', name: 'a.png', size: 9_000_000 },
-      { kind: 'too_large', name: 'b.png', size: 8_000_000 },
+      { kind: 'too_large', name: 'a.bin', size: 190 * MB },
+      { kind: 'too_large', name: 'b.bin', size: 180 * MB },
     ]
     expect(refusalNotice(refusals)).toEqual({
       label: 'TOO LARGE TO ATTACH',
       fact: '2 files',
-      tail: 'over the 5 MB ceiling.',
+      tail: 'over the 100 MB ceiling.',
     })
   })
 
   it('collapses a mixed gesture into one refused count', () => {
     const refusals: Refusal[] = [
-      { kind: 'too_large', name: 'a.png', size: 9_000_000 },
-      { kind: 'not_image', name: 'b.pdf', mediaType: 'application/pdf' },
+      { kind: 'too_large', name: 'a.bin', size: 190 * MB },
+      { kind: 'folder', name: 'src' },
     ]
     expect(refusalNotice(refusals)).toEqual({
       label: "CAN'T ATTACH",
       fact: '2 files',
-      tail: "weren't images or were too large.",
+      tail: 'were folders or too large.',
     })
   })
 
-  it('has nothing to say about an empty gesture', () => {
+  it('says nothing for nothing', () => {
     expect(refusalNotice([])).toBeNull()
   })
 })
@@ -201,36 +193,43 @@ describe('attachmentMeta — the chip`s second line', () => {
   })
 })
 
-describe('dragCarriesImages — what arms the drop state (canvas 9c-1)', () => {
+describe('dragCarriesFiles — what arms the drop state (canvas 9c-1)', () => {
   const items = (types: Array<{ kind: string; type: string }>) =>
     ({ items: types, types: ['Files'] }) as unknown as DataTransfer
 
-  it('arms for a drag carrying an image file', () => {
-    expect(dragCarriesImages(items([{ kind: 'file', type: 'image/png' }]))).toBe(true)
-  })
-
-  it('never arms for a folder — its item type is empty', () => {
-    expect(dragCarriesImages(items([{ kind: 'file', type: '' }]))).toBe(false)
-  })
-
-  it('never arms for a non-image file', () => {
-    expect(dragCarriesImages(items([{ kind: 'file', type: 'application/pdf' }]))).toBe(false)
+  it('arms for a drag carrying any file, a folder included', () => {
+    expect(dragCarriesFiles(items([{ kind: 'file', type: 'image/png' }]))).toBe(true)
+    expect(dragCarriesFiles(items([{ kind: 'file', type: 'application/pdf' }]))).toBe(true)
+    expect(dragCarriesFiles(items([{ kind: 'file', type: '' }]))).toBe(true)
   })
 
   it('never arms for a dragged string (a row being reordered)', () => {
     expect(
-      dragCarriesImages({ items: [{ kind: 'string', type: 'text/plain' }], types: ['text/plain'] } as unknown as DataTransfer)
+      dragCarriesFiles({ items: [{ kind: 'string', type: 'text/plain' }], types: ['text/plain'] } as unknown as DataTransfer)
     ).toBe(false)
   })
 
   it('never arms without a DataTransfer at all', () => {
-    expect(dragCarriesImages(null)).toBe(false)
+    expect(dragCarriesFiles(null)).toBe(false)
   })
 
   it('falls back to the `types` list when `items` is unavailable', () => {
-    expect(
-      dragCarriesImages({ types: ['Files', 'image/png'] } as unknown as DataTransfer)
-    ).toBe(true)
+    expect(dragCarriesFiles({ types: ['Files'] } as unknown as DataTransfer)).toBe(true)
+    expect(dragCarriesFiles({ types: ['text/plain'] } as unknown as DataTransfer)).toBe(false)
+  })
+})
+
+describe('folderNames — which dropped entries are folders', () => {
+  it('names the directory entries and nothing else', () => {
+    const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory })
+    const dt = {
+      items: [
+        { kind: 'file', webkitGetAsEntry: () => entry('src', true) },
+        { kind: 'file', webkitGetAsEntry: () => entry('a.csv', false) },
+        { kind: 'string' },
+      ],
+    } as unknown as DataTransfer
+    expect([...folderNames(dt)]).toEqual(['src'])
   })
 })
 
