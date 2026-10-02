@@ -231,10 +231,14 @@ are live sessions. Data: the store's session list through the tunnel
 (`GET /api/sessions`, the `sessions` topic). The "+ New session" button
 is drawn, disabled, with "coming with 2b" as its reason — 9d is 2b.
 
-**9a offline.** When `macOnline` is false: the neutral card "<Mac> is
-asleep · Showing what it last sent", `as of <asOf>`, Retry = one
-presence check (reconnect the relay link once, wait for `ok`, at most
-`RETRY_WINDOW_MS` = 5 s), then "checked just now". Glyphs keep their
+**9a offline.** When the relay is online and `macOnline` is false (a
+relay still connecting is only the header's dim dot): the neutral card
+"<Mac> is asleep", "Showing what it last sent. Reconnects on its own when
+the Mac wakes.", `as of <asOf>`, Retry = one presence check (reconnect
+the relay link once, wait for `ok`, at most `RETRY_WINDOW_MS` = 5 s),
+then "checked just now". While a Retry or a foreground check runs, the
+offline presentation holds what it showed before the check
+(`rechecking`), so a healthy Mac never flashes the card. Glyphs keep their
 colour, dimmed, no motion. New session reads "needs <Mac> awake".
 
 **9b Transcript, read-only.** The desktop transcript panels through the
@@ -330,11 +334,21 @@ Built from [[2026-10-02-mobile-app-read]]. Decisions the spec left open:
   the link instead (`recheck`).
 - **The paste field** shows when there is no scanner and in every dev build
   (`ORBITAL_MOBILE_DEV=1`), where a complete code pairs as it is typed —
-  that is how `mobile/scripts/pair-emulator.sh` pairs the emulator.
+  that is how `mobile/scripts/pair-emulator.sh` pairs the emulator. A
+  scanner whose ML Kit module is still installing is not "no scanner":
+  Scan code stays, with a one-line note to try again in a moment.
 - **A phone revoked while it was away** is told so by the relay on its
   next connect: the client connects with `paired=1` when built from a
   stored pairing, and the relay answers `unpaired` when the Mac has no pair
   with it (Task 14; parent spec § 7).
+  A client built while pairing turns the same flag on itself when it hears
+  `paired`, so its later reconnects ask too.
+- **No backup.** `android:allowBackup="false"` and data-extraction rules
+  that exclude everything: the caches are plaintext, and the identity is per
+  device — its Keystore key does not travel, so a restored copy could not be
+  decrypted.
+- **The system bars are dark** whatever the system theme (SystemBars
+  `style: DARK`), so the status bar icons are light on the app's background.
 
 ## 8. Known limits of 2a
 
