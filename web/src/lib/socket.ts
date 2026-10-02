@@ -1,6 +1,21 @@
-import { OrbitalSocket, resolveWsUrl } from './ws'
+import { OrbitalSocket, resolveWsUrl, type OrbitalSocketOptions } from './ws'
+
+export type SocketImpl = NonNullable<OrbitalSocketOptions['WebSocketImpl']>
 
 let instance: OrbitalSocket | null = null
+let socketImpl: SocketImpl | null = null
+
+/**
+ * The WebSocket the app's one connection is built on. The phone passes a
+ * factory for `TunnelSocket`, which speaks the hub over the relay (spec
+ * 2026-10-02-mobile-app-design § 3); the desktop never calls this. It has
+ * to run before the first `getSocket()`: a connection already open would
+ * keep the old transport for the page's lifetime.
+ */
+export function configureSocket(opts: { WebSocketImpl: SocketImpl }): void {
+  if (instance) throw new Error('configureSocket must run before the first getSocket()')
+  socketImpl = opts.WebSocketImpl
+}
 
 /**
  * The app's single WebSocket connection.
@@ -19,6 +34,11 @@ let instance: OrbitalSocket | null = null
  * cannot open a second connection.
  */
 export function getSocket(): OrbitalSocket {
-  if (!instance) instance = new OrbitalSocket(resolveWsUrl('/ws', window.location))
+  if (!instance) {
+    instance = new OrbitalSocket(
+      resolveWsUrl('/ws', window.location),
+      socketImpl ? { WebSocketImpl: socketImpl } : undefined,
+    )
+  }
   return instance
 }

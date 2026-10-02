@@ -64,6 +64,27 @@ export class ApiError extends Error {
   }
 }
 
+export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
+
+/** The browser's own `fetch`, read at call time so a test's stubbed global still applies. */
+export const defaultApiFetch: FetchLike = (input, init) => fetch(input, init)
+
+let fetchImpl: FetchLike = defaultApiFetch
+
+/**
+ * Replaces the transport every call in this file goes through. The phone
+ * passes `tunnelFetch`, which carries `/api/...` over the relay (spec
+ * 2026-10-02-mobile-app-design § 3); the desktop never calls this. Call it
+ * before the first request.
+ */
+export function configureApi(opts: { fetch: FetchLike }): void {
+  fetchImpl = opts.fetch
+}
+
+function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  return fetchImpl(input, init)
+}
+
 async function request<T>(
   method: string,
   url: string,
@@ -86,7 +107,7 @@ async function request<T>(
     options.body = JSON.stringify(body)
   }
 
-  const response = await fetch(url, options)
+  const response = await apiFetch(url, options)
 
   if (!response.ok) {
     const text = await response.text()
@@ -251,7 +272,7 @@ export const api = {
     const body = new FormData()
     body.append('file', file, file.name)
 
-    const response = await fetch(url, { method: 'POST', body, signal: opts?.signal })
+    const response = await apiFetch(url, { method: 'POST', body, signal: opts?.signal })
 
     if (response.ok) {
       return { kind: 'ok', entry: (await response.json()) as ImageRefEntry }
@@ -536,7 +557,7 @@ export const api = {
     url.searchParams.set('path', path)
     const requestUrl = url.pathname + url.search
 
-    const response = await fetch(requestUrl, { method: 'GET' })
+    const response = await apiFetch(requestUrl, { method: 'GET' })
 
     if (response.ok) {
       const data = (await response.json()) as {
@@ -580,7 +601,7 @@ export const api = {
    * of a machine, not a failure worth reporting.
    */
   async ideOpenFile(sessionId: string, path: string, line: number | null): Promise<boolean> {
-    const response = await fetch(`/api/sessions/${sessionId}/ide/open-file`, {
+    const response = await apiFetch(`/api/sessions/${sessionId}/ide/open-file`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, ...(line !== null ? { line } : {}) }),
@@ -599,7 +620,7 @@ export const api = {
   async ideDiagnostics(sessionId: string, path?: string): Promise<IdeDiagnostic[] | null> {
     const url = new URL(`/api/sessions/${sessionId}/ide/diagnostics`, window.location.origin)
     if (path) url.searchParams.set('path', path)
-    const response = await fetch(url.pathname + url.search)
+    const response = await apiFetch(url.pathname + url.search)
     if (response.status === 404) return null
     if (!response.ok) return null
     const data = (await response.json()) as { diagnostics: IdeDiagnostic[] }
@@ -941,7 +962,7 @@ async function remoteCall<T, E extends string>(
     init.headers = { 'Content-Type': 'application/json' }
     init.body = JSON.stringify(body)
   }
-  const response = await fetch(url, init)
+  const response = await apiFetch(url, init)
   if (response.ok) return (await response.json()) as T
 
   const text = await response.text()
