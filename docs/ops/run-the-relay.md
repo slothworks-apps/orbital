@@ -60,7 +60,9 @@ separate migrate step.
 Not needed today, and not built. What is built is the hook for it: every
 device connects to `/ws?mac=<id>` — the Mac's own id, or on a phone the
 id from the QR it scanned. A load balancer that hashes on that query
-parameter keeps both halves of a pair on one instance.
+parameter keeps both halves of a pair on one instance. Since 2026-10-02 the
+same query may carry `paired=1`, which the relay does read: a device that
+expects a pair the relay no longer holds is told `unpaired` on connect.
 
 Dokploy's Traefik cannot hash on a query parameter. Put nginx in front
 instead, with `hash $arg_mac consistent;` in the `upstream` block.

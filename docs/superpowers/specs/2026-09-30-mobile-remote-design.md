@@ -367,10 +367,17 @@ own implementation does not have to rediscover it by reading the server.
   `sessions` and `errors` frames it receives, under its own notification
   settings.
 - **The relay's `?mac=` query parameter is the Mac's id from the QR**,
-  the same id the QR's `mac` field carries. It is not read by the relay
-  today (see [[run-the-relay]]'s "More than one instance"), but a client
-  should send it on every connection anyway, since a future sticky-
-  routing deployment depends on every client already doing so.
+  the same id the QR's `mac` field carries. The relay reads it only
+  alongside `paired=1` (next bullet; see also [[run-the-relay]]'s "More
+  than one instance"), but a client should send it on every connection
+  anyway, since a future sticky-routing deployment depends on every client
+  already doing so.
+- **Send `paired=1` when connecting from a stored pairing** (added
+  2026-10-02 by [[2026-10-02-mobile-app-read]] Task 14): the relay then
+  answers `unpaired` right after `ok` when the named Mac has no pair with
+  this phone, which is how a phone revoked while it was away learns it.
+  Leave the flag off while pairing — no pair exists yet, and the relay
+  would say so.
 
 ## 8. Known gaps after the backend plan
 

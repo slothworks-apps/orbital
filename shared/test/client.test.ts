@@ -132,6 +132,19 @@ describe('RemoteClient relay link', () => {
     expect(verifyAuthSignature(s.phone.publicKey, 'n1', auth.sig)).toBe(true);
   });
 
+  it('asks the relay to confirm the pair only when built from a stored pairing', () => {
+    const s = setup();
+    expect(s.sock.url).not.toContain('paired=');
+    s.client.stop();
+    const expecting = new RemoteClient({
+      relayUrl: 'https://relay.test', mac: s.mac.id, identity: s.phone, WebSocketImpl: FakeSocket, app: 'orbital-mobile/test',
+      expectPaired: true,
+    });
+    expecting.start();
+    expect(FakeSocket.all.at(-1)!.url).toContain('paired=1');
+    expecting.stop();
+  });
+
   it('gives up on a socket that never reaches ok and retries with backoff', () => {
     vi.useFakeTimers();
     const s = setup();

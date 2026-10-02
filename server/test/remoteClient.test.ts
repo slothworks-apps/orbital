@@ -48,6 +48,35 @@ function nextHub(client: RemoteClient, match: (frame: any) => boolean, ms = 5000
   });
 }
 
+type Api = Awaited<ReturnType<typeof startMacAndRelay>>['api'];
+
+/**
+ * Pairs a phone the way the app does while pairing — the QR the Mac shows, a
+ * relay link, a redeem, the Mac's confirm — and returns the live client with
+ * what it was built from, so a test can build that phone again.
+ */
+async function pairPhone(api: Api, closers: (() => unknown)[]) {
+  const qr = QrPayload.parse(JSON.parse((await api('POST', '/api/remote/pair')).json().qr));
+  const identity = generateIdentity();
+  const client = new RemoteClient({
+    relayUrl: qr.relay, mac: qr.mac, identity, WebSocketImpl: WebSocket, app: 'orbital-mobile/test',
+  });
+  closers.push(() => client.stop());
+  client.start();
+  await until(() => client.status === 'online');
+  const outcome = client.waitForPairing();
+  const redeemed = await client.redeem(qr.token, qr.secret, 'Pixel 8', 'android');
+  expect(redeemed).toMatchObject({ status: 200, body: { name: 'studio' } });
+  await until(async () => (await api('GET', '/api/remote')).json().pendingPair !== null);
+  const hello = nextEvent(client, 'hello');
+  // The relay says `paired` before it answers the Mac's confirm, so the confirm is not awaited first.
+  const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: client.id });
+  expect(await outcome).toBe('paired');
+  expect(await hello).toMatchObject({ macName: 'studio' });
+  expect((await confirm).statusCode).toBe(200);
+  return { client, relayUrl: qr.relay, mac: qr.mac, identity };
+}
+
 describe('the phone client against a real relay and a real Mac', () => {
   const closers: (() => unknown)[] = [];
   afterEach(async () => { for (const c of closers.splice(0).reverse()) await c(); });
@@ -66,24 +95,7 @@ describe('the phone client against a real relay and a real Mac', () => {
     });
     await until(async () => (await api('GET', '/api/sessions')).json().sessions.some((s: any) => s.id === SESSION_ID));
 
-    // Pair: the QR the Mac shows, a relay link, a redeem, the Mac's confirm.
-    const qr = QrPayload.parse(JSON.parse((await api('POST', '/api/remote/pair')).json().qr));
-    const client = new RemoteClient({
-      relayUrl: qr.relay, mac: qr.mac, identity: generateIdentity(), WebSocketImpl: WebSocket, app: 'orbital-mobile/test',
-    });
-    closers.push(() => client.stop());
-    client.start();
-    await until(() => client.status === 'online');
-    const outcome = client.waitForPairing();
-    const redeemed = await client.redeem(qr.token, qr.secret, 'Pixel 8', 'android');
-    expect(redeemed).toMatchObject({ status: 200, body: { name: 'studio' } });
-    await until(async () => (await api('GET', '/api/remote')).json().pendingPair !== null);
-    const hello = nextEvent(client, 'hello');
-    // The relay says `paired` before it answers the Mac's confirm, so the confirm is not awaited first.
-    const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: client.id });
-    expect(await outcome).toBe('paired');
-    expect(await hello).toMatchObject({ macName: 'studio' });
-    expect((await confirm).statusCode).toBe(200);
+    const { client } = await pairPhone(api, closers);
     expect(client.ready).toBe(true);
 
     // Hub and REST: subscribed, a page read, then a change on the Mac reaches the phone.
@@ -133,4 +145,21 @@ describe('the phone client against a real relay and a real Mac', () => {
     expect(await bye).toEqual({ type: 'bye', reason: 'revoked' });
     expect(client.status).toBe('off');
   }, 40_000);
+
+  it('a phone revoked while it was away learns it on its next connect', async () => {
+    const { api } = await startMacAndRelay(closers);
+    const { client: first, relayUrl, mac, identity } = await pairPhone(api, closers);
+    first.stop();
+    await until(async () => (await api('GET', '/api/remote')).json().devices.find((d: any) => d.id === first.id)?.online === false);
+    expect((await api('DELETE', `/api/remote/devices/${first.id}`)).statusCode).toBe(200);
+    // Built from the stored pairing, as the app does after a restart.
+    const back = new RemoteClient({
+      relayUrl, mac, identity, WebSocketImpl: WebSocket, app: 'orbital-mobile/test', expectPaired: true,
+    });
+    closers.push(() => back.stop());
+    const unpaired = nextEvent(back, 'unpaired');
+    back.start();
+    expect(await unpaired).toEqual({ type: 'unpaired' });
+    expect(back.status).toBe('off');
+  }, 20_000);
 });

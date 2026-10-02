@@ -70,7 +70,7 @@ async function pair(
   // Before any client exists: a Cancel during the key load leaves nothing behind.
   if (cancelled()) return
   const fingerprint = fingerprintFor(qr.mac, identity.publicKey)
-  const client = newClient(qr.relay, qr.mac, identity)
+  const client = newClient(qr.relay, qr.mac, identity, { expectPaired: false })
   held.client = client
   clientRef.set(client)
   const online = waitFor(client, (e) => e.type === 'status' && e.status === 'online', CONNECT_TIMEOUT_MS)

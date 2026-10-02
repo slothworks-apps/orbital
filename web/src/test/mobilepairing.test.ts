@@ -111,6 +111,8 @@ describe('runPairing', () => {
     io.loadOrCreateIdentity.mockResolvedValue(phone)
     const done = run()
     await vi.waitFor(() => expect(client.redeem).toHaveBeenCalledWith('tok', qr.secret, 'Pixel', 'android'))
+    // No pair exists yet: asking the relay to confirm one would get `unpaired`.
+    expect(io.newClient).toHaveBeenCalledWith(qr.relay, qr.mac, phone, { expectPaired: false })
     expect(io.savePairing).not.toHaveBeenCalled()
     outcome.resolve('paired')
     await done

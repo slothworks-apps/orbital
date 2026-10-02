@@ -31,7 +31,7 @@ export type WsContext = {
   pingIntervalMs: number;
 };
 
-export function handleSocket(socket: WebSocket, ctx: WsContext): void {
+export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: string | null): void {
   const nonce = randomBytes(16).toString('base64url');
   send(socket, { type: 'challenge', nonce });
   const authTimer = setTimeout(() => socket.close(4001, 'auth timeout'), AUTH_TIMEOUT_MS);
@@ -60,12 +60,12 @@ export function handleSocket(socket: WebSocket, ctx: WsContext): void {
       await ctx.store.touch(pub, ctx.now());
       if (socket.readyState !== socket.OPEN) return;
       socket.off('message', hold);
-      attach({ socket, id: pub, peers }, ctx, early);
+      attach({ socket, id: pub, peers }, ctx, early, expectMac);
     })().catch(() => socket.close(1011, 'store error'));
   });
 }
 
-function attach(conn: Conn, ctx: WsContext, early: [RawData, boolean][]): void {
+function attach(conn: Conn, ctx: WsContext, early: [RawData, boolean][], expectMac: string | null): void {
   const { socket, id, peers } = conn;
   const previous = ctx.connections.add(conn);
   // One socket per device: the predecessor is replaced outright, since a
@@ -76,6 +76,10 @@ function attach(conn: Conn, ctx: WsContext, early: [RawData, boolean][]): void {
   log(`device ${short(id)} connected${previous ? ', replacing its previous socket' : ''}`);
 
   send(socket, { type: 'ok', peers: [...peers].filter((p) => ctx.connections.isOnline(p)) });
+  // A device that expects a pair the relay no longer holds would otherwise
+  // read its Mac as asleep forever: `ok` lists only online peers, and the
+  // `unpaired` sent at revoke time went to a socket that did not exist.
+  if (expectMac !== null && !peers.has(expectMac)) send(socket, { type: 'unpaired', mac: expectMac });
   for (const p of peers) ctx.connections.sendControl(p, { type: 'presence', peer: id, online: true });
   for (const frame of ctx.queue.drain(id)) socket.send(frame);
 

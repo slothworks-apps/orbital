@@ -95,6 +95,13 @@ export type RemoteClientOptions = {
   WebSocketImpl: SocketConstructor;
   /** What `hello` names this app as. */
   app: string;
+  /**
+   * True when the client is built from a stored pairing: the relay then
+   * answers `unpaired` on connect if the Mac no longer has this phone, which
+   * is the only way a phone revoked while it was away ever learns it. Off
+   * while pairing, when no pair exists yet.
+   */
+  expectPaired?: boolean;
   now?: () => number;
   fetchImpl?: (input: string, init: RequestInit) => Promise<Response>;
   reconnectDelayMs?: number;
@@ -303,7 +310,7 @@ export class RemoteClient {
     this.setStatus('connecting');
     let ws: SocketLike;
     try {
-      ws = new this.opts.WebSocketImpl(relayWsUrl(this.opts.relayUrl, this.opts.mac));
+      ws = new this.opts.WebSocketImpl(relayWsUrl(this.opts.relayUrl, this.opts.mac, { paired: this.opts.expectPaired === true }));
     } catch {
       // A relay URL no socket can open will not open on the next attempt either.
       this.stopped = true;
