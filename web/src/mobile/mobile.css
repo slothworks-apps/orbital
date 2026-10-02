@@ -1,0 +1,36 @@
+/*
+ * The phone's layout rules (spec 2026-10-02-mobile-app-design § 1): the
+ * desktop panels are reused as they are, and 9b's touch metrics reach them
+ * through `data-platform="mobile"` on the root, never through props threaded
+ * into `panels/`. The values are 9b's; the fidelity pass owns them.
+ */
+:root[data-platform='mobile'] body {
+  background: var(--color-space);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root[data-platform='mobile'] #root {
+  /* Each screen scrolls inside itself (`MobileScreen`), so the root is exactly the viewport. */
+  box-sizing: border-box;
+  height: 100dvh;
+  overflow: hidden;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* 9b: a tool row is a touch target. */
+:root[data-platform='mobile'] [data-tool-header] > button {
+  min-height: 44px;
+}
+
+/* 9b: a folded run reads on two lines — the count, then the breakdown. */
+:root[data-platform='mobile'] [data-tool-run] > button {
+  flex-wrap: wrap;
+  min-height: 44px;
+  row-gap: 2px;
+}
+:root[data-platform='mobile'] [data-run-breakdown] {
+  flex-basis: 100%;
+  order: 10;
+  padding-left: 1.5rem;
+}

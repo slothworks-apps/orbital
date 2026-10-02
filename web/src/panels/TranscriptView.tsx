@@ -519,7 +519,7 @@ function ToolRunGroup({
         <span aria-hidden className="text-[rgba(160,190,225,.6)]">⚙</span>
         <span className="shrink-0 text-text-bright">{summary.count} tool calls</span>
         <span aria-hidden className="text-[rgba(150,205,255,.28)]">·</span>
-        <span className="min-w-0 flex-1 truncate text-[rgba(160,190,225,.6)]">{summary.breakdown}</span>
+        <span data-run-breakdown className="min-w-0 flex-1 truncate text-[rgba(160,190,225,.6)]">{summary.breakdown}</span>
         {formatToolDuration(summary.durationMs) && (
           // Canvas 11b: the run's summed duration, appended to the
           // breakdown ("4 tool calls · Read ×3, Grep ×1 · 6.2s") rather than

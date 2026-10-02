@@ -20,6 +20,8 @@ export default tseslint.config(
       '**/dist/',
       '**/node_modules/',
       '**/coverage/',
+      'web/dist-mobile/',
+      'mobile/android/',
       'server/drizzle/',
       'desktop/release/',
       'design/',
@@ -116,7 +118,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['web/vite.config.ts', 'web/vitest.config.ts', 'server/*.config.ts'],
+    files: ['web/vite.config.ts', 'web/vite.mobile.config.ts', 'web/vitest.config.ts', 'server/*.config.ts'],
     languageOptions: { globals: globals.node },
   },
 

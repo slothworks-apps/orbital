@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "build:mobile": "vite build --config vite.mobile.config.ts",
+    "dev:mobile": "vite --config vite.mobile.config.ts",
+    "test:bundle": "vitest run --mode bundle src/test/mobilebundle.test.ts",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc -b --noEmit"
