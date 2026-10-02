@@ -50,7 +50,8 @@ export function makeTunnelFetch(
     const method = (init.method ?? 'GET').toUpperCase()
     if (!METHODS.has(method)) throw new TypeError(`method not tunnelled: ${method}`)
     let body: unknown
-    if (init.body !== undefined && init.body !== null) {
+    // An empty string is how a caller with nothing to send still sets a body; it carries no JSON.
+    if (init.body !== undefined && init.body !== null && init.body !== '') {
       if (typeof init.body !== 'string') throw new TypeError('only JSON bodies are tunnelled')
       try {
         body = JSON.parse(init.body)

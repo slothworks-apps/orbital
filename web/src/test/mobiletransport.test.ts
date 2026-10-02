@@ -53,6 +53,13 @@ describe('tunnelFetch', () => {
     await expect(makeTunnelFetch(client, ORIGIN)('/api/sessions')).rejects.toBeInstanceOf(TypeError)
   })
 
+  it('treats an empty string body as no body', async () => {
+    const client = new FakeClient()
+    client.request.mockResolvedValueOnce({ status: 200, body: {} })
+    await makeTunnelFetch(client, ORIGIN)('/api/sessions', { method: 'POST', body: '' })
+    expect(client.request).toHaveBeenCalledWith('POST', '/api/sessions', undefined)
+  })
+
   it('refuses what it cannot carry: another origin, a path outside /api, a multipart body', async () => {
     const client = new FakeClient()
     const f = makeTunnelFetch(client, ORIGIN)
@@ -107,6 +114,26 @@ describe('TunnelSocket', () => {
     expect(JSON.parse((onmessage.mock.calls[0][0] as MessageEvent).data as string)).toEqual({ topic: 'sessions', event: 'upsert' })
   })
 
+  it('lets go of what it held when the tunnel drops, so the next socket resubscribes only what is still wanted', () => {
+    const client = new FakeClient()
+    const socket = new TunnelSocket(client)
+    client.emit({ type: 'ready', ready: true })
+    socket.send(JSON.stringify({ type: 'subscribe', topic: 'sessions' }))
+    client.emit({ type: 'ready', ready: false })
+    expect(client.unsubscribe).toHaveBeenCalledWith('sessions')
+
+    // The socket OrbitalSocket builds on the next reconnect attempt: it only
+    // resends what it still has handlers for.
+    client.unsubscribe.mockClear()
+    client.subscribe.mockClear()
+    const next = new TunnelSocket(client)
+    client.emit({ type: 'ready', ready: true })
+    next.send(JSON.stringify({ type: 'subscribe', topic: 'sessions' }))
+    expect(client.subscribe).toHaveBeenCalledTimes(1)
+    expect(client.subscribe).toHaveBeenCalledWith('sessions')
+    expect(client.unsubscribe).not.toHaveBeenCalled()
+  })
+
   it("carries OrbitalSocket's subscriptions and frames", async () => {
     const client = new FakeClient()
     client.ready = true
@@ -155,6 +182,15 @@ describe('makeImageResolver', () => {
     expect(client.getBlob).toHaveBeenCalledTimes(2)
   })
 
+  it('falls through to the tunnel when the cache read itself fails', async () => {
+    const client = new FakeClient()
+    client.getBlob.mockResolvedValue({ status: 200, bytes: new Uint8Array([1]), mediaType: 'image/png' })
+    const io = { read: vi.fn(async () => { throw new Error('disk error') }), write: vi.fn(async () => {}) }
+    const resolve = makeImageResolver(client, io, toUrl)
+    await expect(resolve(REF)).resolves.toBe('blob:image/png:1')
+    expect(client.getBlob).toHaveBeenCalledTimes(1)
+  })
+
   it('names the media type from the ref', () => {
     expect(mediaTypeOf(`${'d'.repeat(64)}.jpg`)).toBe('image/jpeg')
     expect(mediaTypeOf('x.bin')).toBe('application/octet-stream')
@@ -183,5 +219,16 @@ describe('ClientRef', () => {
     const ref = new ClientRef()
     await expect(ref.request('GET', '/api/sessions')).rejects.toMatchObject({ reason: 'offline' })
     await expect(ref.recheck(10)).resolves.toBe(false)
+  })
+
+  it('reads a client handed over already ready as the tunnel just coming up', () => {
+    const ref = new ClientRef()
+    const events: RemoteClientEvent[] = []
+    ref.on((e) => events.push(e))
+    const client = new FakeClient()
+    client.ready = true
+    ref.set(client)
+    expect(ref.ready).toBe(true)
+    expect(events).toContainEqual({ type: 'ready', ready: true })
   })
 })

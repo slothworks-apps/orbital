@@ -21,6 +21,8 @@ export class TunnelSocket {
   onerror: ((event: Event) => void) | null = null
   private detach: (() => void) | null
   private readonly client: Pick<TunnelClient, 'ready' | 'on' | 'subscribe' | 'unsubscribe'>
+  /** Topics this socket told the client to hold, so `shut` can let go of exactly those. */
+  private readonly subscribed = new Set<string>()
 
   constructor(client: Pick<TunnelClient, 'ready' | 'on' | 'subscribe' | 'unsubscribe'>) {
     this.client = client
@@ -38,8 +40,13 @@ export class TunnelSocket {
       return
     }
     if (typeof msg.topic !== 'string') return
-    if (msg.type === 'subscribe') this.client.subscribe(msg.topic)
-    else if (msg.type === 'unsubscribe') this.client.unsubscribe(msg.topic)
+    if (msg.type === 'subscribe') {
+      this.subscribed.add(msg.topic)
+      this.client.subscribe(msg.topic)
+    } else if (msg.type === 'unsubscribe') {
+      this.subscribed.delete(msg.topic)
+      this.client.unsubscribe(msg.topic)
+    }
   }
 
   /** As a real socket does, `onclose` follows asynchronously. */
@@ -73,6 +80,12 @@ export class TunnelSocket {
     this.readyState = TunnelSocket.CLOSED
     this.detach?.()
     this.detach = null
+    // The client is not ready here (that is why we are shutting), so this
+    // only drops these topics from its set and sends nothing; the next
+    // socket's resubscribe (`OrbitalSocket`'s own reconnect) restores
+    // exactly the set still wanted, instead of every topic ever held.
+    for (const topic of this.subscribed) this.client.unsubscribe(topic)
+    this.subscribed.clear()
     this.onclose?.()
   }
 }

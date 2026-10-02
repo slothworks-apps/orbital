@@ -38,7 +38,8 @@ export function makeImageResolver(
     const running = inflight.get(ref)
     if (running) return running
     const loading = (async () => {
-      let bytes = await io.read(ref)
+      // A cache read that fails is a miss, not a reason to give up: fall through to the tunnel.
+      let bytes = await io.read(ref).catch(() => null)
       if (!bytes) {
         const answer = await client.getBlob(ref)
         if (answer.status !== 200) throw new Error(`image ${answer.status}`)

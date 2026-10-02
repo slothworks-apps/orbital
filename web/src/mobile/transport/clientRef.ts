@@ -41,7 +41,13 @@ export class ClientRef implements SwappableClient {
     this.current = client
     previous?.stop()
     if (wasReady) this.emit({ type: 'ready', ready: false })
-    if (client) this.detach = client.on((event) => this.emit(event))
+    if (client) {
+      this.detach = client.on((event) => this.emit(event))
+      // A client handed over already ready (a reconnect that beat the swap)
+      // reads as the tunnel coming up now — a listener never sees `ready`
+      // true without first hearing the event that got it there.
+      if (client.ready) this.emit({ type: 'ready', ready: true })
+    }
   }
 
   on(listener: (event: RemoteClientEvent) => void): () => void {
