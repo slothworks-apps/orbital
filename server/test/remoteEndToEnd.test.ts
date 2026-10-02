@@ -1,54 +1,15 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type { FastifyInstance } from 'fastify';
-import { buildRelay } from '@orbital/relay/app';
-import { openRelayStore } from '@orbital/relay/store';
 import { fingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
 import { chunkBlob } from '@orbital/shared/remote/messages';
-import { buildServer } from '../src/index.js';
-import { openDb } from '../src/db/database.js';
-import { settings as settingsTable } from '../src/db/schema.js';
 import { FakePhone } from './remoteFakePhone.js';
-
-async function listen(app: FastifyInstance): Promise<string> {
-  await app.listen({ port: 0, host: '127.0.0.1' });
-  const addr = app.server.address() as { port: number };
-  return `http://127.0.0.1:${addr.port}`;
-}
-
-async function until(cond: () => Promise<boolean> | boolean, ms = 5000): Promise<void> {
-  const end = Date.now() + ms;
-  while (!(await cond())) {
-    if (Date.now() > end) throw new Error('timeout');
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
+import { startMacAndRelay, until } from './remoteHarness.js';
 
 describe('mobile remote, end to end', () => {
   const closers: (() => unknown)[] = [];
   afterEach(async () => { for (const c of closers.splice(0).reverse()) await c(); });
 
   it('pairs, tunnels the api and hub, moves an image both ways, and revokes', async () => {
-    const relay = await buildRelay({ store: await openRelayStore(':memory:') });
-    const relayUrl = await listen(relay);
-    closers.push(() => relay.close());
-
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-e2e-'));
-    const dbPath = join(dir, 'index.db');
-    const db = openDb(dbPath);
-    for (const [key, value] of [['remote_enabled', 'true'], ['remote_relay_url', relayUrl], ['remote_mac_name', 'studio']]) {
-      db.insert(settingsTable).values({ key, value }).onConflictDoUpdate({ target: settingsTable.key, set: { value } }).run();
-    }
-    // Seeded before boot so the remote starts enabled; the server opens its own handle.
-    db.$client.close();
-    const app = await buildServer({ dbPath, claudeDir: join(dir, 'claude'), dataDir: dir });
-    closers.push(() => app.close());
-    const api = (method: 'GET' | 'POST' | 'DELETE', url: string, payload?: unknown) =>
-      app.inject({ method, url, payload: payload as any });
-
-    await until(async () => (await api('GET', '/api/remote')).json().relay === 'online');
+    const { relayUrl, app, api } = await startMacAndRelay(closers);
 
     // Pair: QR on the Mac, redeem from the phone, fingerprint matches, confirm on the Mac.
     const pair = await api('POST', '/api/remote/pair');
