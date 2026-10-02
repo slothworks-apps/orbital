@@ -117,11 +117,16 @@ this Mac and drive Orbital's API over an end-to-end encrypted tunnel, for
 deployment on Dokploy. The backend (relay, wire protocol in `shared/`,
 and the Mac side in `server/src/remote/`) and the desktop's Settings →
 Mobile (the switch, the pairing QR, the fingerprint confirmation, the
-paired phones) are built; there is no phone client yet, so nothing can
-pair until one exists. Off is the default.
+paired phones) are built. The phone app is `mobile/` (the Capacitor shell)
+around `web/src/mobile/`; see
+[`docs/ops/build-the-android-app.md`](docs/ops/build-the-android-app.md).
+Off is the default.
 
 ```bash
 npm run dev -w relay     # relay on :4840, SQLite under relay/data/
+npm run dev:mobile -w @orbital/web   # the phone's UI in a browser, :4841
+npm run build -w @orbital/mobile     # web mobile build + cap sync android
+npm run apk -w @orbital/mobile       # debug APK
 ```
 
 See [`docs/superpowers/specs/2026-09-30-mobile-remote-design.md`](docs/superpowers/specs/2026-09-30-mobile-remote-design.md)

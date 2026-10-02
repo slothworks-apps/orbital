@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -9,7 +10,12 @@ import { defineConfig, type Plugin } from 'vite'
  * since the phone never talks to a local server; and every chunk's module
  * list beside the manifest, for the bundle guard (`src/mobile/bundleGuard.ts`).
  */
-const ENTRY = 'index.mobile.html'
+/** `orbital mobile <version>` in 9f's footer and the `hello` app string: the shell's version. */
+const mobileVersion = (
+  JSON.parse(readFileSync(new URL('../mobile/package.json', import.meta.url), 'utf8')) as { version: string }
+).version
+
+const ENTRY ='index.mobile.html'
 
 function mobileEntry(): Plugin {
   return {
@@ -50,6 +56,7 @@ export default defineConfig({
   plugins: [tailwindcss(), react(), mobileEntry(), chunkModules()],
   define: {
     __MOBILE_DEV__: JSON.stringify(process.env.ORBITAL_MOBILE_DEV === '1'),
+    __MOBILE_VERSION__: JSON.stringify(mobileVersion),
   },
   build: {
     outDir: 'dist-mobile',

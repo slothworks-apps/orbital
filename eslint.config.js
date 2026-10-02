@@ -80,7 +80,7 @@ export default tseslint.config(
   },
 
   {
-    files: ['server/**/*.ts', 'desktop/**/*.ts', 'scripts/**/*.ts'],
+    files: ['server/**/*.ts', 'desktop/**/*.ts', 'scripts/**/*.ts', 'mobile/*.ts'],
     languageOptions: { globals: globals.node },
   },
 
