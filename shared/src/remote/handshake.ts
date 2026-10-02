@@ -95,8 +95,15 @@ export function startHandshake(identity: Identity, peerPublicKey: Uint8Array, ro
 export class SessionCipher {
   private sendCounter = 0n;
   private lastReceived = -1n;
+  private readonly sendKey: Uint8Array;
+  private readonly recvKey: Uint8Array;
 
-  constructor(private readonly sendKey: Uint8Array, private readonly recvKey: Uint8Array) {}
+  // Plain fields, not parameter properties: web/ compiles this file with
+  // `erasableSyntaxOnly` since the phone's client imports it.
+  constructor(sendKey: Uint8Array, recvKey: Uint8Array) {
+    this.sendKey = sendKey;
+    this.recvKey = recvKey;
+  }
 
   /** nonce (NONCE_BYTES, a big-endian counter) followed by ciphertext + tag. */
   seal(plain: Uint8Array): Uint8Array {
