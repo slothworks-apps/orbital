@@ -41,6 +41,7 @@ import { statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
+import { RecentToolsStore } from './transcript/recentTools.js';
 import { OutputFollower } from './files/taskOutput.js';
 import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { HarnessService } from './harness/service.js';
@@ -83,6 +84,7 @@ export function publishLiveSession(ctx: PublishContext, live: LiveSession): void
         permissionMode: null, tagIds: [], status: live.status,
         subagents: ctx.subagents.all(live.sessionId),
         backgroundTasks: ctx.backgroundTasks.all(live.sessionId),
+        recentTools: ctx.recentTools.all(live.sessionId),
       };
   ctx.hub.publish('sessions', { event: 'upsert', session });
 }
@@ -343,6 +345,10 @@ export async function buildServer(overrides: {
   // `republish` is only called once the runner below exists.
   const backgroundTasks = new BackgroundTaskStore({ db, onChange: (sessionId) => republish(sessionId) });
   backgroundTasks.load();
+  // Every session's recent tool calls — the last 30 per session, in-memory
+  // only, fed from tool_use blocks in both the runner stream and transcript
+  // tails. Dropped when a session ends (spec 2026-10-01-map-themes-design § 5).
+  const recentTools = new RecentToolsStore();
   // Built on call, not up front: the runner it names is constructed below and
   // is itself one of the things that asks for a republish.
   // Where each session's `cwd` sits in git, cached per working tree and kept
@@ -360,7 +366,7 @@ export async function buildServer(overrides: {
   // session in it open (spec 2026-09-30-branch-pr-and-line-changes-design).
   // The settings are read per call, so a switch applies without a restart.
   const branchStatus = new BranchStatusStore({ git, settings: settingsStore });
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, git, ide, branchStatus });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
   /** A session's directory: its row, or the registry for one not indexed yet. */
   const cwdOf = (sessionId: string): string | undefined =>
@@ -514,6 +520,9 @@ export async function buildServer(overrides: {
     // now, without a status (spec 2026-09-28-background-tasks-design § 2
     // Ending). The republish below carries it.
     backgroundTasks.endAll(sessionId);
+    // Recent tool calls are dropped — they are in-memory only and meant to
+    // be live (spec 2026-10-01-map-themes-design § 5).
+    recentTools.drop(sessionId);
     // One of the two moments a session's stats are written (spec
     // 2026-09-20-session-stats-design § Evaluation cadence). `liveStats`
     // is declared below, like `runner` in `publishCtx`.
@@ -632,6 +641,12 @@ export async function buildServer(overrides: {
       // A notification can name the output file for the first time; a view
       // already open on the task starts following it then.
       if (msg.subtype === 'task_notification') startFollower(`task-output:${sessionId}:${msg.task_id}`);
+    },
+    // Record tool calls for the recent-tools list. Fed from tool_use blocks
+    // in the main loop (not subagent frames, only the session's own).
+    onToolUse: (sessionId, toolName, toolInput, at) => {
+      recentTools.record(sessionId, toolName, toolInput, at);
+      republish(sessionId);
     },
     // The same stores, read back: a session whose turn ended with agents or
     // background tasks still running is working, not waiting for the human
@@ -830,6 +845,22 @@ export async function buildServer(overrides: {
     const tail = new TranscriptTail(transcriptPath);
     tail.on('entries', (entries) => {
       liveStats.feed(id, entries);
+      // Extract and record tool_use blocks from terminal sessions
+      const now = Date.now();
+      for (const entry of entries) {
+        if (entry.type === 'assistant' && Array.isArray(entry.message?.content)) {
+          for (const block of entry.message.content) {
+            if (block && typeof block === 'object' && (block as Record<string, unknown>).type === 'tool_use') {
+              const toolBlock = block as Record<string, unknown>;
+              const toolName = toolBlock.name;
+              const toolInput = toolBlock.input;
+              if (typeof toolName === 'string') {
+                recentTools.record(id, toolName, toolInput, now);
+              }
+            }
+          }
+        }
+      }
       for (const msg of entriesToMessages(entries, images)) {
         hub.publish(topic, { event: 'message', message: msg });
       }
@@ -1060,7 +1091,7 @@ export async function buildServer(overrides: {
     allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
   });
   registerRoutes(app, {
-    db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, errors,
+    db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote,
     settings: settingsStore,
     mcp: mcpConfig,

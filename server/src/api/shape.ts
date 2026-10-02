@@ -7,6 +7,7 @@ import type { SessionRegistry } from '../watcher/registry.js';
 import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '../types.js';
 import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
 import type { BackgroundTaskInfo, BackgroundTaskStore } from '../transcript/backgroundTasks.js';
+import type { RecentToolsStore } from '../transcript/recentTools.js';
 import type { GitStore } from '../git/store.js';
 import type { GitLocation } from '../git/gitState.js';
 import type { BranchStatusStore } from '../git/branchStatusStore.js';
@@ -26,6 +27,7 @@ export interface ShapeContext {
   runner: Runner;
   subagents: SubagentStore;
   backgroundTasks: BackgroundTaskStore;
+  recentTools: RecentToolsStore;
   git: GitStore;
   ide: IdeStore;
   branchStatus: BranchStatusStore;
@@ -102,6 +104,17 @@ export interface ApiSession {
    * events exist only on the SDK stream.
    */
   backgroundTasks: BackgroundTaskInfo[];
+  /**
+   * The last 30 tool calls this session has made, in order. Used by
+   * Archipelago ships and Desk cards to show the latest call (spec
+   * 2026-10-01-map-themes-design § 5). Empty for terminal sessions and when
+   * no tool has been called yet.
+   *
+   * Optional here for the same reason as `pendingDecision`: the server
+   * always sends the field, absent and empty mean the same thing to every
+   * reader, and requiring it would rewrite every session fixture in the suite.
+   */
+  recentTools?: import('../transcript/recentTools.js').RecentTool[];
   /**
    * The question this session's CLI is blocked on, or null — which is what
    * every terminal and ended session gets, their decisions having died with
@@ -237,6 +250,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     awaitingSubagents: ctx.runner.awaitingSubagents(row.id),
     subagents: ctx.subagents.all(row.id),
     backgroundTasks: ctx.backgroundTasks.all(row.id),
+    recentTools: ctx.recentTools.all(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
     git: ctx.git.locate(row.cwd),
     ...branchOf(ctx, row.cwd),

@@ -4,6 +4,17 @@ export type SessionSource = 'terminal' | 'web'
  * and the dot colour for each. Mirrored in `server/src/types.ts`. */
 export type PermissionMode = 'plan' | 'acceptEdits' | 'auto' | 'bypassPermissions'
 
+/**
+ * A recent tool call. Includes the tool name and an optional summary derived
+ * from its input (a path, command, pattern, etc.). Mirrors
+ * `server/src/transcript/recentTools.ts`.
+ */
+export interface RecentTool {
+  name: string
+  summary: string | null
+  at: number
+}
+
 export interface ApiSession {
   id: string
   cwd: string
@@ -83,6 +94,17 @@ export interface ApiSession {
    * reader, and requiring it would rewrite every session fixture.
    */
   backgroundTasks?: BackgroundTask[]
+  /**
+   * The last 30 tool calls this session has made, in order. Used by
+   * Archipelago ships and Desk cards to show the latest call (spec
+   * 2026-10-01-map-themes-design § 5). Empty for terminal sessions and when
+   * no tool has been called yet. Mirrors `server/src/api/shape.ts`.
+   *
+   * Optional here for the same reason as `backgroundTasks`: the server
+   * always sends the field, absent and empty mean the same thing to every
+   * reader, and requiring it would rewrite every session fixture.
+   */
+  recentTools?: RecentTool[]
   /**
    * The question this session is blocked on, or null. Part of the session
    * snapshot precisely so a reload does not lose it (spec:

@@ -100,6 +100,10 @@ export interface RouteContext {
   /** Every session's background tasks, with the output path each one's
    * output route may read (spec 2026-09-28-background-tasks-design §§ 2, 4). */
   backgroundTasks: BackgroundTaskStore;
+  /** Every session's recent tool calls — the last 30 per session, fed from
+   * tool_use blocks in the runner stream and transcript tails (spec
+   * 2026-10-01-map-themes-design § 5). */
+  recentTools: import('../transcript/recentTools.js').RecentToolsStore;
   errors: ErrorLog;
   /** Names a session from its own contents; here, only ever on demand. */
   titler: SessionTitler;

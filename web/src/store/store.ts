@@ -3048,6 +3048,20 @@ export function mapStatePills(settings: Record<string, string>): MapStatePills {
   return settings.map_state_pills === 'label' ? 'label' : 'dot'
 }
 
+/** Map theme: Planets (default), Archipelago, or Desk renderer. */
+export type MapTheme = 'planets' | 'archipelago' | 'desk'
+
+/**
+ * Which map renderer to use. Defaults to Planets. The theme changes only
+ * the map surface; the sidebar, detail panel, subagent panel and every
+ * dialog stay the same.
+ */
+export function mapTheme(settings: Record<string, string>): MapTheme {
+  const value = settings.map_theme
+  if (value === 'archipelago' || value === 'desk') return value
+  return 'planets'
+}
+
 /**
  * What the space map draws: every session minus the ones the origin filter
  * excludes, minus every session that has left the map (`absorptionFor`). The

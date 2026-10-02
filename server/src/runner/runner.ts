@@ -770,6 +770,7 @@ export class Runner {
   private onInit?: (sessionId: string, model: string | null) => void;
   private onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;
   private onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
+  private onToolUse?: (sessionId: string, toolName: string, toolInput: unknown, at: number) => void;
   private hasLiveBackgroundWork?: (sessionId: string) => boolean;
   private sessionTools?: (sessionId: string) => SessionTools | undefined;
   private autoAllow?: (sessionId: string, toolName: string, input: Record<string, unknown>) => boolean;
@@ -874,6 +875,14 @@ export class Runner {
      * (adr: subagent-liveness-from-sdk-task-events).
      */
     onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
+    /**
+     * A tool call the main loop made — a `tool_use` block in an assistant
+     * message. The tool blocks alone answer it; `task_started` messages are
+     * separate (for agent tasks only). Fed from tool_use blocks in both the
+     * runner stream and transcript tails, for the recent-tools list (spec
+     * 2026-10-01-map-themes-design § 5).
+     */
+    onToolUse?: (sessionId: string, toolName: string, toolInput: unknown, at: number) => void;
     /**
      * Whether anything this session launched is still running — a subagent
      * or a background task — read straight back out of the stores
@@ -1014,6 +1023,7 @@ export class Runner {
     this.onInit = deps.onInit;
     this.onEntries = deps.onEntries;
     this.onTaskEvent = deps.onTaskEvent;
+    this.onToolUse = deps.onToolUse;
     this.hasLiveBackgroundWork = deps.hasLiveBackgroundWork;
     this.sessionTools = deps.sessionTools;
     this.autoAllow = deps.autoAllow;
@@ -1609,6 +1619,20 @@ export class Runner {
         // Every delta of a block goes out before the block itself, so
         // the client never sees a complete row grow afterwards.
         this.flushStream(sessionId, state);
+        // Record tool_use blocks from the main loop for recent tools
+        if (msg.type === 'assistant' && Array.isArray(msg.message?.content)) {
+          const now = Date.now();
+          for (const block of msg.message.content) {
+            if (block && typeof block === 'object' && (block as Record<string, unknown>).type === 'tool_use') {
+              const toolBlock = block as Record<string, unknown>;
+              const toolName = toolBlock.name;
+              const toolInput = toolBlock.input;
+              if (typeof toolName === 'string') {
+                this.onToolUse?.(sessionId, toolName, toolInput, now);
+              }
+            }
+          }
+        }
         const idFor = this.streamedIdFor(state.stream, msg);
         for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images, idFor)) {
           this.hub.publish(topic, { event: 'message', message: chat });

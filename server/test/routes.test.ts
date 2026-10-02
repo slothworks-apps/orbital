@@ -35,6 +35,7 @@ import { resolveClaudeCodeVersion } from '../src/runner/version.js';
 import type { SessionRow, SessionStatus } from '../src/types.js';
 import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.js';
 import { BackgroundTaskStore } from '../src/transcript/backgroundTasks.js';
+import { RecentToolsStore } from '../src/transcript/recentTools.js';
 import { createImageStore, type ImageStore } from '../src/images/store.js';
 import { RemoteService } from '../src/remote/service.js';
 import { createFileStore } from '../src/files/store.js';
@@ -192,6 +193,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
   const subagents = new SubagentStore();
   const subagentTranscripts = new SubagentTranscripts();
   const backgroundTasks = new BackgroundTaskStore({ db });
+  const recentTools = new RecentToolsStore();
   const errors = new ErrorLog({ db, hub });
   const imagesDir = mkdtempSync(join(tmpdir(), 'orbital-images-'));
   const imageStore = createImageStore(imagesDir);
@@ -222,6 +224,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     models: modelCatalog as any,
     subagents,
     backgroundTasks,
+    recentTools,
     git: gitStore,
     ide: opts.ide ?? ideStore,
     branchStatus: opts.branchStatus ?? branchStatusStore,
@@ -778,7 +781,7 @@ describe('REST routes', () => {
       sessionId: 's1', pid: 1, cwd: '/w/x', name: 'auth fix',
       status: 'working' as const, kind: 'claude', startedAt: 0, updatedAt: 500,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), recentTools: new RecentToolsStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({ id: 's1', status: 'working', tagIds: [10] });
@@ -790,7 +793,7 @@ describe('REST routes', () => {
       sessionId: 'term-9', pid: 1, cwd: '/w/z', name: 'untracked',
       status: 'idle' as const, kind: 'claude', startedAt: 0, updatedAt: 700,
     };
-    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore }, live);
+    publishLiveSession({ hub, db, registry: registry, runner: runner, subagents, backgroundTasks: new BackgroundTaskStore(), recentTools: new RecentToolsStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore }, live);
     const upserts = received.filter((r) => r.event === 'upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0].session).toMatchObject({
@@ -802,7 +805,7 @@ describe('REST routes', () => {
   // A selection drag in a big workspace used to republish every session ever
   // run there (audit resource-usage-pass-2026-09-24, finding 4).
   it('a directory change republishes live sessions and open ones, not every ended one', () => {
-    const ctx = { hub, db, registry, runner, subagents, backgroundTasks: new BackgroundTaskStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore };
+    const ctx = { hub, db, registry, runner, subagents, backgroundTasks: new BackgroundTaskStore(), recentTools: new RecentToolsStore(), git: gitStore, ide: ideStore, branchStatus: branchStatusStore };
     db.insert(sessions)
       .values({ id: 's3', projectDir: 'p', cwd: '/w/x', title: 'ended', lastAt: 50, source: 'web' })
       .run();
@@ -1213,6 +1216,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       models: { list: async () => [], recordContextWindows: () => {} } as any,
       subagents: new SubagentStore(),
       backgroundTasks: new BackgroundTaskStore(),
+      recentTools: new RecentToolsStore(),
       git: gitStore,
       ide: ideStore,
       branchStatus: branchStatusStore,

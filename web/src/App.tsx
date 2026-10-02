@@ -16,7 +16,7 @@ import { useViewportWidth } from './lib/useViewportWidth'
 import { useTranscriptCheck } from './lib/useTranscriptCheck'
 import { STATS_PATH } from './stats/route'
 import type { ApiSession } from './lib/types'
-import { SpaceMap } from './map/SpaceMap'
+import { MapView } from './map/MapView'
 import { Sidebar } from './panels/Sidebar'
 import { DetailPanel } from './panels/DetailPanel'
 import { SubagentPanel } from './panels/SubagentPanel'
@@ -231,7 +231,7 @@ export default function App() {
     <div className="relative h-screen w-screen overflow-hidden bg-space">
       <div className="absolute inset-0">
         <ErrorBoundary label="Space map">
-          <SpaceMap />
+          <MapView />
         </ErrorBoundary>
       </div>
 

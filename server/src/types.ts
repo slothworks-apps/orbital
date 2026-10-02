@@ -1,4 +1,5 @@
 import type { WalkthroughTag } from './walkthrough/tag.js';
+import type { RecentTool } from './transcript/recentTools.js';
 
 export type SessionSource = 'terminal' | 'web';
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended';
@@ -11,6 +12,9 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const isPermissionMode = (value: unknown): value is PermissionMode =>
   (PERMISSION_MODES as readonly unknown[]).includes(value);
 export type SubagentState = 'materializing' | 'working' | 'idle' | 'needs_input' | 'ended';
+
+// Re-export RecentTool for API use
+export type { RecentTool };
 /**
  * Where a session's title came from. `derived` is the indexer's read of the
  * first user turn, `auto` is the titler's, and `manual` is a person's — the

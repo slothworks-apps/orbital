@@ -14,6 +14,7 @@ import {
   headerLineChanges,
   headerPullRequest,
   mapStatePills,
+  mapTheme,
   expandDiffOnPermission,
   guardGesture,
   type HeaderSessionStats,
@@ -138,6 +139,13 @@ const GH_REASON: Record<Exclude<GhAvailability, 'ready'>, string> = {
 const STATE_PILL_OPTIONS: Array<{ value: MapStatePills; label: string }> = [
   { value: 'dot', label: 'Dot' },
   { value: 'label', label: 'Label' },
+]
+
+/** Settings → Appearance → MAP → "Theme" — three map renderers. Planets first: it is the default. */
+const MAP_THEME_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'planets', label: 'Planets' },
+  { value: 'archipelago', label: 'Archipelago' },
+  { value: 'desk', label: 'Desk' },
 ]
 
 /**
@@ -790,6 +798,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const lineChanges = headerLineChanges(settings)
   const lineChangesPreview = lineGroups(LINE_CHANGES_SAMPLE, lineChanges)
   const statePills = mapStatePills(settings)
+  const theme = mapTheme(settings)
   const editDiffs = settings.transcript_edit_diffs === 'expanded' ? 'expanded' : 'collapsed'
   const expandDiffOnPermissionRow = expandDiffOnPermission(settings)
   const guard = guardGesture(settings)
@@ -1342,9 +1351,21 @@ export function Settings({ open, onClose }: SettingsProps) {
 
                       <SectionLabel>MAP</SectionLabel>
                       <Row
-                        title="Default planet size"
-                        desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
+                        title="Theme"
+                        desc="How the map is drawn. Planets is the familiar space view; Archipelago and Desk are alternative renderers with the same functionality."
                       >
+                        <Segmented
+                          label="Map theme"
+                          options={MAP_THEME_OPTIONS}
+                          value={theme}
+                          onChange={(next) => void patchAndSet({ map_theme: next })}
+                        />
+                      </Row>
+                      {theme === 'planets' && (
+                        <Row
+                          title="Default planet size"
+                          desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
+                        >
                         <div className="flex w-full flex-col gap-[9px]">
                           <div className="flex items-baseline gap-2">
                             <span className="font-mono text-[15px] text-text-bright">
@@ -1380,6 +1401,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           </div>
                         </div>
                       </Row>
+                      )}
 
                       {/* Collapsible preview row (canvas 5a): full-width header
                   button, the tier strip animates shut instead of unmounting. */}

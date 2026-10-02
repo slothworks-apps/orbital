@@ -690,3 +690,35 @@ body {
     animation: none;
   }
 }
+
+/* Desk theme (spec 2026-10-01-map-themes-design § 4): a working card's top
+   edge carries one slow sweep — motion that shows state, never pulls the eye. */
+@keyframes desk-sweep {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 160% 0;
+  }
+}
+.desk-sweep {
+  background: linear-gradient(90deg, transparent, var(--state-active), transparent) no-repeat;
+  background-size: 40% 100%;
+  animation: desk-sweep 7s linear infinite;
+}
+[data-paused] .desk-sweep {
+  animation-play-state: paused;
+}
+@keyframes desk-activity-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.desk-activity {
+  animation: desk-activity-in 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+/* Archipelago: zoomed out, a ship's label keeps only its title. */
+[data-ship-label][data-compact] [data-detail] {
+  display: none;
+}
