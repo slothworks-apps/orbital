@@ -136,20 +136,26 @@ collapsed rail, opens it (31e-a). The button never shows any state.
 ### Source
 
 A limits probe, built like the model catalogue probe
-(`models-come-from-the-sdk`): a short-lived `query()` with
-`persistSession: false`. It runs the CLI's local `/usage` command and reads
-the `usage_report` carried on the reply: the server's usage rows (kind,
-group, label, scope, percent, reset, severity, order) and extra-usage
-spend, as the server sent them. The rows are rendered verbatim, in the
-server's order, and a window the server adds later appears without a
-change to Orbital.
+(`models-come-from-the-sdk`): a `query()` whose prompt stream never yields,
+with `persistSession: false`, calls the SDK's `get_usage` control request
+with `skipBehaviors: true` and closes. It spends no tokens and scans no
+transcripts.
 
-The first step of the implementation verifies that `/usage` through the
-SDK spends no tokens and leaves no transcript. If it does either, the
-probe falls back to the SDK's `get_usage` control request (named windows
-without severity) and Orbital grades severity from the percent itself.
+Verified on 2026-10-03 (SDK 0.3.278): besides the typed fixed windows
+(`five_hour`, `seven_day`, …) the answer carries `rate_limits.limits[]` —
+the server's usage rows (kind, group, scope, percent, reset, severity,
+is_active), the same rows `/usage` renders. The SDK's types do not declare
+that field yet. The probe reads `limits[]` when present and falls back to
+the fixed windows, grading severity from the percent itself, when it is
+not. `rate_limits_available: false` is the "not tracked" state.
 
-Both paths are marked experimental in the SDK; if they change, only the
+The server gives a row's kind and scope but no display label. Orbital
+names the kinds it knows (`session` → "5-hour window", `weekly_all` →
+"Weekly", `weekly_scoped` → "Weekly · <model display name>") and shows an
+unknown kind as its kind with the scope's display name, so a new window
+still renders as one more row. Rows keep the server's order.
+
+The request is marked experimental in the SDK; if it changes, only the
 view breaks. Waiting and firing rest on `rate_limit_event` alone.
 
 The server keeps the last good answer and when it was read.

@@ -26,12 +26,14 @@ runs.
 - **Continuation rests on `rate_limit_event`.** A running session's query
   emits it with a status (`allowed` / `allowed_warning` / `rejected`), the
   window type and `resetsAt`. It is a stable, typed message.
-- **The view rests on a probe.** A short-lived `query()` with
-  `persistSession: false`, as for the model catalogue, runs the CLI's
-  local `/usage` command and reads the `usage_report` on its reply: the
-  server's usage rows verbatim, with their labels, order and severity.
-  The SDK's `get_usage` control request returns named windows without
-  severity, so it is the fallback if `/usage` turns out to spend tokens.
+- **The view rests on a probe.** A `query()` whose prompt stream never
+  yields, as for the model catalogue, calls the SDK's `get_usage` control
+  request with `skipBehaviors: true`. It spends no tokens. Its answer
+  carries the server's usage rows (`rate_limits.limits[]`, with order and
+  severity) although the SDK's types do not declare them yet; the probe
+  falls back to the typed fixed windows when they are missing. Running
+  `/usage` itself also costs nothing and carries the same rows, but it
+  scans seven days of local transcripts on every read.
 
 Both are marked experimental in the SDK. That risk is accepted for the
 view only: if they change, the view breaks and continuation still works,
