@@ -470,7 +470,6 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
             // to read `pendingDecisions` off, and the panel has no session
             // of its own to give it.
             sessionId={panel.sessionId}
-            compact
             // NOT inferred from ids. `decide()` (`server/src/runner/runner.ts`)
             // now refuses a subagent's `AskUserQuestion` outright, but a
             // subagent's PERMISSION ask still parks in

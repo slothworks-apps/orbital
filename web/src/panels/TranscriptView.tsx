@@ -17,7 +17,6 @@ import { CompactionMark } from './CompactionMark'
 import { compactionOrdinals, newestFailedCompactionId } from '../lib/compaction'
 import { QuestionCard } from './QuestionCard'
 import { PermissionCard } from './PermissionCard'
-import { ThinkingBlock } from './ThinkingBlock'
 import { ToolRow, salientInput, toolDurationMs } from './ToolRow'
 import { QUESTION_TOOL_NAME } from '../lib/questionCard'
 import { PLAN_TOOL_NAME } from '../lib/decisionCard'
@@ -344,15 +343,6 @@ export interface TranscriptViewProps {
    */
   footerKey?: string
   /**
-   * Selects the subagent panel's rendering of a `thinking` message — a left
-   * hairline rule instead of canvas 1b's boxed treatment, expanded by
-   * default instead of collapsed — over the parent transcript's own (spec
-   * `2026-09-22-subagent-transcript-panel-design.md` § 7: a 380px panel
-   * stacks boxed blocks badly). Named for what it changes, not for who
-   * passes it — the subagent panel this exists for lands in a later task.
-   */
-  compact?: boolean
-  /**
    * Forces every rendered `QuestionCard` into its non-interactive forms —
    * passed straight through as that component's own `readOnly` prop. Added
    * for the subagent panel (task 7 review, finding 1): `QuestionCard`'s own
@@ -630,7 +620,6 @@ export function TranscriptView({
   observerFactory = defaultScrollObserverFactory,
   footer,
   footerKey,
-  compact = false,
   readOnly = false,
   subagents,
   onOpenSubagent,
@@ -1058,14 +1047,9 @@ export function TranscriptView({
           // turn, and it carries no model, so the divider logic above leaves
           // it alone as well.
           <NoticeRow message={group.item.message} />
-        ) : group.item.message.role === 'thinking' ? (
-          // `role: 'thinking'` gets its own path, never `MessageView` — that
-          // component computes `isUser = role === 'user'` and draws
-          // anything else as an assistant markdown bubble, which is the bug
-          // this closes: raw chain-of-thought rendering as if the model had
-          // said it out loud (spec § 7, "the live defect").
-          <ThinkingBlock message={group.item.message} compact={compact} />
         ) : (
+          // `thinking` lands here too and reads as the assistant's own prose
+          // (adr thinking-is-its-own-chatmessage-role).
           <MessageView
             message={group.item.message}
             streaming={

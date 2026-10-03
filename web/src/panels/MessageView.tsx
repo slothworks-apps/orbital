@@ -306,7 +306,7 @@ export interface MessageViewProps {
 }
 
 /**
- * Renders a `user` or `assistant` `ChatMessage` as markdown (GFM tables,
+ * Renders a `user`, `assistant` or `thinking` `ChatMessage` as markdown (GFM tables,
  * fenced code blocks, etc). `tool_use`/`tool_result` messages are not
  * handled here — `Transcript` pairs those and renders them via `ToolRow`.
  */

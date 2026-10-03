@@ -214,58 +214,6 @@ describe('MessageView images', () => {
 })
 
 // ---------------------------------------------------------------------------
-// ThinkingBlock (spec § 7 "Thinking blocks and tool durations")
-// ---------------------------------------------------------------------------
-
-import { ThinkingBlock } from '../panels/ThinkingBlock'
-
-function makeThinking(overrides: Partial<ChatMessage> & { id: string }): ChatMessage {
-  return { role: 'thinking', text: 'weighing the two approaches', ...overrides }
-}
-
-describe('ThinkingBlock', () => {
-  it('renders the boxed variant, collapsed by default — the parent transcript', () => {
-    const { container } = render(<ThinkingBlock message={makeThinking({ id: 't1' })} />)
-    const root = container.querySelector('[data-role="thinking"]')
-    expect(root).toHaveAttribute('data-thinking-variant', 'boxed')
-    expect(screen.getByRole('button', { name: /thinking/i })).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText('weighing the two approaches')).not.toBeInTheDocument()
-  })
-
-  it('renders the hairline variant, expanded by default — the compact/subagent-panel treatment', () => {
-    const { container } = render(<ThinkingBlock message={makeThinking({ id: 't1' })} compact />)
-    const root = container.querySelector('[data-role="thinking"]')
-    expect(root).toHaveAttribute('data-thinking-variant', 'compact')
-    expect(screen.getByRole('button', { name: /thinking/i })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('weighing the two approaches')).toBeInTheDocument()
-  })
-
-  it('toggles the fold in the boxed (default) variant', async () => {
-    const user = userEvent.setup()
-    render(<ThinkingBlock message={makeThinking({ id: 't1' })} />)
-    const button = screen.getByRole('button', { name: /thinking/i })
-    await user.click(button)
-    expect(button).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('weighing the two approaches')).toBeInTheDocument()
-    await user.click(button)
-    expect(button).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText('weighing the two approaches')).not.toBeInTheDocument()
-  })
-
-  it('toggles the fold in the compact variant', async () => {
-    const user = userEvent.setup()
-    render(<ThinkingBlock message={makeThinking({ id: 't1' })} compact />)
-    const button = screen.getByRole('button', { name: /thinking/i })
-    await user.click(button)
-    expect(button).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText('weighing the two approaches')).not.toBeInTheDocument()
-    await user.click(button)
-    expect(button).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('weighing the two approaches')).toBeInTheDocument()
-  })
-})
-
-// ---------------------------------------------------------------------------
 // ToolRow
 // ---------------------------------------------------------------------------
 
@@ -1510,36 +1458,6 @@ describe('Transcript', () => {
     expect(runs[0].querySelectorAll('[data-role="tool"]')).toHaveLength(0)
     expect(screen.getByRole('button', { name: /2 tool calls/ })).toBeInTheDocument()
     expect(runs[0].querySelector('[data-live-tool]')).not.toBeInTheDocument()
-  })
-
-  it('renders a `thinking` message through the thinking path, never as an assistant bubble (the live defect § 7 closes)', () => {
-    resetStore({
-      transcripts: {
-        s1: [
-          { id: '1', role: 'user', text: 'go' },
-          { id: '2', role: 'thinking', text: 'weighing the two approaches' },
-          { id: '3', role: 'assistant', text: 'done' },
-        ],
-      },
-    })
-
-    const { container } = render(<Transcript sessionId="s1" />)
-
-    // The text is present either way — that is exactly why the bug was
-    // invisible — so the assertion can't just be "a data-role=\"thinking\"
-    // element exists": `MessageView` sets `data-role={message.role}`
-    // UNCONDITIONALLY (line ~213), so under the OLD bug a thinking message
-    // routed through `MessageView` would still have carried
-    // `data-role="thinking"` on its wrapper — the bug was in the STYLING
-    // (an assistant markdown bubble), not that attribute. The genuine
-    // difference is what `MessageView` alone would have produced: a
-    // `.message-markdown` bubble (its markdown-rendering path) containing
-    // this text. `ThinkingBlock` never uses that class, and it alone
-    // renders the THINKING label and the boxed/hairline container.
-    const markdownBubbles = Array.from(container.querySelectorAll('.message-markdown'))
-    expect(markdownBubbles.some((el) => el.textContent?.includes('weighing the two approaches'))).toBe(false)
-    expect(container.querySelector('[data-thinking-variant="boxed"]')).toBeInTheDocument()
-    expect(screen.getByText('THINKING')).toBeInTheDocument()
   })
 })
 
