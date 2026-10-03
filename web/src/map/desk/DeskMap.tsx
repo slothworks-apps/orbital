@@ -537,6 +537,9 @@ const DeskCard = memo(function DeskCard({
   const s = planet.session
   const key = sessionStateKey(s)
   const pill = statePill(s)
+  // 41b: every live card wears a pill, WORKING and IDLE included — unlike a
+  // planet, a card has no motion of its own to say it is working.
+  const pillLabel = pill?.label ?? (key === 'working' ? 'WORKING' : key === 'idle' ? 'IDLE' : null)
   const colour = stateColor(key)
   const tools = s.recentTools ?? []
   const last = tools.length ? tools[tools.length - 1] : null
@@ -589,8 +592,10 @@ const DeskCard = memo(function DeskCard({
         if ((e.target as Element).closest('button, input')) e.stopPropagation()
       }}
     >
-      {/* 41b NEEDS INPUT: a hairline glint in the tag hue along the top edge. */}
-      {needs && (
+      {/* 41b: a hairline glint in the tag hue along the top edge marks a live
+          session — working, waiting or asking. NEEDS INPUT adds its amber
+          border on top of it. */}
+      {(key === 'working' || key === 'waiting' || needs) && (
         <span
           aria-hidden
           className="pointer-events-none absolute left-3.5 right-3.5 top-[-1px] block h-px"
@@ -628,10 +633,10 @@ const DeskCard = memo(function DeskCard({
             </span>
             <div className="flex flex-none items-center gap-1.5 pt-px">
               {detached && <DetachedBadge />}
-              {pill && (
+              {pillLabel && (
                 <Pill
                   sessionKey={key}
-                  label={pill.label}
+                  label={pillLabel}
                   colour={colour}
                   mode={statePills}
                   gate={gateWaits(s)}
@@ -768,17 +773,22 @@ function Pill({
   gate: boolean
 }) {
   const borderColour = `color-mix(in oklch, ${colour} 40%, transparent)`
+  // WORKING and IDLE have no dot on the map's surfaces; on a card they get a
+  // steady one (41b: solid for working, hollow for idle) — nothing pulses.
+  const dotFor = (surface: 'label' | 'dot') => {
+    const d = stateDot(sessionKey, surface, gate)
+    if (d.shape !== 'none' || (sessionKey !== 'working' && sessionKey !== 'idle')) return d
+    return {
+      shape: sessionKey === 'working' ? ('solid' as const) : ('hollow' as const),
+      motion: 'steady' as const,
+    }
+  }
   const chip =
     'flex h-[18px] box-border items-center gap-1.5 whitespace-nowrap rounded-full border font-mono text-[9.5px] tracking-[0.12em]'
   if (mode === 'label')
     return (
       <span className={`${chip} pl-1.5 pr-2`} style={{ color: colour, borderColor: borderColour }}>
-        <StateDot
-          dot={stateDot(sessionKey, 'label', gate)}
-          color={colour}
-          solidPx={7}
-          hollowPx={7}
-        />
+        <StateDot dot={dotFor('label')} color={colour} solidPx={7} hollowPx={7} />
         {label}
       </span>
     )
@@ -789,7 +799,7 @@ function Pill({
         className={`${chip} absolute right-0 top-0 max-w-[19px] overflow-hidden border-transparent px-[5px] transition-[max-width,padding,border-color,background-color] duration-200 hover:max-w-[180px] hover:border-[var(--pill-bd)] hover:bg-[rgb(12,18,32)] hover:pl-[5px] hover:pr-2`}
         style={{ color: colour, '--pill-bd': borderColour } as CSSProperties}
       >
-        <StateDot dot={stateDot(sessionKey, 'dot', gate)} color={colour} solidPx={7} hollowPx={7} />
+        <StateDot dot={dotFor('dot')} color={colour} solidPx={7} hollowPx={7} />
         {label}
       </span>
     </span>
