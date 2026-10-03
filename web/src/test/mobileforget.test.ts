@@ -32,8 +32,11 @@ import { cancelCacheWrite, persist, wireCache } from '../mobile/cacheWriter'
 import { CACHE_WRITE_DEBOUNCE_MS } from '../mobile/constants'
 import { forgetEverything } from '../mobile/forget'
 import type { Pairing } from '../mobile/platform/parse'
+import { useBanner } from '../mobile/notify'
 import { initialMobileState, useMobile } from '../mobile/state'
+import { clientRef } from '../mobile/transport/clientRef'
 import { useOrbital } from '../store/store'
+import { FakeClient } from './fakeRemoteClient'
 
 const PAIRING: Pairing = { relay: 'https://relay.test', mac: 'm1', macName: 'studio', fingerprint: 'f', pairedAt: 1 }
 
@@ -127,5 +130,34 @@ describe('forgetEverything', () => {
     await forgetEverything({ unpaired: false })
     expect(io.setUnpaired).not.toHaveBeenCalled()
     expect(useMobile.getState()).toMatchObject({ screen: 'pairing', unpaired: false, macName: null })
+  })
+
+  it('tells the old relay to stop pushing, on the live link before it goes, when the user chose to forget', async () => {
+    const client = new FakeClient()
+    client.stop.mockImplementation(() => {
+      // By the time the link stops, the empty token is already on it.
+      expect(client.pushToken).toHaveBeenCalledWith('')
+    })
+    clientRef.set(client)
+    useMobile.setState({ pairing: PAIRING })
+    await forgetEverything({ unpaired: false })
+    expect(client.pushToken).toHaveBeenCalledWith('')
+    expect(client.stop).toHaveBeenCalled()
+    expect(clientRef.client).toBeNull()
+  })
+
+  it('leaves the token alone after a revoke — the Mac no longer lists the phone', async () => {
+    const client = new FakeClient()
+    clientRef.set(client)
+    useMobile.setState({ pairing: PAIRING })
+    await forgetEverything({ unpaired: true })
+    expect(client.pushToken).not.toHaveBeenCalled()
+  })
+
+  it('takes down a banner about the old Mac', async () => {
+    useBanner.getState().show({ sessionId: 's1', title: 'orbital', needsInput: true, line: 'Needs your input' })
+    useMobile.setState({ pairing: PAIRING })
+    await forgetEverything({ unpaired: false })
+    expect(useBanner.getState().current).toBeNull()
   })
 })

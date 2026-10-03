@@ -16,6 +16,7 @@ type DesktopBridge = {
   setMenuCommands?: (items: MenuCommand[]) => void
   onCommand?: (cb: (id: string) => void) => void
   pathForFile?: (file: File) => string
+  chooseDirectory?: (startPath: string) => Promise<unknown>
 }
 
 /**
@@ -71,6 +72,20 @@ export function desktopPathFor(file: File): string | null {
   } catch {
     return null
   }
+}
+
+/** Whether Browse… can open the native folder picker: the desktop app only. */
+export function canChooseDirectory(): boolean {
+  return typeof bridge()?.chooseDirectory === 'function'
+}
+
+/**
+ * The native folder picker, opened at `startPath` (what the field holds).
+ * Resolves to the chosen directory, or null when the user cancels.
+ */
+export async function chooseDirectory(startPath: string): Promise<string | null> {
+  const picked = await bridge()?.chooseDirectory?.(startPath)
+  return typeof picked === 'string' && picked ? picked : null
 }
 
 /**

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { SessionRegistry } from '../src/watcher/registry.js';
+import { makeTmpDir } from './tmp.js';
 
 function writeEntry(dir: string, pid: number, sessionId: string, status: string) {
   writeFileSync(
@@ -16,7 +16,7 @@ function writeEntry(dir: string, pid: number, sessionId: string, status: string)
 
 describe('SessionRegistry.scan', () => {
   it('emits upsert for live sessions and remove for vanished ones; drops dead pids', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-reg-'));
+    const dir = makeTmpDir('reg');
     writeEntry(dir, 100, 'sess-a', 'busy');
     writeEntry(dir, 200, 'sess-b', 'idle');
     writeEntry(dir, 300, 'sess-dead', 'idle');
@@ -38,7 +38,7 @@ describe('SessionRegistry.scan', () => {
   it('maps the CLI status vocabulary onto orbital session statuses', () => {
     // `~/.claude/sessions/<pid>.json` carries the CLI's own vocabulary --
     // "busy" | "shell" | "idle" | "waiting" -- and never orbital's "working".
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-reg3-'));
+    const dir = makeTmpDir('reg3');
     const cases: Array<[raw: string, want: string]> = [
       ['busy', 'working'],
       ['shell', 'working'],
@@ -59,7 +59,7 @@ describe('SessionRegistry.scan', () => {
     // it would make Orbital treat its own session as "live in a terminal" —
     // read-only composer, 409 on the model route. Only interactive terminals
     // (`entrypoint: "cli"`) belong in the registry.
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-reg4-'));
+    const dir = makeTmpDir('reg4');
     writeFileSync(
       join(dir, '500.json'),
       JSON.stringify({
@@ -74,7 +74,7 @@ describe('SessionRegistry.scan', () => {
   });
 
   it('survives corrupt registry files', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-reg2-'));
+    const dir = makeTmpDir('reg2');
     writeFileSync(join(dir, '1.json'), 'not json');
     const reg = new SessionRegistry(dir, { isPidAlive: () => true });
     expect(() => reg.scan()).not.toThrow();

@@ -44,6 +44,16 @@ relay can count ("2 sessions need your input") but not name.
        service-account JSON (mount it as a Dokploy secret file and point
        this at the mounted path). Absent means pushes are only logged,
        never sent.
+     - `RELAY_SECRET` — **set it on any relay reachable from the
+       internet.** A shared password that every Mac and phone must present
+       to connect or pair. Make it long and random — `openssl rand -base64 24`
+       — rather than a short code: a refused guess on the WebSocket is not
+       rate-limited, so a short secret can be ground down over days. Without
+       it anyone who knows the URL can run their own pairs over your relay
+       and your Firebase project ([[the-relay-takes-a-shared-secret]]).
+       Put the same value into Settings → Mobile → Advanced → Relay secret
+       on the Mac; the pairing code carries it to phones. Absent means an
+       open relay — fine on a laptop, not on a server.
      - `RELAY_TRUST_PROXY=1` — **set it on Dokploy.** Traefik terminates
        the connection, so without it every request seems to come from
        Traefik's address and one shared pairing rate limit throttles all
@@ -52,6 +62,28 @@ relay can count ("2 sessions need your input") but not name.
        directly: a client could then name any IP it likes in that header.
    - a domain with TLS from the Dokploy proxy
    - health check `GET /health`, answering `{"app":"orbital-relay"}`
+
+The build context is the repository root, so the ignore file is
+`relay/Dockerfile.dockerignore` (BuildKit reads it next to the Dockerfile);
+a `relay/.dockerignore` would never apply and the Mac's `node_modules` would
+land in the image. `npm ci` runs with `--ignore-scripts`: better-sqlite3
+ships prebuilt binaries, and its install script would only try to compile
+it with a toolchain the image does not have.
+
+To try the image before deploying it, from the repository root:
+
+```bash
+docker build -f relay/Dockerfile -t orbital-relay:test .
+docker network create orb-relay-test
+docker run -d --rm --name orb-pg --network orb-relay-test -e POSTGRES_PASSWORD=pw postgres:17
+docker run -d --rm --name orb-relay --network orb-relay-test -p 14840:4840 \
+  -e RELAY_DATABASE_URL=postgres://postgres:pw@orb-pg:5432/postgres \
+  -e RELAY_SECRET=x -e RELAY_TRUST_PROXY=1 \
+  -e RELAY_FCM_SERVICE_ACCOUNT=/run/secrets/fcm.json \
+  -v "$PWD/secrets/orbital-relay-fcm.json:/run/secrets/fcm.json:ro" orbital-relay:test
+curl -s localhost:14840/health
+docker rm -f orb-relay orb-pg && docker network rm orb-relay-test
+```
 
 The schema is created on boot (`relay/migrations/`, run by a static,
 bundled migration provider). There is nothing to run by hand and no
@@ -86,8 +118,9 @@ change, not built, because there is nothing to route to yet.
 ## Point Orbital at it
 
 Settings → Mobile → Advanced → Relay URL on the Mac (the `remote_relay_url`
-setting). The pairing QR carries that URL to the phone, so it only has to
-be set once, on the Mac. There is no default relay: until this is set, the
+setting), and Relay secret next to it (`remote_relay_secret`, the relay's
+`RELAY_SECRET`). The pairing QR carries both to the phone, so they are set
+once, on the Mac. There is no default relay: until this is set, the
 remote does not start and the status line reads "couldn't start".
 
 ## Run it locally
@@ -101,6 +134,15 @@ Then set `remote_relay_url` to `http://127.0.0.1:4840`. With no
 under `relay/data/`.
 
 ## Rotate or wipe
+
+**Change the secret:** set the new `RELAY_SECRET` on the relay and redeploy,
+then enter it under Settings → Mobile → Advanced on each Mac. Every phone
+is refused as soon as the relay restarts and lands on its unpaired screen;
+saving the new secret on the Mac forgets its paired phones locally (its
+own link was refused, so the relay keeps their dead pair rows — harmless);
+each phone pairs again by scanning a fresh code, which carries the new
+secret. A phone built before 2026-10-03 does not know the refusal and shows
+the Mac as offline instead; update it.
 
 Deleting the relay's database unpairs every phone from every Mac: locally
 that is `relay/data/relay.db`; on Dokploy, whatever file or Postgres

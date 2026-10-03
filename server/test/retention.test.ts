@@ -1,8 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { openDb } from '../src/db/database.js';
 import { sessions, sessionTags, tags } from '../src/db/schema.js';
 import {
   countSweepable,
@@ -11,6 +7,7 @@ import {
   retentionCutoff,
   sweepSessions,
 } from '../src/retention.js';
+import { openTmpDb } from './tmp.js';
 
 const DAY = 86_400_000;
 const NOW = 1_700_000_000_000;
@@ -51,7 +48,7 @@ describe('retentionCutoff', () => {
 });
 
 function makeDb() {
-  const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-retention-')), 'index.db'));
+  const db = openTmpDb('retention');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
   db.insert(sessions)
     .values([

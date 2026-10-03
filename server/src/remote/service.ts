@@ -43,6 +43,12 @@ export type RemoteStatus = {
  */
 export const NO_RELAY_URL_ERROR = 'no relay URL — set one under Advanced';
 
+/**
+ * Why the remote stopped after the relay closed with `CLOSE_BAD_SECRET`: the
+ * client does not retry, since only the user can change the secret.
+ */
+export const BAD_SECRET_ERROR = 'The relay refused the relay secret. Check it under Advanced.';
+
 export type RemoteServiceOptions = {
   db: OrbitalDb;
   hub: Hub;
@@ -83,6 +89,11 @@ export class RemoteService {
     return this.opts.settings.get('remote_relay_url').trim();
   }
 
+  /** Empty while the user has not set one: an open relay needs none. */
+  private get relaySecret(): string {
+    return this.opts.settings.get('remote_relay_secret').trim();
+  }
+
   private get macName(): string {
     return macDisplayName(this.opts.settings.get('remote_mac_name'));
   }
@@ -103,7 +114,7 @@ export class RemoteService {
       this.identity = loaded.identity;
       if (loaded.regenerated) this.forgetAllDevices();
       const client = (this.opts.clientFactory ?? ((o) => new RelayClient(o)))({
-        relayUrl: this.relayUrl, identity: this.identity,
+        relayUrl: this.relayUrl, identity: this.identity, relaySecret: this.relaySecret,
       });
       this.client = client;
       client.on('status', () => {
@@ -113,6 +124,13 @@ export class RemoteService {
       });
       client.on('control', (msg: RelayToDevice) => this.onControl(msg));
       client.on('data', (frame: Uint8Array) => this.onData(frame));
+      // The client has stopped for good; reported like a failed start, and
+      // the next settings change or restart starts afresh.
+      client.on('refused', () => {
+        this.teardown();
+        this.error = BAD_SECRET_ERROR;
+        this.publishStatus();
+      });
       for (const device of this.devices.list()) this.watch(device.id);
       client.start();
       this.error = null;
@@ -216,6 +234,7 @@ export class RemoteService {
       v: 1, relay: this.relayUrl, mac: deviceId(this.identity.publicKey), name: this.macName, token: res.body.token,
       secret: toBase64Url(secret),
     };
+    if (this.relaySecret) qr.relaySecret = this.relaySecret;
     this.publishStatus();
     return { qr: JSON.stringify(qr), expiresAt: res.body.expiresAt };
   }

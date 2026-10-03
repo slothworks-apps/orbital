@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   defaultBranchOf,
@@ -8,15 +7,12 @@ import {
   parseHead,
   resolveGitDirs,
 } from '../src/git/gitState.js';
+import { makeTmpDir } from './tmp.js';
 
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'orbital-git-'));
-});
-
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
+  dir = makeTmpDir('git');
 });
 
 /** A main working tree: `.git` is a directory holding its own HEAD. */

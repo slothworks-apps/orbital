@@ -99,7 +99,10 @@ export function useSceneModel(): SceneModel {
           stoppingTasks: {},
           harnesses: {},
           harnessEvents: {},
+          harnessEventsMore: {},
+          harnessRemoved: {},
           harnessPanel: null,
+          harnessTemplatesFocus: null,
           ui: {
             selectedId,
             filterTagId,

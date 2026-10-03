@@ -16,6 +16,8 @@ export const COMPACTING_LABEL_FADE_MS = 200
 export const COMPACTED_CAPTION_MS = 6_000
 /** The planet's switch into and out of the compacting look (26e "start"). */
 export const COMPACTING_SWITCH_MS = 300
+/** 26c's locked composer: what its field says while the session compacts. */
+export const COMPACTING_PLACEHOLDER = 'Compacting. You can write again when it\u2019s done.'
 
 /** The command a manual compaction is. Matched with or without arguments. */
 const COMPACT_COMMAND_RE = /^\/compact(\s|$)/

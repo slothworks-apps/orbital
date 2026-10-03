@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { BARE_AT_TAB_MAX, completeFilePath, type OpenTabs } from '../src/files/complete.js'
 import { OpenTabsReader, type OpenTabsSource } from '../src/files/openTabs.js'
+import { makeTmpDir } from './tmp.js'
 
 /**
  * The `@` completion's editor ranking (spec 2026-09-23-ide-bridge-design
@@ -15,7 +15,7 @@ import { OpenTabsReader, type OpenTabsSource } from '../src/files/openTabs.js'
  */
 
 function tree(): string {
-  const cwd = mkdtempSync(join(tmpdir(), 'orbital-tabs-'))
+  const cwd = makeTmpDir('tabs')
   mkdirSync(join(cwd, 'web', 'src', 'panels'), { recursive: true })
   mkdirSync(join(cwd, 'server'), { recursive: true })
   writeFileSync(join(cwd, 'web', 'src', 'panels', 'DetailPanel.tsx'), 'detail')
@@ -148,7 +148,7 @@ describe('completeFilePath with the editor open', () => {
 
   it('drops a tab outside the sandbox and one that has gone', () => {
     const cwd = tree()
-    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'))
+    const outside = makeTmpDir('outside')
     writeFileSync(join(outside, 'Decoy.md'), 'x')
     const entries = completeFilePath(cwd, 'De', {
       activePath: join(outside, 'Decoy.md'),

@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { eq, sql } from 'drizzle-orm';
 import { DEFAULT_MIGRATIONS_FOLDER, openDb } from '../src/db/database.js';
 import { tags, settings } from '../src/db/schema.js';
 import { effectiveTagIds, regenerateRuleTags } from '../src/tags/rules.js';
+import { makeTmpDir, openTmpDb } from './tmp.js';
 
 // Verbatim copy of the DEFAULT_SETTINGS the pre-Drizzle database.ts used to
 // seed via INSERT OR IGNORE, for the legacy-baseline fixture below.
@@ -79,7 +79,7 @@ function migrationsOnDisk(): number {
 
 describe('openDb', () => {
   it('creates schema via migrations, seeds defaults, and is idempotent', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-'));
+    const dir = makeTmpDir('db');
     const db = openDb(join(dir, 'index.db'));
     const tableRows = db.all<{ name: string }>(
       sql`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`,
@@ -116,7 +116,7 @@ describe('openDb', () => {
   });
 
   it('opens cleanly against a legacy (pre-Drizzle) database, keeps existing rows across all five tables, honors manual_removed on rule regeneration, does not duplicate seeds, and is idempotent on a second open', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-legacy-'));
+    const dir = makeTmpDir('db-legacy');
     const dbPath = join(dir, 'index.db');
 
     // Build a legacy fixture DB exactly the way the old hand-rolled
@@ -227,6 +227,7 @@ describe('openDb', () => {
       session_instructions_custom_text: '',
       remote_enabled: 'false',
       remote_relay_url: '',
+      remote_relay_secret: '',
       remote_mac_name: '',
     });
 
@@ -260,7 +261,7 @@ describe('openDb', () => {
 // 2026-09-16-electron-wrapper-design § 2).
 describe('openDb migrations folder', () => {
   it('accepts an explicit folder', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-migrations-'));
+    const dir = makeTmpDir('db-migrations');
     const db = openDb(join(dir, 'index.db'), DEFAULT_MIGRATIONS_FOLDER);
     const count = db.all<{ c: number }>(sql`SELECT COUNT(*) c FROM __drizzle_migrations`)[0];
     expect(count.c).toBe(migrationsOnDisk());
@@ -268,7 +269,7 @@ describe('openDb migrations folder', () => {
   });
 
   it('throws when the folder does not exist, rather than opening an unmigrated database', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-migrations-missing-'));
+    const dir = makeTmpDir('db-migrations-missing');
     expect(() => openDb(join(dir, 'index.db'), join(dir, 'no-such-drizzle'))).toThrow();
   });
 });
@@ -278,7 +279,7 @@ describe('openDb migrations folder', () => {
 // rows; a fresh one never gets them.
 describe('map settings defaults', () => {
   it('seeds map_show_trash and none of the retired map and lineage keys', () => {
-    const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-defaults-')), 'index.db'));
+    const db = openTmpDb('defaults');
     const rows = Object.fromEntries(db.select().from(settings).all().map((r) => [r.key, r.value]));
     expect(rows.map_show_trash).toBe('true');
     for (const retired of [
@@ -315,7 +316,7 @@ function migrationsBefore(dir: string, suffix: string): string {
 // every historical Orbital session would come back onto the map as idle.
 describe('ended_at migration', () => {
   it('stamps unowned Orbital sessions and leaves owned and terminal ones alone', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-ended-'));
+    const dir = makeTmpDir('db-ended');
     const dbPath = join(dir, 'index.db');
     const old = openDb(dbPath, migrationsBefore(dir, '_sessions_end_only_by_hand'));
     old.$client.exec(`
@@ -351,7 +352,7 @@ describe('ended_at migration', () => {
 // lowest id ever used as the fallback.
 describe('default tag', () => {
   it('survives a rename without a second default being seeded', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-default-'));
+    const dir = makeTmpDir('db-default');
     const dbPath = join(dir, 'index.db');
     const first = openDb(dbPath);
     first.update(tags).set({ name: 'orbital' }).where(eq(tags.isDefault, 1)).run();
@@ -364,7 +365,7 @@ describe('default tag', () => {
   });
 
   it('takes over a plain tag already named default rather than failing the seed', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-default-'));
+    const dir = makeTmpDir('db-default');
     const dbPath = join(dir, 'index.db');
     const first = openDb(dbPath);
     first.update(tags).set({ name: 'orbital', isDefault: 0 }).run();
@@ -378,7 +379,7 @@ describe('default tag', () => {
   });
 
   it('migration keeps only the lowest-id default of several', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-db-default-'));
+    const dir = makeTmpDir('db-default');
     const dbPath = join(dir, 'index.db');
     // Every migration before the one that adds the unique index.
     const old = openDb(dbPath, migrationsBefore(dir, '_one_default_tag'));

@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { appendFileSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { buildServer } from '../src/index.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * The whole chain against a real `buildServer`: SDK stream -> Runner (the
@@ -73,10 +73,10 @@ function fakeSdkWithShell(outputPath: string) {
 }
 
 function tempDirs() {
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-bg-e2e-'));
+  const claudeDir = makeTmpDir('bg-e2e');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
-  const outDir = mkdtempSync(join(tmpdir(), 'orbital-bg-out-'));
+  const outDir = makeTmpDir('bg-out');
   return { claudeDir, dbPath: join(claudeDir, 'index.db'), outputPath: join(outDir, 'sh1.output') };
 }
 

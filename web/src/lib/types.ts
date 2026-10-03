@@ -5,6 +5,17 @@ export type SessionSource = 'terminal' | 'web'
 export type PermissionMode = 'plan' | 'acceptEdits' | 'auto' | 'bypassPermissions'
 
 /**
+ * The desktop's launch settings as `GET /api/sessions/defaults` answers them
+ * — what the phone's New Session screen preselects from (spec
+ * 2026-10-02-mobile-app-design § 6.4).
+ */
+export interface SessionDefaults {
+  permissionMode: PermissionMode
+  model: string | null
+  rememberModelPerProject: boolean
+}
+
+/**
  * A recent tool call. Includes the tool name and an optional summary derived
  * from its input (a path, command, pattern, etc.). Mirrors
  * `server/src/transcript/recentTools.ts`.
@@ -174,6 +185,18 @@ export interface ApiSession {
    * 2026-09-29-rewind-design § Pending rewind).
    */
   rewindPending?: { hiddenCount: number; text: string } | null
+  /**
+   * Why Orbital started this session, or null. `harness_draft` is a harness
+   * template's drafting conversation: shown on the map while it is open,
+   * never in any list, history or picker. Mirrors `server/src/api/shape.ts`.
+   */
+  purpose?: 'harness_draft' | null
+  /**
+   * The session's harness stands at a gate: `waiting` is NEEDS YOUR OK (the
+   * status then reads `needs_input`), `reviewing` is REVIEWER READING.
+   * Mirrors `server/src/api/shape.ts` (spec 2026-10-02-harness-redesign-design § 2).
+   */
+  harnessGate?: HarnessGate | null
 }
 
 /** Where the caret is, and what is selected under it. */
@@ -383,8 +406,12 @@ export interface ChatMessage {
    * `rewind` is the divider where the transcript passes a rewind, its count
    * in `rewind` (null for one done in the terminal). A mark like
    * `compaction` (spec 2026-09-29-rewind-design).
+   *
+   * `harness` is client-only, never on the wire: an event of the session's
+   * harness log laid into the transcript where it happened, its line in
+   * `text` (`withHarnessRows`, canvas 30b). A dashed ◆ row.
    */
-  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction' | 'rewind'
+  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction' | 'rewind' | 'harness'
   /**
    * The transcript entry this message came from — what a rewind names. On
    * every message read from the file and every live one whose frame carried
@@ -394,6 +421,13 @@ export interface ChatMessage {
   uuid?: string
   /** `user` rows only: can be picked as a rewind target. Absent means not. */
   rewindable?: true
+  /**
+   * `user` rows only: Orbital sent this on a harness's account (kickoff,
+   * sent on, nudge, reviewer findings) — draw it as a dashed ◆ row, never a
+   * bubble. `step` is 0-based. Mirrors `server/src/types.ts` (spec
+   * 2026-10-02-harness-redesign-design § 3).
+   */
+  harnessMessage?: { kind: HarnessMessageKind; step: number }
   text?: string
   toolName?: string
   toolInput?: unknown
@@ -571,12 +605,13 @@ export interface ImageRefEntry {
 }
 
 /**
- * Where an attachment came from — the composer's two intakes (spec:
- * 2026-09-20-composer-design § Image intake). It decides the chip's name and
- * the transcript caption's: a paste is honestly `Clipboard image`, never a
- * made-up filename, while a dropped file wears its own.
+ * Where an attachment came from — the composer's two desktop intakes (spec:
+ * 2026-09-20-composer-design § Image intake) and the phone's two photo
+ * buttons (spec 2026-10-02-mobile-app-design § 6.2). It decides the chip's
+ * name and the transcript caption's: a paste is honestly `Clipboard image`,
+ * never a made-up filename, while a dropped file or a photo wears its own.
  */
-export type AttachmentSource = 'clipboard' | 'file'
+export type AttachmentSource = 'clipboard' | 'file' | 'camera' | 'gallery'
 
 /**
  * An attachment that is not an image: the agent reads it by path (spec:
@@ -863,8 +898,16 @@ export function waitingLabel(work: AwaitedWork): string {
  * edges of a park precisely so the map — where nothing is selected and the
  * `decision_pending` event is never heard — can answer this too.
  */
-export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision'>): string =>
-  asksForHuman(session) ? 'NEEDS INPUT' : 'DONE'
+export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision' | 'harnessGate'>): string =>
+  session.pendingDecision ? 'NEEDS INPUT' : gateWaits(session) ? 'NEEDS YOUR OK' : 'DONE'
+
+/**
+ * A harness gate waits for the user's OK (spec 2026-10-02-harness-redesign-design
+ * § 2, canvas 30a-d / 30i): the session is NEEDS INPUT, worded NEEDS YOUR OK,
+ * with a steady dot — a gate can wait all night. A gate the reviewer is
+ * reading is not: the reviewer is quiet, and the session keeps its own state.
+ */
+export const gateWaits = (session: Pick<ApiSession, 'harnessGate'>): boolean => session.harnessGate === 'waiting'
 
 /**
  * Whether a parked session is actually blocked on the human — the NEEDS INPUT
@@ -875,8 +918,8 @@ export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision'>): strin
  * what-a-session-waits-for-is-a-label). One predicate, so the pill's word
  * and the planet's ring cannot disagree.
  */
-export function asksForHuman(session: Pick<ApiSession, 'pendingDecision'>): boolean {
-  return Boolean(session.pendingDecision)
+export function asksForHuman(session: Pick<ApiSession, 'pendingDecision' | 'harnessGate'>): boolean {
+  return Boolean(session.pendingDecision) || gateWaits(session)
 }
 
 /**
@@ -896,7 +939,7 @@ export function asksForHuman(session: Pick<ApiSession, 'pendingDecision'>): bool
 export type SessionStateKey = 'needs_input' | 'waiting' | 'interrupted' | 'done' | 'working' | 'idle' | 'ended'
 
 export function sessionStateKey(
-  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'>,
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'>,
 ): SessionStateKey {
   if (session.interruptedAt) return 'interrupted'
   if (session.status === 'needs_input') return asksForHuman(session) ? 'needs_input' : 'done'
@@ -914,7 +957,7 @@ export function sessionStateKey(
  * ENDED are already told by the planet's pulse, rings and dimming (canvas 24c).
  */
 export function statePill(
-  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'>,
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'>,
 ): { key: SessionStateKey; label: string } | null {
   const key = sessionStateKey(session)
   switch (key) {
@@ -1321,6 +1364,8 @@ export interface HarnessOptions {
   maxIdleNudges: number
   maxReviewerReopens: number
   lucky: boolean
+  /** The reviewer's model; null means the session's own. */
+  reviewerModel: string | null
 }
 
 export const DEFAULT_HARNESS_OPTIONS: HarnessOptions = {
@@ -1329,6 +1374,7 @@ export const DEFAULT_HARNESS_OPTIONS: HarnessOptions = {
   maxIdleNudges: 5,
   maxReviewerReopens: 5,
   lucky: false,
+  reviewerModel: null,
 }
 
 export interface StepDecision {
@@ -1362,7 +1408,45 @@ export interface StepState {
   approvedBy?: 'user' | 'reviewer'
   reviews?: StepReview[]
   reviewerReopens?: number
+  /** A reviewer is reading this gate now: REVIEWER READING. Survives a reload, not a restart. */
+  reviewing?: true
+  /** The user took the gate from the reviewer ("Decide myself", or a restart cut the review off). */
+  reviewerOff?: true
+  /** The reviewer sent it back while paused; the findings go out on resume. */
+  unsentFindings?: true
+  /** Earlier runs of this step, oldest first: before the user reopened it or went back. */
+  previousRuns?: PreviousRun[]
 }
+
+/** A step's record as it stood when the user reopened it (`reopened`) or went back past it (`went_back`, "before going back"). */
+export interface PreviousRun extends Omit<StepState, 'previousRuns' | 'reviewing' | 'reviewerOff' | 'unsentFindings'> {
+  endedAt: number
+  reason: 'went_back' | 'reopened'
+}
+
+/** Where a template is offered: every project, or one project's sessions only. */
+export type TemplateScope = { kind: 'global' } | { kind: 'project'; root: string; name: string }
+
+/** A project as scopes know it: a git repository's root (worktrees included), or a plain directory. */
+export interface HarnessProject {
+  root: string
+  name: string
+}
+
+/** `GET /api/harness/projects`: the scope picker's ONE PROJECT list and the Settings filter chips. */
+export interface KnownHarnessProject extends HarnessProject {
+  lastAt: number | null
+  /** Its templates, drafts included; > 0 is a filter chip. */
+  templates: number
+}
+
+export type HarnessGate = 'waiting' | 'reviewing'
+
+export type PauseKind = 'user' | 'nudge_cap' | 'message_cap' | 'review_failed' | 'send_failed' | 'session_ended'
+
+export type HarnessMessageKind = 'kickoff' | 'advance' | 'nudge' | 'findings'
+
+export type DraftModel = 'opus' | 'sonnet'
 
 export interface HarnessTemplate {
   id: number
@@ -1372,8 +1456,18 @@ export interface HarnessTemplate {
   inputs: HarnessInput[]
   steps: HarnessStep[]
   options: HarnessOptions
+  scope: TemplateScope
+  /** Written by a drafting conversation, not saved yet: listed, never offered to sessions. Save clears it. */
+  draft: boolean
   createdAt: number
   updatedAt: number
+}
+
+/** What the template routes take: `scope` without its display name; absent on update keeps it. */
+export type HarnessTemplateBody = Omit<HarnessTemplate, 'id' | 'createdAt' | 'updatedAt' | 'scope' | 'draft' | 'options'> & {
+  options: Partial<HarnessOptions>
+  scope?: { kind: 'global' } | { kind: 'project'; root: string }
+  draft?: boolean
 }
 
 export interface SessionHarness {
@@ -1386,6 +1480,10 @@ export interface SessionHarness {
   options: HarnessOptions
   paused: boolean
   pauseReason: string | null
+  pauseKind: PauseKind | null
+  pausedAt: number | null
+  /** Set on a removed harness (read from `removed`); null on the live one. */
+  removedAt: number | null
   autoRounds: number
   idleNudges: number
   createdAt: number
@@ -1407,7 +1505,11 @@ export type HarnessEventKind =
   | 'review_started'
   | 'reviewed'
   | 'review_failed'
+  | 'review_aborted'
   | 'options'
+  | 'went_back'
+  | 'removed'
+  | 'carried_over'
 
 export interface HarnessEvent {
   id: number

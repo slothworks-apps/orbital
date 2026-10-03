@@ -551,6 +551,7 @@ function LiveBody({
             <button
               key={option.label}
               type="button"
+              data-question-row
               ref={(el) => {
                 rowRefs.current[index] = el
               }}
@@ -661,6 +662,7 @@ function LiveBody({
         ) : (
           <button
             type="button"
+            data-question-row
             ref={(el) => {
               rowRefs.current[otherIndex] = el
             }}

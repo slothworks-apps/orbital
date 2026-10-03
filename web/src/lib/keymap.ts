@@ -225,6 +225,18 @@ export const COMMANDS: readonly Command[] = [
     note: 'desktop app only',
   },
   {
+    // ⌘⇧H, not 30a-d's ⌥H: ⌥ with a letter types a character on the Czech
+    // layout, and ⌘H is macOS's Hide (spec 2026-10-02-harness-redesign-design
+    // § Overruled).
+    id: 'session.harness',
+    label: 'Harness panel',
+    scope: 'session',
+    chords: ['meta+shift+h'],
+    whileTyping: true,
+    menu: { menu: 'Session', order: 8 },
+    note: 'opens or closes it · experimental',
+  },
+  {
     id: 'composer.send',
     label: 'Send',
     scope: 'composer',

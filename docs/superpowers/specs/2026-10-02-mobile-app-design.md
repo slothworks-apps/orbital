@@ -9,6 +9,9 @@ related:
   - 2026-10-01-settings-mobile-design
   - 2026-10-01-mobile-remote-backend
   - the-phone-client-lives-in-shared-and-tests-against-the-real-mac
+  - the-connected-phone-notifies-itself
+  - 2026-10-02-mobile-app-read
+  - 2026-10-02-mobile-app-write
   - remote-identity-is-ed25519-with-ephemeral-session-keys
   - the-phone-tunnels-the-api-behind-an-allowlist
   - why-orbital
@@ -160,9 +163,10 @@ untouched:
   `tunnelFetch`, which turns a relative `/api/...` URL and `RequestInit`
   into `client.request()` and answers a `Response` (status, JSON body;
   413 and 403 from the Mac arrive as ordinary statuses). Multipart
-  uploads (`uploadImage`) are not routed through it: 2b sends photos as
-  blobs and then references them, which is what the Mac side already
-  expects.
+  uploads (`uploadAttachment`) are not routed through it: 2b adds a
+  second seam, `configureApi({ upload })`, and the phone's uploader sends
+  a photo as a blob (`putBlob`) and then references it, which is what the
+  Mac side already expects (§ 6.2).
 - `lib/socket.ts`: `configureSocket({ WebSocketImpl })` before the first
   `getSocket()`. Mobile passes `TunnelSocket`, an object with the
   WebSocket surface `OrbitalSocket` uses (`send`, `close`, `onopen`,
@@ -274,26 +278,230 @@ relay shows a dim dot; relay online but Mac offline is the 9a offline
 card; both online is live. The in-app banner and system notifications
 are 2b.
 
-## 6. What 2b adds
+## 6. What 2b adds (write)
 
-In its own plan, from this spec and the parent:
+Brainstormed 2026-10-02 after 2a merged; built from
+[[2026-10-02-mobile-app-write]]. Everything an Orbital session can be
+told from the phone: a reply with photos, a decision, a new session, and
+the notifications that bring the phone out. Terminal sessions stay
+read-only.
 
-1. The Android WebView composer spike (parent § 6): the shared Tiptap
-   composer on a real device; if the IME misbehaves, a plain textarea
-   composer for mobile.
-2. 9c decisions: permission, plan approval, question card — the desktop
-   cards with 9c's touch sizes; the composer as the escape hatch.
-3. 9b composer: text, camera and gallery photos downscaled to
-   `PHOTO_MAX_EDGE` = 1568 px, sent with `putBlob` and referenced;
-   Stop while working; locked line while offline.
-4. 9d new session: one field that searches every directory ever used
-   (`GET /api/projects`) and accepts a typed path; mode and model from
-   the desktop defaults; first prompt; `POST /api/sessions`.
-5. Push: `@capacitor/push-notifications`, the FCM token sent with
-   `pushToken()` on every connect and again after `paired`; 9g's system
-   notification (generic, from the relay) and in-app banner (from the
-   hub, under the phone's rules); `seen` when a session is opened.
-6. iOS: the generated project, TestFlight.
+### Decisions taken for 2b
+
+- **No composer spike.** The shared Tiptap `Composer` goes straight in.
+  `adb` types past the IME, so the only honest test of autocorrect and
+  composition is a person typing on the emulator with Gboard — and that
+  is the fidelity pass. If the pass finds the field unusable, the fallback
+  the parent § 6 planned (a plain textarea composer for the phone) is
+  built then, not ahead of need.
+- **The connected phone notifies itself**
+  ([[the-connected-phone-notifies-itself]]). Android keeps a backgrounded
+  WebView's socket alive for a while, the relay then sees the phone
+  connected and pushes nothing — so the phone posts a local notification
+  from the hub frames it still receives, naming the session, and the
+  relay's generic push covers the time after the OS kills the socket.
+  Closing the link on every pause, so that every notification is a relay
+  push, was rejected: one path, but a generic one, and the Mac would see
+  the phone offline while its owner is one swipe away.
+- **The in-app banner is UI, not a notification.** It shows for every
+  notification-worthy transition that arrives while the app is in the
+  foreground, except for the session on screen. The "background" rule
+  governs system notifications alone: on, the phone posts none while the
+  app is in the foreground; off, it posts one even then, next to the
+  banner. The row reads "Only when the app is in the background".
+- **iOS is 2c.** Xcode 26 and CocoaPods are on the owner's Mac; the
+  generated project, signing and TestFlight get their own brainstorm and
+  plan once Android writes.
+- **Firebase is the owner's.** A Firebase project with the Android app
+  `io.slothworks.orbital.mobile`; `google-services.json` goes to
+  `mobile/android/app/` (git-ignored — the Gradle template already applies
+  the plugin only when the file exists) and a service-account JSON to the
+  relay (`RELAY_FCM_SERVICE_ACCOUNT`, [[run-the-relay]]). Without either
+  file everything builds and runs; the relay logs the pushes it would send.
+- **Desktop defaults reach the phone through one narrow route.**
+  `/api/settings` stays denied (the backend plan's denied set). `GET
+  /api/sessions/defaults` answers the three settings 9d needs and the
+  allowlist names it, with `defaults` in `RESERVED_SEGMENTS` so `:id`
+  never swallows it.
+- **The phone minimum rises.** 9d needs the defaults route and the
+  directory check, so `MIN_SERVER_VERSION` becomes the desktop version
+  that ships 2b (set at merge, when the owner picks the bump).
+
+### 6.1 Composer (9b)
+
+- The shared `Composer` (`panels/Composer.tsx`): `variant: 'panel'`,
+  `placement: 'above'`, `enter: 'newline'` — the on-screen keyboard's
+  return key makes a line and only Send sends. `sessionKey` is the
+  session, so slash-command completions work (`GET /api/commands`). The
+  hint line is empty on the phone: there are no chords to name. No IDE
+  slot, no rewind, no drop target; paste intake stays.
+- The action row under the field (9b): camera · gallery · Stop (only
+  while `status === 'working'`) · Send (`↑`, dim until there is text or an
+  armed chip). Stop opens the desktop's `StopDialog`, which calls
+  `api.interrupt`. Every control is a 44 px target.
+- Sending is the store's `sendPrompt(id, text, images)`: the same
+  optimistic turn, the same `uuid` patch, the same escape hatch for a
+  parked decision (§ 6.3). The draft is `composerDrafts[id]`, so leaving
+  and coming back keeps it.
+- Locked (9p): while the Mac is asleep the composer is the dashed locked
+  line "<Mac> is asleep — read only", attach and send inert; a terminal
+  session gets "Started in Terminal — reply there." and no composer.
+- With the keyboard up the composer sits on it and the transcript shrinks
+  (the root is `100dvh`); the fidelity pass owns the metrics.
+
+### 6.2 Photos
+
+- `@capacitor/camera` in the shell, one `Camera.getPhoto` per button
+  (`CameraSource.Camera` / `CameraSource.Photos`, `CameraResultType.Uri`).
+  No permission is declared or asked: the plugin hands the shot to the
+  system camera app, which owns its own permission, and the photo picker
+  needs none on Android 13+ (corrected as built — declaring CAMERA would
+  make the plugin ask for a permission the intent does not need).
+- The phone downscales before upload (parent § 4): the longer edge to
+  `PHOTO_MAX_EDGE` = 1568, JPEG at `PHOTO_JPEG_QUALITY`; `fitWithin(w, h,
+  max)` is the pure part and a photo already within the edge is sent as
+  it is. The result is a `File` through `useAttachments.accept([file],
+  source)`, so the chip row, retry and the send path are the desktop's.
+  `AttachmentSource` gains `'camera'` and `'gallery'`; `Attachment` gains
+  an optional `original: { w, h }` and `attachmentMeta` then reads
+  "4032×3024 → sent at 1568 px" (9b).
+- Upload: `configureApi` gains an optional `upload`, and
+  `api.uploadAttachment` delegates to it when set. The phone's uploader
+  reads the file's bytes and calls `RemoteClient.putBlob(bytes,
+  mediaType)`: `blob_put` with the byte count, the chunks from
+  `chunkBlob`, then one `blob_put_done` — `entry` resolves; `too_large`
+  and `not_image` resolve as the desktop's refusals (`{ kind: 'too_large'
+  }`, `{ kind: 'not_image' }`); `busy`, `out_of_order`, `size_mismatch`
+  and `internal` reject as `TunnelError('lost')`, so the chip reads
+  "didn't upload" with retry. A tunnel lost mid-upload fails the waiter
+  the same way; the Mac drops its half (`PhoneSession` clears uploads on
+  close). The sessionless upload (9d's first prompt) is the same call —
+  the Mac's image store is global. `BLOB_PUT_MAX_BYTES` is
+  `ATTACHMENT_MAX_BYTES`; a downscaled photo is far under it.
+- Before photos, the deferred minor from 2a: `makeImageResolver` keeps at
+  most `IMAGE_URL_CACHE_MAX` blob URLs; past that the least recently
+  asked-for one is revoked and dropped (its bytes stay in the file cache,
+  so a later ask re-reads the file).
+
+### 6.3 Decisions (9c)
+
+- `TranscriptView` on the phone is no longer `readOnly`. `PermissionCard`
+  and `QuestionCard` answer through the store (`resolveDecision`,
+  `answerQuestion`) as on the desktop, over the tunnel (`POST
+  /api/sessions/:id/decision/:decisionId`). A pending decision reaches the
+  phone on the `session:<id>` topic (`decision_pending`) the session
+  screen already subscribes to; `pendingDecisions` is the source, as in
+  `DetailPanel`.
+- Touch metrics (9c) through `data-platform="mobile"` CSS on the cards'
+  own hooks (`[data-permission-card]`, `[data-question-card]`,
+  `[data-question-block]`): the primary action full width at 50 px, the
+  two secondary actions sharing a row at 48 px, question rows at 60 px, no
+  hover preview. The cards' props do not change (§ 1).
+- The composer as the escape hatch: while a decision is pending the
+  placeholder names the alternative — `composerPlaceholderFor(kind)` for
+  a permission or a plan, "Answer <header>, or pick an option above…" for
+  a question — and `answering` lights the well; `sendPrompt` already turns
+  the text into a refusal with a reason or into the free-form answer.
+  Approving a plan shows the mode it switches to (the desktop card does).
+- A session opened with a pending decision lands at the end of the
+  transcript, where the card is.
+
+### 6.4 New session (9d)
+
+- A screen `new` in the navigation, opened by the list's "+ New session"
+  (live in 2b; "needs <Mac> awake" and inert while the Mac is asleep).
+  × and the hardware back button return to the list; a typed draft is
+  dropped.
+- One field for the directory. Empty: the ten most recent directories.
+  Typing filters every directory `GET /api/projects` returns, matching any
+  path segment, most recent first; a typed `~/` or `/` path that matches
+  nothing gets one row "Use <path> as is" with "<Mac> checks it exists
+  when the session starts". Tapping a row fills the field with the full
+  path. Rows: basename bold, full path in mono, last use (`lastAt`, new on
+  the route), and the tag dot of a session the phone already holds in
+  that directory — there is no tag-rule route for the phone, so a
+  directory with no session on the list shows none. `GET /api/projects`
+  answers up to `PROJECTS_LIMIT` distinct directories instead of 50, so
+  "every directory" holds.
+- Mode and model: the desktop's `ModeCards` and `ModelCards`, preselected
+  from `GET /api/sessions/defaults` (`{ permissionMode, model,
+  rememberModelPerProject }`) and, when the flag is on, the directory's
+  `lastModel` from `/api/projects`. `bypassPermissions` is never
+  preselected (the desktop's rule); no "Other…" model on the phone.
+- First prompt: the same `Composer`, `variant: 'dialog'`, `placement:
+  'below'`, `enter: 'newline'`, attachments with `sessionId: null`. Start
+  is disabled until the prompt has text; with the keyboard up the button
+  rides on it.
+- Start: `POST /api/sessions` with `{ cwd, prompt, permissionMode, model,
+  attachments }`. 201 opens the session; the list gets it from the hub.
+  With `requireDirectory: true` in the body (the phone always sends it)
+  the route checks the directory before launching — an absolute,
+  existing directory after `~` expansion, the check `spawn_session`
+  already makes — and answers 400 `{ error: 'no_such_directory' }`; the
+  phone shows "Directory not found on <Mac>" inline under the field and
+  keeps the screen as typed. The flag is opt-in because the desktop's
+  tests launch sessions in directories that do not exist against a
+  stubbed runner, and the desktop dialog has no inline place for the
+  error yet. Any other failure shows inline under Start; the phone has
+  no toast surface and does not report errors to the Mac's error log
+  (`/api/errors` is denied to it).
+- The phone remembers nothing about the last launch; the desktop's
+  `new_session_last_*` are its own.
+
+### 6.5 Push and notifications (9g)
+
+- **Registration.** `@capacitor/push-notifications`. After boot with a
+  pairing, and right after `paired` while pairing:
+  `requestPermissions()` (Android 13's POST_NOTIFICATIONS prompt),
+  `register()`, and on `registration` → `client.pushToken(token)` — the
+  client re-sends it on every `ok` and after `paired` (§ 2, parent § 7).
+  A denied permission is not an error: the app runs without
+  notifications and 9f shows nothing about it.
+- **Channels**, created at boot: `needs_input` "Needs input", high
+  importance, silent — the one the relay addresses (`relay/src/push.ts`)
+  — and `needs_input_sound` "Needs input · sound", the same with the
+  default sound. The phone's `sound` rule picks the channel for its local
+  notifications; a relay push is always silent (9g: "no sound by
+  default"), since the relay does not know the rule.
+- **Tapping** a relay push (`pushNotificationActionPerformed`) opens the
+  list; tapping a local notification
+  (`localNotificationActionPerformed`) opens the session it names
+  (`extra.sessionId`). Opening sends `seen`, as every open does.
+- **Deciding.** The shared `SessionNotifier`
+  (`shared/src/notifications.ts`) is fed every `sessions` and `errors`
+  hub frame and holds the phone's rules (`notifications_get` on every
+  tunnel open, cached as before; a 9f edit updates it in place). It is
+  rebuilt on every `ready: true` and seeded from the session list the
+  resync reads (and from the cached list until then): the hub replays
+  nothing on subscribe, so a fresh notifier that was not seeded would take
+  each session's next frame as a first sighting and report nothing — the
+  desktop seeds its watcher from the initial list for the same reason
+  (corrected 2026-10-02 by the whole-branch review; the first draft assumed
+  an upsert flood that does not exist). A pure
+  `decideNotification(notification, { active,
+  viewing, rules })` answers which of banner and system notification to
+  show: in the foreground, the banner unless the session is on screen,
+  plus a system notification only when `onlyWhenBackground` is off; in
+  the background, the system notification alone.
+- **The local notification**: title the session's name, body the
+  notifier's ("Needs your input", "Session ended", the failure line),
+  channel by `sound`, `extra: { sessionId }`, one id per session so a
+  later transition replaces the earlier one.
+- **The banner** (9g): slides down under the status bar, "<title> needs
+  input" with the ask on the second line (the pending decision's chip
+  label and summary when the store has it, else the notifier's body),
+  hides after `BANNER_MS`, swipe up dismisses, "View" opens the session.
+  One at a time; a newer one replaces it.
+- The wake frame stays ignored (parent § 7): what to show comes from the
+  hub.
+
+### 6.6 Server and shared changes
+
+`GET /api/sessions/defaults` and its allowlist entry; `GET /api/projects`
+with `lastAt` and `PROJECTS_LIMIT`; `POST /api/sessions` answers 400
+`no_such_directory`; `RemoteClient.putBlob`; `AttachmentSource` and
+`Attachment.original`; `configureApi({ upload })`. The relay does not
+change. These ship in the desktop release that moves `MIN_SERVER_VERSION`.
 
 ## 7. Testing
 
@@ -310,7 +518,28 @@ Worth a test:
   comparison; the pairing and cache parsers (bad JSON → empty).
 - The bundle guard over the mobile manifest.
 
-Not tested: screens render their rows, 9p sizes, motion.
+Added for 2b (§ 6):
+- `putBlob` against the fake socket (the `blob_put` header and the chunks
+  in order, `entry` resolving, `too_large` and `not_image` as refusals,
+  `busy` and a lost tunnel as `lost`) and end to end: a PNG uploaded
+  through the real Mac is fetched back with `getBlob` and referenced in a
+  message body.
+- `fitWithin` (landscape, portrait, already small, exact edge).
+- `GET /api/sessions/defaults` (the three settings; absent → the
+  desktop's own fallbacks) and its allowlist entry, with the trailing
+  slash and `/api/sessions/defaults/x` denied; `GET /api/projects` with
+  `lastAt` and past 50 directories; `POST /api/sessions` → 400
+  `no_such_directory`.
+- `filterDirectories` (empty → ten most recent; a segment match; the
+  "use as is" row for a typed `~/` or `/` path; nothing for other text).
+- `decideNotification` (foreground/background × viewing × the background
+  rule).
+- The image URL cache's bound (the oldest URL revoked past
+  `IMAGE_URL_CACHE_MAX`), with `toUrl` and `revoke` injected.
+- `uploadAttachment` delegating to a configured `upload`.
+
+Not tested: screens render their rows, 9p sizes, motion, the composer on
+the phone, the cards' touch CSS, the banner, the camera.
 
 ## As built (2a)
 
@@ -330,8 +559,10 @@ Built from [[2026-10-02-mobile-app-read]]. Decisions the spec left open:
 - **`MIN_SERVER_VERSION` is `0.17.1`**, the release that shipped Settings → Mobile.
 - **The relay link's silence watchdog runs only while a tunnel is up.** The
   relay's pings never reach page code, so a quiet link with the Mac away
-  cannot be told from a dead one; every return to the foreground rebuilds
-  the link instead (`recheck`).
+  cannot be told from a dead one; a return to the foreground rebuilds
+  the link instead (`recheck`) — since 2b only when no tunnel is up: with
+  one up the watchdog is the judge, and the rebuild used to race the
+  upload of a photo picked in the camera activity (§ 6.2).
 - **The paste field** shows when there is no scanner and in every dev build
   (`ORBITAL_MOBILE_DEV=1`), where a complete code pairs as it is typed —
   that is how `mobile/scripts/pair-emulator.sh` pairs the emulator. A
@@ -355,6 +586,84 @@ Built from [[2026-10-02-mobile-app-read]]. Decisions the spec left open:
   on a phone; `SettingsScreen.tsx` rephrases those two and keeps the
   desktop's words for the other three. The canvas gives no copy for these
   rows, so this is the controller's call, not a design read.
+
+## As built (2b)
+
+Built 2026-10-02 from § 6 by subagent-driven development without a plan
+file (the owner's call: the spec was the requirements document). Decisions
+the spec left open or that building corrected:
+
+- **No composer spike, and the Tiptap composer held.** Typed on the
+  emulator's Gboard during the fidelity pass; no textarea fallback exists.
+- **`requireDirectory` is opt-in** on `POST /api/sessions` (§ 6.4): the
+  desktop's tests launch sessions in directories that do not exist against a
+  stubbed runner, so the check is a body flag the phone always sends.
+- **No camera permission** is declared or asked (§ 6.2): the plugin hands
+  the shot to the system camera app. `Camera.getPhoto` is deprecated in
+  `@capacitor/camera` 8.x and still works; moving to `takePhoto` /
+  `chooseFromGallery` is in [[mobile-follow-ups]].
+- **The phone sends images only.** `tunnelUpload` refuses a file over
+  `ATTACHMENT_MAX_BYTES` or whose type is not `image/*` before reading it;
+  a pasted non-image file is a `not_image` refusal on the chip, where the
+  desktop would upload it by path.
+- **Push needs a build with `google-services.json` present.**
+  `vite.mobile.config.ts` sets `__MOBILE_PUSH__` from the file's presence;
+  without it the app asks for the notification permission (local
+  notifications need it) but never calls `register()`, which crashes the
+  app when Firebase is not initialised. The Gradle template already skips
+  the plugin without the file. Rebuild after adding it (runbook
+  [[build-the-android-app]], "Push").
+- **The silent channel is a bundled silent clip** (`res/raw/silence.wav`)
+  set as `needs_input`'s sound: neither plugin can create a silent
+  high-importance channel otherwise, and a channel's sound is fixed on the
+  device once created.
+- **`isExactNotification: false`** on every local notification: Android 12+
+  otherwise opens the "Alarms & reminders" settings instead of posting.
+- **The notifier is seeded, not flooded** (§ 6.5, corrected): the hub
+  replays nothing, so `renew()` seeds from the store and `resync()` seeds
+  again after `loadSessions()`; a seed never overrides what the hub already
+  said.
+- **The banner's second line** comes from the upsert that precedes the
+  `needs_input` status frame, then the store's session row, then
+  `pendingDecisions`; a sessionless failure gets a banner too. The "<title>
+  needs input" form keys on the shared `NEEDS_INPUT_BODY`.
+- **Returning to the foreground rebuilds the link only when no tunnel is
+  up**: with one up, the silence watchdog judges it. The 2a rebuild raced
+  a photo's upload after the camera activity returned.
+- **"Pair a different Mac" sends an empty push token** to the old relay
+  best-effort before dropping the client, so the old Mac's pushes stop; a
+  revoke needs nothing. The shared client now sends an empty token.
+- **Notification taps and the banner's View respect the gate screens**:
+  nothing navigates while unpaired, pairing or on the version mismatch; a
+  forget dismisses the banner and clears delivered notifications; opening
+  a session clears its own.
+- **Errors on the phone are a line under the composer's well**, humanised
+  from the Mac's error codes; the phone has no toast surface, does not post
+  to `/api/errors` (denied), and ignores the Mac's error-log toasts.
+  `/rewind` and `/mcp` are the desktop's and are refused there with a line;
+  `/compact` goes to the Mac. A failed question answer or verdict is taken
+  back so the card is live again.
+- **Ended terminal sessions get a composer**, as on the desktop (a send
+  revives them as Orbital sessions); live terminal sessions stay read-only.
+- **Plan approval shows no target mode** (9c "Approve → acceptEdits"): the
+  decision the Mac sends carries none; the mode is the server's
+  `APPROVED_PLAN_MODE`.
+- **`PROJECTS_LIMIT` also widens the desktop's stats project filter** from
+  50 to every directory the route lists.
+- **The Capacitor plugins are listed in `web/package.json` too**, since
+  `web/src/mobile` imports them.
+- **`MIN_SERVER_VERSION` is `0.18.2`**, the desktop version that ships 2b (the
+  defaults route, `lastAt`, `requireDirectory`); a 0.18.1 Mac is refused by
+  9i rather than half-working on 9d.
+
+## Known limits of 2b
+
+- The relay's push is generic; the specific notification needs the phone
+  connected (the ADR).
+- A notification in flight when the OS kills the socket is lost; the next
+  transition is reported by the relay.
+- iOS is 2c.
+- The deferred minors are in [[mobile-follow-ups]].
 
 ## 8. Known limits of 2a
 

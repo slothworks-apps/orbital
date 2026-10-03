@@ -1,6 +1,5 @@
-import { describe, it, expect, afterAll } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, it, expect } from 'vitest';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   collectCommands,
@@ -8,6 +7,7 @@ import {
   parseFrontmatter,
   stripFrontmatter,
 } from '../src/commands/catalog.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * Fake `~/.claude` + project roots per test. Everything the scan reads is a
@@ -15,17 +15,6 @@ import {
  * command with no frontmatter at all, the `skills/synced/<uuid>/<skill>`
  * nesting) are exactly what a mocked `fs` would let us get wrong.
  */
-const cleanups: string[] = [];
-afterAll(() => {
-  for (const dir of cleanups) rmSync(dir, { recursive: true, force: true });
-});
-
-function makeRoot(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), `orbital-${prefix}-`));
-  cleanups.push(dir);
-  return dir;
-}
-
 function write(path: string, body: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, body);
@@ -78,21 +67,21 @@ describe('parseFrontmatter', () => {
 
 describe('collectCommands', () => {
   it('reads user commands flat, with an empty description when there is no frontmatter', () => {
-    const claudeDir = makeRoot('claude');
+    const claudeDir = makeTmpDir('claude');
     write(join(claudeDir, 'commands', 'ask.md'), 'The user is asking a question.\n');
     write(
       join(claudeDir, 'commands', 'ship.md'),
       '---\ndescription: ship it\nallowed-tools: Bash(git push:*)\n---\nbody\n',
     );
 
-    expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([
+    expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([
       { name: 'ask', description: '', source: 'user' },
       { name: 'ship', description: 'ship it', source: 'user' },
     ]);
   });
 
   it('carries the argument-hint of a command and of a skill, and nothing for a file without one', () => {
-    const claudeDir = makeRoot('claude');
+    const claudeDir = makeTmpDir('claude');
     write(
       join(claudeDir, 'commands', 'fix.md'),
       '---\ndescription: fix an issue\nargument-hint: [issue-number] [priority]\n---\nbody\n',
@@ -103,7 +92,7 @@ describe('collectCommands', () => {
       '---\nname: review\ndescription: review a PR\nargument-hint: "<pr-number>"\n---\n',
     );
 
-    expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([
+    expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([
       { name: 'fix', description: 'fix an issue', source: 'user', argumentHint: '[issue-number] [priority]' },
       { name: 'plain', description: '', source: 'user' },
       { name: 'review', description: 'review a PR', source: 'user', argumentHint: '<pr-number>' },
@@ -111,28 +100,28 @@ describe('collectCommands', () => {
   });
 
   it('names a user skill after its directory and describes it from SKILL.md', () => {
-    const claudeDir = makeRoot('claude');
+    const claudeDir = makeTmpDir('claude');
     skill(claudeDir, 'find-skills');
 
-    expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([
+    expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([
       { name: 'find-skills', description: 'what find-skills does', source: 'user' },
     ]);
   });
 
   it('descends the skills/synced/<uuid>/<skill> level and never lists `synced` itself', () => {
-    const claudeDir = makeRoot('claude');
+    const claudeDir = makeTmpDir('claude');
     skill(claudeDir, 'synced', 'a1b2-uuid', 'morning');
     skill(claudeDir, 'synced', 'a1b2-uuid', 'pdf');
 
-    const names = collectCommands({ claudeDir, cwd: makeRoot('cwd') }).map((c) => c.name);
+    const names = collectCommands({ claudeDir, cwd: makeTmpDir('cwd') }).map((c) => c.name);
     expect(names).toEqual(['morning', 'pdf']);
     expect(names).not.toContain('synced');
     expect(names).not.toContain('a1b2-uuid');
   });
 
   it('reads the project .claude under cwd and marks it `project`', () => {
-    const claudeDir = makeRoot('claude');
-    const cwd = makeRoot('cwd');
+    const claudeDir = makeTmpDir('claude');
+    const cwd = makeTmpDir('cwd');
     write(join(cwd, '.claude', 'commands', 'deploy.md'), '---\ndescription: deploy\n---\n');
     skill(join(cwd, '.claude'), 'house-style');
 
@@ -143,8 +132,8 @@ describe('collectCommands', () => {
   });
 
   it('a project command outranks a user one of the same name', () => {
-    const claudeDir = makeRoot('claude');
-    const cwd = makeRoot('cwd');
+    const claudeDir = makeTmpDir('claude');
+    const cwd = makeTmpDir('cwd');
     write(join(claudeDir, 'commands', 'review.md'), '---\ndescription: mine\n---\n');
     write(join(cwd, '.claude', 'commands', 'review.md'), '---\ndescription: ours\n---\n');
 
@@ -176,7 +165,7 @@ describe('collectCommands', () => {
     }
 
     it('lists skills and commands from an enabled plugin as plugin:entry', () => {
-      const claudeDir = makeRoot('claude');
+      const claudeDir = makeTmpDir('claude');
       const installPath = join(claudeDir, 'plugins', 'cache', 'official', 'superpowers', 'v1');
       skill(installPath, 'brainstorming');
       write(join(installPath, 'commands', 'plan.md'), '---\ndescription: write a plan\n---\n');
@@ -186,7 +175,7 @@ describe('collectCommands', () => {
         { 'superpowers@official': true },
       );
 
-      expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([
+      expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([
         {
           name: 'superpowers:brainstorming',
           description: 'what brainstorming does',
@@ -197,7 +186,7 @@ describe('collectCommands', () => {
     });
 
     it("finds a plugin skill's file by its plugin:entry name", () => {
-      const claudeDir = makeRoot('claude');
+      const claudeDir = makeTmpDir('claude');
       const installPath = join(claudeDir, 'plugins', 'cache', 'official', 'superpowers', 'v1');
       skill(installPath, 'brainstorming');
       installPlugins(
@@ -206,46 +195,46 @@ describe('collectCommands', () => {
         { 'superpowers@official': true },
       );
 
-      const found = findCommandFile({ claudeDir, cwd: makeRoot('cwd') }, 'superpowers:brainstorming');
+      const found = findCommandFile({ claudeDir, cwd: makeTmpDir('cwd') }, 'superpowers:brainstorming');
       expect(found?.path).toBe(join(installPath, 'skills', 'brainstorming', 'SKILL.md'));
       expect(found?.body).toBe('body\n');
     });
 
     it('ignores a plugin that is installed but not enabled', () => {
-      const claudeDir = makeRoot('claude');
+      const claudeDir = makeTmpDir('claude');
       const installPath = join(claudeDir, 'plugins', 'cache', 'official', 'firebase', 'v1');
       write(join(installPath, 'commands', 'deploy.md'), '---\ndescription: deploy\n---\n');
       installPlugins(claudeDir, { 'firebase@official': installPath }, { 'firebase@official': false });
 
-      expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([]);
+      expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([]);
     });
 
     it('ignores an enabled plugin that is not installed', () => {
-      const claudeDir = makeRoot('claude');
+      const claudeDir = makeTmpDir('claude');
       installPlugins(claudeDir, {}, { 'ghost@official': true });
 
-      expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([]);
+      expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([]);
     });
   });
 
   it('excludes the agents namespace', () => {
-    const claudeDir = makeRoot('claude');
+    const claudeDir = makeTmpDir('claude');
     write(join(claudeDir, 'agents', 'reviewer.md'), '---\ndescription: reviews\n---\n');
 
-    expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([]);
+    expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([]);
   });
 
   it('ignores non-markdown files and a skills directory with no SKILL.md', () => {
-    const claudeDir = makeRoot('claude');
+    const claudeDir = makeTmpDir('claude');
     write(join(claudeDir, 'commands', 'notes.txt'), 'not a command');
     write(join(claudeDir, 'skills', 'half-written', 'README.md'), 'no SKILL.md here');
 
-    expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([]);
+    expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([]);
   });
 
   it('sorts by name across every source', () => {
-    const claudeDir = makeRoot('claude');
-    const cwd = makeRoot('cwd');
+    const claudeDir = makeTmpDir('claude');
+    const cwd = makeTmpDir('cwd');
     write(join(claudeDir, 'commands', 'zebra.md'), '');
     skill(claudeDir, 'apple');
     write(join(cwd, '.claude', 'commands', 'mango.md'), '');
@@ -261,12 +250,12 @@ describe('collectCommands', () => {
   });
 
   it('survives a corrupt installed_plugins.json or settings.json', () => {
-    const claudeDir = makeRoot('claude');
+    const claudeDir = makeTmpDir('claude');
     write(join(claudeDir, 'commands', 'ok.md'), '');
     write(join(claudeDir, 'plugins', 'installed_plugins.json'), '{ not json');
     write(join(claudeDir, 'settings.json'), 'also not json');
 
-    expect(collectCommands({ claudeDir, cwd: makeRoot('cwd') })).toEqual([
+    expect(collectCommands({ claudeDir, cwd: makeTmpDir('cwd') })).toEqual([
       { name: 'ok', description: '', source: 'user' },
     ]);
   });
@@ -274,8 +263,8 @@ describe('collectCommands', () => {
 
 describe('findCommandFile', () => {
   it('prefers the project file on a name collision, as the list does', () => {
-    const claudeDir = makeRoot('claude');
-    const cwd = makeRoot('cwd');
+    const claudeDir = makeTmpDir('claude');
+    const cwd = makeTmpDir('cwd');
     write(join(claudeDir, 'commands', 'ship.md'), 'user ship\n');
     write(join(cwd, '.claude', 'commands', 'ship.md'), 'project ship\n');
 
@@ -286,7 +275,7 @@ describe('findCommandFile', () => {
   });
 
   it('is null for a name the scan did not find, path-shaped or not', () => {
-    const claudeDir = makeRoot('claude');
+    const claudeDir = makeTmpDir('claude');
     write(join(claudeDir, 'commands', 'ok.md'), '');
     write(join(claudeDir, 'settings.json'), '{}');
 

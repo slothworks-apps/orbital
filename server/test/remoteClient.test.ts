@@ -122,6 +122,16 @@ describe('the phone client against a real relay and a real Mac', () => {
     expect(blob).toMatchObject({ status: 200, mediaType: 'image/png' });
     expect(Buffer.from(blob.bytes).equals(Buffer.from(png))).toBe(true);
 
+    // A photo the phone uploads lands in the same store; what is not an image is refused as a value.
+    const png2 = new Uint8Array(70_000).fill(9);
+    png2.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const put = await client.putBlob(png2, 'image/png');
+    expect(put).toMatchObject({ kind: 'ok', entry: { bytes: 70_000 } });
+    if (put.kind !== 'ok') throw new Error('upload refused');
+    const uploaded = await client.getBlob(put.entry.ref);
+    expect(Buffer.from(uploaded.bytes).equals(Buffer.from(png2))).toBe(true);
+    expect(await client.putBlob(new TextEncoder().encode('not a picture'), 'text/plain')).toEqual({ kind: 'not_image' });
+
     // The phone's own notification rules, stored on the Mac.
     const rules = await client.getNotifications();
     const changed = await client.setNotifications({ ...rules, sessionEnded: false });

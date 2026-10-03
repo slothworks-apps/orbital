@@ -9,17 +9,20 @@ import { TranscriptView } from '../../panels/TranscriptView'
 import { useOrbital, type SessionEvent } from '../../store/store'
 import { ModeDot } from '../../ui/ModeDot'
 import { CLOCK_TICK_MS } from '../constants'
+import { notificationId } from '../notify'
 import { basename } from '../format'
 import { readTranscriptCache } from '../platform/cache'
+import { removeDeliveredNotification } from '../platform/localNotify'
 import { stateLine } from '../sessionList'
 import { isMacAsleep, useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
 import { Glyph } from './Glyph'
+import { SessionComposer } from './SessionComposer'
 
 const EMPTY: ChatMessage[] = []
 
-/** 9b (spec § 5): one session's transcript, read-only in 2a. */
+/** 9b (spec § 5, § 6.1): one session's transcript and its composer. */
 export function SessionScreen() {
   const id = useMobile((s) => s.sessionId)
   return id ? <SessionView key={id} id={id} /> : null
@@ -29,13 +32,13 @@ function SessionView({ id }: { id: string }) {
   const session = useOrbital((s) => s.sessions[id])
   const messages = useOrbital((s) => s.transcripts[id] ?? EMPTY)
   const models = useOrbital((s) => s.models)
+  const pendingDecisionId = useOrbital((s) => s.pendingDecisions[id]?.id)
   const tag = useOrbital((s) => (session ? s.tags.find((t) => t.id === session.tagIds[0]) : undefined))
   const select = useOrbital((s) => s.select)
   const loadOlder = useOrbital((s) => s.loadOlder)
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const ready = useMobile((s) => s.ready)
   const asOf = useMobile((s) => s.asOf)
-  const macName = useMobile((s) => s.macName)
   const offline = useMobile(isMacAsleep)
   const goBack = useMobile((s) => s.goBack)
   const [exhausted, setExhausted] = useState(false)
@@ -59,6 +62,8 @@ function SessionView({ id }: { id: string }) {
       if (live) await select(id)
     })()
     clientRef.seen(id)
+    // Its notification, if the shade still holds one, has been read now.
+    void removeDeliveredNotification(notificationId(id))
     return () => {
       live = false
       // Leaving drops the held transcript (the store's own rule), so coming back reads the file again.
@@ -126,30 +131,22 @@ function SessionView({ id }: { id: string }) {
     </div>
   ) : undefined
 
-  // The composer's place: 9p's locked line while the Mac sleeps; its line for a
-  // terminal session; nothing for an Orbital one until 2b.
-  const footerLine = offline
-    ? `${macName ?? 'Your Mac'} is asleep — read only`
-    : session && isReadOnly(session)
-      ? 'terminal session · no composer'
-      : null
-  const footer = footerLine ? (
-    <div className="border-t border-panel-border px-4 py-3 text-center font-mono text-[11px] text-text-muted">
-      {footerLine}
-    </div>
-  ) : undefined
-
   return (
-    <MobileScreen header={header} footer={footer} scroll={false}>
+    // No footer until the row exists: 9d opens a session before its upsert lands,
+    // and a footer then would flash the terminal line.
+    <MobileScreen header={header} footer={session ? <SessionComposer id={id} /> : undefined} scroll={false}>
       <TranscriptView
         messages={messages}
         isWorking={!offline && session?.status === 'working'}
         models={models}
         resetKey={id}
         sessionId={id}
+        // The parked tool call is lifted out of its run and drawn as its card (§ 6.3).
+        pendingDecisionId={pendingDecisionId}
         onLoadOlder={ready ? handleLoadOlder : undefined}
         exhausted={exhausted}
-        readOnly
+        // An Orbital session's cards answer; a terminal session's say where to (§ 6.3).
+        readOnly={session ? isReadOnly(session) : true}
         footer={divider}
         footerKey={offline ? 'offline' : 'live'}
       />

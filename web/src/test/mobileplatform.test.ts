@@ -53,6 +53,12 @@ describe('parsePairing', () => {
     expect(parsePairing(JSON.stringify({ ...good, mac: 'nope' }))).toBeNull()
     expect(parsePairing(JSON.stringify({ ...good, relay: 'ftp://relay.example.org' }))).toBeNull()
   })
+
+  it('keeps the relay secret when there is one, and reads anything but a string as none', () => {
+    expect(parsePairing(JSON.stringify({ ...good, relaySecret: 's3cret' }))).toEqual({ ...good, relaySecret: 's3cret' })
+    expect(parsePairing(JSON.stringify({ ...good, relaySecret: 42 }))).toEqual(good)
+    expect(parsePairing(JSON.stringify({ ...good, relaySecret: null }))).toEqual(good)
+  })
 })
 
 describe('parseCached', () => {

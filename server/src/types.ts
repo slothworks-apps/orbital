@@ -1,7 +1,10 @@
 import type { WalkthroughTag } from './walkthrough/tag.js';
 import type { RecentTool } from './transcript/recentTools.js';
+import type { HarnessMessageKind } from './harness/types.js';
 
 export type SessionSource = 'terminal' | 'web';
+/** Why Orbital started a session: `harness_draft` is a harness template's drafting conversation. */
+export type SessionPurpose = 'harness_draft';
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended';
 /** Ordered by escalating autonomy. Mirrored in `web/src/lib/types.ts` — this
  * repo has no shared types package, so the two must move together. The SDK
@@ -51,6 +54,8 @@ export interface SessionRow {
   ended_at: number | null;
   /** The session whose `spawn_session` started this one, or null. See db/schema.ts. */
   spawned_by: string | null;
+  /** Why Orbital started this session, or null. See db/schema.ts. */
+  purpose: SessionPurpose | null;
 }
 
 /**
@@ -117,6 +122,13 @@ export interface ChatMessage {
    * chain, so it decides. Absent means not.
    */
   rewindable?: true;
+  /**
+   * `user` rows only: Orbital sent this on a harness's account — the kickoff,
+   * a step it sent the agent on to, a nudge, or a reviewer's findings — so it
+   * is Orbital speaking, not the user. `step` is 0-based. Known by the entry's
+   * uuid, recorded when it was delivered (spec 2026-10-02-harness-redesign-design § 3).
+   */
+  harnessMessage?: { kind: HarnessMessageKind; step: number };
   text?: string;
   toolName?: string;
   toolInput?: unknown;

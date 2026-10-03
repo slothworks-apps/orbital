@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '../mobile/version'
-import { back, initialMobileState, isMacAsleep, isPairGone, reduce, useMobile, type MobileState } from '../mobile/state'
+import {
+  back, initialMobileState, isMacAsleep, isPairGone, mayOpenFromNotice, pairGoneFor, reduce, useMobile, type MobileState,
+} from '../mobile/state'
 
-// `recheck` is the only part of `clientRef` the module under test calls.
-vi.mock('../mobile/transport/clientRef', () => ({ clientRef: { recheck: vi.fn() } }))
-import { recheckMac } from '../mobile/connect'
+// `recheck`, `client` and `ready` are all of `clientRef` the module under test reads.
+vi.mock('../mobile/transport/clientRef', () => ({ clientRef: { recheck: vi.fn(), client: null, ready: false } }))
+import { recheckMac, recheckOnForeground } from '../mobile/connect'
 import { clientRef } from '../mobile/transport/clientRef'
 import type { Pairing } from '../mobile/platform/parse'
 
@@ -79,6 +81,26 @@ describe('reduce', () => {
     }
   })
 
+  it('reads a refused relay secret as the pair gone only while a pairing is stored', () => {
+    const pairing: Pairing = { relay: 'https://relay.test', mac: 'm', macName: 'studio', fingerprint: 'ABC123', pairedAt: 1 }
+    const refused = { type: 'relay_error', code: 'bad_secret' } as const
+    // The relay was re-keyed, and only a new code carries the new secret.
+    expect(isPairGone(refused)).toBe(true)
+    expect(pairGoneFor(refused, pairing)).toBe(true)
+    expect(reduce(state({ pairing, screen: 'list' }), refused, NOW)).toMatchObject({ screen: 'unpaired', unpaired: true })
+    // Mid-pairing (nothing stored) the pairing run reports it; there is no pair to lose.
+    expect(pairGoneFor(refused, null)).toBe(false)
+    expect(reduce(state({ screen: 'pairing' }), refused, NOW)).toEqual({})
+  })
+
+  it('reads the Mac revoking or the relay saying unpaired as the pair gone, stored pairing or not', () => {
+    const pairing: Pairing = { relay: 'https://relay.test', mac: 'm', macName: 'studio', fingerprint: 'ABC123', pairedAt: 1 }
+    for (const event of [{ type: 'bye', reason: 'revoked' } as const, { type: 'unpaired' } as const]) {
+      expect(pairGoneFor(event, pairing)).toBe(true)
+      expect(pairGoneFor(event, null)).toBe(true)
+    }
+  })
+
   it('ignores a relay error that says nothing about the pair', () => {
     expect(isPairGone({ type: 'relay_error', code: 'bad_url' })).toBe(false)
     expect(reduce(state(), { type: 'relay_error', code: 'bad_url' }, NOW)).toEqual({})
@@ -89,6 +111,7 @@ describe('back', () => {
   it('walks session and settings back to the list, and leaves the app from the list', () => {
     expect(back(state({ screen: 'session', sessionId: 's1' }))).toEqual({ screen: 'list', sessionId: null })
     expect(back(state({ screen: 'settings' }))).toEqual({ screen: 'list' })
+    expect(back(state({ screen: 'new' }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'list' }))).toBe('exit')
     expect(back(state({ screen: 'mismatch' }))).toBe('exit')
   })
@@ -127,6 +150,15 @@ describe('isMacAsleep', () => {
 })
 
 const PAIRING: Pairing = { relay: 'https://relay.test', mac: 'm1', macName: 'studio', fingerprint: 'f', pairedAt: 1 }
+
+describe('mayOpenFromNotice', () => {
+  it('lets a notice navigate only with a pair that works', () => {
+    expect(mayOpenFromNotice(state({ pairing: PAIRING }))).toBe(true)
+    expect(mayOpenFromNotice(state({ pairing: null }))).toBe(false)
+    expect(mayOpenFromNotice(state({ pairing: PAIRING, unpaired: true }))).toBe(false)
+    expect(mayOpenFromNotice(state({ pairing: PAIRING, mismatch: { macVersion: '0.1.0', needed: MIN_SERVER_VERSION } }))).toBe(false)
+  })
+})
 
 /** A promise this test resolves from the outside, to control the order two `recheckMac` calls settle in. */
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -179,5 +211,32 @@ describe('recheckMac', () => {
 
     expect(useMobile.getState().checkedAt).toBeNull()
     expect(useMobile.getState().macOnline).toBe(false)
+  })
+})
+
+describe('recheckOnForeground', () => {
+  const ref = clientRef as unknown as { client: object | null; ready: boolean }
+  beforeEach(() => {
+    useMobile.setState({ ...initialMobileState, pairing: PAIRING })
+    vi.mocked(clientRef.recheck).mockReset().mockResolvedValue(true)
+    ref.client = {}
+    ref.ready = false
+  })
+
+  it('leaves a ready tunnel alone, so an upload in flight is not cut', async () => {
+    ref.ready = true
+    await recheckOnForeground()
+    expect(clientRef.recheck).not.toHaveBeenCalled()
+  })
+
+  it('rebuilds the link when the tunnel is not ready', async () => {
+    await recheckOnForeground()
+    expect(clientRef.recheck).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing without a client', async () => {
+    ref.client = null
+    await recheckOnForeground()
+    expect(clientRef.recheck).not.toHaveBeenCalled()
   })
 })

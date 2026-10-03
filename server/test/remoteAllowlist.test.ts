@@ -16,7 +16,7 @@ describe('remote allowlist', () => {
       ['POST', '/api/sessions/abc/tasks/t1/stop'], ['GET', '/api/sessions/abc/tasks/t1/output'],
       ['GET', '/api/tags'], ['GET', '/api/projects'], ['GET', '/api/models'], ['GET', '/api/commands'],
       ['GET', '/api/sessions/abc/walkthrough'], ['GET', '/api/sessions/abc/walkthrough/summary'],
-      ['GET', '/api/health'],
+      ['GET', '/api/health'], ['GET', '/api/sessions/defaults'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
   it('denies the file system, the editor, settings, errors, rules and dev routes', () => {
@@ -32,6 +32,9 @@ describe('remote allowlist', () => {
       ['POST', '/api/branch-status/refresh'], ['GET', '/api/sessions/retention-preview'],
       ['GET', '/api/remote'], ['POST', '/api/remote/pair'], ['DELETE', '/api/remote/devices/x'],
       ['GET', '/ws'], ['GET', '/'], ['GET', '/index.html'],
+      // `defaults` is a literal, never an id: no other method or shape reaches it.
+      ['GET', '/api/sessions/defaults/'], ['GET', '/api/sessions/defaults/x'], ['POST', '/api/sessions/defaults'],
+      ['PATCH', '/api/sessions/defaults'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
   });
   it('is strict about shape: method case, traversal, empty segments, encoded slashes', () => {

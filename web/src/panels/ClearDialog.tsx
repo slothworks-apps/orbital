@@ -7,6 +7,14 @@ import { command, matches } from '../lib/keymap'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Checkbox } from '../ui/Checkbox'
+import { harnessUnfinished } from '../lib/harnessSession'
+import type { SessionHarness } from '../lib/types'
+
+/** `Build a component · step 4 of 7`: the harness and where the new session picks it up. */
+function carriedStep(harness: SessionHarness): string {
+  const at = harness.state.findIndex((s) => s.status !== 'done')
+  return `${harness.name} · step ${at + 1} of ${harness.steps.length}`
+}
 
 export interface ClearDialogProps {
   open: boolean
@@ -37,13 +45,21 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
   }, [open, sessionId])
 
   const session = useOrbital((s) => (targetId ? s.sessions[targetId] : undefined))
+  // A harness with steps left — running, or paused because the session
+  // ended — can go on in the new session (spec 2026-10-02-harness-redesign-design
+  // § 8). Offered, and on by default: the plan is why the session ran, and
+  // Clear is how the "session ended" pause says to continue it.
+  const harness = useOrbital((s) => (targetId ? s.harnesses[targetId] : undefined))
+  const carryable = harnessUnfinished(harness) ? harness : null
 
   const [dontAskAgain, setDontAskAgain] = useState(false)
+  const [carryHarness, setCarryHarness] = useState(true)
   const [pending, setPending] = useState(false)
 
   useEffect(() => {
     if (!open) {
       setDontAskAgain(false)
+      setCarryHarness(true)
       setPending(false)
     }
   }, [open])
@@ -71,7 +87,9 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
       setPending(true)
       try {
         await persistDontAskAgain()
-        const result = await api.clearSession(targetId, true)
+        const result = carryable && carryHarness
+          ? await api.clearSession(targetId, true, { carryHarness: true })
+          : await api.clearSession(targetId, true)
         if (result.sessionId) {
           void useOrbital.getState().select(result.sessionId)
         }
@@ -83,7 +101,7 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [targetId, pending, dontAskAgain, onClose],
+    [targetId, pending, dontAskAgain, carryable, carryHarness, onClose],
   )
 
   // ⏎ clears and starts a new session ("esc · ⏎ new"). Ending without a
@@ -142,6 +160,23 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
             {tagNames.length > 0 ? tagNames.join(', ') : 'tags'} · same directory
           </div>
         </div>
+
+        {carryable && (
+          <div className="mt-3">
+            <Checkbox
+              checked={carryHarness}
+              onChange={setCarryHarness}
+              label={
+                <span className="text-[12px] text-[rgba(160,190,225,.75)]">
+                  Continue the harness in the new session{' '}
+                  <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+                    ({carriedStep(carryable)})
+                  </span>
+                </span>
+              }
+            />
+          </div>
+        )}
 
         <div className="mt-3">
           <Checkbox

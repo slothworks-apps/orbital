@@ -60,7 +60,11 @@ const EVENT_WORD: Record<HarnessEvent['kind'], string> = {
   review_started: 'reviewer looking at',
   reviewed: 'reviewer decided',
   review_failed: 'reviewer could not decide',
+  review_aborted: 'review stopped',
   options: 'options changed',
+  went_back: 'went back to',
+  removed: 'removed',
+  carried_over: 'carried over',
 }
 
 /** One line of the panel's log: what happened, to which step, and why when the harness said. */

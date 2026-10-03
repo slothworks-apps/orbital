@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import type { BlobResult, RemoteClientEvent, TunnelResponse } from '@orbital/shared/remote/client'
+import type { BlobResult, PutBlobResult, RemoteClientEvent, TunnelResponse } from '@orbital/shared/remote/client'
 import type { NotificationSettings } from '@orbital/shared/remote/messages'
 import type { SwappableClient } from '../mobile/transport/clientRef'
 
@@ -22,11 +22,15 @@ export class FakeClient implements SwappableClient {
   readonly getBlob = vi.fn(
     async (_ref: string): Promise<BlobResult> => ({ status: 404, bytes: new Uint8Array(0), mediaType: null }),
   )
+  readonly putBlob = vi.fn(
+    async (_bytes: Uint8Array, _mediaType: string): Promise<PutBlobResult> => ({ kind: 'not_image' }),
+  )
   readonly subscribe = vi.fn((_topic: string) => {})
   readonly unsubscribe = vi.fn((_topic: string) => {})
   readonly getNotifications = vi.fn(async (): Promise<NotificationSettings> => RULES)
   readonly setNotifications = vi.fn(async (settings: NotificationSettings): Promise<NotificationSettings> => settings)
   readonly seen = vi.fn((_sessionId: string) => {})
+  readonly pushToken = vi.fn((_token: string) => {})
   readonly recheck = vi.fn(async (_windowMs: number): Promise<boolean> => true)
 
   on(listener: (event: RemoteClientEvent) => void): () => void {

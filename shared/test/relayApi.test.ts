@@ -37,6 +37,18 @@ describe('signed requests', () => {
     expect(verifyRequest({ pub: 'x' }, 'pair.token', 1000).ok).toBe(false);
     expect(verifyRequest(null, 'pair.token', 1000).ok).toBe(false);
   });
+  it('carries the relay secret only when there is one, outside the signed bytes', () => {
+    expect(signRequest(me, 'pair.token', { name: 'studio' }, 1000)).not.toHaveProperty('secret');
+    expect(signRequest(me, 'pair.token', { name: 'studio' }, 1000, '')).not.toHaveProperty('secret');
+    const req = signRequest(me, 'pair.token', { name: 'studio' }, 1000, 'abcd1234');
+    expect(req.secret).toBe('abcd1234');
+    const res = verifyRequest(req, 'pair.token', 1000);
+    expect(res.ok && res.secret).toBe('abcd1234');
+    const bare = verifyRequest(signRequest(me, 'pair.token', { name: 'studio' }, 1000), 'pair.token', 1000);
+    expect(bare.ok && bare.secret).toBeNull();
+    // Swapping the secret leaves the signature valid: the secret is not what it covers.
+    expect(verifyRequest({ ...req, secret: 'other' }, 'pair.token', 1000).ok).toBe(true);
+  });
   it('canonical json sorts keys at every depth', () => {
     expect(canonicalJson({ b: 1, a: { d: [3, { z: 1, y: 2 }], c: null } }))
       .toBe('{"a":{"c":null,"d":[3,{"y":2,"z":1}]},"b":1}');
@@ -69,6 +81,11 @@ describe('schemas and urls', () => {
   it('QR payload is versioned', () => {
     expect(QrPayload.safeParse({ v: 1, relay: 'https://r', mac: 'm', name: 'studio', token: 't', secret: 's' }).success).toBe(true);
     expect(QrPayload.safeParse({ v: 2, relay: 'https://r', mac: 'm', name: 'studio', token: 't', secret: 's' }).success).toBe(false);
+  });
+  it('keeps the optional relay secret on auth and in the QR', () => {
+    expect(DeviceToRelay.parse({ type: 'auth', pub: 'p', sig: 's', secret: 'k' })).toMatchObject({ secret: 'k' });
+    expect(QrPayload.parse({ v: 1, relay: 'https://r', mac: 'm', name: 'studio', token: 't', secret: 's', relaySecret: 'k' }))
+      .toMatchObject({ relaySecret: 'k' });
   });
   it('derives the websocket url from the http one and anchors it to the Mac', () => {
     expect(relayWsUrl('https://orbital-relay.example', 'm1')).toBe('wss://orbital-relay.example/ws?mac=m1');

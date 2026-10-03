@@ -13,10 +13,11 @@ import { concat, deviceId, fromBase64Url, publicKeyOf, type Identity } from './k
 import { ZERO_WAKE, decodeFrame, encodeFrame } from './frame.js';
 import { HANDSHAKE_BYTES, startHandshake, type Handshake, type SessionCipher } from './handshake.js';
 import {
-  MacMessage, PROTOCOL_VERSION, decodeInner, encodeInner, type NotificationSettings, type PhoneMessage,
+  MacMessage, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type ImageRefEntry, type Inner,
+  type NotificationSettings, type PhoneMessage,
 } from './messages.js';
 import {
-  PAIRING_TOKEN_TTL_MS, RELAY_PING_INTERVAL_MS, RelayToDevice, authSignature, pairingProof, relayWsUrl,
+  CLOSE_BAD_SECRET, PAIRING_TOKEN_TTL_MS, RELAY_PING_INTERVAL_MS, RelayToDevice, authSignature, pairingProof, relayWsUrl,
   signRequest, type DeviceToRelay,
 } from './relayApi.js';
 
@@ -74,7 +75,16 @@ export type RemoteClientEvent =
 
 export type TunnelResponse = { status: number; body: unknown };
 export type BlobResult = { status: number; bytes: Uint8Array; mediaType: string | null };
-/** `lost` also covers a blob whose chunks arrived out of order: what came is unusable and the rest is not coming. */
+/** The Mac's two refusals the composer shows are values; every other failure is a `TunnelError`. */
+export type PutBlobResult =
+  | { kind: 'ok'; entry: ImageRefEntry }
+  | { kind: 'too_large' }
+  | { kind: 'not_image' };
+/**
+ * `lost` also covers a blob whose chunks arrived out of order, and an upload
+ * the Mac refused for any reason but the two `PutBlobResult` names: what came
+ * is unusable and the rest is not coming.
+ */
 export type TunnelFailure = 'offline' | 'timeout' | 'lost' | 'bye';
 
 export class TunnelError extends Error {
@@ -103,6 +113,12 @@ export type RemoteClientOptions = {
    * once it hears `paired`.
    */
   expectPaired?: boolean;
+  /**
+   * The relay's shared secret, from the QR (`relaySecret`). Sent in `auth`
+   * and with the redeem; absent for an open relay. A relay that refuses it
+   * ends the client: `relay_error` `bad_secret`, then `stop()`.
+   */
+  relaySecret?: string;
   now?: () => number;
   fetchImpl?: (input: string, init: RequestInit) => Promise<Response>;
   reconnectDelayMs?: number;
@@ -138,6 +154,7 @@ export class RemoteClient {
   private readonly topics = new Set<string>();
   private readonly requests = new Map<number, Waiter<TunnelResponse>>();
   private readonly blobs = new Map<number, BlobWaiter>();
+  private readonly puts = new Map<number, Waiter<PutBlobResult>>();
   private readonly notificationWaiters: Waiter<NotificationSettings>[] = [];
   private readonly listeners = new Set<(event: RemoteClientEvent) => void>();
   private readonly opts: RemoteClientOptions;
@@ -227,6 +244,30 @@ export class RemoteClient {
     });
   }
 
+  /** Uploads an image into the Mac's store: the header, every chunk, then one `blob_put_done` answers. */
+  putBlob(bytes: Uint8Array, mediaType: string): Promise<PutBlobResult> {
+    if (!this.ready) return Promise.reject(new TunnelError('offline'));
+    const id = this.nextId++;
+    return new Promise<PutBlobResult>((resolve, reject) => {
+      const timer = setTimeout(() => this.fail(this.puts, id, new TunnelError('timeout')), this.requestTimeoutMs);
+      const waiter: Waiter<PutBlobResult> = { resolve, reject, timer };
+      this.puts.set(id, waiter);
+      if (!this.sendJson({ t: 'blob_put', id, mediaType, bytes: bytes.length })) {
+        this.fail(this.puts, id, new TunnelError('lost'));
+        return;
+      }
+      for (const chunk of chunkBlob(id, bytes)) {
+        if (!this.sendInner(chunk)) {
+          this.fail(this.puts, id, new TunnelError('lost'));
+          return;
+        }
+      }
+      // The Mac answers only once it holds every chunk: the timeout counts from the last one sent.
+      clearTimeout(waiter.timer);
+      waiter.timer = setTimeout(() => this.fail(this.puts, id, new TunnelError('timeout')), this.requestTimeoutMs);
+    });
+  }
+
   getNotifications(): Promise<NotificationSettings> {
     return this.askNotifications({ t: 'notifications_get' });
   }
@@ -275,7 +316,7 @@ export class RemoteClient {
       const res = await fetchImpl(new URL('/pair/redeem', this.opts.relayUrl).toString(), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(signRequest(this.opts.identity, 'pair.redeem', payload, now())),
+        body: JSON.stringify(signRequest(this.opts.identity, 'pair.redeem', payload, now(), this.opts.relaySecret)),
       });
       const text = await res.text();
       let body: unknown;
@@ -330,7 +371,16 @@ export class RemoteClient {
       if (typeof ev.data === 'string') this.onControl(ws, ev.data);
       else this.onBinary(ev.data);
     };
-    ws.onclose = () => this.lose(ws);
+    ws.onclose = (ev: { code?: number } | undefined) => {
+      // The secret will not change on its own, so retrying would only knock
+      // on the same door; the app treats it as the pair being gone.
+      if (ev?.code === CLOSE_BAD_SECRET && this.ws === ws) {
+        this.emit({ type: 'relay_error', code: 'bad_secret' });
+        this.stop();
+        return;
+      }
+      this.lose(ws);
+    };
     ws.onerror = () => {
       /* `close` follows; that is where the link is rebuilt */
     };
@@ -370,7 +420,10 @@ export class RemoteClient {
     }
     switch (msg.type) {
       case 'challenge':
-        this.sendControl(ws, { type: 'auth', pub: this.id, sig: authSignature(this.opts.identity, msg.nonce) });
+        this.sendControl(ws, {
+          type: 'auth', pub: this.id, sig: authSignature(this.opts.identity, msg.nonce),
+          ...(this.opts.relaySecret ? { secret: this.opts.relaySecret } : {}),
+        });
         return;
       case 'ok':
         this.connectTimer = this.clear(this.connectTimer);
@@ -537,8 +590,22 @@ export class RemoteClient {
         waiter.resolve(msg.settings);
         return;
       }
-      case 'blob_put_done':
-        return; // 2b's `putBlob` reads these
+      case 'blob_put_done': {
+        const waiter = this.puts.get(msg.id);
+        if (!waiter) return;
+        if (msg.entry) {
+          this.puts.delete(msg.id);
+          clearTimeout(waiter.timer);
+          waiter.resolve({ kind: 'ok', entry: msg.entry });
+        } else if (msg.error === 'too_large' || msg.error === 'not_image') {
+          this.puts.delete(msg.id);
+          clearTimeout(waiter.timer);
+          waiter.resolve({ kind: msg.error });
+        } else {
+          this.fail(this.puts, msg.id, new TunnelError('lost'));
+        }
+        return;
+      }
     }
   }
 
@@ -609,6 +676,7 @@ export class RemoteClient {
     const err = new TunnelError(why);
     for (const id of [...this.requests.keys()]) this.fail(this.requests, id, err);
     for (const id of [...this.blobs.keys()]) this.fail(this.blobs, id, err);
+    for (const id of [...this.puts.keys()]) this.fail(this.puts, id, err);
     for (const waiter of this.notificationWaiters.splice(0)) {
       clearTimeout(waiter.timer);
       waiter.reject(err);
@@ -623,9 +691,13 @@ export class RemoteClient {
   }
 
   private sendJson(msg: PhoneMessage): boolean {
+    return this.sendInner({ kind: 'json', value: msg });
+  }
+
+  private sendInner(inner: Inner): boolean {
     if (!this.cipher) return false;
     try {
-      this.sendFrame(this.cipher.seal(encodeInner({ kind: 'json', value: msg })));
+      this.sendFrame(this.cipher.seal(encodeInner(inner)));
       return true;
     } catch {
       return false;
@@ -651,7 +723,8 @@ export class RemoteClient {
   }
 
   private sendPushToken(): void {
-    if (this.token && this.ws && this.status === 'online') this.sendControl(this.ws, { type: 'push_token', token: this.token });
+    // An empty token is a token too: "stop pushing to this phone" (a phone pairing a different Mac).
+    if (this.token !== null && this.ws && this.status === 'online') this.sendControl(this.ws, { type: 'push_token', token: this.token });
   }
 
   private emit(event: RemoteClientEvent): void {

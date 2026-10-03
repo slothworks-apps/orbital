@@ -14,6 +14,11 @@ export type BadgeProps =
        * other state.
        */
       awaiting?: number
+      /**
+       * A harness gate waits for the user (`gateWaits`): NEEDS INPUT reads
+       * NEEDS YOUR OK, its dot steady (canvas 30a-d).
+       */
+      gate?: boolean
     }
   | {
       /**
@@ -152,6 +157,7 @@ export const TASK_TONE: Record<
 export function Badge(props: BadgeProps) {
   if (props.variant === 'status') {
     const { state, awaiting = 0 } = props
+    const gate = props.gate === true && state === 'needs_input'
     const color = stateColor(state)
     // 24c draws the two neutral chips in their own quiet literals rather than
     // the state colour mixed toward transparent: IDLE a shade brighter, with
@@ -173,14 +179,14 @@ export function Badge(props: BadgeProps) {
         style={{ color: tone.ink, borderColor: tone.border }}
       >
         <StateDot
-          dot={stateDot(state, 'chip')}
+          dot={stateDot(state, 'chip', gate)}
           color={tone.dot}
           solidPx={6}
           hollowPx={7}
           // WORKING keeps its glow; its dot is the state cyan now, not the tag hue.
           glow={state === 'working'}
         />
-        {stateWord(state, awaiting)}
+        {gate ? 'NEEDS YOUR OK' : stateWord(state, awaiting)}
       </span>
     )
   }

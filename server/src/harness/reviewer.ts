@@ -2,8 +2,8 @@
  * The reviewer of "feeling lucky" (spec 2026-09-30-harness-lucky-and-step-
  * records-design § Feeling lucky): an agent that decides a gate instead of
  * the user. Read-only — plan mode, and a permission callback that lets
- * through only reading tools and read-only commands — on Opus, with no
- * transcript on disk.
+ * through only reading tools and read-only commands — on the session's model
+ * unless the harness names one, with no transcript on disk.
  */
 
 import type { TitleQueryFn } from '../titler/titler.js';
@@ -104,12 +104,18 @@ export function reviewerMayRun(command: string): boolean {
   return /^(git (diff|log|show|status|blame|rev-parse|ls-files)\b|ls\b|cat\b|head\b|tail\b|wc\b|find\b|rg\b|grep\b|(npm|yarn|pnpm) (test|run (test|lint|typecheck|type-check|check))\b|npx (vitest|jest|tsc|eslint)\b|tsc\b)/.test(c);
 }
 
+/**
+ * Runs the reviewer. `model` is the session's, or the template's choice (spec
+ * 2026-10-02-harness-redesign-design § 7). Aborting `abortController` stops
+ * the agent ("Decide myself"); the call then rejects.
+ */
 export async function askReviewer(
-  queryFn: TitleQueryFn, prompt: string, opts: { cwd: string; model?: string; claudeExecutablePath?: string | null },
+  queryFn: TitleQueryFn, prompt: string,
+  opts: { cwd: string; model: string; abortController?: AbortController; claudeExecutablePath?: string | null },
 ): Promise<string> {
   const options: Record<string, unknown> = {
     cwd: opts.cwd,
-    model: opts.model ?? 'opus',
+    model: opts.model,
     maxTurns: MAX_TURNS,
     permissionMode: 'plan',
     systemPrompt: REVIEWER_SYSTEM_PROMPT,
@@ -125,8 +131,10 @@ export async function askReviewer(
     },
   };
   if (opts.claudeExecutablePath) options.pathToClaudeCodeExecutable = opts.claudeExecutablePath;
+  if (opts.abortController) options.abortController = opts.abortController;
   let last = '';
   for await (const message of queryFn({ prompt, options })) {
+    if (opts.abortController?.signal.aborted) throw new Error('the review was stopped');
     if (message?.type === 'assistant') {
       const content = message.message?.content;
       if (Array.isArray(content)) {

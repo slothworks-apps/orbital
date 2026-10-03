@@ -1,3 +1,4 @@
+import { IMAGE_URL_CACHE_MAX } from '../constants'
 import type { TunnelClient } from './clientRef'
 
 export interface ImageStoreIO {
@@ -24,17 +25,38 @@ function blobUrl(bytes: Uint8Array, mediaType: string): string {
  * then on, and one in flight is shared, so a thumbnail and its lightbox
  * never fetch twice. A failure is not remembered: the next ask (9p's retry)
  * tries again.
+ *
+ * The URLs are an LRU of at most `max` (spec § 6.2): an ask moves its ref to
+ * the newest place, and storing one past the bound revokes and drops the
+ * oldest. Revoking a URL an `<img>` still shows would blank it, which is why
+ * `IMAGE_URL_CACHE_MAX` sits well above one screen of images. An evicted ref
+ * asked again reads the file cache, not the tunnel.
  */
 export function makeImageResolver(
   client: Pick<TunnelClient, 'getBlob'>,
   io: ImageStoreIO,
   toUrl: (bytes: Uint8Array, mediaType: string) => string = blobUrl,
+  revoke: (url: string) => void = (url) => URL.revokeObjectURL(url),
+  max = IMAGE_URL_CACHE_MAX,
 ): (ref: string) => string | Promise<string> {
+  // A Map iterates in insertion order, so re-inserting on a hit keeps the oldest first.
   const urls = new Map<string, string>()
   const inflight = new Map<string, Promise<string>>()
+  const remember = (ref: string, url: string) => {
+    urls.delete(ref)
+    urls.set(ref, url)
+    while (urls.size > max) {
+      const [oldest, stale] = urls.entries().next().value as [string, string]
+      urls.delete(oldest)
+      revoke(stale)
+    }
+  }
   return (ref) => {
     const known = urls.get(ref)
-    if (known) return known
+    if (known) {
+      remember(ref, known)
+      return known
+    }
     const running = inflight.get(ref)
     if (running) return running
     const loading = (async () => {
@@ -48,7 +70,7 @@ export function makeImageResolver(
         await io.write(ref, bytes).catch(() => undefined)
       }
       const url = toUrl(bytes, mediaTypeOf(ref))
-      urls.set(ref, url)
+      remember(ref, url)
       return url
     })()
     inflight.set(ref, loading)

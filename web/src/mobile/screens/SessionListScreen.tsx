@@ -135,12 +135,16 @@ export function SessionListScreen() {
 
       {groups.length === 0 && <p className="px-4 pt-10 text-center text-[14px] text-text-muted">No sessions yet.</p>}
 
-      {/* 9d is 2b: drawn, disabled, with its reason. */}
+      {/* 9d; inert while the Mac is asleep. */}
       <div className="px-4 py-6">
-        <button type="button" disabled className="min-h-11 w-full rounded-[10px] border border-panel-border text-[15px] text-text-muted opacity-60">
+        <button
+          type="button"
+          disabled={offline}
+          onClick={() => go('new')}
+          className="min-h-11 w-full rounded-[10px] border border-panel-border text-[15px] text-text-soft disabled:text-text-muted disabled:opacity-60"
+        >
           {offline ? `New session · needs ${mac} awake` : '+ New session'}
         </button>
-        {!offline && <p className="mt-1.5 text-center font-mono text-[10.5px] text-text-muted">coming with 2b</p>}
       </div>
     </MobileScreen>
   )

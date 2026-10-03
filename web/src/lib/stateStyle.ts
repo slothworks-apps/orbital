@@ -105,8 +105,13 @@ const DOTS: Record<StateSurface, Record<SessionStateKey, StateDot>> = {
   chip: CHIP_DOTS,
 }
 
-/** The dot a state wears on a given surface. */
-export const stateDot = (key: SessionStateKey, surface: StateSurface): StateDot => DOTS[surface][key]
+/**
+ * The dot a state wears on a given surface. `gate` is a harness gate waiting
+ * for the user's OK (`gateWaits`): NEEDS INPUT's solid dot, held steady rather
+ * than breathing, because a gate can wait all night (canvas 30a-d, 30i).
+ */
+export const stateDot = (key: SessionStateKey, surface: StateSurface, gate = false): StateDot =>
+  gate && key === 'needs_input' ? { shape: 'solid', motion: 'steady' } : DOTS[surface][key]
 
 /** The CSS class that animates a dot, or none for a steady one. */
 export const dotMotionClass = (motion: DotMotion): string | undefined =>

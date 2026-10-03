@@ -1,8 +1,10 @@
 import { useOrbital } from '../store/store'
 import { cancelCacheWrite } from './cacheWriter'
+import { useBanner } from './notify'
 import { clearCaches } from './platform/cache'
 import { forgetIdentity } from './platform/identity'
 import { clearImageCache } from './platform/imageCache'
+import { clearDeliveredNotifications } from './platform/localNotify'
 import { clearPairing, setUnpaired } from './platform/pairing'
 import { useMobile } from './state'
 import { clientRef } from './transport/clientRef'
@@ -21,7 +23,21 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
   // nor the reseat below can put this Mac back into the cache.
   useMobile.setState({ ready: false, pairing: null })
   cancelCacheWrite()
+  // The user's choice, not the Mac's: the old relay still has this phone's
+  // row and would go on pushing for that Mac. An empty token stops it — sent
+  // on the live link, best-effort, before the link goes. After a revoke the
+  // Mac no longer lists the phone, so nothing would be pushed anyway.
+  if (!opts.unpaired) {
+    try {
+      clientRef.client?.pushToken('')
+    } catch (err) {
+      console.warn('[mobile] could not clear the push token on the old relay', err)
+    }
+  }
   clientRef.set(null)
+  // Nothing about the old Mac stays on screen or in the shade.
+  useBanner.getState().dismiss()
+  void clearDeliveredNotifications()
   if (opts.unpaired) {
     try {
       // The flag before the pairing goes: a kill in between still lands on 9h, not the scanner.

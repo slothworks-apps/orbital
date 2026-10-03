@@ -1,414 +1,255 @@
-import { useEffect, useState } from 'react'
-import { useOrbital } from '../store/store'
+import { useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { useOrbital, parseSidebarWidth } from '../store/store'
 import { api } from '../lib/api'
-import { reportError } from '../lib/errors'
-import { eventLine, rewindCountFor, stepTone } from '../lib/harness'
-import type { HarnessTemplate, SessionHarness, StepState } from '../lib/types'
-import { pickRewindTarget } from '../store/rewind'
-import { stateToneColor } from '../lib/stateStyle'
+import type { HarnessEvent, SessionHarness } from '../lib/types'
+import { useViewportWidth } from '../lib/useViewportWidth'
 import { Panel, WINDOW_STRIP_INSET_PX } from '../ui/Panel'
-import { Button } from '../ui/Button'
-import { Select } from '../ui/Select'
-import { Input } from '../ui/Input'
-import { Toggle } from '../ui/Checkbox'
-import { CollapseGlyph, UtilityButton } from '../ui/UtilityButton'
-import { Tooltip } from '../ui/Tooltip'
 import { useEscapeLayer } from '../ui/escapeLayer'
-import { PIN_TOOLTIP_DELAY_MS } from './UtilityStrip'
 import { BackToSession, type SubagentPanelProps } from './SubagentPanel'
+import { goBackToStep, somethingRuns } from './harness/actions'
+import { GoBackDialog } from './harness/dialogs'
+import { FullWindow } from './harness/FullWindow'
+import { HarnessBody, navBack, type HarnessNav } from './harness/HarnessBody'
+import { CloseGlyph, DashedSeam, HeadButton, type Chrome } from './harness/parts'
+import { StartView } from './harness/StartView'
 
-const LABEL = 'font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]'
-const MUTED = 'text-[rgba(160,190,225,.6)]'
-
-const STATUS_WORD: Record<string, string> = {
-  pending: 'PENDING',
-  active: 'ACTIVE',
-  awaiting_approval: 'NEEDS YOUR OK',
-  done: 'DONE',
-}
-
-/** Picking a template and filling its inputs; Start puts it into the session. */
-function AttachForm({ sessionId }: { sessionId: string }) {
-  const [templates, setTemplates] = useState<HarnessTemplate[] | null>(null)
-  const [templateId, setTemplateId] = useState<number | null>(null)
-  const [inputs, setInputs] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    api
-      .listHarnessTemplates()
-      .then(({ templates }) => {
-        setTemplates(templates)
-        setTemplateId((id) => id ?? templates[0]?.id ?? null)
-      })
-      .catch((err) => reportError(err, 'Failed to load harness templates'))
-  }, [])
-
-  const template = templates?.find((t) => t.id === templateId)
-
-  async function start() {
-    if (!template) return
-    setBusy(true)
-    try {
-      const { harness } = await api.attachHarness(sessionId, template.id, inputs)
-      useOrbital.setState((s) => ({ harnesses: { ...s.harnesses, [sessionId]: harness } }))
-      void useOrbital.getState().loadHarness(sessionId)
-    } catch (err) {
-      reportError(err, 'Failed to start the harness')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (!templates) return <div className={`text-[12px] ${MUTED}`}>Loading templates…</div>
-  if (templates.length === 0) {
-    return <div className={`text-[12px] ${MUTED}`}>No templates yet. Create one in Settings → Harness templates.</div>
-  }
-  return (
-    <div className="flex flex-col gap-3">
-      <div className={LABEL}>TEMPLATE</div>
-      <Select
-        options={templates.map((t) => ({ value: t.id, label: t.name }))}
-        value={templateId ?? templates[0].id}
-        onChange={(id: number) => {
-          setTemplateId(id)
-          setInputs({})
-        }}
-        font="sans"
-      />
-      {template?.description && <div className={`text-[12px] leading-[1.45] ${MUTED}`}>{template.description}</div>}
-      {template?.inputs.map((input) => (
-        <label key={input.key} className="flex flex-col gap-1.5">
-          <span className={LABEL}>{input.label.toUpperCase()}</span>
-          <Input
-            value={inputs[input.key] ?? ''}
-            placeholder={input.hint}
-            onChange={(e) => setInputs({ ...inputs, [input.key]: e.target.value })}
-          />
-        </label>
-      ))}
-      {template && (
-        <div className={`text-[11px] leading-[1.45] ${MUTED}`}>
-          {template.steps.length} steps · {template.steps.filter((s) => s.mode === 'gate').length} wait for your OK
-        </div>
-      )}
-      <Button variant="primary" size="md" disabled={!template || busy} onClick={() => void start()}>
-        Start harness
-      </Button>
-    </div>
-  )
-}
-
-const shortSha = (sha: string) => sha.slice(0, 8)
+/** The docked panels' inset from the viewport edge, and the collapsed rail's width (canvas 30h: "88 · steps …"). */
+const EDGE_PX = 16
+const RAIL_PX = 56
 
 /**
- * "Go back here": the checklist reopens from the step, and the conversation
- * rewinds to the message that began it (the existing rewind; the composer
- * then holds that message to send again). Files are the user's to reset.
+ * The full window's frame (canvas 30h): the harness takes the main area —
+ * everything right of the sidebar — or the whole detached window. Portalled,
+ * so no docked panel's stacking context can hold it under the others.
  */
-async function goBack(sessionId: string, index: number, state: StepState): Promise<void> {
-  const uuid = state.startMessageUuid
-  if (!uuid) return
-  const reset = state.startHead ? `\n\nFiles stay as they are. To drop this step's changes too: git reset --hard ${shortSha(state.startHead)}` : ''
-  if (!window.confirm(`Rewind the conversation to the start of this step and reopen the checklist from it?${reset}`)) return
-  const store = useOrbital.getState()
-  // The message may sit in history the transcript has not paged in yet.
-  let messages = store.transcripts[sessionId] ?? []
-  for (let page = 0; page < 20 && !messages.some((m) => m.uuid === uuid); page++) {
-    const older = await store.loadOlder(sessionId)
-    if (!older || older.length === 0) break
-    messages = useOrbital.getState().transcripts[sessionId] ?? []
-  }
-  const message = messages.find((m) => m.uuid === uuid)
-  if (!message) {
-    useOrbital.setState({ toast: { kind: 'error', message: 'The message that began this step is no longer in the conversation.' } })
-    return
-  }
-  try {
-    const { harness } = await api.reopenHarnessStep(sessionId, index)
-    useOrbital.setState((s) => ({ harnesses: { ...s.harnesses, [sessionId]: harness } }))
-  } catch {
-    // The step was still active: nothing to reopen, the rewind alone goes back.
-  }
-  pickRewindTarget(sessionId, message, rewindCountFor(messages, uuid) ?? 0)
-}
-
-/** What happened in a step and why: the agent's record, the reviews, the git range. */
-function StepRecord({ sessionId, index, state }: { sessionId: string; index: number; state: StepState }) {
-  const [diff, setDiff] = useState<{ range: string; stat: string; patch: string } | null>(null)
-  const [diffOpen, setDiffOpen] = useState(false)
-
-  async function toggleDiff() {
-    if (diffOpen) return setDiffOpen(false)
-    setDiffOpen(true)
-    if (diff) return
-    try {
-      setDiff(await api.getHarnessStepDiff(sessionId, index))
-    } catch (err) {
-      setDiffOpen(false)
-      reportError(err, 'Failed to load the step\'s diff')
-    }
-  }
-
-  const summary = state.summary ?? state.evidence
-  return (
-    <div className="flex flex-col gap-2">
-      {summary && <div className="text-text-bright">{summary}</div>}
-      {state.decisions && state.decisions.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className={LABEL}>DECISIONS</span>
-          {state.decisions.map((d, i) => (
-            <div key={i}>
-              <span className="text-text-bright">{d.what}</span>
-              <span className={MUTED}> — {d.why}</span>
-              {d.alternatives && <span className={MUTED}> (instead of: {d.alternatives})</span>}
-            </div>
-          ))}
-        </div>
-      )}
-      {state.openQuestions && state.openQuestions.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className={LABEL}>TO LOOK AT</span>
-          {state.openQuestions.map((q, i) => (
-            <div key={i} style={{ color: stateToneColor('input') }}>{q}</div>
-          ))}
-        </div>
-      )}
-      {(state.reviews ?? []).map((review, i) => (
-        <div key={i} className="flex flex-col gap-1 rounded-[6px] border border-[rgba(150,205,255,.1)] px-2.5 py-2">
-          <span
-            className="font-mono text-[9px] tracking-[0.14em]"
-            style={{ color: stateToneColor(review.verdict === 'approve' ? 'done' : 'input') }}
-          >
-            REVIEWER · {review.verdict === 'approve' ? 'APPROVED' : 'SENT BACK'}
-            {review.uncertain ? ' · UNCERTAIN' : ''} ·{' '}
-            {new Date(review.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-          </span>
-          <div className="text-text-bright">{review.reasoning}</div>
-          {review.findings.map((f, j) => (
-            <div key={j} className={MUTED}>• {f}</div>
-          ))}
-          {review.checked.length > 0 && <div className={`text-[11px] ${MUTED}`}>Checked: {review.checked.join(' · ')}</div>}
-        </div>
-      ))}
-      {state.approvedBy && (
-        <div className={`text-[11px] ${MUTED}`}>Approved by {state.approvedBy === 'reviewer' ? 'the reviewer' : 'you'}</div>
-      )}
-      {(state.startHead || state.startMessageUuid) && (
-        <div className="flex flex-wrap items-center gap-2">
-          {state.startHead && state.endHead && (
-            <>
-              <span className={`font-mono text-[10.5px] ${MUTED}`}>
-                {shortSha(state.startHead)}..{shortSha(state.endHead)}
-              </span>
-              <Button variant="ghost" size="sm" onClick={() => void toggleDiff()}>
-                {diffOpen ? 'Hide diff' : 'Show diff'}
-              </Button>
-            </>
-          )}
-          {state.startMessageUuid && (
-            <Button variant="ghost" size="sm" onClick={() => void goBack(sessionId, index, state)}>
-              Go back here
-            </Button>
-          )}
-        </div>
-      )}
-      {diffOpen && diff && (
-        <pre className="max-h-[360px] overflow-auto whitespace-pre rounded-[6px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)] p-2 font-mono text-[10.5px] leading-[1.45] text-text-bright">
-          {diff.stat}
-          {'\n\n'}
-          {diff.patch || '(no changes)'}
-        </pre>
-      )}
-    </div>
+function FullFrame({ inWindow, children }: { inWindow: boolean; children: ReactNode }) {
+  const viewportWidth = useViewportWidth()
+  const sidebarPx = useOrbital((s) => (s.ui.sidebarCollapsed ? RAIL_PX : parseSidebarWidth(s.settings, viewportWidth)))
+  const frame = inWindow
+    ? 'fixed inset-0 bg-space bg-[image:linear-gradient(180deg,rgba(10,15,27,.92),rgba(5,8,16,.95))]'
+    : // Opaque under the gradient: the frame covers the docked panels, which must not show through.
+      'fixed rounded-[14px] border border-[rgba(150,205,255,.12)] bg-space bg-[image:linear-gradient(180deg,rgba(10,15,27,.92),rgba(5,8,16,.95))]'
+  return createPortal(
+    <div
+      role="region"
+      aria-label="Harness, full window"
+      className={`${frame} z-30 overflow-hidden font-sans text-text-bright`}
+      style={inWindow ? undefined : { left: EDGE_PX + sidebarPx + EDGE_PX, right: EDGE_PX, top: EDGE_PX, bottom: EDGE_PX }}
+    >
+      {!inWindow && <DashedSeam />}
+      {children}
+    </div>,
+    document.body,
   )
 }
 
-function Checklist({ sessionId, harness }: { sessionId: string; harness: SessionHarness }) {
-  const events = useOrbital((s) => s.harnessEvents[sessionId]) ?? []
-  const [open, setOpen] = useState<number | null>(null)
-  const activeIndex = harness.state.findIndex((s) => s.status !== 'done')
-  const done = harness.state.filter((s) => s.status === 'done').length
-
-  const act = async (label: string, call: () => Promise<{ harness: SessionHarness } | void>) => {
-    try {
-      const result = await call()
-      if (result) useOrbital.setState((s) => ({ harnesses: { ...s.harnesses, [sessionId]: result.harness } }))
-      void useOrbital.getState().loadHarness(sessionId)
-    } catch (err) {
-      reportError(err, label)
-    }
+/** The header row's frame for the slot (30b), as the subagent panel draws its own (11b, 22b, 25b). */
+function slotChrome({ inWindow, swap, back, close }: { inWindow: boolean; swap: boolean; back: ReactNode; close: ReactNode }): Chrome {
+  return {
+    inWindow,
+    close: swap ? null : close,
+    swapStrip: swap ? (
+      <div
+        className="orbital-drag-region -mx-[18px] -mt-4 flex h-10 items-center gap-2.5 pr-[18px] pt-3"
+        style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
+      >
+        {back}
+      </div>
+    ) : null,
+    row: (children) => (
+      <div
+        className={[
+          'flex items-center gap-2',
+          swap ? 'mt-3' : inWindow ? 'orbital-drag-region -mx-[18px] -mt-4 h-[38px] px-[18px] pt-4' : 'h-[22px]',
+        ].join(' ')}
+      >
+        {children}
+      </div>
+    ),
   }
+}
+
+function HarnessSlot({
+  sessionId,
+  widthPx,
+  inWindow,
+  swap,
+}: {
+  sessionId: string
+  widthPx: number
+  inWindow: boolean
+  swap: boolean
+}) {
+  const close = useOrbital((s) => s.closeHarness)
+  const session = useOrbital((s) => s.sessions[sessionId])
+  const harness = useOrbital((s) => s.harnesses[sessionId])
+  const events = useOrbital((s) => s.harnessEvents[sessionId]) ?? NO_EVENTS
+  const [nav, setNav] = useState<HarnessNav>({ kind: 'list' })
+  const [full, setFull] = useState(() => useOrbital.getState().harnessPanel?.full === true)
+  const [goingBack, setGoingBack] = useState<number | null>(null)
+
+  // ⎋ peels one layer at a time: the full window, the diff, the record, then the panel.
+  useEscapeLayer(true, () => {
+    if (full) return setFull(false)
+    const back = navBack(nav)
+    if (back) return setNav(back)
+    close()
+  })
+
+  const chrome = slotChrome({
+    inWindow,
+    swap,
+    back: <BackToSession parent={session} onBack={close} />,
+    close: (
+      <HeadButton label="Close the harness panel" onClick={close}>
+        <CloseGlyph />
+      </HeadButton>
+    ),
+  })
+
+  const live = harness ?? null
+  const goBack = (index: number) => setGoingBack(index)
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <span className={`font-mono text-[10.5px] ${MUTED}`}>
-          {done}/{harness.steps.length} done
-        </span>
-        <span aria-hidden className="flex-1" />
-        <span className={LABEL}>AUTO-CONTINUE</span>
-        <Toggle
-          checked={!harness.paused}
-          onChange={() => void act('Failed to pause the harness', () => api.setHarnessPaused(sessionId, !harness.paused))}
+    <Panel side={swap ? 'right' : 'subagent'} widthPx={widthPx} fill={inWindow} className="relative flex h-full flex-col overflow-hidden">
+      {!swap && <DashedSeam />}
+      {harness === undefined ? null : live === null ? (
+        <StartView sessionId={sessionId} chrome={chrome} />
+      ) : (
+        <HarnessBody
+          sessionId={sessionId}
+          harness={live}
+          events={events}
+          chrome={chrome}
+          readOnly={false}
+          nav={nav}
+          setNav={setNav}
+          onFull={() => setFull(true)}
+          onGoBack={goBack}
         />
-      </div>
-      <div className="flex items-center gap-3">
-        <span className={`text-[11.5px] leading-[1.4] ${MUTED}`}>
-          {harness.options.lucky ? 'A reviewer decides the gates for you.' : 'Gates wait for you.'}
-        </span>
-        <span aria-hidden className="flex-1" />
-        <span className={LABEL}>FEELING LUCKY</span>
-        <Toggle
-          checked={harness.options.lucky}
-          onChange={() =>
-            void act('Failed to change the harness', () => api.setHarnessOptions(sessionId, { lucky: !harness.options.lucky }))
-          }
-        />
-      </div>
-      {harness.paused && harness.pauseReason && (
-        <div className="text-[12px] leading-[1.45]" style={{ color: stateToneColor('input') }}>
-          Paused: {harness.pauseReason}
-        </div>
       )}
-
-      <ol className="flex flex-col gap-2">
-        {harness.steps.map((step, i) => {
-          const state = harness.state[i] ?? { status: 'pending' as const }
-          const color = stateToneColor(stepTone(state.status))
-          const expanded = open === i || (open === null && i === activeIndex)
-          return (
-            <li key={step.id} className="rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.35)] px-3 py-2.5">
-              <button
-                type="button"
-                className="flex w-full items-start gap-2.5 text-left"
-                onClick={() => setOpen(expanded ? -1 : i)}
-              >
-                <span className={`w-4 shrink-0 pt-px font-mono text-[10.5px] ${MUTED}`}>{i + 1}</span>
-                <span className="min-w-0 flex-1 text-[13px] font-semibold leading-[1.35] text-text-bright">{step.title}</span>
-                <span className="shrink-0 pt-0.5 font-mono text-[9px] tracking-[0.14em]" style={{ color }}>
-                  {step.mode === 'gate' && state.status === 'pending' ? 'GATE' : STATUS_WORD[state.status]}
-                </span>
-              </button>
-              {expanded && (
-                <div className="mt-2 flex flex-col gap-2 pl-[26px] text-[12px] leading-[1.45]">
-                  <div className="whitespace-pre-wrap text-text-bright">{step.instructions}</div>
-                  <div className={MUTED}>Done when: {step.doneWhen}</div>
-                  {step.verify && <div className={`font-mono text-[11px] ${MUTED}`}>$ {step.verify}</div>}
-                  <StepRecord sessionId={sessionId} index={i} state={state} />
-                </div>
-              )}
-              {(state.status === 'awaiting_approval' || state.status === 'done') && (
-                <div className="mt-2 flex gap-2 pl-[26px]">
-                  {state.status === 'awaiting_approval' && (
-                    <Button
-                      variant="warning"
-                      size="sm"
-                      onClick={() => void act('Failed to approve the step', () => api.approveHarnessStep(sessionId, i))}
-                    >
-                      Approve
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void act('Failed to reopen the step', () => api.reopenHarnessStep(sessionId, i))}
-                  >
-                    Reopen
-                  </Button>
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ol>
-
-      {events.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <div className={LABEL}>LOG</div>
-          {events.slice(0, 12).map((event) => (
-            <div key={event.id} className={`text-[11.5px] leading-[1.4] ${MUTED}`}>
-              <span className="font-mono text-[10.5px]">
-                {new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-              </span>{' '}
-              {eventLine(event, harness.steps)}
-            </div>
-          ))}
-        </div>
+      {live && full && (
+        <FullFrame inWindow={inWindow}>
+          <FullWindow
+            sessionId={sessionId}
+            harness={live}
+            events={events}
+            sessionTitle={session?.title || 'session'}
+            initialPick={nav.kind === 'list' ? null : nav.index}
+            onExit={() => setFull(false)}
+            onGoBack={goBack}
+            inWindow={inWindow}
+          />
+        </FullFrame>
       )}
-
-      <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            if (!window.confirm('Remove the harness from this session? The conversation stays.')) return
-            void act('Failed to remove the harness', () => api.removeHarness(sessionId))
+      {live && (
+        <GoBackDialog
+          harness={live}
+          index={goingBack}
+          running={goingBack !== null && somethingRuns(sessionId)}
+          onClose={() => setGoingBack(null)}
+          onConfirm={() => {
+            const index = goingBack
+            setGoingBack(null)
+            if (index === null) return
+            const state = live.state[index]
+            setFull(false)
+            setNav({ kind: 'list' })
+            if (state) void goBackToStep(sessionId, index, state)
           }}
-        >
-          Remove harness
-        </Button>
-      </div>
-    </div>
+        />
+      )}
+    </Panel>
   )
 }
+
+const NO_EVENTS: HarnessEvent[] = []
 
 /**
- * The session's harness in the side slot (spec 2026-09-30-session-harness-design
- * § UI): the checklist with its gates, or the form that starts one. The
- * subagent panel's frame; renders nothing while `store.harnessPanel` is null.
+ * The session's harness in the side slot (canvas `Feature - Harness` 30b–30h;
+ * spec 2026-10-02-harness-redesign-design): the start view, the running
+ * checklist, a step's record and diff, and the full window. The subagent
+ * panel's slot and shell (11a); renders nothing while `store.harnessPanel`
+ * is null.
  */
 export function HarnessPanel({ widthPx, inWindow: inWindowProp = false, swap = false }: SubagentPanelProps) {
-  const inWindow = inWindowProp || swap
   const view = useOrbital((s) => s.harnessPanel)
-  const close = useOrbital((s) => s.closeHarness)
-  const session = useOrbital((s) => (view ? s.sessions[view.sessionId] : undefined))
-  const harness = useOrbital((s) => (view ? s.harnesses[view.sessionId] : undefined))
-
-  useEscapeLayer(view !== null, close)
-
   if (!view) return null
+  return <HarnessSlot key={view.sessionId} sessionId={view.sessionId} widthPx={widthPx} inWindow={inWindowProp || swap} swap={swap} />
+}
 
+/**
+ * A session's harness record, read-only — for session stats → Harness, where
+ * a removed harness stays readable (spec § 6; canvas 30b's Remove dialog:
+ * "You can still read them from session stats → Harness"). Fetches its own
+ * copy: the live harness if there is one, else the removed one. Fills the
+ * column its caller gives it; ⎋ walks back from a diff or a record.
+ */
+export function HarnessRecordView({ sessionId, onClose }: { sessionId: string; onClose?: () => void }) {
+  const [data, setData] = useState<{ sessionId: string; harness: SessionHarness | null; events: HarnessEvent[] } | null>(null)
+  const [nav, setNav] = useState<HarnessNav>({ kind: 'list' })
+  const [full, setFull] = useState(false)
+  // Live updates matter here too: a harness still running moves on while it is read.
+  const revision = useOrbital((s) => s.harnesses[sessionId])
+
+  useEffect(() => {
+    let current = true
+    api
+      .getSessionHarness(sessionId, { limit: 2000 })
+      .then(({ harness, removed, events }) => current && setData({ sessionId, harness: harness ?? removed, events }))
+      .catch(() => current && setData({ sessionId, harness: null, events: [] }))
+    return () => {
+      current = false
+    }
+  }, [sessionId, revision])
+
+  useEscapeLayer(full || nav.kind !== 'list', () => {
+    if (full) return setFull(false)
+    const back = navBack(nav)
+    if (back) setNav(back)
+  })
+
+  const harness = data?.sessionId === sessionId ? data.harness : undefined
+  if (!harness || !data) {
+    return harness === null ? <div className="p-4 text-[12px] text-[rgba(160,190,225,.6)]">This session has no harness record.</div> : null
+  }
+  const chrome: Chrome = {
+    inWindow: false,
+    swapStrip: null,
+    close: onClose ? (
+      <HeadButton label="Close" onClick={onClose}>
+        <CloseGlyph />
+      </HeadButton>
+    ) : null,
+    row: (children) => <div className="flex h-[22px] items-center gap-2">{children}</div>,
+  }
   return (
-    <Panel side={swap ? 'right' : 'subagent'} widthPx={widthPx} fill={inWindow} className="flex h-full flex-col overflow-hidden">
-      <div className="orbital-band-controls border-b border-[rgba(150,205,255,.1)] px-[18px] pb-[14px] pt-4">
-        {swap && (
-          <div
-            className="orbital-drag-region -mx-[18px] -mt-4 flex h-10 items-center gap-2.5 pt-3 pr-[18px]"
-            style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
-          >
-            <BackToSession parent={session} onBack={close} />
-          </div>
-        )}
-        <div
-          className={[
-            'flex items-center gap-2',
-            swap ? 'mt-3' : inWindow ? 'orbital-drag-region -mx-[18px] -mt-4 h-[38px] px-[18px] pt-4' : 'h-[22px]',
-          ].join(' ')}
-        >
-          <span className={LABEL}>HARNESS</span>
-          <span aria-hidden className="flex-1" />
-          {!swap && (
-            <Tooltip variant="name" title="Collapse panel" align="right" delayMs={PIN_TOOLTIP_DELAY_MS}>
-              <UtilityButton aria-label="Collapse the harness panel" onClick={close}>
-                <CollapseGlyph />
-              </UtilityButton>
-            </Tooltip>
-          )}
-        </div>
-        <div className="mt-2 text-pretty text-[15px] font-semibold leading-[1.34] text-text-bright">
-          {harness ? harness.name : 'Follow a checklist'}
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto px-[18px] py-4">
-        {harness === undefined ? (
-          <div className={`text-[12px] ${MUTED}`}>Loading…</div>
-        ) : harness === null ? (
-          <AttachForm sessionId={view.sessionId} />
-        ) : (
-          <Checklist sessionId={view.sessionId} harness={harness} />
-        )}
-      </div>
-    </Panel>
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      <HarnessBody
+        sessionId={sessionId}
+        harness={harness}
+        events={data.events}
+        chrome={chrome}
+        readOnly={harness.removedAt !== null}
+        nav={nav}
+        setNav={setNav}
+        onFull={() => setFull(true)}
+        onGoBack={null}
+      />
+      {full && (
+        <FullFrame inWindow={false}>
+          <FullWindow
+            sessionId={sessionId}
+            harness={harness}
+            events={data.events}
+            sessionTitle="session stats"
+            initialPick={nav.kind === 'list' ? null : nav.index}
+            onExit={() => setFull(false)}
+            onGoBack={null}
+          />
+        </FullFrame>
+      )}
+    </div>
   )
 }

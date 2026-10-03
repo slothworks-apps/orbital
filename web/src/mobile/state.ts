@@ -4,14 +4,15 @@ import type { Pairing } from './platform/parse'
 import { MIN_SERVER_VERSION, isSupportedServer } from './version'
 
 /** Navigation is in-memory state, not URLs (spec § 5). */
-export type Screen = 'pairing' | 'list' | 'session' | 'settings' | 'unpaired' | 'mismatch'
+export type Screen = 'pairing' | 'list' | 'session' | 'settings' | 'new' | 'unpaired' | 'mismatch'
 
 /**
  * Relay `error` codes that mean this phone's pair no longer exists (spec
- * § 4). The relay sends none of them today; this is where one goes when it
- * does, and anything else is not about the pair.
+ * § 4); anything else is not about the pair. `bad_secret` is the client's
+ * word for a relay secret the relay refused: the relay was re-keyed, and only
+ * a new code carries the new secret (ADR the-relay-takes-a-shared-secret).
  */
-export const UNPAIRED_RELAY_ERRORS: ReadonlySet<string> = new Set(['not_paired', 'unknown_device'])
+export const UNPAIRED_RELAY_ERRORS: ReadonlySet<string> = new Set(['not_paired', 'unknown_device', 'bad_secret'])
 
 export interface MobileState {
   screen: Screen
@@ -67,9 +68,28 @@ export function isPairGone(event: RemoteClientEvent): boolean {
   )
 }
 
+/**
+ * Whether a notice — 9g's View, a local notification's tap, a relay push's
+ * tap — may take the reader anywhere: only with a pair that works. Unpaired,
+ * mismatched or not yet paired, the screen showing is the only one there is.
+ */
+export function mayOpenFromNotice(state: Pick<MobileState, 'pairing' | 'unpaired' | 'mismatch'>): boolean {
+  return state.pairing !== null && !state.unpaired && state.mismatch === null
+}
+
+/**
+ * `isPairGone` for this phone as it stands. A refused relay secret ends a
+ * pair only when one is stored: mid-pairing there is none to lose, and the
+ * pairing run reports the refusal on its own screen instead of 9h.
+ */
+export function pairGoneFor(event: RemoteClientEvent, pairing: Pairing | null): boolean {
+  if (event.type === 'relay_error' && event.code === 'bad_secret' && pairing === null) return false
+  return isPairGone(event)
+}
+
 /** What one client event changes (spec § 5: offline, 9h, 9i). Pure; `useMobile.apply` writes it. */
 export function reduce(state: MobileState, event: RemoteClientEvent, now: number): Partial<MobileState> {
-  if (isPairGone(event)) {
+  if (pairGoneFor(event, state.pairing)) {
     return { screen: 'unpaired', unpaired: true, sessionId: null, pairing: null, ready: false }
   }
   switch (event.type) {
@@ -106,6 +126,7 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
     case 'session':
       return { screen: 'list', sessionId: null }
     case 'settings':
+    case 'new':
       return { screen: 'list' }
     case 'pairing':
       // Paired already (back on "Paired with", or while it waits for hello): the list, not where pairing began.
@@ -135,3 +156,12 @@ export const useMobile = create<MobileState & MobileActions>()((set, get) => ({
     return 'stayed'
   },
 }))
+
+/**
+ * The one guard 9g's View, a local notification's tap and a relay push's tap
+ * share: `open` runs only while `mayOpenFromNotice`; otherwise the tap is
+ * ignored.
+ */
+export function openFromNotice(open: () => void): void {
+  if (mayOpenFromNotice(useMobile.getState())) open()
+}

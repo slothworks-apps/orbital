@@ -3,13 +3,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { appendFileSync, copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
-import { openDb, type OrbitalDb } from '../src/db/database.js';
+import type { OrbitalDb } from '../src/db/database.js';
 import {
   countSweepable,
   parseRetentionDays,
@@ -18,7 +18,7 @@ import {
   RETENTION_KEY,
 } from '../src/retention.js';
 import {
-  pendingRewinds, sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
+  harnessMessages, pendingRewinds, sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
 } from '../src/db/schema.js';
 import type { Finding } from '../src/stats/compute.js';
 import { HIST_BUCKET_COUNT } from '../src/stats/constants.js';
@@ -42,6 +42,7 @@ import { createFileStore } from '../src/files/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
 import { SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
+import { makeTmpDir, openTmpDb, makeHomeDir } from './tmp.js';
 
 /**
  * The narrate query when a test does not script one: it fails, which no
@@ -131,7 +132,7 @@ function retentionFor(db: OrbitalDb) {
 }
 
 function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore } = {}) {
-  const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-api-')), 'index.db'));
+  const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
   db.insert(sessions)
     .values([
@@ -195,13 +196,13 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
   const backgroundTasks = new BackgroundTaskStore({ db });
   const recentTools = new RecentToolsStore();
   const errors = new ErrorLog({ db, hub });
-  const imagesDir = mkdtempSync(join(tmpdir(), 'orbital-images-'));
+  const imagesDir = makeTmpDir('images');
   const imageStore = createImageStore(imagesDir);
-  const filesDir = mkdtempSync(join(tmpdir(), 'orbital-files-'));
+  const filesDir = makeTmpDir('files');
   const fileStore = createFileStore(filesDir);
   // An empty `~/.claude` per app: the command catalog reads real files, so a
   // test that wants commands writes them.
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-claude-'));
+  const claudeDir = makeTmpDir('claude');
   const narrator = new Narrator({
     db, queryFn: opts.narrateQueryFn ?? noNarrateQuery, model: () => '',
     onFinish: (id) => hub.publish(`session:${id}`, { event: 'walkthrough_narration' }),
@@ -321,6 +322,18 @@ describe('REST routes', () => {
     expect(body.sessions.map((s: any) => s.id)).toEqual(['s1', 's2']);
     expect(body.sessions[0]).toMatchObject({ status: 'working', tagIds: [10] });
     expect(body.sessions[1].status).toBe('ended');
+  });
+
+  it('GET /api/sessions carries a harness drafting conversation while it is open, and drops it once ended', async () => {
+    db.insert(sessions).values({ id: 'talk', projectDir: '', cwd: '/w/x', source: 'web', lastAt: 300, purpose: 'harness_draft' }).run();
+    const open = (await app.inject({ method: 'GET', url: '/api/sessions' })).json().sessions;
+    expect(open.find((s: any) => s.id === 'talk')).toMatchObject({ purpose: 'harness_draft', harnessGate: null });
+    expect(open.find((s: any) => s.id === 's1').purpose).toBeNull();
+    const received = subscribeFake(hub, 'sessions');
+    await app.inject({ method: 'POST', url: '/api/sessions/talk/end' });
+    expect(received).toContainEqual({ topic: 'sessions', event: 'remove', sessionId: 'talk' });
+    const after = (await app.inject({ method: 'GET', url: '/api/sessions' })).json().sessions;
+    expect(after.map((s: any) => s.id)).not.toContain('talk');
   });
 
   it('GET /api/sessions?tag=10&q=auth filters', async () => {
@@ -470,7 +483,7 @@ describe('REST routes', () => {
 
   describe('GET /api/sessions/:id/messages paging', () => {
     function appWithTurns(count: number) {
-      const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-msg-routes-'));
+      const projectsDir = makeTmpDir('msg-routes');
       mkdirSync(join(projectsDir, 'p'), { recursive: true });
       const lines = Array.from({ length: count }, (_, i) =>
         JSON.stringify({
@@ -484,6 +497,21 @@ describe('REST routes', () => {
     const texts = (res: { json(): { messages: { text: string }[] } }) =>
       res.json().messages.map((m) => m.text);
 
+    // Orbital's own messages are known by the uuid recorded at delivery, so a
+    // transcript read back from the file after any restart still marks them.
+    it('marks the user entries a harness sent as Orbital\'s', async () => {
+      const projectsDir = makeTmpDir('msg-routes');
+      mkdirSync(join(projectsDir, 'p'), { recursive: true });
+      const lines = ['u0', 'u1'].map((uuid, i) =>
+        JSON.stringify({ type: 'user', uuid, message: { role: 'user', content: `turn ${i}` } }));
+      writeFileSync(join(projectsDir, 'p', 's1.jsonl'), lines.join('\n') + '\n');
+      const made = makeApp({ projectsDir });
+      made.db.insert(harnessMessages).values({ uuid: 'u1', sessionId: 's1', kind: 'advance', stepIndex: 3, at: 1 }).run();
+      const messages = (await made.app.inject({ method: 'GET', url: '/api/sessions/s1/messages' })).json().messages;
+      expect(messages[0].harnessMessage).toBeUndefined();
+      expect(messages[1].harnessMessage).toEqual({ kind: 'advance', step: 3 });
+    });
+
     it('pages backwards from a cursor, oldest first within the page', async () => {
       const app = appWithTurns(5);
       const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/messages?before=u3:0&limit=2' });
@@ -493,7 +521,7 @@ describe('REST routes', () => {
     // Parsed transcripts are cached between pages; a line the CLI appends has
     // to show up on the next read, not be hidden behind the cached parse.
     it('serves what was appended to the transcript since the last read', async () => {
-      const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-msg-routes-'));
+      const projectsDir = makeTmpDir('msg-routes');
       mkdirSync(join(projectsDir, 'p'), { recursive: true });
       const path = join(projectsDir, 'p', 's1.jsonl');
       const turn = (i: number) =>
@@ -525,7 +553,7 @@ describe('REST routes', () => {
   // every abandoned turn, the API returns only the branch that ends at the
   // newest leaf.
   it('GET /api/sessions/:id/messages returns only the live branch of a rewound transcript', async () => {
-    const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-msg-routes-'));
+    const projectsDir = makeTmpDir('msg-routes');
     mkdirSync(join(projectsDir, 'p'), { recursive: true });
     copyFileSync(join(import.meta.dirname, 'fixtures/transcript-rewind-cli.jsonl'), join(projectsDir, 'p', 's1.jsonl'));
     const { app } = makeApp({ projectsDir });
@@ -633,6 +661,55 @@ describe('REST routes', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ sessionId: 'web-9' });
+  });
+
+  // The phone types its directory blind: a typo must come back as an answer,
+  // not as a session row whose spawn died with ENOENT inside the runner.
+  it('POST /api/sessions with requireDirectory 400s a directory that does not exist', async () => {
+    const { app, startCalls } = makeApp();
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/definitely/not/here', prompt: 'go', permissionMode: 'acceptEdits', requireDirectory: true },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'no_such_directory' });
+    expect(startCalls).toEqual([]);
+  });
+
+  it('POST /api/sessions with requireDirectory 400s a relative path and a file', async () => {
+    const { app, startCalls } = makeApp();
+    const dir = makeTmpDir('reqdir');
+    const file = join(dir, 'f.txt');
+    writeFileSync(file, 'x');
+    for (const cwd of ['relative/dir', file]) {
+      const res = await app.inject({
+        method: 'POST', url: '/api/sessions',
+        payload: { cwd, prompt: 'go', permissionMode: 'acceptEdits', requireDirectory: true },
+      });
+      expect(res.statusCode, cwd).toBe(400);
+      expect(res.json()).toEqual({ error: 'no_such_directory' });
+    }
+    expect(startCalls).toEqual([]);
+  });
+
+  it('POST /api/sessions with requireDirectory starts in a directory that exists', async () => {
+    const { app, startCalls } = makeApp();
+    const dir = makeTmpDir('reqdir');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: dir, prompt: 'go', permissionMode: 'acceptEdits', requireDirectory: true },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(startCalls[0].cwd).toBe(dir);
+  });
+
+  it('POST /api/sessions without requireDirectory does not check the directory', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/definitely/not/here', prompt: 'go', permissionMode: 'acceptEdits' },
+    });
+    expect(res.statusCode).toBe(201);
   });
 
   it('POST /api/sessions expands a ~ cwd before the runner and the row see it', async () => {
@@ -1160,15 +1237,62 @@ describe('REST routes', () => {
     db.update(sessions).set({ model: null, resolvedModel: 'claude-haiku-4-5-20251001' }).where(eq(sessions.id, 's2')).run();
     const res = await app.inject({ method: 'GET', url: '/api/projects' });
     expect(res.json().projects).toEqual([
-      { cwd: '/w/x', lastModel: 'opus[1m]' },
-      { cwd: '/w/y', lastModel: 'claude-haiku-4-5-20251001' },
+      { cwd: '/w/x', lastModel: 'opus[1m]', lastAt: 200 },
+      { cwd: '/w/y', lastModel: 'claude-haiku-4-5-20251001', lastAt: 100 },
     ]);
+  });
+
+  it('dates each project by its newest session', async () => {
+    const { app, db } = makeApp();
+    db.insert(sessions).values({
+      id: 's3', projectDir: 'p', cwd: '/w/y', title: 'later', lastAt: 300, source: 'terminal',
+    }).run();
+    const res = await app.inject({ method: 'GET', url: '/api/projects' });
+    expect(res.json().projects).toEqual([
+      { cwd: '/w/y', lastModel: null, lastAt: 300 },
+      { cwd: '/w/x', lastModel: null, lastAt: 200 },
+    ]);
+  });
+
+  // The phone's project picker has nothing else to search, so it needs every
+  // directory a session ran in, not the desktop dialog's short recent list.
+  it('lists more than fifty directories', async () => {
+    const { app, db } = makeApp();
+    db.insert(sessions).values(Array.from({ length: 60 }, (_, i) => ({
+      id: `many-${i}`, projectDir: 'p', cwd: `/many/${i}`, title: 't', lastAt: 1000 + i, source: 'terminal' as const,
+    }))).run();
+    const projects = res200(await app.inject({ method: 'GET', url: '/api/projects' })).projects;
+    expect(projects).toHaveLength(62);
+    expect(projects[0]).toEqual({ cwd: '/many/59', lastModel: null, lastAt: 1059 });
+  });
+
+  it('GET /api/sessions/defaults answers the three new-session settings', async () => {
+    const { app, db } = makeApp();
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
+      permissionMode: 'acceptEdits', model: 'sonnet', rememberModelPerProject: true,
+    });
+    for (const [key, value] of [
+      ['default_permission_mode', 'plan'], ['default_model', ''], ['remember_model_per_project', 'false'],
+    ]) {
+      db.update(settingsTable).set({ value }).where(eq(settingsTable.key, key)).run();
+    }
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
+      permissionMode: 'plan', model: null, rememberModelPerProject: false,
+    });
+  });
+
+  it('GET /api/sessions/defaults falls back when the settings table was emptied', async () => {
+    const { app, db } = makeApp();
+    db.delete(settingsTable).run();
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
+      permissionMode: 'acceptEdits', model: null, rememberModelPerProject: true,
+    });
   });
 });
 
 describe('buildServer smoke', () => {
   it('boots, serves /api/sessions and /ws upgrade route exists', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-boot-'));
+    const dir = makeTmpDir('boot');
     const app = await buildServer({
       dbPath: join(dir, 'index.db'),
       claudeDir: dir, // empty: no projects/, no sessions/ — must still boot
@@ -1200,7 +1324,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
   // 400 case is that no CLI was spawned, and a fake whose `active()` is a
   // hardcoded `[]` could never show that.
   function makeLaunchApp() {
-    const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-mint-')), 'index.db'));
+    const db = openTmpDb('mint');
     const hub = new Hub();
     const runner = new Runner({
       hub, queryFn: idleSdk as any, newSessionId: () => SERVER_MINTED,
@@ -1328,7 +1452,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
 
     async function withParent(model?: string) {
       const launched = makeLaunchApp();
-      const cwd = mkdtempSync(join(tmpdir(), 'orbital-spawn-'));
+      const cwd = makeTmpDir('spawn');
       await launch(launched.app, { sessionId: CLIENT_ID, cwd, ...(model ? { model } : {}) });
       return { ...launched, cwd };
     }
@@ -1384,7 +1508,7 @@ describe('claude_code_version', () => {
   });
 
   it('buildServer publishes it through GET /api/settings when resolvable', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-ver-'));
+    const dir = makeTmpDir('ver');
     const app = await buildServer({
       dbPath: join(dir, 'index.db'),
       claudeDir: join(dir, 'claude'),
@@ -1723,7 +1847,7 @@ describe('GET /api/files', () => {
   beforeEach(() => {
     const result = makeApp();
     app = result.app;
-    cwd = mkdtempSync(join(tmpdir(), 'orbital-files-'));
+    cwd = makeTmpDir('files');
     result.db
       .insert(sessions)
       .values({
@@ -1766,7 +1890,7 @@ describe('GET /api/files', () => {
   });
 
   it('403s a path outside the session cwd', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'));
+    const outside = makeTmpDir('outside');
     writeFileSync(join(outside, 'secret.txt'), 'secret');
     const res = await get('sf', join(outside, 'secret.txt'));
     expect(res.statusCode).toBe(403);
@@ -1774,7 +1898,7 @@ describe('GET /api/files', () => {
   });
 
   it('403s a ../ traversal shape — it never reaches a file', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'));
+    const outside = makeTmpDir('outside');
     writeFileSync(join(outside, 'secret.txt'), 'secret');
     // A sibling tmpdir reached by climbing out of cwd.
     const res = await get('sf', `../${basename(outside)}/secret.txt`);
@@ -1887,7 +2011,7 @@ describe('GET /api/commands', () => {
 
   it('a session with no live query gets the filesystem catalog alone — no built-ins', async () => {
     const { app, db, claudeDir } = makeApp();
-    const cwd = mkdtempSync(join(tmpdir(), 'orbital-cmd-cwd-'));
+    const cwd = makeTmpDir('cmd-cwd');
     db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
     writeCommand(claudeDir, 'ship', 'ship it');
     mkdirSync(join(cwd, '.claude', 'commands'), { recursive: true });
@@ -1906,7 +2030,7 @@ describe('GET /api/commands', () => {
 
   it('with a live query the SDK list is the truth; the scan only attributes source', async () => {
     const { app, db, runner, claudeDir } = makeApp();
-    const cwd = mkdtempSync(join(tmpdir(), 'orbital-cmd-cwd-'));
+    const cwd = makeTmpDir('cmd-cwd');
     db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
     writeCommand(claudeDir, 'ship', 'ship it');
     // On disk but NOT in the SDK list: the CLI would not honour it, so it is
@@ -1931,7 +2055,7 @@ describe('GET /api/commands', () => {
 
   it('a description the CLI leaves empty falls back to the scanned one', async () => {
     const { app, db, runner, claudeDir } = makeApp();
-    const cwd = mkdtempSync(join(tmpdir(), 'orbital-cmd-cwd-'));
+    const cwd = makeTmpDir('cmd-cwd');
     db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
     writeCommand(claudeDir, 'ship', 'ship it');
     runner.commands = async () => [{ name: 'ship', description: '' }];
@@ -1956,7 +2080,7 @@ describe('GET /api/commands', () => {
 
   it('?cwd= answers for the dialog, which has no session yet, and expands ~', async () => {
     const { app, claudeDir } = makeApp();
-    const cwd = mkdtempSync(join(homedir(), '.orbital-cmd-test-'));
+    const cwd = makeHomeDir('cmd-test');
     writeCommand(claudeDir, 'ship', 'ship it');
     mkdirSync(join(cwd, '.claude', 'commands'), { recursive: true });
     writeFileSync(join(cwd, '.claude', 'commands', 'deploy.md'), '');
@@ -1985,7 +2109,7 @@ describe('GET /api/commands/content', () => {
 
   it("serves a session's project skill: header fields plus the body without frontmatter", async () => {
     const { app, db } = makeApp();
-    const cwd = mkdtempSync(join(tmpdir(), 'orbital-cmd-cwd-'));
+    const cwd = makeTmpDir('cmd-cwd');
     db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
     writeSkill(join(cwd, '.claude'), 'deploy', '---\ndescription: ship to prod\n---\n\n# Deploy\nsteps\n');
 
@@ -2032,7 +2156,7 @@ describe('GET /api/files/complete', () => {
   beforeEach(() => {
     const result = makeApp();
     app = result.app;
-    cwd = mkdtempSync(join(tmpdir(), 'orbital-complete-'));
+    cwd = makeTmpDir('complete');
     result.db
       .insert(sessions)
       .values({ id: 'sf', projectDir: 'p', cwd, title: 'completion', lastAt: 1, source: 'web' })
@@ -2100,7 +2224,7 @@ describe('GET /api/files/complete', () => {
   });
 
   it('a directory outside the sandbox is empty, never an error', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'));
+    const outside = makeTmpDir('outside');
     writeFileSync(join(outside, 'secret.txt'), 'secret');
     for (const prefix of [join(outside, 'sec'), `../${basename(outside)}/sec`]) {
       const res = await complete(`session=sf&prefix=${encodeURIComponent(prefix)}`);
@@ -2116,7 +2240,7 @@ describe('GET /api/files/complete', () => {
   });
 
   it('a symlink out of the sandbox is empty — realpath decides', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orbital-outside-'));
+    const outside = makeTmpDir('outside');
     writeFileSync(join(outside, 'secret.txt'), 'secret');
     symlinkSync(outside, join(cwd, 'innocent'));
     expect((await complete('session=sf&prefix=innocent/')).json()).toEqual({ entries: [] });
@@ -2861,7 +2985,7 @@ describe('GET /api/stats/sessions/:id', () => {
 
   /** A one-turn transcript on disk for `sY`, so a `?timeline=1` read has something to recompute. */
   function makeTranscriptApp() {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-stats-projects-'));
+    const dir = makeTmpDir('stats-projects');
     const pdir = join(dir, 'proj');
     mkdirSync(pdir, { recursive: true });
     const sessionId = 'sY';
@@ -2946,7 +3070,7 @@ describe('stats API — human wait', () => {
   });
 
   it("cuts a recorded wait out of the drilldown's timeline", async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-stats-wait-'));
+    const dir = makeTmpDir('stats-wait');
     mkdirSync(join(dir, 'proj'), { recursive: true });
     const T0 = Date.parse('2026-09-20T10:00:00.000Z');
     const lines = [
@@ -2979,7 +3103,7 @@ describe('GET /api/sessions/:id/ide/open-files', () => {
    * itself, and these tests cover what the route does with its answers.
    */
   function ideOn(workspace: string, answer: string | null) {
-    const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-ide-route-'));
+    const claudeDir = makeTmpDir('ide-route');
     mkdirSync(join(claudeDir, 'ide'), { recursive: true });
     writeFileSync(
       join(claudeDir, 'ide', '60108.lock'),
@@ -3096,7 +3220,7 @@ describe('walkthrough routes', () => {
     line({ type: 'user', uuid: 'u2', timestamp: '2026-09-09T14:00:06.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_E1', content: 'ok' }] } });
 
   function appWithTranscript(source: 'web' | 'terminal' = 'web', narrateQueryFn?: NarrateQueryFn) {
-    const projectsDir = mkdtempSync(join(tmpdir(), 'orbital-wt-routes-'));
+    const projectsDir = makeTmpDir('wt-routes');
     mkdirSync(join(projectsDir, 'p'), { recursive: true });
     writeFileSync(join(projectsDir, 'p', 'w1.jsonl'), transcript);
     const made = makeApp({ projectsDir, narrateQueryFn });
@@ -3256,7 +3380,11 @@ describe('walkthrough routes', () => {
     const pending = (await app.inject({ method: 'GET', url: '/api/sessions/w1/walkthrough' })).json().walkthrough;
     expect(pending).toMatchObject({ narrationPending: true, narrationFailed: false, narrationFailure: null });
     expect(pending.narration.intents[0].title).toBe('Margin');
+    // Let the run land before the test's database is closed under it.
     open();
+    await vi.waitFor(async () => {
+      expect((await app.inject({ method: 'GET', url: '/api/sessions/w1/walkthrough' })).json().walkthrough.narrationPending).toBe(false);
+    });
   });
 });
 
@@ -3269,7 +3397,7 @@ describe('background task routes', () => {
   /** `s1` with a running shell `sh1` whose output goes to a real file, and a Runner that can stop it. */
   function withShell(opts: { output?: string | null } = {}) {
     const made = makeApp();
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-task-out-'));
+    const dir = makeTmpDir('task-out');
     const path = join(dir, 'sh1.output');
     if (opts.output !== null) writeFileSync(path, opts.output ?? 'ready on :5173\n');
     made.backgroundTasks.feedTask(
@@ -3352,7 +3480,7 @@ describe('background task routes', () => {
 describe('branch status routes', () => {
   /** A repository on a feature branch, so a PR is looked up for it. */
   function featureRepo(): string {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-branch-routes-'));
+    const dir = makeTmpDir('branch-routes');
     mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
     writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/feature\n');
     writeFileSync(join(dir, '.git', 'refs/heads/main'), `${'a'.repeat(40)}\n`);

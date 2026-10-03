@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { openDb, type OrbitalDb } from '../src/db/database.js';
+import type { OrbitalDb } from '../src/db/database.js';
 import { sessions, sessionTags, tagRules, tags } from '../src/db/schema.js';
 import { matchRule, regenerateRuleTags, effectiveTagIds } from '../src/tags/rules.js';
 import type { TagRule } from '../src/types.js';
+import { openTmpDb } from './tmp.js';
 
 const rules: TagRule[] = [
   { id: 1, tag_id: 10, position: 0, enabled: 1, condition: 'path_matches', pattern: '~/work/' },
@@ -68,7 +68,7 @@ describe('matchRule', () => {
 describe('regenerateRuleTags + effectiveTagIds', () => {
   let db: OrbitalDb;
   beforeEach(() => {
-    db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-rules-')), 'index.db'));
+    db = openTmpDb('rules');
     db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
     db.insert(tagRules)
       .values({ tagId: 10, position: 0, enabled: 1, condition: 'title_contains', pattern: 'auth' })

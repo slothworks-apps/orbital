@@ -2,6 +2,7 @@ import { RemoteClient } from '@orbital/shared/remote/client'
 import type { Identity } from '@orbital/shared/remote/keys'
 import { loadOrCreateIdentity } from './platform/identity'
 import type { Pairing } from './platform/parse'
+import { RETRY_WINDOW_MS } from './constants'
 import { isMacAsleep, useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 
@@ -17,16 +18,20 @@ export function mobileApp(): string {
 /**
  * `expectPaired` is true only for a client built from a stored pairing: the
  * relay then says when that pair is gone. A client built while pairing passes
- * false, since no pair exists yet and the relay would say so.
+ * false, since no pair exists yet and the relay would say so. `relaySecret`
+ * is the relay's shared secret from the code, sent on every connect; none
+ * for an open relay.
  */
 export function newClient(
   relayUrl: string,
   mac: string,
   identity: Identity,
-  { expectPaired }: { expectPaired: boolean },
+  { expectPaired, relaySecret }: { expectPaired: boolean; relaySecret?: string },
 ): RemoteClient {
   // The WebView's own WebSocket; `ws` plays it in the server's end-to-end test.
-  return new RemoteClient({ relayUrl, mac, identity, WebSocketImpl: WebSocket, app: mobileApp(), expectPaired })
+  return new RemoteClient({
+    relayUrl, mac, identity, WebSocketImpl: WebSocket, app: mobileApp(), expectPaired, relaySecret,
+  })
 }
 
 /**
@@ -57,10 +62,24 @@ export async function recheckMac(windowMs: number): Promise<boolean> {
   }
 }
 
+/**
+ * A return to the foreground (parent § 4: Android kills a backgrounded
+ * socket without a word). A tunnel still ready is left alone: the client's
+ * silence watchdog (`TUNNEL_SILENCE_TIMEOUT_MS`) already drops a dead one
+ * while a tunnel is up, and rebuilding it here would cut whatever is in
+ * flight — a photo's `putBlob` started the moment the camera or the
+ * gallery handed back. Without a ready tunnel, the bounded check runs as
+ * 9a's Retry does.
+ */
+export async function recheckOnForeground(): Promise<void> {
+  if (!clientRef.client || clientRef.ready) return
+  await recheckMac(RETRY_WINDOW_MS)
+}
+
 /** The paired Mac's link, started and live behind `clientRef`. */
 export async function connect(pairing: Pairing): Promise<RemoteClient> {
   const identity = await loadOrCreateIdentity()
-  const client = newClient(pairing.relay, pairing.mac, identity, { expectPaired: true })
+  const client = newClient(pairing.relay, pairing.mac, identity, { expectPaired: true, relaySecret: pairing.relaySecret })
   clientRef.set(client)
   client.start()
   return client

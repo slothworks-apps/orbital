@@ -431,6 +431,7 @@ function Verdict({
         <button
           ref={declineRef}
           type="button"
+          data-verdict-secondary
           onClick={() => (reasonOpen ? onResolve({ approved: false }) : setReasonOpen(true))}
           className={`${BUTTON_BASE} ${BUTTON_QUIET}`}
         >
@@ -520,7 +521,7 @@ function ApproveButton({
 
   if (!guarded || gesture === 'single') {
     return (
-      <button type="button" onClick={onApprove} className={`${BUTTON_BASE} ${BUTTON_ACCENT}`}>
+      <button type="button" data-verdict-primary onClick={onApprove} className={`${BUTTON_BASE} ${BUTTON_ACCENT}`}>
         {label}
       </button>
     )
@@ -544,6 +545,7 @@ function ApproveButton({
   return (
     <button
       type="button"
+      data-verdict-primary
       // The keyboard path is the two-step one in both gestures — see the note
       // above the component.
       onClick={(e) => {

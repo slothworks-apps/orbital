@@ -133,8 +133,9 @@ export function refusalNotice(refusals: readonly Refusal[]): RefusalNotice | nul
 /**
  * What the chip calls the file (canvas 9c-2). A pasted image has no honest
  * name — the clipboard's own `image.png` is the browser's invention, not the
- * user's — so it is called what it is. A nameless dropped file borrows the
- * same line for the same reason.
+ * user's — so it is called what it is. A dropped file and a phone photo
+ * (`camera`, `gallery`) wear their own name; a nameless one borrows the paste
+ * line for the same reason.
  */
 export function attachmentName(file: File, source: AttachmentSource): string {
   if ((source === 'clipboard' && file.type.startsWith('image/')) || !file.name) return 'Clipboard image'
@@ -165,15 +166,22 @@ export interface Attachment {
   retries: number
   /** True for the ×'s fade-out frame, before the chip is dropped from the list. */
   exiting?: boolean
+  /**
+   * The photo's size before the phone downscaled it (spec
+   * 2026-10-02-mobile-app-design § 6.2). Absent on the desktop and for a
+   * photo that was sent as it was.
+   */
+  original?: { w: number; h: number }
 }
 
 /**
- * The chip's second line (canvas 9c/9d-A/9d-B). The percentage sits exactly
- * where the size normally does, which is why this is one function and not
- * three fragments in the markup.
+ * The chip's second line (canvas 9c/9d-A/9d-B, and the phone's 9b). The
+ * percentage sits exactly where the size normally does, and a downscaled
+ * photo's original size and sent edge sit where the dimensions and size do,
+ * which is why this is one function and not fragments in the markup.
  */
 export function attachmentMeta(
-  chip: Pick<Attachment, 'state' | 'size' | 'progress' | 'entry'>,
+  chip: Pick<Attachment, 'state' | 'size' | 'progress' | 'entry' | 'original'>,
 ): string {
   if (chip.state === 'failed') return `${formatBytes(chip.size)} · didn't upload`
   if (chip.state === 'uploading') {
@@ -181,6 +189,9 @@ export function attachmentMeta(
     return `${formatBytes(chip.size)} · uploading${pct}`
   }
   const entry = chip.entry
+  if (chip.original && entry && 'w' in entry && entry.w && entry.h) {
+    return `${chip.original.w}×${chip.original.h} → sent at ${Math.max(entry.w, entry.h)} px`
+  }
   const dims = entry && 'w' in entry && entry.w && entry.h ? `${entry.w}×${entry.h} · ` : ''
   return `${dims}${formatBytes(entry?.bytes ?? chip.size)}`
 }

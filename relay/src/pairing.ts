@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PAIRING_TOKEN_TTL_MS, verifyRequest, type RelayAction } from '@orbital/shared/remote/relayApi';
 import { log, short } from './log.js';
+import { secretMatches } from './secret.js';
 import type { WsContext } from './ws.js';
 
 export const PAIR_RATE_LIMIT_PER_MIN = 20;
@@ -53,7 +54,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
   };
 
   /**
-   * Verifies, rate-limits, parses, and answers the error itself; returns
+   * Verifies, rate-limits, checks the relay secret, parses, and answers the error itself; returns
    * null then. The signature comes first so unsigned junk never counts
    * against an IP's limit — only a request someone signed can use it up.
    */
@@ -67,6 +68,11 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     }
     if (limited(ip)) {
       void reply.code(429).send({ error: 'rate_limited' });
+      return null;
+    }
+    if (ctx.secret !== null && !secretMatches(ctx.secret, v.secret ?? undefined)) {
+      log(`pairing ${action} refused for ${short(v.id)}: bad secret`);
+      void reply.code(401).send({ error: 'bad_secret' });
       return null;
     }
     const parsed = schema.safeParse(v.payload);

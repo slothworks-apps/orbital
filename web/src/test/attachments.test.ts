@@ -186,6 +186,35 @@ describe('attachmentMeta — the chip`s second line', () => {
     ).toBe('284 KB')
   })
 
+  it('names the photo`s size before the phone downscaled it, and the edge it was sent at', () => {
+    expect(
+      attachmentMeta({
+        state: 'uploaded',
+        size: 290_816,
+        progress: null,
+        entry: { ref: 'a.jpg', w: 1568, h: 1176, bytes: 290_816 },
+        original: { w: 4032, h: 3024 },
+      })
+    ).toBe('4032×3024 → sent at 1568 px')
+  })
+
+  it('still reads as uploading while a photo with an original size is on its way', () => {
+    expect(
+      attachmentMeta({ state: 'uploading', size: 290_816, progress: null, original: { w: 4032, h: 3024 } })
+    ).toBe('284 KB · uploading')
+  })
+
+  it('reads an uploaded image without an original size as before', () => {
+    expect(
+      attachmentMeta({
+        state: 'uploaded',
+        size: 290_816,
+        progress: null,
+        entry: { ref: 'a.jpg', w: 1568, h: 1176, bytes: 290_816 },
+      })
+    ).toBe('1568×1176 · 284 KB')
+  })
+
   it('says what happened on a failure, in the chip`s own voice', () => {
     expect(attachmentMeta({ state: 'failed', size: 1_468_006, progress: null })).toBe(
       "1.4 MB · didn't upload"

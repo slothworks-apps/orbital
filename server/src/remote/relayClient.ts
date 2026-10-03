@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { deviceId, type Identity } from '@orbital/shared/remote/keys';
 import {
-  RelayToDevice, authSignature, relayWsUrl, signRequest, RELAY_PING_INTERVAL_MS,
+  CLOSE_BAD_SECRET, RelayToDevice, authSignature, relayWsUrl, signRequest, RELAY_PING_INTERVAL_MS,
   type DeviceToRelay, type RelayAction,
 } from '@orbital/shared/remote/relayApi';
 
@@ -26,6 +26,8 @@ export type RelayStatus = 'off' | 'connecting' | 'online';
 export type RelayClientOptions = {
   relayUrl: string;
   identity: Identity;
+  /** The relay's shared secret; sent with the auth and every signed request when non-empty. */
+  relaySecret?: string;
   WebSocketImpl?: typeof WebSocket;
   fetchImpl?: typeof fetch;
   reconnectDelayMs?: number;
@@ -108,7 +110,7 @@ export class RelayClient extends EventEmitter {
       res = await this.fetchImpl(new URL(path, this.opts.relayUrl).toString(), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(signRequest(this.opts.identity, action, payload)),
+        body: JSON.stringify(signRequest(this.opts.identity, action, payload, Date.now(), this.opts.relaySecret)),
       });
       text = await res.text();
     } catch {
@@ -151,7 +153,9 @@ export class RelayClient extends EventEmitter {
       // state before it. Every parsed message reaches them, challenge and ok
       // included — callers that want to observe the handshake need them too.
       if (msg.type === 'challenge') {
-        ws.send(JSON.stringify({ type: 'auth', pub: this.id, sig: authSignature(this.opts.identity, msg.nonce) }));
+        const auth: DeviceToRelay = { type: 'auth', pub: this.id, sig: authSignature(this.opts.identity, msg.nonce) };
+        if (this.opts.relaySecret) auth.secret = this.opts.relaySecret;
+        ws.send(JSON.stringify(auth));
       }
       if (msg.type === 'ok') {
         if (this.connectTimer) clearTimeout(this.connectTimer);
@@ -174,7 +178,7 @@ export class RelayClient extends EventEmitter {
       if (this.silenceTimer) this.armSilenceTimer(ws);
     });
     ws.on('error', () => { /* close follows; that is where we react */ });
-    ws.on('close', () => {
+    ws.on('close', (code) => {
       // A stale `ws` (stop(), or already replaced) owns no live timers of
       // ours to clear — those belong to whatever connection is current.
       if (this.ws !== ws) return;
@@ -182,6 +186,14 @@ export class RelayClient extends EventEmitter {
       this.ws = null;
       this.peersOnline.clear();
       if (this.status === 'off') return;
+      // The secret will not change on its own; retrying would only knock
+      // again with the same one. Stopped first, so a `refused` listener
+      // reads `off`.
+      if (code === CLOSE_BAD_SECRET) {
+        this.setStatus('off');
+        this.emit('refused', 'bad_secret');
+        return;
+      }
       const delay = Math.min(this.baseDelay * 2 ** this.attempt++, RECONNECT_MAX_MS);
       // Forced: a repeated failure leaves the status `connecting`, but
       // `attempts` changed and listeners must hear about it.

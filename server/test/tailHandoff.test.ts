@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { eq } from 'drizzle-orm';
 import { buildServer } from '../src/index.js';
 import { openDb } from '../src/db/database.js';
 import { sessions } from '../src/db/schema.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * A subscribed session topic has two possible feeds — the Runner's SDK
@@ -111,7 +111,7 @@ const anyWithPrefix = (ids: string[], prefix: string) => ids.filter((id) => id.s
 
 describe('the transcript tail yields to the Runner', () => {
   it('runs only while nobody owns the session: stopped by a revive, restarted by the end', async () => {
-    const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-tail-handoff-'));
+    const claudeDir = makeTmpDir('tail-handoff');
     mkdirSync(join(claudeDir, 'projects', 'p'), { recursive: true });
     mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
     const dbPath = join(claudeDir, 'index.db');

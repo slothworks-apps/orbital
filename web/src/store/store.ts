@@ -10,6 +10,7 @@ import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundT
 import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
 import { ENDED_HIDE_MS } from '../map/transition'
 import { REWIND_REFUSED_TOAST } from '../lib/rewind'
+import { isListable } from '../lib/harnessSession'
 import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
@@ -27,6 +28,7 @@ import type {
   SessionStatus,
   SessionHarness,
   HarnessEvent,
+  HarnessMessageKind,
   Subagent,
   Tag,
   TagRule,
@@ -98,6 +100,16 @@ export type SessionEvent =
   | { event: 'rewind_refused'; message: string; hiddenCount: number | null }
   /** The session's harness changed (added, updated, or removed). */
   | { event: 'harness'; harness: SessionHarness | null }
+  /**
+   * Orbital sent this on the harness's account (kickoff, sent on, nudge,
+   * findings): the user entry `uuid` is the harness's, a dashed ◆ row and
+   * never a bubble. `step` is 0-based (spec 2026-10-02-harness-redesign-design
+   * § Session state and the transcript).
+   */
+  | {
+      event: 'harness_message'
+      message: { uuid: string; kind: HarnessMessageKind; step: number; text: string; at: number }
+    }
 
 /**
  * Events delivered on the `subagent:<sessionId>:<toolUseId>` topic — one
@@ -168,6 +180,12 @@ export interface Toast {
    * called on click; the toast is cleared by the caller of `run`, not here.
    */
   action?: { label: string; run: () => void }
+  /**
+   * `log`: raised by a record arriving on the errors topic (`applyErrorsEvent`),
+   * not by a request this client made. The desktop ignores it; the phone shows
+   * only its own request failures and leaves these alone.
+   */
+  source?: 'log'
 }
 
 export interface OrbitalUiState {
@@ -422,11 +440,35 @@ export interface OrbitalState {
   harnesses: Record<string, SessionHarness | null | undefined>
   /** Each session's harness log, newest first, as last fetched. */
   harnessEvents: Record<string, HarnessEvent[]>
+  /** The log has older pages than `harnessEvents` holds (`loadOlderHarnessEvents`). */
+  harnessEventsMore: Record<string, boolean>
+  /**
+   * Each session's removed harness, kept for its records (session stats →
+   * Harness), or null; undefined until `loadHarness` has read it.
+   */
+  harnessRemoved: Record<string, SessionHarness | null | undefined>
   /**
    * The Harness panel in the side slot, which it shares with the subagent
    * panel and the task output view (spec 2026-09-30-session-harness-design § UI).
    */
-  harnessPanel: { sessionId: string } | null
+  /** `full`: opened straight into the full window (⌥-click on the pill, canvas 30h). */
+  harnessPanel: { sessionId: string; full?: boolean } | null
+  /**
+   * Where Settings → Harness templates should start, set by the harness
+   * panel's links (canvas 30c "both open Settings → Harness templates · scope
+   * pre-set to <project>", 30f "Open template in Settings"). Settings reads
+   * and clears it; null when nothing asked.
+   */
+  harnessTemplatesFocus: HarnessTemplatesFocus | null
+}
+
+export interface HarnessTemplatesFocus {
+  /** Filter and new-template scope pre-set to this project. */
+  project?: { root: string; name: string }
+  /** Open the "Draft with the assistant…" popover. */
+  draft?: boolean
+  /** Open this template in the editor. */
+  templateId?: number
 }
 
 /**
@@ -506,6 +548,8 @@ export interface OrbitalActions {
     model?: string
     /** Image refs the dialog's first turn carries (spec: 2026-09-20-composer-design). */
     attachments?: string[]
+    /** The phone asks the route to check the directory first (`api.createSession`). */
+    requireDirectory?: boolean
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>
@@ -610,8 +654,13 @@ export interface OrbitalActions {
   closeTaskOutput(): void
   /** Reads a session's harness and its log into `harnesses` / `harnessEvents`. */
   loadHarness(sessionId: string): Promise<void>
-  openHarness(sessionId: string): void
+  /** Reads the next older page of the session's harness log, if there is one. */
+  loadOlderHarnessEvents(sessionId: string): Promise<void>
+  /** Opens the Harness panel on this session, or closes it when it is already open on it. */
+  openHarness(sessionId: string, opts?: { full?: boolean }): void
   closeHarness(): void
+  /** Opens Settings on Harness templates with `focus` for it to read. */
+  openHarnessTemplates(focus: HarnessTemplatesFocus): void
   /** Applies one event off the open view's `task-output:` topic. */
   applyTaskOutputEvent(sessionId: string, taskId: string, msg: TaskOutputEvent): void
   /** Stops a background task or a subagent by its task id. */
@@ -633,6 +682,11 @@ let sawClosedSocket = false
 const transcriptSuspects = new Map<string, ChatMessage>()
 /** Sessions with a transcript check in flight — a slow read must not stack. */
 const transcriptChecking = new Set<string>()
+
+/** One page of a session's harness log — the server's ceiling (`MAX_EVENTS_PAGE`). */
+const HARNESS_EVENTS_PAGE = 2000
+/** Sessions whose older harness log is being read now, so a re-render does not ask twice. */
+const harnessEventsPaging = new Set<string>()
 
 /** Generates a client-side id for optimistic messages. Prefixed so it can
  * never collide with a server-issued message id. */
@@ -803,6 +857,22 @@ function releaseLaunchSubscription(sessionId: string): void {
   if (!release) return
   launchSubscriptions.delete(sessionId)
   release()
+}
+
+/**
+ * `launchSession`'s subscribe-before-POST for a session another route starts
+ * (the harness drafting conversation, `POST /api/harness/interview`). Call it
+ * with the browser-minted id before the request; the returned function undoes
+ * it when the request fails. Released like a launch's, on `idle` or `ended`.
+ */
+export function holdLaunchSubscription(sessionId: string): () => void {
+  launchSubscriptions.set(
+    sessionId,
+    getSocket().subscribe(`session:${sessionId}`, (msg: SessionEvent) =>
+      useOrbital.getState().applySessionEvent(sessionId, msg),
+    ),
+  )
+  return () => releaseLaunchSubscription(sessionId)
 }
 
 /**
@@ -997,7 +1067,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   stoppingTasks: {},
   harnesses: {},
   harnessEvents: {},
+  harnessEventsMore: {},
+  harnessRemoved: {},
   harnessPanel: null,
+  harnessTemplatesFocus: null,
 
   async loadInitial() {
     const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] =
@@ -1265,6 +1338,15 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
           return
         }
+        // The echo of a harness message already seated by `harness_message`:
+        // same entry, so it takes that row's place and keeps its mark.
+        const harnessIdx = echo.uuid ? existing.findIndex((m) => m.uuid === echo.uuid && m.harnessMessage) : -1
+        if (harnessIdx >= 0) {
+          const updated = existing.slice()
+          updated[harnessIdx] = { ...echo, harnessMessage: existing[harnessIdx].harnessMessage }
+          set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
+          return
+        }
       }
 
       set({
@@ -1273,6 +1355,20 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           [sessionId]: [...existing, msg.message],
         },
       })
+      return
+    }
+
+    if (msg.event === 'harness_message') {
+      // Held or shown only, as `message` is: the file marks the row on the next read.
+      if (state.ui.selectedId !== sessionId && !(sessionId in state.transcripts)) return
+      const { uuid, kind, step, text, at } = msg.message
+      const mark = { kind, step }
+      const existing = state.transcripts[sessionId] ?? []
+      const heldIdx = existing.findIndex((m) => m.uuid === uuid)
+      const updated = existing.slice()
+      if (heldIdx >= 0) updated[heldIdx] = { ...existing[heldIdx], harnessMessage: mark }
+      else updated.push({ id: `harness:${uuid}`, role: 'user', uuid, text, timestamp: new Date(at).toISOString(), harnessMessage: mark })
+      set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
       return
     }
 
@@ -1443,8 +1539,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
     if (msg.event === 'harness') {
       set({ harnesses: { ...state.harnesses, [sessionId]: msg.harness } })
-      // The log only rides the REST read; an open panel reads it again.
-      if (state.harnessPanel?.sessionId === sessionId) void get().loadHarness(sessionId)
+      // The log only rides the REST read; an open panel reads it again, and so
+      // does a transcript on screen, whose dashed ◆ rows come from it.
+      if (state.harnessPanel?.sessionId === sessionId || state.ui.selectedId === sessionId || sessionId in state.transcripts) {
+        void get().loadHarness(sessionId)
+      }
       return
     }
   },
@@ -1464,7 +1563,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         // Every arriving record raises the one toast. It overwrites whatever
         // was showing, which is exactly why dismissing a toast must never
         // count as having read the row — only the log does that.
-        toast: { kind: 'error', message: msg.error.message },
+        toast: { kind: 'error', message: msg.error.message, source: 'log' },
       })
       return
     }
@@ -1813,8 +1912,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // be a 400 from the server.
     if (decision?.kind !== 'question') return
 
+    const before = get().decisionAnswers[decision.id]
     const answers: AnswerMap = {
-      ...(get().decisionAnswers[decision.id] ?? {}),
+      ...(before ?? {}),
       [question]: answer,
     }
     set((state) => ({
@@ -1840,6 +1940,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         })
         return
       }
+      // The answer did not land (a tunnel that dropped mid-POST, a 5xx):
+      // the answer is taken back, so the card's last question is live again
+      // and the composer offers it — unless something newer replaced the
+      // record meanwhile.
+      set((state) => {
+        if (state.decisionAnswers[decision.id] !== answers) return {}
+        const decisionAnswers = { ...state.decisionAnswers }
+        if (before) decisionAnswers[decision.id] = before
+        else delete decisionAnswers[decision.id]
+        return { decisionAnswers }
+      })
       const message = err instanceof Error ? err.message : 'Failed to send the answer'
       set({ toast: { kind: 'error', message } })
     })
@@ -1869,6 +1980,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         })
         return
       }
+      // The verdict did not land: take it back, so the card is live again —
+      // unless something newer replaced it meanwhile (as `answerQuestion`).
+      set((state) => {
+        if (state.decisionVerdicts[decision.id] !== verdict) return {}
+        const decisionVerdicts = { ...state.decisionVerdicts }
+        delete decisionVerdicts[decision.id]
+        return { decisionVerdicts }
+      })
       const message = err instanceof Error ? err.message : 'Failed to send the answer'
       set({ toast: { kind: 'error', message } })
     })
@@ -2382,10 +2501,13 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   async loadHarness(sessionId) {
     try {
-      const { harness, events } = await api.getSessionHarness(sessionId)
+      // The whole log: the panel folds it into the steps' records (canvas 30g).
+      const { harness, removed, events } = await api.getSessionHarness(sessionId, { limit: HARNESS_EVENTS_PAGE })
       set((state) => ({
         harnesses: { ...state.harnesses, [sessionId]: harness },
+        harnessRemoved: { ...state.harnessRemoved, [sessionId]: removed },
         harnessEvents: { ...state.harnessEvents, [sessionId]: events },
+        harnessEventsMore: { ...state.harnessEventsMore, [sessionId]: events.length >= HARNESS_EVENTS_PAGE },
       }))
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load the harness'
@@ -2393,16 +2515,54 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
   },
 
-  openHarness(sessionId) {
+  async loadOlderHarnessEvents(sessionId) {
+    const held = get().harnessEvents[sessionId]
+    if (!held || !get().harnessEventsMore[sessionId] || harnessEventsPaging.has(sessionId)) return
+    // Newest first, so the last one held is the oldest; ids are insertion order.
+    const before = held.length > 0 ? held[held.length - 1].id : undefined
+    harnessEventsPaging.add(sessionId)
+    try {
+      const { events } = await api.getSessionHarness(sessionId, { limit: HARNESS_EVENTS_PAGE, before })
+      set((state) => {
+        const current = state.harnessEvents[sessionId] ?? []
+        const seen = new Set(current.map((e) => e.id))
+        return {
+          harnessEvents: { ...state.harnessEvents, [sessionId]: [...current, ...events.filter((e) => !seen.has(e.id))] },
+          harnessEventsMore: { ...state.harnessEventsMore, [sessionId]: events.length >= HARNESS_EVENTS_PAGE },
+        }
+      })
+    } catch {
+      // The transcript goes without the older rows; the next scroll asks again.
+    } finally {
+      harnessEventsPaging.delete(sessionId)
+    }
+  },
+
+  openHarness(sessionId, opts) {
+    // The pill, the strip button and ⌘⇧H toggle it, like the other side-slot
+    // panels (spec 2026-10-02-harness-redesign-design § Agreed).
+    if (get().harnessPanel?.sessionId === sessionId) {
+      get().closeHarness()
+      return
+    }
     get().closeSubagent()
     get().closeTaskOutput()
     if (get().ui.selectedId !== sessionId) void get().select(sessionId)
-    set({ harnessPanel: { sessionId } })
+    set({ harnessPanel: opts?.full ? { sessionId, full: true } : { sessionId } })
     void get().loadHarness(sessionId)
   },
 
   closeHarness() {
     if (get().harnessPanel) set({ harnessPanel: null })
+  },
+
+  openHarnessTemplates(focus) {
+    // In memory only: Settings opens on its last section, and this visit's is Harness templates.
+    set((state) => ({
+      harnessTemplatesFocus: focus,
+      settings: { ...state.settings, settings_last_section: 'harness' },
+      ui: { ...state.ui, dialog: 'settings' },
+    }))
   },
 
   applyTaskOutputEvent(sessionId, taskId, msg) {
@@ -2709,7 +2869,17 @@ function newestFirst(sessions: Record<string, ApiSession>): ApiSession[] {
  * mutes them (see `mapSessions`, ADR `search-mutes-planets-instead-of-hiding-them`).
  */
 export function visibleSessions(state: Pick<OrbitalState, 'sessions' | 'ui'>): ApiSession[] {
-  return newestFirst(state.sessions).filter((s) => matchesSidebarFilters(s, state.ui))
+  return listableSessions(state).filter((s) => matchesSidebarFilters(s, state.ui))
+}
+
+/**
+ * Every session a list may show, newest first: all but a harness drafting
+ * conversation, which is listed nowhere — not in the sidebar, history,
+ * search or the example-session picker (`isListable`). The map still draws
+ * one while it runs (`mapSessions`).
+ */
+export function listableSessions(state: Pick<OrbitalState, 'sessions'>): ApiSession[] {
+  return newestFirst(state.sessions).filter(isListable)
 }
 
 /**

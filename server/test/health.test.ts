@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { openDb } from '../src/db/database.js';
 import { settings } from '../src/db/schema.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * The desktop app probes 4737 before it does anything else: something that
@@ -14,7 +14,7 @@ import { settings } from '../src/db/schema.js';
  * names here are load-bearing.
  */
 function tempClaudeDir() {
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-health-'));
+  const claudeDir = makeTmpDir('health');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
   return { claudeDir, dbPath: join(claudeDir, 'index.db') };
@@ -42,7 +42,7 @@ describe('GET /api/health', () => {
 
   it('reports that it serves the web app when a staticDir is configured', async () => {
     const { claudeDir, dbPath } = tempClaudeDir();
-    const staticDir = mkdtempSync(join(tmpdir(), 'orbital-health-dist-'));
+    const staticDir = makeTmpDir('health-dist');
     const app = await buildServer({ claudeDir, dbPath, queryFn: (() => {}) as any, staticDir });
     try {
       expect((await app.inject({ method: 'GET', url: '/api/health' })).json().static).toBe(true);

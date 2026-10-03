@@ -4,8 +4,6 @@
  * side is the caller's: `FakePhone` where a test needs a phone that
  * misbehaves, `RemoteClient` for everything a real phone does.
  */
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildRelay } from '@orbital/relay/app';
@@ -13,6 +11,7 @@ import { openRelayStore } from '@orbital/relay/store';
 import { buildServer } from '../src/index.js';
 import { openDb } from '../src/db/database.js';
 import { settings as settingsTable } from '../src/db/schema.js';
+import { makeTmpDir } from './tmp.js';
 
 export async function listen(app: FastifyInstance): Promise<string> {
   await app.listen({ port: 0, host: '127.0.0.1' });
@@ -51,7 +50,7 @@ export async function startMacAndRelay(
   const relayUrl = await listen(relay);
   closers.push(() => relay.close());
 
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-e2e-'));
+  const dir = makeTmpDir('e2e');
   const dbPath = join(dir, 'index.db');
   const db = openDb(dbPath);
   const seeded: [string, string][] = [

@@ -16,7 +16,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'strip'
     | 'toggle'
     | 'toggle-on'
-  size?: 'sm' | 'md' | 'lg' | 'pill' | 'strip' | 'icon'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -71,6 +71,9 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   sm: 'px-3.5 py-[7px] text-xs',
   md: 'px-3.5 py-1.5 text-sm',
   lg: 'px-[18px] py-[9px] text-[13px]',
+  // 1d's Browse…: beside an `lg` field and as tall as it, so no padding of
+  // its own on the vertical.
+  field: 'px-3.5 text-[12.5px]',
   // 5b's row pills: 4px/10px at 11px.
   pill: 'px-2.5 py-1 text-[11px]',
   // 27a's strip chip: 3px/9px at mono 10.5.
@@ -95,9 +98,11 @@ export function Button({
       ? 'rounded-full'
       : size === 'strip'
         ? 'rounded-[6px]'
-        : size === 'sm' || size === 'icon'
-          ? 'rounded-[7px]'
-          : 'rounded-lg'
+        : size === 'field'
+          ? 'rounded-[9px]'
+          : size === 'sm' || size === 'icon'
+            ? 'rounded-[7px]'
+            : 'rounded-lg'
   // The same for the family: the strip chip is mono, and two font utilities
   // on one element would be settled by stylesheet order.
   const family = size === 'strip' ? 'font-mono' : 'font-sans'

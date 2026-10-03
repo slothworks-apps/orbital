@@ -1,0 +1,12 @@
+# Read by BuildKit for relay/Dockerfile; the build context is the repo root,
+# so a plain relay/.dockerignore would never apply.
+**/node_modules
+**/dist
+.git
+relay/data
+secrets
+mobile
+desktop
+web
+server
+docs

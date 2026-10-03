@@ -4,6 +4,7 @@ import type { NotificationSettings } from '@orbital/shared/remote/messages'
 import { useOrbital } from '../../store/store'
 import { forgetEverything } from '../forget'
 import { relayHost } from '../format'
+import { setRules as setNotifierRules } from '../notify'
 import { readNotificationsCache, writeNotificationsCache } from '../platform/cache'
 import { useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
@@ -34,8 +35,8 @@ export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; labe
   },
   {
     key: 'onlyWhenBackground',
-    label: 'Only when Orbital is in the background',
-    desc: 'Skip while the app is open — you can already see it.',
+    label: 'Only when the app is in the background',
+    desc: 'Skip the system notification while the app is open — the banner shows it instead.',
   },
   {
     key: 'sound',
@@ -84,6 +85,7 @@ export function SettingsScreen() {
     try {
       const saved = await clientRef.setNotifications({ ...rules, [key]: value })
       setRules(saved)
+      setNotifierRules(saved)
       await writeNotificationsCache(saved, Date.now())
     } catch {
       // Unchanged: the Mac never took it, and the row still shows what it holds.

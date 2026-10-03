@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateIdentity, deviceId, fromBase64Url, publicKeyOf } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, WAKE_BYTES, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
@@ -14,7 +13,8 @@ import { createImageStore } from '../src/images/store.js';
 import { DeviceStore } from '../src/remote/devices.js';
 import { IDENTITY_FILE } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
-import { NO_RELAY_URL_ERROR, RemoteService, type RemoteServiceOptions } from '../src/remote/service.js';
+import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, RemoteService, type RemoteServiceOptions } from '../src/remote/service.js';
+import { makeTmpDir } from './tmp.js';
 
 type Answer = { status: number; body: unknown };
 
@@ -46,7 +46,7 @@ function build(
   seed?: (devices: DeviceStore) => void,
   opts: { corruptIdentity?: boolean; clientFactory?: RemoteServiceOptions['clientFactory']; relayUrl?: string } = {},
 ) {
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-svc-'));
+  const dir = makeTmpDir('remote-svc');
   const db = openDb(join(dir, 'index.db'));
   const devices = new DeviceStore(db);
   seed?.(devices);
@@ -313,6 +313,39 @@ describe('RemoteService relay URL', () => {
     service.settingsChanged();
     expect(factory).toHaveBeenCalledWith(expect.objectContaining({ relayUrl: 'https://relay.test' }));
     expect(service.status()).toMatchObject({ relay: 'online', relayUrl: 'https://relay.test', error: null });
+    service.stop();
+  });
+});
+
+describe('RemoteService relay secret', () => {
+  it('the QR carries the relay secret when one is set, and no such key otherwise', async () => {
+    const client = new FakeClient();
+    client.answers['/pair/token'] = { status: 200, body: { token: 'tok', expiresAt: NOW + 60_000 } };
+    const factory = vi.fn<NonNullable<RemoteServiceOptions['clientFactory']>>(() => client as unknown as RelayClient);
+    const { service, settings } = build(undefined, { clientFactory: factory });
+    settings.remote_relay_secret = '  s3cret  ';
+    service.settingsChanged();
+    expect(factory).toHaveBeenLastCalledWith(expect.objectContaining({ relaySecret: 's3cret' }));
+    const withSecret = await service.startPairing();
+    expect('qr' in withSecret && JSON.parse(withSecret.qr)).toMatchObject({ relaySecret: 's3cret' });
+
+    settings.remote_relay_secret = '';
+    service.settingsChanged();
+    const without = await service.startPairing();
+    expect('qr' in without && JSON.parse(without.qr)).not.toHaveProperty('relaySecret');
+    service.stop();
+  });
+  it('a refused secret is reported and leaves the relay off, until a settings change starts it again', () => {
+    const { service, fake, settings, hub } = build();
+    const publish = vi.spyOn(hub, 'publish');
+    fake.stop();
+    fake.emit('refused', 'bad_secret');
+    expect(service.status()).toMatchObject({ relay: 'off', error: BAD_SECRET_ERROR });
+    expect(publish).toHaveBeenLastCalledWith('remote', expect.objectContaining({ event: 'status', error: BAD_SECRET_ERROR }));
+
+    settings.remote_relay_secret = 'new';
+    service.settingsChanged();
+    expect(service.status()).toMatchObject({ relay: 'online', error: null });
     service.stop();
   });
 });

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * A failed compaction across the whole chain (spec
@@ -42,7 +42,7 @@ function fakeQueryFn() {
 }
 
 function tempDirs() {
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-compaction-e2e-'));
+  const claudeDir = makeTmpDir('compaction-e2e');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
   return { claudeDir, dbPath: join(claudeDir, 'index.db') };

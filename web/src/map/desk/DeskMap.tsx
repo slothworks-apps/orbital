@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { mapStatePills, showCompactBadge, showTrash, trashDropFor, useOrbital } from '../../store/store'
 import { sendCompactAware, useCompactionUi } from '../../store/compaction'
-import { isReadOnly, sessionStateKey, statePill, type SessionStateKey, type Subagent } from '../../lib/types'
+import { gateWaits, isReadOnly, sessionStateKey, statePill, type SessionStateKey, type Subagent } from '../../lib/types'
 import { stateColor, stateDot } from '../../lib/stateStyle'
 import { decisionHeadline } from '../../lib/decisionCard'
 import { reportError } from '../../lib/errors'
@@ -361,7 +361,7 @@ const DeskCard = memo(function DeskCard({
             className="flex shrink-0 items-center gap-1.5 rounded-full px-2 py-[2px] font-mono text-[9.5px] tracking-[0.08em]"
             style={{ color: colour, background: `color-mix(in oklch, ${colour} 13%, transparent)` }}
           >
-            <StateDot dot={stateDot(key, statePills === 'label' ? 'label' : 'dot')} color={colour} solidPx={5} hollowPx={6} />
+            <StateDot dot={stateDot(key, statePills === 'label' ? 'label' : 'dot', gateWaits(s))} color={colour} solidPx={5} hollowPx={6} />
             {(statePills === 'label' || hovered) && pill.label}
           </span>
         )}

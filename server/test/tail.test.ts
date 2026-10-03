@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, appendFileSync, utimesSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, appendFileSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { TranscriptTail } from '../src/watcher/tail.js';
@@ -9,6 +8,7 @@ import { openDb } from '../src/db/database.js';
 import { sessions, sessionStats } from '../src/db/schema.js';
 import { STATS_LIVE_RECOMPUTE_TURNS } from '../src/stats/constants.js';
 import type { TranscriptEntry } from '../src/transcript/parser.js';
+import { makeTmpDir } from './tmp.js';
 
 const LINE1 = '{"type":"user","uuid":"u1","message":{"role":"user","content":"hi"}}\n';
 const LINE2 = '{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":"yo"}}\n';
@@ -23,7 +23,7 @@ function collect(tail: TranscriptTail) {
 
 describe('TranscriptTail', () => {
   it('emits existing entries on start and new entries on append', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-tail-'));
+    const dir = makeTmpDir('tail');
     const file = join(dir, 't.jsonl');
     writeFileSync(file, LINE1);
     // Tiny delay so the initial write is fully settled on disk before the
@@ -62,7 +62,7 @@ describe('TranscriptTail', () => {
     tail.stop();
   }, 20_000);
   it('holds back a partial trailing line until completed', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-tail2-'));
+    const dir = makeTmpDir('tail2');
     const file = join(dir, 't.jsonl');
     writeFileSync(file, LINE1 + '{"type":"user","uu'); // partial second line
     const tail = new TranscriptTail(file);
@@ -82,7 +82,7 @@ describe('TranscriptTail on a rewind', () => {
     JSON.stringify({ type, uuid, parentUuid, message: { role: type, content: uuid } }) + '\n';
 
   it('emits reset when the appended entry starts a new branch off the live one', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-tail-rewind-'));
+    const dir = makeTmpDir('tail-rewind');
     const file = join(dir, 't.jsonl');
     const history = line('p1', null) + line('a1', 'p1', 'assistant') + line('p2', 'a1') + line('a2', 'p2', 'assistant');
     writeFileSync(file, history);
@@ -112,7 +112,7 @@ describe('LiveSessionStats', () => {
   const SESSION = 'sess-live';
 
   function setup() {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-livestats-'));
+    const dir = makeTmpDir('livestats');
     const file = join(dir, `${SESSION}.jsonl`);
     const db = openDb(join(dir, 'index.db'));
     db.insert(sessions).values({ id: SESSION, projectDir: 'proj' }).run();

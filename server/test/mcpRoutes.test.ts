@@ -1,15 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import Fastify from 'fastify';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { openDb } from '../src/db/database.js';
 import { sessions } from '../src/db/schema.js';
 import { registerMcpRoutes } from '../src/api/mcp.js';
 import { McpConfig, addArgs, removeArgs, type McpCliRun } from '../src/mcp/config.js';
 import { McpStatusTimeoutError } from '../src/runner/runner.js';
 import { McpLoginUnsupportedError } from '../src/mcp/login.js';
 import type { McpServerRow, SessionStatus } from '../src/types.js';
+import { openTmpDb } from './tmp.js';
 
 const ROWS: McpServerRow[] = [
   { name: 'gh', status: 'connected', origin: 'local', toolCount: 3, toggleable: true, editable: true },
@@ -32,7 +29,7 @@ const CLAUDE_JSON = JSON.stringify({
 const ADD_BODY = { name: 'linear', scope: 'user', transport: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: 'Bearer tok' } };
 
 function makeApp(opts: { cliPath?: string | null; cli?: Array<{ ok: boolean; output: string }> } = {}) {
-  const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-mcp-')), 'index.db'));
+  const db = openTmpDb('mcp');
   db.insert(sessions).values([
     { id: 'run', projectDir: 'p', cwd: '/w/proj', lastAt: 1, source: 'web', permissionMode: 'plan', model: 'opus' },
     { id: 'asleep', projectDir: 'p', cwd: '/w/proj', lastAt: 1, source: 'web' },

@@ -130,6 +130,15 @@ pending pairing tokens — nothing else).
 - **Identity without accounts.** Every device authenticates by signing a
   challenge with its Ed25519 key. The relay knows public keys, which phone
   may talk to which Mac, and the phone's push token.
+- **A shared secret decides who may use the relay** (added 2026-10-03,
+  [[the-relay-takes-a-shared-secret]]): `RELAY_SECRET` in the relay's
+  environment, optional. When set, every WebSocket authentication and
+  every pairing route must carry it; the Mac keeps it in
+  `remote_relay_secret` and the pairing QR carries it to the phone, which
+  stores it with the pairing. A refused secret closes the socket with
+  `CLOSE_BAD_SECRET` and answers the routes 401 `bad_secret`. Unset, the
+  relay is open as before. The signed challenge still proves the key; the
+  secret proves the key is welcome.
 - **Pairing endpoints.** One for the Mac to mint a pairing token, one for
   the phone to redeem it with its public keys, one for the Mac to confirm
   or reject, one for the Mac to revoke.
@@ -414,5 +423,9 @@ deliberately, rather than incidentally.
 - ~~Pick the default relay hostname (9e and 9n show placeholders)~~ —
   decided 2026-10-02 that there is no default: every Mac names its own
   relay ([[2026-10-01-settings-mobile-design]] § 3, ADVANCED).
-- Spike the Android WebView composer.
-- Write the plan from this spec once the idea is no longer non-binding.
+- ~~Spike the Android WebView composer~~ — decided 2026-10-02 not to: the
+  shared Tiptap composer goes straight in and the fidelity pass on the
+  emulator is the test; a textarea fallback is built only if that pass
+  fails it ([[2026-10-02-mobile-app-design]] § 6).
+- ~~Write the plan from this spec~~ — [[2026-10-01-mobile-remote-backend]],
+  [[2026-10-02-mobile-app-read]] and [[2026-10-02-mobile-app-write]].

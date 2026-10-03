@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { openDb } from '../src/db/database.js';
 import { narrations } from '../src/db/schema.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
+import { openTmpDb } from './tmp.js';
 
 const answer = (json: string) => '```json\n' + json + '\n```';
 
@@ -24,7 +21,7 @@ function heldQuery() {
   return { fn, release, calls };
 }
 
-function narrator(queryFn: NarrateQueryFn, db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-narr-')), 'index.db'))) {
+function narrator(queryFn: NarrateQueryFn, db = openTmpDb('narr')) {
   return { db, n: new Narrator({ db, queryFn, model: () => '' }) };
 }
 

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { StampedCache, dirStamp, fileStamp } from '../src/transcript/stampedCache.js';
+import { makeTmpDir } from './tmp.js';
 
 describe('StampedCache', () => {
   it('builds once per stamp and rebuilds when the stamp moves', () => {
@@ -28,7 +28,7 @@ describe('StampedCache', () => {
 
 describe('file stamps', () => {
   it('moves when a file is appended to, and is null for a missing one', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-stamp-'));
+    const dir = makeTmpDir('stamp');
     const path = join(dir, 't.jsonl');
     expect(fileStamp(path)).toBeNull();
     writeFileSync(path, 'a\n');
@@ -38,7 +38,7 @@ describe('file stamps', () => {
   });
 
   it('a directory stamp moves when a file in it appears or grows', () => {
-    const root = mkdtempSync(join(tmpdir(), 'orbital-stamp-'));
+    const root = makeTmpDir('stamp');
     const dir = join(root, 'subagents');
     expect(dirStamp(dir)).toBe('');
     mkdirSync(dir);

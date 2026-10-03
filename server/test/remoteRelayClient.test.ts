@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { generateIdentity, deviceId, publicKeyOf } from '@orbital/shared/remote/keys';
-import { verifyAuthSignature } from '@orbital/shared/remote/relayApi';
+import { CLOSE_BAD_SECRET, verifyAuthSignature } from '@orbital/shared/remote/relayApi';
 import { RelayClient } from '../src/remote/relayClient.js';
 
 /**
@@ -11,11 +11,12 @@ import { RelayClient } from '../src/remote/relayClient.js';
  * returns — so this waits for the `listening` event before handing back a
  * URL with the real port.
  */
-async function fakeRelay() {
+async function fakeRelay(opts: { secret?: string } = {}) {
   const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await new Promise<void>((resolve) => wss.once('listening', resolve));
   const sockets: WebSocket[] = [];
   const authed: string[] = [];
+  const auths: Record<string, unknown>[] = [];
   wss.on('connection', (ws) => {
     sockets.push(ws);
     ws.send(JSON.stringify({ type: 'challenge', nonce: 'n-' + sockets.length }));
@@ -23,15 +24,20 @@ async function fakeRelay() {
       if (isBinary) return ws.send(raw);
       const msg = JSON.parse((raw as Buffer).toString('utf8'));
       if (msg.type === 'auth') {
+        auths.push(msg);
         const ok = verifyAuthSignature(publicKeyOf(msg.pub)!, 'n-' + sockets.length, msg.sig);
         if (!ok) return ws.close(4001);
+        if (opts.secret !== undefined && msg.secret !== opts.secret) return ws.close(CLOSE_BAD_SECRET);
         authed.push(msg.pub);
         ws.send(JSON.stringify({ type: 'ok', peers: ['peer-a'] }));
       }
     });
   });
   const port = (wss.address() as { port: number }).port;
-  return { url: `http://127.0.0.1:${port}`, sockets, authed: () => authed, close: () => wss.close() };
+  return {
+    url: `http://127.0.0.1:${port}`, sockets, authed: () => authed, auths: () => auths,
+    connections: () => sockets.length, close: () => wss.close(),
+  };
 }
 
 /** A relay that accepts the connection but sends nothing — tests the connect watchdog. */
@@ -139,6 +145,47 @@ describe('RelayClient', () => {
     const res = await client.post<{ token: string }>('/pair/token', 'pair.token', { name: 'studio' });
     expect(res).toEqual({ status: 200, body: { token: 't', expiresAt: 1 } });
     expect(seen[0]).toMatchObject({ url: 'http://relay.test/pair/token', body: { pub: deviceId(me.publicKey), payload: { name: 'studio' } } });
+  });
+  it('sends the relay secret with auth and every signed request when it has one, and nothing without', async () => {
+    const relay = await fakeRelay({ secret: 's3cret' });
+    closers.push(relay.close);
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(init.body as string));
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const withSecret = new RelayClient({ relayUrl: relay.url, identity: generateIdentity(), relaySecret: 's3cret', fetchImpl });
+    closers.push(() => withSecret.stop());
+    withSecret.start();
+    await waitFor(() => withSecret.status === 'online');
+    expect(relay.auths()[0]).toMatchObject({ type: 'auth', secret: 's3cret' });
+    await withSecret.post('/pair/token', 'pair.token', { name: 'studio' });
+    expect(bodies[0]).toMatchObject({ secret: 's3cret' });
+
+    const open = await fakeRelay();
+    closers.push(open.close);
+    const without = new RelayClient({ relayUrl: open.url, identity: generateIdentity(), fetchImpl });
+    closers.push(() => without.stop());
+    without.start();
+    await waitFor(() => without.status === 'online');
+    expect(open.auths()[0]).not.toHaveProperty('secret');
+    await without.post('/pair/token', 'pair.token', { name: 'studio' });
+    expect(bodies[1]).not.toHaveProperty('secret');
+  });
+  it('a refused secret stops the client and reports it, with no reconnect after the backoff', async () => {
+    const relay = await fakeRelay({ secret: 'right' });
+    closers.push(relay.close);
+    const client = new RelayClient({ relayUrl: relay.url, identity: generateIdentity(), relaySecret: 'wrong', reconnectDelayMs: 20 });
+    closers.push(() => client.stop());
+    const refused: string[] = [];
+    client.on('refused', (reason) => refused.push(reason));
+    client.start();
+    await waitFor(() => refused.length > 0);
+    expect(refused).toEqual(['bad_secret']);
+    expect(client.status).toBe('off');
+    await new Promise((r) => setTimeout(r, 80));
+    expect(relay.connections()).toBe(1);
+    expect(client.status).toBe('off');
   });
   it('post answers status 0 instead of rejecting when the relay is unreachable', async () => {
     const fetchImpl = (async () => { throw new TypeError('fetch failed'); }) as unknown as typeof fetch;

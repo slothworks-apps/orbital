@@ -14,13 +14,16 @@ import type {
   ErrorKind,
   ErrorSource,
   PermissionMode,
+  SessionPurpose,
   SessionSource,
   SessionStatus,
   TagRule,
   TitleSource,
 } from '../types.js';
 import type { Finding, PermissionOutcome, SubagentModelUsage, ToolStat } from '../stats/compute.js';
-import type { HarnessEventKind, HarnessInput, HarnessOptions, HarnessStep, StepState } from '../harness/types.js';
+import type {
+  HarnessEventKind, HarnessInput, HarnessMessageKind, HarnessOptions, HarnessStep, PauseKind, StepState,
+} from '../harness/types.js';
 
 export const sessions = sqliteTable(
   'sessions',
@@ -108,6 +111,14 @@ export const sessions = sqliteTable(
      * for the same reason as `runnerStatus`.
      */
     spawnedBy: text('spawned_by'),
+    /**
+     * Why Orbital started this session, null for an ordinary one.
+     * `harness_draft` is the "Draft in a conversation" session: shown on the
+     * map while it is open, listed nowhere, and gone once it ends (spec
+     * 2026-10-02-harness-redesign-design § Overruled). Declared last for the
+     * same reason as `runnerStatus`.
+     */
+    purpose: text('purpose').$type<SessionPurpose>(),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );
@@ -493,6 +504,13 @@ export const harnessTemplates = sqliteTable('harness_templates', {
   /** Epoch ms. */
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
+  /**
+   * The project the template belongs to (`projectRootOf`), null for a global
+   * one (spec 2026-10-02-harness-redesign-design § Template scope).
+   */
+  scopeRoot: text('scope_root'),
+  /** 1 while it is a drafting conversation's draft the user has not saved. */
+  draft: integer('draft').$type<0 | 1>().notNull().default(0),
 });
 
 /**
@@ -515,6 +533,49 @@ export const sessionHarnesses = sqliteTable('session_harnesses', {
   /** Epoch ms. */
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
+  pauseKind: text('pause_kind').$type<PauseKind>(),
+  /** Epoch ms. */
+  pausedAt: integer('paused_at'),
+  /**
+   * When the user removed the harness (epoch ms). The row stays so the step
+   * records stay readable; a new harness replaces it.
+   */
+  removedAt: integer('removed_at'),
+});
+
+/**
+ * The messages Orbital sent into a session on a harness's account, by the
+ * uuid of the user entry they became — so the transcript, read back from the
+ * file after any restart, can show them as Orbital's and not the user's
+ * (spec 2026-10-02-harness-redesign-design § 3).
+ */
+export const harnessMessages = sqliteTable(
+  'harness_messages',
+  {
+    uuid: text('uuid').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    kind: text('kind').$type<HarnessMessageKind>().notNull(),
+    /** The step (0-based) the message is about. */
+    stepIndex: integer('step_index').notNull(),
+    /** Epoch ms. */
+    at: integer('at').notNull(),
+  },
+  (table) => [index('idx_harness_messages_session').on(table.sessionId)],
+);
+
+/**
+ * A "Draft in a conversation" session's brief: where its template is saved,
+ * and the draft it already saved, so a corrected save updates it instead of
+ * adding a second one.
+ */
+export const harnessInterviews = sqliteTable('harness_interviews', {
+  sessionId: text('session_id').primaryKey(),
+  /** Null: global. */
+  scopeRoot: text('scope_root'),
+  model: text('model').notNull(),
+  templateId: integer('template_id'),
+  /** Epoch ms. */
+  createdAt: integer('created_at').notNull(),
 });
 
 /**

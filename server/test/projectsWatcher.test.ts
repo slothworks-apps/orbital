@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ALL_TRANSCRIPTS,
@@ -11,6 +10,7 @@ import {
   type ProjectsBatch,
 } from '../src/watcher/projects.js';
 import { watchDir } from '../src/watcher/watchDir.js';
+import { makeTmpDir } from './tmp.js';
 
 describe('projectsEventTarget', () => {
   it('keeps session transcripts and project directories', () => {
@@ -92,7 +92,7 @@ describe('watchDir', () => {
   }
 
   it('reports writes deep in the tree as paths relative to it', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'orbital-watchdir-'));
+    const root = makeTmpDir('watchdir');
     mkdirSync(join(root, 'proj'));
     let onPath: (p: string) => void = () => {};
     const watch = watchDir(root, {
@@ -114,7 +114,7 @@ describe('watchDir', () => {
 
   // A fresh machine has no ~/.claude/projects until the CLI first runs.
   it('waits for a directory that does not exist yet, then watches it', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'orbital-watchdir-'));
+    const root = makeTmpDir('watchdir');
     const dir = join(root, 'claude', 'projects');
     let onAppear: () => void = () => {};
     let onPath: (p: string) => void = () => {};

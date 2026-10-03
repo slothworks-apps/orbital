@@ -29,10 +29,15 @@ import type {
   Walkthrough,
   WalkthroughSummary,
   HarnessTemplate,
+  HarnessTemplateBody,
+  HarnessProject,
+  KnownHarnessProject,
+  DraftModel,
   SessionHarness,
   HarnessEvent,
   HarnessOptions,
   RemoteStatus,
+  SessionDefaults,
 } from './types'
 
 /**
@@ -70,16 +75,27 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 /** The browser's own `fetch`, read at call time so a test's stubbed global still applies. */
 export const defaultApiFetch: FetchLike = (input, init) => fetch(input, init)
 
+/** What `api.uploadAttachment` does — swappable because the phone has no multipart route. */
+export type UploadLike = (
+  sessionId: string | null,
+  file: File,
+  opts?: { signal?: AbortSignal }
+) => Promise<AttachmentUpload>
+
 let fetchImpl: FetchLike = defaultApiFetch
+let uploadImpl: UploadLike | null = null
 
 /**
  * Replaces the transport every call in this file goes through. The phone
- * passes `tunnelFetch`, which carries `/api/...` over the relay (spec
- * 2026-10-02-mobile-app-design § 3); the desktop never calls this. Call it
- * before the first request.
+ * passes `tunnelFetch`, which carries `/api/...` over the relay, and an
+ * `upload` that carries an attachment's bytes as a blob instead of a
+ * multipart POST (spec 2026-10-02-mobile-app-design §§ 3, 6.2); the desktop
+ * never calls this. Each option is applied only when given; `upload: null`
+ * restores the multipart POST. Call it before the first request.
  */
-export function configureApi(opts: { fetch: FetchLike }): void {
-  fetchImpl = opts.fetch
+export function configureApi(opts: { fetch?: FetchLike; upload?: UploadLike | null }): void {
+  if (opts.fetch) fetchImpl = opts.fetch
+  if (opts.upload !== undefined) uploadImpl = opts.upload
 }
 
 function apiFetch(input: string, init?: RequestInit): Promise<Response> {
@@ -211,6 +227,15 @@ export const api = {
     return request<TaskOutputTail>('GET', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/output`)
   },
 
+  /**
+   * The three desktop settings the phone's New Session screen preselects
+   * from (spec 2026-10-02-mobile-app-design § 6.4) — one narrow route, so the
+   * phone never needs the whole settings surface.
+   */
+  async sessionDefaults(): Promise<SessionDefaults> {
+    return request<SessionDefaults>('GET', '/api/sessions/defaults')
+  },
+
   async createSession(body: {
     cwd: string
     prompt: string
@@ -223,6 +248,10 @@ export const api = {
     sessionId?: string
     /** Image refs the dialog's first turn carries (spec: 2026-09-20-composer-design). */
     attachments?: string[]
+    /** Ask the route to check `cwd` is an existing directory before launching.
+     * The phone sends true and gets 400 `no_such_directory` back for a path
+     * that is not one (spec 2026-10-02-mobile-app-design § 6.4). */
+    requireDirectory?: boolean
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -263,12 +292,18 @@ export const api = {
    * the same handler and answer the same contract (the image store is
    * content-addressed and global, so a session id never scoped the write); this
    * only picks the door.
+   *
+   * The phone has no multipart route — the tunnel carries JSON frames, not
+   * `FormData` — so it configures an `upload` (`configureApi`) and every
+   * upload goes there instead, answering the same contract (spec
+   * 2026-10-02-mobile-app-design §§ 3, 6.2).
    */
   async uploadAttachment(
     sessionId: string | null,
     file: File,
     opts?: { signal?: AbortSignal }
   ): Promise<AttachmentUpload> {
+    if (uploadImpl) return uploadImpl(sessionId, file, opts)
     const url = sessionId === null ? '/api/attachments' : `/api/sessions/${sessionId}/attachments`
     const body = new FormData()
     body.append('file', file, file.name)
@@ -437,9 +472,16 @@ export const api = {
     return request('POST', `/api/sessions/${id}/mcp/restart`)
   },
 
-  async clearSession(id: string, startNew: boolean): Promise<{ ok: boolean; sessionId?: string }> {
-    return request<{ ok: boolean; sessionId?: string }>('POST', `/api/sessions/${id}/clear`, {
+  /**
+   * `carryHarness` (with `startNew`): the new session takes the old one's
+   * harness and is sent its current step; `harnessCarried` says whether it did.
+   */
+  async clearSession(
+    id: string, startNew: boolean, opts: { carryHarness?: boolean } = {},
+  ): Promise<{ ok: boolean; sessionId?: string; harnessCarried?: boolean }> {
+    return request('POST', `/api/sessions/${id}/clear`, {
       startNew,
+      ...(opts.carryHarness ? { carryHarness: true } : {}),
     })
   },
 
@@ -664,8 +706,11 @@ export const api = {
   },
 
   // Projects API
-  async listProjects(): Promise<Array<{ cwd: string; lastModel: string | null }>> {
-    const data = await request<{ projects: Array<{ cwd: string; lastModel: string | null }> }>('GET', '/api/projects')
+  /** `lastAt` is the newest session's `lastAt` in that directory — the phone's 9d rows read it as its last use. */
+  async listProjects(): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
+    const data = await request<{
+      projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>
+    }>('GET', '/api/projects')
     return data.projects
   },
 
@@ -828,29 +873,51 @@ export const api = {
     )
   },
 
-  // Harness API
-  async listHarnessTemplates(): Promise<{ templates: HarnessTemplate[] }> {
-    return request('GET', '/api/harness/templates')
+  // Harness API (spec 2026-10-02-harness-redesign-design § As built (server))
+  /**
+   * Every template, or one scope's (`{ scope: 'global' }`, `{ project: root }`),
+   * drafts included and marked — Settings' list and filter.
+   */
+  async listHarnessTemplates(filter: { scope?: 'global'; project?: string } = {}): Promise<{ templates: HarnessTemplate[] }> {
+    const q = filter.scope === 'global' ? '?scope=global'
+      : filter.project ? `?project=${encodeURIComponent(filter.project)}` : ''
+    return request('GET', `/api/harness/templates${q}`)
   },
 
-  async createHarnessTemplate(body: Omit<HarnessTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<HarnessTemplate> {
+  /** What the start view offers a session: its project's saved templates first, then global ones. */
+  async listHarnessTemplatesForSession(sessionId: string): Promise<{
+    project: HarnessProject | null
+    templates: HarnessTemplate[]
+  }> {
+    return request('GET', `/api/harness/templates?sessionId=${encodeURIComponent(sessionId)}`)
+  },
+
+  /** Projects sessions ran in and templates belong to, newest first. */
+  async listHarnessProjects(): Promise<{ projects: KnownHarnessProject[] }> {
+    return request('GET', '/api/harness/projects')
+  },
+
+  async createHarnessTemplate(body: HarnessTemplateBody): Promise<HarnessTemplate> {
     return request('POST', '/api/harness/templates', body)
   },
 
-  async updateHarnessTemplate(
-    id: number,
-    body: Partial<Omit<HarnessTemplate, 'id' | 'createdAt' | 'updatedAt'>>,
-  ): Promise<HarnessTemplate> {
+  /** Save: clears the draft mark (unless `draft: true`); a `scope` moves it, absent keeps it. */
+  async updateHarnessTemplate(id: number, body: HarnessTemplateBody): Promise<HarnessTemplate> {
     return request('PUT', `/api/harness/templates/${id}`, body)
+  },
+
+  /** A saved copy, "(copy)" after the name; into `scope` when given. */
+  async duplicateHarnessTemplate(id: number, scope?: HarnessTemplateBody['scope']): Promise<HarnessTemplate> {
+    return request('POST', `/api/harness/templates/${id}/duplicate`, scope ? { scope } : {})
   },
 
   async deleteHarnessTemplate(id: number): Promise<void> {
     return request('DELETE', `/api/harness/templates/${id}`)
   },
 
-  /** A model's draft of a template, not saved (spec 2026-09-30-assisted-harness-templates-design). */
-  async draftHarnessTemplate(body: { description?: string; sessionId?: string }): Promise<{
-    template: Omit<HarnessTemplate, 'id' | 'createdAt' | 'updatedAt'>
+  /** A model's draft of a template, not saved (spec 2026-09-30-assisted-harness-templates-design). Opus by default. */
+  async draftHarnessTemplate(body: { description?: string; sessionId?: string; model?: DraftModel }): Promise<{
+    template: Pick<HarnessTemplate, 'name' | 'description' | 'tags' | 'inputs' | 'steps'> & { options?: Partial<HarnessOptions> }
   }> {
     return request('POST', '/api/harness/templates/draft', body)
   },
@@ -859,11 +926,53 @@ export const api = {
     return request('GET', '/api/harness/interview')
   },
 
-  async getSessionHarness(sessionId: string): Promise<{
+  /**
+   * "Draft in a conversation": the server starts the session (marked
+   * `purpose: 'harness_draft'`) and saves its template as a draft into
+   * `scope`. `cwd` defaults to the scope's project; a global scope needs one.
+   */
+  async startHarnessInterview(body: {
+    cwd?: string
+    permissionMode?: PermissionMode
+    model?: DraftModel
+    scope?: HarnessTemplateBody['scope']
+    /** What the user typed about the work; the interview starts from it. */
+    description?: string
+    /** Browser-minted v4 UUID, so the caller can subscribe before the launch (as `createSession`). */
+    sessionId?: string
+  }): Promise<{ sessionId: string }> {
+    return request('POST', '/api/harness/interview', body)
+  },
+
+  /**
+   * The live harness, the removed one (kept for its records), and the log
+   * newest first. `limit` up to 2000; `before` an event id, for the next page.
+   */
+  async getSessionHarness(sessionId: string, page: { limit?: number; before?: number } = {}): Promise<{
     harness: SessionHarness | null
+    removed: SessionHarness | null
     events: HarnessEvent[]
   }> {
-    return request('GET', `/api/sessions/${sessionId}/harness`)
+    const params = new URLSearchParams()
+    if (page.limit !== undefined) params.set('limit', String(page.limit))
+    if (page.before !== undefined) params.set('before', String(page.before))
+    const q = params.toString() ? `?${params}` : ''
+    return request('GET', `/api/sessions/${sessionId}/harness${q}`)
+  },
+
+  /** "Go back here", the checklist side: the step and the later ones keep their records as previous runs. */
+  async goBackHarnessStep(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
+    return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/go-back`)
+  },
+
+  /** "Decide myself": stops a running review; the gate waits for the user. */
+  async decideHarnessStepMyself(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
+    return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/decide-myself`)
+  },
+
+  /** Carries another session's harness into this one and sends it the current step. */
+  async carryHarness(sessionId: string, fromSessionId: string): Promise<{ harness: SessionHarness }> {
+    return request('POST', `/api/sessions/${sessionId}/harness/carry`, { fromSessionId })
   },
 
   async attachHarness(
@@ -886,7 +995,10 @@ export const api = {
     return request('PATCH', `/api/sessions/${sessionId}/harness`, { options })
   },
 
-  async getHarnessStepDiff(sessionId: string, index: number): Promise<{ range: string; stat: string; patch: string }> {
+  async getHarnessStepDiff(
+    sessionId: string,
+    index: number,
+  ): Promise<{ range: string; stat: string; patch: string; commits: number | null; pushed: boolean | null }> {
     return request('GET', `/api/sessions/${sessionId}/harness/steps/${index}/diff`)
   },
 

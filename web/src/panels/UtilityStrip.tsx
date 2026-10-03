@@ -15,6 +15,7 @@ import {
   CollapseGlyph,
   DetachGlyph,
   EndGlyph,
+  HarnessGlyph,
   MoreGlyph,
   StatsGlyph,
   UtilityButton,
@@ -33,6 +34,7 @@ import {
 } from './stripFold'
 import type { StripButton, StripForm, StripPresence } from './stripFold'
 import { BRANCH_FADE_MS, WhereLine } from './WhereLine'
+import { useSessionHarness } from './HarnessPill'
 
 /**
  * How long the pointer rests on a strip button before its tooltip appears
@@ -315,8 +317,17 @@ export function UtilityStrip({
   const cellRef = useRef<HTMLSpanElement | null>(null)
   const readout = useStatsReadout(session && statsVariant === 'button' ? session : null)
 
+  // Start a harness (canvas 30a-d): only once the session is known to have
+  // none — a session with one has the pill on the panel's edge instead.
+  const harness = useSessionHarness(session)
+  const harnessOpen = useOrbital((s) => session != null && s.harnessPanel?.sessionId === session.id)
+  const openHarness = () => {
+    if (session) useOrbital.getState().openHarness(session.id)
+  }
+
   const present: StripPresence = {
     stats: Boolean(session) && statsVariant === 'button',
+    harness: harness === null,
     pin: Boolean(session),
     // Clear and End are Orbital's own: it does not own a terminal's process.
     clear: session?.source === 'web',
@@ -391,6 +402,8 @@ export function UtilityStrip({
               disabled: readout.stats === null,
               onSelect: readout.show,
             }
+          case 'harness':
+            return { key: 'harness', label: 'Start a harness', icon: <HarnessGlyph />, onSelect: openHarness }
           case 'clear':
             return { key: 'clear', label: 'Clear and start over', icon: <ClearGlyph />, onSelect: onClear }
           case 'detach':
@@ -470,6 +483,23 @@ export function UtilityStrip({
             collapse (23a). Folded, it lives in the ⋯ menu. */}
         {present.stats &&
           seat('stats', <SessionStatsButton readout={readout} />)}
+        {/* Start a harness (canvas `Feature - Harness` 30a-d): stats ·
+            harness · pin · clear · end. Pressed while its panel is open. */}
+        {present.harness &&
+          seat(
+            'harness',
+            <Tooltip
+              variant="name"
+              title="Start a harness"
+              shortcut="session.harness"
+              align="right"
+              delayMs={PIN_TOOLTIP_DELAY_MS}
+            >
+              <UtilityButton aria-label="Start a harness" open={harnessOpen} onClick={openHarness}>
+                <HarnessGlyph />
+              </UtilityButton>
+            </Tooltip>,
+          )}
         {/* 4b: the pin sits left of Clear, and IS the pinned indicator —
             there is no status chip for it; the footer below carries the
             wording. It never folds. */}

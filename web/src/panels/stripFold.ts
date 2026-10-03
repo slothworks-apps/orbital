@@ -5,7 +5,8 @@
  *
  * - `expanded` — stats · pin · clear · end ‖ detach · collapse, as 23a.
  * - `folded` — pin · end · ⋯ ‖ collapse; stats, clear and detach move into
- *   the ⋯ menu (23c form 4).
+ *   the ⋯ menu (23c form 4). So does Start a harness (30a-d), which sits
+ *   after stats while a session has no harness.
  *
  * Two forms only, never a priority list: the strip never drops one button at
  * a time. Pin and End never move.
@@ -18,13 +19,19 @@
 export type StripForm = 'expanded' | 'folded'
 
 /** The strip's buttons in their on-screen order. `more` is the ⋯. */
-export type StripButton = 'stats' | 'pin' | 'clear' | 'end' | 'more' | 'detach' | 'collapse'
+export type StripButton = 'stats' | 'harness' | 'pin' | 'clear' | 'end' | 'more' | 'detach' | 'collapse'
 
 /** Which of the strip's own buttons this session and this build offer. The ⋯ is derived. */
-export type StripPresence = Record<Exclude<StripButton, 'more'>, boolean>
+export type StripPresence = Record<Exclude<StripButton, 'more' | 'harness'>, boolean> & {
+  /**
+   * Start a harness (canvas `Feature - Harness` 30a-d: stats · harness · pin
+   * · clear · end): only while the session has none. Folds like stats.
+   */
+  harness?: boolean
+}
 
 /** What the ⋯ menu lists, in order (23c form 4). */
-export type StripMenuEntry = 'stats' | 'clear' | 'separator' | 'detach'
+export type StripMenuEntry = 'stats' | 'harness' | 'clear' | 'separator' | 'detach'
 
 /** Every button in the strip is this square (canvas 9d). */
 export const STRIP_BUTTON_PX = 24
@@ -39,10 +46,10 @@ export const FOLD_MIN_PATH_PX = 120
 export const FOLD_HYSTERESIS_PX = 16
 
 /** The buttons that leave the strip when it folds. */
-const FOLDING_BUTTONS = ['stats', 'clear', 'detach'] as const
+const FOLDING_BUTTONS = ['stats', 'harness', 'clear', 'detach'] as const
 const FOLDING: ReadonlySet<StripButton> = new Set<StripButton>(FOLDING_BUTTONS)
 
-const ORDER: readonly StripButton[] = ['stats', 'pin', 'clear', 'end', 'more', 'detach', 'collapse']
+const ORDER: readonly StripButton[] = ['stats', 'harness', 'pin', 'clear', 'end', 'more', 'detach', 'collapse']
 
 export interface StripSlot {
   button: StripButton
@@ -129,6 +136,7 @@ export function stripForm(pathWidthPx: number, current: StripForm, present: Stri
 export function stripMenu(present: StripPresence): StripMenuEntry[] {
   const entries: StripMenuEntry[] = []
   if (present.stats) entries.push('stats')
+  if (present.harness) entries.push('harness')
   if (present.clear) entries.push('clear')
   if (present.detach) {
     if (entries.length > 0) entries.push('separator')

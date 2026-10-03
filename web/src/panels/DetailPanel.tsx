@@ -64,17 +64,18 @@ import { MCP_COMMAND, isMcpCommand } from '../lib/mcp'
 import { useMcpUi } from '../store/mcp'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
+import { HarnessPill } from './HarnessPill'
+import { harnessUnfinished } from '../lib/harnessSession'
 import { SubagentChip } from './SubagentChip'
 import { TaskChip } from './TaskChip'
-import { HarnessChip } from './HarnessChip'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
 import { endedFootnote, formatContextWindow, formatTokens } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
-import { compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
+import { COMPACTING_PLACEHOLDER, compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
 import { useCompactionUi } from '../store/compaction'
-import { walkthroughEnabled } from '../lib/experimental'
-import { isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
+import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import type { ApiSession, BackgroundTask, Tag, WalkthroughSummary } from '../lib/types'
 
 /**
@@ -135,8 +136,6 @@ const UNMEASURED_INK = 'rgba(150,205,255,.3)'
 const COMPACTING_READOUT_INK = 'rgba(200,215,235,.55)'
 const COMPACTING_BAR_INK = 'rgba(200,215,235,.3)'
 const COMPACTING_NOTE_INK = 'rgba(160,190,225,.6)'
-/** 26c's locked composer. */
-const COMPACTING_PLACEHOLDER = 'Compacting. You can write again when it\u2019s done.'
 
 /**
  * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail
@@ -427,6 +426,15 @@ export function DetailPanel({
   )
   // Clear and End are Orbital's own, as the strip draws them (`UtilityStrip`).
   useCommand('session.clear', () => handleClearClick(), shown?.source === 'web')
+  // ⌘⇧H toggles the harness panel, as the pill and the strip button do;
+  // terminal sessions cannot take a harness.
+  useCommand(
+    'session.harness',
+    () => {
+      if (shown) useOrbital.getState().openHarness(shown.id)
+    },
+    harnessEnabled(settings) && shown?.source === 'web'
+  )
   useCommand(
     'session.end',
     () => setDialog('end'),
@@ -543,8 +551,10 @@ export function DetailPanel({
     // clear and start new. Ending without a successor is End session's job
     // (spec 2026-09-23-end-session-design).
     if (settings.confirm_before_clear === 'false') {
-      void api
-        .clearSession(id, true)
+      // The dialog's default, unasked: a harness with steps left goes on in
+      // the new session (spec 2026-10-02-harness-redesign-design § 8).
+      const carry = harnessUnfinished(useOrbital.getState().harnesses[id])
+      void (carry ? api.clearSession(id, true, { carryHarness: true }) : api.clearSession(id, true))
         .then((result) => {
           if (result.sessionId) void useOrbital.getState().select(result.sessionId)
         })
@@ -762,6 +772,16 @@ export function DetailPanel({
             ].join(' ')
       }
     >
+    {/* The harness's drawer handle (canvas `Feature - Harness` 30a-d): on the
+        panel's right edge, outside its clipping shell. A detached window's
+        edge is the window's own, so there the pill keeps inside it. */}
+    {session && (
+      <HarnessPill
+        session={session}
+        stateRowRef={stateRowRef}
+        edge={standalone && !subagentPanelOpen ? 'inside' : 'over'}
+      />
+    )}
     <Panel
       side="right"
       glowHue={headerHue ?? ACCENT_HUE}
@@ -989,6 +1009,7 @@ export function DetailPanel({
                   // the snapshot, and the store's copy is the fresher of the
                   // two — it hears `decision_pending` directly.
                   state={stateKey}
+                  gate={gateWaits(session)}
                 />
               )}
               {/* Subagent list spec § 1: the chip is as tall as the badge,
@@ -1008,7 +1029,6 @@ export function DetailPanel({
                 waiting={waiting}
                 withinRef={stateRowRef}
               />
-              <HarnessChip sessionId={session.id} />
               <span aria-hidden className="flex-1" />
               {showContext && contextNote && (
                 // 9d names the note but draws no state that carries one; it

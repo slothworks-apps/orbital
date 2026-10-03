@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { cpSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, statSync, utimesSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, statSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_MIGRATIONS_FOLDER, openDb } from '../src/db/database.js';
 import { sessions, sessionColumns, sessionTags, sweptSessions, sessionStats, tagRules, tags } from '../src/db/schema.js';
@@ -9,9 +8,10 @@ import { indexPaths, indexProjects } from '../src/indexer/indexer.js';
 import { retentionCutoff, sweepSessions } from '../src/retention.js';
 import { STATS_VERSION, CHARS_PER_TOKEN, OBESE_RESULT_TOKENS } from '../src/stats/constants.js';
 import type { SessionRow } from '../src/types.js';
+import { makeTmpDir } from './tmp.js';
 
 function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-idx-'));
+  const dir = makeTmpDir('idx');
   const projects = join(dir, 'projects');
   const pdir = join(projects, '-Users-tomin-Projects-slothworks-ergaily');
   mkdirSync(pdir, { recursive: true });
@@ -25,7 +25,7 @@ function setup() {
 
 /** A fresh temp projects dir/db pair, without the fixed transcript-basic.jsonl fixture. */
 function setupEmpty() {
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-idx-'));
+  const dir = makeTmpDir('idx');
   const projects = join(dir, 'projects');
   mkdirSync(projects, { recursive: true });
   const db = openDb(join(dir, 'index.db'));
@@ -111,7 +111,7 @@ describe('indexProjects', () => {
 describe('stranded titles migration', () => {
   /** A database migrated up to, but not including, 0013 — then the rest. */
   function migrateAcross(dirtyTitle: string) {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-idx-mig-'));
+    const dir = makeTmpDir('idx-mig');
     const projects = join(dir, 'projects');
     mkdirSync(join(projects, 'proj'), { recursive: true });
     writeFileSync(

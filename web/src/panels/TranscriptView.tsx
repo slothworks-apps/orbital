@@ -12,6 +12,7 @@ import {
 } from './transcriptMotion'
 import { MessageView } from './MessageView'
 import { NoticeRow } from './NoticeRow'
+import { HarnessTranscriptRow } from './HarnessTranscriptRow'
 import { CompactionMark } from './CompactionMark'
 import { compactionOrdinals, newestFailedCompactionId } from '../lib/compaction'
 import { QuestionCard } from './QuestionCard'
@@ -250,7 +251,7 @@ function isSystemDivider(group: TranscriptGroup): boolean {
   if (group.kind === 'model-divider') return true
   if (group.kind !== 'message') return false
   const role = group.item.message.role
-  return role === 'rewind' || role === 'compaction'
+  return role === 'rewind' || role === 'compaction' || role === 'harness'
 }
 
 /**
@@ -1048,6 +1049,9 @@ export function TranscriptView({
             hue={compaction?.hue ?? NEUTRAL_MARK_HUE}
             onCompactAgain={group.item.message.id === newestFailedId ? compaction?.onCompactAgain : undefined}
           />
+        ) : group.item.message.role === 'harness' ? (
+          // Orbital's own line (canvas 30b): never `MessageView`, never a bubble.
+          <HarnessTranscriptRow message={group.item.message} />
         ) : group.item.message.role === 'notice' ? (
           // The CLI answering for itself — a locally-answered slash command,
           // a hook's banner. Never `MessageView`: it is neither speech nor a

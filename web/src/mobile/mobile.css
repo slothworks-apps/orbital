@@ -34,3 +34,47 @@
   order: 10;
   padding-left: 1.5rem;
 }
+
+/*
+ * 9c: the decision cards as touch targets (spec § 6.3). The permission/plan
+ * card's approval leads, full width; the refusal takes the row under it.
+ * Hover needs nothing here: Tailwind's `hover:` only applies where the device
+ * can hover, and the question card's pointer-enter focus fires on the same
+ * tap that picks the row, so no row previews ahead of the finger.
+ */
+:root[data-platform='mobile'] [data-permission-card] :has(> [data-verdict-primary]) {
+  flex-wrap: wrap;
+}
+:root[data-platform='mobile'] [data-permission-card] :has(> [data-verdict-primary]) > span[aria-hidden] {
+  display: none;
+}
+:root[data-platform='mobile'] [data-permission-card] [data-verdict-primary] {
+  flex-basis: 100%;
+  min-height: 50px;
+  order: -1;
+}
+:root[data-platform='mobile'] [data-permission-card] [data-verdict-secondary] {
+  flex: 1 1 0;
+  min-height: 48px;
+}
+
+:root[data-platform='mobile'] [data-question-card] [data-question-block] [data-question-row] {
+  align-items: center;
+  min-height: 60px;
+}
+
+/*
+ * 9c: a pending permission or plan card wears the needs-input edge — the
+ * amber the list's needs-input group draws (9a). The question card keeps its own.
+ */
+:root[data-platform='mobile'] [data-permission-card][data-mode='interactive'] {
+  border-color: color-mix(in oklch, var(--state-input) 45%, transparent);
+}
+
+/*
+ * 9b: the well holds the field and nothing under it. The phone's controls sit
+ * on their own row below the well, so a hint row with nothing to say goes.
+ */
+:root[data-platform='mobile'] [data-composer-hint][data-empty] {
+  display: none;
+}

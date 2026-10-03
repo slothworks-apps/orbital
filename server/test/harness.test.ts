@@ -1,16 +1,19 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
-import { openDb } from '../src/db/database.js';
 import { registerHarnessRoutes } from '../src/api/harness.js';
 import {
-  approve, decideTurnEnd, fillInputs, initialState, reopen, tick,
+  approve, decideTurnEnd, fillInputs, snapshotSteps, gateOf, goBack, initialState, tick, userReopen,
   validateTemplate,
 } from '../src/harness/logic.js';
 import { HarnessService, isLocalCommit, type HarnessDeps } from '../src/harness/service.js';
 import { DEFAULT_OPTIONS, type HarnessStep, type SessionHarness } from '../src/harness/types.js';
+import { makeTmpDir, openTmpDb } from './tmp.js';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, realpathSync, symlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { projectRootOf } from '../src/harness/project.js';
+import { statusOf } from '../src/api/shape.js';
+import { sessionHarnesses as sessionHarnessesTable } from '../src/db/schema.js';
 const MAX_AUTO_ROUNDS = DEFAULT_OPTIONS.maxAutoRounds;
 const MAX_IDLE_NUDGES = DEFAULT_OPTIONS.maxIdleNudges;
 const rec = (summary = '') => ({ summary, decisions: [], openQuestions: [] });
@@ -26,7 +29,8 @@ const steps: HarnessStep[] = [
 function harness(over: Partial<SessionHarness> = {}): SessionHarness {
   return {
     sessionId: 's1', templateId: 1, name: 'New component', steps, inputs: {},
-    state: initialState(steps), options: DEFAULT_OPTIONS, paused: false, pauseReason: null, autoRounds: 0, idleNudges: 0,
+    state: initialState(steps), options: DEFAULT_OPTIONS, paused: false, pauseReason: null, pauseKind: null, pausedAt: null,
+    removedAt: null, autoRounds: 0, idleNudges: 0,
     createdAt: 0, updatedAt: 0, ...over,
   };
 }
@@ -37,6 +41,11 @@ describe('fillInputs', () => {
   it('replaces known keys and leaves unknown ones visible', () => {
     expect(fillInputs('{{ name }} from {{figma}} and {{nope}}', { name: 'Input', figma: 'f://1' }))
       .toBe('Input from f://1 and {{nope}}');
+  });
+
+  it('fills a step\'s verify command as well as its text', () => {
+    const [step] = snapshotSteps([{ id: 's', title: '{{c}}', instructions: '', mode: 'auto', doneWhen: '', verify: 'npm test -- {{c}}' }], { c: 'Button' });
+    expect(step.verify).toBe('npm test -- Button');
   });
 });
 
@@ -67,10 +76,36 @@ describe('step state machine', () => {
     expect(tick(steps, state, 'pr', rec(''), 1)).toMatchObject({ ok: true, outcome: 'finished' });
   });
 
-  it('reopen sends everything after the step back to pending', () => {
-    const state = [{ status: 'done' as const }, { status: 'done' as const }, { status: 'active' as const }];
-    expect(reopen(state, 0)?.map((s) => s.status)).toEqual(['active', 'pending', 'pending']);
-    expect(reopen(state, 2)).toBeNull();
+  it('going back sends everything after the step back to pending, keeping each record as a previous run', () => {
+    const state = [
+      { status: 'done' as const, summary: 'built' },
+      { status: 'done' as const, summary: 'tuned', previousRuns: [{ status: 'done' as const, summary: 'first try', endedAt: 1, reason: 'reopened' as const }] },
+      { status: 'active' as const },
+    ];
+    const back = goBack(state, 0, 9)!;
+    expect(back.map((s) => s.status)).toEqual(['active', 'pending', 'pending']);
+    expect(back[0].summary).toBeUndefined();
+    expect(back[0].previousRuns).toEqual([{ status: 'done', summary: 'built', endedAt: 9, reason: 'went_back' }]);
+    expect(back[1].previousRuns?.map((r) => r.summary)).toEqual(['first try', 'tuned']);
+    expect(back[2].previousRuns?.[0]).toMatchObject({ status: 'active', reason: 'went_back' });
+    expect(goBack(state, 2, 9)).toBeNull();
+  });
+
+  it('the user reopening a gate keeps its record and where it began', () => {
+    const state = [{ status: 'awaiting_approval' as const, summary: 's', startHead: 'h1', startMessageUuid: 'm1', reviews: [] }];
+    const reopened = userReopen(state, 0, 5)!;
+    expect(reopened[0]).toMatchObject({ status: 'active', startHead: 'h1', startMessageUuid: 'm1' });
+    expect(reopened[0].summary).toBeUndefined();
+    expect(reopened[0].previousRuns?.[0]).toMatchObject({ summary: 's', reason: 'reopened', endedAt: 5 });
+    expect(userReopen([{ status: 'done' }], 0, 5)).toBeNull();
+  });
+
+  it('a gate is waiting until a review reads it, and nothing once removed', () => {
+    const at = (s: Record<string, unknown>) => [{ status: 'done' as const }, { ...s, status: 'awaiting_approval' as const }];
+    expect(gateOf({ state: at({}), removedAt: null })).toBe('waiting');
+    expect(gateOf({ state: at({ reviewing: true }), removedAt: null })).toBe('reviewing');
+    expect(gateOf({ state: at({}), removedAt: 1 })).toBeNull();
+    expect(gateOf({ state: initialState(steps), removedAt: null })).toBeNull();
   });
 });
 
@@ -125,7 +160,7 @@ describe('validateTemplate', () => {
 });
 
 function makeService(over: Partial<HarnessDeps> = {}) {
-  const db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-harness-')), 'index.db'));
+  const db = openTmpDb('harness');
   const sent: string[] = [];
   const published: (SessionHarness | null)[] = [];
   const deps: HarnessDeps = {
@@ -238,7 +273,8 @@ describe('HarnessService', () => {
     const h = service.get('s1');
     expect(h?.paused).toBe(true);
     expect(h?.state[0].nudges).toBe(MAX_IDLE_NUDGES + 1);
-    expect(h?.pauseReason).toMatch(/without finishing/);
+    expect(h?.pauseReason).toMatch(/^Stuck: /);
+    expect(h?.pauseKind).toBe('nudge_cap');
   });
 
   it('does nothing when the feature is off or the user already started a turn', async () => {
@@ -296,9 +332,23 @@ describe('harness routes', () => {
     expect((await app.inject({ method: 'DELETE', url: `/api/harness/templates/${id}` })).statusCode).toBe(204);
   });
 
+  it('stores a project scope as the resolved repository root, so sessions in it match', async () => {
+    const { app } = makeApp();
+    const repo = realpathSync(makeTmpDir('scoped'));
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    mkdirSync(join(repo, 'packages'));
+    const link = join(makeTmpDir('links'), 'repo');
+    symlinkSync(repo, link);
+    const created = await app.inject({
+      method: 'POST', url: '/api/harness/templates',
+      payload: { name: 'Scoped', tags: [], inputs: [], steps, scope: { kind: 'project', root: join(link, 'packages') } },
+    });
+    expect(created.json().scope).toMatchObject({ kind: 'project', root: repo });
+  });
+
   it('attaching delivers the kickoff; approving a gate delivers the next step', async () => {
     const { app, service, delivered, templateId } = makeApp();
-    const attached = await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId, inputs: { name: 'Input' } } });
+    const attached = await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId, inputs: { name: 'Input', figma: 'f://1' } } });
     expect(attached.statusCode).toBe(201);
     expect(delivered[0]).toContain('Build Input');
     await service.completeStep('s1', 'build', rec(''));
@@ -314,12 +364,12 @@ describe('harness routes', () => {
 
   it('refuses to attach while the feature is off, and undoes an attach nobody can receive', async () => {
     const off = makeApp(false);
-    const r = await off.app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId: off.templateId } });
+    const r = await off.app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId: off.templateId, inputs: { name: 'n', figma: 'f' } } });
     expect(r.statusCode).toBe(403);
 
     const terminal = makeApp();
     terminal.deliver.mockResolvedValueOnce({ outcome: 'terminal' } as never);
-    const t = await terminal.app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId: terminal.templateId } });
+    const t = await terminal.app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId: terminal.templateId, inputs: { name: 'n', figma: 'f' } } });
     expect(t.statusCode).toBe(409);
     expect(terminal.service.get('s1')).toBeNull();
   });
@@ -512,6 +562,25 @@ describe('step records and lucky, in the service', () => {
     expect(await service.diff('s1', 1)).toMatchObject({ ok: false, status: 409 });
   });
 
+  it('counts the step\'s commits and says whether a remote branch holds them', async () => {
+    const answers = (remote: string) => {
+      const heads = ['aaa', 'bbb'];
+      let n = 0;
+      return async (_cwd: string, args: string[]) => {
+        if (args[0] === 'rev-list') return { ok: true, output: '3\n' };
+        if (args[0] === 'branch') return { ok: true, output: remote };
+        if (args[0] === 'rev-parse') return { ok: true, output: `${heads[Math.min(n++, 1)]}\n` };
+        return { ok: true, output: '' };
+      };
+    };
+    for (const [remote, pushed] of [['', false], ['  origin/feat/button\n', true]] as const) {
+      const { service } = lucky({ git: answers(remote) });
+      await service.stepStarted('s1', 0, 'm-1');
+      await service.completeStep('s1', 'api', { summary: 'done', decisions: [], openQuestions: [] });
+      expect(await service.diff('s1', 0)).toMatchObject({ ok: true, value: { range: 'aaa..bbb', commits: 3, pushed } });
+    }
+  });
+
   it('refuses a tick over uncommitted changes when commit-per-step is on', async () => {
     const { service } = lucky({ git: async (_c, args) => ({ ok: true, output: args[0] === 'status' ? ' M src/Input.tsx' : 'h' }) });
     const reply = await service.completeStep('s1', 'api', rec('x'));
@@ -521,7 +590,7 @@ describe('step records and lucky, in the service', () => {
 
   it('an approving review moves on and says it was the reviewer, uncertain included', async () => {
     const { service, sent } = lucky({ askReviewer: async () => approveReply });
-    const deliver = vi.fn(async (_id: string, _text: string) => ({ outcome: 'sent', uuid: 'm-2' }));
+    const deliver = vi.fn(async (_id: string, _text: string) => ({ outcome: 'sent' as const, uuid: 'm-2' }));
     service.useDelivery(deliver);
     await service.completeStep('s1', 'api', rec('done'));
     await service.handleTurnEnd('s1');
@@ -535,7 +604,7 @@ describe('step records and lucky, in the service', () => {
 
   it('a reopening review sends the findings back, and past the cap waits for the user', async () => {
     const { service } = lucky({ askReviewer: async () => reopenReply });
-    const deliver = vi.fn(async (_id: string, _text: string) => ({ outcome: 'sent', uuid: 'x' }));
+    const deliver = vi.fn(async (_id: string, _text: string) => ({ outcome: 'sent' as const, uuid: 'x' }));
     service.useDelivery(deliver);
     await service.completeStep('s1', 'api', rec('first'));
     await service.handleTurnEnd('s1');
@@ -563,7 +632,7 @@ describe('step records and lucky, in the service', () => {
   it('the user deciding during the review wins', async () => {
     let release!: () => void;
     const { service } = lucky({ askReviewer: () => new Promise((r) => { release = () => r(approveReply); }) });
-    service.useDelivery(async () => ({ outcome: 'sent', uuid: 'x' }));
+    service.useDelivery(async () => ({ outcome: 'sent' as const, uuid: 'x' }));
     await service.completeStep('s1', 'api', rec('x'));
     const reviewing = service.handleTurnEnd('s1');
     await vi.waitFor(() => expect(release).toBeDefined());
@@ -576,7 +645,7 @@ describe('step records and lucky, in the service', () => {
 
   it('turning lucky on reviews a gate already waiting', async () => {
     const made = makeService({ askReviewer: async () => approveReply });
-    made.service.useDelivery(async () => ({ outcome: 'sent', uuid: 'x' }));
+    made.service.useDelivery(async () => ({ outcome: 'sent' as const, uuid: 'x' }));
     const t = made.service.createTemplate({ name: 'G', description: '', tags: [], inputs: [], steps: gateFirst });
     if (!t.ok) throw new Error();
     made.service.attach('s1', t.value.id, {});
@@ -616,4 +685,329 @@ describe('the step commit needs no card', () => {
     expect(service.allowsWithoutAsking('s1', 'Bash', { command: 'node math.test.mjs' })).toBe(true);
     expect(service.allowsWithoutAsking('s1', 'Bash', { command: 'node math.test.mjs && rm -rf .' })).toBe(false);
   });
+});
+
+describe('the project a session belongs to', () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' });
+
+  it('is the repository root, for its worktrees too, and the directory itself outside git', () => {
+    const base = realpathSync(makeTmpDir('project'));
+    const repo = join(base, 'orbital');
+    mkdirSync(join(repo, 'server', 'src'), { recursive: true });
+    git(repo, 'init', '-q');
+    git(repo, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'x');
+    git(repo, 'worktree', 'add', '-q', join(repo, '.claude', 'worktrees', 'tray'));
+    git(repo, 'worktree', 'add', '-q', join(base, 'elsewhere'));
+    expect(projectRootOf(join(repo, 'server', 'src'))).toBe(repo);
+    expect(projectRootOf(join(repo, '.claude', 'worktrees', 'tray'))).toBe(repo);
+    expect(projectRootOf(join(base, 'elsewhere'))).toBe(repo);
+    const plain = join(base, 'plain');
+    mkdirSync(plain);
+    expect(projectRootOf(plain)).toBe(plain);
+  });
+});
+
+describe('template scope and drafts', () => {
+  const body = (name: string, over: Record<string, unknown> = {}) => ({ name, description: '', tags: [], inputs: [], steps, ...over });
+
+  it('offers a session its project\'s saved templates first, then global ones, never another project\'s', () => {
+    const { service } = makeService({ cwdOf: (id) => (id === 'in-orbital' ? '/work/orbital' : '/work/billing') });
+    service.createTemplate(body('Orbital only', { scope: { kind: 'project', root: '/work/orbital' } }));
+    service.createTemplate(body('Billing only', { scope: { kind: 'project', root: '/work/billing' } }));
+    service.createTemplate(body('Orbital draft', { scope: { kind: 'project', root: '/work/orbital' }, draft: true }));
+    const offered = service.templatesForSession('in-orbital');
+    expect(offered.project).toEqual({ root: '/work/orbital', name: 'orbital' });
+    expect(offered.templates.map((t) => t.name)).toEqual(['Orbital only', 'New component']);
+    expect(offered.templates[0].scope).toEqual({ kind: 'project', root: '/work/orbital', name: 'orbital' });
+    // Settings lists drafts, marked.
+    const orbital = service.listTemplates({ scope: { project: '/work/orbital' } });
+    expect(orbital.map((t) => [t.name, t.draft])).toEqual([['Orbital draft', true], ['Orbital only', false]]);
+    expect(service.listTemplates({ scope: 'global' }).map((t) => t.name)).toEqual(['New component']);
+  });
+
+  it('a save keeps the scope it does not name, can move it, and clears the draft mark', () => {
+    const { service } = makeService();
+    const t = service.createTemplate(body('D', { scope: { kind: 'project', root: '/work/orbital' }, draft: true }));
+    if (!t.ok) throw new Error(t.error);
+    const saved = service.updateTemplate(t.value.id, body('D'));
+    expect(saved).toMatchObject({ ok: true, value: { draft: false, scope: { kind: 'project', root: '/work/orbital' } } });
+    expect(service.updateTemplate(t.value.id, body('D', { scope: { kind: 'global' } }))).toMatchObject({ ok: true, value: { scope: { kind: 'global' } } });
+    expect(service.createTemplate(body('x', { scope: { kind: 'project', root: 'relative' } }))).toMatchObject({ ok: false, status: 400 });
+    const copy = service.duplicateTemplate(t.value.id);
+    expect(copy).toMatchObject({ ok: true, value: { name: 'D (copy)', draft: false, scope: { kind: 'global' } } });
+  });
+
+  it('the drafting conversation saves a draft into its scope, and saving again updates it', () => {
+    const { service } = makeService({ cwdOf: () => '/work/billing' });
+    service.noteInterview('talk', { kind: 'project', root: '/work/orbital' }, 'opus');
+    const first = service.saveDraftFrom('talk', body('Bug fix'));
+    const second = service.saveDraftFrom('talk', body('Bug fix v2'));
+    expect(first).toMatchObject({ ok: true, value: { draft: true, scope: { kind: 'project', root: '/work/orbital' } } });
+    if (!first.ok || !second.ok) throw new Error();
+    expect(second.value.id).toBe(first.value.id);
+    expect(service.templatesForSession('talk').templates.map((t) => t.name)).not.toContain('Bug fix v2');
+    // Once the user saved it, the conversation's next save is a new draft.
+    service.updateTemplate(first.value.id, body('Bug fix v2'));
+    const third = service.saveDraftFrom('talk', body('Bug fix v3'));
+    expect(third.ok && third.value.id).not.toBe(first.value.id);
+    // Any other session saves into its own project.
+    expect(service.saveDraftFrom('other', body('Other'))).toMatchObject({ ok: true, value: { scope: { kind: 'project', root: '/work/billing' }, draft: true } });
+  });
+
+  it('the interview route starts a drafting conversation in the scope\'s project, on the chosen model', async () => {
+    const made = makeService();
+    const launch = vi.fn(async (_opts: Record<string, unknown>) => ({ ok: true as const, sessionId: 'talk' }));
+    const app = Fastify();
+    registerHarnessRoutes(app, { harness: made.service, errors: { record: vi.fn() }, settings: { get: (k: string) => (k === 'harness_enabled' ? 'true' : '') } } as never, vi.fn(), () => null, launch);
+    const res = await app.inject({ method: 'POST', url: '/api/harness/interview', payload: { model: 'sonnet', scope: { kind: 'project', root: '/work/orbital' } } });
+    expect(res.statusCode).toBe(201);
+    expect(launch.mock.calls[0][0]).toMatchObject({ cwd: '/work/orbital', model: 'sonnet', purpose: 'harness_draft' });
+    expect(made.service.saveDraftFrom('talk', body('Saved'))).toMatchObject({ ok: true, value: { scope: { kind: 'project', root: '/work/orbital' } } });
+    expect((await app.inject({ method: 'POST', url: '/api/harness/interview', payload: { model: 'haiku', cwd: '/x' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/harness/interview', payload: {} })).statusCode).toBe(400);
+  });
+
+  it('the start route filters by the session, and the projects route lists where templates live', async () => {
+    const made = makeService({ cwdOf: () => '/work/orbital' });
+    made.service.createTemplate(body('Orbital only', { scope: { kind: 'project', root: '/work/orbital' } }));
+    const app = Fastify();
+    registerHarnessRoutes(app, { harness: made.service, errors: { record: vi.fn() }, settings: { get: () => 'true', set: () => {} } } as never, vi.fn(), () => null);
+    const forSession = (await app.inject({ method: 'GET', url: '/api/harness/templates?sessionId=s1' })).json();
+    expect(forSession.project.name).toBe('orbital');
+    expect(forSession.templates.map((t: { name: string }) => t.name)).toEqual(['Orbital only', 'New component']);
+    const projects = (await app.inject({ method: 'GET', url: '/api/harness/projects' })).json().projects;
+    expect(projects).toEqual([{ root: '/work/orbital', name: 'orbital', lastAt: null, templates: 1 }]);
+  });
+});
+
+describe('the redesigned run', () => {
+  const gateFirst: HarnessStep[] = [
+    { id: 'api', title: 'Tune the API', instructions: 'Tune.', mode: 'gate', doneWhen: 'good' },
+    { id: 'pr', title: 'PR', instructions: 'Prepare.', mode: 'auto', doneWhen: 'ready' },
+  ];
+  const approveReply = '```json\n{"verdict":"approve","uncertain":false,"reasoning":"Fine.","checked":["diff"],"findings":[]}\n```';
+  const reopenReply = '```json\n{"verdict":"reopen","uncertain":false,"reasoning":"Missing size.","checked":["x"],"findings":["add size lg"]}\n```';
+
+  /** A gate-first harness with lucky on; the reviewer answers when `release` is called. */
+  function held(over: Partial<HarnessDeps> = {}, reply = approveReply) {
+    let release: (() => void) | undefined;
+    let controller: AbortController | undefined;
+    let model: string | undefined;
+    const delivered: string[] = [];
+    const made = makeService({
+      askReviewer: (_p, _cwd, opts) => {
+        controller = opts.abortController;
+        model = opts.model;
+        return new Promise((r) => { release = () => r(reply); });
+      },
+      ...over,
+    });
+    made.service.useDelivery(async (_id, text) => {
+      delivered.push(text);
+      return { outcome: 'sent', uuid: `d-${delivered.length}` };
+    });
+    const t = made.service.createTemplate({ name: 'L', description: '', tags: [], inputs: [], steps: gateFirst, options: { lucky: true } });
+    if (!t.ok) throw new Error(t.error);
+    made.service.attach('s1', t.value.id, {});
+    return {
+      ...made, delivered,
+      release: () => release!(), started: () => release !== undefined,
+      controller: () => controller!, model: () => model,
+    };
+  }
+
+  it('the reviewer runs on the session\'s model unless the harness names one', async () => {
+    const r = held({ modelOf: () => 'sonnet[1m]' });
+    await r.service.completeStep('s1', 'api', rec('x'));
+    void r.service.handleTurnEnd('s1');
+    await vi.waitFor(() => expect(r.started()).toBe(true));
+    expect(r.model()).toBe('sonnet[1m]');
+    expect(normalizeOptions({ reviewerModel: ' opus ' }).reviewerModel).toBe('opus');
+  });
+
+  it('shows a review as REVIEWER READING, and "decide myself" stops it and keeps the gate for the user', async () => {
+    const r = held();
+    await r.service.completeStep('s1', 'api', rec('x'));
+    const reviewing = r.service.handleTurnEnd('s1');
+    await vi.waitFor(() => expect(r.started()).toBe(true));
+    expect(gateOf(r.service.get('s1')!)).toBe('reviewing');
+    expect(r.service.decideMyself('s1', 0)).toMatchObject({ ok: true });
+    expect(r.controller().signal.aborted).toBe(true);
+    r.release();
+    await reviewing;
+    const h = r.service.get('s1')!;
+    expect(h.state[0]).toMatchObject({ status: 'awaiting_approval', reviewerOff: true });
+    expect(h.state[0].reviews).toBeUndefined();
+    expect(gateOf(h)).toBe('waiting');
+    expect(r.service.events('s1')[0]).toMatchObject({ kind: 'review_aborted', detail: { by: 'user', index: 0 } });
+    // The next turn end leaves it to the user too.
+    await r.service.handleTurnEnd('s1');
+    expect(r.service.get('s1')!.state[0].reviewing).toBeUndefined();
+    // Turning lucky on anew hands it back to the reviewer.
+    r.service.setOptions('s1', { lucky: false });
+    r.service.setOptions('s1', { lucky: true });
+    await vi.waitFor(() => expect(r.service.get('s1')!.state[0].reviewing).toBe(true));
+  });
+
+  it('turning lucky off during a review stops it', async () => {
+    const r = held();
+    await r.service.completeStep('s1', 'api', rec('x'));
+    void r.service.handleTurnEnd('s1');
+    await vi.waitFor(() => expect(r.started()).toBe(true));
+    r.service.setOptions('s1', { lucky: false });
+    expect(r.controller().signal.aborted).toBe(true);
+    expect(gateOf(r.service.get('s1')!)).toBe('waiting');
+    expect(r.service.events('s1').map((e) => e.kind)).toContain('review_aborted');
+  });
+
+  it('a review a restart cut off leaves the gate to the user', async () => {
+    const r = held();
+    await r.service.completeStep('s1', 'api', rec('x'));
+    void r.service.handleTurnEnd('s1');
+    await vi.waitFor(() => expect(r.started()).toBe(true));
+    r.service.dispose();
+    const next = new HarnessService({ db: r.db, publish: () => {}, isEnabled: () => true } as unknown as HarnessDeps);
+    next.recover();
+    expect(next.get('s1')!.state[0]).toMatchObject({ status: 'awaiting_approval', reviewerOff: true });
+    expect(next.get('s1')!.state[0].reviewing).toBeUndefined();
+    expect(next.events('s1')[0]).toMatchObject({ kind: 'review_aborted', detail: { by: 'restart' } });
+  });
+
+  it('paused with lucky on, a gate is still reviewed, but nothing is sent until auto-continue is back on', async () => {
+    const r = held({ askReviewer: async () => approveReply });
+    r.service.setPaused('s1', true);
+    await r.service.completeStep('s1', 'api', rec('x'));
+    await r.service.handleTurnEnd('s1');
+    const h = r.service.get('s1')!;
+    expect(h.state.map((s) => s.status)).toEqual(['done', 'active']);
+    expect(h.state[0].approvedBy).toBe('reviewer');
+    expect(r.delivered).toEqual([]);
+    r.service.setPaused('s1', false);
+    await vi.waitFor(() => expect(r.delivered).toHaveLength(1));
+    expect(r.delivered[0]).toContain('step 2 of 2');
+    await vi.waitFor(() => expect(r.service.get('s1')!.state[1].startMessageUuid).toBe('d-1'));
+  });
+
+  it('paused, a send-back holds its findings until auto-continue is back on', async () => {
+    const r = held({ askReviewer: async () => reopenReply });
+    r.service.setPaused('s1', true);
+    await r.service.completeStep('s1', 'api', rec('x'));
+    await r.service.handleTurnEnd('s1');
+    expect(r.service.get('s1')!.state[0]).toMatchObject({ status: 'active', unsentFindings: true });
+    expect(r.delivered).toEqual([]);
+    r.service.setPaused('s1', false);
+    await vi.waitFor(() => expect(r.delivered).toHaveLength(1));
+    expect(r.delivered[0]).toContain('add size lg');
+    expect(r.service.get('s1')!.state[0].unsentFindings).toBeUndefined();
+  });
+
+  it('removing keeps the records readable, and a new harness can be attached after', async () => {
+    const { app, service, templateId } = routesApp();
+    await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId, inputs: { name: 'n', figma: 'f' } } });
+    await service.completeStep('s1', 'build', rec('built it'));
+    expect((await app.inject({ method: 'DELETE', url: '/api/sessions/s1/harness' })).statusCode).toBe(204);
+    const read = (await app.inject({ method: 'GET', url: '/api/sessions/s1/harness' })).json();
+    expect(read.harness).toBeNull();
+    expect(read.removed.state[0]).toMatchObject({ status: 'done', summary: 'built it' });
+    expect(read.events[0]).toMatchObject({ kind: 'removed' });
+    // Automation stops.
+    expect(await service.completeStep('s1', 'api', rec())).toBe('This session has no harness.');
+    const again = await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId, inputs: { name: 'n', figma: 'f' } } });
+    expect(again.statusCode).toBe(201);
+    expect(service.removed('s1')).toBeNull();
+  });
+
+  it('going back keeps the later steps\' records and logs it', async () => {
+    const { app, service, templateId } = routesApp();
+    await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId, inputs: { name: 'n', figma: 'f' } } });
+    await service.completeStep('s1', 'build', rec('built'));
+    await service.completeStep('s1', 'api', rec('tuned'));
+    const back = await app.inject({ method: 'POST', url: '/api/sessions/s1/harness/steps/0/go-back' });
+    expect(back.statusCode).toBe(200);
+    const h = back.json().harness;
+    expect(h.state.map((s: { status: string }) => s.status)).toEqual(['active', 'pending', 'pending']);
+    expect(h.state[1].previousRuns[0]).toMatchObject({ summary: 'tuned', reason: 'went_back' });
+    expect(service.events('s1')[0]).toMatchObject({ kind: 'went_back', detail: { index: 0 } });
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/s1/harness/steps/2/go-back' })).statusCode).toBe(409);
+  });
+
+  it('every input is required unless its hint says optional', async () => {
+    const { app, service } = routesApp();
+    const t = service.createTemplate({ name: 'I', description: '', tags: [], steps, inputs: [{ key: 'a', label: 'Ticket' }, { key: 'b', label: 'Notes', hint: 'Optional' }] });
+    if (!t.ok) throw new Error();
+    const missing = await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId: t.value.id, inputs: {} } });
+    expect(missing.json()).toEqual({ error: 'Ticket is required' });
+    expect((await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId: t.value.id, inputs: { a: 'X-1' } } })).statusCode).toBe(201);
+  });
+
+  it('records which user entries were Orbital\'s, by uuid', async () => {
+    const { app, service, templateId } = routesApp();
+    await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId, inputs: { name: 'n', figma: 'f' } } });
+    await service.handleTurnEnd('s1');
+    expect([...service.messagesOf('s1')]).toEqual([
+      ['d-1', { kind: 'kickoff', step: 0 }],
+      ['uuid-1', { kind: 'nudge', step: 0 }],
+    ]);
+  });
+
+  it('a ticked event says whether a verify ran', async () => {
+    const { service } = makeService({ runVerify: async () => ({ ok: true, output: '' }) });
+    const t = service.createTemplate({ name: 'v', description: '', tags: [], inputs: [], steps: [{ ...steps[0], verify: 'npm test' }, steps[2]] });
+    if (!t.ok) throw new Error();
+    service.attach('s1', t.value.id, {});
+    await service.completeStep('s1', 'build', rec('x'));
+    await service.completeStep('s1', 'pr', rec('y'));
+    const ticks = service.events('s1').filter((e) => e.kind === 'ticked').map((e) => e.detail.verify);
+    // Newest first.
+    expect(ticks).toEqual([null, 'passed']);
+  });
+
+  it('a session ending mid-run pauses its harness, and the new session carries it on from the current step', async () => {
+    const { app, service, templateId, delivered } = routesApp();
+    await app.inject({ method: 'POST', url: '/api/sessions/s1/harness', payload: { templateId, inputs: { name: 'n', figma: 'f' } } });
+    await service.completeStep('s1', 'build', rec('built'));
+    service.sessionEnded('s1');
+    const paused = service.get('s1')!;
+    expect(paused).toMatchObject({ paused: true, pauseKind: 'session_ended' });
+    expect(paused.pauseReason).toMatch(/step 2/);
+    const carried = await app.inject({ method: 'POST', url: '/api/sessions/s2/harness/carry', payload: { fromSessionId: 's1' } });
+    expect(carried.statusCode).toBe(200);
+    const h = carried.json().harness;
+    expect(h).toMatchObject({ sessionId: 's2', paused: false, pauseKind: null });
+    expect(h.state[0]).toMatchObject({ status: 'done', summary: 'built' });
+    expect(h.state[1]).toMatchObject({ status: 'active', startMessageUuid: 'd-2' });
+    expect(delivered[1]).toContain('## Step 2: Tune the API');
+    expect(service.get('s1')).toBeNull();
+    expect(service.removed('s1')!.state[0].summary).toBe('built');
+    const log = service.events('s2').map((e) => e.kind);
+    expect(log[0]).toBe('carried_over');
+    expect(log).toContain('ticked');
+  });
+
+  it('a waiting gate makes a sleeping session need input, and a review does not', () => {
+    const { db, service, templateId } = makeService();
+    service.attach('s1', templateId, {});
+    const ctx = { db, runner: { status: () => undefined }, registry: { get: () => undefined } } as never;
+    const row = { id: 's1', source: 'web', ended_at: null } as never;
+    expect(statusOf(ctx, row)).toBe('idle');
+    db.update(sessionHarnessesTable).set({ state: [{ status: 'done' }, { status: 'awaiting_approval' }, { status: 'pending' }] }).run();
+    expect(statusOf(ctx, row)).toBe('needs_input');
+    db.update(sessionHarnessesTable).set({ state: [{ status: 'done' }, { status: 'awaiting_approval', reviewing: true }, { status: 'pending' }] }).run();
+    expect(statusOf(ctx, row)).toBe('idle');
+    expect(statusOf(ctx, { ...(row as object), ended_at: 1 } as never)).toBe('ended');
+  });
+
+  function routesApp() {
+    const made = makeService();
+    const delivered: string[] = [];
+    const app = Fastify();
+    registerHarnessRoutes(app, {
+      harness: made.service, errors: { record: vi.fn() },
+      settings: { get: (k: string) => (k === 'harness_enabled' ? 'true' : ''), set: () => {} },
+    } as never, async (_id, text) => {
+      delivered.push(text);
+      return { outcome: 'sent' as const, uuid: `d-${delivered.length}` };
+    }, () => null);
+    return { ...made, app, delivered };
+  }
 });

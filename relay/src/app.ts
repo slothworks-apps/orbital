@@ -22,6 +22,8 @@ export type RelayOptions = {
    * dodge the pairing rate limit.
    */
   trustProxy?: boolean;
+  /** `RELAY_SECRET`: required on auth and pairing when set; absent or null leaves the relay open. */
+  secret?: string | null;
 };
 
 declare module 'fastify' {
@@ -41,6 +43,7 @@ export async function buildRelay(opts: RelayOptions): Promise<FastifyInstance> {
     onWake: opts.onWake ?? wakeHook(opts.store, tracker, opts.push ?? new LogPushSender()),
     now: opts.now ?? Date.now,
     pingIntervalMs: opts.pingIntervalMs ?? RELAY_PING_INTERVAL_MS,
+    secret: opts.secret || null,
   };
   app.decorate('relay', ctx);
   await app.register(websocket, { options: { maxPayload: MAX_FRAME_BYTES } });

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * The packaged window loads `http://127.0.0.1:4737`, so the server serves the
@@ -12,14 +12,14 @@ import { buildServer } from '../src/index.js';
  * exactly today's behaviour.
  */
 function tempClaudeDir() {
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-static-'));
+  const claudeDir = makeTmpDir('static');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
   return { claudeDir, dbPath: join(claudeDir, 'index.db') };
 }
 
 function tempWebDist() {
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-dist-'));
+  const dir = makeTmpDir('dist');
   mkdirSync(join(dir, 'assets'), { recursive: true });
   writeFileSync(join(dir, 'index.html'), '<html>orbital app</html>');
   writeFileSync(join(dir, 'assets', 'app.js'), 'console.log("app")');

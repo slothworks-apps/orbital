@@ -14,9 +14,11 @@ import {
   type WebContents,
 } from 'electron';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
+import { pickerStartPath } from './lib/chooseDirectory';
 import {
   decideWindowButtons,
   mainWindowUrl,
@@ -986,6 +988,21 @@ ipcMain.handle('session-window-subagent', (event, payload: unknown) => {
   if (!sender || ![...sessionWindows.values()].includes(sender)) return undefined;
   const message = parseSubagentPanelMessage(payload);
   return message ? resizeForSubagent(sender, message) : undefined;
+});
+
+// The New session dialog's Browse… (canvas 1d): the native folder picker,
+// sheet-attached to the window that asked. Only Orbital's own windows are
+// heard. Resolves to the chosen directory, or null when the user cancels.
+ipcMain.handle('choose-directory', async (event, payload: unknown) => {
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  if (!sender || (sender !== win && ![...sessionWindows.values()].includes(sender))) return null;
+  const picked = await dialog.showOpenDialog(sender, {
+    title: 'Choose the project directory',
+    buttonLabel: 'Choose',
+    defaultPath: pickerStartPath(payload, homedir()),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return picked.canceled ? null : (picked.filePaths[0] ?? null);
 });
 
 // There is deliberately no `window-all-closed` handler: closing the window no

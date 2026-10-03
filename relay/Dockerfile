@@ -3,7 +3,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY shared/package.json shared/
 COPY relay/package.json relay/
-RUN npm ci --workspace shared --workspace relay --include-workspace-root=false
+# better-sqlite3 ships its prebuilt binaries; without --ignore-scripts npm
+# still runs node-gyp for it, which needs a compiler toolchain this image lacks.
+RUN npm ci --workspace shared --workspace relay --include-workspace-root=false --ignore-scripts
 COPY shared shared
 COPY relay relay
 RUN npm run build -w relay

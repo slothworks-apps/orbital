@@ -1,6 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { openDb } from '../src/db/database.js';
@@ -12,9 +10,10 @@ import { Hub } from '../src/api/hub.js';
 import { remoteInjectOptions } from '../src/remote/inject.js';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
+import { makeTmpDir } from './tmp.js';
 
 async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: (db: OrbitalDb) => void) {
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+  const dir = makeTmpDir('remote');
   const dbPath = join(dir, 'index.db');
   const db = openDb(dbPath);
   db.insert(settingsTable).values({ key: 'remote_enabled', value: String(enabled) })
@@ -83,6 +82,19 @@ describe('/api/remote', () => {
     } finally {
       stop.mockRestore();
       publish.mockRestore();
+      await app.close();
+    }
+  });
+  it('a relay secret change restarts the remote; saving the same secret again does not', async () => {
+    const app = await server(true);
+    const stop = vi.spyOn(RemoteService.prototype, 'stop');
+    try {
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_secret: 'x' } });
+      expect(stop).toHaveBeenCalledTimes(1);
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_secret: 'x' } });
+      expect(stop).toHaveBeenCalledTimes(1);
+    } finally {
+      stop.mockRestore();
       await app.close();
     }
   });

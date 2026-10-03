@@ -86,8 +86,16 @@ export interface AttachmentsHandle {
   /**
    * Take a gesture's files: pre-check, chip the keepers, collapse the
    * refusals. `folders` names the folders a drop carries (`folderNames`).
+   * `original` is a downscaled photo's size before the phone shrank it,
+   * stamped on every chip this call makes (a photo call passes one file) for
+   * the chip's second line only — the upload never reads it.
    */
-  accept(files: readonly File[], source: AttachmentSource, folders?: ReadonlySet<string>): void
+  accept(
+    files: readonly File[],
+    source: AttachmentSource,
+    folders?: ReadonlySet<string>,
+    original?: { w: number; h: number },
+  ): void
   remove(id: string): void
   retry(id: string): void
   /**
@@ -245,7 +253,12 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
   }, [])
 
   const accept = useCallback(
-    (picked: readonly File[], source: AttachmentSource, folders?: ReadonlySet<string>) => {
+    (
+      picked: readonly File[],
+      source: AttachmentSource,
+      folders?: ReadonlySet<string>,
+      original?: { w: number; h: number },
+    ) => {
       if (picked.length === 0) return
       const refusals: Refusal[] = []
       const keepers: { file: File; path: string | null }[] = []
@@ -274,7 +287,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
           work.current.set(id, { file, result: entry })
           return {
             id, kind: 'file', name, source, size: file.size, previewUrl: null,
-            state: 'uploaded', entry, progress: null, retries: 0,
+            state: 'uploaded', entry, progress: null, retries: 0, ...(original && { original }),
           }
         }
         work.current.set(id, { file })
@@ -289,6 +302,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
           state: 'uploading',
           progress: null,
           retries: 0,
+          ...(original && { original }),
         }
       })
 

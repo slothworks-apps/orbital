@@ -3,7 +3,7 @@ import type { ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { sessionStateKey, statePill, type SessionStateKey } from '../lib/types'
+import { gateWaits, sessionStateKey, statePill, type SessionStateKey } from '../lib/types'
 import {
   STATE_INPUT_HEX,
   stateBorder,
@@ -979,9 +979,12 @@ function StatePill({
   clearsGauge,
   initialOpacity,
   onClick,
+  gate = false,
 }: {
   stateKey: SessionStateKey
   label: string
+  /** A harness gate waits (`gateWaits`): the 24a shell, NEEDS YOUR OK, a steady dot (canvas 30i). */
+  gate?: boolean
   mode: MapStatePills
   /** The planet under it is hovered — dot mode spells the word out. */
   expanded: boolean
@@ -1069,7 +1072,7 @@ function StatePill({
         {dotMode ? (
           <>
             <StateDot
-              dot={stateDot(stateKey, 'dot')}
+              dot={stateDot(stateKey, 'dot', gate)}
               color={color}
               solidPx={STATE_DISC_DOT_PX}
               hollowPx={STATE_DISC_DOT_PX}
@@ -1093,7 +1096,7 @@ function StatePill({
         ) : (
           <>
             <StateDot
-              dot={stateDot(stateKey, 'label')}
+              dot={stateDot(stateKey, 'label', gate)}
               color={color}
               solidPx={STATE_PILL_DOT_PX}
               hollowPx={STATE_PILL_HOLLOW_DOT_PX}
@@ -1514,8 +1517,10 @@ function PlanetBody({
    * `needs_input` already fades the ring out through the mix, and a gate
    * rising against that fall (DONE → working) would flash a ghost ring.
    */
+  // A waiting harness gate goes without the ring: its pill says NEEDS YOUR
+  // OK and holds still, because a gate can wait all night (canvas 30i).
   const rippleFade = useFadeTween(
-    sessionStateKey(session) === 'needs_input',
+    sessionStateKey(session) === 'needs_input' && !gateWaits(session),
     STATE_TRANSITION_MS,
     STATE_TRANSITION_MS,
   )
@@ -2188,6 +2193,7 @@ function PlanetBody({
         <StatePill
           stateKey={shownPill.key}
           label={shownPill.label}
+          gate={gateWaits(session)}
           mode={statePills}
           expanded={labelHovered && !hidden}
           onClick={onPillClick ? () => onPillClick(session.id) : undefined}

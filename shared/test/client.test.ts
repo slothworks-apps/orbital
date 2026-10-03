@@ -5,7 +5,9 @@ import { HANDSHAKE_BYTES, startHandshake, type SessionCipher } from '../src/remo
 import {
   PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type Inner, type MacMessage, type PhoneMessage,
 } from '../src/remote/messages.js';
-import { verifyAuthSignature, verifyPairingProof, type RelayToDevice } from '../src/remote/relayApi.js';
+import {
+  CLOSE_BAD_SECRET, verifyAuthSignature, verifyPairingProof, verifyRequest, type RelayToDevice,
+} from '../src/remote/relayApi.js';
 import {
   CONNECT_TIMEOUT_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, REQUEST_TIMEOUT_MS, RemoteClient, TunnelError,
   type RemoteClientEvent, type SocketLike,
@@ -46,8 +48,8 @@ class FakeSocket implements SocketLike {
     this.onmessage?.({ data: bytes.slice().buffer });
   }
 
-  serverClose(): void {
-    this.onclose?.({});
+  serverClose(code?: number): void {
+    this.onclose?.({ code });
   }
 }
 
@@ -74,10 +76,17 @@ class FakeMac {
   }
 
   read(sock: FakeSocket): PhoneMessage {
+    const inner = this.readInner(sock);
+    if (inner.kind !== 'json') throw new Error('expected a JSON message');
+    return inner.value as PhoneMessage;
+  }
+
+  /** The next inner the phone sent, a JSON message or a blob chunk. */
+  readInner(sock: FakeSocket): Inner {
     const plain = this.cipher!.open(takeFrame(sock));
     const inner = plain ? decodeInner(plain) : null;
-    if (inner?.kind !== 'json') throw new Error('expected a JSON message');
-    return inner.value as PhoneMessage;
+    if (!inner) throw new Error('expected an inner message');
+    return inner;
   }
 
   send(sock: FakeSocket, msg: MacMessage): void {
@@ -93,12 +102,13 @@ class FakeMac {
   }
 }
 
-function setup() {
+function setup(relaySecret?: string) {
   FakeSocket.all = [];
   const mac = new FakeMac();
   const phone = generateIdentity();
   const client = new RemoteClient({
     relayUrl: 'https://relay.test', mac: mac.id, identity: phone, WebSocketImpl: FakeSocket, app: 'orbital-mobile/test',
+    relaySecret,
   });
   const events: RemoteClientEvent[] = [];
   client.on((e) => events.push(e));
@@ -130,6 +140,27 @@ describe('RemoteClient relay link', () => {
     const auth = s.sock.text[0];
     expect(auth).toMatchObject({ type: 'auth', pub: deviceId(s.phone.publicKey) });
     expect(verifyAuthSignature(s.phone.publicKey, 'n1', auth.sig)).toBe(true);
+  });
+
+  it('sends the relay secret in auth when it has one, and no secret field when not', () => {
+    const open = setup();
+    open.sock.control({ type: 'challenge', nonce: 'n1' });
+    expect(open.sock.text[0]).not.toHaveProperty('secret');
+    open.client.stop();
+    const locked = setup('abcd1234');
+    locked.sock.control({ type: 'challenge', nonce: 'n1' });
+    expect(locked.sock.text[0]).toMatchObject({ type: 'auth', secret: 'abcd1234' });
+  });
+
+  it('stops for good when the relay refuses its secret', () => {
+    vi.useFakeTimers();
+    const s = setup('wrong');
+    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    s.sock.serverClose(CLOSE_BAD_SECRET);
+    expect(s.events).toContainEqual({ type: 'relay_error', code: 'bad_secret' });
+    vi.advanceTimersByTime(RECONNECT_MAX_MS);
+    expect(FakeSocket.all).toHaveLength(1);
+    expect(s.client.status).toBe('off');
   });
 
   it('asks the relay to confirm the pair only when built from a stored pairing', () => {
@@ -180,6 +211,19 @@ describe('RemoteClient relay link', () => {
     vi.advanceTimersByTime(RECONNECT_MAX_MS);
     expect(FakeSocket.all).toHaveLength(2);
     expect(s.client.status).toBe('off');
+  });
+
+  it('sends the push token on ok, and an empty one too — the relay stores it and stops pushing', () => {
+    const s = setup();
+    s.client.pushToken('fcm-1');
+    expect(s.sock.text.filter((m) => m.type === 'push_token')).toEqual([]);
+    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    s.sock.control({ type: 'ok', peers: [] });
+    s.client.pushToken('');
+    expect(s.sock.text.filter((m) => m.type === 'push_token')).toEqual([
+      { type: 'push_token', token: 'fcm-1' },
+      { type: 'push_token', token: '' },
+    ]);
   });
 
   it('recheck opens a fresh link at once and answers whether the Mac is there', async () => {
@@ -350,6 +394,85 @@ describe('RemoteClient blobs, hub and wake', () => {
   });
 });
 
+describe('RemoteClient putBlob', () => {
+  const entry = { ref: `${'b'.repeat(64)}.jpg`, w: 1568, h: 1176, bytes: 150_000 };
+
+  /** Starts a small put and reads its header and its one chunk off the wire. */
+  function startPut(s: ReturnType<typeof setup>) {
+    const put = s.client.putBlob(new Uint8Array(10), 'image/jpeg');
+    const header = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_put' }>;
+    expect(s.mac.readInner(s.sock)).toMatchObject({ kind: 'blob', id: header.id, seq: 0, last: true });
+    return { put, header };
+  }
+
+  it('sends the header, then the chunks in order, and resolves on the entry', async () => {
+    const s = setup();
+    connect(s);
+    const bytes = new Uint8Array(150_000).map((_, i) => i % 251);
+    const put = s.client.putBlob(bytes, 'image/jpeg');
+    const header = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_put' }>;
+    expect(header).toEqual({ t: 'blob_put', id: header.id, mediaType: 'image/jpeg', bytes: 150_000 });
+    const parts: number[] = [];
+    for (let seq = 0; ; seq++) {
+      const chunk = s.mac.readInner(s.sock);
+      if (chunk.kind !== 'blob') throw new Error('expected a blob chunk');
+      expect(chunk).toMatchObject({ id: header.id, seq });
+      parts.push(...chunk.bytes);
+      if (chunk.last) break;
+    }
+    expect(parts).toEqual(Array.from(bytes));
+    s.mac.send(s.sock, { t: 'blob_put_done', id: header.id, entry });
+    await expect(put).resolves.toEqual({ kind: 'ok', entry });
+  });
+
+  it('resolves the refusals as values', async () => {
+    const s = setup();
+    connect(s);
+    const big = startPut(s);
+    const odd = startPut(s);
+    s.mac.send(s.sock, { t: 'blob_put_done', id: big.header.id, error: 'too_large' });
+    s.mac.send(s.sock, { t: 'blob_put_done', id: odd.header.id, error: 'not_image' });
+    await expect(big.put).resolves.toEqual({ kind: 'too_large' });
+    await expect(odd.put).resolves.toEqual({ kind: 'not_image' });
+  });
+
+  it('rejects any other error as lost and keeps the tunnel', async () => {
+    const s = setup();
+    connect(s);
+    const busy = startPut(s);
+    const empty = startPut(s);
+    s.mac.send(s.sock, { t: 'blob_put_done', id: busy.header.id, error: 'busy' });
+    s.mac.send(s.sock, { t: 'blob_put_done', id: empty.header.id });
+    await expect(busy.put).rejects.toMatchObject({ reason: 'lost' });
+    await expect(empty.put).rejects.toMatchObject({ reason: 'lost' });
+    expect(s.client.ready).toBe(true);
+  });
+
+  it('rejects an upload in flight when the Mac goes away', async () => {
+    const s = setup();
+    connect(s);
+    const { put } = startPut(s);
+    s.sock.control({ type: 'presence', peer: s.mac.id, online: false });
+    await expect(put).rejects.toMatchObject({ reason: 'lost' });
+  });
+
+  it('rejects at once while there is no tunnel', async () => {
+    const s = setup();
+    await expect(s.client.putBlob(new Uint8Array(10), 'image/jpeg')).rejects.toMatchObject({ reason: 'offline' });
+  });
+
+  it('times out an upload nobody answers', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    connect(s);
+    const caught = s.client.putBlob(new Uint8Array(10), 'image/jpeg').catch((e: unknown) => e);
+    vi.advanceTimersByTime(REQUEST_TIMEOUT_MS);
+    const err = await caught;
+    expect(err).toBeInstanceOf(TunnelError);
+    expect(err).toMatchObject({ reason: 'timeout' });
+  });
+});
+
 describe('RemoteClient endings', () => {
   it('surfaces bye revoked and never reconnects after it', () => {
     vi.useFakeTimers();
@@ -411,6 +534,16 @@ describe('RemoteClient redeem', () => {
     const sent = JSON.parse(init.body as string);
     expect(sent.payload).toMatchObject({ token: 'tok', name: 'phone', platform: 'ios' });
     expect(verifyPairingProof(fromBase64Url(secret), s.phone.publicKey, sent.payload.proof)).toBe(true);
+  });
+
+  it('signs the redeem with the relay secret when it has one', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const s = setup('abcd1234');
+    await s.client.redeem('tok', secret, 'phone', 'ios');
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    const verified = verifyRequest(JSON.parse(init.body as string), 'pair.redeem', Date.now());
+    expect(verified.ok && verified.secret).toBe('abcd1234');
   });
 
   it('wraps a body that is not JSON as its error text', async () => {

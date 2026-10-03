@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   pathForFile(file: File): string {
     return webUtils.getPathForFile(file);
   },
+  // The New session dialog's Browse…: main opens the native folder picker at
+  // the path already typed, and resolves to the chosen directory or null.
+  chooseDirectory(startPath: string): Promise<unknown> {
+    return ipcRenderer.invoke('choose-directory', startPath);
+  },
   onSelectSession(cb: (id: string) => void) {
     ipcRenderer.on('select-session', (_e, id) => cb(String(id)));
   },

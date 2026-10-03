@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readSubagentMessages } from '../src/walkthrough/subagents.js';
+import { makeTmpDir } from './tmp.js';
 
 function sessionDir() {
-  const root = mkdtempSync(join(tmpdir(), 'orbital-wt-'));
+  const root = makeTmpDir('wt');
   const transcript = join(root, 'sess.jsonl');
   writeFileSync(transcript, '{"type":"user","uuid":"u1","message":{"role":"user","content":"hi"}}\n');
   const agents = join(root, 'sess', 'subagents');
@@ -17,7 +17,7 @@ const line = (o: unknown) => JSON.stringify(o) + '\n';
 
 describe('readSubagentMessages', () => {
   it('returns an empty map without a subagents directory', () => {
-    const root = mkdtempSync(join(tmpdir(), 'orbital-wt-'));
+    const root = makeTmpDir('wt');
     const t = join(root, 'x.jsonl');
     writeFileSync(t, '');
     expect(readSubagentMessages(t).size).toBe(0);

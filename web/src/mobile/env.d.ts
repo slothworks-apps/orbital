@@ -3,3 +3,6 @@ declare const __MOBILE_DEV__: boolean
 
 /** `version` from mobile/package.json, set by vite.mobile.config.ts. */
 declare const __MOBILE_VERSION__: string
+
+/** True when the build found `mobile/android/app/google-services.json` (vite.mobile.config.ts): push can register. */
+declare const __MOBILE_PUSH__: boolean

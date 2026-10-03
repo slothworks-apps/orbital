@@ -1,7 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { startHandshake, type SessionCipher } from '@orbital/shared/remote/handshake';
 import { BLOB_CHUNK_BYTES, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type MacMessage } from '@orbital/shared/remote/messages';
@@ -10,6 +7,7 @@ import { createImageStore } from '../src/images/store.js';
 import { DeviceWatcher } from '../src/remote/deviceWatcher.js';
 import { MAX_INNER_BYTES, PhoneSession } from '../src/remote/phoneSession.js';
 import { wakeToken } from '../src/remote/wake.js';
+import { makeTmpDir } from './tmp.js';
 
 const allOn = { needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true };
 
@@ -43,7 +41,7 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Phon
 function build(opts: { inject?: PhoneSession['opts']['inject']; handshake?: boolean } = {}) {
   const mac = generateIdentity();
   const hub = new Hub({ heartbeatIntervalMs: 60_000 });
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+  const dir = makeTmpDir('remote');
   const images = createImageStore(dir);
   // The closure reads `session` only once a message flows, after it is built below.
   const phone = makePhone(mac, () => session);

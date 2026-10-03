@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { IdeStore, IDE_SELECTION_COALESCE_MS } from '../src/ide/store.js';
 import {
@@ -13,6 +12,7 @@ import {
   type IdeLock,
 } from '../src/ide/protocol.js';
 import type { IdeConnection } from '../src/ide/client.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * The store without an editor. Every test here writes real lock files and
@@ -103,7 +103,7 @@ function selectionAt(filePath: string, line: number, text: string | null): Recor
 }
 
 beforeEach(() => {
-  claudeDir = mkdtempSync(join(tmpdir(), 'orbital-ide-'));
+  claudeDir = makeTmpDir('ide');
   lockDir = join(claudeDir, 'ide');
   mkdirSync(lockDir, { recursive: true });
   made = [];
@@ -120,7 +120,6 @@ beforeEach(() => {
 
 afterEach(() => {
   store.close();
-  rmSync(claudeDir, { recursive: true, force: true });
   vi.useRealTimers();
 });
 

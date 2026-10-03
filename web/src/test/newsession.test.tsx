@@ -155,8 +155,8 @@ describe('NewSessionDialog', () => {
 
   it('fetches recent directories on open and renders them as clickable chips', async () => {
     vi.mocked(api.listProjects).mockResolvedValue([
-      { cwd: '/a/proj', lastModel: null },
-      { cwd: '/b/proj', lastModel: null },
+      { cwd: '/a/proj', lastModel: null, lastAt: null },
+      { cwd: '/b/proj', lastModel: null, lastAt: null },
     ])
     resetStore()
 
@@ -323,7 +323,7 @@ describe('NewSessionDialog — model group (4b)', () => {
 
   it('adopts the project last-used model when the toggle is on', async () => {
     resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
-    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku' }])
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku', lastAt: null }])
     render(<NewSessionDialog open onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
     await waitFor(() =>
@@ -334,7 +334,7 @@ describe('NewSessionDialog — model group (4b)', () => {
 
   it('ignores the project last-used model when the toggle is off', async () => {
     resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'false' }, models: MODELS })
-    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku' }])
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku', lastAt: null }])
     render(<NewSessionDialog open onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
     await waitFor(() =>
@@ -344,7 +344,7 @@ describe('NewSessionDialog — model group (4b)', () => {
 
   it('a manual pick survives a later cwd change', async () => {
     resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
-    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku' }])
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'haiku', lastAt: null }])
     render(<NewSessionDialog open onClose={() => {}} />)
     fireEvent.click(screen.getByRole('radio', { name: 'Opus 5' }))
     fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
@@ -355,7 +355,7 @@ describe('NewSessionDialog — model group (4b)', () => {
   it('adopts and names the project last-used model when only a resolved id is known (terminal launch)', async () => {
     // A terminal-launched session only ever gets a `resolved_model` — F1.
     resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
-    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'claude-opus-5' }])
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'claude-opus-5', lastAt: null }])
     render(<NewSessionDialog open onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
     await waitFor(() =>
@@ -368,7 +368,7 @@ describe('NewSessionDialog — model group (4b)', () => {
 
   it('preselects Other with the project last model when no catalog row matches it, and shows no note', async () => {
     resetStore({ settings: { default_model: 'sonnet', remember_model_per_project: 'true' }, models: MODELS })
-    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'claude-mystery-1' }])
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/x', lastModel: 'claude-mystery-1', lastAt: null }])
     render(<NewSessionDialog open onClose={() => {}} />)
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
     fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })

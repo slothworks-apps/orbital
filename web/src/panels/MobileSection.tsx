@@ -5,7 +5,7 @@ import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { timeAgo } from '../lib/format'
-import { codeLeft, relayLine, relayUrlCommit, type RelayLineKind } from '../lib/remote'
+import { codeLeft, relayLine, relaySecretCommit, relayUrlCommit, type RelayLineKind } from '../lib/remote'
 import { useNow } from '../lib/useNow'
 import type { RemoteDevice, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
@@ -54,7 +54,7 @@ function phoneCount(n: number): string {
 /**
  * Settings → Mobile (spec 2026-10-01-settings-mobile-design § 3; canvas 9m,
  * 9n, 9q, 9r): the switch, the relay's status, the pairing code, the paired
- * phones and the relay URL. The confirmation of a pairing is not here — it
+ * phones and the relay URL and secret. The confirmation of a pairing is not here — it
  * is `PairConfirmDialog`, which belongs to the app.
  */
 export function MobileSection({
@@ -140,7 +140,12 @@ export function MobileSection({
           scan a code means nothing without one. */}
       {remote && (enabled || remote.devices.length > 0) && <PairedPhones devices={remote.devices} onSaved={onSaved} />}
 
-      <Advanced patchAndSet={patchAndSet} saved={settings.remote_relay_url ?? ''} remote={remote} />
+      <Advanced
+        patchAndSet={patchAndSet}
+        savedUrl={settings.remote_relay_url ?? ''}
+        savedSecret={settings.remote_relay_secret ?? ''}
+        remote={remote}
+      />
     </div>
   )
 }
@@ -230,10 +235,15 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
   }
 
   if (kind === 'unreachable' || kind === 'failed') {
+    // `failed` always carries the status's own reason (the same source as
+    // `relayLine`'s `detail`) — the secret's refusal among them — so it reads
+    // better than the generic line, which stays for `unreachable`.
     return (
       <div className={`${BLOCK} flex flex-col items-start gap-2.5`}>
         <span className={`text-[12.5px] leading-[1.5] ${MUTED}`}>
-          The relay didn't answer. Check the URL under Advanced, or try again.
+          {kind === 'failed' && remote.error
+            ? remote.error
+            : "The relay didn't answer. Check the URL under Advanced, or try again."}
         </span>
         <Button variant="ghost" size="sm" disabled={busy} onClick={() => void tryAgain()}>
           Try again
@@ -362,80 +372,116 @@ function PairedPhones({ devices, onSaved }: { devices: RemoteDevice[]; onSaved: 
   )
 }
 
+/** The two relay settings ADVANCED holds; a change to either removes the paired phones first. */
+type RelaySetting = 'remote_relay_url' | 'remote_relay_secret'
+
+/** The 9r confirm's words for each setting. The secret's are provisional copy: the canvas draws no such dialog yet. */
+const ASK: Record<RelaySetting, { title: string; body: (phones: string, have: string) => string }> = {
+  remote_relay_url: {
+    title: 'Change the relay?',
+    body: (phones, have) => `${phones} will be removed and ${have} to pair again on the new relay.`,
+  },
+  remote_relay_secret: {
+    title: 'Change the relay secret?',
+    body: (phones, have) => `${phones} will be removed and ${have} to pair again with the new secret.`,
+  },
+}
+
 /**
- * ADVANCED (canvas 9m, 9r): the relay URL. Committed on Enter or blur, never
- * debounced — a relay change drops every phone session, so it must not fire
- * mid-typing — and with phones paired it asks first, because they are removed.
+ * ADVANCED (canvas 9m, 9r): the relay URL and the relay secret. Each is
+ * committed on Enter or blur, never debounced — a relay change drops every
+ * phone session, so it must not fire mid-typing — and with phones paired a
+ * change asks first, because they are removed. The secret's row is not on the
+ * canvas yet (ADR the-relay-takes-a-shared-secret): it mirrors the URL's.
  */
 function Advanced({
   patchAndSet,
-  saved,
+  savedUrl,
+  savedSecret,
   remote,
 }: {
   patchAndSet: (patch: Record<string, string>) => Promise<void>
-  saved: string
+  savedUrl: string
+  savedSecret: string
   remote: RemoteStatus | null
 }) {
-  const [draft, setDraft] = useState(saved)
+  const [urlDraft, setUrlDraft] = useState(savedUrl)
+  const [secretDraft, setSecretDraft] = useState(savedSecret)
   /**
-   * The URL waiting on the 9r confirm, and the phone count as it was when the
-   * dialog opened: each removal publishes a status, and the text must not
+   * The value waiting on the 9r confirm, and the phone count as it was when
+   * the dialog opened: each removal publishes a status, and the text must not
    * count down while they go.
    */
-  const [asking, setAsking] = useState<{ url: string; count: number } | null>(null)
-  // The count stays drawn through the close transition after `asking` clears.
-  const askedCount = useRef(0)
-  if (asking) askedCount.current = asking.count
+  const [asking, setAsking] = useState<{ key: RelaySetting; value: string; count: number } | null>(null)
+  // The words stay drawn through the close transition after `asking` clears.
+  const asked = useRef<{ key: RelaySetting; count: number }>({ key: 'remote_relay_url', count: 0 })
+  if (asking) asked.current = { key: asking.key, count: asking.count }
   const [busy, setBusy] = useState(false)
   // Unknown until the first status: whether to ask cannot be decided from nothing.
   const pairedCount = remote ? remote.devices.length : null
 
   // A save or another window moves the saved value: the field follows.
-  useEffect(() => setDraft(saved), [saved])
+  useEffect(() => setUrlDraft(savedUrl), [savedUrl])
+  useEffect(() => setSecretDraft(savedSecret), [savedSecret])
 
-  function commit(typed: string) {
-    switch (relayUrlCommit(saved, typed, pairedCount)) {
+  function resetDraft(key: RelaySetting) {
+    if (key === 'remote_relay_url') setUrlDraft(savedUrl)
+    else setSecretDraft(savedSecret)
+  }
+
+  function commit(key: RelaySetting, typed: string) {
+    const decision =
+      key === 'remote_relay_url'
+        ? relayUrlCommit(savedUrl, typed, pairedCount)
+        : relaySecretCommit(savedSecret, typed, pairedCount)
+    switch (decision) {
       case 'none':
-        setDraft(saved)
+        resetDraft(key)
         return
       case 'unknown':
         // The draft stays in the field; the next commit decides.
         return
       case 'save':
-        void patchAndSet({ remote_relay_url: typed.trim() })
+        void patchAndSet({ [key]: typed.trim() })
         return
       case 'ask':
-        setAsking({ url: typed.trim(), count: pairedCount ?? 0 })
+        setAsking({ key, value: typed.trim(), count: pairedCount ?? 0 })
     }
   }
 
   function cancel() {
-    if (busy) return
+    if (busy || asking === null) return
+    resetDraft(asking.key)
     setAsking(null)
-    setDraft(saved)
   }
 
   async function changeAndRemove() {
     if (asking === null || busy) return
     setBusy(true)
     try {
-      // One by one, while the Mac is still on the old relay, so each revoke
-      // reaches the relay the phone paired through.
+      // One by one, while the Mac is still on the old relay and secret, so
+      // each revoke reaches the relay the phone paired through — but only
+      // while the Mac's link to the relay is up. If the relay already
+      // refused the Mac's secret, the revoke is local only: the phone finds
+      // out it is no longer welcome on its own next connect.
       for (const device of useOrbital.getState().remote?.devices ?? []) {
         await api.removeDevice(device.id)
       }
       // Known limitation: `patchAndSet` reports its own failure and does not
-      // throw, so a failed save leaves the phones removed and the old URL kept.
-      await patchAndSet({ remote_relay_url: asking.url })
+      // throw, so a failed save leaves the phones removed and the old value kept.
+      await patchAndSet({ [asking.key]: asking.value })
       setAsking(null)
     } catch (err) {
       reportError(err, 'Failed to change the relay')
+      resetDraft(asking.key)
       setAsking(null)
-      setDraft(saved)
     } finally {
       setBusy(false)
     }
   }
+
+  const ask = ASK[asked.current.key]
+  const count = asked.current.count
 
   return (
     <details className="group mt-3.5">
@@ -443,21 +489,21 @@ function Advanced({
         <span aria-hidden className="mr-1.5 inline-block transition-transform group-open:rotate-90">
           ›
         </span>
-        ADVANCED · relay URL · {saved === '' ? 'not set' : 'set'}
+        ADVANCED · relay URL · {savedUrl === '' ? 'not set' : 'set'} · secret · {savedSecret === '' ? 'not set' : 'set'}
       </summary>
       <Row title="Relay URL" desc="Self-host if you prefer. The pairing code carries it, so phones never type it.">
         <Input
           aria-label="Relay URL"
           font="mono"
           size="sm"
-          value={draft}
+          value={urlDraft}
           placeholder="https://relay.example.com"
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => setUrlDraft(e.target.value)}
           onKeyDown={(e) => {
             // Blurring commits, so Enter and a click away cannot both save.
             if (e.key === 'Enter') e.currentTarget.blur()
           }}
-          onBlur={(e) => commit(e.target.value)}
+          onBlur={(e) => commit('remote_relay_url', e.target.value)}
           className="w-full"
         />
         <span className={`text-[11.5px] leading-[1.5] ${MUTED}`}>
@@ -465,11 +511,32 @@ function Advanced({
           relay.
         </span>
       </Row>
+      {/* Provisional copy: the canvas (9m, 9r) draws no secret row yet. */}
+      <Row
+        title="Relay secret"
+        desc="Set the same RELAY_SECRET on your relay. The pairing code carries it, so phones never type it."
+      >
+        <Input
+          aria-label="Relay secret"
+          type="password"
+          font="mono"
+          size="sm"
+          value={secretDraft}
+          placeholder="none"
+          onChange={(e) => setSecretDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // Blurring commits, so Enter and a click away cannot both save.
+            if (e.key === 'Enter') e.currentTarget.blur()
+          }}
+          onBlur={(e) => commit('remote_relay_secret', e.target.value)}
+          className="w-full"
+        />
+      </Row>
       <Dialog
         open={asking !== null}
         size="sm"
         tone="warning"
-        title="Change the relay?"
+        title={ask.title}
         onClose={cancel}
         footer={
           <>
@@ -483,9 +550,7 @@ function Advanced({
         }
       >
         <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-          {phoneCount(askedCount.current)} will be removed and {askedCount.current === 1 ? 'has' : 'have'} to pair
-          again on the
-          new relay.
+          {ask.body(phoneCount(count), count === 1 ? 'has' : 'have')}
         </p>
       </Dialog>
     </details>

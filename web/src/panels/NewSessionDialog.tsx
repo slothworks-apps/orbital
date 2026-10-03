@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { command, matches } from '../lib/keymap'
 import { reportError } from '../lib/errors'
 import { shortenPath } from '../lib/format'
+import { canChooseDirectory, chooseDirectory } from '../lib/desktop'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -116,13 +117,13 @@ function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: stri
 }
 
 /**
- * Spawns a new session (artboard 1d). cwd is a plain text `Input` — Browse
- * is deferred to a later version (no filesystem picker in v1; the input
- * alone suffices for pasting/typing a path), so 1d's "Browse…" button is
- * intentionally absent. The tag row auto-matches the cwd/mode against the
- * tag-rule engine via `previewRule`, debounced, and stays in sync with
- * cwd/mode changes until the user manually picks a different tag — after
- * that, the manual choice wins over any further auto-match. The MODEL group
+ * Spawns a new session (artboard 1d). cwd is a plain text `Input`; in the
+ * desktop app 1d's "Browse…" beside it opens the native folder picker. A
+ * browser and the phone have no picker of their own, so they get no button.
+ * The tag row auto-matches the cwd/mode against the tag-rule engine via
+ * `previewRule`, debounced, and stays in sync with cwd/mode changes until
+ * the user manually picks a different tag — after that, the manual choice
+ * wins over any further auto-match. The MODEL group
  * (canvas 4b) mirrors that same manual-override pattern for the model pick.
  * Each open starts from the previous launch's choices, or from the selected
  * planet — see `openingLaunch`.
@@ -162,6 +163,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [rememberedTag, setRememberedTag] = useState<{ cwd: string; tagId: number; pickedByHand: boolean } | null>(
     null,
   )
+
+  const canBrowse = canChooseDirectory()
+  const browse = useCallback(() => {
+    chooseDirectory(cwd)
+      .then((dir) => {
+        if (dir) setCwd(dir)
+      })
+      .catch((err: unknown) => reportError(err, 'Could not open the folder picker'))
+  }, [cwd])
 
   // Image intake, the same pair the detail panel mounts (spec:
   // 2026-09-20-composer-design § Image intake; canvas 9d-D). `null` is the
@@ -401,14 +411,22 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         >
           <div className="flex flex-col gap-2">
             <FieldLabel htmlFor="new-session-cwd">PROJECT DIRECTORY</FieldLabel>
-            <Input
-              id="new-session-cwd"
-              font="mono"
-              size="lg"
-              value={cwd}
-              onChange={(e) => setCwd(e.target.value)}
-              placeholder="/path/to/project"
-            />
+            <div className="flex gap-2">
+              <Input
+                id="new-session-cwd"
+                font="mono"
+                size="lg"
+                value={cwd}
+                onChange={(e) => setCwd(e.target.value)}
+                placeholder="/path/to/project"
+                className="min-w-0 flex-1"
+              />
+              {canBrowse && (
+                <Button variant="ghost" size="field" onClick={browse}>
+                  Browse…
+                </Button>
+              )}
+            </div>
             {projects.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
                 <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">

@@ -211,6 +211,26 @@ export function MoreGlyph() {
   )
 }
 
+/**
+ * Harness: a checklist of two rows, an auto step's ● over a gate's ◆, each
+ * with its line (canvas `Feature - Harness` 30a-d, the strip button).
+ */
+export function HarnessGlyph() {
+  const ring = 'absolute box-border block border-[1.3px] border-solid border-current'
+  const line = 'absolute block rounded-[1px] bg-current'
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '12px' }}>
+      <span className={`${ring} rounded-full`} style={{ left: '.5px', top: '.5px', width: '4px', height: '4px' }} />
+      <span className={line} style={{ left: '6px', top: '1.8px', width: '6px', height: '1.4px' }} />
+      <span
+        className={`${ring} rotate-45 rounded-[.8px]`}
+        style={{ left: '.7px', top: '7.3px', width: '3.6px', height: '3.6px' }}
+      />
+      <span className={line} style={{ left: '6px', top: '8.4px', width: '6px', height: '1.4px' }} />
+    </span>
+  )
+}
+
 /** Walkthrough: three bars stepping up — the staircase is the walkthrough's mark everywhere (canvas 21f). */
 export function WalkthroughGlyph() {
   return (

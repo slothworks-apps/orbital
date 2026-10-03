@@ -43,7 +43,10 @@ CI runs the same checks and `atlas validate` on every PR.
 **Tests.** Add one where it can catch a real regression — parsing, path and
 URL handling, server routes, persistence, logic that is hard to eyeball. Do
 not test that a component renders its props or that a style has a given
-value.
+value. A server test that needs a temporary directory or database takes it
+from `server/test/tmp.ts` (`makeTmpDir`, `openTmpDb`), never from
+`mkdtempSync` directly: those are removed after the test, and a bare
+`mkdtemp` is left in `$TMPDIR` on every run.
 
 **Documents.** Decisions, specs and known bugs are written down in `docs/`,
 and every file there has frontmatter. [`docs/CLAUDE.md`](docs/CLAUDE.md) has

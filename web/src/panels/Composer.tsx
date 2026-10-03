@@ -756,7 +756,21 @@ export function Composer({
 
             A size container, so the actions can drop their words when the
             row runs short (a narrow detail panel) instead of wrapping. */}
-        <div className="@container flex items-center gap-2">
+        <div
+          data-composer-hint
+          // Nothing to say and nothing to hold: a mount whose controls live
+          // elsewhere (the phone) can drop the row on this hook.
+          data-empty={
+            (!popupShown &&
+              !refusal &&
+              !note &&
+              !locked &&
+              !actions &&
+              !(answering || hintBright ? hint : (ideHint ?? hint))) ||
+            undefined
+          }
+          className="@container flex items-center gap-2"
+        >
           {popupShown ? (
             <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
               {POPUP_HINT}

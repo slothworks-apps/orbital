@@ -125,6 +125,71 @@ To see the other states from the same stack:
 
 Stop everything afterwards: `kill $(lsof -t -iTCP:4848 -sTCP:LISTEN) $(lsof -t -iTCP:4840 -sTCP:LISTEN)`.
 
+## Push
+
+Push runs through the owner's Firebase project, which holds an Android app
+with the id `io.slothworks.orbital.mobile`. Two files come from it, and
+neither is ever committed:
+
+- **`google-services.json`** (Firebase console → Project settings → the
+  Android app) goes to `mobile/android/app/google-services.json`. It is
+  git-ignored. Gradle applies the Google services plugin only when the file
+  exists, and the web build reads its presence too: without it the app asks
+  for the notification permission but never asks Firebase for a token, so
+  rebuild with `npm run build -w @orbital/mobile` after adding the file, not
+  only `apk`.
+- **A service-account JSON** (Project settings → Service accounts →
+  Generate new private key) goes to the relay as
+  `RELAY_FCM_SERVICE_ACCOUNT` ([[run-the-relay]]). Locally it lives in the
+  git-ignored `secrets/` at the repo root, as
+  `secrets/orbital-relay-fcm.json`; pass an absolute path, the relay's
+  `npm run dev` runs from `relay/`.
+
+The Firebase project is `orbital-sw`. Its Cloud Messaging API (V1) must be
+enabled (Project settings → Cloud Messaging).
+
+Without either file everything builds and runs: the phone gets no token,
+and the relay logs the pushes it would send instead of sending them. A
+connected phone posts its own local notifications either way.
+
+The emulator must run a **Google Play** system image to get a token; a
+plain AOSP image has no Play services. On first start after pairing, the
+app asks for Android 13's notification permission; a denial is not an error
+and nothing in the app mentions it.
+
+### Testing a push on the emulator
+
+The relay pushes only to a phone that is offline; a connected phone posts
+its own local notification. Start the relay with `RELAY_FCM_SERVICE_ACCOUNT`,
+pair, open the app once so it registers its token (the relay's database
+holds it in `devices.push_token`), then take the app offline the way the
+system does:
+
+```bash
+adb shell input keyevent KEYCODE_HOME
+adb shell am kill io.slothworks.orbital.mobile
+```
+
+**Not `am force-stop`.** A force-stopped app is in Android's stopped state,
+and Play services drops its FCM messages: the relay logs `push sent`, FCM
+accepts it, and `adb logcat | grep GCM` shows
+`broadcast intent callback: result=CANCELLED`. Swiping the app out of
+recents does not stop it this way; only force-stop (and Settings → Force
+stop) does.
+
+Then open a session that needs input on the Mac (mode `default` with a
+Write prompt). The relay logs `push sent to <token>, count 1` and the
+emulator shows "Orbital · <Mac>" / "A session needs your input"; a tap opens
+the app on the session list.
+
+The `needs_input` channel is silent. The Capacitor plugins cannot create a
+channel without a sound, so the channel plays
+`mobile/android/app/src/main/res/raw/silence.wav`, a short silent clip that
+must stay in the project. A channel's sound is fixed once a device has
+created it: a change to a channel reaches only a fresh install (uninstall
+first), and `adb shell dumpsys notification | grep needs_input` shows what a
+device holds.
+
 ## Troubleshooting
 
 - **`Unsupported class file major version` / `requires Java 21`**: Gradle
@@ -135,5 +200,9 @@ Stop everything afterwards: `kill $(lsof -t -iTCP:4848 -sTCP:LISTEN) $(lsof -t -
 - **The scanner is "preparing"**: the Google Barcode Scanner module is
   still downloading through Play services; scan again in a minute. An
   emulator without Play services never gets it — use a dev build's paste field.
+- **"The relay refused this code's secret" right after `pair-emulator.sh`**:
+  `adb shell input text` sometimes drops a character of the long code (seen:
+  `devsecret` arriving as `dvsecret`). Clear the field and run the script
+  again.
 - **"Can't reach the relay in this code" with a local relay**: `adb reverse`
   was not run in this emulator session, or the build was not a dev build.

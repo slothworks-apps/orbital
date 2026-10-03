@@ -99,7 +99,10 @@ const initialSnapshot: OrbitalState = {
   stoppingTasks: {},
   harnesses: {},
   harnessEvents: {},
+  harnessEventsMore: {},
+  harnessRemoved: {},
   harnessPanel: null,
+  harnessTemplatesFocus: null,
   ui: {
     selectedId: null,
     filterTagId: 'all',
@@ -830,6 +833,36 @@ describe('answerQuestion', () => {
       expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'boom' })
     })
   })
+
+  it('a failed POST takes the answer back, so the question is open again', async () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeDecision() })
+    vi.mocked(api.answerDecision).mockRejectedValueOnce(new TypeError('tunnel lost'))
+
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+
+    await vi.waitFor(() => {
+      expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'tunnel lost' })
+    })
+    expect(useOrbital.getState().decisionAnswers.tu1).toBeUndefined()
+    expect(useOrbital.getState().pendingDecisions.s1).toBeDefined()
+  })
+
+  it('on a stacked card a failed POST takes back only the last answer', async () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    vi.mocked(api.answerDecision).mockRejectedValueOnce(new ApiError('boom', 500))
+
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    useOrbital.getState().answerQuestion('s1', TESTS, 'One regression')
+
+    await vi.waitFor(() => {
+      expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'boom' })
+    })
+    expect(useOrbital.getState().decisionAnswers.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
+  })
 })
 
 describe('sendPrompt while a question is pending', () => {
@@ -985,6 +1018,22 @@ describe('resolveDecision', () => {
       expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'boom' })
     })
   })
+
+  it('a failed POST takes the verdict back, so the card is live again', async () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeVerdictDecision() })
+    vi.mocked(api.resolveDecision).mockRejectedValueOnce(new TypeError('tunnel lost'))
+
+    useOrbital.getState().resolveDecision('s1', { approved: true })
+    expect(useOrbital.getState().decisionVerdicts.tu1).toEqual({ approved: true })
+
+    await vi.waitFor(() => {
+      expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'tunnel lost' })
+    })
+    expect(useOrbital.getState().decisionVerdicts.tu1).toBeUndefined()
+    expect(useOrbital.getState().pendingDecisions.s1).toBeDefined()
+  })
 })
 
 describe('sendPrompt while a permission or plan decision is pending', () => {
@@ -1081,7 +1130,7 @@ describe('the error log', () => {
     expect(state.errorsUnseen).toBe(143)
   })
 
-  it('raises the toast on an arriving record', () => {
+  it("raises the toast on an arriving record, marked as the log's", () => {
     useOrbital.getState().applyErrorsEvent({
       event: 'error',
       error: makeError({ id: 3, message: 'spawn claude ENOENT' }),
@@ -1091,6 +1140,7 @@ describe('the error log', () => {
     expect(useOrbital.getState().toast).toEqual({
       kind: 'error',
       message: 'spawn claude ENOENT',
+      source: 'log',
     })
   })
 

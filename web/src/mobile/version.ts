@@ -1,8 +1,9 @@
 /**
  * The oldest Orbital on the Mac this phone works with (spec § 5, 9i): the
- * release that shipped Settings → Mobile, without which nothing pairs.
+ * release that shipped phase 2b (the new-session defaults route, `lastAt` on
+ * projects, `requireDirectory`), without which 9d half-works.
  */
-export const MIN_SERVER_VERSION = '0.17.1'
+export const MIN_SERVER_VERSION = '0.18.2'
 
 /**
  * Dotted numbers, compared part by part; a missing part is zero and a

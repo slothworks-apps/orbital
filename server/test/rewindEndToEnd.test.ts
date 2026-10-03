@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
@@ -8,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { buildServer } from '../src/index.js';
 import { openDb } from '../src/db/database.js';
 import { pendingRewinds, rewinds, sessions } from '../src/db/schema.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * Rewind across the whole server (spec 2026-09-29-rewind-design § API,
@@ -88,7 +88,7 @@ function fakeSdk(file: string, mode: () => Mode) {
 }
 
 async function setup(opts: { mode?: Mode; terminal?: boolean; rewindStopTimeoutMs?: number } = {}) {
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-rewind-e2e-'));
+  const claudeDir = makeTmpDir('rewind-e2e');
   mkdirSync(join(claudeDir, 'projects', 'p'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
   const id = randomUUID();

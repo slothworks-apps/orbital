@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * The chain only `index.ts` wires: a running session's messages ->
@@ -51,7 +51,7 @@ function fakeTitleQueryFn(name: string) {
 }
 
 function tempClaudeDir() {
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-title-e2e-'));
+  const claudeDir = makeTmpDir('title-e2e');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
   return { claudeDir, dbPath: join(claudeDir, 'index.db') };

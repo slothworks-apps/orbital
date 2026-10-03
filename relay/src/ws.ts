@@ -8,8 +8,9 @@ import type { RawData, WebSocket } from 'ws';
 import { deviceId, publicKeyOf } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, decodeFrame, rewritePeer } from '@orbital/shared/remote/frame';
 import {
-  DeviceToRelay, RELAY_PING_INTERVAL_MS, verifyAuthSignature, type RelayToDevice,
+  CLOSE_BAD_SECRET, DeviceToRelay, RELAY_PING_INTERVAL_MS, verifyAuthSignature, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
+import { secretMatches } from './secret.js';
 import { Connections, MAX_BUFFERED_BYTES, OfflineQueue, type Conn } from './connections.js';
 import { log, short } from './log.js';
 import type { WakeTracker } from './push.js';
@@ -29,6 +30,8 @@ export type WsContext = {
   onWake: WakeHook;
   now: () => number;
   pingIntervalMs: number;
+  /** The relay's shared secret; null when the relay is open. Never logged. */
+  secret: string | null;
 };
 
 export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: string | null): void {
@@ -43,6 +46,10 @@ export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: strin
     const { pub, sig } = parsed.data;
     const publicKey = publicKeyOf(pub);
     if (!publicKey || !verifyAuthSignature(publicKey, nonce, sig)) return socket.close(4001, 'bad auth');
+    if (ctx.secret !== null && !secretMatches(ctx.secret, parsed.data.secret)) {
+      log(`device ${short(pub)} refused: bad secret`);
+      return socket.close(CLOSE_BAD_SECRET, 'bad secret');
+    }
     // Pausing stops further reads while the store answers, but ws still emits
     // messages it already parsed from the read that carried `auth`; those are
     // held here, in order, and replayed by `attach`.

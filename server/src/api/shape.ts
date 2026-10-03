@@ -1,10 +1,12 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { effectiveTagIds } from '../tags/rules.js';
-import { compactionFailures, pendingRewinds } from '../db/schema.js';
+import { compactionFailures, pendingRewinds, sessionHarnesses } from '../db/schema.js';
+import { gateOf } from '../harness/logic.js';
+import type { HarnessGate } from '../harness/types.js';
 import type { OrbitalDb } from '../db/database.js';
 import type { CompactingState, LastCompacted, PendingDecision, Runner } from '../runner/runner.js';
 import type { SessionRegistry } from '../watcher/registry.js';
-import type { PermissionMode, SessionRow, SessionSource, SessionStatus } from '../types.js';
+import type { PermissionMode, SessionPurpose, SessionRow, SessionSource, SessionStatus } from '../types.js';
 import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
 import type { BackgroundTaskInfo, BackgroundTaskStore } from '../transcript/backgroundTasks.js';
 import type { RecentToolsStore } from '../transcript/recentTools.js';
@@ -181,6 +183,29 @@ export interface ApiSession {
    * detached window and a reload show the same state.
    */
   rewindPending: { hiddenCount: number; text: string } | null;
+  /**
+   * Why Orbital started this session, or null. `harness_draft` is a harness
+   * template's drafting conversation: the map shows it while it is open, no
+   * list ever does, and once it ends it is gone (spec
+   * 2026-10-02-harness-redesign-design § Overruled).
+   */
+  purpose: SessionPurpose | null;
+  /**
+   * The session's harness stands at a gate: `waiting` — NEEDS YOUR OK, and the
+   * session reads `needs_input` — or `reviewing`, REVIEWER READING. Null
+   * without a harness or a gate (spec 2026-10-02-harness-redesign-design § 2).
+   */
+  harnessGate: HarnessGate | null;
+}
+
+/** The gate the session's live harness stands at, or null. */
+export function harnessGateOf(db: OrbitalDb, sessionId: string): HarnessGate | null {
+  const row = db
+    .select({ state: sessionHarnesses.state, removedAt: sessionHarnesses.removedAt })
+    .from(sessionHarnesses)
+    .where(eq(sessionHarnesses.sessionId, sessionId))
+    .get();
+  return row ? gateOf(row) : null;
 }
 
 /** The session's pending rewind as the snapshot carries it, or null. */
@@ -225,7 +250,11 @@ export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
   if (live) return live.status;
   if (rewindPendingOf(ctx.db, row.id)) return 'needs_input';
   if (row.source !== 'web') return 'ended';
-  return row.ended_at !== null ? 'ended' : 'idle';
+  if (row.ended_at !== null) return 'ended';
+  // A gate waiting for the user is the session's state, asleep or not: it is
+  // their turn (spec 2026-10-02-harness-redesign-design § 2). A live session
+  // at a gate already reads `needs_input` from the Runner — its turn ended.
+  return harnessGateOf(ctx.db, row.id) === 'waiting' ? 'needs_input' : 'idle';
 }
 
 /**
@@ -259,6 +288,8 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     lastCompactionFailed: lastCompactionFailed(ctx.db, row.id),
     lastCompacted: ctx.runner.lastCompacted(row.id),
     rewindPending: rewindPendingOf(ctx.db, row.id),
+    purpose: row.purpose ?? null,
+    harnessGate: harnessGateOf(ctx.db, row.id),
   };
 }
 

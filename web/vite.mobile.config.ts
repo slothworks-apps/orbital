@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -16,6 +16,13 @@ const mobileVersion = (
     version: string
   }
 ).version
+
+/**
+ * Whether the Android project carries Firebase's `google-services.json`
+ * (git-ignored, the owner's; runbook build-the-android-app, "Push"). Without
+ * it the phone must not ask Firebase for a push token.
+ */
+const pushConfigured = existsSync(new URL('../mobile/android/app/google-services.json', import.meta.url))
 
 const ENTRY = 'index.mobile.html'
 
@@ -63,6 +70,7 @@ export default defineConfig({
   define: {
     __MOBILE_DEV__: JSON.stringify(process.env.ORBITAL_MOBILE_DEV === '1'),
     __MOBILE_VERSION__: JSON.stringify(mobileVersion),
+    __MOBILE_PUSH__: JSON.stringify(pushConfigured),
   },
   build: {
     outDir: 'dist-mobile',

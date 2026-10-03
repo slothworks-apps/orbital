@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ghAvailability,
@@ -13,6 +12,7 @@ import {
   type RunResult,
   type Runner,
 } from '../src/git/branchStatus.js';
+import { makeTmpDir } from './tmp.js';
 
 describe('parseNumstat', () => {
   it('sums added and removed, counting binary files as zero', () => {
@@ -199,15 +199,11 @@ describe('readLines', () => {
     Array.from({ length: n }, (_, i) => `${tag}${i}\n`).join('');
 
   beforeEach(() => {
-    repo = mkdtempSync(join(tmpdir(), 'orbital-branch-'));
+    repo = makeTmpDir('branch');
     git('init', '-q', '-b', 'main');
     write('a.txt', lines(10));
     git('add', '.');
     git('commit', '-qm', 'base');
-  });
-
-  afterEach(() => {
-    rmSync(repo, { recursive: true, force: true });
   });
 
   it('splits a feature branch into committed and uncommitted, untracked included', async () => {
@@ -304,11 +300,7 @@ describe('readLines', () => {
   });
 
   it('is null outside a repository', async () => {
-    const plain = mkdtempSync(join(tmpdir(), 'orbital-plain-'));
-    try {
-      expect(await readLines(plain, 'main')).toBeNull();
-    } finally {
-      rmSync(plain, { recursive: true, force: true });
-    }
+    const plain = makeTmpDir('plain');
+    expect(await readLines(plain, 'main')).toBeNull();
   });
 });

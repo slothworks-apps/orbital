@@ -103,6 +103,7 @@ export type PhoneMessage = z.infer<typeof PhoneMessage>;
 const ImageRefEntry = z.object({
   ref: ImageRef, w: z.number().nullable(), h: z.number().nullable(), bytes: z.number(),
 });
+export type ImageRefEntry = z.infer<typeof ImageRefEntry>;
 
 export const MacMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('hello'), protocol: z.number().int(), server: z.string(), macName: z.string() }),

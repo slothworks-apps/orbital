@@ -42,7 +42,7 @@ import type { SubagentStore, SubagentTranscripts } from '../transcript/subagents
 import type { BackgroundTaskStore } from '../transcript/backgroundTasks.js';
 import { readOutputTail } from '../files/taskOutput.js';
 import { SESSION_TIPS } from '../runner/sessionInstructions.js';
-import type { ChatMessage, ErrorKind, PermissionMode, SessionRow, TagRule } from '../types.js';
+import type { ChatMessage, ErrorKind, PermissionMode, SessionPurpose, SessionRow, TagRule } from '../types.js';
 import { isPermissionMode } from '../types.js';
 import type { ModelCatalog } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
@@ -50,7 +50,7 @@ import type { ImageStore } from '../images/store.js';
 import type { FileStore } from '../files/store.js';
 import type { SessionTitler } from '../titler/titler.js';
 import type { HarnessService } from '../harness/service.js';
-import { registerHarnessRoutes } from './harness.js';
+import { registerHarnessRoutes, type CarryHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import type { McpConfig } from '../mcp/config.js';
@@ -280,6 +280,20 @@ const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'imag
 export const TRANSCRIPT_CACHE_SESSIONS = 3;
 
 /**
+ * How many distinct directories `GET /api/projects` answers. Generous on
+ * purpose: the phone's New Session picker has no file system to browse, so
+ * this list is every place it can start a session without typing a path.
+ */
+export const PROJECTS_LIMIT = 500;
+
+/**
+ * How many session rows `GET /api/projects` reads to find `PROJECTS_LIMIT`
+ * directories. A bound on the scan, not on the answer: many sessions share
+ * a directory, so the answer is usually far shorter than the scan.
+ */
+export const PROJECTS_SCAN_ROWS = 5000;
+
+/**
  * Whether a body's `attachments` is anything other than a list of refs the
  * image store could have written. Absent is fine — most turns have none.
  *
@@ -311,6 +325,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const rewindStore = new RewindStore(db);
   /** Walkthrough spines by transcript path; selecting a session asks for one. */
   const spines = new StampedCache<Spine>(TRANSCRIPT_CACHE_SESSIONS);
+  /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
+  let carry: CarryHarness | null = null;
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -329,6 +345,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .orderBy(sql`${sessions.pinnedAt} IS NULL`, sessions.pinnedAt, desc(sessions.lastAt))
       .limit(limit * 4 + offset) // over-fetch, filter, then page
       .all() as SessionRow[];
+    // A harness drafting conversation that has ended is gone from everywhere
+    // (spec 2026-10-02-harness-redesign-design § Overruled); an open one rides
+    // along, marked by `purpose`, for the map alone.
+    rows = rows.filter((r) => !(r.purpose === 'harness_draft' && r.ended_at !== null));
     if (q.source) rows = rows.filter((r) => r.source === q.source);
     if (q.q) rows = rows.filter((r) => r.title.toLowerCase().includes(q.q.toLowerCase()));
     let sessionsOut = rows.map((r) => toApiSession(ctx, r));
@@ -431,7 +451,22 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       pendingTarget: rewindStore.pending(id)?.targetUuid ?? null,
       sent: rewindStore.sent(id),
     });
-    return withCompactionFailures(id, messages, cutAt);
+    return withHarnessMessages(id, withCompactionFailures(id, messages, cutAt));
+  }
+
+  /**
+   * Marks the user entries Orbital sent on a harness's account, known by the
+   * uuids recorded at delivery, so the panel draws them as Orbital's rows and
+   * not the user's bubbles (spec 2026-10-02-harness-redesign-design § 3).
+   * Read per request, not cached with the file: the record lives in the database.
+   */
+  function withHarnessMessages(id: string, messages: ChatMessage[]): ChatMessage[] {
+    const ours = ctx.harness.messagesOf(id);
+    if (ours.size === 0) return messages;
+    return messages.map((m) => {
+      const mark = m.role === 'user' && m.uuid ? ours.get(m.uuid) : undefined;
+      return mark ? { ...m, harnessMessage: mark } : m;
+    });
   }
 
   app.get('/api/sessions/:id/messages', (req, reply) => {
@@ -857,6 +892,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       cwd: string; prompt: string; permissionMode: PermissionMode;
       tagId?: number; model?: string; resume?: string;
       sessionId?: string; attachments?: string[];
+      /**
+       * Answer 400 `no_such_directory` instead of launching when `cwd` is not
+       * an absolute path to an existing directory. Opt-in: the phone sends it
+       * because its user types the path blind; the desktop dialog has no
+       * inline place for this error yet, and its tests launch in directories
+       * that do not exist against a stubbed runner.
+       */
+      requireDirectory?: boolean;
     };
     if (invalidAttachments(body.attachments)) {
       return reply.code(400).send({ error: 'invalid_attachment' });
@@ -866,6 +909,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // both the runner and the insert keeps the spawn working *and* keeps one
     // directory from appearing twice in `/api/projects`, once per spelling.
     const cwd = expandHome(body.cwd);
+    // The same test the session-spawning tool makes (`ctx.runner.spawner`
+    // below), answered as a code the client words for itself.
+    if (body.requireDirectory === true
+      && !(isAbsolute(cwd) && statSync(cwd, { throwIfNoEntry: false })?.isDirectory())) {
+      return reply.code(400).send({ error: 'no_such_directory' });
+    }
     // The browser may mint the id itself and subscribe to `session:<id>`
     // before it posts this, so the first turn cannot be published into a
     // topic nobody is in yet. Optional: `clear` with `startNew` and every
@@ -873,27 +922,29 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // absent; an empty string does not — that is a client that meant to send
     // an id and sent nothing.
     const clientId = body.sessionId ?? undefined;
-    if (clientId !== undefined) {
-      if (!SESSION_ID_RE.test(clientId)) {
-        return reply.code(400).send({ error: 'sessionId must be a v4 UUID' });
-      }
-      // Both halves matter. A row alone would miss a session live in this
-      // process whose row has not landed (or was deleted), and the runner
-      // alone would miss every session from a previous boot. `hasRun()` also
-      // answers for sessions whose process has stopped, which is the answer
-      // we want: their transcript still sits on disk under that name.
-      const rowExists = db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(eq(sessions.id, clientId))
-        .get() !== undefined;
-      if (rowExists || ctx.runner.hasRun(clientId)) {
-        return reply.code(409).send({ error: 'session id is already taken' });
-      }
-    }
+    const refused = clientIdRefusal(clientId);
+    if (refused) return reply.code(refused.status).send({ error: refused.error });
     const sessionId = await launchSession({ ...body, cwd, sessionId: clientId });
     return reply.code(201).send({ sessionId });
   });
+
+  /** Why a browser-minted session id cannot be used, or null when it can (or none was sent). */
+  function clientIdRefusal(clientId: string | undefined): { status: number; error: string } | null {
+    if (clientId === undefined) return null;
+    if (!SESSION_ID_RE.test(clientId)) return { status: 400, error: 'sessionId must be a v4 UUID' };
+    // Both halves matter. A row alone would miss a session live in this
+    // process whose row has not landed (or was deleted), and the runner
+    // alone would miss every session from a previous boot. `hasRun()` also
+    // answers for sessions whose process has stopped, which is the answer
+    // we want: their transcript still sits on disk under that name.
+    const rowExists = db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.id, clientId))
+      .get() !== undefined;
+    if (rowExists || ctx.runner.hasRun(clientId)) return { status: 409, error: 'session id is already taken' };
+    return null;
+  }
 
   /**
    * The back end of the `spawn_session` tool a running session calls (spec
@@ -927,15 +978,16 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   async function launchSession(opts: {
     cwd: string; prompt: string; permissionMode: PermissionMode;
     tagId?: number; model?: string; resume?: string;
-    sessionId?: string; attachments?: string[]; spawnedBy?: string;
+    sessionId?: string; attachments?: string[]; spawnedBy?: string; purpose?: SessionPurpose;
   }): Promise<string> {
-    const { cwd, spawnedBy, tagId, ...start } = opts;
+    const { cwd, spawnedBy, tagId, purpose, ...start } = opts;
     const sessionId = await ctx.runner.start({ ...start, cwd });
     db.insert(sessions)
       .values({
         id: sessionId, projectDir: '', cwd, source: 'web',
         permissionMode: opts.permissionMode, model: opts.model ?? null,
         spawnedBy: spawnedBy ?? null,
+        purpose: purpose ?? null,
         lastAt: Date.now(),
         // The row is born already claimed. `start()` above announced the
         // claim to a row that did not exist yet, so without this a session
@@ -1520,8 +1572,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .set(opts.unpin ? { endedAt: Date.now(), pinnedAt: null } : { endedAt: Date.now() })
       .where(eq(sessions.id, id))
       .run();
+    // A harness with steps left pauses, "session ended in step N", ready to be
+    // carried into a new session from Clear (spec 2026-10-02-harness-redesign-design § 8).
+    ctx.harness.sessionEnded(id);
     await ctx.runner.stop(id);
     publishRow(id);
+    // An ended drafting conversation is gone from everywhere, the map included.
+    const ended = db.select({ purpose: sessions.purpose }).from(sessions).where(eq(sessions.id, id)).get();
+    if (ended?.purpose === 'harness_draft') ctx.hub.publish('sessions', { event: 'remove', sessionId: id });
   }
 
   // End session (spec 2026-09-23-end-session-design): the header's plain
@@ -1555,7 +1613,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   app.post('/api/sessions/:id/clear', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { startNew } = (req.body ?? {}) as { startNew?: boolean };
+    // `carryHarness`: the new session takes the old one's harness and is sent
+    // its current step (spec 2026-10-02-harness-redesign-design § 8).
+    const { startNew, carryHarness } = (req.body ?? {}) as { startNew?: boolean; carryHarness?: boolean };
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
       | SessionRow
       | undefined;
@@ -1598,7 +1658,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const newRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, newId)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, newRow) });
-    return { ok: true, sessionId: newId };
+    if (carryHarness !== true) return { ok: true, sessionId: newId };
+    const harnessCarried = !!carry && ctx.settings.get('harness_enabled') === 'true' && !!ctx.harness.get(id)
+      && (await carry(id, newId)).ok;
+    return { ok: true, sessionId: newId, harnessCarried };
   });
 
   app.patch('/api/sessions/:id', (req, reply) => {
@@ -1796,22 +1859,38 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         cwd: sessions.cwd,
         model: sessions.model,
         resolvedModel: sessions.resolvedModel,
+        lastAt: sessions.lastAt,
       })
       .from(sessions)
       .where(ne(sessions.cwd, ''))
       .orderBy(desc(sessions.lastAt))
-      .limit(500)
+      .limit(PROJECTS_SCAN_ROWS)
       .all();
-    const projects: Array<{ cwd: string; lastModel: string | null }> = [];
+    const projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }> = [];
     const seen = new Set<string>();
     for (const row of rows) {
       if (seen.has(row.cwd)) continue;
       seen.add(row.cwd);
-      projects.push({ cwd: row.cwd, lastModel: row.model ?? row.resolvedModel ?? null });
-      if (projects.length === 50) break;
+      projects.push({
+        cwd: row.cwd,
+        lastModel: row.model ?? row.resolvedModel ?? null,
+        lastAt: row.lastAt ?? null,
+      });
+      if (projects.length === PROJECTS_LIMIT) break;
     }
     return { projects };
   });
+
+  // What the New Session dialog pre-sets, as three values and nothing more.
+  // It exists for the phone: `/api/settings` is denied to it (the remote
+  // allowlist), and these three are all 9d needs from the settings table.
+  // Readings mirror the web's `NewSessionDialog`; `DEFAULT_SETTINGS` seeds
+  // every key, so the fallbacks only answer a table someone emptied.
+  app.get('/api/sessions/defaults', () => ({
+    permissionMode: (ctx.settings.get('default_permission_mode') || 'acceptEdits') as PermissionMode,
+    model: ctx.settings.get('default_model') || null,
+    rememberModelPerProject: ctx.settings.get('remember_model_per_project') !== 'false',
+  }));
 
   app.get('/api/models', async () => ({
     models: await ctx.models.list(),
@@ -1903,7 +1982,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // Without a reload: a switch turned off drops the field from the open
     // sessions, one turned on starts reading and fills it.
     if (branchSettings) ctx.branchStatus.settingsChanged();
-    // The switch and the relay URL apply now, not at the next boot. The Mac's
+    // The switch, the relay URL and the relay secret apply now, not at the next boot. The Mac's
     // name restarts nothing: the service reads it fresh for every pairing
     // code, and a restart would drop every phone session and an open code at
     // each pause in typing. It only republishes the status that shows it.
@@ -1947,5 +2026,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   registerStatsRoutes(app, ctx);
   registerMcpRoutes(app, ctx);
-  registerHarnessRoutes(app, ctx, deliverToSession, readTranscriptMessages);
+  carry = registerHarnessRoutes(app, ctx, deliverToSession, readTranscriptMessages, async (opts) => {
+    const refused = clientIdRefusal(opts.sessionId);
+    if (refused) return { ok: false, ...refused };
+    return { ok: true, sessionId: await launchSession({ ...opts, cwd: expandHome(opts.cwd) }) };
+  }).carryHarness;
 }

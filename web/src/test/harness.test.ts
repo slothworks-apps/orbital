@@ -35,11 +35,11 @@ describe('eventLine', () => {
 describe('the harness slot', () => {
   const harness: SessionHarness = {
     sessionId: 's1', templateId: 1, name: 'H', steps: [], inputs: {}, state: [], options: DEFAULT_HARNESS_OPTIONS, paused: false,
-    pauseReason: null, autoRounds: 0, idleNudges: 0, createdAt: 0, updatedAt: 0,
+    pauseReason: null, pauseKind: null, pausedAt: null, removedAt: null, autoRounds: 0, idleNudges: 0, createdAt: 0, updatedAt: 0,
   }
 
   beforeEach(() => {
-    vi.spyOn(api, 'getSessionHarness').mockResolvedValue({ harness, events: [] })
+    vi.spyOn(api, 'getSessionHarness').mockResolvedValue({ harness, removed: null, events: [] })
     useOrbital.setState({ harnesses: {}, harnessEvents: {}, harnessPanel: null, subagentPanel: null, taskOutput: null })
     useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 's1' } }))
   })

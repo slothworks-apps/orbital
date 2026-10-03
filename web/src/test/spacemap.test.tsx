@@ -110,7 +110,10 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     stoppingTasks: {},
       harnesses: {},
       harnessEvents: {},
+      harnessEventsMore: {},
+      harnessRemoved: {},
       harnessPanel: null,
+      harnessTemplatesFocus: null,
     ui: defaultUi,
     ...overrides,
   }
@@ -1315,7 +1318,10 @@ describe('SpaceMap overlays and the live panel width', () => {
       stoppingTasks: {},
       harnesses: {},
       harnessEvents: {},
+      harnessEventsMore: {},
+      harnessRemoved: {},
       harnessPanel: null,
+      harnessTemplatesFocus: null,
       ...overrides,
       ui: { ...defaultUi, selectedId: 'a', ...(overrides.ui ?? {}) },
     })

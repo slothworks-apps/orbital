@@ -4,7 +4,7 @@ import { api, configureApi, defaultApiFetch } from '../lib/api'
 import { apiImagePath, configureImages, resolveImage, useImageUrl } from '../lib/images'
 
 afterEach(() => {
-  configureApi({ fetch: defaultApiFetch })
+  configureApi({ fetch: defaultApiFetch, upload: null })
   configureImages({ resolve: apiImagePath })
 })
 
@@ -25,6 +25,36 @@ describe('configureApi', () => {
     configureApi({ fetch })
     await api.filePreview('s1', '/a b')
     expect(fetch.mock.calls[0][0]).toBe('/api/files?session=s1&path=%2Fa+b')
+  })
+
+  it('hands an upload to the configured uploader and never to the fetch', async () => {
+    const fetch = vi.fn(async (_input: string, _init?: RequestInit) => json({}))
+    const entry = { ref: 'a.jpg', w: 1568, h: 1176, bytes: 9 }
+    const upload = vi.fn(async () => ({ kind: 'ok' as const, entry }))
+    configureApi({ fetch, upload })
+    const file = new File(['x'], 'p.jpg', { type: 'image/jpeg' })
+    await expect(api.uploadAttachment('s1', file)).resolves.toEqual({ kind: 'ok', entry })
+    expect(upload).toHaveBeenCalledWith('s1', file, undefined)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('restores the multipart POST when the uploader is cleared', async () => {
+    const fetch = vi.fn(async (_input: string, _init?: RequestInit) => json({ ref: 'a.png', w: 1, h: 1, bytes: 1 }))
+    const upload = vi.fn(async () => ({ kind: 'empty' as const }))
+    configureApi({ fetch, upload })
+    configureApi({ upload: null })
+    await api.uploadAttachment('s1', new File(['x'], 'a.png', { type: 'image/png' }))
+    expect(upload).not.toHaveBeenCalled()
+    expect(fetch.mock.calls[0][0]).toBe('/api/sessions/s1/attachments')
+    expect(fetch.mock.calls[0][1]?.body).toBeInstanceOf(FormData)
+  })
+
+  it('reads the desktop defaults from their route', async () => {
+    const body = { permissionMode: 'acceptEdits', model: 'opus', rememberModelPerProject: true }
+    const fetch = vi.fn(async (_input: string, _init?: RequestInit) => json(body))
+    configureApi({ fetch })
+    await expect(api.sessionDefaults()).resolves.toEqual(body)
+    expect(fetch).toHaveBeenCalledWith('/api/sessions/defaults', expect.objectContaining({ method: 'GET' }))
   })
 })
 

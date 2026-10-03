@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { readdirSync, readFileSync, utimesSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createFileStore, safeFileName } from '../src/files/store.js';
+import { makeTmpDir } from './tmp.js';
 
-const tempDir = () => mkdtempSync(join(tmpdir(), 'orbital-files-test-'));
+const tempDir = () => makeTmpDir('files-test');
 
 describe('createFileStore', () => {
   it('keeps the uploaded name under a content-hash directory', () => {

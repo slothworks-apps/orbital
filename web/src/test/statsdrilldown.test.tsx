@@ -77,7 +77,7 @@ function detail(patch: Partial<SessionStatsDetail> = {}): SessionStatsDetail {
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/stats/session/4b2f19c8-0000-4000-8000-000000000001')
-  vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/Users/t/work/orbital', lastModel: null }])
+  vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/Users/t/work/orbital', lastModel: null, lastAt: null }])
   vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
   vi.mocked(api.getSettings).mockResolvedValue({})
 })

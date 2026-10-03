@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildServer, DEV_WEB_PORT, isAllowedWsOrigin, isAllowedHost } from '../src/index.js';
 import { CONFIG } from '../src/config.js';
+import { makeTmpDir } from './tmp.js';
 
 describe('isAllowedWsOrigin (C2)', () => {
   it('allows an absent Origin (non-browser clients, tests)', () => {
@@ -41,7 +40,7 @@ describe('isAllowedHost (I5)', () => {
 
 describe('server integration: origin + host guards', () => {
   async function makeApp() {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-security-'));
+    const dir = makeTmpDir('security');
     return buildServer({ dbPath: join(dir, 'index.db'), claudeDir: dir });
   }
 

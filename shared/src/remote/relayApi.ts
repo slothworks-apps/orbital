@@ -15,6 +15,12 @@ export const SIGNED_REQUEST_SKEW_MS = 60_000;
 export const PAIRING_TOKEN_TTL_MS = 120_000;
 /** Relay → device ping cadence; a device that misses three is gone. */
 export const RELAY_PING_INTERVAL_MS = 15_000;
+/**
+ * The WebSocket close code a relay with `RELAY_SECRET` set answers a missing
+ * or wrong secret with (ADR the-relay-takes-a-shared-secret). A device that
+ * hears it stops reconnecting: the secret will not change on its own.
+ */
+export const CLOSE_BAD_SECRET = 4003;
 
 export function canonicalJson(value: unknown): string {
   // Match what a JSON round trip produces: `undefined` inside an array
@@ -32,7 +38,12 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export type SignedRequest<T = unknown> = { pub: string; ts: number; payload: T; sig: string };
+/**
+ * `secret` is the relay's shared secret, sent beside the signature rather
+ * than under it: whoever holds it can sign for themselves anyway, and TLS
+ * covers it in transit. Absent when the device has none (an open relay).
+ */
+export type SignedRequest<T = unknown> = { pub: string; ts: number; payload: T; sig: string; secret?: string };
 
 /** The `action` strings the relay's pairing routes accept (see the table above). */
 export type RelayAction = 'pair.token' | 'pair.redeem' | 'pair.confirm' | 'pair.revoke';
@@ -41,27 +52,31 @@ function signedBytes(action: string, ts: number, payload: unknown): Uint8Array {
   return new TextEncoder().encode(`orbital-relay\n${action}\n${ts}\n${canonicalJson(payload)}`);
 }
 
-export function signRequest<T>(identity: Identity, action: RelayAction, payload: T, now = Date.now()): SignedRequest<T> {
-  return {
+export function signRequest<T>(
+  identity: Identity, action: RelayAction, payload: T, now = Date.now(), secret?: string,
+): SignedRequest<T> {
+  const req: SignedRequest<T> = {
     pub: deviceId(identity.publicKey),
     ts: now,
     payload,
     sig: toBase64Url(sign(identity.secretKey, signedBytes(action, now, payload))),
   };
+  if (secret) req.secret = secret;
+  return req;
 }
 
 const SignedRequestSchema = z.object({
-  pub: z.string(), ts: z.number().int(), payload: z.unknown(), sig: z.string(),
+  pub: z.string(), ts: z.number().int(), payload: z.unknown(), sig: z.string(), secret: z.string().optional(),
 });
 
 export type Verified =
-  | { ok: true; id: string; publicKey: Uint8Array; payload: unknown }
+  | { ok: true; id: string; publicKey: Uint8Array; payload: unknown; secret: string | null }
   | { ok: false; reason: 'malformed' | 'bad_key' | 'stale' | 'bad_signature' };
 
 export function verifyRequest(raw: unknown, action: RelayAction, now: number): Verified {
   const parsed = SignedRequestSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: 'malformed' };
-  const { pub, ts, payload, sig } = parsed.data;
+  const { pub, ts, payload, sig, secret } = parsed.data;
   const publicKey = publicKeyOf(pub);
   if (!publicKey) return { ok: false, reason: 'bad_key' };
   if (Math.abs(now - ts) > SIGNED_REQUEST_SKEW_MS) return { ok: false, reason: 'stale' };
@@ -74,7 +89,7 @@ export function verifyRequest(raw: unknown, action: RelayAction, now: number): V
   if (!verify(publicKey, signedBytes(action, ts, payload), signature)) {
     return { ok: false, reason: 'bad_signature' };
   }
-  return { ok: true, id: pub, publicKey, payload };
+  return { ok: true, id: pub, publicKey, payload, secret: secret ?? null };
 }
 
 const AUTH_PREFIX = 'orbital-relay-auth\n';
@@ -101,7 +116,8 @@ export const RelayToDevice = z.discriminatedUnion('type', [
 export type RelayToDevice = z.infer<typeof RelayToDevice>;
 
 export const DeviceToRelay = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('auth'), pub: z.string(), sig: z.string() }),
+  // `secret`: the relay's shared secret, when the device has one (see `CLOSE_BAD_SECRET`).
+  z.object({ type: z.literal('auth'), pub: z.string(), sig: z.string(), secret: z.string().optional() }),
   z.object({ type: z.literal('push_token'), token: z.string() }),
 ]);
 export type DeviceToRelay = z.infer<typeof DeviceToRelay>;
@@ -109,10 +125,13 @@ export type DeviceToRelay = z.infer<typeof DeviceToRelay>;
 /**
  * What the Mac encodes into the pairing QR (9e). `secret` never reaches the
  * relay: the phone proves with it that the key it redeems with is the one
- * that scanned this QR (`pairingProof`).
+ * that scanned this QR (`pairingProof`). `relaySecret` is a different thing:
+ * the relay's shared secret, which the phone stores with the pairing and
+ * presents on every connect; absent when the relay is open.
  */
 export const QrPayload = z.object({
   v: z.literal(1), relay: z.string(), mac: z.string(), name: z.string(), token: z.string(), secret: z.string(),
+  relaySecret: z.string().optional(),
 });
 export type QrPayload = z.infer<typeof QrPayload>;
 

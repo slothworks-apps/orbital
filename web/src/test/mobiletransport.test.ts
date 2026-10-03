@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { TunnelError, type RemoteClientEvent } from '@orbital/shared/remote/client'
+import { ATTACHMENT_MAX_BYTES } from '../lib/attachments'
 import { OrbitalSocket } from '../lib/ws'
 import { ClientRef } from '../mobile/transport/clientRef'
 import { makeImageResolver, mediaTypeOf } from '../mobile/transport/imageResolver'
 import { makeTunnelFetch } from '../mobile/transport/tunnelFetch'
+import { makeTunnelUpload } from '../mobile/transport/tunnelUpload'
 import { TunnelSocket } from '../mobile/transport/tunnelSocket'
 import { FakeClient } from './fakeRemoteClient'
 
@@ -191,6 +193,51 @@ describe('makeImageResolver', () => {
     expect(client.getBlob).toHaveBeenCalledTimes(1)
   })
 
+  describe('a bounded cache of URLs', () => {
+    const ref = (c: string) => `${c.repeat(64)}.png`
+
+    function setup() {
+      let n = 0
+      const client = new FakeClient()
+      const io = { read: vi.fn(async () => new Uint8Array([1])), write: vi.fn(async () => {}) }
+      const revoke = vi.fn()
+      const counting = (bytes: Uint8Array, type: string) => `blob:${type}:${bytes.length}:${++n}`
+      return { client, io, revoke, resolve: makeImageResolver(client, io, counting, revoke, 2) }
+    }
+
+    it('revokes the oldest URL once past the bound', async () => {
+      const { resolve, revoke } = setup()
+      const a = await resolve(ref('a'))
+      await resolve(ref('b'))
+      expect(revoke).not.toHaveBeenCalled()
+      await resolve(ref('c'))
+      expect(revoke).toHaveBeenCalledTimes(1)
+      expect(revoke).toHaveBeenCalledWith(a)
+    })
+
+    it('keeps a URL that was asked for again and evicts the one left untouched', async () => {
+      const { resolve, revoke } = setup()
+      const a = await resolve(ref('a'))
+      const b = await resolve(ref('b'))
+      expect(resolve(ref('a'))).toBe(a)
+      await resolve(ref('c'))
+      expect(revoke).toHaveBeenCalledTimes(1)
+      expect(revoke).toHaveBeenCalledWith(b)
+    })
+
+    it('reads an evicted image back from the file cache, not the tunnel', async () => {
+      const { resolve, io, client } = setup()
+      const a = await resolve(ref('a'))
+      await resolve(ref('b'))
+      await resolve(ref('c'))
+      io.read.mockClear()
+      const again = await resolve(ref('a'))
+      expect(again).not.toBe(a)
+      expect(io.read).toHaveBeenCalledWith(ref('a'))
+      expect(client.getBlob).not.toHaveBeenCalled()
+    })
+  })
+
   it('names the media type from the ref', () => {
     expect(mediaTypeOf(`${'d'.repeat(64)}.jpg`)).toBe('image/jpeg')
     expect(mediaTypeOf('x.bin')).toBe('application/octet-stream')
@@ -230,5 +277,68 @@ describe('ClientRef', () => {
     ref.set(client)
     expect(ref.ready).toBe(true)
     expect(events).toContainEqual({ type: 'ready', ready: true })
+  })
+})
+
+describe('makeTunnelUpload', () => {
+  const ENTRY = { ref: `${'a'.repeat(64)}.jpg`, w: 1568, h: 1176, bytes: 3 }
+  // jsdom's File has no `arrayBuffer`; the WebView's does, and that is what the uploader reads.
+  const fileOf = (bytes: Uint8Array<ArrayBuffer>, name: string, type: string): File =>
+    Object.assign(new File([bytes], name, { type }), { arrayBuffer: async () => bytes.slice().buffer })
+  const photo = () => fileOf(new Uint8Array([1, 2, 3]), 'IMG_090507.jpg', 'image/jpeg')
+
+  it("hands the file's bytes and media type to putBlob and answers ok with the entry", async () => {
+    const client = new FakeClient()
+    client.putBlob.mockResolvedValueOnce({ kind: 'ok', entry: ENTRY })
+    await expect(makeTunnelUpload(client)('s1', photo())).resolves.toEqual({ kind: 'ok', entry: ENTRY })
+    expect(client.putBlob).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'image/jpeg')
+  })
+
+  it("answers too_large with the file's size, which is exact", async () => {
+    const client = new FakeClient()
+    client.putBlob.mockResolvedValueOnce({ kind: 'too_large' })
+    await expect(makeTunnelUpload(client)(null, photo())).resolves.toEqual({ kind: 'too_large', size: 3, truncated: false })
+  })
+
+  it("answers the Mac's not_image with the file's media type", async () => {
+    const client = new FakeClient()
+    client.putBlob.mockResolvedValueOnce({ kind: 'not_image' })
+    const file = fileOf(new TextEncoder().encode('hello'), 'fake.png', 'image/png')
+    await expect(makeTunnelUpload(client)('s1', file)).resolves.toEqual({ kind: 'not_image', mediaType: 'image/png' })
+  })
+
+  it('refuses a file that is not an image without reading it or touching the tunnel', async () => {
+    const client = new FakeClient()
+    const file = fileOf(new TextEncoder().encode('hello'), 'notes.txt', 'text/plain')
+    const read = vi.spyOn(file, 'arrayBuffer')
+    await expect(makeTunnelUpload(client)('s1', file)).resolves.toEqual({ kind: 'not_image', mediaType: 'text/plain' })
+    expect(read).not.toHaveBeenCalled()
+    expect(client.putBlob).not.toHaveBeenCalled()
+  })
+
+  it('refuses a file past ATTACHMENT_MAX_BYTES without reading it or touching the tunnel', async () => {
+    const client = new FakeClient()
+    const file = photo()
+    Object.defineProperty(file, 'size', { value: ATTACHMENT_MAX_BYTES + 1 })
+    const read = vi.spyOn(file, 'arrayBuffer')
+    await expect(makeTunnelUpload(client)('s1', file)).resolves.toEqual({
+      kind: 'too_large', size: ATTACHMENT_MAX_BYTES + 1, truncated: false,
+    })
+    expect(read).not.toHaveBeenCalled()
+    expect(client.putBlob).not.toHaveBeenCalled()
+  })
+
+  it('answers empty for an empty file without touching the tunnel', async () => {
+    const client = new FakeClient()
+    const empty = fileOf(new Uint8Array(0), 'IMG_000000.jpg', 'image/jpeg')
+    await expect(makeTunnelUpload(client)('s1', empty)).resolves.toEqual({ kind: 'empty' })
+    expect(client.putBlob).not.toHaveBeenCalled()
+  })
+
+  it('rejects with the TunnelError as it came, so the chip offers retry', async () => {
+    const client = new FakeClient()
+    const lost = new TunnelError('lost')
+    client.putBlob.mockRejectedValueOnce(lost)
+    await expect(makeTunnelUpload(client)('s1', photo())).rejects.toBe(lost)
   })
 })

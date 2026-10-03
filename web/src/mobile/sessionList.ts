@@ -1,6 +1,7 @@
 import type { StateDot } from '../lib/stateStyle'
 import { sessionStateKey, type ApiSession, type PendingDecision, type SessionStateKey, type Tag } from '../lib/types'
 import { asOfLabel } from './format'
+import { isListable } from '../lib/harnessSession'
 
 export type GroupKey = 'input' | 'working' | 'idle' | 'ended'
 
@@ -11,7 +12,7 @@ export const GROUP_LABEL: Record<GroupKey, string> = {
   input: 'NEEDS INPUT', working: 'WORKING', idle: 'IDLE', ended: 'ENDED',
 }
 
-type StateFields = Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'>
+type StateFields = Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'>
 
 /**
  * The state word decides the group. WAITING is work (its moons run); DONE
@@ -35,6 +36,8 @@ export interface SessionGroup {
 export function groupSessions(sessions: readonly ApiSession[], tagId: number | null): SessionGroup[] {
   const buckets = new Map<GroupKey, ApiSession[]>(GROUP_ORDER.map((key) => [key, []]))
   for (const session of sessions) {
+    // A harness drafting conversation is listed nowhere (`isListable`).
+    if (!isListable(session)) continue
     if (tagId !== null && !session.tagIds.includes(tagId)) continue
     buckets.get(groupOf(session))!.push(session)
   }

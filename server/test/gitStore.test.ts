@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GitStore } from '../src/git/store.js';
+import { makeTmpDir } from './tmp.js';
 
 let dir: string;
 let store: GitStore;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'orbital-gitstore-'));
+  dir = makeTmpDir('gitstore');
   mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
   writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
   writeFileSync(join(dir, '.git', 'refs/heads/main'), `${'a'.repeat(40)}\n`);
@@ -19,7 +19,6 @@ beforeEach(() => {
 
 afterEach(() => {
   store.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 describe('GitStore', () => {
@@ -45,14 +44,10 @@ describe('GitStore', () => {
   });
 
   it('caches a directory outside any repository, so the walk happens once', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'orbital-nogit-'));
-    try {
-      expect(store.locate(outside)).toBeNull();
-      expect(store.locate(outside)).toBeNull();
-      expect(store.cwdsFor(outside)).toEqual([]);
-    } finally {
-      rmSync(outside, { recursive: true, force: true });
-    }
+    const outside = makeTmpDir('nogit');
+    expect(store.locate(outside)).toBeNull();
+    expect(store.locate(outside)).toBeNull();
+    expect(store.cwdsFor(outside)).toEqual([]);
   });
 
   it('drops the working tree when its HEAD disappears', () => {

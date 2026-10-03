@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
@@ -8,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { buildServer } from '../src/index.js';
 import { openDb } from '../src/db/database.js';
 import { sessions } from '../src/db/schema.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * What happens to an Orbital session when its `claude` process goes away,
@@ -74,7 +74,7 @@ function fakeQueryFnSelfExiting(): QueryFn {
 }
 
 function tempClaudeDir() {
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-release-e2e-'));
+  const claudeDir = makeTmpDir('release-e2e');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
   return { claudeDir, dbPath: join(claudeDir, 'index.db'), cwd: claudeDir };

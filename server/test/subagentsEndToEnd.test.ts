@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * The whole chain against a real `buildServer`, the one place the pieces meet:
@@ -78,7 +78,7 @@ function fakeQueryFnWithSubagent() {
 }
 
 function tempClaudeDir() {
-  const claudeDir = mkdtempSync(join(tmpdir(), 'orbital-e2e-'));
+  const claudeDir = makeTmpDir('e2e');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
   return { claudeDir, dbPath: join(claudeDir, 'index.db') };

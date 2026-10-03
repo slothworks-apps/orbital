@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GitStore } from '../src/git/store.js';
 import {
@@ -12,17 +11,16 @@ import {
   PR_SETTING,
 } from '../src/git/branchStatusStore.js';
 import type { BranchLines, BranchPr, PrLookup } from '../src/git/branchStatus.js';
+import { makeTmpDir } from './tmp.js';
 
 const SHA = 'a'.repeat(40);
 
-let dirs: string[] = [];
 let git: GitStore;
 let settings: Record<string, string>;
 
 /** A repository on disk with `HEAD` as given and these local branches. */
 function repo(head: string, branches: string[] = ['main']): string {
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-branchstatus-'));
-  dirs.push(dir);
+  const dir = makeTmpDir('branchstatus');
   mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
   writeFileSync(join(dir, '.git', 'HEAD'), head);
   for (const branch of branches) writeFileSync(join(dir, '.git', 'refs/heads', branch), `${SHA}\n`);
@@ -31,8 +29,7 @@ function repo(head: string, branches: string[] = ['main']): string {
 
 /** A linked worktree of `repoDir`, checked out on `branch`. */
 function worktree(repoDir: string, branch: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'orbital-branchstatus-wt-'));
-  dirs.push(dir);
+  const dir = makeTmpDir('branchstatus-wt');
   const gitDir = join(repoDir, '.git', 'worktrees', 'wt');
   mkdirSync(gitDir, { recursive: true });
   writeFileSync(join(gitDir, 'HEAD'), `ref: refs/heads/${branch}\n`);
@@ -82,8 +79,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   git.close();
-  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
-  dirs = [];
 });
 
 describe('BranchStatusStore gating', () => {

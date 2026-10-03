@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
 import { backgroundTasks as backgroundTasksTable, sessions } from '../src/db/schema.js';
@@ -20,6 +19,7 @@ import {
   readExitCode,
   readOutputTail,
 } from '../src/files/taskOutput.js';
+import { makeTmpDir } from './tmp.js';
 
 const started = (over: Record<string, unknown>): TaskEvent =>
   ({ type: 'system', subtype: 'task_started', session_id: 's', description: 'task', ...over }) as TaskEvent;
@@ -39,7 +39,7 @@ function calls(map: Record<string, LaunchingCall>) {
 }
 
 function tempDir() {
-  return mkdtempSync(join(tmpdir(), 'orbital-bg-'));
+  return makeTmpDir('bg');
 }
 
 describe('BackgroundTaskTracker', () => {

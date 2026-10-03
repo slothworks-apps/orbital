@@ -23,6 +23,7 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/health'],
   ['GET', '/api/sessions'],
   ['GET', '/api/sessions/count'],
+  ['GET', '/api/sessions/defaults'],
   ['POST', '/api/sessions'],
   ['GET', '/api/sessions/:id'],
   ['PATCH', '/api/sessions/:id'],
@@ -48,8 +49,15 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/commands'],
 ];
 
-/** Literal paths that would otherwise match a `:id` template. */
-const RESERVED_SEGMENTS = new Set(['retention-preview', 'count']);
+/**
+ * Literal route segments that would otherwise match a `:id` template. Every
+ * literal sibling of `:id` under `/api/sessions` belongs here, whether the
+ * phone may call it (`count`, `defaults` — each passes through its own
+ * literal template, for its one method only) or not (`retention-preview`).
+ * No session is ever named one of these, so an `:id` that spells one is a
+ * request aimed at the literal route, never at a session.
+ */
+const RESERVED_SEGMENTS = new Set(['retention-preview', 'count', 'defaults']);
 
 /** A segment restricted to this alphabet can't spell `.`, `..`, a `%`-escape, or be empty. */
 const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;

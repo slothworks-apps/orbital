@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openDb } from '../src/db/database.js';
 import { DeviceStore } from '../src/remote/devices.js';
 import { IDENTITY_FILE, loadOrCreateIdentity, macDisplayName } from '../src/remote/identity.js';
+import { makeTmpDir } from './tmp.js';
 
 const settings = { needsInput: true, sessionEnded: false, sessionFailed: true, onlyWhenBackground: true, sound: true };
 
 describe('identity', () => {
   it('creates a private key file once and reads it back', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+    const dir = makeTmpDir('remote');
     const a = loadOrCreateIdentity(dir).identity;
     const b = loadOrCreateIdentity(dir).identity;
     expect(b.publicKey).toEqual(a.publicKey);
@@ -23,7 +23,7 @@ describe('identity', () => {
     expect(macDisplayName('  ', 'box')).toBe('box');
   });
   it('a secret key of the wrong length is quarantined and replaced with a fresh identity', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+    const dir = makeTmpDir('remote');
     const path = join(dir, IDENTITY_FILE);
     writeFileSync(path, JSON.stringify({ secretKey: 'YWJj' })); // decodes to 3 bytes, not 32
     const loaded = loadOrCreateIdentity(dir);
@@ -37,7 +37,7 @@ describe('identity', () => {
     expect(again.regenerated).toBe(false);
   });
   it('half a JSON document is quarantined and replaced with a fresh identity', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+    const dir = makeTmpDir('remote');
     const path = join(dir, IDENTITY_FILE);
     writeFileSync(path, '{"secretKey": "abc');
     const fresh = loadOrCreateIdentity(dir).identity;
@@ -47,7 +47,7 @@ describe('identity', () => {
     expect(loadOrCreateIdentity(dir).identity.publicKey).toEqual(fresh.publicKey);
   });
   it('the replacement file is 0600 even when the corrupted one was world-readable', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+    const dir = makeTmpDir('remote');
     const path = join(dir, IDENTITY_FILE);
     writeFileSync(path, 'not json', { mode: 0o644 });
     loadOrCreateIdentity(dir);
@@ -57,7 +57,7 @@ describe('identity', () => {
 
 describe('DeviceStore', () => {
   it('adds, lists, touches, updates notifications and removes', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+    const dir = makeTmpDir('remote');
     const db = openDb(join(dir, 'index.db'));
     const store = new DeviceStore(db);
     store.add({ id: 'p1', name: 'Pixel', platform: 'android', pairedAt: 10, notifications: settings });
@@ -71,7 +71,7 @@ describe('DeviceStore', () => {
     expect(store.list()).toEqual([]);
   });
   it('a row with unreadable notifications falls back to every flag on', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+    const dir = makeTmpDir('remote');
     const db = openDb(join(dir, 'index.db'));
     const store = new DeviceStore(db);
     store.add({ id: 'p1', name: 'Pixel', platform: 'android', pairedAt: 10, notifications: settings });
@@ -79,7 +79,7 @@ describe('DeviceStore', () => {
     expect(store.get('p1')?.notifications).toEqual({ needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true });
   });
   it('re-adding a device keeps its own notifications and lastSeenAt; only name, platform and pairedAt change', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orbital-remote-'));
+    const dir = makeTmpDir('remote');
     const db = openDb(join(dir, 'index.db'));
     const store = new DeviceStore(db);
     store.add({ id: 'p1', name: 'Pixel', platform: 'android', pairedAt: 10, notifications: settings });

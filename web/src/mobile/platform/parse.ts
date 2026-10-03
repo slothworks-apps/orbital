@@ -18,6 +18,8 @@ export interface Pairing {
   macName: string
   fingerprint: string
   pairedAt: number
+  /** The relay's shared secret, from the code; absent for an open relay or a code from an older Mac. */
+  relaySecret?: string
 }
 
 export interface Cached<T> {
@@ -80,7 +82,12 @@ export function parsePairing(raw: string | null): Pairing | null {
   if (typeof p.mac !== 'string' || publicKeyOf(p.mac) === null) return null
   if (typeof p.macName !== 'string' || typeof p.fingerprint !== 'string') return null
   if (typeof p.pairedAt !== 'number' || !Number.isFinite(p.pairedAt)) return null
-  return { relay: p.relay, mac: p.mac, macName: p.macName, fingerprint: p.fingerprint, pairedAt: p.pairedAt }
+  const pairing: Pairing = {
+    relay: p.relay, mac: p.mac, macName: p.macName, fingerprint: p.fingerprint, pairedAt: p.pairedAt,
+  }
+  // Anything but a string reads as no secret: the relay then refuses it, and 9h asks for a new code.
+  if (typeof p.relaySecret === 'string') pairing.relaySecret = p.relaySecret
+  return pairing
 }
 
 export function parseCached<T>(raw: string | null, accept: (value: unknown) => T | null): Cached<T> | null {

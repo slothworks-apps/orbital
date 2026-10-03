@@ -49,6 +49,8 @@ import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
 import { DRAFT_SYSTEM_PROMPT } from './harness/drafter.js';
 import { askReviewer } from './harness/reviewer.js';
+import { gateOf } from './harness/logic.js';
+import type { HarnessGate } from './harness/types.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog } from './models/catalog.js';
@@ -423,6 +425,8 @@ export async function buildServer(overrides: {
   // Templates and the checklists sessions follow (spec
   // 2026-09-30-session-harness-design). `runner` is declared below; every
   // use of it here runs after it exists.
+  /** The gate each session's harness last stood at, to republish only when it flips. */
+  const harnessGates = new Map<string, HarnessGate | null>();
   const harness: HarnessService = new HarnessService({
     db,
     isEnabled: () => settingsStore.get('harness_enabled') === 'true',
@@ -435,14 +439,35 @@ export async function buildServer(overrides: {
     send: (sessionId, text): string | null => runner.send(sessionId, text),
     askWatcher: (prompt) =>
       askWatcher(overrides.titleQueryFn ?? query, prompt, { claudeExecutablePath: claudeCli.path }),
-    askReviewer: (prompt, cwd) =>
-      askReviewer(overrides.titleQueryFn ?? query, prompt, { cwd, claudeExecutablePath: claudeCli.path }),
-    // Sonnet: a template is used for a long time, its quality is worth the call.
-    askDrafter: (prompt) =>
-      askOnce(overrides.titleQueryFn ?? query, prompt, {
-        systemPrompt: DRAFT_SYSTEM_PROMPT, model: 'sonnet', claudeExecutablePath: claudeCli.path,
+    askReviewer: (prompt, cwd, { model, abortController }) =>
+      askReviewer(overrides.titleQueryFn ?? query, prompt, {
+        cwd, model, abortController, claudeExecutablePath: claudeCli.path,
       }),
-    publish: (sessionId, h) => hub.publish(`session:${sessionId}`, { event: 'harness', harness: h }),
+    // The reviewer's default: the model the session asked for, else the one that ran.
+    modelOf: (sessionId) => {
+      const row = db.select({ model: sessions.model, resolvedModel: sessions.resolvedModel })
+        .from(sessions).where(eq(sessions.id, sessionId)).get();
+      return row?.model ?? row?.resolvedModel ?? null;
+    },
+    // The user picks the model per draft (spec 2026-10-02-harness-redesign-design § Drafting model).
+    askDrafter: (prompt, model) =>
+      askOnce(overrides.titleQueryFn ?? query, prompt, {
+        systemPrompt: DRAFT_SYSTEM_PROMPT, model, claudeExecutablePath: claudeCli.path,
+      }),
+    publish: (sessionId, h) => {
+      hub.publish(`session:${sessionId}`, { event: 'harness', harness: h });
+      // A gate waiting or being reviewed is the session's state (spec
+      // 2026-10-02-harness-redesign-design § 2): republish the session when it flips.
+      const gate = h ? gateOf(h) : null;
+      if ((harnessGates.get(sessionId) ?? null) !== gate) {
+        harnessGates.set(sessionId, gate);
+        republish(sessionId);
+      }
+    },
+    // Orbital's own messages, for a transcript open on the session; the file
+    // read marks them the same way after any restart.
+    publishMessage: (sessionId, message) =>
+      hub.publish(`session:${sessionId}`, { event: 'harness_message', message }),
     onError: (sessionId, err, during) =>
       errors.record({
         source: 'server',
@@ -1019,6 +1044,9 @@ export async function buildServer(overrides: {
     .set({ runnerStatus: null })
     .where(isNotNull(sessions.runnerStatus))
     .run();
+  // The same for a harness review the previous server was running: it died
+  // with it, and its gate waits for the user (spec 2026-10-02-harness-redesign-design § 4).
+  harness.recover();
 
   const app = Fastify();
   // I5: DNS-rebinding guard applied to every REST request.

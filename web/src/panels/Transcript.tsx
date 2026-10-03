@@ -1,7 +1,10 @@
-import { useCallback, useLayoutEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { recordedFailureFor, useOrbital } from '../store/store'
-import type { BackgroundTask, ChatMessage, Subagent } from '../lib/types'
+import type { BackgroundTask, ChatMessage, HarnessEvent, SessionHarness, Subagent } from '../lib/types'
+import { harnessEnabled } from '../lib/experimental'
+import { withHarnessRows } from '../lib/harnessSession'
+import { readHarnessOnce } from './HarnessPill'
 import { Button } from '../ui/Button'
 import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
 import { CompactingBlock } from './CompactionMark'
@@ -15,6 +18,7 @@ import { rewindTargetIds } from '../lib/rewind'
  * defeat `useShallow`'s equality check and re-render on every store tick. */
 const NO_SUBAGENTS: Subagent[] = []
 const NO_TASKS: BackgroundTask[] = []
+const NO_EVENTS: HarnessEvent[] = []
 
 export { pairMessages, groupToolRuns, insertModelDividers, summarizeToolRun } from './TranscriptView'
 export type { TranscriptItem, TranscriptGroup } from './TranscriptView'
@@ -152,6 +156,33 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
     [targets, picked, handlePick],
   )
 
+  // The harness in the transcript (canvas 30b): Orbital's messages and the
+  // log's events as dashed ◆ rows. The log is read with the harness and paged
+  // back as far as the transcript held reaches.
+  const harnessOn = useOrbital((s) => harnessEnabled(s.settings))
+  const harness = useOrbital((s) => s.harnesses[sessionId])
+  const removedHarness = useOrbital((s) => s.harnessRemoved[sessionId])
+  const harnessEvents = useOrbital((s) => s.harnessEvents[sessionId] ?? NO_EVENTS)
+  const moreEvents = useOrbital((s) => Boolean(s.harnessEventsMore[sessionId]))
+  useEffect(() => {
+    if (harnessOn && harness === undefined) readHarnessOnce(sessionId)
+  }, [harnessOn, harness, sessionId])
+  const since = useMemo(() => {
+    if (exhausted) return null
+    const first = messages.find((m) => m.timestamp)
+    return first?.timestamp ? Date.parse(first.timestamp) : null
+  }, [messages, exhausted])
+  const oldestEventAt = harnessEvents.length > 0 ? harnessEvents[harnessEvents.length - 1].at : null
+  useEffect(() => {
+    if (moreEvents && oldestEventAt !== null && (since === null || oldestEventAt > since)) {
+      void useOrbital.getState().loadOlderHarnessEvents(sessionId)
+    }
+  }, [moreEvents, oldestEventAt, since, sessionId])
+  const shown = useMemo(() => {
+    const harnesses = [harness, removedHarness].filter((h): h is SessionHarness => h != null)
+    return withHarnessRows(messages, harnessEvents, harnesses, since)
+  }, [messages, harnessEvents, harness, removedHarness, since])
+
   // `TranscriptView` resets its own windowing/scroll state off `resetKey`,
   // but "exhausted" is this session's pagination state, not the view's, so
   // it resets here, off the same switch.
@@ -175,7 +206,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
 
   return (
     <TranscriptView
-      messages={messages}
+      messages={shown}
       isWorking={isWorking}
       models={models}
       resetKey={sessionId}

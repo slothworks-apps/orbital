@@ -21,6 +21,7 @@ import { formatCostAmount, formatPercent, formatStatsDuration, splitTokens } fro
 import { busyMsOf, spanOf } from './rollup'
 import { sessionWaitCounts, waitCountLine } from './humanWait'
 import { WaitSwatch } from './WaitParts'
+import { HarnessStatsSection } from './HarnessStatsSection'
 import { sessionStatsPath } from './route'
 import { MIN_SEGMENT_PX, slowestTurns, turnLabel } from './waterfall'
 
@@ -200,6 +201,8 @@ export function QuickStatsDialog({
               // One finding per rule per session, so the rule is a stable key.
               <FindingRow key={finding.rule} finding={finding} detail={detail} />
             ))}
+
+            <HarnessStatsSection sessionId={session.id} />
 
             <div className="flex items-center gap-3">
               <span className="flex-1" />

@@ -84,12 +84,15 @@ function str(value: unknown): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
+/** The body of a `working → needs_input` transition; a consumer that words it its own way compares against this. */
+export const NEEDS_INPUT_BODY = 'Needs your input';
+
 /** The body of a transition worth reporting, or null when it is not one. */
 function bodyFor(from: string, to: string): string | null {
   if (from === to) return null;
   if (to === 'needs_input') {
     // A turn ending, a permission prompt and an AskUserQuestion all land here.
-    return from === 'working' ? 'Needs your input' : null;
+    return from === 'working' ? NEEDS_INPUT_BODY : null;
   }
   if (to === 'ended') return from === 'working' ? 'Session ended' : null;
   return null;

@@ -406,6 +406,9 @@ export function Settings({ open, onClose }: SettingsProps) {
   )
   const [saved, setSaved] = useState(false)
   const [section, setSection] = useState<SectionKey>(() => initialSection(settings))
+  // Harness templates' editor takes the whole panel, header and nav included (canvas 30k).
+  const [harnessEditing, setHarnessEditing] = useState(false)
+  const editorTakesPanel = section === 'harness' && harnessEditing
   // Appearance preview (canvas 5a): open by default, collapse state lives
   // only for the dialog's visit — deliberately not persisted (spec).
   const [previewOpen, setPreviewOpen] = useState(true)
@@ -853,7 +856,7 @@ export function Settings({ open, onClose }: SettingsProps) {
         >
           <Panel side="float" className="flex h-full w-full flex-col overflow-hidden">
             {/* Header: 22/28/18 padding per canvas 1h. */}
-            <div className="flex items-center gap-3.5 border-b border-[rgba(150,205,255,.1)] px-7 pb-[18px] pt-[22px]">
+            <div className={`${editorTakesPanel ? 'hidden' : 'flex'} items-center gap-3.5 border-b border-[rgba(150,205,255,.1)] px-7 pb-[18px] pt-[22px]`}>
               <button
                 type="button"
                 aria-label="Close"
@@ -896,12 +899,14 @@ export function Settings({ open, onClose }: SettingsProps) {
                 'grid min-h-0 flex-1',
                 section === 'tags'
                   ? 'grid-cols-[240px_minmax(0,330px)_minmax(0,1fr)]'
-                  : 'grid-cols-[240px_minmax(0,1fr)]',
+                  : editorTakesPanel
+                    ? 'grid-cols-[minmax(0,1fr)]'
+                    : 'grid-cols-[240px_minmax(0,1fr)]',
               ].join(' ')}
             >
               {/* Nav column: 240px, 16px/12px padding, 2px row gap (canvas 1h). */}
               <nav
-                className="flex flex-col gap-0.5 border-r border-[rgba(150,205,255,.1)] px-3 py-4"
+                className={`${editorTakesPanel ? 'hidden' : 'flex'} flex-col gap-0.5 border-r border-[rgba(150,205,255,.1)] px-3 py-4`}
                 aria-label="Settings sections"
               >
                 {visibleNavItems(settings).map((item) => (
@@ -940,7 +945,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               {section === 'tags' ? (
                 <TagsRulesSection active onSaved={() => setSaved(true)} />
               ) : section === 'harness' ? (
-                <HarnessTemplatesSection active onSaved={() => setSaved(true)} />
+                <HarnessTemplatesSection active onSaved={() => setSaved(true)} onEditingChange={setHarnessEditing} />
               ) : section === 'mobile' ? (
                 <MobileSection patchAndSet={patchAndSet} onSaved={() => setSaved(true)} />
               ) : section === 'shortcuts' ? (

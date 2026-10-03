@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
-import { openDb, type OrbitalDb } from '../src/db/database.js';
+import type { OrbitalDb } from '../src/db/database.js';
 import { errors as errorsTable } from '../src/db/schema.js';
 import { ErrorLog, MAX_ROWS } from '../src/errors/log.js';
 import { Hub } from '../src/api/hub.js';
+import { openTmpDb } from './tmp.js';
 
 /** Collects everything published on the `errors` topic through a real Hub. */
 function subscribed(hub: Hub) {
@@ -26,7 +24,7 @@ describe('ErrorLog', () => {
   let hub: Hub;
   let log: ErrorLog;
   beforeEach(() => {
-    db = openDb(join(mkdtempSync(join(tmpdir(), 'orbital-errors-')), 'index.db'));
+    db = openTmpDb('errors');
     hub = new Hub();
     log = new ErrorLog({ db, hub });
   });

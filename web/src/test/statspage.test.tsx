@@ -85,7 +85,7 @@ function overview(patch: Partial<StatsOverview> = {}): StatsOverview {
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/stats')
-  vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/Users/t/work/api', lastModel: null }])
+  vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/Users/t/work/api', lastModel: null, lastAt: null }])
   vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
   vi.mocked(api.getSettings).mockResolvedValue({})
 })

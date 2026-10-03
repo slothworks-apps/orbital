@@ -199,6 +199,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   remote_enabled: 'false',
   /** Empty means not set: there is no default relay, and the remote cannot start until the user names one. */
   remote_relay_url: '',
+  /** Empty means an open relay; set, the Mac sends it to the relay and the QR carries it to the phone (ADR the-relay-takes-a-shared-secret). */
+  remote_relay_secret: '',
   /** Empty means the machine's network name (`macDisplayName`). */
   remote_mac_name: '',
 };

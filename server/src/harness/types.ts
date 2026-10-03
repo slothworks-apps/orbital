@@ -38,6 +38,11 @@ export interface HarnessOptions {
   maxReviewerReopens: number;
   /** A reviewer agent decides the gates instead of the user. */
   lucky: boolean;
+  /**
+   * The reviewer's model (an SDK model value). Null: the session's own model
+   * (spec 2026-10-02-harness-redesign-design § 7).
+   */
+  reviewerModel: string | null;
 }
 
 export const DEFAULT_OPTIONS: HarnessOptions = {
@@ -46,6 +51,7 @@ export const DEFAULT_OPTIONS: HarnessOptions = {
   maxIdleNudges: 5,
   maxReviewerReopens: 5,
   lucky: false,
+  reviewerModel: null,
 };
 
 /** One choice the agent made in a step, as it wrote it at the tick. */
@@ -85,7 +91,39 @@ export interface StepState {
   approvedBy?: 'user' | 'reviewer';
   reviews?: StepReview[];
   reviewerReopens?: number;
+  /**
+   * A reviewer is reading this gate right now (REVIEWER READING). Persisted so
+   * a reload shows it; a restart clears it, because a review cannot survive one.
+   */
+  reviewing?: true;
+  /**
+   * The user took this gate from the reviewer ("Decide myself", or a review a
+   * restart cut off): no review starts on it until it leaves the gate, or
+   * lucky is turned on again.
+   */
+  reviewerOff?: true;
+  /** The reviewer sent the step back while paused; its findings go out on resume. */
+  unsentFindings?: true;
+  /**
+   * Earlier runs of this step, oldest first: the record it had before the
+   * user reopened it or went back to it (spec 2026-10-02-harness-redesign-design § 6).
+   */
+  previousRuns?: PreviousRun[];
 }
+
+/** A step's record as it stood when the user reopened it or went back past it. */
+export interface PreviousRun extends Omit<StepState, 'previousRuns' | 'reviewing' | 'reviewerOff' | 'unsentFindings'> {
+  /** When it was set aside (epoch ms). */
+  endedAt: number;
+  /** `went_back`: "before going back"; `reopened`: the user reopened the gate. */
+  reason: 'went_back' | 'reopened';
+}
+
+/** Where a template is offered: everywhere, or in one project's sessions only. */
+export type TemplateScope =
+  | { kind: 'global' }
+  /** `root` is the project's directory (see `projectRootOf`), `name` its basename. */
+  | { kind: 'project'; root: string; name: string };
 
 export interface HarnessTemplate {
   id: number;
@@ -95,9 +133,21 @@ export interface HarnessTemplate {
   inputs: HarnessInput[];
   steps: HarnessStep[];
   options: HarnessOptions;
+  scope: TemplateScope;
+  /**
+   * Written by a drafting conversation and not saved by the user yet: listed
+   * in Settings, never offered when starting a harness. Save clears it.
+   */
+  draft: boolean;
   createdAt: number;
   updatedAt: number;
 }
+
+/** Why a harness paused, for the panel's wording (30f "pause reasons"). */
+export type PauseKind = 'user' | 'nudge_cap' | 'message_cap' | 'review_failed' | 'send_failed' | 'session_ended';
+
+/** What Orbital sent into the session on the harness's account. */
+export type HarnessMessageKind = 'kickoff' | 'advance' | 'nudge' | 'findings';
 
 export interface SessionHarness {
   sessionId: string;
@@ -111,6 +161,15 @@ export interface SessionHarness {
   paused: boolean;
   /** Why the harness paused itself; null when the user paused it or it runs. */
   pauseReason: string | null;
+  /** Which kind of pause, null while it runs. */
+  pauseKind: PauseKind | null;
+  /** When it paused (epoch ms), null while it runs. */
+  pausedAt: number | null;
+  /**
+   * When the user removed it (epoch ms). A removed harness runs nothing; it is
+   * kept so its records stay readable. Null for the session's live harness.
+   */
+  removedAt: number | null;
   /** Messages Orbital sent into the session on its own. */
   autoRounds: number;
   /** Nudges since the last tick or the last message the user typed. */
@@ -134,7 +193,28 @@ export type HarnessEventKind =
   | 'review_started'
   | 'reviewed'
   | 'review_failed'
-  | 'options';
+  /** A running review was stopped: by the user, lucky turned off, or a restart. */
+  | 'review_aborted'
+  | 'options'
+  /** The user went back to a step; the later steps' records are kept as previous runs. */
+  | 'went_back'
+  /** The harness left the session; its records are kept. */
+  | 'removed'
+  /** The harness came over from another session (Clear → new session). */
+  | 'carried_over';
+
+/**
+ * A session's harness gate as the session's state sees it: `waiting` is
+ * NEEDS YOUR OK (the session reads `needs_input`), `reviewing` is REVIEWER
+ * READING (spec 2026-10-02-harness-redesign-design § 2).
+ */
+export type HarnessGate = 'waiting' | 'reviewing';
+
+/** A project as harness scopes know it: a git repository's root, or a plain directory. */
+export interface HarnessProject {
+  root: string;
+  name: string;
+}
 
 export interface HarnessEvent {
   id: number;

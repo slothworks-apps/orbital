@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, rmSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { createImageStore } from '../src/images/store.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * Minimal-but-valid image headers, built by hand so the dimension sniffing
@@ -54,7 +54,7 @@ function webpBytes(w: number, h: number): Buffer {
 
 let dir: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'orbital-images-'));
+  dir = makeTmpDir('images');
 });
 
 describe('createImageStore', () => {
