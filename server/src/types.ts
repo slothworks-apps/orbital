@@ -154,7 +154,7 @@ export interface ChatMessage {
    * (`/context`), absent when the CLI did not say which — a refused command
    * carries no `local_command_run`, and a hook's banner names no command.
    */
-  notice?: { level: NoticeLevel; command?: string };
+  notice?: { level: NoticeLevel; command?: string; kind?: 'limit_reset'; limitReset?: LimitResetNotice };
   /** Images this message carries — refs into the image store, never data.
    * A pasted user image is its own message (no text); a tool_result keeps
    * its text beside them. Spec: 2026-09-18-transcript-images-design. */
@@ -174,6 +174,22 @@ export interface ChatMessage {
    * never counted.
    */
   rewind?: { hiddenCount: number | null };
+}
+
+/**
+ * A `notice` row with `kind: 'limit_reset'`: a usage-limit wait fired (spec
+ * 2026-10-03-usage-limits-design § What the user sees — the divider
+ * "LIMIT RESET 15:00 · CONTINUED"). Published live on `session:<id>` only;
+ * nothing in the transcript file carries it, so a reload does not show it.
+ */
+export interface LimitResetNotice {
+  /** ISO — the window's reset, not the moment the wait fired. */
+  resetsAt: string;
+  windowLabel: string;
+  /** Something was sent: the queued messages or the continuation text. */
+  continued: boolean;
+  /** The text sent, or null when nothing was. */
+  sent: string | null;
 }
 
 /**

@@ -63,6 +63,7 @@ import { buildNarrateDigest } from '../walkthrough/digest.js';
 import { narrationFields } from '../walkthrough/narration.js';
 import type { Narrator } from '../walkthrough/narrator.js';
 import type { Spine, Walkthrough } from '../walkthrough/types.js';
+import type { LimitsService } from '../limits/service.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -140,6 +141,12 @@ export interface RouteContext {
    * (`Runner.stopAndWait`). Tests shorten it; the Runner's default otherwise.
    */
   rewindStopTimeoutMs?: number;
+  /**
+   * Usage limits: the probe's snapshot and the waits (spec
+   * 2026-10-03-usage-limits-design). Absent, the limits routes are not
+   * registered and no message is ever held for a reset.
+   */
+  limits?: LimitsService;
 }
 
 const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);
@@ -1152,6 +1159,34 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
   }
 
+  // ---- Usage limits (spec: 2026-10-03-usage-limits-design) ---------------
+
+  if (ctx.limits) {
+    const limits = ctx.limits;
+    // A wait firing goes into the session the way the composer's text does:
+    // sent if the Runner holds it, revived by resuming if not.
+    limits.deliver = (id, text, attachments) => deliverToSession(id, text, attachments.length ? attachments : undefined);
+
+    /** The cached snapshot at once; a read behind it when it is older than the interval. */
+    app.get('/api/limits', () => limits.get());
+
+    /** Read again, and answer with what was read. */
+    app.post('/api/limits/refresh', async () => {
+      await limits.refresh();
+      return limits.snapshot();
+    });
+
+    /** Cancel and Undo apply to this wait only; the setting is untouched. */
+    app.post('/api/sessions/:id/limit-wait/cancel', (req, reply) => {
+      const { id } = req.params as { id: string };
+      return limits.setCancelled(id, true) ? reply.code(204).send() : reply.code(404).send({ error: 'no_wait' });
+    });
+    app.post('/api/sessions/:id/limit-wait/undo', (req, reply) => {
+      const { id } = req.params as { id: string };
+      return limits.setCancelled(id, false) ? reply.code(204).send() : reply.code(404).send({ error: 'no_wait' });
+    });
+  }
+
   /**
    * Starts a sleeping (or terminal-exited) session again by resuming it with
    * this turn — plain, or truncating when `rewind` says where to fork.
@@ -1314,6 +1349,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // not hand the agent the word (spec 2026-09-29-rewind-design § Behaviour 1).
     if (typeof text === 'string' && LOCAL_COMMANDS.has(text.trim())) {
       return reply.code(400).send({ error: 'local_command' });
+    }
+    // A session waiting for a limit reset does not take the message now: it
+    // is held and sent at the reset, in place of the continuation text (spec
+    // 2026-10-03-usage-limits-design § Writing to a waiting session).
+    if (ctx.limits?.queue(id, typeof text === 'string' ? text : '', attachments)) {
+      return { ok: true, queued: true };
     }
     let delivery: Delivery;
     try {
@@ -1643,6 +1684,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // A harness with steps left pauses, "session ended in step N", ready to be
     // carried into a new session from Clear (spec 2026-10-02-harness-redesign-design § 8).
     ctx.harness.sessionEnded(id);
+    // Ending the session drops its wait for a limit reset, unfired.
+    ctx.limits?.drop(id);
     await ctx.runner.stop(id);
     publishRow(id);
     // An ended drafting conversation is gone from everywhere, the map included.

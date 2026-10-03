@@ -54,6 +54,7 @@ import type { HarnessGate } from './harness/types.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog } from './models/catalog.js';
+import { LIMITS_TOPIC, LimitsService } from './limits/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { RemoteService } from './remote/service.js';
@@ -317,6 +318,31 @@ export async function buildServer(overrides: {
     claudeExecutablePath: claudeCli.path,
   });
 
+  // Usage limits (spec 2026-10-03-usage-limits-design): the probe behind the
+  // limits view, and the waits that continue a session after a reset. With an
+  // API key there are no plan windows, so nothing is probed and nothing waits.
+  // `republish` and `errors` are declared below; both are only called later.
+  const limits: LimitsService = new LimitsService({
+    db,
+    hub,
+    settings: settingsStore,
+    queryFn: overrides.queryFn ?? (query as unknown as QueryFn),
+    tracked: billing !== 'api-key',
+    cwd: process.cwd(),
+    claudeExecutablePath: claudeCli.path,
+    republish: (sessionId) => republish(sessionId),
+    onError: (err, during, sessionId) =>
+      errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId: sessionId ?? null,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: during },
+      }),
+  });
+  limits.load();
+
   // Every session's subagents, keyed by session — running and ended alike,
   // since the subagent list keeps finished rows (subagent list spec § 5). Read back
   // out through `toApiSession`, so a change means "republish the session".
@@ -368,7 +394,7 @@ export async function buildServer(overrides: {
   // session in it open (spec 2026-09-30-branch-pr-and-line-changes-design).
   // The settings are read per call, so a switch applies without a restart.
   const branchStatus = new BranchStatusStore({ git, settings: settingsStore });
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
   /** A session's directory: its row, or the registry for one not indexed yet. */
   const cwdOf = (sessionId: string): string | undefined =>
@@ -689,6 +715,11 @@ export async function buildServer(overrides: {
     // Both edges of a parked question, for the map: `pendingDecision` rides
     // the snapshot, and it is what separates NEEDS INPUT from DONE.
     onDecision: (sessionId) => republish(sessionId),
+    // Usage limits: every event reads the limits again, a turn ended on the
+    // limit may become a wait, and a waiting session settles to `idle`.
+    onRateLimit: () => limits.rateLimitEvent(),
+    onLimitHit: (sessionId, rejected, turnError) => limits.limitHit(sessionId, rejected, turnError),
+    isLimitWaiting: (sessionId) => limits.isWaiting(sessionId),
     // An approved plan left plan mode. Stored on the row, so the panel's mode
     // readout stops claiming the session is read-only and a revive resumes it
     // in the mode it was actually running in — not the one it was launched in
@@ -928,6 +959,8 @@ export async function buildServer(overrides: {
   }
 
   hub.onFirstSubscriber((topic) => {
+    // The probe runs only while someone has the limits view open.
+    if (topic === LIMITS_TOPIC) limits.watch();
     startTail(topic);
     startFollower(topic);
     // An ended session nobody had open was skipped by `republishCwds`, so its
@@ -943,6 +976,7 @@ export async function buildServer(overrides: {
     }
   });
   hub.onLastUnsubscriber((topic) => {
+    if (topic === LIMITS_TOPIC) limits.unwatch();
     stopTail(topic);
     stopFollower(topic);
     if (topic.startsWith('session:')) {
@@ -1103,6 +1137,7 @@ export async function buildServer(overrides: {
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote,
     settings: settingsStore,
     mcp: mcpConfig,
+    limits,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,
     retention: {
@@ -1112,6 +1147,9 @@ export async function buildServer(overrides: {
     },
   });
   remote.start();
+  // After the routes, which give it the path into a session: a wait that fell
+  // due while the server was down fires now.
+  limits.start();
   app.addHook('onClose', (_instance, done) => {
     // First, while the db is still open — and guarded, so nothing it throws
     // can skip the runner and the db below and leave close hanging.
@@ -1121,6 +1159,7 @@ export async function buildServer(overrides: {
       console.warn(`[remote] stop failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     clearImmediate(statsBackfill);
+    limits.dispose();
     runner.dispose();
     registry.close();
     branchStatus.close();

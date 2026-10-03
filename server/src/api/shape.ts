@@ -16,6 +16,11 @@ import type { BranchStatusStore } from '../git/branchStatusStore.js';
 import type { BranchStatus } from '../git/branchStatus.js';
 import type { IdeStore } from '../ide/store.js';
 import type { IdeContext } from '../ide/protocol.js';
+import type { LimitsService } from '../limits/service.js';
+import type { LimitWait } from '../limits/logic.js';
+
+/** The usage-limit wire types, beside the session shape that carries one of them. */
+export type { LimitWait, LimitWindow, LimitsSnapshot, ExtraUsage } from '../limits/logic.js';
 
 /**
  * Minimal context `toApiSession` needs to compute the REST session shape.
@@ -33,6 +38,8 @@ export interface ShapeContext {
   git: GitStore;
   ide: IdeStore;
   branchStatus: BranchStatusStore;
+  /** Usage-limit waits. Optional so a context built without one shapes every session as not waiting. */
+  limits?: Pick<LimitsService, 'waitFor'>;
 }
 
 export interface ApiSession {
@@ -196,6 +203,14 @@ export interface ApiSession {
    * without a harness or a gate (spec 2026-10-02-harness-redesign-design § 2).
    */
   harnessGate: HarnessGate | null;
+  /**
+   * The usage-limit window this session waits for, or null (spec
+   * 2026-10-03-usage-limits-design § 1). While it waits the session reads
+   * `idle`; like `awaitingSubagents` this is a label on a status, not a
+   * fifth one (adr what-a-session-waits-for-is-a-label). Only Orbital's own
+   * sessions ever wait.
+   */
+  limitWait: LimitWait | null;
 }
 
 /** The gate the session's live harness stands at, or null. */
@@ -290,6 +305,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     rewindPending: rewindPendingOf(ctx.db, row.id),
     purpose: row.purpose ?? null,
     harnessGate: harnessGateOf(ctx.db, row.id),
+    limitWait: ctx.limits?.waitFor(row.id) ?? null,
   };
 }
 

@@ -17,6 +17,7 @@ import type { PermissionWait } from '../stats/compute.js';
 import { TASK_LAUNCHING_TOOLS, type LaunchingCall } from '../transcript/backgroundTasks.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import { noticeFromSdkMessage } from '../transcript/notices.js';
+import { readRateLimitInfo, type RejectedLimit } from '../limits/logic.js';
 import {
   compactSummaryText,
   failureMessage,
@@ -171,6 +172,8 @@ export type QueryFn = (args: {
   supportedModels?: () => Promise<unknown[]>;
   supportedCommands?: () => Promise<unknown[]>;
   getContextUsage?: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown>;
+  /** The `get_usage` control request — the limits probe's one question (spec 2026-10-03-usage-limits-design § 2). */
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (opts?: { skipBehaviors?: boolean }) => Promise<unknown>;
 };
 
 /**
@@ -660,6 +663,14 @@ interface ManagedSession {
    * `mcpServers` answers from when the live query cannot be asked.
    */
   mcpSnapshot: unknown[] | null;
+  /**
+   * The `rejected` `rate_limit_event` seen during the turn in flight, or
+   * null. Read and cleared when the turn ends (spec
+   * 2026-10-03-usage-limits-design § Trigger).
+   */
+  limitRejected: RejectedLimit | null;
+  /** The `error` of the main loop's latest assistant frame this turn, or null. */
+  turnError: string | null;
 }
 
 /**
@@ -777,6 +788,9 @@ export class Runner {
   private onTaskOutputPath?: (sessionId: string, toolUseId: string, path: string) => void;
   private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
   private onDecision?: (sessionId: string) => void;
+  private onRateLimit?: (sessionId: string) => void;
+  private onLimitHit?: (sessionId: string, rejected: RejectedLimit, turnError: string | null) => Promise<unknown> | unknown;
+  private isLimitWaiting?: (sessionId: string) => boolean;
   private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
   private onPermissionWait?: (sessionId: string, wait: PermissionWait) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
@@ -943,6 +957,17 @@ export class Runner {
      * both edges; the status alone cannot carry it, both being `needs_input`.
      */
     onDecision?: (sessionId: string) => void;
+    /** A `rate_limit_event` arrived, whatever its status — the limits view reads again. */
+    onRateLimit?: (sessionId: string) => void;
+    /**
+     * A main turn ended after a `rejected` `rate_limit_event`; `turnError` is
+     * the error its last main-loop frame carried. Awaited before the status
+     * settles, so a wait it makes is already standing when `isLimitWaiting`
+     * is asked (spec 2026-10-03-usage-limits-design § Trigger).
+     */
+    onLimitHit?: (sessionId: string, rejected: RejectedLimit, turnError: string | null) => Promise<unknown> | unknown;
+    /** The session is waiting for a usage limit to reset: a finished turn reads `idle`, not `needs_input`. */
+    isLimitWaiting?: (sessionId: string) => boolean;
     /**
      * The session's permission mode changed mid-run — which today happens on
      * exactly one edge, an approved plan leaving plan mode
@@ -1030,6 +1055,9 @@ export class Runner {
     this.onTaskOutputPath = deps.onTaskOutputPath;
     this.onTurnBoundary = deps.onTurnBoundary;
     this.onDecision = deps.onDecision;
+    this.onRateLimit = deps.onRateLimit;
+    this.onLimitHit = deps.onLimitHit;
+    this.isLimitWaiting = deps.isLimitWaiting;
     this.onPermissionMode = deps.onPermissionMode;
     this.onPermissionWait = deps.onPermissionWait;
     this.onError = deps.onError;
@@ -1090,7 +1118,9 @@ export class Runner {
     const s = this.sessions.get(sessionId);
     if (!s || s.decision) return;
     const busy = !s.turnEnded || this.hasLiveBackgroundWork?.(sessionId) === true;
-    const want: SessionStatus = busy ? 'working' : 'needs_input';
+    // A session waiting for a usage limit to reset is `idle`: nothing will
+    // move before the reset, and nobody is being asked anything.
+    const want: SessionStatus = busy ? 'working' : this.isLimitWaiting?.(sessionId) ? 'idle' : 'needs_input';
     if (s.status === want) return;
     this.setStatus(sessionId, want);
     if (busy) {
@@ -1262,6 +1292,7 @@ export class Runner {
       rewind: opts.rewind ?? null, rewindRefused: false,
       openToolUses: new Set(), danglingCall: 'none',
       mcpSnapshot: null,
+      limitRejected: null, turnError: null,
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -1523,6 +1554,15 @@ export class Runner {
       this.onCompaction?.(sessionId, { type: 'succeeded' });
       return;
     }
+    // The plan's usage, as the CLI hears it per request. A `rejected` one is
+    // remembered for the turn's end, which decides whether it makes a wait;
+    // every one asks the limits view to read again.
+    if (msg.type === 'rate_limit_event') {
+      const read = readRateLimitInfo(msg.rate_limit_info);
+      if (read && read !== 'allowed') state.limitRejected = read;
+      this.onRateLimit?.(sessionId);
+      return;
+    }
     if (msg.type === 'system' && msg.subtype === 'commands_changed') {
       const s = this.sessions.get(sessionId);
       if (s && Array.isArray(msg.commands)) s.commands = shapeCommands(msg.commands);
@@ -1558,6 +1598,9 @@ export class Runner {
       // `hasLiveBackgroundWork` already speaks for them, and only the main
       // loop's own turn can be said to have ended.
       if (msg.parent_tool_use_id == null) this.noteOpenToolUses(state, msg);
+      if (msg.type === 'assistant' && msg.parent_tool_use_id == null) {
+        state.turnError = typeof msg.error === 'string' ? msg.error : null;
+      }
       if (msg.parent_tool_use_id == null) {
         const s = this.sessions.get(sessionId);
         const began = s?.turnEnded === true;
@@ -1673,6 +1716,21 @@ export class Runner {
       // The turn is over — but whether the SESSION is waiting for the
       // human depends on what it left running behind it, which is
       // `settleStatus`'s call to make.
+      // A turn that ended on the plan's limit becomes a wait before the
+      // status settles, so the session goes straight to `idle` rather than
+      // through NEEDS INPUT.
+      const rejected = state.limitRejected;
+      const turnError = state.turnError;
+      state.limitRejected = null;
+      state.turnError = null;
+      if (rejected && this.onLimitHit) {
+        try {
+          await this.onLimitHit(sessionId, rejected, turnError);
+        } catch (err) {
+          console.warn('orbital: failed to record a limit wait:', err);
+        }
+        if (this.sessions.get(sessionId) !== state) return;
+      }
       const s = this.sessions.get(sessionId);
       if (s) s.turnEnded = true;
       // A compaction never outlives the turn it ran in; the republish below
