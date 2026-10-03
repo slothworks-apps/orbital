@@ -197,6 +197,75 @@ export interface ApiSession {
    * Mirrors `server/src/api/shape.ts` (spec 2026-10-02-harness-redesign-design § 2).
    */
   harnessGate?: HarnessGate | null
+  /**
+   * The session ran out of a plan limit and waits for its window to reset,
+   * or null (spec 2026-10-03-usage-limits-design § 1). While it waits the
+   * status is `idle`; the wait is a label on it, like `interruptedAt`, not a
+   * status of its own. Mirrors `server/src/api/shape.ts`.
+   *
+   * Optional here, like every other snapshot field added after the fixtures.
+   */
+  limitWait?: LimitWait | null
+}
+
+/**
+ * A session's wait for a plan limit to reset. `willContinue` is the server's
+ * answer to "will something be sent at the reset" — the setting, the wait's
+ * own Cancel and the queued messages, read together. `queued` are the
+ * messages the user wrote during the wait, in order; they go out at the
+ * reset. Mirrors `server/src/types.ts`.
+ */
+export interface LimitWait {
+  resetsAt: string
+  windowKind: string
+  windowLabel: string
+  cancelled: boolean
+  willContinue: boolean
+  queued: string[]
+}
+
+/** The server's grading of a window; anything else it sends reads as `normal`. */
+export type LimitSeverity = 'normal' | 'warning' | 'critical'
+
+/** One row of the plan's usage, in the server's order (spec § 2 "Content"). */
+export interface LimitWindow {
+  kind: string
+  label: string
+  /** What the window covers, when the server names it ("all models"). */
+  scope?: string | null
+  percent: number
+  resetsAt: string | null
+  severity: string
+}
+
+/** Extra usage; money in the currency's minor units. */
+export interface ExtraUsage {
+  enabled: boolean
+  usedCredits: number | null
+  monthlyLimit: number | null
+  percent: number | null
+  currency: string | null
+}
+
+/** One session waiting for a reset, as the limits view lists it. */
+export interface LimitsWaitRow {
+  sessionId: string
+  title: string
+  resetsAt: string
+  windowLabel: string
+  willContinue: boolean
+}
+
+/** `GET /api/limits` and the `limits` topic's frames. Mirrors `server/src/types.ts`. */
+export interface LimitsSnapshot {
+  /** False under an API key: there are no plan windows to show. */
+  tracked: boolean
+  readAt: string | null
+  /** The last read failed; what is shown is the one before it. */
+  stale: boolean
+  windows: LimitWindow[]
+  extraUsage: ExtraUsage | null
+  waits: LimitsWaitRow[]
 }
 
 /** Where the caret is, and what is selected under it. */
@@ -455,8 +524,13 @@ export interface ChatMessage {
    * `notice` rows only. `command` is the slash command whose output this is
    * (`/context`), absent when the CLI did not name one. Mirrors
    * `server/src/types.ts`.
+   *
+   * `kind: 'limit_reset'` is Orbital's own row where a limit wait fired
+   * (spec 2026-10-03-usage-limits-design § 1): `resetsAt` is the reset, and
+   * `text` the message it sent, empty when nothing went out. Drawn as a
+   * divider, not as a printout.
    */
-  notice?: { level: NoticeLevel; command?: string }
+  notice?: { level: NoticeLevel; command?: string; kind?: 'limit_reset'; resetsAt?: string }
   /** `compaction` rows only. Mirrors `server/src/types.ts`. */
   compaction?: CompactionMark
   /** `rewind` rows only: N, or null for a rewind done in the terminal. Mirrors `server/src/types.ts`. */
