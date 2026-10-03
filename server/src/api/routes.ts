@@ -8,7 +8,7 @@ import { presentBranch, readTranscriptBranch, type BranchRead } from '../transcr
 import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { expandHome } from '../paths.js';
-import { readFilePreview, readImageFile } from '../files/preview.js';
+import { NamedPathCache, readFilePreview, readImageFile } from '../files/preview.js';
 import { completeFilePath } from '../files/complete.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
@@ -320,6 +320,13 @@ const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'imag
 export const TRANSCRIPT_CACHE_SESSIONS = 3;
 
 /**
+ * How many (session, path) answers of "did the transcript name it" the file
+ * viewer keeps. Each is a stamp and a boolean, so the cap can be generous:
+ * it only has to outlast the paths of the sessions the user is reading.
+ */
+const NAMED_PATH_CACHE_ENTRIES = 512;
+
+/**
  * How many distinct directories `GET /api/projects` answers. Generous on
  * purpose: the phone's New Session picker has no file system to browse, so
  * this list is every place it can start a session without typing a path.
@@ -365,6 +372,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const rewindStore = new RewindStore(db);
   /** Walkthrough spines by transcript path; selecting a session asks for one. */
   const spines = new StampedCache<Spine>(TRANSCRIPT_CACHE_SESSIONS);
+  /** Which outside-cwd paths a session's transcripts named, for the file viewer. */
+  const namedPaths = new NamedPathCache(NAMED_PATH_CACHE_ENTRIES);
+  /** The file viewer's named-path check for one session row. */
+  const namedBy = (id: string, row: SessionRow) =>
+    namedPaths.forSession(id, join(ctx.projectsDir, row.project_dir, `${id}.jsonl`));
   /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
   let carry: CarryHarness | null = null;
 
@@ -643,8 +655,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // The file viewer's read (spec 2026-09-19-file-viewer-design). The session
   // row's cwd is the sandbox, and `readFilePreview` owns the whole security
   // story — realpath before any check, so neither `..` nor a symlink names
-  // anything outside it. The path is taken verbatim: a `:line` suffix never
-  // travels here, the client keeps it for scrolling.
+  // anything outside it. Past the cwd it reads only an absolute path the
+  // session's transcripts name (spec 2026-10-03-api-token-and-named-files-design
+  // § 2). The path is taken verbatim: a `:line` suffix never travels here,
+  // the client keeps it for scrolling.
   app.get('/api/files', (req, reply) => {
     const q = req.query as Record<string, string>;
     if (!q.session || !q.path) return reply.code(400).send({ error: 'missing_params' });
@@ -652,7 +666,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    const result = readFilePreview(row.cwd, q.path);
+    const result = readFilePreview(row.cwd, q.path, namedBy(q.session, row));
     switch (result.kind) {
       case 'ok':
         return {
@@ -673,7 +687,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   // An image a prose path names, for the lightbox — the same sandbox as the
-  // read above (`readImageFile` confines through `resolveInsideCwd`). Not
+  // read above (`readImageFile` confines through `resolveForSession`). Not
   // cached: unlike `/api/images/:ref` the file on disk can change under the
   // same path. An SVG is served sandboxed, so opening this URL directly
   // cannot run a script it carries on Orbital's origin.
@@ -684,7 +698,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    const result = readImageFile(row.cwd, q.path);
+    const result = readImageFile(row.cwd, q.path, namedBy(q.session, row));
     switch (result.kind) {
       case 'ok':
         reply.header('content-type', result.contentType);

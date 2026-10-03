@@ -198,7 +198,7 @@ describe('FileViewer', () => {
     renderViewer('~/.ssh/config')
 
     expect(await screen.findByText('OUTSIDE SESSION FOLDER')).toBeInTheDocument()
-    expect(screen.getByText(/Orbital only reads inside/)).toBeInTheDocument()
+    expect(screen.getByText(/Orbital reads inside.*and files this session named/)).toBeInTheDocument()
     expect(screen.getByText('/home/tomin/work/platform/web')).toBeInTheDocument()
     expect(screen.getByText('not read')).toBeInTheDocument()
   })

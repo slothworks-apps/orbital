@@ -1,3 +1,4 @@
+import { onUnauthorized } from './unauthorized'
 import { OrbitalSocket, resolveWsUrl, type OrbitalSocketOptions } from './ws'
 
 export type SocketImpl = NonNullable<OrbitalSocketOptions['WebSocketImpl']>
@@ -35,10 +36,15 @@ export function configureSocket(opts: { WebSocketImpl: SocketImpl }): void {
  */
 export function getSocket(): OrbitalSocket {
   if (!instance) {
-    instance = new OrbitalSocket(
+    const socket = new OrbitalSocket(
       resolveWsUrl('/ws', window.location),
       socketImpl ? { WebSocketImpl: socketImpl } : undefined,
     )
+    instance = socket
+    // A page the server refused for lacking the API token: its handshakes are
+    // refused too, and a browser cannot see why, so it would keep
+    // reconnecting behind the unauthorized screen. `lib/api` notices the 401.
+    if (!socketImpl) onUnauthorized(() => socket.close())
   }
   return instance
 }

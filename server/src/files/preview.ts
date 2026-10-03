@@ -1,6 +1,9 @@
-import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, resolve, sep } from 'node:path';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { expandHome } from '../paths.js';
+import { dirStamp, fileStamp } from '../transcript/stampedCache.js';
+import { subagentDirOf } from '../walkthrough/subagents.js';
 
 /** Over this, the viewer refuses rather than the render path suffering —
  * `too_large` is decided from the stat alone, without reading a byte. */
@@ -43,7 +46,8 @@ export type ConfinedPath =
  * This is the whole security story for every route that takes a path, which is
  * why it is one function rather than a rule each of them re-implements: the
  * file viewer's read (`readFilePreview`) and the composer's `@` completion
- * (`completeFilePath`) confine identically.
+ * (`completeFilePath`) confine identically. The viewer's reads go through
+ * `resolveForSession`, which asks this first and widens only past it.
  *
  * Both sides are realpath'd before comparing, so a symlink inside cwd pointing
  * out resolves to where it actually leads and is refused — the spelling of the
@@ -82,6 +86,173 @@ export function resolveInsideCwd(cwd: string, rawPath: string): ConfinedPath {
   return { kind: 'ok', path: resolved };
 }
 
+/** Bytes that continue a path: a match with one of these on either side is
+ * part of a longer path, so `/tmp/ab` does not name `/tmp/a`. */
+const PATH_CHAR = /[A-Za-z0-9._-]/;
+
+/** What also may not come just before a match: `/x` inside `~/x` or `//x`
+ * is a different file. */
+const LEADING_PATH_CHAR = /[A-Za-z0-9._~/-]/;
+
+/** The letters of JSON's one-character escapes. In a JSONL line,
+ * `\n/tmp/shot.png` is a newline before the path, not an `n` glued to it. */
+const JSON_ESCAPE_LETTER = /[bfnrt]/;
+
+/**
+ * Whether the letter just before `at` is escaped — an odd run of backslashes
+ * before it, since `\\n` is an escaped backslash and then a plain `n`.
+ */
+function escapedLetterBefore(haystack: Buffer, at: number): boolean {
+  let slashes = 0;
+  for (let i = at - 2; i >= 0 && haystack[i] === 0x5c; i--) slashes++;
+  return slashes % 2 === 1;
+}
+
+/** Whether `needle` occurs in `haystack` with no path byte on either side;
+ * a rejected occurrence does not end the search. */
+function containsBounded(haystack: Buffer, needle: Buffer): boolean {
+  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + 1)) {
+    const before = at > 0 ? String.fromCharCode(haystack[at - 1]) : '';
+    // Dots that end a sentence, "saved to /tmp/shot.png.", end the path
+    // too — unless the path goes on after them, as in `/tmp/shot.png.bak`.
+    let end = at + needle.length;
+    while (end < haystack.length && haystack[end] === 0x2e) end++;
+    const after = end < haystack.length ? String.fromCharCode(haystack[end]) : '';
+    const beforeOk =
+      !LEADING_PATH_CHAR.test(before) ||
+      (JSON_ESCAPE_LETTER.test(before) && escapedLetterBefore(haystack, at));
+    if (beforeOk && !PATH_CHAR.test(after)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a session's transcripts name `rawPath` — the second way into the
+ * file viewer (spec 2026-10-03-api-token-and-named-files-design § 2). Only an
+ * absolute path qualifies; a relative one is the cwd's business alone.
+ *
+ * A byte search, no parsing: each spelling is looked for as written and in
+ * its JSON string forms, since JSONL writers escape `"`, `\` and non-ASCII. A
+ * `~/` path and its expansion name the same file and the transcript may hold
+ * either, so both are searched whichever one the client sent. A transcript
+ * that cannot be read names nothing.
+ */
+export function namedInTranscript(
+  transcriptPaths: string[],
+  rawPath: string,
+  home: string = homedir(),
+): boolean {
+  const written = rawPath.trim();
+  const expanded = expandHome(written, home);
+  if (!isAbsolute(expanded)) return false;
+
+  const spellings = new Set([written, expanded]);
+  if (expanded.startsWith(home + sep)) spellings.add('~' + expanded.slice(home.length));
+  const needles: Buffer[] = [];
+  for (const spelling of spellings) {
+    needles.push(Buffer.from(spelling));
+    const json = JSON.stringify(spelling).slice(1, -1);
+    if (json !== spelling) needles.push(Buffer.from(json));
+    // `JSON.stringify` keeps non-ASCII as is; ASCII-only writers do not.
+    const ascii = json.replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    if (ascii !== json) needles.push(Buffer.from(ascii));
+  }
+
+  for (const path of transcriptPaths) {
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(path);
+    } catch {
+      continue;
+    }
+    if (needles.some((needle) => containsBounded(bytes, needle))) return true;
+  }
+  return false;
+}
+
+/** A session's transcript files: the main JSONL, then every subagent's. */
+export function sessionTranscriptFiles(transcriptPath: string): string[] {
+  const dir = subagentDirOf(transcriptPath);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    names = [];
+  }
+  const agents = names.filter((name) => name.endsWith('.jsonl')).sort();
+  return [transcriptPath, ...agents.map((name) => join(dir, name))];
+}
+
+/** Whether the session at hand named a path; see `namedInTranscript`. */
+export type NamedCheck = (rawPath: string) => boolean;
+
+/** Names nothing — the cwd alone confines. */
+const NAMES_NOTHING: NamedCheck = () => false;
+
+/**
+ * `namedInTranscript` per (session, path), held under the stamp of the
+ * session's transcript files the way `spineFor` holds its spines.
+ *
+ * A yes is kept whatever the stamp does: the CLI only appends to a
+ * transcript, so a path once named stays named. A no is asked again once the
+ * stamp moves. Bounded by count, the least recently asked out first.
+ */
+export class NamedPathCache {
+  private entries = new Map<string, { stamp: string; named: boolean }>();
+
+  constructor(private readonly max: number) {}
+
+  /** The check for one session, whose main transcript is `transcriptPath`. */
+  forSession(sessionId: string, transcriptPath: string): NamedCheck {
+    return (rawPath) => {
+      const key = `${sessionId}\0${rawPath}`;
+      const hit = this.entries.get(key);
+      // Re-inserted either way, so the Map's order stays most-recent-last.
+      if (hit) this.entries.delete(key);
+      let entry: { stamp: string; named: boolean };
+      if (hit?.named) {
+        entry = hit;
+      } else {
+        // The subagents' files are part of the stamp: an agent can name a
+        // path while the parent file sits still.
+        const stamp = `${fileStamp(transcriptPath) ?? '-'}#${dirStamp(subagentDirOf(transcriptPath))}`;
+        entry = hit?.stamp === stamp
+          ? hit
+          : { stamp, named: namedInTranscript(sessionTranscriptFiles(transcriptPath), rawPath) };
+      }
+      this.entries.set(key, entry);
+      while (this.entries.size > this.max) {
+        this.entries.delete(this.entries.keys().next().value as string);
+      }
+      return entry.named;
+    };
+  }
+}
+
+/**
+ * Confines a path to what a session may show: inside its cwd
+ * (`resolveInsideCwd`, asked first and unchanged), or an absolute path its
+ * transcripts name.
+ *
+ * The spelling decides the check and the realpath decides the read: the
+ * agent writes `/tmp/shot.png`, the transcript and the client spell it so,
+ * and on macOS the bytes come from `/private/tmp/shot.png`. A named symlink
+ * is therefore followed wherever it leads — the agent that named it could
+ * read the target itself.
+ */
+export function resolveForSession(cwd: string, rawPath: string, named: NamedCheck): ConfinedPath {
+  const confined = resolveInsideCwd(cwd, rawPath);
+  if (confined.kind !== 'outside') return confined;
+
+  const expanded = expandHome(rawPath);
+  if (!isAbsolute(expanded) || !named(rawPath)) return confined;
+  try {
+    return { kind: 'ok', path: realpathSync(expanded) };
+  } catch {
+    return { kind: 'not_found' };
+  }
+}
+
 export type PreviewResult =
   | { kind: 'ok'; content: string; size: number; mtimeMs: number; lines: number }
   | { kind: 'not_found' }
@@ -92,10 +263,11 @@ export type PreviewResult =
 /**
  * Reads a file for the viewer, refusals first
  * (spec: 2026-09-19-file-viewer-design § Server). The session's cwd is the
- * sandbox and `resolveInsideCwd` is what holds the path to it.
+ * sandbox, widened by `named` to the files its transcript names, and
+ * `resolveForSession` is what holds the path to it.
  */
-export function readFilePreview(cwd: string, rawPath: string): PreviewResult {
-  const confined = resolveInsideCwd(cwd, rawPath);
+export function readFilePreview(cwd: string, rawPath: string, named: NamedCheck = NAMES_NOTHING): PreviewResult {
+  const confined = resolveForSession(cwd, rawPath, named);
   if (confined.kind !== 'ok') return confined;
   const resolved = confined.path;
 
@@ -145,8 +317,8 @@ export type ImageFileResult =
  * `readFilePreview`, under the same size cap; the extension decides the type
  * because it is all an `<img>` needs and nothing here interprets the bytes.
  */
-export function readImageFile(cwd: string, rawPath: string): ImageFileResult {
-  const confined = resolveInsideCwd(cwd, rawPath);
+export function readImageFile(cwd: string, rawPath: string, named: NamedCheck = NAMES_NOTHING): ImageFileResult {
+  const confined = resolveForSession(cwd, rawPath, named);
   if (confined.kind !== 'ok') return confined;
   const resolved = confined.path;
 

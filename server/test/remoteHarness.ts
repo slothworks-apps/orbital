@@ -44,7 +44,7 @@ export type MacAndRelay = {
  */
 export async function startMacAndRelay(
   closers: (() => unknown)[],
-  opts: { settings?: [string, string][]; beforeBoot?: (dir: string) => void } = {},
+  opts: { settings?: [string, string][]; beforeBoot?: (dir: string) => void; apiToken?: string } = {},
 ): Promise<MacAndRelay> {
   const relay = await buildRelay({ store: await openRelayStore(':memory:') });
   const relayUrl = await listen(relay);
@@ -62,9 +62,10 @@ export async function startMacAndRelay(
   // Seeded before boot so the remote starts enabled; the server opens its own handle.
   db.$client.close();
   opts.beforeBoot?.(dir);
-  const app = await buildServer({ dbPath, claudeDir: join(dir, 'claude'), dataDir: dir });
+  const app = await buildServer({ dbPath, claudeDir: join(dir, 'claude'), dataDir: dir, apiToken: opts.apiToken });
   closers.push(() => app.close());
-  const api: MacAndRelay['api'] = (method, url, payload) => app.inject({ method, url, payload: payload as any });
+  const headers = opts.apiToken === undefined ? undefined : { authorization: `Bearer ${opts.apiToken}` };
+  const api: MacAndRelay['api'] = (method, url, payload) => app.inject({ method, url, payload: payload as any, headers });
 
   await until(async () => (await api('GET', '/api/remote')).json().relay === 'online');
   return { relayUrl, app, dir, api };

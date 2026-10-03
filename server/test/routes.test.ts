@@ -1936,6 +1936,41 @@ describe('GET /api/files', () => {
   });
 });
 
+// Files the session named (spec 2026-10-03-api-token-and-named-files-design
+// § 2): outside the cwd, the viewer reads an absolute path the session's
+// transcript names, and nothing else.
+describe('GET /api/files — files the session named', () => {
+  it('reads a named file outside the cwd and refuses an unnamed one', async () => {
+    const projectsDir = makeTmpDir('named-routes');
+    const outside = makeTmpDir('named-outside');
+    const named = join(outside, 'named.txt');
+    const unnamed = join(outside, 'unnamed.txt');
+    writeFileSync(named, 'named by the agent');
+    writeFileSync(unnamed, 'never mentioned');
+    mkdirSync(join(projectsDir, 'p'), { recursive: true });
+    writeFileSync(
+      join(projectsDir, 'p', 'sn.jsonl'),
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: `Wrote ${named}` }] } }) + '\n',
+    );
+    const { app, db } = makeApp({ projectsDir });
+    db.insert(sessions)
+      .values({
+        id: 'sn', projectDir: 'p', cwd: makeTmpDir('named-cwd'), title: 'named', lastAt: 300,
+        source: 'web', permissionMode: null,
+      })
+      .run();
+    const get = (path: string) =>
+      app.inject({ method: 'GET', url: `/api/files?session=sn&path=${encodeURIComponent(path)}` });
+
+    const ok = await get(named);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().content).toBe('named by the agent');
+    const refused = await get(unnamed);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toEqual({ error: 'outside_cwd' });
+  });
+});
+
 describe('GET /api/files/image', () => {
   let app: FastifyInstance;
   let cwd: string;

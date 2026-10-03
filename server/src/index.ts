@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import websocket from '@fastify/websocket';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
@@ -59,6 +59,14 @@ import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { RemoteService } from './remote/service.js';
 import { remoteInjectOptions } from './remote/inject.js';
+import {
+  API_TOKEN_COOKIE,
+  loadOrCreateApiToken,
+  safeNext,
+  tokenFromBearer,
+  tokenFromCookie,
+  tokenMatches,
+} from './auth/token.js';
 import { createFileStore } from './files/store.js';
 import type { SessionRow } from './types.js';
 
@@ -223,7 +231,17 @@ export async function buildServer(overrides: {
   rewindStopTimeoutMs?: number;
   /** Where the identity file and images live; tests point it at a temp dir. */
   dataDir?: string;
+  /**
+   * The token `/api` and `/ws` require (`auth/token.ts`). Only tests may
+   * leave it out, which turns the guard off; the entry point below always
+   * loads one, and anything else without it refuses to start.
+   */
+  apiToken?: string;
 } = {}): Promise<FastifyInstance> {
+  const apiToken = overrides.apiToken;
+  if (apiToken === undefined && !process.env.VITEST) {
+    throw new Error('buildServer needs an apiToken outside the test suite');
+  }
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
   // it unless the operator explicitly opts into API-key billing.
@@ -1063,12 +1081,46 @@ export async function buildServer(overrides: {
   harness.recover();
 
   const app = Fastify();
-  // I5: DNS-rebinding guard applied to every REST request.
+  // Either carrier will do: the cookie `GET /api/auth` sets for the web app,
+  // or a bearer for the desktop main process and the phone's `inject`.
+  const authenticated = (req: FastifyRequest): boolean =>
+    apiToken === undefined ||
+    tokenMatches(tokenFromCookie(req.headers.cookie), apiToken) ||
+    tokenMatches(tokenFromBearer(req.headers.authorization), apiToken);
   app.addHook('onRequest', async (req, reply) => {
+    // I5: DNS-rebinding guard applied to every REST request.
     if (!isAllowedHost(req.headers.host)) {
       return reply.code(403).send({ error: 'host not allowed' });
     }
+    // The route Fastify matched decides, not the raw path: the router decodes
+    // before matching, so `/%61pi/sessions` reaches `/api/sessions` while its
+    // spelling does not start with `/api`. The raw path still counts, so an
+    // unmatched `/api/...` 404s behind the guard too.
+    const route = req.routeOptions.url;
+    const path = req.url.split('?')[0];
+    const isApi = (p: string | undefined) => p !== undefined && (p === '/api' || p.startsWith('/api/'));
+    const api = isApi(route) || isApi(path);
+    // C2's rule on REST too: cookies are not isolated by port, so a page on
+    // another local server is same-site and its fetch would carry the cookie.
+    if (api && !isAllowedWsOrigin(req.headers.origin, CONFIG.port)) {
+      return reply.code(403).send({ error: 'origin not allowed' });
+    }
+    if (!api && route !== '/ws' && path !== '/ws') return; // the public bundle and the SPA fallback
+    const read = req.method === 'GET' || req.method === 'HEAD';
+    if (read && (route === '/api/auth' || route === '/api/health')) return;
+    if (!authenticated(req)) return reply.code(401).send({ error: 'unauthorized' });
   });
+  // How the browser gets the cookie: the link the server prints, or the
+  // desktop window's first load. Under `/api` so vite's dev proxy forwards it
+  // and the cookie lands on whichever host the user is actually on.
+  if (apiToken !== undefined) {
+    app.get<{ Querystring: { token?: string; next?: string } }>('/api/auth', (req, reply) => {
+      if (!tokenMatches(req.query.token, apiToken)) return reply.code(401).send({ error: 'unauthorized' });
+      return reply
+        .header('set-cookie', `${API_TOKEN_COOKIE}=${apiToken}; HttpOnly; SameSite=Strict; Path=/`)
+        .redirect(safeNext(req.query.next), 302);
+    });
+  }
   await app.register(websocket);
   // The one non-JSON body Orbital takes: a composer attachment
   // (`POST /api/sessions/:id/attachments`). The route sets its own size limit
@@ -1108,7 +1160,9 @@ export async function buildServer(overrides: {
   // tells it whether this server has a web app to show at all: attached to a
   // dev server there is none here, and its window belongs on vite. All three
   // field names are a contract with it.
-  app.get('/api/health', () => ({
+  // Without the token it answers only the first two: enough to tell Orbital
+  // from another service, nothing about this machine.
+  app.get('/api/health', (req) => !authenticated(req) ? { app: 'orbital', static: Boolean(staticDir) } : ({
     app: 'orbital',
     static: Boolean(staticDir),
     claudeCli: { source: claudeCli.source, path: claudeCli.path, version: claudeCodeVersion },
@@ -1126,7 +1180,7 @@ export async function buildServer(overrides: {
     db, hub, dataDir, images, imagesDir,
     serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
     inject: async (req) => {
-      const res = await app.inject(remoteInjectOptions(req));
+      const res = await app.inject(remoteInjectOptions(req, apiToken));
       return { statusCode: res.statusCode, body: res.body };
     },
     settings: settingsStore,
@@ -1177,7 +1231,14 @@ export async function buildServer(overrides: {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const app = await buildServer();
+  const apiToken = loadOrCreateApiToken(CONFIG.dataDir);
+  const app = await buildServer({ apiToken });
   await app.listen({ host: '127.0.0.1', port: CONFIG.port });
   console.log(`orbital server on http://127.0.0.1:${CONFIG.port}`);
+  // The link that sets the cookie: on this server when it serves the web app,
+  // on vite's port in dev, where vite proxies `/api` here.
+  const webOrigin = process.env.ORBITAL_STATIC_DIR
+    ? `http://127.0.0.1:${CONFIG.port}`
+    : `http://localhost:${DEV_WEB_PORT}`;
+  console.log(`orbital: open ${webOrigin}/api/auth?token=${apiToken}`);
 }

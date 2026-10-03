@@ -19,7 +19,8 @@ Six npm workspaces:
 - `server/` — Fastify API + WebSocket. Watches `~/.claude` for the CLI's
   session transcripts (an undocumented, unstable format that can break on
   CLI updates) and runs the sessions Orbital spawns itself. SQLite via
-  drizzle. Binds to `127.0.0.1` only; there is no authentication.
+  drizzle. Binds to `127.0.0.1` only; requests to `/api` and `/ws` need the
+  token from `<dataDir>/api-token`.
 - `web/` — React + Vite frontend; the map renders with react-three-fiber,
   state lives in zustand.
 - `desktop/` — Electron shell (macOS arm64): one window and native

@@ -130,7 +130,7 @@ describe('/api/remote', () => {
   });
   it('a phone\'s body-less POST reaches its route instead of failing on an empty JSON body', async () => {
     const app = await server(false);
-    const res = await app.inject(remoteInjectOptions({ method: 'POST', url: '/api/sessions/nope/interrupt' }));
+    const res = await app.inject(remoteInjectOptions({ method: 'POST', url: '/api/sessions/nope/interrupt' }, undefined));
     expect(res.statusCode).not.toBe(400);
     expect(res.body).not.toContain('FST_ERR_CTP_EMPTY_JSON_BODY');
     await app.close();
@@ -139,10 +139,10 @@ describe('/api/remote', () => {
 
 describe('remoteInjectOptions', () => {
   it('passes the host guard, and sends a content type only with a body', () => {
-    expect(remoteInjectOptions({ method: 'GET', url: '/api/sessions' })).toEqual({
+    expect(remoteInjectOptions({ method: 'GET', url: '/api/sessions' }, undefined)).toEqual({
       method: 'GET', url: '/api/sessions', payload: undefined, headers: { host: '127.0.0.1' },
     });
-    expect(remoteInjectOptions({ method: 'POST', url: '/api/sessions/s/message', payload: { text: 'hi' } }).headers)
+    expect(remoteInjectOptions({ method: 'POST', url: '/api/sessions/s/message', payload: { text: 'hi' } }, undefined).headers)
       .toEqual({ host: '127.0.0.1', 'content-type': 'application/json' });
   });
 });

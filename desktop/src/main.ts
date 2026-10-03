@@ -7,6 +7,7 @@ import {
   nativeImage,
   Notification,
   screen,
+  session,
   shell,
   Tray,
   utilityProcess,
@@ -16,6 +17,7 @@ import {
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from './lib/apiToken';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import { pickerStartPath } from './lib/chooseDirectory';
@@ -264,6 +266,43 @@ function readStartExit(): number | null {
   return startExit;
 }
 
+/**
+ * The local API's token, read from the server's data dir on every use: the
+ * server mints it on its first start, and deleting the file rotates it
+ * (spec 2026-10-03-api-token-and-named-files-design § 1).
+ */
+function readApiToken(): string | null {
+  let text: string | null = null;
+  try {
+    text = readFileSync(apiTokenPath(process.env, homedir()), 'utf8');
+  } catch {
+    /* not minted yet, or a server too old to have a guard */
+  }
+  return parseApiToken(text);
+}
+
+/** What every main-process request to the server carries. */
+function authHeaders(): Record<string, string> {
+  return bearerHeaders(readApiToken());
+}
+
+/**
+ * Hand the token to every window as the cookie the web app carries, before
+ * any of them loads — so no window has to enter through `/api/auth`. The
+ * windows use the default session (no partition in `webPreferences`).
+ */
+async function installAuthCookies(): Promise<void> {
+  const token = readApiToken();
+  if (!token) return;
+  try {
+    await Promise.all(authCookies(token, PORT).map((cookie) => session.defaultSession.cookies.set(cookie)));
+  } catch (err) {
+    // The window then shows the web app's unauthorized screen, which names the
+    // way in; a dialog here would only say the same thing less usefully.
+    console.error('Orbital could not set the API token cookie:', err);
+  }
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -381,6 +420,7 @@ async function reportServerDeath(code: number): Promise<void> {
     app.quit();
     return;
   }
+  await installAuthCookies();
   void win?.loadURL(windowTargetUrl);
 }
 
@@ -412,7 +452,7 @@ async function promptForCli(): Promise<boolean> {
   try {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/settings`, {
       method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ claude_executable_path: picked.filePaths[0] }),
     });
     if (!res.ok) throw new Error(`the server answered ${res.status}`);
@@ -767,6 +807,7 @@ function createTray(): void {
 async function loadNotificationSettings(): Promise<void> {
   try {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/settings`, {
+      headers: authHeaders(),
       signal: AbortSignal.timeout(2_000),
     });
     if (!res.ok) return;
@@ -794,6 +835,7 @@ function startNotifications(): void {
   ipcMain.on('settings-changed', () => void loadNotificationSettings());
   feed = startSessionsFeed({
     url: `ws://127.0.0.1:${PORT}/ws`,
+    headers: authHeaders,
     // A new socket means the world is about to replay; what we knew is stale.
     onReconnect: () => {
       notifier.reset();
@@ -874,6 +916,16 @@ async function start(): Promise<void> {
       break;
   }
 
+  // The probes so far went without the token, and the server answered only
+  // what fork-or-attach needs. It is up now, so it has minted the token (a
+  // fork and an attached dev server alike); asked with it, health adds
+  // `claudeCli`, which the prompt below reads.
+  const token = readApiToken();
+  if (token) {
+    const full = await probeHealth(PORT, token);
+    if (full.kind === 'orbital') health = full.health;
+  }
+
   // `false` means the CLI prompt ended in a quit — there is nothing to open.
   if (needsCliPrompt(health, forked) && !(await promptForCli())) return;
 
@@ -896,6 +948,7 @@ async function start(): Promise<void> {
   // now; the page itself deals with that (spec:
   // 2026-09-24-remembered-window-frames-design).
   const rememberedPath = windowFrames.main?.path;
+  await installAuthCookies();
   openWindow(target.url, rememberedPath ? mainWindowUrl(target.url, rememberedPath) : target.url);
   // Once, and only once there is a window for it to open. Every path above
   // this line ends in `app.quit()`, where a menu bar item would be a leak.

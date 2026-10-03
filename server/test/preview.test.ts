@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-  chmodSync, mkdirSync, symlinkSync, writeFileSync,
+  appendFileSync, chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
-import { readFilePreview, FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
+import {
+  NamedPathCache, namedInTranscript, readFilePreview, resolveForSession, sessionTranscriptFiles,
+  FILE_PREVIEW_MAX_BYTES,
+} from '../src/files/preview.js';
+import { subagentDirOf } from '../src/walkthrough/subagents.js';
 import { makeTmpDir, makeHomeDir } from './tmp.js';
 
 /** A fresh sandbox per test — realpath'd so macOS's /tmp → /private/tmp
@@ -147,5 +151,136 @@ describe('readFilePreview', () => {
     expect(readFilePreview(cwd, 'trailing.txt')).toMatchObject({ kind: 'ok', lines: 3 });
     writeFileSync(join(cwd, 'empty.txt'), '');
     expect(readFilePreview(cwd, 'empty.txt')).toMatchObject({ kind: 'ok', lines: 1, size: 0 });
+  });
+});
+
+// Files the session named (spec 2026-10-03-api-token-and-named-files-design
+// § 2): an absolute path outside the cwd opens when the transcript says it.
+
+/** A transcript line as the CLI writes it — the path inside a JSON string. */
+function line(text: string): string {
+  return JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }) + '\n';
+}
+
+/** A session's main transcript in its own dir, with room for subagents. */
+function makeTranscript(main: string): string {
+  const path = join(makeTmpDir('named'), 'sess.jsonl');
+  writeFileSync(path, main);
+  return path;
+}
+
+describe('namedInTranscript', () => {
+  it('finds a path the transcript names', () => {
+    const t = makeTranscript(line('Saved the screenshot to /tmp/shot.png.'));
+    expect(namedInTranscript([t], '/tmp/shot.png')).toBe(true);
+    expect(namedInTranscript([t], '/tmp/other.png')).toBe(false);
+    // The sentence's dot ends the path; a dot the path goes on past does not.
+    const bak = makeTranscript(line('kept /tmp/shot.png.bak'));
+    expect(namedInTranscript([bak], '/tmp/shot.png')).toBe(false);
+  });
+
+  it('finds a path named only in a subagent transcript', () => {
+    const t = makeTranscript(line('nothing here'));
+    const dir = subagentDirOf(t);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'agent-a1.jsonl'), line('wrote /tmp/agent-out.txt'));
+    expect(namedInTranscript([t], '/tmp/agent-out.txt')).toBe(false);
+    expect(namedInTranscript(sessionTranscriptFiles(t), '/tmp/agent-out.txt')).toBe(true);
+  });
+
+  it('finds the JSON-escaped form of a path', () => {
+    const path = '/tmp/say "cheese"/réport.md';
+    // ASCII-only JSON, as some writers emit it: the quotes and the é escaped.
+    const escaped = JSON.stringify(path).replace(/[\u0080-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    const t = makeTranscript(`{"text":${escaped}}\n`);
+    expect(namedInTranscript([t], path)).toBe(true);
+    const quotesOnly = makeTranscript(line(`see ${path}`));
+    expect(namedInTranscript([quotesOnly], path)).toBe(true);
+  });
+
+  it('does not take /tmp/a from /tmp/ab, but keeps looking past it', () => {
+    const t = makeTranscript(line('made /tmp/ab and /tmp/abc'));
+    expect(namedInTranscript([t], '/tmp/a')).toBe(false);
+    const later = makeTranscript(line('made /tmp/ab, then /tmp/a'));
+    expect(namedInTranscript([later], '/tmp/a')).toBe(true);
+  });
+
+  it('does not take a path from inside a longer one on the left', () => {
+    const t = makeTranscript(line('/private/tmp/x and ~/tmp/y'));
+    expect(namedInTranscript([t], '/tmp/x')).toBe(false);
+    expect(namedInTranscript([t], '/tmp/y')).toBe(false);
+  });
+
+  it('takes a path right after an escaped newline', () => {
+    const t = makeTranscript(line('Saved to:\n/tmp/shot.png'));
+    expect(namedInTranscript([t], '/tmp/shot.png')).toBe(true);
+  });
+
+  it('a relative path never qualifies, even when the transcript holds it', () => {
+    const t = makeTranscript(line('see notes.md and ../secret.txt'));
+    expect(namedInTranscript([t], 'notes.md')).toBe(false);
+    expect(namedInTranscript([t], '../secret.txt')).toBe(false);
+  });
+
+  it('matches a ~ path against either spelling', () => {
+    const home = '/Users/someone';
+    const tilde = makeTranscript(line('wrote ~/notes/a.md'));
+    const full = makeTranscript(line('wrote /Users/someone/notes/b.md'));
+    expect(namedInTranscript([tilde], '/Users/someone/notes/a.md', home)).toBe(true);
+    expect(namedInTranscript([full], '~/notes/b.md', home)).toBe(true);
+  });
+
+  it('skips a transcript that is not there', () => {
+    const t = makeTranscript(line('/tmp/x'));
+    expect(namedInTranscript([join(makeTmpDir('named'), 'gone.jsonl'), t], '/tmp/x')).toBe(true);
+  });
+});
+
+describe('resolveForSession', () => {
+  const namesFrom = (t: string) => (raw: string) => namedInTranscript(sessionTranscriptFiles(t), raw);
+
+  it('reads a named path outside cwd at its realpath, through a symlinked dir', () => {
+    // `link` → `real` stands in for macOS's /tmp → /private/tmp.
+    const root = makeTmpDir('named-root');
+    mkdirSync(join(root, 'real'));
+    symlinkSync(join(root, 'real'), join(root, 'link'));
+    writeFileSync(join(root, 'real', 'shot.txt'), 'x');
+    const spelled = join(root, 'link', 'shot.txt');
+    const t = makeTranscript(line(`Saved to ${spelled}`));
+    expect(resolveForSession(makeCwd(), spelled, namesFrom(t))).toEqual({
+      kind: 'ok', path: realpathSync(join(root, 'real', 'shot.txt')),
+    });
+  });
+
+  it('refuses an outside path the transcript does not name', () => {
+    const outside = makeTmpDir('named-out');
+    writeFileSync(join(outside, 'secret.txt'), 's');
+    const t = makeTranscript(line('nothing named'));
+    expect(resolveForSession(makeCwd(), join(outside, 'secret.txt'), namesFrom(t))).toEqual({ kind: 'outside' });
+  });
+
+  it('a named path that does not exist is not_found', () => {
+    const ghost = join(makeTmpDir('named-out'), 'ghost.png');
+    const t = makeTranscript(line(`will write ${ghost}`));
+    expect(resolveForSession(makeCwd(), ghost, namesFrom(t))).toEqual({ kind: 'not_found' });
+  });
+
+  it('a named relative path still resolves against cwd only', () => {
+    const parent = makeCwd();
+    const cwd = join(parent, 'inner');
+    mkdirSync(cwd);
+    writeFileSync(join(parent, 'secret.txt'), 's');
+    const t = makeTranscript(line('../secret.txt'));
+    expect(resolveForSession(cwd, '../secret.txt', namesFrom(t))).toEqual({ kind: 'outside' });
+  });
+});
+
+describe('NamedPathCache', () => {
+  it('asks again once the transcript grows, and keeps a yes', () => {
+    const t = makeTranscript(line('nothing yet'));
+    const named = new NamedPathCache(8).forSession('s', t);
+    expect(named('/tmp/later.txt')).toBe(false);
+    appendFileSync(t, line('now /tmp/later.txt'));
+    expect(named('/tmp/later.txt')).toBe(true);
   });
 });

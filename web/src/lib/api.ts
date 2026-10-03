@@ -40,6 +40,7 @@ import type {
   RemoteStatus,
   SessionDefaults,
 } from './types'
+import { markUnauthorized } from './unauthorized'
 
 /**
  * What a send answers. `uuid` is the transcript entry the turn is written
@@ -99,8 +100,16 @@ export function configureApi(opts: { fetch?: FetchLike; upload?: UploadLike | nu
   if (opts.upload !== undefined) uploadImpl = opts.upload
 }
 
-function apiFetch(input: string, init?: RequestInit): Promise<Response> {
-  return fetchImpl(input, init)
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const transport = fetchImpl
+  const response = await transport(input, init)
+  // The page lacks the API token: the entry point swaps the app for the one
+  // screen that says how to get it (spec
+  // 2026-10-03-api-token-and-named-files-design). Only on the port's own
+  // transport — the phone's tunnel carries the token in-process, and a 401
+  // through it means something else.
+  if (response.status === 401 && transport === defaultApiFetch) markUnauthorized()
+  return response
 }
 
 async function request<T>(

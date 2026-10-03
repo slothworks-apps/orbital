@@ -2,7 +2,7 @@
 id: 2026-10-03-api-token-and-named-files-design
 title: A token guards the local API, and the viewer opens files the session named
 type: spec
-status: draft
+status: done
 domain: server
 related:
   - api-token-guards-the-local-port
@@ -80,10 +80,14 @@ it answers `401`. The route lives under `/api` so that vite's dev proxy
 forwards it. The cookie is then set for the host the user is actually on,
 whether that is `localhost:4839` in dev or `127.0.0.1:4737` packaged.
 
-- **Desktop, fork and attach alike:** the main process reads
-  `<dataDir>/api-token` and opens each window through `/api/auth?token=…&next=<target>`.
+- **Desktop, fork and attach alike:** once the server answers, the main
+  process reads `<dataDir>/api-token`. Before the first window loads, it
+  sets the cookie straight into the window session
+  (`session.defaultSession.cookies.set`), once for each host the windows
+  load. There is no `/api/auth` round trip. Its own `fetch`es and its WS
+  carry the bearer, and it re-reads the file on every request.
   Attaching to `npm run dev` needs nothing extra, because both read the same
-  file.
+  file. That holds only while both resolve the same `ORBITAL_DATA_DIR`.
 - **Browser mode:** `npm run dev` prints the link with the token. The first
   visit sets the cookie. After that, plain `http://localhost:4839` works
   until the token rotates.
@@ -115,7 +119,7 @@ header is present and not one of ours gets `403`. A request without
 
 When `/api` answers `401`, the web app does not fail into an error boundary.
 It shows one quiet screen: "Open Orbital from the link the server printed."
-The desktop never shows it, because it always enters through `/api/auth`. The
+The desktop never shows it, because it sets the cookie before any window loads. The
 look of the screen is up to Claude Design; this spec only requires that it exists.
 
 ### The mobile relay

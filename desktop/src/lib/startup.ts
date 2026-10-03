@@ -119,7 +119,7 @@ export function decideWindowTarget(input: {
 }
 
 /** The only origins that are Orbital: every window target, whatever mode. */
-function appOrigins(port: number): string[] {
+export function appOrigins(port: number): string[] {
   // Both spellings of loopback for vite: which one it binds is its own config's
   // business, and either way a dev server on vite's port is ours.
   const vitePort = new URL(VITE_URL).port;

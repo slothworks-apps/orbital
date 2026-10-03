@@ -559,8 +559,8 @@ export function FileViewer({ session }: FileViewerProps) {
               label="OUTSIDE SESSION FOLDER"
               sentence={
                 <>
-                  Orbital only reads inside{' '}
-                  <span className="text-[rgba(220,235,255,.85)]">{session.cwd}</span>.
+                  Orbital reads inside{' '}
+                  <span className="text-[rgba(220,235,255,.85)]">{session.cwd}</span> and files this session named.
                 </>
               }
             />

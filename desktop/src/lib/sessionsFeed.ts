@@ -4,6 +4,7 @@
  * It speaks the same public contract the web app does (`/ws`, `subscribe`
  * frames) rather than a private channel, so notifications cost the server
  * nothing it does not already do (spec 2026-09-16-electron-wrapper-design § 3).
+ * It carries the API token as a bearer, since it has no cookie jar.
  * The origin guard admits clients that send no Origin header, which is what a
  * main-process socket is.
  *
@@ -15,8 +16,23 @@ const RETRY_MS = 2_000;
 
 const TOPICS = ['sessions', 'errors'] as const;
 
+/**
+ * Node's `WebSocket` as it really is: undici takes `headers` in the second
+ * argument, an extension a browser's has no equivalent of. The DOM lib this
+ * workspace compiles with types only the browser's constructor.
+ */
+const NodeWebSocket = WebSocket as unknown as new (
+  url: string,
+  init: { headers: Record<string, string> },
+) => WebSocket;
+
 export function startSessionsFeed(opts: {
   url: string;
+  /**
+   * The handshake's headers — the API token's bearer. Asked on every connect,
+   * so a reconnect after the token file changed carries the new one.
+   */
+  headers?: () => Record<string, string>;
   onFrame: (frame: unknown) => void;
   /** Fired when a NEW socket opens — everything the last one knew is stale. */
   onReconnect: () => void;
@@ -37,7 +53,7 @@ export function startSessionsFeed(opts: {
     if (closed) return;
     let ws: WebSocket;
     try {
-      ws = new WebSocket(opts.url);
+      ws = new NodeWebSocket(opts.url, { headers: opts.headers?.() ?? {} });
     } catch {
       retry();
       return;

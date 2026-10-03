@@ -1,5 +1,6 @@
 import { api, ApiError } from './api'
 import { useOrbital } from '../store/store'
+import { isUnauthorized } from './unauthorized'
 
 /**
  * Turns whatever was thrown into the long form the error log keeps.
@@ -35,6 +36,9 @@ function detailOf(err: unknown): string | null {
  * (`docs/superpowers/specs/2026-09-17-error-surface-design.md`).
  */
 export function reportError(err: unknown, fallback: string): void {
+  // A page without the API token: the unauthorized screen already says it,
+  // and the report would be refused the same way.
+  if (isUnauthorized()) return
   const message = err instanceof Error ? err.message : fallback
   useOrbital.setState({ toast: { kind: 'error', message } })
 

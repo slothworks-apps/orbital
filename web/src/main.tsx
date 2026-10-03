@@ -2,13 +2,15 @@ import '@fontsource/manrope/latin-400.css'
 import '@fontsource/manrope/latin-600.css'
 import '@fontsource/jetbrains-mono/latin-400.css'
 import './theme.css'
-import { StrictMode, Suspense, lazy } from 'react'
+import { StrictMode, Suspense, lazy, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { dispatchFromMenu, installKeyListener } from './lib/commands'
 import { initDesktopBridge, onCommand } from './lib/desktop'
 import { setWindowFullScreen } from './lib/windowChrome'
 import { useOrbital } from './store/store'
 import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
+import { Unauthorized } from './ui/Unauthorized'
+import { useUnauthorized } from './lib/unauthorized'
 import { parseStatsRoute } from './stats/route'
 import { isLimitsRoute } from './limits/route'
 import { parseSessionWindowRoute } from './lib/sessionWindowRoute'
@@ -160,28 +162,40 @@ onCommand((id) => {
   dispatchFromMenu(id)
 })
 
+/**
+ * A page the server refused for lacking the API token shows one quiet screen
+ * in place of every route, above the error boundary: whatever the refused
+ * requests left half-loaded underneath is unmounted with it (spec
+ * 2026-10-03-api-token-and-named-files-design).
+ */
+function AuthGate({ children }: { children: ReactNode }) {
+  return useUnauthorized() ? <Unauthorized /> : children
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {/* Outermost net: App's own body (the WS wiring, the URL sync) throwing
-        should still leave something on screen to reload from. */}
-    <ErrorBoundary label="Orbital">
-      <Suspense fallback={null}>
-        {sandbox ? (
-          <SandboxPage />
-        ) : clusterSandbox ? (
-          <ClusterSandboxPage />
-        ) : stats ? (
-          <StatsPage route={stats} />
-        ) : limits ? (
-          <LimitsPage />
-        ) : sessionWindowId !== null ? (
-          <SessionWindow id={sessionWindowId} />
-        ) : walkthroughId !== null ? (
-          <WalkthroughPage id={walkthroughId} />
-        ) : (
-          <App />
-        )}
-      </Suspense>
-    </ErrorBoundary>
+    <AuthGate>
+      {/* Outermost net: App's own body (the WS wiring, the URL sync) throwing
+          should still leave something on screen to reload from. */}
+      <ErrorBoundary label="Orbital">
+        <Suspense fallback={null}>
+          {sandbox ? (
+            <SandboxPage />
+          ) : clusterSandbox ? (
+            <ClusterSandboxPage />
+          ) : stats ? (
+            <StatsPage route={stats} />
+          ) : limits ? (
+            <LimitsPage />
+          ) : sessionWindowId !== null ? (
+            <SessionWindow id={sessionWindowId} />
+          ) : walkthroughId !== null ? (
+            <WalkthroughPage id={walkthroughId} />
+          ) : (
+            <App />
+          )}
+        </Suspense>
+      </ErrorBoundary>
+    </AuthGate>
   </StrictMode>,
 )
