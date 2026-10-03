@@ -579,6 +579,26 @@ export const harnessInterviews = sqliteTable('harness_interviews', {
 });
 
 /**
+ * A session waiting for a usage-limit window to reset (spec
+ * 2026-10-03-usage-limits-design § Persistence). One per session. Stored
+ * whatever the auto-continue setting says, which is read only when it fires.
+ */
+export const limitWaits = sqliteTable('limit_waits', {
+  sessionId: text('session_id').primaryKey(),
+  /** Epoch ms. */
+  resetsAt: integer('resets_at').notNull(),
+  /** The event's `rateLimitType`. */
+  windowKind: text('window_kind').notNull(),
+  windowLabel: text('window_label').notNull(),
+  /** 1 once Cancel was pressed for this wait. */
+  cancelled: integer('cancelled').notNull().default(0),
+  /** What the user wrote during the wait, in order — `{ text, attachments? }[]`. */
+  queued: text('queued', { mode: 'json' }).$type<{ text: string; attachments?: string[] }[]>().notNull().default([]),
+  /** Epoch ms. */
+  createdAt: integer('created_at').notNull(),
+});
+
+/**
  * What a harness did and why: ticks, verify failures, nudges, the watcher's
  * verdicts, approvals. The panel's log, and the labelled data a trained
  * continue-judge would need later (spec § What we ruled out).

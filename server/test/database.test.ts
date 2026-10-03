@@ -220,6 +220,8 @@ describe('openDb', () => {
       remote_relay_url: '',
       remote_relay_secret: '',
       remote_mac_name: '',
+      limits_auto_continue: 'true',
+      limits_continue_text: 'Continue where you left off.',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

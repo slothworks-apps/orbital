@@ -169,6 +169,13 @@
       "when": 1791020992857,
       "tag": "0023_harness_redesign",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791048531305,
+      "tag": "0024_limit_waits",
+      "breakpoints": true
     }
   ]
 }

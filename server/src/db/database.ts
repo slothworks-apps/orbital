@@ -7,6 +7,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as schema from './schema.js';
 import { settings, tags } from './schema.js';
+import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, DEFAULT_CONTINUE_TEXT } from '../limits/logic.js';
 
 // Resolved relative to this module (not process.cwd()) so `openDb` works
 // regardless of where the process is launched from. Only correct while the
@@ -196,6 +197,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   remote_relay_secret: '',
   /** Empty means the machine's network name (`macDisplayName`). */
   remote_mac_name: '',
+  /**
+   * Settings › Sessions › LIMITS (spec 2026-10-03-usage-limits-design §
+   * Settings). The switch is default-on, read as `!== 'false'`, and only when
+   * a wait fires; a blank text sends `DEFAULT_CONTINUE_TEXT`.
+   */
+  [AUTO_CONTINUE_KEY]: 'true',
+  [CONTINUE_TEXT_KEY]: DEFAULT_CONTINUE_TEXT,
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
