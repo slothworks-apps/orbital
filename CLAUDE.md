@@ -12,8 +12,10 @@ to your subscription the same way the CLI is).
 it before you design anything the user sees or hears — states, motion,
 notifications, sound — and do not build what it rules out.
 
-Three npm workspaces:
+Six npm workspaces:
 
+- `shared/` — what the Mac, the relay and the phone agree on: keys,
+  frames, the handshake, message shapes, and the notification rules.
 - `server/` — Fastify API + WebSocket. Watches `~/.claude` for the CLI's
   session transcripts (an undocumented, unstable format that can break on
   CLI updates) and runs the sessions Orbital spawns itself. SQLite via
@@ -25,15 +27,34 @@ Three npm workspaces:
   attaches to a running dev server, and every decision lives in pure
   functions under `desktop/src/lib` that vitest exercises without launching
   Electron.
+- `relay/` — the blind relay between a Mac running Orbital and its paired
+  phones. It is deployed on its own as a Docker image and sees only
+  encrypted frames.
+- `mobile/` — the Capacitor shell (Android) around `web/src/mobile`; no
+  application logic of its own.
 
 ### Desktop version
 
 The desktop app's version is `version` in `desktop/package.json`, and it
 names the DMG. The DMG bundles `server/` and `web/` as well, so a change to
-any of the three workspaces changes what ships. When you finish such a
+any of those three workspaces changes what ships. When you finish such a
 change, ask whether to bump the version, and propose patch, minor or major.
 Ask on your own, before you report the work as done. Do not bump it without
 an answer.
+
+### Every feature has a phone answer
+
+Orbital also runs on the phone: `mobile/` is the Capacitor shell around
+`web/src/mobile`, and it reaches the server through `relay/` and the route
+allowlist in `server/src/remote/allowlist.ts`. A route that is not on that
+list does not exist for the phone.
+
+So every feature gets a decision about the phone, made while designing it,
+not after: build it for the phone too, leave the phone out on purpose, or
+note how the change reaches the phone anyway (a route, a WS topic or a
+shared component it uses). Write the decision into the feature's spec,
+in its own section. When the phone is left out, say why, and if it is
+worth doing later, write an `idea` for it.
 
 `npm run dev` starts the server and the web app. The README covers run/test commands, billing
 (`ANTHROPIC_API_KEY` is deleted from the server's environment on startup

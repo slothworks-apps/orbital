@@ -1,12 +1,13 @@
 ---
 id: api-token-guards-the-local-port
 title: A token should guard the local API port
-status: backlog
+status: superseded
 type: idea
 domain: server
 related:
   - desktop-wrapper-electron
   - clickable-file-paths-in-the-transcript
+  - 2026-10-03-api-token-and-named-files-design
 tags:
   - security
 ---
@@ -52,3 +53,6 @@ works for both modes and is a small change.
 
 Belongs in the Electron wrapper's build at the latest — its spec should
 grow a section for it — but nothing about it waits for Electron.
+
+Superseded by spec `2026-10-03-api-token-and-named-files-design`, which
+builds the token together with reading files the session named outside its cwd.
