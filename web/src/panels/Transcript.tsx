@@ -8,6 +8,7 @@ import { readHarnessOnce } from './HarnessPill'
 import { Button } from '../ui/Button'
 import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
 import { CompactingBlock } from './CompactionMark'
+import { LimitWaitNotice } from './LimitWaitNotice'
 import { compactingOf } from '../lib/compaction'
 import { contextWindowFor } from '../lib/models'
 import { useCompactionUi } from '../store/compaction'
@@ -111,6 +112,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   const reveal = useCompactionUi((s) => s.reveal === sessionId)
   const setReveal = useCompactionUi((s) => s.setReveal)
   const compacting = session ? compactingOf(session) : null
+  const limitWait = session?.limitWait ?? null
   const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
   // The session's one tag, as the map and the header pick it.
   const hue =
@@ -221,7 +223,15 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       onOpenTaskOutput={handleOpenTaskOutput}
       compaction={compaction}
       rewind={rewind}
-      footerKey={compacting ? 'compacting' : pendingHidden !== null ? 'rewind-pending' : undefined}
+      footerKey={
+        compacting
+          ? 'compacting'
+          : pendingHidden !== null
+            ? 'rewind-pending'
+            : limitWait
+              ? `limit-wait:${limitWait.queued.length}`
+              : undefined
+      }
       footer={
         <>
           {pendingHidden !== null && (
@@ -265,6 +275,8 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
               )}
             </div>
           )}
+          {/* Always last, under the agent's final message (31d). */}
+          {limitWait && <LimitWaitNotice sessionId={sessionId} wait={limitWait} hue={hue ?? 205} />}
         </>
       }
     />

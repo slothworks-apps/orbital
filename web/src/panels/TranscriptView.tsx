@@ -20,6 +20,7 @@ import { PermissionCard } from './PermissionCard'
 import { ToolRow, salientInput, toolDurationMs } from './ToolRow'
 import { QUESTION_TOOL_NAME } from '../lib/questionCard'
 import { PLAN_TOOL_NAME } from '../lib/decisionCard'
+import { limitResetLabel } from '../lib/limits'
 
 /** The accent hue (`oklch(85% .12 205)`'s angle), for a mark drawn without a session tag. */
 const NEUTRAL_MARK_HUE = 205
@@ -1041,6 +1042,20 @@ export function TranscriptView({
         ) : group.item.message.role === 'harness' ? (
           // Orbital's own line (canvas 30b): never `MessageView`, never a bubble.
           <HarnessTranscriptRow message={group.item.message} />
+        ) : group.item.message.role === 'notice' && group.item.message.notice?.kind === 'limit_reset' ? (
+          // `Feature - Plan limits` 31d AFTER: where a limit wait fired, the
+          // notice row folds into a divider; the message it sent follows as
+          // an ordinary user turn.
+          <div
+            data-limit-reset
+            className="flex items-center gap-2.5 whitespace-nowrap py-3 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+          >
+            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span>
+              {limitResetLabel(group.item.message.notice.resetsAt, Boolean(group.item.message.text?.trim()))}
+            </span>
+            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+          </div>
         ) : group.item.message.role === 'notice' ? (
           // The CLI answering for itself — a locally-answered slash command,
           // a hook's banner. Never `MessageView`: it is neither speech nor a

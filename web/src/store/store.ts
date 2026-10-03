@@ -1846,11 +1846,21 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const sendsRewind = Boolean(session?.rewindPending) && !get().rewindSending[id]
     if (sendsRewind) rewindSentText[id] = text
 
+    // A session waiting for a limit to reset does not send: the server queues
+    // the message for the reset and republishes the wait, whose `queued` the
+    // transcript lists (spec 2026-10-03-usage-limits-design § 1). An
+    // optimistic turn would show it as sent.
+    const queues = Boolean(session?.limitWait)
+
     set((state) => ({
-      transcripts: {
-        ...state.transcripts,
-        [id]: [...(state.transcripts[id] ?? []), optimisticMessage],
-      },
+      ...(queues
+        ? {}
+        : {
+            transcripts: {
+              ...state.transcripts,
+              [id]: [...(state.transcripts[id] ?? []), optimisticMessage],
+            },
+          }),
       // The refusal toast lasts until the next send (canvas 27c).
       ...(state.toast?.kind === 'rewind_refused' ? { toast: null } : {}),
       ...(sendsRewind ? { rewindSending: { ...state.rewindSending, [id]: true as const } } : {}),
