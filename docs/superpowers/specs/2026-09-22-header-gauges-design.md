@@ -65,11 +65,15 @@ draws the bar, so a value from a future build cannot empty the header of
 its only readout.
 
 The icon's states come from 11c's ICON · STATES: resting and hover are
-`UtilityButton`'s own, dialog-open is its `active` fill, LIVE adds the
-pulsing dot the strip already carried, and NO DATA is simply a disabled
+`UtilityButton`'s own, dialog-open is its `active` fill, and NO DATA is simply a disabled
 button — a session with no measured turn has nothing to open. Since the
 numbers leave the header in this mode, the control's name carries them:
 `Session stats — 2h 22m, $167.30`, as both `aria-label` and `title`.
+
+11c's LIVE state — a pulsing dot on the icon, and 10g's on the bar, while a
+turn is in an API call — was removed from both on 2026-10-03: the dot came
+and went with every call and pulsed while shown, which [[why-orbital]] rules
+out ("Nothing blinks"). The header's status dot already says the session is working.
 
 Settings → Appearance → DETAIL PANEL holds the two-position control, as a
 segmented button. 11c originally drew the two positions stacked, each its
