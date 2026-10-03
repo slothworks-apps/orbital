@@ -190,6 +190,7 @@ describe('openDb', () => {
       remember_model_per_project: 'true',
       map_show_model: 'true',
       map_show_trash: 'true',
+      end_closes_panel: 'true',
       planet_scale: '1',
       map_scale_labels: 'false',
       detail_panel_width: '450',

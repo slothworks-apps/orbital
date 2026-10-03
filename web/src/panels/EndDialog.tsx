@@ -26,7 +26,8 @@ export interface EndDialogProps {
  * point, so there is no "don't ask again".
  *
  * Like `StopDialog`, it closes only on a successful end; a failure reports and
- * leaves it open. The panel stays on the session, which the server republishes
+ * leaves it open. Whether the panel then closes is the caller's `onEnd`
+ * (`end_closes_panel`); kept open, it shows the session the server republishes
  * as ended.
  */
 export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {

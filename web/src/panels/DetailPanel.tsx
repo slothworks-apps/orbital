@@ -7,6 +7,7 @@ import {
   parseDetailPanelWidth,
   parseContextThresholds,
   headerSessionStats,
+  endClosesPanel,
   resolvePanelPairWidths,
   resolveWindowPanelWidths,
   DETAIL_PANEL_DEFAULT_PX,
@@ -1339,7 +1340,22 @@ export function DetailPanel({
         sessionId={id}
         onClose={() => setDialog(null)}
       />
-      <EndDialog open={dialog === 'end'} sessionId={id} onClose={() => setDialog(null)} />
+      <EndDialog
+        open={dialog === 'end'}
+        sessionId={id}
+        onClose={() => setDialog(null)}
+        onEnd={async (endedId) => {
+          await useOrbital.getState().endSession(endedId)
+          // `end_closes_panel`: an ended session has nothing left to do here,
+          // so the panel goes the way collapse sends it. Not in a detached
+          // window, which is the panel itself, and not when the selection
+          // has already moved on while the end was in flight.
+          if (standalone || !endClosesPanel(useOrbital.getState().settings)) return
+          useOrbital.setState((s) =>
+            s.ui.selectedId === endedId ? { ui: { ...s.ui, selectedId: null } } : s,
+          )
+        }}
+      />
       <RewindDialog sessionId={id} />
     </Panel>
       {/* The armed panel's chrome (canvas 9c-1 / 9e drop state): accent border

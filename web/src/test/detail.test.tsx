@@ -1705,3 +1705,32 @@ describe('DetailPanel session shortcuts', () => {
     expect(press({ key: 'D', code: 'KeyD', metaKey: true, shiftKey: true })).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// End session and the panel (setting `end_closes_panel`)
+// ---------------------------------------------------------------------------
+
+describe('DetailPanel End session', () => {
+  async function endFromHeader(settings: Record<string, string>) {
+    vi.mocked(api.endSession).mockResolvedValue({ ok: true })
+    resetStore({ sessions: { a: webSession }, settings, ui: { selectedId: 'a' } })
+    render(<DetailPanel />)
+    await userEvent.click(screen.getByRole('button', { name: 'End session' }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'End session' }))
+    await waitFor(() => expect(api.endSession).toHaveBeenCalledWith('a'))
+  }
+
+  it('closes the panel once the session has ended', async () => {
+    await endFromHeader({})
+
+    await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBeNull())
+  })
+
+  it('keeps the panel on the ended session when the setting is off', async () => {
+    await endFromHeader({ end_closes_panel: 'false' })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(useOrbital.getState().ui.selectedId).toBe('a')
+  })
+})

@@ -10,6 +10,7 @@ import {
   showContext,
   showCompactBadge,
   showTrash,
+  endClosesPanel,
   headerSessionStats,
   headerLineChanges,
   headerPullRequest,
@@ -773,6 +774,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const rememberModelPerProject = settings.remember_model_per_project !== 'false'
   const mapShowModel = settings.map_show_model !== 'false'
   const mapShowTrash = showTrash(settings)
+  const endClosesPanelOn = endClosesPanel(settings)
   // Context-fill arc (canvas 1h, spec context-fill-arc): master switch and
   // the /compact badge sub-toggle, both default-on.
   const mapShowContext = showContext(settings)
@@ -1349,6 +1351,19 @@ export function Settings({ open, onClose }: SettingsProps) {
                           </span>
                           {lineChangesPreview.length > 0 && <LineGroups groups={lineChangesPreview} />}
                         </span>
+                      </Row>
+                      {/* No canvas row; it follows the toggle rows around it. */}
+                      <Row
+                        title="Close the panel after End session"
+                        desc="Ending a session with the header's End button also closes its panel. Off keeps the ended session open, its transcript readable."
+                      >
+                        <Toggle
+                          aria-label="Close the panel after End session"
+                          checked={endClosesPanelOn}
+                          onChange={(checked) =>
+                            void patchAndSet({ end_closes_panel: checked ? 'true' : 'false' })
+                          }
+                        />
                       </Row>
 
                       <SectionLabel>MAP</SectionLabel>
