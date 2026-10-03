@@ -60,6 +60,39 @@ export function withoutNewSessionParam(href: string = window.location.href): str
   return `${url.pathname}${url.search}${url.hash}`
 }
 
+/**
+ * `/?settings=<section>` — "open Settings on this section once the map is
+ * up", the same kind of request as `?new=1` and for the same reason: the
+ * limits page links to Settings → Sessions, and Settings is a dialog of the
+ * map (spec 2026-10-03-usage-limits-design § 2 "After a reset").
+ */
+export const SETTINGS_PARAM = 'settings'
+
+export function readSettingsParam(href: string = window.location.href): string | null {
+  const section = new URL(href).searchParams.get(SETTINGS_PARAM)
+  return section && section.length > 0 ? section : null
+}
+
+export function withoutSettingsParam(href: string = window.location.href): string {
+  const url = new URL(href)
+  url.searchParams.delete(SETTINGS_PARAM)
+  return `${url.pathname}${url.search}${url.hash}`
+}
+
+/** The map's URL that opens Settings on `section`. */
+export const settingsHref = (section: string): string => `/?${SETTINGS_PARAM}=${encodeURIComponent(section)}`
+
+/**
+ * Opens Settings on `section`. The dialog opens on the last section the user
+ * chose (`settings_last_section`), so this makes `section` that choice, here
+ * and on the server, before it opens.
+ */
+export function openSettingsSection(section: string): void {
+  useOrbital.setState((state) => ({ settings: { ...state.settings, settings_last_section: section } }))
+  void api.patchSettings({ settings_last_section: section }).catch(() => {})
+  useOrbital.getState().setDialog('settings')
+}
+
 /** The store's `ui.fileViewer` shape, as the URL carries it. */
 export type FileViewerTarget = { path: string; line: number | null }
 

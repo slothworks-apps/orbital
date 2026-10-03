@@ -77,7 +77,7 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
   const geometry = pageBarGeometry(windowed)
   const focused = useWindowFocused(hasDesktopBridge())
   const scrolled = useScrolled(surface === 'sky')
-  const hue = useSessionHue(route.page === 'stats' ? null : session)
+  const hue = useSessionHue(route.page === 'stats' || route.page === 'limits' ? null : session)
   const crumbs = pageCrumbs(route)
   const title = pageTitle(route)
 

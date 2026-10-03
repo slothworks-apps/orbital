@@ -10,6 +10,7 @@ import { setWindowFullScreen } from './lib/windowChrome'
 import { useOrbital } from './store/store'
 import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
 import { parseStatsRoute } from './stats/route'
+import { isLimitsRoute } from './limits/route'
 import { parseSessionWindowRoute } from './lib/sessionWindowRoute'
 import { parseWalkthroughRoute } from './walkthrough/route'
 
@@ -25,6 +26,7 @@ const ClusterSandboxPage = lazy(() =>
   import('./sandbox/ClusterSandboxPage.tsx').then((m) => ({ default: m.ClusterSandboxPage }))
 )
 const StatsPage = lazy(() => import('./stats/StatsPage.tsx').then((m) => ({ default: m.StatsPage })))
+const LimitsPage = lazy(() => import('./limits/LimitsPage.tsx').then((m) => ({ default: m.LimitsPage })))
 const SessionWindow = lazy(() =>
   import('./SessionWindow.tsx').then((m) => ({ default: m.SessionWindow }))
 )
@@ -122,6 +124,12 @@ if (sessionWindowId === null) {
 const stats = parseStatsRoute(window.location.pathname)
 
 /**
+ * `/limits` — the plan's usage windows, one more branch of the same kind
+ * (spec 2026-10-03-usage-limits-design § 2).
+ */
+const limits = isLimitsRoute(window.location.pathname)
+
+/**
  * `/walkthrough/<id>` — the walkthrough page, one more branch of the same kind
  * (spec: 2026-09-23-walkthrough-design § The page).
  */
@@ -164,6 +172,8 @@ createRoot(document.getElementById('root')!).render(
           <ClusterSandboxPage />
         ) : stats ? (
           <StatsPage route={stats} />
+        ) : limits ? (
+          <LimitsPage />
         ) : sessionWindowId !== null ? (
           <SessionWindow id={sessionWindowId} />
         ) : walkthroughId !== null ? (

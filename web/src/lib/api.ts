@@ -1,6 +1,7 @@
 import type {
   ApiSession,
   AttachmentUpload,
+  LimitsSnapshot,
   ChatMessage,
   CommandContent,
   CompletionKey,
@@ -812,6 +813,27 @@ export const api = {
   ): Promise<SessionStatsDetail> {
     const query = opts.timeline ? '?timeline=1' : ''
     return request<SessionStatsDetail>('GET', `/api/stats/sessions/${encodeURIComponent(id)}${query}`)
+  },
+
+  // Plan limits (spec 2026-10-03-usage-limits-design § 2 "Transport")
+  /** The cached answer, its read time and the current waits. */
+  async getLimits(): Promise<LimitsSnapshot> {
+    return request<LimitsSnapshot>('GET', '/api/limits')
+  },
+
+  /** "Read again": a fresh read, answered with the snapshot it produced. */
+  async refreshLimits(): Promise<LimitsSnapshot> {
+    return request<LimitsSnapshot>('POST', '/api/limits/refresh')
+  },
+
+  /** Cancel this wait's auto-continue; the reset time stays. */
+  async cancelLimitWait(id: string): Promise<void> {
+    await request<unknown>('POST', `/api/sessions/${id}/limit-wait/cancel`)
+  },
+
+  /** Undo a Cancel, until the reset. */
+  async undoLimitWait(id: string): Promise<void> {
+    await request<unknown>('POST', `/api/sessions/${id}/limit-wait/undo`)
   },
 
   // Settings API

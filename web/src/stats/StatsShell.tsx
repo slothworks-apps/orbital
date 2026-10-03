@@ -10,7 +10,7 @@ import { pageBarGeometry } from '../ui/PageBar'
  * and 10b moves both washes to the corners its panels do not occupy — so the
  * variant is a prop rather than a single background reused three times.
  */
-export type StatsSky = 'dashboard' | 'empty' | 'session'
+export type StatsSky = 'dashboard' | 'empty' | 'session' | 'limits'
 
 const WASH: Record<StatsSky, string> = {
   dashboard:
@@ -18,12 +18,16 @@ const WASH: Record<StatsSky, string> = {
   empty: 'bg-[radial-gradient(ellipse_700px_460px_at_50%_46%,rgba(70,90,220,.09),transparent)]',
   session:
     'bg-[radial-gradient(ellipse_620px_420px_at_78%_14%,rgba(110,80,220,.1),transparent),radial-gradient(ellipse_700px_500px_at_18%_86%,rgba(40,170,220,.06),transparent)]',
+  // `Feature - Plan limits` 31a: the two washes, and no stars.
+  limits:
+    'bg-[radial-gradient(ellipse_620px_420px_at_28%_38%,rgba(110,80,220,.1),transparent),radial-gradient(ellipse_760px_520px_at_74%_68%,rgba(40,170,220,.07),transparent)]',
 }
 
 const STARS: Record<StatsSky, string> = {
   dashboard: 'orbital-stats-stars',
   empty: 'orbital-stats-stars-empty',
   session: 'orbital-stats-stars-session',
+  limits: '',
 }
 
 /**

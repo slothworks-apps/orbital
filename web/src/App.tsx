@@ -31,7 +31,14 @@ import { PairConfirmDialog } from './panels/PairConfirmDialog'
 import { Toasts } from './ui/Toasts'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
-import { readNewSessionParam, useSessionUrl, withoutNewSessionParam } from './lib/sessionUrl'
+import {
+  openSettingsSection,
+  readNewSessionParam,
+  readSettingsParam,
+  useSessionUrl,
+  withoutNewSessionParam,
+  withoutSettingsParam,
+} from './lib/sessionUrl'
 import { WINDOW_DRAG_BAND_PX, useSidebarWindowButtons, useWindowBand } from './lib/windowChrome'
 
 /**
@@ -136,6 +143,17 @@ export default function App() {
     window.history.replaceState(null, '', withoutNewSessionParam())
     setDialog('new')
   }, [setDialog])
+
+  // `/?settings=<section>` — the limits page's way into Settings → Sessions
+  // (see `lib/sessionUrl`). It waits for the initial load, which replaces the
+  // settings the section is written into.
+  useEffect(() => {
+    if (!initialLoadSettled) return
+    const section = readSettingsParam()
+    if (!section) return
+    window.history.replaceState(null, '', withoutSettingsParam())
+    openSettingsSection(section)
+  }, [initialLoadSettled])
 
   useCommand('global.new-session', () => setDialog('new'))
   useCommand('global.settings', () => setDialog('settings'))

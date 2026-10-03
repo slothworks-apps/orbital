@@ -31,6 +31,7 @@ import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
 import { DetachGlyph, StatsGlyph } from '../ui/UtilityButton'
 import { STATS_PATH } from '../stats/route'
+import { LIMITS_PATH } from '../limits/route'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 
@@ -189,6 +190,43 @@ function StatsLink({ size }: { size: 'footer' | 'rail' }) {
       ].join(' ')}
     >
       <StatsGlyph size={size === 'footer' ? 'footer' : 'header'} />
+    </a>
+  )
+}
+
+/**
+ * The way into `/limits` (canvas `Feature - Plan limits` 31e-a): stats ·
+ * limits · SETTINGS, in the stats link's own shell. The ring is drawn ¾ full
+ * in neutral ink and never changes — no colour, no fill level, no dot — so
+ * it cannot turn into a badge.
+ */
+function LimitsLink({ size }: { size: 'footer' | 'rail' }) {
+  const label = 'Limits — plan usage'
+  const glyph = size === 'footer' ? 10 : 11
+  return (
+    <a
+      href={LIMITS_PATH}
+      aria-label={label}
+      title={label}
+      className={[
+        'grid shrink-0 place-items-center bg-[rgba(150,205,255,.05)] no-underline',
+        'text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:text-text-bright',
+        size === 'footer'
+          ? 'h-6 w-[26px] rounded-[7px] border border-panel-border hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)]'
+          : 'h-[30px] w-[30px] rounded-lg border border-panel-border hover:bg-[rgba(150,205,255,.13)]',
+      ].join(' ')}
+    >
+      <span
+        aria-hidden
+        className="block rounded-full"
+        style={{
+          width: glyph,
+          height: glyph,
+          background: 'conic-gradient(from -90deg, currentColor 0 250deg, rgba(200,220,245,.25) 250deg 360deg)',
+          mask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px))',
+          WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px))',
+        }}
+      />
     </a>
   )
 }
@@ -639,6 +677,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
             sits with it at the foot of the rail, mirroring the footer order. */}
         <span className="flex-1" />
         <StatsLink size="rail" />
+        <LimitsLink size="rail" />
         <button
           type="button"
           aria-label="Open settings"
@@ -831,6 +870,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
             all three and stranded stats mid-footer. */}
         <span className="flex-1" />
         <StatsLink size="footer" />
+        <LimitsLink size="footer" />
         {/* Settings keeps the word; tags & rules moved inside the dialog as a
             section, so the link that used to sit here would land on the same
             screen. */}

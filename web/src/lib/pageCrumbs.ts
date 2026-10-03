@@ -20,6 +20,7 @@ export type WalkthroughCrumbScreen =
 
 export type PageBarRoute =
   | { page: 'stats' }
+  | { page: 'limits' }
   | { page: 'drilldown'; title: string }
   | { page: 'walkthrough'; id: string; title: string; screen: WalkthroughCrumbScreen }
 
@@ -44,6 +45,9 @@ export function pageCrumbs(route: PageBarRoute): PageCrumb[] {
   const root: PageCrumb = { key: 'map', label: 'ORBITAL', kind: 'root', href: MAP_PATH }
   if (route.page === 'stats') {
     return [root, { key: 'here', label: 'STATS', kind: 'section', href: null }]
+  }
+  if (route.page === 'limits') {
+    return [root, { key: 'here', label: 'LIMITS', kind: 'section', href: null }]
   }
   if (route.page === 'drilldown') {
     return [
@@ -80,6 +84,7 @@ export function upCrumb(route: PageBarRoute): PageCrumb {
  */
 export function pageTitle(route: PageBarRoute): string {
   if (route.page === 'stats') return 'Stats · Orbital'
+  if (route.page === 'limits') return 'Limits · Orbital'
   if (route.page === 'drilldown') return `${route.title} · Stats · Orbital`
   if (route.screen.kind === 'cover') return `${route.title} · Walkthrough · Orbital`
   const here = route.screen.kind === 'step' ? `step ${route.screen.n}` : 'close'
