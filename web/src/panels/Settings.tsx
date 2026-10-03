@@ -81,6 +81,7 @@ import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { MobileSection } from './MobileSection'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
+import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, DEFAULT_CONTINUE_TEXT, limitSettings } from '../lib/limits'
 // The desktop version names the DMG, and the DMG ships this frontend.
 import { version as orbitalVersion } from '../../../desktop/package.json'
 
@@ -372,6 +373,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const [instructionsDraft, setInstructionsDraft] = useState(
     settings.session_instructions_custom_text ?? '',
   )
+  const [continueDraft, setContinueDraft] = useState(() => limitSettings(settings).text)
   /**
    * Orbital's tips, from the server. Null until the fetch lands and after a
    * failure: the list then simply does not draw, for the same reason
@@ -453,6 +455,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     setCliPathDraft(settings.claude_executable_path ?? '')
     setClaudeDirDraft(settings.claude_directory ?? '')
     setInstructionsDraft(settings.session_instructions_custom_text ?? '')
+    setContinueDraft(limitSettings(settings).text)
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
     // must not fight the user's current typing while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -624,6 +627,19 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instructionsDraft, open])
 
+  // And the fifth: the text a limit wait sends at the reset (31c). An emptied
+  // field is not saved — the server would fall back to the default anyway,
+  // and the field would then disagree with what goes out.
+  useEffect(() => {
+    if (!open) return
+    if (!continueDraft.trim() || continueDraft === limitSettings(settings).text) return
+    const timer = setTimeout(() => {
+      void patchAndSet({ [CONTINUE_TEXT_KEY]: continueDraft })
+    }, DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [continueDraft, open])
+
   // General's read-only rows. Fetched per visit rather than kept in the store:
   // nothing else reads them, and a value from before a server restart would
   // be worse than no value at all. A failure leaves `health` null and the
@@ -754,6 +770,8 @@ export function Settings({ open, onClose }: SettingsProps) {
   const confirmBeforeClear = settings.confirm_before_clear !== 'false'
   const instructionTips = settings.session_instructions_tips !== 'false'
   const instructionCustom = settings.session_instructions_custom !== 'false'
+  const autoContinue = limitSettings(settings).autoContinue
+  const continueIsDefault = continueDraft === DEFAULT_CONTINUE_TEXT
   const inheritTags = settings.inherit_tags !== 'false'
   const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
   // Off unless the stored value is one of the offered policies: an absent or
@@ -1874,6 +1892,53 @@ export function Settings({ open, onClose }: SettingsProps) {
                           placeholder="For example: answer in Czech, keep replies short…"
                           className="resize-y"
                         />
+                      </div>
+                      {/* `Feature - Plan limits` 31c (spec
+                          2026-10-03-usage-limits-design § 1 "Settings"). */}
+                      <SectionLabel>LIMITS</SectionLabel>
+                      <Row
+                        title="Continue automatically after a limit reset"
+                        desc="When a session hits a plan limit, it waits. With this on, it sends the message below as soon as the window resets. With it off, the session stays idle until you write."
+                      >
+                        <Toggle
+                          aria-label="Continue automatically after a limit reset"
+                          checked={autoContinue}
+                          onChange={(checked) =>
+                            void patchAndSet({ [AUTO_CONTINUE_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      <div
+                        className="transition-opacity duration-200 ease-[ease]"
+                        style={{ opacity: autoContinue ? 1 : 0.45 }}
+                      >
+                        <Row
+                          title="Message sent on continue"
+                          desc="Sent as an ordinary user message, so it shows in the transcript like anything you type."
+                        >
+                          <TextArea
+                            aria-label="Message sent on continue"
+                            size="sm"
+                            rows={4}
+                            value={continueDraft}
+                            disabled={!autoContinue}
+                            onChange={(e) => setContinueDraft(e.target.value)}
+                            className="resize-y"
+                          />
+                          <div className="flex w-full items-center gap-2.5 font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+                            <span>{continueIsDefault ? 'default text' : 'edited'}</span>
+                            <span className="flex-1" />
+                            <button
+                              type="button"
+                              disabled={continueIsDefault || !autoContinue}
+                              onClick={() => setContinueDraft(DEFAULT_CONTINUE_TEXT)}
+                              className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10px] tracking-[0.12em] disabled:cursor-default"
+                              style={{ color: continueIsDefault ? 'rgba(160,190,225,.3)' : '#8fd8ff' }}
+                            >
+                              RESET TO DEFAULT
+                            </button>
+                          </div>
+                        </Row>
                       </div>
                     </>
                   )}
