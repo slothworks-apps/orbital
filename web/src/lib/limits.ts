@@ -121,13 +121,21 @@ export function limitSettings(settings: Record<string, string | undefined>): { a
   }
 }
 
+/**
+ * Whether the reset will send anything: the server's `willContinue` (the
+ * setting on and the wait not cancelled), or messages queued during the wait,
+ * which go out whatever the setting says (spec § 1 "Firing").
+ */
+export function continuesAtReset(wait: Pick<LimitWait, 'willContinue' | 'queued'>): boolean {
+  return wait.willContinue || wait.queued.length > 0
+}
+
 /** What the transcript's notice offers (31d): Cancel while it will continue, Undo once cancelled. */
 export type LimitNoticeAction = 'cancel' | 'undo' | null
 
 /**
  * Every word a waiting session wears (31b, 31d — the canvas's own logic).
- * `continues` is the server's `willContinue`: queued messages, or the
- * continuation text with the setting on and the wait not cancelled.
+ * A wait continues when the reset will send something (`continuesAtReset`).
  */
 export interface LimitWaitCopy {
   /** Map pill under the name: `waiting for limit · 15:00`, `limit · resets 15:00`. */
@@ -151,7 +159,7 @@ export function limitWaitCopy(
   now: number = Date.now(),
 ): LimitWaitCopy {
   const phrase = formatResetPhrase(wait.resetsAt, now)
-  const continues = wait.willContinue
+  const continues = continuesAtReset(wait)
   const queued = wait.queued.length
   const then =
     queued > 0
@@ -172,16 +180,16 @@ export function limitWaitCopy(
   }
 }
 
-/** The map's pill alone — it needs no settings, only the server's `willContinue`. */
-export function limitPillText(wait: Pick<LimitWait, 'resetsAt' | 'willContinue'>, now: number = Date.now()): string {
+/** The map's pill alone — it needs no settings. */
+export function limitPillText(wait: Pick<LimitWait, 'resetsAt' | 'willContinue' | 'queued'>, now: number = Date.now()): string {
   const at = formatResetAt(wait.resetsAt, now)
-  return wait.willContinue ? `waiting for limit · ${at}` : `limit · resets ${at}`
+  return continuesAtReset(wait) ? `waiting for limit · ${at}` : `limit · resets ${at}`
 }
 
 /** The detail header's state line, and the sidebar row's short form. */
-export function limitWaitStatus(wait: Pick<LimitWait, 'resetsAt' | 'willContinue'>, now: number = Date.now()): string {
+export function limitWaitStatus(wait: Pick<LimitWait, 'resetsAt' | 'willContinue' | 'queued'>, now: number = Date.now()): string {
   const at = formatResetAt(wait.resetsAt, now)
-  return wait.willContinue ? `WAITING FOR LIMIT · ${at}` : `LIMIT · RESETS ${at}`
+  return continuesAtReset(wait) ? `WAITING FOR LIMIT · ${at}` : `LIMIT · RESETS ${at}`
 }
 
 export function limitWaitShort(wait: Pick<LimitWait, 'resetsAt'>, now: number = Date.now()): string {

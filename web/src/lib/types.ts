@@ -224,6 +224,20 @@ export interface LimitWait {
   queued: string[]
 }
 
+/**
+ * A fired wait, as its divider reads it. Published live only — nothing in
+ * the transcript file carries it, so a reload does not show it. Mirrors
+ * `server/src/types.ts`.
+ */
+export interface LimitResetNotice {
+  /** The window's reset, not the moment the wait fired. */
+  resetsAt: string
+  windowLabel: string
+  /** Something was sent: the queued messages or the continuation text. */
+  continued: boolean
+  sent: string | null
+}
+
 /** The server's grading of a window; anything else it sends reads as `normal`. */
 export type LimitSeverity = 'normal' | 'warning' | 'critical'
 
@@ -526,11 +540,10 @@ export interface ChatMessage {
    * `server/src/types.ts`.
    *
    * `kind: 'limit_reset'` is Orbital's own row where a limit wait fired
-   * (spec 2026-10-03-usage-limits-design § 1): `resetsAt` is the reset, and
-   * `text` the message it sent, empty when nothing went out. Drawn as a
-   * divider, not as a printout.
+   * (spec 2026-10-03-usage-limits-design § 1), its facts in `limitReset`.
+   * Drawn as a divider, not as a printout.
    */
-  notice?: { level: NoticeLevel; command?: string; kind?: 'limit_reset'; resetsAt?: string }
+  notice?: { level: NoticeLevel; command?: string; kind?: 'limit_reset'; limitReset?: LimitResetNotice }
   /** `compaction` rows only. Mirrors `server/src/types.ts`. */
   compaction?: CompactionMark
   /** `rewind` rows only: N, or null for a rewind done in the terminal. Mirrors `server/src/types.ts`. */

@@ -1052,7 +1052,10 @@ export function TranscriptView({
           >
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
             <span>
-              {limitResetLabel(group.item.message.notice.resetsAt, Boolean(group.item.message.text?.trim()))}
+              {limitResetLabel(
+                group.item.message.notice.limitReset?.resetsAt,
+                group.item.message.notice.limitReset?.continued ?? false,
+              )}
             </span>
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
           </div>
