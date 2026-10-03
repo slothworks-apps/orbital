@@ -26,15 +26,17 @@ runs.
 - **Continuation rests on `rate_limit_event`.** A running session's query
   emits it with a status (`allowed` / `allowed_warning` / `rejected`), the
   window type and `resetsAt`. It is a stable, typed message.
-- **The view rests on a probe.** A `query()` whose prompt stream never
-  yields, as for the model catalogue, calls the SDK's usage request with
-  `skipBehaviors: true`. That costs no tokens and returns every window the
-  server knows about.
+- **The view rests on a probe.** A short-lived `query()` with
+  `persistSession: false`, as for the model catalogue, runs the CLI's
+  local `/usage` command and reads the `usage_report` on its reply: the
+  server's usage rows verbatim, with their labels, order and severity.
+  The SDK's `get_usage` control request returns named windows without
+  severity, so it is the fallback if `/usage` turns out to spend tokens.
 
-The usage request is marked experimental in the SDK. That risk is
-accepted for the view only: if the request changes, the view breaks and
-continuation still works, because it never depends on the probe except as
-a fallback for a missing `resetsAt`.
+Both are marked experimental in the SDK. That risk is accepted for the
+view only: if they change, the view breaks and continuation still works,
+because it never depends on the probe except as a fallback for a missing
+`resetsAt`.
 
 ## Rejected
 
