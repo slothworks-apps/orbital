@@ -386,18 +386,15 @@ export async function buildServer(overrides: {
   const images = createImageStore(imagesDir);
   const files = createFileStore(join(CONFIG.dataDir, 'files'));
 
-  // Names a session from its own contents. On its own it reaches web sessions
-  // only, because the stream that feeds it is the Runner's and only they come
-  // through the Runner at all — a terminal session's transcript is read, never
-  // owned. `POST /api/sessions/:id/retitle` has no such limit: it reads the
-  // transcript off disk and names any session Orbital knows. See
-  // `docs/superpowers/specs/2026-09-18-auto-title-design.md`.
+  // Names a session from its own contents when someone clicks ⟳ —
+  // `POST /api/sessions/:id/retitle`. See
+  // `docs/decisions/session-titles-only-on-demand.md`.
   const titler = new SessionTitler({
     queryFn: overrides.titleQueryFn ?? query,
     claudeExecutablePath: claudeCli.path,
     readSession: (sessionId) =>
       db
-        .select({ title: sessions.title, titleSource: sessions.titleSource })
+        .select({ title: sessions.title })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .get(),
@@ -408,18 +405,6 @@ export async function buildServer(overrides: {
         .run();
       republish(sessionId);
     },
-    // Read per call, never captured: a value read once at boot ignores the
-    // switch until a restart.
-    isEnabled: () => settingsStore.get('auto_title_sessions') === 'true',
-    onError: (sessionId, err) =>
-      errors.record({
-        source: 'server',
-        kind: 'api_request',
-        sessionId,
-        message: err instanceof Error ? err.message : String(err),
-        detail: err instanceof Error ? (err.stack ?? null) : null,
-        context: { while: 'generating a session title' },
-      }),
   });
 
   // Templates and the checklists sessions follow (spec
@@ -552,7 +537,6 @@ export async function buildServer(overrides: {
     // 2026-09-20-session-stats-design § Evaluation cadence). `liveStats`
     // is declared below, like `runner` in `publishCtx`.
     liveStats.end(sessionId);
-    titler.forget(sessionId);
     harness.forget(sessionId);
     // Both topics: the selected session's panel listens on `session:<id>`,
     // the map on `sessions`.
@@ -691,13 +675,11 @@ export async function buildServer(overrides: {
       if (taskId) startFollower(`task-output:${sessionId}:${taskId}`);
       republish(sessionId);
     },
-    // Both edges of the main loop's turn. The titler used to hang off
-    // `status === 'needs_input'`, which no longer means "a turn just ended"
-    // now that a turn can end into `working`; and the republish is what
-    // carries `awaitingSubagents` to the map, since neither edge necessarily
-    // moves the status at all.
+    // Both edges of the main loop's turn. `status === 'needs_input'` no
+    // longer means "a turn just ended" now that a turn can end into
+    // `working`; and the republish is what carries `awaitingSubagents` to the
+    // map, since neither edge necessarily moves the status at all.
     onTurnBoundary: (sessionId, ended) => {
-      if (ended) void titler.considerTurnEnd(sessionId);
       if (ended) harness.onTurnEnd(sessionId);
       // A turn the CLI started by itself is a next turn too, and it moves no
       // status for `onStatus` above to see.
@@ -720,12 +702,10 @@ export async function buildServer(overrides: {
     // from here: the transcript line that closes the tool follows the answer
     // and re-indexes the session, reading this row.
     onPermissionWait: (sessionId, wait) => recordPermissionWait(db, sessionId, wait),
-    // What the session said, for the titler, in the shape the transcript
+    // What the session said, for the harness, in the shape the transcript
     // already converts to.
     onEntries: (sessionId, entries) => {
-      const messages = entriesToMessages(entries);
-      titler.feed(sessionId, messages);
-      harness.feed(sessionId, messages);
+      harness.feed(sessionId, entriesToMessages(entries));
     },
     // A session that dies on its own used to say nothing at all: `pump()`
     // logged to the server's terminal and `finish()` greyed the planet out,

@@ -2,9 +2,8 @@
  * Naming a session from its own contents.
  *
  * Everything in this file is pure and synchronous except the model call
- * itself: the decision to ask (`shouldRetitle`), what to ask
- * (`buildTitlePrompt`) and whether to believe the answer
- * (`parseTitleReply`) are all testable without a CLI.
+ * itself: what to ask (`buildTitlePrompt`) and whether to believe the
+ * answer (`parseTitleReply`) are both testable without a CLI.
  */
 
 import type { ChatMessage } from '../types.js';
@@ -117,67 +116,6 @@ export function parseTitleReply(raw: string): string | null {
   return unquoted;
 }
 
-/**
- * Function words carry no subject, in either language this project is written
- * in. Deliberately short: the length floor below already drops most of the
- * small ones, and a long list is a list that goes stale.
- */
-const STOPWORDS = new Set([
-  'the', 'and', 'that', 'this', 'with', 'for', 'you', 'can', 'not', 'but', 'are', 'was',
-  'have', 'has', 'its', 'our', 'out', 'from', 'into', 'when', 'what', 'why', 'how',
-  'ale', 'nebo', 'tak', 'aby', 'jsem', 'jsi', 'jsou', 'byl', 'bylo', 'když', 'což', 'pak',
-  'jen', 'ještě', 'taky', 'tam', 'tady', 'jako', 'podle', 'které', 'který', 'která', 'mít',
-]);
-
-/** Below this many characters a word is structure, not subject. */
-const MIN_TOKEN_CHARS = 3;
-
-/**
- * How many distinct subject words the new messages must carry before they can
- * be read as a change of subject at all. Two words ("thanks", "please") are a
- * courtesy, not a new topic.
- */
-const MIN_NEW_TOKENS = 4;
-
-/** How much of the new vocabulary is weighed against the title. */
-const TOP_TOKENS = 5;
-
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((token) => token.length >= MIN_TOKEN_CHARS && !STOPWORDS.has(token));
-}
-
-/**
- * Whether the session's recent user messages have moved away from what its
- * title says, cheaply enough to run after every turn.
- *
- * Not a coverage ratio: on the same subject most words still miss the title
- * ("fix", "run", "test"), so a ratio reads as drift within one turn of any
- * session. What holds instead is that the title survives in what the session
- * talks about MOST — so the new text's most frequent subject words are what
- * get weighed, and the subject has moved only when none of them is in the
- * title.
- */
-export function shouldRetitle(newUserText: string[], currentTitle: string): boolean {
-  const counts = new Map<string, number>();
-  for (const text of newUserText) {
-    for (const token of tokenize(text)) counts.set(token, (counts.get(token) ?? 0) + 1);
-  }
-  if (counts.size < MIN_NEW_TOKENS) return false;
-
-  const titleTokens = new Set(tokenize(currentTitle));
-  // Nothing to preserve: anything the model says beats an empty title.
-  if (titleTokens.size === 0) return true;
-
-  const top = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, TOP_TOKENS)
-    .map(([token]) => token);
-  return !top.some((token) => titleTokens.has(token));
-}
-
 function stripMatchingQuotes(value: string): string {
   const first = value[0];
   const last = value[value.length - 1];
@@ -186,22 +124,6 @@ function stripMatchingQuotes(value: string): string {
   }
   return value;
 }
-
-/** Where a session's current title came from. Only `manual` is a person's word. */
-export type TitleSource = 'derived' | 'auto' | 'manual';
-
-/**
- * Shortest gap between two renames of the same session. A name that moves
- * while you are looking at it costs more than a name that is a few minutes
- * stale: the map is how you find a session again.
- */
-export const RETITLE_COOLDOWN_MS = 10 * 60 * 1000;
-
-/** User turns since the last rename before a change of subject is even possible. */
-const MIN_USER_MESSAGES = 3;
-
-/** How much of a session is kept in memory to describe it with. */
-const BUFFER_MESSAGES = 60;
 
 /**
  * One-shot model call. Narrower than `Runner`'s `QueryFn` on purpose: this
@@ -214,16 +136,10 @@ export type TitleQueryFn = (args: {
 
 export interface SessionTitlerDeps {
   queryFn: TitleQueryFn;
-  /** The session's current title and where it came from; `undefined` if unknown. */
-  readSession(sessionId: string): { title: string; titleSource: TitleSource } | undefined;
+  /** The session's current title; `undefined` if unknown. */
+  readSession(sessionId: string): { title: string } | undefined;
   /** Persist and publish a new title. The titler never touches the database itself. */
   applyTitle(sessionId: string, title: string): void;
-  /**
-   * The `auto_title_sessions` setting, read at the point of use rather than
-   * captured at boot: a value read once ignores the switch until a restart.
-   */
-  isEnabled(): boolean;
-  now?: () => number;
   model?: string;
   /**
    * The `claude` to spawn. Absent, the SDK spawns its own bundled binary —
@@ -232,118 +148,28 @@ export interface SessionTitlerDeps {
    * `ModelCatalog.probe()`.
    */
   claudeExecutablePath?: string | null;
-  /** A failed title query is recorded, never thrown at the turn that triggered it. */
-  onError?: (sessionId: string, err: unknown) => void;
-}
-
-interface TitlerState {
-  /** Recent messages, as the prompt will describe them. */
-  buffer: ChatMessage[];
-  /** User text since the last rename — what the gate weighs. */
-  newUserText: string[];
-  lastTitledAt: number;
 }
 
 /**
- * Names a session from its own contents while it runs.
- *
- * Fed from the session's message stream and asked to consider a rename when a
- * turn ends. Every guard is checked before the model is: the setting, a
- * manually typed title, how much has been said, the cooldown, and finally the
- * vocabulary gate — so a turn that changes nothing costs nothing.
+ * Names a session from its own contents when someone asks for it — the ⟳
+ * beside the title. Sessions never rename themselves; see
+ * `docs/decisions/session-titles-only-on-demand.md`.
  */
 export class SessionTitler {
-  private states = new Map<string, TitlerState>();
-
   constructor(private deps: SessionTitlerDeps) {}
 
-  private stateFor(sessionId: string): TitlerState {
-    let state = this.states.get(sessionId);
-    if (!state) {
-      state = { buffer: [], newUserText: [], lastTitledAt: 0 };
-      this.states.set(sessionId, state);
-    }
-    return state;
-  }
-
-  /** Accumulates what a session has said. Cheap: no model, no database. */
-  feed(sessionId: string, messages: ChatMessage[]): void {
-    if (messages.length === 0) return;
-    const state = this.stateFor(sessionId);
-    state.buffer = [...state.buffer, ...messages].slice(-BUFFER_MESSAGES);
-    for (const message of messages) {
-      if (message.role === 'user' && message.text?.trim()) state.newUserText.push(message.text);
-    }
-    state.newUserText = state.newUserText.slice(-BUFFER_MESSAGES);
-  }
-
   /**
-   * Replaces what a session has said with what its conversation holds now —
-   * after a rewind, the dropped turns must not name it (spec
-   * 2026-09-29-rewind-design § After a rewind is sent). Nothing here counts
-   * as new user text: the rename gate weighs what is said from now on.
-   */
-  reset(sessionId: string, messages: ChatMessage[]): void {
-    const state = this.stateFor(sessionId);
-    state.buffer = messages.slice(-BUFFER_MESSAGES);
-    state.newUserText = [];
-  }
-
-  /** Drops a session's buffers — it has ended and will say nothing more. */
-  forget(sessionId: string): void {
-    this.states.delete(sessionId);
-  }
-
-  /** Called when a turn ends. Renames the session if every guard agrees. */
-  async considerTurnEnd(sessionId: string): Promise<void> {
-    if (!this.deps.isEnabled()) return;
-    const state = this.states.get(sessionId);
-    if (!state || state.newUserText.length < MIN_USER_MESSAGES) return;
-
-    const session = this.deps.readSession(sessionId);
-    if (!session || session.titleSource === 'manual') return;
-
-    const now = this.deps.now?.() ?? Date.now();
-    if (state.lastTitledAt !== 0 && now - state.lastTitledAt < RETITLE_COOLDOWN_MS) return;
-    if (!shouldRetitle(state.newUserText, session.title)) return;
-
-    let reply: string;
-    try {
-      reply = await this.ask(buildTitlePrompt(session.title, state.buffer));
-    } catch (err) {
-      // A title is a nicety; the turn that triggered it is not. Record and move on.
-      this.deps.onError?.(sessionId, err);
-      return;
-    }
-
-    // The cooldown starts at the ASK, not at the rename: a model that keeps
-    // answering KEEP must not be asked again on every following turn.
-    state.lastTitledAt = now;
-    state.newUserText = [];
-
-    const title = parseTitleReply(reply);
-    if (title && title !== session.title) this.deps.applyTitle(sessionId, title);
-  }
-
-  /**
-   * Renames a session because someone asked for it, now.
+   * Renames a session, now.
    *
-   * Every guard `considerTurnEnd` weighs is deliberately absent: the setting,
-   * a manually typed title, the message count, the cooldown and the
-   * vocabulary gate all exist to decide WHETHER to ask, and a click has
-   * already decided that. What is left is what the session should be called.
+   * The messages come from the caller, which is what lets this name any
+   * session Orbital knows: one that has ended, one the server has restarted
+   * since, or a terminal session Orbital only ever reads.
    *
-   * The messages come from the caller rather than from `feed`'s buffer, which
-   * is what lets this name a session the titler has never seen: one that has
-   * ended, one the server has restarted since, or a terminal session Orbital
-   * only ever reads.
+   * `applyTitle` runs even when the model answers KEEP: it is what writes
+   * `auto`, so a name a person typed stops being `manual` either way.
    *
-   * `applyTitle` runs even when the model answers KEEP. It is what writes
-   * `auto`, and the click is consent to being renamed again later — so a name
-   * that stays the same still stops being `manual`.
-   *
-   * Throws when the model call fails. `onError` is for the fire-and-forget
-   * path; here someone is waiting on the answer and can be told.
+   * Throws when the model call fails — someone is waiting on the answer and
+   * can be told.
    */
   async retitleNow(
     sessionId: string,
@@ -353,17 +179,6 @@ export class SessionTitler {
     if (!session) throw new Error(`unknown session ${sessionId}`);
 
     const reply = await this.ask(buildTitlePrompt(session.title, messages));
-
-    // Same reason the automatic path starts its cooldown at the ask: the turn
-    // that ends a moment after the click must not ask all over again. Only an
-    // existing state is touched — a session with none has no automatic path
-    // running against it, and minting one here would leave behind an entry
-    // `forget` is never called for.
-    const state = this.states.get(sessionId);
-    if (state) {
-      state.lastTitledAt = this.deps.now?.() ?? Date.now();
-      state.newUserText = [];
-    }
 
     const title = parseTitleReply(reply) ?? session.title;
     this.deps.applyTitle(sessionId, title);

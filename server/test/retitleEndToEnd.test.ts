@@ -5,11 +5,9 @@ import { buildServer } from '../src/index.js';
 import { makeTmpDir } from './tmp.js';
 
 /**
- * The chain only `index.ts` wires: a running session's messages ->
- * `SessionTitler.feed` -> a turn ending -> `considerTurnEnd` -> the session
- * row's new title. The unit tests prove each link; this proves a session
- * actually renames itself, which is the point of
- * `docs/superpowers/specs/2026-09-18-auto-title-design.md`.
+ * `POST /api/sessions/:id/retitle` — the name regenerated because someone
+ * asked for it. Worth end-to-end coverage because the interesting case is a
+ * terminal session the Runner never owned, with a name a human typed.
  */
 
 /** Fake SDK for the session itself: echoes each prompt, then ends the turn. */
@@ -57,79 +55,8 @@ function tempClaudeDir() {
   return { claudeDir, dbPath: join(claudeDir, 'index.db') };
 }
 
-async function runSession(app: any, enabled: boolean) {
-  await app.inject({
-    method: 'PATCH', url: '/api/settings',
-    payload: { auto_title_sessions: enabled ? 'true' : 'false' },
-  });
-  const created = await app.inject({
-    method: 'POST', url: '/api/sessions',
-    payload: { cwd: '/w/x', prompt: 'go', permissionMode: 'acceptEdits' },
-  });
-  const { sessionId } = created.json();
-  for (const text of [
-    'the space map zoom feels wrong',
-    'planets are too small when zoomed out',
-    'counter-zoom the bodies below the default',
-  ]) {
-    await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/messages`, payload: { text } });
-  }
-  return sessionId;
-}
-
 const titleOf = async (app: any, id: string) =>
   (await app.inject({ method: 'GET', url: `/api/sessions/${id}` })).json().session.title;
-
-describe('a session naming itself, end to end', () => {
-  it('renames the session once its subject has moved', async () => {
-    const { claudeDir, dbPath } = tempClaudeDir();
-    const app = await buildServer({
-      claudeDir, dbPath,
-      queryFn: fakeSessionQueryFn() as any,
-      titleQueryFn: fakeTitleQueryFn('Space map counter-zoom') as any,
-    });
-    try {
-      const sessionId = await runSession(app, true);
-      await vi.waitFor(async () => {
-        expect(await titleOf(app, sessionId)).toBe('Space map counter-zoom');
-      });
-    } finally {
-      await app.close();
-    }
-  });
-
-  it('leaves the title alone while the setting is off', async () => {
-    const { claudeDir, dbPath } = tempClaudeDir();
-    const titleQueryFn = vi.fn(fakeTitleQueryFn('Space map counter-zoom'));
-    const app = await buildServer({
-      claudeDir, dbPath,
-      queryFn: fakeSessionQueryFn() as any,
-      titleQueryFn: titleQueryFn as any,
-    });
-    try {
-      const sessionId = await runSession(app, false);
-      // The turns have to have actually run before "nothing happened" means
-      // anything: a session is back to `needs_input` once its last turn ended.
-      await vi.waitFor(async () => {
-        const { session } = (
-          await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}` })
-        ).json();
-        expect(session.status).toBe('needs_input');
-      });
-      expect(titleQueryFn).not.toHaveBeenCalled();
-      expect(await titleOf(app, sessionId)).toBe('');
-    } finally {
-      await app.close();
-    }
-  });
-});
-
-/**
- * The other half of the same spec: the name regenerated because someone asked
- * for it. Worth its own end-to-end coverage because the interesting cases are
- * exactly the ones the automatic path cannot reach — a terminal session the
- * Runner never owned, with the setting off and a name a human typed.
- */
 
 /** A terminal session as `~/.claude` leaves one: a transcript and nothing else. */
 function writeTerminalTranscript(claudeDir: string, id: string, texts: string[]) {
@@ -148,7 +75,7 @@ function writeTerminalTranscript(claudeDir: string, id: string, texts: string[])
 const TERMINAL_ID = '11111111-2222-4333-8444-555555555555';
 
 describe('renaming a session on demand', () => {
-  it('names a terminal session with the setting off and a title a human typed', async () => {
+  it('names a terminal session over a title a human typed', async () => {
     const { claudeDir, dbPath } = tempClaudeDir();
     writeTerminalTranscript(claudeDir, TERMINAL_ID, [
       'the space map zoom feels wrong',
@@ -159,10 +86,6 @@ describe('renaming a session on demand', () => {
       titleQueryFn: fakeTitleQueryFn('Space map counter-zoom') as any,
     });
     try {
-      await app.inject({
-        method: 'PATCH', url: '/api/settings',
-        payload: { auto_title_sessions: 'false' },
-      });
       await app.inject({
         method: 'PATCH', url: `/api/sessions/${TERMINAL_ID}`,
         payload: { title: 'Something I typed' },

@@ -1,17 +1,22 @@
 ---
 id: 2026-09-18-auto-title-design
 title: Auto-title — a session renames itself as its subject moves
-status: done
+status: superseded
 type: spec
 domain: sessions
 related:
   - subagents-only-for-orbital-sessions
   - runner-pins-the-session-id
+  - session-titles-only-on-demand
 tags:
   - sessions
   - models
 ---
 # Auto-title — a session renames itself as its subject moves
+
+> **Superseded in part, 2026-10-03.** The automatic rename was removed —
+> [[session-titles-only-on-demand]]. Renaming on demand (the ⟳ button) stands
+> as described below.
 
 A session's title is the first thing its author said, cut to 120 characters
 (`extractMeta` → `cleanTitle`). A session that ran for two hours and moved on

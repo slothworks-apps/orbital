@@ -229,21 +229,6 @@ describe('Settings', () => {
     expect(useOrbital.getState().settings.confirm_before_clear).toBe('false')
   })
 
-  it('patches auto-titling when the toggle is clicked, and starts off', async () => {
-    resetStore()
-    render(<Settings open onClose={vi.fn()} />)
-    openSection('Sessions')
-
-    const toggle = screen.getByRole('switch', { name: /generate session titles from content/i })
-    expect(toggle).not.toBeChecked()
-    fireEvent.click(toggle)
-
-    await waitFor(() =>
-      expect(api.patchSettings).toHaveBeenCalledWith({ auto_title_sessions: 'true' })
-    )
-    expect(useOrbital.getState().settings.auto_title_sessions).toBe('true')
-  })
-
   it('patches the inherit-tags and inherit-permission-mode checkboxes independently', async () => {
     resetStore()
     render(<Settings open onClose={vi.fn()} />)

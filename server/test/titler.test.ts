@@ -1,18 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   MAX_PROMPT_CHARS,
-  RETITLE_COOLDOWN_MS,
   SessionTitler,
   buildTitlePrompt,
   parseTitleReply,
-  shouldRetitle,
 } from '../src/titler/titler.js';
 import type { ChatMessage } from '../src/types.js';
 
 const userMsg = (text: string): ChatMessage => ({ id: text, role: 'user', text });
 
-/** Enough user turns, on a subject far from the title, to clear every guard. */
-const MOVED_ON = [
+const MESSAGES = [
   userMsg('the space map zoom feels wrong'),
   userMsg('planets are too small when zoomed out'),
   userMsg('counter-zoom the bodies below the default'),
@@ -30,28 +27,16 @@ function fakeQueryFn(reply: string) {
   });
 }
 
-function makeTitler(opts: {
-  reply?: string;
-  title?: string;
-  titleSource?: 'derived' | 'auto' | 'manual';
-  enabled?: boolean;
-  now?: () => number;
-}) {
+function makeTitler(opts: { reply?: string; title?: string }) {
   const queryFn = fakeQueryFn(opts.reply ?? 'Space map counter-zoom');
   const applyTitle = vi.fn();
   const titler = new SessionTitler({
     queryFn: queryFn as never,
-    readSession: () => ({
-      title: opts.title ?? 'Tag rules ordering',
-      titleSource: opts.titleSource ?? 'derived',
-    }),
+    readSession: () => ({ title: opts.title ?? 'Tag rules ordering' }),
     applyTitle,
-    isEnabled: () => opts.enabled ?? true,
-    now: opts.now ?? (() => 1_000_000),
   });
   return { titler, queryFn, applyTitle };
 }
-
 
 /**
  * A transcript is arbitrary text, and so is a model's reply to it. Everything
@@ -95,48 +80,6 @@ describe('parseTitleReply', () => {
   });
 });
 
-/**
- * The gate that decides whether a model is worth asking. It sees only
- * vocabulary — the message count, the cooldown and a manually typed title are
- * the titler's guards, not this function's.
- */
-describe('shouldRetitle', () => {
-  it('stays quiet while the session is still about its title', () => {
-    expect(
-      shouldRetitle(
-        ['fix the tag rules ordering', 'the rules list drops the last rule'],
-        'Tag rules ordering'
-      )
-    ).toBe(false);
-  });
-
-  it('fires once the session has moved on to something else', () => {
-    expect(
-      shouldRetitle(
-        ['the space map zoom feels wrong', 'planets are too small when zoomed out'],
-        'Tag rules ordering'
-      )
-    ).toBe(true);
-  });
-
-  it('fires when there is no title yet', () => {
-    expect(shouldRetitle(['fix the tag rules ordering'], '')).toBe(true);
-  });
-
-  it('stays quiet when the new messages carry no subject at all', () => {
-    expect(shouldRetitle(['ok', 'thanks', 'yes please'], 'Tag rules ordering')).toBe(false);
-  });
-
-  it('reads Czech as one vocabulary with the title, diacritics and all', () => {
-    expect(
-      shouldRetitle(
-        ['přejmenování sessions podle obsahu', 'ať se to mění průběžně'],
-        'Přejmenování sessions'
-      )
-    ).toBe(false);
-  });
-});
-
 describe('buildTitlePrompt', () => {
   it('names the current title and quotes the session back', () => {
     const prompt = buildTitlePrompt('Tag rules ordering', [userMsg('fix the rule order')]);
@@ -166,106 +109,33 @@ describe('buildTitlePrompt', () => {
   });
 });
 
-describe('SessionTitler', () => {
-  it('renames a session once its subject has moved away from its title', async () => {
-    const { titler, applyTitle } = makeTitler({ reply: 'Space map counter-zoom' });
-    titler.feed('s1', MOVED_ON);
+/** The ⟳ beside the name in the detail panel. */
+describe('SessionTitler.retitleNow', () => {
+  it('renames the session from the messages it is handed', async () => {
+    const { titler, queryFn, applyTitle } = makeTitler({ reply: 'Space map counter-zoom' });
 
-    await titler.considerTurnEnd('s1');
+    const result = await titler.retitleNow('s1', [userMsg('rewrite the tag rule matcher')]);
 
+    expect(queryFn.mock.calls[0][0].prompt).toContain('rewrite the tag rule matcher');
     expect(applyTitle).toHaveBeenCalledWith('s1', 'Space map counter-zoom');
+    expect(result).toEqual({ title: 'Space map counter-zoom', changed: true });
   });
 
-  it('never asks the model while the session is still about its title', async () => {
-    const { titler, queryFn, applyTitle } = makeTitler({ title: 'Space map zoom' });
-    titler.feed('s1', MOVED_ON);
+  it('hands the title back to the titler even when the model answers KEEP', async () => {
+    const { titler, applyTitle } = makeTitler({ reply: 'KEEP' });
 
-    await titler.considerTurnEnd('s1');
+    const result = await titler.retitleNow('s1', MESSAGES);
 
-    expect(queryFn).not.toHaveBeenCalled();
-    expect(applyTitle).not.toHaveBeenCalled();
-  });
-
-  it('leaves a title a human typed alone, however far the session moves', async () => {
-    const { titler, queryFn, applyTitle } = makeTitler({ titleSource: 'manual' });
-    titler.feed('s1', MOVED_ON);
-
-    await titler.considerTurnEnd('s1');
-
-    expect(queryFn).not.toHaveBeenCalled();
-    expect(applyTitle).not.toHaveBeenCalled();
-  });
-
-  it('does nothing at all while the setting is off', async () => {
-    const { titler, queryFn, applyTitle } = makeTitler({ enabled: false });
-    titler.feed('s1', MOVED_ON);
-
-    await titler.considerTurnEnd('s1');
-
-    expect(queryFn).not.toHaveBeenCalled();
-    expect(applyTitle).not.toHaveBeenCalled();
-  });
-
-  it('waits out the cooldown before renaming the same session again', async () => {
-    let clock = 1_000_000;
-    const { titler, applyTitle } = makeTitler({ now: () => clock });
-    titler.feed('s1', MOVED_ON);
-    await titler.considerTurnEnd('s1');
-    expect(applyTitle).toHaveBeenCalledTimes(1);
-
-    clock += RETITLE_COOLDOWN_MS - 1;
-    titler.feed('s1', MOVED_ON);
-    await titler.considerTurnEnd('s1');
-    expect(applyTitle).toHaveBeenCalledTimes(1);
-
-    clock += 2;
-    titler.feed('s1', MOVED_ON);
-    await titler.considerTurnEnd('s1');
-    expect(applyTitle).toHaveBeenCalledTimes(2);
-  });
-
-  it('keeps the current title when the model answers KEEP', async () => {
-    const { titler, queryFn, applyTitle } = makeTitler({ reply: 'KEEP' });
-    titler.feed('s1', MOVED_ON);
-
-    await titler.considerTurnEnd('s1');
-
-    expect(queryFn).toHaveBeenCalled();
-    expect(applyTitle).not.toHaveBeenCalled();
-  });
-
-  it('records a failed title query instead of throwing it at the turn', async () => {
-    const onError = vi.fn();
-    const titler = new SessionTitler({
-      queryFn: () => {
-        throw new Error('spawn ENOENT');
-      },
-      readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' }),
-      applyTitle: vi.fn(),
-      isEnabled: () => true,
-      onError,
-    });
-    titler.feed('s1', MOVED_ON);
-
-    await expect(titler.considerTurnEnd('s1')).resolves.toBeUndefined();
-    expect(onError).toHaveBeenCalledWith('s1', expect.any(Error));
-  });
-
-  it('forgets a session that has ended', async () => {
-    const { titler, queryFn } = makeTitler({});
-    titler.feed('s1', MOVED_ON);
-    titler.forget('s1');
-
-    await titler.considerTurnEnd('s1');
-
-    expect(queryFn).not.toHaveBeenCalled();
+    // `applyTitle` is what writes `auto`, so a `manual` name has to fall
+    // whether or not the name itself moved.
+    expect(applyTitle).toHaveBeenCalledWith('s1', 'Tag rules ordering');
+    expect(result).toEqual({ title: 'Tag rules ordering', changed: false });
   });
 
   it('asks with the session prompt, not with the repo instructions', async () => {
     const { titler, queryFn } = makeTitler({});
-    titler.feed('s1', MOVED_ON);
 
-    await titler.considerTurnEnd('s1');
+    await titler.retitleNow('s1', MESSAGES);
 
     const { options } = queryFn.mock.calls[0][0];
     expect(options.settingSources).toEqual([]);
@@ -279,80 +149,22 @@ describe('SessionTitler', () => {
   // `docs/decisions/ephemeral-title-queries.md`.
   it('asks without leaving a transcript behind', async () => {
     const { titler, queryFn } = makeTitler({});
-    titler.feed('s1', MOVED_ON);
 
-    await titler.considerTurnEnd('s1');
+    await titler.retitleNow('s1', MESSAGES);
 
     expect(queryFn.mock.calls[0][0].options.persistSession).toBe(false);
   });
-});
-
-/**
- * The button next to the name in the detail panel. Everything
- * `considerTurnEnd` weighs is deliberately not weighed here: a click is a
- * decision, and the only thing left to decide is what the session should be
- * called (spec 2026-09-18-auto-title-design § Renaming on demand).
- */
-describe('SessionTitler.retitleNow', () => {
-  it('names a session with every automatic guard shut against it', async () => {
-    const { titler, applyTitle } = makeTitler({
-      titleSource: 'manual',
-      enabled: false,
-      reply: 'Space map counter-zoom',
-    });
-
-    const result = await titler.retitleNow('s1', MOVED_ON);
-
-    expect(applyTitle).toHaveBeenCalledWith('s1', 'Space map counter-zoom');
-    expect(result).toEqual({ title: 'Space map counter-zoom', changed: true });
-  });
-
-  it('describes the session from the messages it is handed, not from the buffer', async () => {
-    const { titler, queryFn } = makeTitler({});
-
-    await titler.retitleNow('never-fed', [userMsg('rewrite the tag rule matcher')]);
-
-    expect(queryFn.mock.calls[0][0].prompt).toContain('rewrite the tag rule matcher');
-  });
-
-  it('hands the title back to the titler even when the model answers KEEP', async () => {
-    const { titler, applyTitle } = makeTitler({ reply: 'KEEP', titleSource: 'manual' });
-
-    const result = await titler.retitleNow('s1', MOVED_ON);
-
-    // The click is consent to being renamed again later, so `manual` has to
-    // fall whether or not the name itself moved: `applyTitle` is what writes
-    // `auto`, and it is called with the name the session already has.
-    expect(applyTitle).toHaveBeenCalledWith('s1', 'Tag rules ordering');
-    expect(result).toEqual({ title: 'Tag rules ordering', changed: false });
-  });
-
-  it('starts the cooldown, so the next turn does not ask all over again', async () => {
-    const { titler, queryFn } = makeTitler({});
-    titler.feed('s1', MOVED_ON);
-
-    await titler.retitleNow('s1', MOVED_ON);
-    expect(queryFn).toHaveBeenCalledTimes(1);
-
-    titler.feed('s1', MOVED_ON);
-    await titler.considerTurnEnd('s1');
-    expect(queryFn).toHaveBeenCalledTimes(1);
-  });
 
   it('throws a failed query at its caller — someone is waiting on this one', async () => {
-    const onError = vi.fn();
     const titler = new SessionTitler({
       queryFn: () => {
         throw new Error('spawn ENOENT');
       },
-      readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' }),
+      readSession: () => ({ title: 'Tag rules ordering' }),
       applyTitle: vi.fn(),
-      isEnabled: () => true,
-      onError,
     });
 
-    await expect(titler.retitleNow('s1', MOVED_ON)).rejects.toThrow('spawn ENOENT');
-    expect(onError).not.toHaveBeenCalled();
+    await expect(titler.retitleNow('s1', MESSAGES)).rejects.toThrow('spawn ENOENT');
   });
 
   // The packaged app ships without the SDK's bundled binary (spec
@@ -372,20 +184,19 @@ describe('SessionTitler.retitleNow', () => {
       });
       const titler = new SessionTitler({
         queryFn: queryFn as never,
-        readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' }),
+        readSession: () => ({ title: 'Tag rules ordering' }),
         applyTitle: vi.fn(),
-        isEnabled: () => true,
         claudeExecutablePath,
       });
       return { titler, options: () => captured! };
     };
 
     const withPath = capture('/x/claude');
-    await withPath.titler.retitleNow('s1', MOVED_ON);
+    await withPath.titler.retitleNow('s1', MESSAGES);
     expect(withPath.options().pathToClaudeCodeExecutable).toBe('/x/claude');
 
     const without = capture();
-    await without.titler.retitleNow('s1', MOVED_ON);
+    await without.titler.retitleNow('s1', MESSAGES);
     expect(without.options()).not.toHaveProperty('pathToClaudeCodeExecutable');
   });
 });

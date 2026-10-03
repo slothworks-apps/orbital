@@ -863,7 +863,7 @@ export class Runner {
     /**
      * Every assistant/user message the SDK streams, in transcript-entry shape.
      * What the session said, for readers that care about its contents — the
-     * auto-titler. Subagent liveness does *not* come from here; see
+     * harness. Subagent liveness does *not* come from here; see
      * `onTaskEvent`.
      */
     onEntries?: (sessionId: string, entries: TranscriptEntry[]) => void;

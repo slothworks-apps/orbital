@@ -1230,15 +1230,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   /**
    * The CLI took the truncating resume (spec 2026-09-29-rewind-design §
-   * After a rewind is sent): the pending row becomes a sent one, the context
-   * reading of the dropped branch goes, and the titler forgets the dropped
-   * turns.
+   * After a rewind is sent): the pending row becomes a sent one, and the
+   * context reading of the dropped branch goes.
    */
   function rewindStarted(id: string): void {
     if (!rewindStore.promote(id)) return;
     db.update(sessions).set({ contextUsedTokens: null }).where(eq(sessions.id, id)).run();
-    const shown = presentTranscript(id);
-    if (shown) ctx.titler.reset(id, shown);
     publishReset(id);
     publishRow(id);
   }
@@ -1721,15 +1718,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   /**
    * Name this session from its contents, now — the ⟳ beside the title.
    *
-   * The counterpart to the automatic path in `SessionTitler`, and deliberately
-   * free of every guard that one weighs: the `auto_title_sessions` setting
-   * governs whether Orbital renames sessions on its own, not whether it
-   * answers a click, and a `manual` title is exactly what someone reaching for
-   * this button is trying to be rid of.
+   * A `manual` title is no guard: it is exactly what someone reaching for this
+   * button is trying to be rid of.
    *
-   * Works for a terminal session too. The content comes off disk, so the
-   * Runner's in-memory buffer — which only web sessions ever fill, and only
-   * while they are alive — is not involved.
+   * Works for a terminal session too: the content comes off disk.
    */
   app.post('/api/sessions/:id/retitle', async (req, reply) => {
     const { id } = req.params as { id: string };

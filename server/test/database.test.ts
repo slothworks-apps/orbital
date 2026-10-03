@@ -99,14 +99,6 @@ describe('openDb', () => {
       .where(sql`${settings.key} = 'default_permission_mode'`)
       .get();
     expect(mode?.value).toBe('acceptEdits');
-    // Naming sessions from their contents spends a model in the background,
-    // so it is off until someone turns it on.
-    const autoTitle = db
-      .select()
-      .from(settings)
-      .where(sql`${settings.key} = 'auto_title_sessions'`)
-      .get();
-    expect(autoTitle?.value).toBe('false');
     expect(db.$client.pragma('user_version', { simple: true })).toBe(1);
     db.$client.close();
     const again = openDb(join(dir, 'index.db')); // must not throw on re-run
@@ -203,7 +195,6 @@ describe('openDb', () => {
       detail_panel_width: '450',
       sidebar_collapsed: 'false',
       sidebar_width: '300',
-      auto_title_sessions: 'false',
       map_show_context: 'true',
       context_threshold_warn: '50',
       context_threshold_critical: '80',
