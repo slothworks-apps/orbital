@@ -32,6 +32,7 @@ import { PinButton } from '../ui/PinButton'
 import { DetachGlyph, StatsGlyph } from '../ui/UtilityButton'
 import { STATS_PATH } from '../stats/route'
 import { LIMITS_PATH } from '../limits/route'
+import { limitWaitShort } from '../lib/limits'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 
@@ -279,6 +280,18 @@ function RowStatus({ session }: { session: ApiSession }) {
         className="orbital-compact-label-in flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,228,246,.8)]"
       >
         COMPACT {formatElapsed(now - compacting.startedAt)}
+      </span>
+    )
+  }
+  // `Feature - Plan limits` 31d: a session waiting for a reset reads
+  // `LIMIT · 15:00` in neutral ink, no dot — it is idle, and nothing is asked.
+  if (session.limitWait) {
+    return (
+      <span
+        data-state="limit"
+        className="flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,230,248,.8)]"
+      >
+        {limitWaitShort(session.limitWait)}
       </span>
     )
   }

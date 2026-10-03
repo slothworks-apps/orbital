@@ -38,6 +38,16 @@ export type BadgeProps =
        */
       variant: 'rewind'
     }
+  | {
+      /**
+       * The header's state line while the session waits for a plan limit to
+       * reset (`Feature - Plan limits` 31b, 31d): `WAITING FOR LIMIT · 15:00`
+       * or `LIMIT · RESETS 15:00`, a neutral hollow dot. Not a `status`
+       * state: everywhere states are counted the session is idle.
+       */
+      variant: 'limit'
+      label: string
+    }
   | { variant: 'count'; value: number; label?: string }
   | { variant: 'model'; value: string; /** Accent outline + focus ring, for the chip that opens the switcher. */ interactive?: boolean }
   | {
@@ -203,6 +213,20 @@ export function Badge(props: BadgeProps) {
       >
         <StateDot dot={{ shape: 'hollow', motion: 'steady' }} color={ink} solidPx={6} hollowPx={7} />
         REWIND PENDING
+      </span>
+    )
+  }
+
+  if (props.variant === 'limit') {
+    // 31d: ink rgba(214,230,248,.9) for the word, .8 for the 1.5px ring; the
+    // chip's border is the idle chip's.
+    return (
+      <span
+        data-variant="limit"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em] text-[rgba(214,230,248,.9)]"
+      >
+        <StateDot dot={{ shape: 'hollow', motion: 'steady' }} color="rgba(214,230,248,.8)" solidPx={6} hollowPx={7} />
+        {props.label}
       </span>
     )
   }

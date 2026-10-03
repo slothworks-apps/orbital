@@ -487,14 +487,46 @@ function monoWidthPx(chars: number, fontPx: number, trackingEm: number): number 
 export function restingLabelSizePx(
   title: string,
   family: string | null,
-  font: { title: number; family: number }
+  font: { title: number; family: number },
+  limitPill: string | null = null
 ): { width: number; height: number } {
   const titleWidth = monoWidthPx(truncateLabel(title).length, font.title, LABEL_TITLE_TRACKING_EM)
   const titleHeight = font.title * MONO_LINE_HEIGHT_EM
+  // A waiting session's pill takes the family line's place (31b).
+  if (limitPill !== null) {
+    const pill = limitPillSizePx(limitPill)
+    return { width: Math.max(titleWidth, pill.width), height: titleHeight + LIMIT_PILL_GAP_PX + pill.height }
+  }
   if (!family) return { width: titleWidth, height: titleHeight }
   return {
     width: Math.max(titleWidth, monoWidthPx(family.length, font.family, LABEL_FAMILY_TRACKING_EM)),
     height: titleHeight + LABEL_FAMILY_GAP_PX + font.family * MONO_LINE_HEIGHT_EM,
+  }
+}
+
+// --- The limit pill (canvas `Feature - Plan limits` 31b, 31d) ---------------
+// Under the name of a session waiting for a limit to reset, in place of the
+// family line: a dark pill, a hollow steady dot, neutral ink.
+
+/** `gap: 6px` between the name and the pill. */
+export const LIMIT_PILL_GAP_PX = 6
+export const LIMIT_PILL_FONT_PX = 9.5
+export const LIMIT_PILL_TRACKING_EM = 0.08
+/** `padding: 3px 9px`, `border: 1px`. */
+export const LIMIT_PILL_PAD_Y_PX = 3
+export const LIMIT_PILL_PAD_X_PX = 9
+export const LIMIT_PILL_BORDER_PX = 1
+/** The hollow dot: 6px, a 1.2px ring, 6px from the word. */
+export const LIMIT_PILL_DOT_PX = 6
+export const LIMIT_PILL_DOT_RING_PX = 1.2
+export const LIMIT_PILL_DOT_GAP_PX = 6
+
+/** The limit pill's box, CSS px — the room the simulation keeps under the name. */
+export function limitPillSizePx(text: string): { width: number; height: number } {
+  const chrome = 2 * (LIMIT_PILL_PAD_X_PX + LIMIT_PILL_BORDER_PX)
+  return {
+    width: monoWidthPx(text.length, LIMIT_PILL_FONT_PX, LIMIT_PILL_TRACKING_EM) + chrome + LIMIT_PILL_DOT_PX + LIMIT_PILL_DOT_GAP_PX,
+    height: LIMIT_PILL_FONT_PX * MONO_LINE_HEIGHT_EM + 2 * (LIMIT_PILL_PAD_Y_PX + LIMIT_PILL_BORDER_PX),
   }
 }
 

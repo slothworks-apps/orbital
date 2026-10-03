@@ -150,7 +150,6 @@ export function limitWaitCopy(
   settings: { autoContinue: boolean; text: string },
   now: number = Date.now(),
 ): LimitWaitCopy {
-  const at = formatResetAt(wait.resetsAt, now)
   const phrase = formatResetPhrase(wait.resetsAt, now)
   const continues = wait.willContinue
   const queued = wait.queued.length
@@ -163,14 +162,30 @@ export function limitWaitCopy(
           ? 'auto-continue cancelled for this wait'
           : `then sends “${settings.text}”`
   return {
-    pill: continues ? `waiting for limit · ${at}` : `limit · resets ${at}`,
-    status: continues ? `WAITING FOR LIMIT · ${at}` : `LIMIT · RESETS ${at}`,
-    short: `LIMIT · ${at}`,
+    pill: limitPillText(wait, now),
+    status: limitWaitStatus(wait, now),
+    short: limitWaitShort(wait, now),
     title: continues ? `Limit reached, continues ${phrase}` : `Limit reached, resets ${phrase}`,
     sub: `${wait.windowLabel} · ${then}`,
     action: settings.autoContinue ? (wait.cancelled ? 'undo' : 'cancel') : null,
     showSettings: !settings.autoContinue,
   }
+}
+
+/** The map's pill alone — it needs no settings, only the server's `willContinue`. */
+export function limitPillText(wait: Pick<LimitWait, 'resetsAt' | 'willContinue'>, now: number = Date.now()): string {
+  const at = formatResetAt(wait.resetsAt, now)
+  return wait.willContinue ? `waiting for limit · ${at}` : `limit · resets ${at}`
+}
+
+/** The detail header's state line, and the sidebar row's short form. */
+export function limitWaitStatus(wait: Pick<LimitWait, 'resetsAt' | 'willContinue'>, now: number = Date.now()): string {
+  const at = formatResetAt(wait.resetsAt, now)
+  return wait.willContinue ? `WAITING FOR LIMIT · ${at}` : `LIMIT · RESETS ${at}`
+}
+
+export function limitWaitShort(wait: Pick<LimitWait, 'resetsAt'>, now: number = Date.now()): string {
+  return `LIMIT · ${formatResetAt(wait.resetsAt, now)}`
 }
 
 /** The divider a fired wait folds into (31d AFTER): `LIMIT RESET 15:00 · CONTINUED`. */

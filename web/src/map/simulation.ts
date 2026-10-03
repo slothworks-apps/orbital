@@ -25,6 +25,7 @@
 
 import type { ApiSession } from '../lib/types'
 import { statePill } from '../lib/types'
+import { limitPillText } from '../lib/limits'
 import { stateDot, type MapStatePills } from '../lib/stateStyle'
 import { MAX_FRAME_DELTA_SEC } from './frameSchedule'
 import type { TrashDrop } from '../store/store'
@@ -712,7 +713,14 @@ export function planetOutline(
   planet: {
     session: Pick<
       ApiSession,
-      'title' | 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'
+      | 'title'
+      | 'status'
+      | 'interruptedAt'
+      | 'pendingDecision'
+      | 'awaitingSubagents'
+      | 'subagents'
+      | 'backgroundTasks'
+      | 'limitWait'
     >
     scale: number
     modelFamily: string | null
@@ -723,7 +731,13 @@ export function planetOutline(
   labelFont: { title: number; family: number },
   pillMode: MapStatePills
 ): PlanetOutline {
-  const label = restingLabelSizePx(planet.session.title, planet.modelFamily?.toUpperCase() ?? null, labelFont)
+  const wait = planet.session.limitWait
+  const label = restingLabelSizePx(
+    planet.session.title,
+    planet.modelFamily?.toUpperCase() ?? null,
+    labelFont,
+    wait ? limitPillText(wait) : null,
+  )
   const state = statePill(planet.session)
   const pill = state
     ? statePillSizePx(state.label, stateDot(state.key, pillMode).shape, pillMode)

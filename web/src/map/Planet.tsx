@@ -42,7 +42,17 @@ import {
   oscillate,
   truncateLabel,
   typedLabel,
+  LIMIT_PILL_BORDER_PX,
+  LIMIT_PILL_DOT_GAP_PX,
+  LIMIT_PILL_DOT_PX,
+  LIMIT_PILL_DOT_RING_PX,
+  LIMIT_PILL_FONT_PX,
+  LIMIT_PILL_GAP_PX,
+  LIMIT_PILL_PAD_X_PX,
+  LIMIT_PILL_PAD_Y_PX,
+  LIMIT_PILL_TRACKING_EM,
 } from './visuals'
+import { limitPillText } from '../lib/limits'
 import {
   ENDED_HIDE_MS,
   PLANET_STATES,
@@ -1488,6 +1498,8 @@ function PlanetBody({
    */
   const failureStanding = session.lastCompactionFailed != null && contextFill !== null
   const statePillNow = compacting ? null : statePill(session)
+  /** A limit wait's pill under the name (31b), or null. */
+  const limitPill = session.limitWait ? limitPillText(session.limitWait) : null
   const pill = failureStanding && statePillNow?.key === 'done' ? null : statePillNow
   const pillLabel = pill?.label ?? null
   /**
@@ -2304,7 +2316,44 @@ function PlanetBody({
               >
                 {truncateLabel(session.title)}
               </span>
-              {modelFamily && (
+              {limitPill !== null ? (
+                // `Feature - Plan limits` 31b/31d: a session waiting for a
+                // limit to reset wears this pill under its name, in place of
+                // the family line. Neutral ink and a hollow, steady dot — "not
+                // running, nothing to do".
+                <span
+                  data-limit-pill
+                  style={{
+                    display: 'flex',
+                    width: 'max-content',
+                    alignItems: 'center',
+                    gap: LIMIT_PILL_DOT_GAP_PX,
+                    margin: `${LIMIT_PILL_GAP_PX}px auto 0`,
+                    padding: `${LIMIT_PILL_PAD_Y_PX}px ${LIMIT_PILL_PAD_X_PX}px`,
+                    borderRadius: 999,
+                    background: 'rgba(6,10,20,.9)',
+                    border: `${LIMIT_PILL_BORDER_PX}px solid rgba(150,205,255,.26)`,
+                    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                    fontSize: LIMIT_PILL_FONT_PX,
+                    letterSpacing: `${LIMIT_PILL_TRACKING_EM}em`,
+                    color: 'rgba(214,230,248,.9)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    style={{
+                      display: 'block',
+                      boxSizing: 'border-box',
+                      width: LIMIT_PILL_DOT_PX,
+                      height: LIMIT_PILL_DOT_PX,
+                      borderRadius: '50%',
+                      border: `${LIMIT_PILL_DOT_RING_PX}px solid currentColor`,
+                    }}
+                  />
+                  {limitPill}
+                </span>
+              ) : modelFamily && (
                 // canvas 4a, "Map label, second line under the planet title":
                 // mono 9.5px / .1em tracking, 5px below the title.
                 <span

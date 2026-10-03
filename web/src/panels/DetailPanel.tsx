@@ -76,6 +76,7 @@ import { useNow } from '../lib/useNow'
 import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
 import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { limitWaitStatus } from '../lib/limits'
 import type { ApiSession, BackgroundTask, Tag, WalkthroughSummary } from '../lib/types'
 
 /**
@@ -1002,6 +1003,9 @@ export function DetailPanel({
               ) : rewindPending ? (
                 // Canvas 27b: the state line while a rewind is pending.
                 <Badge variant="rewind" />
+              ) : session.limitWait ? (
+                // `Feature - Plan limits` 31b: the state line while it waits for a reset.
+                <Badge variant="limit" label={limitWaitStatus(session.limitWait)} />
               ) : (
                 <Badge
                   variant="status"
