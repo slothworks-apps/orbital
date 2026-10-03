@@ -1936,6 +1936,78 @@ describe('GET /api/files', () => {
   });
 });
 
+describe('GET /api/files/image', () => {
+  let app: FastifyInstance;
+  let cwd: string;
+
+  beforeEach(() => {
+    const result = makeApp();
+    app = result.app;
+    cwd = makeTmpDir('images');
+    result.db
+      .insert(sessions)
+      .values({
+        id: 'si', projectDir: 'p', cwd, title: 'image paths', lastAt: 300,
+        source: 'web', permissionMode: null,
+      })
+      .run();
+  });
+
+  const get = (session: string, path?: string) =>
+    app.inject({
+      method: 'GET',
+      url: `/api/files/image?session=${encodeURIComponent(session)}${
+        path !== undefined ? `&path=${encodeURIComponent(path)}` : ''
+      }`,
+    });
+
+  it('400s missing params and 404s an unknown session', async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/files/image?session=si' })).statusCode).toBe(400);
+    expect((await get('nope', 'a.png')).statusCode).toBe(404);
+  });
+
+  it('serves the bytes with the type the extension names, uncached', async () => {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]);
+    mkdirSync(join(cwd, 'art'));
+    writeFileSync(join(cwd, 'art', 'shot.PNG'), bytes);
+    const res = await get('si', 'art/shot.PNG');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
+    expect(res.headers['cache-control']).toBe('no-cache');
+    expect(res.rawPayload.equals(bytes)).toBe(true);
+  });
+
+  it('serves an SVG sandboxed, so its scripts never run on our origin', async () => {
+    writeFileSync(join(cwd, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    const res = await get('si', 'logo.svg');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('image/svg+xml');
+    expect(res.headers['content-security-policy']).toContain('sandbox');
+  });
+
+  it('403s a path outside the cwd, a symlink out included', async () => {
+    const outside = makeTmpDir('outside');
+    writeFileSync(join(outside, 'secret.png'), 'x');
+    expect((await get('si', join(outside, 'secret.png'))).statusCode).toBe(403);
+    expect((await get('si', `../${basename(outside)}/secret.png`)).statusCode).toBe(403);
+    symlinkSync(join(outside, 'secret.png'), join(cwd, 'link.png'));
+    expect((await get('si', 'link.png')).statusCode).toBe(403);
+  });
+
+  it('415s a file that is not an image, so this never becomes a second text read', async () => {
+    writeFileSync(join(cwd, '.env'), 'TOKEN=secret');
+    writeFileSync(join(cwd, 'notes.md'), '# hi');
+    expect((await get('si', '.env')).statusCode).toBe(415);
+    expect((await get('si', 'notes.md')).statusCode).toBe(415);
+  });
+
+  it('404s a missing file and 413s one over FILE_PREVIEW_MAX_BYTES', async () => {
+    expect((await get('si', 'ghost.png')).statusCode).toBe(404);
+    writeFileSync(join(cwd, 'huge.png'), Buffer.alloc(FILE_PREVIEW_MAX_BYTES + 1));
+    expect((await get('si', 'huge.png')).statusCode).toBe(413);
+  });
+});
+
 // Tag clusters: a clump's home moves where the user drops it, per tag,
 // persisted (agreed in chat 2026-09-18, extends spec § 2).
 describe('tag anchors', () => {

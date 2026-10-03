@@ -551,6 +551,26 @@ describe('ToolRow: pressable path', () => {
     expect(container.querySelector('[data-role="tool"]')).toHaveAttribute('data-expanded', 'false')
   })
 
+  it('pressing an image path opens the lightbox, not the viewer, and closing it leaves the row alone', () => {
+    useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'img' } }))
+    const { container } = render(
+      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: 'art/shot.png' } })} />
+    )
+
+    fireEvent.click(container.querySelector('[data-path-button]')!)
+
+    const dialog = screen.getByRole('dialog', { name: 'Image preview' })
+    expect(dialog.querySelector('img')).toHaveAttribute(
+      'src',
+      '/api/files/image?session=img&path=art%2Fshot.png'
+    )
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+
+    // The backdrop click travels React's tree back towards the row.
+    fireEvent.click(dialog)
+    expect(container.querySelector('[data-role="tool"]')).toHaveAttribute('data-expanded', 'false')
+  })
+
   it('pressing anywhere else toggles the row without opening the viewer', () => {
     const { container } = render(
       <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/a/b/store.ts' } })} />
@@ -596,12 +616,12 @@ describe('ToolRow: pressable path', () => {
     expect(useOrbital.getState().ui.fileViewer).toEqual({ path: '/n/b.py', line: null })
   })
 
-  it('leaves image and binary extensions as plain text', () => {
+  it('leaves known-binary extensions as plain text', () => {
     const { container } = render(
-      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/shots/map.png' } })} />
+      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/docs/spec.pdf' } })} />
     )
     expect(container.querySelector('[data-path-button]')).toBeNull()
-    expect(screen.getByRole('button', { name: /Read: \/shots\/map\.png/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Read: \/docs\/spec\.pdf/ })).toBeInTheDocument()
   })
 })
 

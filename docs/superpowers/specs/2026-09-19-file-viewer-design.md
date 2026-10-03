@@ -134,9 +134,18 @@ Where paths come from:
   content is one such path becomes a path button inside the chip. A span
   where the path is only a part (`cat web/src/App.tsx`) stays text, as
   do fenced blocks.
-- **Not pressable:** image and known-binary extensions (`.png`, `.jpg`,
-  `.gif`, `.webp`, `.woff2`, …) stay text everywhere — image viewing
-  belongs to [[2026-09-18-transcript-images-design]].
+- **Image paths** (added 2026-10-03): `.png`, `.jpg`, `.gif`, `.webp`,
+  `.svg` and the rest of `IMAGE_EXTENSIONS` are pressable in every site
+  above, but open the transcript images' Lightbox in place rather than
+  this viewer — the viewer shows text, and an image named by a path is a
+  file on disk, not an image block. The bytes come from
+  `GET /api/files/image?session=&path=`, confined by the same
+  `resolveInsideCwd` and size cap as the read below, typed by extension
+  (`415 not_image` for anything else, so it never becomes a second text
+  read), served `no-cache` and, for SVG, under a sandboxing CSP. Not on
+  the mobile relay's allowlist. The lightbox is not part of the URL.
+- **Not pressable:** known-binary extensions (`.woff2`, `.pdf`, `.zip`,
+  …) stay text everywhere.
 
 ### The viewer — `web/src/panels/FileViewer.tsx`
 
@@ -211,7 +220,7 @@ Text in the viewer selects; keystrokes do nothing.
 - Route: param validation, unknown session, each kind's status code,
   no traversal shape reaches the fs.
 - Path matcher (pure function): matches with/without `:line`/`:line:col`,
-  requires slash + known extension, image extensions refused.
+  requires slash + known extension, binary extensions refused.
 - Web: `sessionUrl` round-trips `file`/`line`; store open/close;
   MessageView prose links (a code span only when it is exactly one
   path, never a fenced block); ToolRow — path

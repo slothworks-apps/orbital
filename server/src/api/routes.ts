@@ -8,7 +8,7 @@ import { presentBranch, readTranscriptBranch, type BranchRead } from '../transcr
 import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { expandHome } from '../paths.js';
-import { readFilePreview } from '../files/preview.js';
+import { readFilePreview, readImageFile } from '../files/preview.js';
 import { completeFilePath } from '../files/complete.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
@@ -661,6 +661,37 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         return reply
           .code(415)
           .send({ error: 'binary', size: result.size, mediaType: result.mediaType });
+    }
+  });
+
+  // An image a prose path names, for the lightbox — the same sandbox as the
+  // read above (`readImageFile` confines through `resolveInsideCwd`). Not
+  // cached: unlike `/api/images/:ref` the file on disk can change under the
+  // same path. An SVG is served sandboxed, so opening this URL directly
+  // cannot run a script it carries on Orbital's origin.
+  app.get('/api/files/image', (req, reply) => {
+    const q = req.query as Record<string, string>;
+    if (!q.session || !q.path) return reply.code(400).send({ error: 'missing_params' });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, q.session)).get() as
+      | SessionRow
+      | undefined;
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const result = readImageFile(row.cwd, q.path);
+    switch (result.kind) {
+      case 'ok':
+        reply.header('content-type', result.contentType);
+        reply.header('cache-control', 'no-cache');
+        reply.header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+        reply.header('x-content-type-options', 'nosniff');
+        return reply.send(result.bytes);
+      case 'not_found':
+        return reply.code(404).send({ error: 'not_found' });
+      case 'outside':
+        return reply.code(403).send({ error: 'outside_cwd' });
+      case 'too_large':
+        return reply.code(413).send({ error: 'too_large', size: result.size });
+      case 'not_image':
+        return reply.code(415).send({ error: 'not_image' });
     }
   });
 

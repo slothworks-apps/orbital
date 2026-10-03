@@ -1,8 +1,6 @@
 import { createPortal } from 'react-dom'
 import { EscapeBoundary, useEscapeLayer } from './escapeLayer'
 import { usePresence } from './usePresence'
-import type { ImageRefEntry } from '../lib/types'
-import { useImageUrl } from '../lib/images'
 
 /**
  * Full-size image preview (canvas 7c). Deliberately NOT `Dialog`: that is
@@ -21,14 +19,17 @@ const LIGHTBOX_EXIT_MS = 140
 
 export interface LightboxProps {
   open: boolean
-  image: ImageRefEntry
+  /** Null while the bytes are still being resolved — the frame shows empty. */
+  src: string | null
+  /** Stored dimensions, when known: the cap never upscales past them. */
+  width?: number | null
+  height?: number | null
   /** Mono caption under the image: source · dimensions · size. */
   caption: string
   onClose: () => void
 }
 
-export function Lightbox({ open, image, caption, onClose }: LightboxProps) {
-  const { url } = useImageUrl(image.ref)
+export function Lightbox({ open, src, width, height, caption, onClose }: LightboxProps) {
   useEscapeLayer(open, onClose)
   const { mounted, state } = usePresence(open, LIGHTBOX_ENTER_MS, LIGHTBOX_EXIT_MS)
   if (!mounted) return null
@@ -47,14 +48,14 @@ export function Lightbox({ open, image, caption, onClose }: LightboxProps) {
         className="orbital-no-drag fixed inset-0 z-50 flex flex-col items-center justify-center gap-3.5 bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
       >
         <img
-          src={url ?? undefined}
+          src={src ?? undefined}
           alt={caption}
           onClick={(event) => event.stopPropagation()}
           style={{
             // Longest edge to 85% of the viewport, never upscaled past the
             // stored size — enlarging would invent detail (7d).
-            maxWidth: image.w ? `min(85vw, ${image.w}px)` : '85vw',
-            maxHeight: image.h ? `min(85vh, ${image.h}px)` : '85vh',
+            maxWidth: width ? `min(85vw, ${width}px)` : '85vw',
+            maxHeight: height ? `min(85vh, ${height}px)` : '85vh',
             transition: 'transform 180ms cubic-bezier(.2,.9,.25,1)',
             transform: entered ? 'scale(1)' : 'scale(.98)',
           }}

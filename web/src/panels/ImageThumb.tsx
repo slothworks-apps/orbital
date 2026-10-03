@@ -137,7 +137,14 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
           />
         )}
       </button>
-      <Lightbox open={open} image={image} caption={caption} onClose={() => setOpen(false)} />
+      <Lightbox
+        open={open}
+        src={url}
+        width={image.w}
+        height={image.h}
+        caption={caption}
+        onClose={() => setOpen(false)}
+      />
     </>
   )
 }

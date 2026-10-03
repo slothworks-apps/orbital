@@ -3,7 +3,7 @@
  * 2026-09-19-file-viewer-design § The pressable path).
  *
  * Prose needs a pattern, not a parser: a run of path characters with at
- * least one `/` and a known TEXT extension, optionally followed by `:line`
+ * least one `/` and a known text or image extension, optionally followed by `:line`
  * or `:line:col` (line kept, column ignored, both part of the hit area).
  * False positives are cheap — the viewer refuses politely; false negatives
  * are the expensive kind (canvas 8b).
@@ -15,11 +15,9 @@
 /**
  * Extensions the viewer can show as text — a whitelist, because "not an
  * image" is unknowable from a name while "is a text format we know" is a
- * list. Image and known-binary extensions (`.png`, `.jpg`, `.gif`, `.webp`,
- * `.woff2`, `.pdf`, `.zip`, …) are deliberately absent so those paths stay
- * plain text everywhere — image viewing belongs to the transcript-images
- * feature, not this one. `.svg` is text on disk but an image to the reader,
- * so it sits with the images (judgement call).
+ * list. Known-binary extensions (`.woff2`, `.pdf`, `.zip`, …) are absent so
+ * those paths stay plain text everywhere; images are pressable through
+ * {@link IMAGE_EXTENSIONS} instead and open in the lightbox, not the viewer.
  */
 const TEXT_EXTENSIONS = new Set([
   // code
@@ -36,12 +34,34 @@ const TEXT_EXTENSIONS = new Set([
   'scss', 'sass', 'less', 'lock', 'editorconfig', 'gitignore',
 ])
 
-/** True when the path's basename carries an extension from the TEXT whitelist. */
-export function hasTextExtension(path: string): boolean {
+/**
+ * Extensions a press opens in the lightbox, served by `/api/files/image` —
+ * the server's `IMAGE_FILE_CONTENT_TYPES` lists the same set. `.svg` is text
+ * on disk but an image to the reader, so it sits here (judgement call).
+ */
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg'])
+
+function extensionOf(path: string): string | null {
   const base = path.slice(path.lastIndexOf('/') + 1)
   const dot = base.lastIndexOf('.')
-  if (dot <= 0) return false
-  return TEXT_EXTENSIONS.has(base.slice(dot + 1).toLowerCase())
+  return dot <= 0 ? null : base.slice(dot + 1).toLowerCase()
+}
+
+/** True when the path's basename carries an extension from the TEXT whitelist. */
+export function hasTextExtension(path: string): boolean {
+  const ext = extensionOf(path)
+  return ext !== null && TEXT_EXTENSIONS.has(ext)
+}
+
+/** True when the path names an image the lightbox can show. */
+export function isImagePath(path: string): boolean {
+  const ext = extensionOf(path)
+  return ext !== null && IMAGE_EXTENSIONS.has(ext)
+}
+
+/** True when a press can open the path — as text in the viewer, or as an image. */
+export function isPressablePath(path: string): boolean {
+  return hasTextExtension(path) || isImagePath(path)
 }
 
 export interface PathMatch {
@@ -64,7 +84,7 @@ const PATH_RUN = new RegExp(`(?:${SEGMENT})?(?:/${SEGMENT})+`, 'g')
 /** Optional `:line` or `:line:col` immediately after the path. */
 const LINE_SUFFIX = /^:(\d+)(?::\d+)?/
 
-/** Every path-shaped run in `text` that passes the extension whitelist. */
+/** Every path-shaped run in `text` whose extension a press can open. */
 export function findPathMatches(text: string): PathMatch[] {
   const matches: PathMatch[] = []
   PATH_RUN.lastIndex = 0
@@ -76,7 +96,7 @@ export function findPathMatches(text: string): PathMatch[] {
     // A candidate preceded by another slash is the tail of a `//` URL run
     // (`https://…`), not a file path.
     if (m.index > 0 && text[m.index - 1] === '/') continue
-    if (!hasTextExtension(path)) continue
+    if (!isPressablePath(path)) continue
 
     const suffix = LINE_SUFFIX.exec(text.slice(m.index + path.length))
     const hit = suffix ? path + suffix[0] : path

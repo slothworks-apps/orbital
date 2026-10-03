@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useOrbital } from '../store/store'
+import { apiFileImagePath } from '../lib/images'
+import { isImagePath } from '../lib/pathLinks'
+import { Lightbox } from '../ui/Lightbox'
 
 /**
  * The pressable file path (spec: 2026-09-19-file-viewer-design § The
@@ -126,6 +129,11 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
   const [hovered, setHovered] = useState(false)
   const [held, setHeld] = useState(false)
   const [receipt, setReceipt] = useState(false)
+  // An image path opens the lightbox in place instead of the text viewer;
+  // it is not a viewer state, so it lives here rather than in the store.
+  const image = isImagePath(path)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const selectedId = useOrbital((s) => s.ui.selectedId)
   const receiptTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Only while the pointer is over this path, so one listener exists at a
@@ -171,7 +179,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
       ? `↗ ${ideName}`
       : null
 
-  return (
+  const button = (
     <button
       type="button"
       data-path-button
@@ -200,6 +208,10 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
             if (receiptTimer.current) clearTimeout(receiptTimer.current)
             receiptTimer.current = setTimeout(() => setReceipt(false), IDE_RECEIPT_MS)
           })
+          return
+        }
+        if (image) {
+          setLightboxOpen(true)
           return
         }
         if (isOpen) return
@@ -255,5 +267,23 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
         </span>
       )}
     </button>
+  )
+
+  if (!image) return button
+  return (
+    <>
+      {button}
+      {/* The lightbox portals out of the DOM but not out of React's event
+          tree: without this, a click on its backdrop would bubble to the
+          tool row the path sits in and toggle it. */}
+      <span onClick={(event) => event.stopPropagation()}>
+        <Lightbox
+          open={lightboxOpen}
+          src={selectedId ? apiFileImagePath(selectedId, path) : null}
+          caption={path}
+          onClose={() => setLightboxOpen(false)}
+        />
+      </span>
+    </>
   )
 }

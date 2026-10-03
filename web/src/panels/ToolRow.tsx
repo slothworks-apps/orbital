@@ -4,7 +4,7 @@ import { useOrbital, editDiffsExpanded } from '../store/store'
 import type { BackgroundTask, ChatMessage, Subagent } from '../lib/types'
 import { opensOutput } from '../lib/backgroundTasks'
 import { ansiToHtml } from '../lib/highlight'
-import { hasTextExtension } from '../lib/pathLinks'
+import { isPressablePath } from '../lib/pathLinks'
 import { changeCounts, describeFileChange } from '../lib/fileEdit'
 import { DIFF_ADDED_INK_CLASS, DIFF_REMOVED_INK_CLASS } from '../lib/diff'
 import { ChangeView, changeSectionLabel } from './DiffView'
@@ -31,10 +31,10 @@ const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
 const PATH_INPUT_FIELDS = new Set(['file_path', 'notebook_path'])
 
 /**
- * The path a tool row can open in the file viewer, or null: `file_path` of
- * the `FILE_PATH_TOOLS`, `notebook_path` of NotebookEdit. Image and
- * known-binary extensions stay plain text — the whitelist in
- * `hasTextExtension` decides, same as prose matching.
+ * The path a tool row can open — in the file viewer, or the lightbox for an
+ * image — or null: `file_path` of the `FILE_PATH_TOOLS`, `notebook_path` of
+ * NotebookEdit. Known-binary extensions stay plain text — `isPressablePath`
+ * decides, same as prose matching.
  */
 export function pressablePathOf(toolName: string | undefined, toolInput: unknown): string | null {
   if (!toolInput || typeof toolInput !== 'object') return null
@@ -42,7 +42,7 @@ export function pressablePathOf(toolName: string | undefined, toolInput: unknown
   let path: unknown
   if (toolName && FILE_PATH_TOOLS.has(toolName)) path = input.file_path
   else if (toolName === 'NotebookEdit') path = input.notebook_path
-  if (typeof path !== 'string' || !hasTextExtension(path)) return null
+  if (typeof path !== 'string' || !isPressablePath(path)) return null
   return path
 }
 
@@ -127,7 +127,7 @@ function InputJson({ input }: { input: unknown }) {
           } catch {
             // Malformed capture (shouldn't happen for stringify output) — text.
           }
-          if (path !== null && hasTextExtension(path)) {
+          if (path !== null && isPressablePath(path)) {
             return (
               // A static line list: the index is a stable key.
               <span key={index}>

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   findPathMatches,
   hasTextExtension,
+  isImagePath,
   rehypePathLinks,
   codeSpanPath,
   type HastRoot,
@@ -47,8 +48,14 @@ describe('findPathMatches', () => {
     expect(findPathMatches('a/b.unknownext here')).toHaveLength(0)
   })
 
-  it('never matches image or known-binary extensions', () => {
-    for (const name of ['a/b.png', 'a/b.jpg', 'a/b.jpeg', 'a/b.gif', 'a/b.webp', 'a/b.woff2', 'a/b.pdf', 'a/b.zip', 'a/b.svg']) {
+  it('matches image extensions, any case', () => {
+    for (const name of ['a/b.png', 'a/b.JPG', 'a/b.jpeg', 'a/b.gif', 'a/b.webp', 'a/b.svg']) {
+      expect(findPathMatches(`shipped ${name} today`)[0]?.path, name).toBe(name)
+    }
+  })
+
+  it('never matches known-binary extensions', () => {
+    for (const name of ['a/b.woff2', 'a/b.pdf', 'a/b.zip']) {
       expect(findPathMatches(`shipped ${name} today`), name).toHaveLength(0)
     }
   })
@@ -78,6 +85,16 @@ describe('hasTextExtension', () => {
     expect(hasTextExtension('shot.png')).toBe(false)
     expect(hasTextExtension('font.woff2')).toBe(false)
     expect(hasTextExtension('Makefile')).toBe(false)
+  })
+})
+
+describe('isImagePath', () => {
+  it('accepts image extensions only', () => {
+    expect(isImagePath('art/renders/p1_roads_v2_0.png')).toBe(true)
+    expect(isImagePath('logo.SVG')).toBe(true)
+    expect(isImagePath('notes.md')).toBe(false)
+    expect(isImagePath('doc.pdf')).toBe(false)
+    expect(isImagePath('.png')).toBe(false)
   })
 })
 
@@ -194,7 +211,7 @@ describe('codeSpanPath', () => {
 
   it('refuses what the prose matcher refuses', () => {
     expect(codeSpanPath('README.md')).toBeNull()
-    expect(codeSpanPath('a/b.png')).toBeNull()
+    expect(codeSpanPath('a/b.pdf')).toBeNull()
     expect(codeSpanPath('https://example.com/a.md')).toBeNull()
   })
 })

@@ -118,3 +118,45 @@ export function readFilePreview(cwd: string, rawPath: string): PreviewResult {
   for (let i = 0; i < content.length; i++) if (content[i] === '\n') lines++;
   return { kind: 'ok', content, size: stat.size, mtimeMs: stat.mtimeMs, lines };
 }
+
+/** Content type per extension for `readImageFile` — the formats an `<img>`
+ * shows, matched by the web's `IMAGE_EXTENSIONS` in `pathLinks.ts`. */
+export const IMAGE_FILE_CONTENT_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  svg: 'image/svg+xml',
+};
+
+export type ImageFileResult =
+  | { kind: 'ok'; bytes: Buffer; contentType: string }
+  | { kind: 'not_found' }
+  | { kind: 'outside' }
+  | { kind: 'too_large'; size: number }
+  | { kind: 'not_image' };
+
+/**
+ * Reads an image a prose path names, for the lightbox. Confined exactly like
+ * `readFilePreview`, under the same size cap; the extension decides the type
+ * because it is all an `<img>` needs and nothing here interprets the bytes.
+ */
+export function readImageFile(cwd: string, rawPath: string): ImageFileResult {
+  const confined = resolveInsideCwd(cwd, rawPath);
+  if (confined.kind !== 'ok') return confined;
+  const resolved = confined.path;
+
+  const ext = /\.([A-Za-z0-9]+)$/.exec(resolved)?.[1]?.toLowerCase();
+  const contentType = ext ? IMAGE_FILE_CONTENT_TYPES[ext] : undefined;
+  if (!contentType) return { kind: 'not_image' };
+
+  const stat = statSync(resolved);
+  if (stat.isDirectory()) return { kind: 'not_found' };
+  if (stat.size > FILE_PREVIEW_MAX_BYTES) return { kind: 'too_large', size: stat.size };
+
+  return { kind: 'ok', bytes: readFileSync(resolved), contentType };
+}
