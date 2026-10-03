@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { anchorForMatMove, cardOrder, matOrder } from '../map/desk/order'
+import { anchorForMatMove, cardOrder, matDropSlot, matOrder } from '../map/desk/order'
 
 const a = { tagId: 1, x: -10, y: 0 }
 const b = { tagId: 2, x: 0, y: 5 }
@@ -37,6 +37,22 @@ describe('desk order', () => {
 
   it('does nothing for a drop on its own slot', () => {
     expect(anchorForMatMove([a, b, c], 1, 1)).toBeNull()
+  })
+
+  it('lands a dragged mat on the nearest slot, clamped to the row', () => {
+    expect(matDropSlot(1, 40, 4, 350)).toBeNull()
+    expect(matDropSlot(1, 200, 4, 350)).toEqual({ slot: 2, to: 3 })
+    expect(matDropSlot(1, -200, 4, 350)).toEqual({ slot: 0, to: 0 })
+    expect(matDropSlot(0, 5000, 4, 350)).toEqual({ slot: 3, to: 4 })
+    expect(matDropSlot(3, -5000, 4, 350)).toEqual({ slot: 0, to: 0 })
+  })
+
+  it('a dropped slot re-sorts the mat to where its placeholder stood', () => {
+    const ordered = [a, b, c]
+    const drop = matDropSlot(0, 700, 3, 350)!
+    const moved = { ...a, ...anchorForMatMove(ordered, 0, drop.to)! }
+    const after = matOrder([moved, b, c]).map((m) => m.tagId)
+    expect(after.indexOf(1)).toBe(drop.slot)
   })
 
   it('keeps cards in id order whatever order they come in', () => {

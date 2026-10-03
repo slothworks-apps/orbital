@@ -143,8 +143,14 @@ A card shows:
   panel. Terminal sessions are read-only and get no buttons.
 
 done reads a calm DONE; interrupted wears its tone; idle is neutral; a pinned
-ended card is faded and compact; a leaving card folds in 500ms. Selected:
-accent border and corner brackets. Muted: 0.28 opacity.
+ended card is faded and compact; a leaving card folds away. Selected: accent
+border and ring. Muted: 0.28 opacity.
+
+**Look.** The Desk is drawn to canvas `Feature - Desk theme` (41a–41e): the
+Orbital surfaces and hairlines, the tag hue only on tag parts, and the
+app-wide state language — the same pills, dots, labels and context traffic
+light as the planet map. The only continuous motion is the tool strip; a
+dragged mat leaves a placeholder where it would land.
 
 **History** is a drawer at the bottom left, beside the sidebar, `HISTORY · N sessions · click to
 browse`, with the same drop states and flow as the lighthouse.
