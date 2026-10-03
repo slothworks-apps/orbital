@@ -28,8 +28,11 @@ export interface ResetClock {
 
 export function resetClock(iso: string | null | undefined, now: number = Date.now()): ResetClock | null {
   if (!iso) return null
-  const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return null
+  const parsed = Date.parse(iso)
+  if (Number.isNaN(parsed)) return null
+  // The server sends resets a fraction short of the hour (`18:29:59.649Z`
+  // for a 18:30 reset); truncating would show every reset a minute early.
+  const at = new Date(Math.round(parsed / 60_000) * 60_000)
   const ref = new Date(now)
   const today =
     at.getFullYear() === ref.getFullYear() && at.getMonth() === ref.getMonth() && at.getDate() === ref.getDate()

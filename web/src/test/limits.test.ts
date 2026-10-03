@@ -26,6 +26,14 @@ describe('reset times', () => {
     expect(formatResetAt(iso(2026, 9, 4, 0, 5), NOW)).toBe('Sun 4 Oct, 00:05')
   })
 
+  it('rounds the server\'s just-short-of-the-hour reset to the minute it means', () => {
+    const shy = new Date(new Date(2026, 9, 3, 15, 0).getTime() - 350).toISOString()
+    expect(formatResetAt(shy, NOW)).toBe('15:00')
+    // …including when that minute falls on the next day.
+    const midnight = new Date(new Date(2026, 9, 4, 0, 0).getTime() - 350).toISOString()
+    expect(formatResetAt(midnight, NOW)).toBe('Sun 4 Oct, 00:00')
+  })
+
   it('reads a missing or unreadable time as a dash, never a guess', () => {
     expect(formatResetAt(null, NOW)).toBe('—')
     expect(formatResetAt('not a date', NOW)).toBe('—')

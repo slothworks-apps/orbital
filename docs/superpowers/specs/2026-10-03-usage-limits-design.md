@@ -1,7 +1,7 @@
 ---
 id: 2026-10-03-usage-limits-design
 title: Usage limits — continue after a reset, and a view of the plan's windows
-status: draft
+status: done
 type: spec
 domain: sessions
 related:
@@ -225,6 +225,26 @@ transcript and the map redraw themselves.
   not tracked.
 
 UI rendering is not tested.
+
+## As built
+
+Where the implementation differs from the text above or from the canvas:
+
+- The reset divider is a live notice row only; it is not in the CLI's
+  transcript, so after a reload only the sent user turn remains.
+- Several messages queued during one wait go out as one turn, joined by
+  blank lines.
+- `/limits` uses the page header with the breadcrumb, like Stats, not a
+  MAP · STATS · LIMITS tab switch; the app no longer has that switch.
+- Window rows carry no sub-line ("all models", "model window"): the
+  server's rows have nothing to fill it, and the model already sits in
+  the label.
+- The detail header's waiting line is a bordered chip, like the header's
+  other states, not bare text as in 31b.
+- The server's reset times arrive a fraction short of the minute
+  (`18:29:59.649Z`); the web rounds them to the nearest minute.
+- Only the default map theme draws the waiting pill; Desk and Archipelago
+  do not, and neither does the mobile app.
 
 ## Out of scope
 
