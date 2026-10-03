@@ -64,6 +64,7 @@ import { narrationFields } from '../walkthrough/narration.js';
 import type { Narrator } from '../walkthrough/narrator.js';
 import type { Spine, Walkthrough } from '../walkthrough/types.js';
 import type { LimitsService } from '../limits/service.js';
+import { AUTO_CONTINUE_KEY } from '../limits/logic.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -2071,6 +2072,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     let branchSettings = false;
     let remoteRestart = false;
     let remoteName = false;
+    let limitsSetting = false;
     for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
       // A restart of the remote drops every connected phone; saving a value
       // that did not change must not do that.
@@ -2084,7 +2086,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // confirmation a promise about some later restart.
       if (k === RETENTION_KEY) ctx.retention.sweep();
       if (k === PR_SETTING || k === LINES_SETTING) branchSettings = true;
+      if (k === AUTO_CONTINUE_KEY) limitsSetting = true;
     }
+    if (limitsSetting) ctx.limits?.settingsChanged();
     // Without a reload: a switch turned off drops the field from the open
     // sessions, one turned on starts reading and fills it.
     if (branchSettings) ctx.branchStatus.settingsChanged();

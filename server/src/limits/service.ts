@@ -268,6 +268,15 @@ export class LimitsService {
     return true;
   }
 
+  /**
+   * The auto-continue switch changed. It applies to sessions already
+   * waiting, so each one is republished with its new `willContinue`.
+   */
+  settingsChanged(): void {
+    for (const sessionId of this.waits.keys()) this.deps.republish(sessionId);
+    this.publishLimits();
+  }
+
   /** The session ended: its wait goes, unfired. */
   drop(sessionId: string): void {
     if (!this.remove(sessionId)) return;
