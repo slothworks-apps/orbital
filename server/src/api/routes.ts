@@ -44,7 +44,7 @@ import { readOutputTail } from '../files/taskOutput.js';
 import { SESSION_TIPS } from '../runner/sessionInstructions.js';
 import type { ChatMessage, ErrorKind, PermissionMode, SessionPurpose, SessionRow, TagRule } from '../types.js';
 import { isPermissionMode } from '../types.js';
-import type { ModelCatalog } from '../models/catalog.js';
+import type { ModelCatalog, SettingsStore } from '../models/catalog.js';
 import type { ErrorLog } from '../errors/log.js';
 import type { ImageStore } from '../images/store.js';
 import type { FileStore } from '../files/store.js';
@@ -194,6 +194,38 @@ const MCP_COMMAND: CatalogCommand = {
   description: 'Servers for this session',
   source: 'built-in',
 };
+
+/**
+ * The settings key holding the built-ins the CLI listed the last time a
+ * session was live (ADR built-in-commands-are-remembered-across-restarts).
+ */
+const BUILT_IN_COMMANDS_KEY = 'cli_built_in_commands';
+
+/**
+ * Keeps a live list's built-ins for the times nothing is live. Orbital's own
+ * commands are left out — they are added to every answer anyway, with
+ * Orbital's descriptions. Written only when the list changed, because this
+ * runs on every catalog fetch.
+ */
+function rememberBuiltIns(settings: SettingsStore, commands: CatalogCommand[]): void {
+  const own = new Set(ORBITAL_COMMANDS.map((c) => c.name));
+  const value = JSON.stringify(commands.filter((c) => c.source === 'built-in' && !own.has(c.name)));
+  if (settings.get(BUILT_IN_COMMANDS_KEY) !== value) settings.set(BUILT_IN_COMMANDS_KEY, value);
+}
+
+/** The remembered built-ins; nothing when none were stored or the row is unreadable. */
+function rememberedBuiltIns(settings: SettingsStore): CatalogCommand[] {
+  const raw = settings.get(BUILT_IN_COMMANDS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((c): c is CatalogCommand => typeof c?.name === 'string' && c.name !== '')
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 /** The commands Orbital answers itself. */
 const ORBITAL_COMMANDS = [REWIND_COMMAND, MCP_COMMAND];
@@ -639,9 +671,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * listening: with a live SDK query the CLI's own list is definitive — it is
    * the only thing that knows about built-ins — and the filesystem scan is
    * demoted to attributing a `source` badge by name. Without one (an ended
-   * session, or the New Session dialog, which has only a cwd) the scan is the
-   * whole answer, built-ins deliberately absent: offering a command the CLI may
-   * not honour is worse than omitting it.
+   * session, a session after Orbital restarted, or the New Session dialog,
+   * which has only a cwd) the scan is joined by the built-ins the CLI listed
+   * last time anything was live (ADR
+   * built-in-commands-are-remembered-across-restarts): sending to such a
+   * session starts a query, so the CLI will be there to honour them.
    */
   /**
    * The cwd both catalog routes scan: the session's, or the New Session
@@ -669,7 +703,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
     const scanned = collectCommands({ claudeDir: ctx.claudeDir, cwd });
     const live = sessionId ? await ctx.runner.commands(sessionId) : null;
-    if (!live) return { commands: sessionId ? withOrbitalCommands(scanned) : scanned };
+    if (!live) {
+      const known = new Set(scanned.map((c) => c.name));
+      const merged = [...scanned, ...rememberedBuiltIns(ctx.settings).filter((c) => !known.has(c.name))]
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { commands: sessionId ? withOrbitalCommands(merged) : merged };
+    }
     const byName = new Map(scanned.map((c) => [c.name, c]));
     const commands = live
       .map((c) => {
@@ -688,6 +727,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
+    rememberBuiltIns(ctx.settings, commands);
     return { commands: withOrbitalCommands(commands) };
   });
 

@@ -2009,7 +2009,7 @@ describe('GET /api/commands', () => {
     expect(res.json()).toEqual({ error: 'missing_params' });
   });
 
-  it('a session with no live query gets the filesystem catalog alone — no built-ins', async () => {
+  it('a session with no live query, before any was ever live, gets the filesystem catalog alone', async () => {
     const { app, db, claudeDir } = makeApp();
     const cwd = makeTmpDir('cmd-cwd');
     db.insert(sessions).values({ id: 'sc', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
@@ -2051,6 +2051,31 @@ describe('GET /api/commands', () => {
         { name: 'usage', description: 'Show plan usage', source: 'built-in', aliases: ['cost'] },
       ],
     });
+  });
+
+  it('remembers the built-ins of a live list for when nothing is live (Orbital restarted)', async () => {
+    const { app, db, runner, claudeDir } = makeApp();
+    const cwd = makeTmpDir('cmd-cwd');
+    db.insert(sessions).values({ id: 'live', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
+    db.insert(sessions).values({ id: 'idle', projectDir: 'p', cwd, lastAt: 1, source: 'web' }).run();
+    writeCommand(claudeDir, 'ship', 'ship it');
+    runner.commands = async (id: string) => (id === 'live'
+      ? [
+          { name: 'ship', description: 'ship it' },
+          { name: 'compact', description: 'Clear history but keep a summary', argumentHint: '<instructions>' },
+          // The CLI's own `rewind` must not displace Orbital's.
+          { name: 'rewind', description: 'the CLI one' },
+        ]
+      : null);
+    await app.inject({ method: 'GET', url: '/api/commands?session=live' });
+
+    const compact = { name: 'compact', description: 'Clear history but keep a summary', source: 'built-in', argumentHint: '<instructions>' };
+    expect(res200(await app.inject({ method: 'GET', url: '/api/commands?session=idle' })).commands).toEqual([
+      compact, MCP, REWIND, { name: 'ship', description: 'ship it', source: 'user' },
+    ]);
+    // The New Session dialog's first prompt starts a query too.
+    expect(res200(await app.inject({ method: 'GET', url: `/api/commands?cwd=${encodeURIComponent(cwd)}` })).commands)
+      .toEqual([compact, { name: 'ship', description: 'ship it', source: 'user' }]);
   });
 
   it('a description the CLI leaves empty falls back to the scanned one', async () => {
