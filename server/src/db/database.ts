@@ -38,6 +38,12 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   map_show_trash: 'true',
   /**
+   * Appearance → whether ending a session with the detail header's End
+   * button also closes the panel. The map's trash leaves the selection
+   * alone. Default-on convention: read client-side as `!== 'false'`.
+   */
+  end_closes_panel: 'true',
+  /**
    * Appearance → default planet size (canvas 5a, `Feature - Planet
    * size.dc.html`). Stored as the normalized multiplier ('0.7'–'1.6', slider
    * step 0.05), not the slider's percent value. Applied client-side in

@@ -69,8 +69,12 @@ The detail panel has no action that simply ends a session. What exists:
   than clearing and the confirmation is the point.
 - On confirm the server ends the session: `runner.end(id)`, the same call
   `/clear` makes. The session becomes `ended`, the planet takes the ended
-  treatment, the row moves to HISTORY, the panel stays open on the ended
-  session (as it does after "Clear only" today).
+  treatment and the row moves to HISTORY. The panel then closes, as
+  collapse would close it — changed on 2026-10-03 at Tomin's request.
+  Settings → Appearance → "Close the panel after End session"
+  (`end_closes_panel`, default on) keeps it open on the ended session
+  instead. A detached window stays put, and the map's trash never moves the
+  selection.
 - Server: a dedicated route, `POST /api/sessions/:id/end`, a thin wrapper
   around `runner.end` with the same 404 for an unknown id. Reusing
   `/clear` with `startNew: false` would work, but the route's name would

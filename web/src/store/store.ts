@@ -3271,6 +3271,11 @@ export function showTrash(settings: Record<string, string>): boolean {
   return settings.map_show_trash !== 'false'
 }
 
+/** `end_closes_panel`, default on: only the literal `false` keeps the panel open on the ended session. */
+export function endClosesPanel(settings: Record<string, string>): boolean {
+  return settings.end_closes_panel !== 'false'
+}
+
 /**
  * `map_state_pills` (Settings → Appearance → MAP, ADR
  * state-labels-are-dots-first-on-the-map). Dot-first is the default, so only

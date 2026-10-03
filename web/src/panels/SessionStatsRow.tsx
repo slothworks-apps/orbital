@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api } from '../lib/api'
 import type { ApiSession, SessionStatsDetail } from '../lib/types'
@@ -9,7 +9,6 @@ import { showHumanWait } from '../stats/humanWait'
 import { busyMsOf, spanOf } from '../stats/rollup'
 import { useOrbital } from '../store/store'
 import { StatsGlyph, UtilityButton } from '../ui/UtilityButton'
-import { openToolUse } from './Transcript'
 
 /**
  * The detail panel's stats readout (canvas 10g, the variant that ships): busy
@@ -136,8 +135,6 @@ export interface StatsReadout {
   busyMs: number
   /** Busy time and cost ("2h 22m · $167.30"), or null while there is nothing to show. */
   summary: string | null
-  /** A running turn with no tool call open: the agent is inside an API call. */
-  inApiCall: boolean
   /** What the row's split is drawn against (see the row). */
   denominator: number
   /** Whether the quick dialog is open for this session. */
@@ -188,17 +185,8 @@ export function useStatsReadout(session: ApiSession | null): StatsReadout {
     open
   )
 
-  // The dot of 10g's live state: the agent is inside an API call right now,
-  // which is a running turn with no tool call open. Read off the transcript
-  // the panel is already streaming — the same pairing the stop confirm uses to
-  // name the call it would discard.
-  const messages = useOrbital((s) => (sessionId !== null ? s.transcripts[sessionId] : undefined))
   // The dialog follows the switch on /stats and has none of its own (10k).
   const showWaits = useOrbital((s) => showHumanWait(s.settings))
-  const inApiCall = useMemo(
-    () => live && openToolUse(messages ?? []) === undefined,
-    [live, messages]
-  )
 
   // Below one turn there is nothing measured to show, and nothing for the
   // dialog to open on to (spec § Edge cases) — which is also what the row
@@ -233,7 +221,6 @@ export function useStatsReadout(session: ApiSession | null): StatsReadout {
     stats,
     busyMs,
     summary: stats !== null ? `${formatStatsDuration(busyMs)} · ${formatCost(stats.cost.total)}` : null,
-    inApiCall,
     denominator,
     open,
     show: () => {
@@ -257,7 +244,7 @@ export function SessionStatsButton({
   /** Layout only. */
   className?: string
 }) {
-  const { stats, busyMs, inApiCall, open, show } = readout
+  const { stats, busyMs, open, show } = readout
   // 11c: the numbers leave the header, so the name of the control has to
   // carry them — for the pointer (native `title`, which is what the
   // artboard asks for) and for a screen reader alike.
@@ -277,18 +264,11 @@ export function SessionStatsButton({
       onClick={show}
       className={`relative ${className ?? ''}`}
     >
+      {/* No LIVE dot, though 11c draws one: it came and went with every API
+          call and pulsed while shown, pulling the eye to a header control
+          (docs/why-orbital.md, "Nothing blinks"). The status dot already
+          says the session is working. */}
       <StatsGlyph />
-      {/* 11c's LIVE dot. The artboard draws it 5px, inset 4px, on a 32px
-          state swatch; the strip's button is 24px, so it keeps the
-          proportion rather than the literal — any bigger and it collides
-          with the glyph's tallest bar. */}
-      {inApiCall && (
-        <span
-          aria-hidden
-          className="orbital-pulse absolute top-[3px] right-[3px] block h-1 w-1 rounded-full"
-          style={{ background: TIME_CATEGORIES[0].color }}
-        />
-      )}
     </UtilityButton>
   )
 }
@@ -304,7 +284,7 @@ export function SessionStatsRow({
   className?: string
 }) {
   const readout = useStatsReadout(session)
-  const { stats, summary, inApiCall, denominator, show, dialog } = readout
+  const { stats, summary, denominator, show, dialog } = readout
 
   if (variant === 'button') {
     return (
@@ -326,13 +306,6 @@ export function SessionStatsRow({
           </span>
         ) : (
           <span className="text-[rgba(200,225,255,.8)]">{NO_VALUE}</span>
-        )}
-        {inApiCall && (
-          <span
-            aria-hidden
-            className="orbital-pulse block h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ background: TIME_CATEGORIES[0].color }}
-          />
         )}
         {/* No chevron on a row that does not open anything. */}
         {stats !== null && (
