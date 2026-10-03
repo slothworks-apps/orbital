@@ -82,7 +82,12 @@ import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { MobileSection } from './MobileSection'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
-import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, DEFAULT_CONTINUE_TEXT, limitSettings } from '../lib/limits'
+import {
+  AUTO_CONTINUE_KEY,
+  CONTINUE_TEXT_KEY,
+  DEFAULT_CONTINUE_TEXT,
+  limitSettings,
+} from '../lib/limits'
 // The desktop version names the DMG, and the DMG ships this frontend.
 import { version as orbitalVersion } from '../../../desktop/package.json'
 
@@ -203,7 +208,7 @@ function visibleNavItems(settings: Record<string, string | undefined>) {
   return NAV_ITEMS.filter(
     (item) =>
       (item.key !== 'experimental' || experimentalUnlocked(settings)) &&
-      (item.key !== 'harness' || harnessEnabled(settings))
+      (item.key !== 'harness' || harnessEnabled(settings)),
   )
 }
 
@@ -443,11 +448,11 @@ export function Settings({ open, onClose }: SettingsProps) {
       e.preventDefault()
       const unlocked = !experimentalUnlocked(useOrbital.getState().settings)
       void patchAndSet({ [EXPERIMENTAL_UNLOCKED_KEY]: unlocked ? 'true' : 'false' })
-      if (!unlocked) setSection((current) => (current === 'experimental' ? NAV_ITEMS[0].key : current))
+      if (!unlocked)
+        setSection((current) => (current === 'experimental' ? NAV_ITEMS[0].key : current))
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-     
   }, [open])
 
   useEffect(() => {
@@ -873,7 +878,9 @@ export function Settings({ open, onClose }: SettingsProps) {
         >
           <Panel side="float" className="flex h-full w-full flex-col overflow-hidden">
             {/* Header: 22/28/18 padding per canvas 1h. */}
-            <div className={`${editorTakesPanel ? 'hidden' : 'flex'} items-center gap-3.5 border-b border-[rgba(150,205,255,.1)] px-7 pb-[18px] pt-[22px]`}>
+            <div
+              className={`${editorTakesPanel ? 'hidden' : 'flex'} items-center gap-3.5 border-b border-[rgba(150,205,255,.1)] px-7 pb-[18px] pt-[22px]`}
+            >
               <button
                 type="button"
                 aria-label="Close"
@@ -962,7 +969,11 @@ export function Settings({ open, onClose }: SettingsProps) {
               {section === 'tags' ? (
                 <TagsRulesSection active onSaved={() => setSaved(true)} />
               ) : section === 'harness' ? (
-                <HarnessTemplatesSection active onSaved={() => setSaved(true)} onEditingChange={setHarnessEditing} />
+                <HarnessTemplatesSection
+                  active
+                  onSaved={() => setSaved(true)}
+                  onEditingChange={setHarnessEditing}
+                />
               ) : section === 'mobile' ? (
                 <MobileSection patchAndSet={patchAndSet} onSaved={() => setSaved(true)} />
               ) : section === 'shortcuts' ? (
@@ -1261,7 +1272,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                           aria-label="Walkthrough"
                           checked={walkthroughEnabled(settings)}
                           onChange={(checked) =>
-                            void patchAndSet({ [WALKTHROUGH_ENABLED_KEY]: checked ? 'true' : 'false' })
+                            void patchAndSet({
+                              [WALKTHROUGH_ENABLED_KEY]: checked ? 'true' : 'false',
+                            })
                           }
                         />
                       </Row>
@@ -1284,7 +1297,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                           aria-label="Comment for Narrate"
                           checked={narrateCommentary(settings)}
                           onChange={(checked) =>
-                            void patchAndSet({ [NARRATE_COMMENTARY_KEY]: checked ? 'true' : 'false' })
+                            void patchAndSet({
+                              [NARRATE_COMMENTARY_KEY]: checked ? 'true' : 'false',
+                            })
                           }
                         />
                       </Row>
@@ -1367,7 +1382,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                           <span className="text-[10px] text-[rgba(160,190,225,.5)]">
                             {lineChangesPreview.length > 0 ? 'e.g.' : 'nothing drawn'}
                           </span>
-                          {lineChangesPreview.length > 0 && <LineGroups groups={lineChangesPreview} />}
+                          {lineChangesPreview.length > 0 && (
+                            <LineGroups groups={lineChangesPreview} />
+                          )}
                         </span>
                       </Row>
                       {/* No canvas row; it follows the toggle rows around it. */}
@@ -1397,97 +1414,99 @@ export function Settings({ open, onClose }: SettingsProps) {
                         />
                       </Row>
                       {theme === 'planets' && (
-                        <Row
-                          title="Default planet size"
-                          desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
-                        >
-                        <div className="flex w-full flex-col gap-[9px]">
-                          <div className="flex items-baseline gap-2">
-                            <span className="font-mono text-[15px] text-text-bright">
-                              {planetScale.toFixed(2)}×
-                            </span>
-                            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
-                              {scaleNote}
-                            </span>
-                            <span className="flex-1" />
+                        <>
+                          <Row
+                            title="Default planet size"
+                            desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
+                          >
+                            <div className="flex w-full flex-col gap-[9px]">
+                              <div className="flex items-baseline gap-2">
+                                <span className="font-mono text-[15px] text-text-bright">
+                                  {planetScale.toFixed(2)}×
+                                </span>
+                                <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+                                  {scaleNote}
+                                </span>
+                                <span className="flex-1" />
+                                <button
+                                  type="button"
+                                  onClick={() => setPlanetScale(1)}
+                                  className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+                                >
+                                  RESET
+                                </button>
+                              </div>
+                              <input
+                                type="range"
+                                min={70}
+                                max={160}
+                                step={5}
+                                value={Math.round(planetScale * 100)}
+                                aria-label="Default planet size"
+                                onChange={(e) => setPlanetScale(Number(e.target.value) / 100)}
+                                onKeyDown={(e) => handleScaleKeys(e, planetScale)}
+                                className="h-[18px] w-full cursor-grab accent-accent"
+                              />
+                              <div className="flex justify-between font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+                                <span>0.70×</span>
+                                <span>1.00×</span>
+                                <span>1.60×</span>
+                              </div>
+                            </div>
+                          </Row>
+
+                          {/* Collapsible preview row (canvas 5a): full-width header
+                  button, the tier strip animates shut instead of unmounting. */}
+                          <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
                             <button
                               type="button"
-                              onClick={() => setPlanetScale(1)}
-                              className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+                              aria-expanded={previewOpen}
+                              onClick={() => setPreviewOpen((v) => !v)}
+                              className="flex items-start gap-2.5 text-left"
                             >
-                              RESET
-                            </button>
-                          </div>
-                          <input
-                            type="range"
-                            min={70}
-                            max={160}
-                            step={5}
-                            value={Math.round(planetScale * 100)}
-                            aria-label="Default planet size"
-                            onChange={(e) => setPlanetScale(Number(e.target.value) / 100)}
-                            onKeyDown={(e) => handleScaleKeys(e, planetScale)}
-                            className="h-[18px] w-full cursor-grab accent-accent"
-                          />
-                          <div className="flex justify-between font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
-                            <span>0.70×</span>
-                            <span>1.00×</span>
-                            <span>1.60×</span>
-                          </div>
-                        </div>
-                      </Row>
-                      )}
-
-                      {/* Collapsible preview row (canvas 5a): full-width header
-                  button, the tier strip animates shut instead of unmounting. */}
-                      <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
-                        <button
-                          type="button"
-                          aria-expanded={previewOpen}
-                          onClick={() => setPreviewOpen((v) => !v)}
-                          className="flex items-start gap-2.5 text-left"
-                        >
-                          <span
-                            aria-hidden
-                            className="mt-[1px] grid h-4 w-4 flex-none place-items-center text-[9px] text-[rgba(160,190,225,.7)] transition-transform duration-[180ms]"
-                            style={{ transform: previewOpen ? undefined : 'rotate(-90deg)' }}
-                          >
-                            ▾
-                          </span>
-                          <span className="flex-1">
-                            <span className="flex items-center gap-2">
-                              <span className="text-[13.5px] font-semibold text-text-bright">
-                                Preview
+                              <span
+                                aria-hidden
+                                className="mt-[1px] grid h-4 w-4 flex-none place-items-center text-[9px] text-[rgba(160,190,225,.7)] transition-transform duration-[180ms]"
+                                style={{ transform: previewOpen ? undefined : 'rotate(-90deg)' }}
+                              >
+                                ▾
                               </span>
-                              {!previewOpen && (
-                                <span className="font-mono text-[10px] tracking-[0.1em] text-[rgba(160,190,225,.55)]">
-                                  collapsed
+                              <span className="flex-1">
+                                <span className="flex items-center gap-2">
+                                  <span className="text-[13.5px] font-semibold text-text-bright">
+                                    Preview
+                                  </span>
+                                  {!previewOpen && (
+                                    <span className="font-mono text-[10px] tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+                                      collapsed
+                                    </span>
+                                  )}
                                 </span>
-                              )}
-                            </span>
-                            <span className="mt-1 block text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
-                              The three size tiers at the current scale: ended, live, live with
-                              subagents. Labels keep their 10 px mono floor at every scale.
-                            </span>
-                          </span>
-                        </button>
-                        <div
-                          className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)]"
-                          style={{
-                            height: previewOpen ? 300 : 0,
-                            opacity: previewOpen ? 1 : 0,
-                            padding: previewOpen ? '24px 28px' : '0px 28px',
-                            borderStyle: 'solid',
-                            borderWidth: previewOpen ? 1 : 0,
-                            transition:
-                              'height .22s cubic-bezier(.2,.9,.25,1), opacity .18s ease, padding .22s ease',
-                          }}
-                        >
-                          {PREVIEW_TIERS.map((tier) => (
-                            <PreviewTier key={tier.base} tier={tier} scale={planetScale} />
-                          ))}
-                        </div>
-                      </div>
+                                <span className="mt-1 block text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                                  The three size tiers at the current scale: ended, live, live with
+                                  subagents. Labels keep their 10 px mono floor at every scale.
+                                </span>
+                              </span>
+                            </button>
+                            <div
+                              className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)]"
+                              style={{
+                                height: previewOpen ? 300 : 0,
+                                opacity: previewOpen ? 1 : 0,
+                                padding: previewOpen ? '24px 28px' : '0px 28px',
+                                borderStyle: 'solid',
+                                borderWidth: previewOpen ? 1 : 0,
+                                transition:
+                                  'height .22s cubic-bezier(.2,.9,.25,1), opacity .18s ease, padding .22s ease',
+                              }}
+                            >
+                              {PREVIEW_TIERS.map((tier) => (
+                                <PreviewTier key={tier.base} tier={tier} scale={planetScale} />
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
 
                       <Row
                         title="Scale labels with bodies"
@@ -1832,7 +1851,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                           aria-label="Orbital's tips"
                           checked={instructionTips}
                           onChange={(checked) =>
-                            void patchAndSet({ session_instructions_tips: checked ? 'true' : 'false' })
+                            void patchAndSet({
+                              session_instructions_tips: checked ? 'true' : 'false',
+                            })
                           }
                         />
                       </Row>
@@ -1875,7 +1896,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                             >
                               {tips.map((tip) => (
                                 <li key={tip.id}>
-                                  <div className="text-[12.5px] font-semibold text-text-bright">{tip.title}</div>
+                                  <div className="text-[12.5px] font-semibold text-text-bright">
+                                    {tip.title}
+                                  </div>
                                   <div className="mt-1 text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
                                     {tip.text}
                                   </div>
@@ -1893,7 +1916,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                           aria-label="Your instructions"
                           checked={instructionCustom}
                           onChange={(checked) =>
-                            void patchAndSet({ session_instructions_custom: checked ? 'true' : 'false' })
+                            void patchAndSet({
+                              session_instructions_custom: checked ? 'true' : 'false',
+                            })
                           }
                         />
                       </Row>
@@ -1948,7 +1973,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                               disabled={continueIsDefault || !autoContinue}
                               onClick={() => setContinueDraft(DEFAULT_CONTINUE_TEXT)}
                               className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10px] tracking-[0.12em] disabled:cursor-default"
-                              style={{ color: continueIsDefault ? 'rgba(160,190,225,.3)' : '#8fd8ff' }}
+                              style={{
+                                color: continueIsDefault ? 'rgba(160,190,225,.3)' : '#8fd8ff',
+                              }}
                             >
                               RESET TO DEFAULT
                             </button>

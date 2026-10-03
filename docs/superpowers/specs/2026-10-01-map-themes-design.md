@@ -46,8 +46,9 @@ is a calm state, nothing leaves behind the user's back.
 - `map/MapView.tsx` reads `map_theme` and mounts the renderer. `App.tsx` mounts
   `MapView` where it mounted `SpaceMap`.
 - `map/shell/MapShell.tsx` holds the overlays the new themes share — aggregate
-  HUD, zoom column, new-session CTA, error log, camera readout, sloth, the End
+  HUD, zoom column, new-session CTA, error log, camera readout, the End
   dialog a history drop opens — and `useMapInsets`, the panel-driven insets.
+  The floating sloth is drawn on Planets only.
 - Camera, drag and the history drop are built per renderer from the same pure
   pieces the planet map uses: `camera.ts` (`zoomAt`, `applyPan`,
   `screenToWorld`, `fitViewTo`, `bodyZoomFactor`), `HOLE_DROP_RADIUS`,
