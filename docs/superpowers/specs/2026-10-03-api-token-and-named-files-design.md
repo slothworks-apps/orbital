@@ -118,9 +118,12 @@ header is present and not one of ours gets `403`. A request without
 ### The client without a token
 
 When `/api` answers `401`, the web app does not fail into an error boundary.
-It shows one quiet screen: "Open Orbital from the link the server printed."
-The desktop never shows it, because it sets the cookie before any window loads. The
-look of the screen is up to Claude Design; this spec only requires that it exists.
+It shows one quiet screen (canvas `Feature - Signed out` 42a): "This tab
+isn't signed in to the Orbital server.", the terminal line to look for
+built from the page's own origin with the token elided, a line for a
+rotated token, and a Reload chip. The tab title becomes "Orbital · not
+signed in". The desktop never shows it, because it sets the cookie before
+any window loads.
 
 ### The mobile relay
 
