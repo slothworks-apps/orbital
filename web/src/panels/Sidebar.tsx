@@ -33,6 +33,7 @@ import { DetachGlyph, StatsGlyph } from '../ui/UtilityButton'
 import { STATS_PATH } from '../stats/route'
 import { LIMITS_PATH } from '../limits/route'
 import { limitWaitShort } from '../lib/limits'
+import { claudeDirLabel } from '../lib/claudeDirs'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 
@@ -80,6 +81,26 @@ function ReadOnlyBadge() {
       className="shrink-0 rounded border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[5px] py-px font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.75)]"
     >
       read-only
+    </span>
+  )
+}
+
+/**
+ * The Claude directory a session belongs to, only when two or more are
+ * configured (spec 2026-10-04-multiple-claude-directories-design § 8). No
+ * canvas yet: the read-only badge's neutral mono ink, so it reads as neither
+ * a state, a mode nor a tag.
+ */
+function ClaudeDirBadge({ claudeDirId }: { claudeDirId: number | undefined }) {
+  const name = useOrbital((s) => claudeDirLabel(s.claudeDirs, claudeDirId))
+  if (!name) return null
+  return (
+    <span
+      data-claude-dir-label
+      title={`Runs under the  Claude directory`}
+      className="shrink-0 rounded border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[5px] py-px font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.75)]"
+    >
+      {name}
     </span>
   )
 }
@@ -383,6 +404,7 @@ function SessionRow({
               </span>
             )}
             {!history && isReadOnly(session) && <ReadOnlyBadge />}
+            <ClaudeDirBadge claudeDirId={session.claudeDirId} />
           </span>
           <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
             {shortenPath(session.cwd)}

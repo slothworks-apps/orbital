@@ -78,6 +78,8 @@ import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
 import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { limitWaitStatus } from '../lib/limits'
+import { claudeDirLabel } from '../lib/claudeDirs'
+import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import type { ApiSession, BackgroundTask, Tag, WalkthroughSummary } from '../lib/types'
 
 /**
@@ -185,6 +187,9 @@ export function DetailPanel({
     movedToWindow ? 0 : PANEL_EXIT_MS
   )
   const session = useOrbital((s) => (id ? s.sessions[id] : undefined))
+  const claudeDirName = useOrbital((s) => claudeDirLabel(s.claudeDirs, session?.claudeDirId))
+  // What the switcher offers is the session's own account's catalog.
+  const switcherModels = useClaudeDirModels(session?.claudeDirId)
   const tags = useOrbital(useShallow((s) => s.tags))
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
@@ -978,7 +983,7 @@ export function DetailPanel({
               {(session.model || session.resolvedModel || models.length > 0) && (
                 <ModelSwitcher
                   session={session}
-                  models={models}
+                  models={switcherModels}
                   defaultValue={settings.default_model ?? null}
                   hidden={hidden}
                   disabledReason={
@@ -1075,6 +1080,18 @@ export function DetailPanel({
                   className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[7px] py-[3px] font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.75)]"
                 >
                   TERMINAL
+                </span>
+              )}
+              {/* The Claude directory, with two or more configured (spec
+                  2026-10-04-multiple-claude-directories-design § 8). No canvas
+                  yet: the TERMINAL chip's neutral mono ink, beside it. */}
+              {claudeDirName && (
+                <span
+                  data-claude-dir-chip
+                  title={`Runs under the ${claudeDirName} Claude directory`}
+                  className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[7px] py-[3px] font-mono text-[9.5px] uppercase tracking-[0.16em] text-[rgba(160,190,225,.75)]"
+                >
+                  {claudeDirName}
                 </span>
               )}
             </div>
