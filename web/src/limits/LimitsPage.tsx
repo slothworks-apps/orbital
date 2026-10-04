@@ -11,7 +11,7 @@ import {
 } from '../lib/limits'
 import { settingsHref } from '../lib/sessionUrl'
 import { useNow } from '../lib/useNow'
-import type { LimitSeverity, LimitsSnapshot, LimitsWaitRow } from '../lib/types'
+import type { ClaudeDirLimits, LimitSeverity, LimitsSnapshot, LimitsWaitRow } from '../lib/types'
 import { mapHref } from '../walkthrough/route'
 import { PageBar } from '../ui/PageBar'
 import { StatsShell } from '../stats/StatsShell'
@@ -29,6 +29,7 @@ export function LimitsPage() {
   const [failed, setFailed] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
   const [settings, setSettings] = useState<Record<string, string>>({})
+  const [apiKey, setApiKey] = useState(true)
   // Re-read each minute so "today" stops being today at midnight.
   const now = useNow(true, 60_000)
 
@@ -69,6 +70,12 @@ export function LimitsPage() {
 
   useEffect(() => {
     void api.getSettings().then(setSettings).catch(() => {})
+    // Which "not tracked" a directory is: the API key's, or an account
+    // without plan windows. Unknown reads as the API key's, the old copy.
+    void api
+      .getHealth()
+      .then((h) => setApiKey(h?.billing !== 'subscription'))
+      .catch(() => {})
   }, [])
 
   const readAgain = () => {
@@ -87,94 +94,75 @@ export function LimitsPage() {
       .finally(() => setReading(false))
   }
 
-  const tracked = snapshot?.tracked ?? true
-  const stale = snapshot?.stale ?? false
-  const readLine = !snapshot
+  const dirs = snapshot?.dirs ?? []
+  // With one directory the page is 31a as it was; with more, each directory
+  // is a group under its own name (spec 2026-10-04-multiple-claude-directories-design § 5).
+  const grouped = dirs.length >= 2
+  const single = !grouped ? (dirs[0] ?? null) : null
+  const headerLine = !snapshot
     ? failed
       ? `limits unavailable — ${failed}`
       : 'reading…'
-    : !tracked
-      ? ''
-      : snapshot.readAt === null
-        ? 'reading…'
-        : stale
-          ? `last read ${formatResetAt(snapshot.readAt, now)} — may be out of date`
-          : `read ${formatResetAt(snapshot.readAt, now)}`
+    : single
+      ? readLineOf(single, now)
+      : ''
+  const waits = dirs.flatMap((d) => d.waits)
+  const nothingTracked = dirs.length > 0 && dirs.every((d) => !d.tracked)
   const { autoContinue, text } = limitSettings(settings)
 
   return (
     <StatsShell sky="limits" bar={<PageBar route={{ page: 'limits' }} surface="sky" />}>
       <div className="flex min-h-0 flex-1 gap-[18px]">
         {/* 31a: the windows' panel. */}
-        <section className="flex min-w-0 flex-1 flex-col rounded-[13px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)] px-7 pb-2 pt-6">
+        <section className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-[13px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)] px-7 pb-2 pt-6">
           <div className="flex items-baseline gap-3 pb-[18px]">
             <span className="text-[19px] font-bold text-text-bright">Plan limits</span>
             <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">as reported by Claude</span>
             <span className="flex-1" />
             <span
               className="font-mono text-[10.5px]"
-              style={{ color: stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
+              style={{ color: single?.stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
             >
-              {readLine}
+              {headerLine}
             </span>
-            {tracked && stale && (
-              <button
-                type="button"
-                onClick={readAgain}
-                disabled={reading}
-                className="ml-1 cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.14)] bg-[rgba(150,205,255,.05)] px-2.5 py-1 font-mono text-[10px] tracking-[0.12em] text-[rgba(200,220,245,.85)] transition-colors duration-150 hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright disabled:cursor-default"
-              >
-                READ AGAIN
-              </button>
-            )}
+            {single && single.tracked && single.stale && <ReadAgain onClick={readAgain} disabled={reading} />}
           </div>
 
-          {snapshot && tracked && (
-            <div
-              className="flex flex-col transition-opacity duration-[250ms] ease-[ease]"
-              style={{ opacity: stale ? 0.55 : 1 }}
-            >
-              {snapshot.windows.map((w, i) => (
-                <WindowRow
-                  key={`${w.kind}:${w.label}:${i}`}
-                  name={w.label}
-                  sub={w.scope ?? null}
-                  percent={w.percent}
-                  severity={limitSeverity(w.severity)}
-                  value={`${Math.round(w.percent)}%`}
-                  resetsAt={w.resetsAt}
-                  now={now}
-                />
-              ))}
-              {snapshot.extraUsage?.enabled && (
-                <WindowRow
-                  name="Extra usage"
-                  sub="spend / monthly cap"
-                  percent={snapshot.extraUsage.percent}
-                  severity="normal"
-                  value={extraUsageValue(snapshot.extraUsage) ?? '—'}
-                  money
-                  resetsAt={null}
-                  now={now}
-                />
-              )}
-            </div>
-          )}
+          {single && <DirWindows dir={single} now={now} apiKey={apiKey} />}
 
-          {snapshot && !tracked && <NotTracked />}
+          {grouped &&
+            dirs.map((dir) => (
+              <div key={dir.id} data-limits-dir={dir.id} className="flex flex-col pb-4">
+                {/* No canvas for the group yet: its kicker borrows the right
+                    column's card label (31a), its read line the header's. */}
+                <div className="flex items-baseline gap-3 pb-2.5 pt-1">
+                  <span className="font-mono text-[9.5px] uppercase tracking-[0.2em] text-[rgba(160,190,225,.6)]">
+                    {dir.name}
+                  </span>
+                  <span className="flex-1" />
+                  <span
+                    className="font-mono text-[10.5px]"
+                    style={{ color: dir.stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
+                  >
+                    {readLineOf(dir, now)}
+                  </span>
+                  {dir.tracked && dir.stale && <ReadAgain onClick={readAgain} disabled={reading} />}
+                </div>
+                <DirWindows dir={dir} now={now} apiKey={apiKey} compact />
+              </div>
+            ))}
         </section>
 
         {/* 31a: the right column. */}
         <div className="flex w-[380px] flex-none flex-col gap-[18px]">
-          {snapshot && !tracked ? (
+          {nothingTracked ? (
             <Card label="WAITING FOR A RESET">
               <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">— not tracked</div>
             </Card>
           ) : (
-            snapshot &&
-            snapshot.waits.length > 0 && (
+            waits.length > 0 && (
               <Card label="WAITING FOR A RESET">
-                {snapshot.waits.map((wait) => (
+                {waits.map((wait) => (
                   <WaitRow key={wait.sessionId} wait={wait} now={now} />
                 ))}
               </Card>
@@ -196,6 +184,74 @@ export function LimitsPage() {
         </div>
       </div>
     </StatsShell>
+  )
+}
+
+/** One directory's read line: when it was read, or that it may be out of date. Empty when not tracked. */
+function readLineOf(dir: ClaudeDirLimits, now: number): string {
+  if (!dir.tracked) return ''
+  if (dir.readAt === null) return 'reading…'
+  return dir.stale
+    ? `last read ${formatResetAt(dir.readAt, now)} — may be out of date`
+    : `read ${formatResetAt(dir.readAt, now)}`
+}
+
+function ReadAgain({ onClick, disabled }: { onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="ml-1 cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.14)] bg-[rgba(150,205,255,.05)] px-2.5 py-1 font-mono text-[10px] tracking-[0.12em] text-[rgba(200,220,245,.85)] transition-colors duration-150 hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright disabled:cursor-default"
+    >
+      READ AGAIN
+    </button>
+  )
+}
+
+/** One directory's windows, or its "not tracked" note. */
+function DirWindows({
+  dir,
+  now,
+  apiKey,
+  compact = false,
+}: {
+  dir: ClaudeDirLimits
+  now: number
+  apiKey: boolean
+  compact?: boolean
+}) {
+  if (!dir.tracked) return <NotTracked apiKey={apiKey} compact={compact} />
+  return (
+    <div
+      className="flex flex-col transition-opacity duration-[250ms] ease-[ease]"
+      style={{ opacity: dir.stale ? 0.55 : 1 }}
+    >
+      {dir.windows.map((w, i) => (
+        <WindowRow
+          key={`${w.kind}:${w.label}:${i}`}
+          name={w.label}
+          sub={w.scope ?? null}
+          percent={w.percent}
+          severity={limitSeverity(w.severity)}
+          value={`${Math.round(w.percent)}%`}
+          resetsAt={w.resetsAt}
+          now={now}
+        />
+      ))}
+      {dir.extraUsage?.enabled && (
+        <WindowRow
+          name="Extra usage"
+          sub="spend / monthly cap"
+          percent={dir.extraUsage.percent}
+          severity="normal"
+          value={extraUsageValue(dir.extraUsage) ?? '—'}
+          money
+          resetsAt={null}
+          now={now}
+        />
+      )}
+    </div>
   )
 }
 
@@ -283,19 +339,33 @@ function WaitRow({ wait, now }: { wait: LimitsWaitRow; now: number }) {
   )
 }
 
-/** 31a NOT TRACKED: an API-key login has no plan windows. */
-function NotTracked() {
+/**
+ * 31a NOT TRACKED: an API-key login has no plan windows — and neither has an
+ * account billed by usage, the usual enterprise login of a second Claude
+ * directory (spec 2026-10-04-multiple-claude-directories-design § 5). In a
+ * directory group (`compact`) it drops 31a's centring and the tall empty
+ * space under it, which are meant for a page that has nothing else.
+ */
+function NotTracked({ apiKey, compact = false }: { apiKey: boolean; compact?: boolean }) {
   return (
-    <div className="flex flex-1 flex-col items-start justify-center gap-3 border-t border-[rgba(150,205,255,.08)] pb-[60px] pl-1">
+    <div
+      className={[
+        'flex flex-col items-start gap-3 border-t border-[rgba(150,205,255,.08)] pl-1',
+        compact ? 'py-5' : 'flex-1 justify-center pb-[60px]',
+      ].join(' ')}
+    >
       <span aria-hidden className="block h-10 w-10 rounded-full border border-dashed border-[rgba(200,215,235,.35)]" />
       <div className="text-[17px] font-bold text-text-bright">Limits aren't tracked</div>
       <div className="max-w-[520px] text-[13px] leading-[1.6] text-[rgba(190,212,238,.75)] [text-wrap:pretty]">
-        Orbital is signed in with an API key. API usage is billed per token and has no plan windows, so there is nothing
-        to show here. Sessions never wait for a reset.
+        {apiKey
+          ? 'Orbital is signed in with an API key. API usage is billed per token and has no plan windows, so there is nothing to show here. Sessions never wait for a reset.'
+          : 'This account has no plan windows — its usage is billed as it goes, so there is nothing to show here. Its sessions never wait for a reset.'}
       </div>
-      <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
-        sign in with a Claude account in Settings → General to track limits
-      </div>
+      {apiKey && (
+        <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+          sign in with a Claude account in Settings → General to track limits
+        </div>
+      )}
     </div>
   )
 }

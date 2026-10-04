@@ -19,6 +19,7 @@ import type {
   ApiSession,
   AttachmentSource,
   ChatMessage,
+  ClaudeDirName,
   ErrorRecord,
   ImageRefEntry,
   OrbitalModel,
@@ -290,6 +291,16 @@ export interface OrbitalState {
    * catalog — the exact-id fallback denominator for a session whose resolved
    * model matches no catalog row (fix: revived-session-shows-no-context-gauge). */
   contextWindows: Record<string, number>
+  /**
+   * The configured Claude directories, names only, and the two the New
+   * session choice falls back to — read once from `GET /api/sessions/defaults`,
+   * the one route both the Mac and the phone may use (spec
+   * 2026-10-04-multiple-claude-directories-design § 7). Every directory label
+   * reads its name from here; with fewer than two nothing is labelled.
+   */
+  claudeDirs: ClaudeDirName[]
+  defaultClaudeDir: number | null
+  lastClaudeDir: number | null
   settings: Record<string, string>
   transcripts: Record<string, ChatMessage[]>
   /** Tracks which sessions have had their initial message history fetched, so
@@ -519,6 +530,8 @@ export interface OrbitalActions {
    * phone's list left out, opened from a notification) is added as it comes.
    */
   loadSessionHistory(id: string): Promise<void>
+  /** Reads the directory names and the dialog's two fallbacks again (`claudeDirs` above). Best-effort. */
+  loadClaudeDirs(): Promise<void>
   /**
    * The catch-up after the socket was away (spec:
    * 2026-09-22-ws-reconnect-resync-design). Nothing is replayed over the WS,
@@ -574,6 +587,8 @@ export interface OrbitalActions {
     attachments?: string[]
     /** The phone asks the route to check the directory first (`api.createSession`). */
     requireDirectory?: boolean
+    /** The Claude directory to run under; omitted, the server's default (`api.createSession`). */
+    claudeDirId?: number
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>
@@ -1067,6 +1082,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   rules: [],
   models: [],
   contextWindows: {},
+  claudeDirs: [],
+  defaultClaudeDir: null,
+  lastClaudeDir: null,
   settings: {},
   transcripts: {},
   historyLoaded: {},
@@ -1098,6 +1116,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   harnessTemplatesFocus: null,
 
   async loadInitial() {
+    // In parallel with the rest; its keys are its own.
+    const dirs = get().loadClaudeDirs()
     const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] =
       await Promise.all([
         api.listSessions(),
@@ -1150,6 +1170,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         sidebarCollapsed: settings.sidebar_collapsed === 'true',
       },
     }))
+    await dirs
   },
 
   seatSessions(list, tags) {
@@ -1175,6 +1196,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async loadSessions(opts = {}) {
+    const dirs = get().loadClaudeDirs()
     const [page, ended, tags, modelsPayload] = await Promise.all([
       api.listSessionPage({ ended: 'exclude' }),
       opts.endedToo ? api.listSessionPage({ ended: 'only' }) : null,
@@ -1184,6 +1206,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // A Mac that ignores `ended` answers both with every session; the map keeps one of each.
     get().seatSessions(ended ? [...page.sessions, ...ended.sessions] : page.sessions, tags)
     set({ models: modelsPayload.models, contextWindows: modelsPayload.contextWindows })
+    await dirs
     return page.ended ?? null
   },
 
@@ -1216,6 +1239,20 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       })
     } catch {
       // What the list carries stays; the next selection asks again.
+    }
+  },
+
+  async loadClaudeDirs() {
+    try {
+      const defaults = await api.sessionDefaults()
+      // A Mac from before the feature sends none of the three: one directory, no labels.
+      set({
+        claudeDirs: defaults?.claudeDirs ?? [],
+        defaultClaudeDir: defaults?.defaultClaudeDir ?? null,
+        lastClaudeDir: defaults?.lastClaudeDir ?? null,
+      })
+    } catch {
+      // Labels and the dialog's choice wait for the next read; nothing else depends on them.
     }
   },
 

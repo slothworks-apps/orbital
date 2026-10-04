@@ -13,6 +13,36 @@ export interface SessionDefaults {
   permissionMode: PermissionMode
   model: string | null
   rememberModelPerProject: boolean
+  /**
+   * The configured Claude directories, names only, and the two the New
+   * session choice falls back to (spec
+   * 2026-10-04-multiple-claude-directories-design § 6). `lastClaudeDir` is
+   * null when nothing launched yet or that directory is gone.
+   *
+   * Optional: a phone may talk to a Mac from before the feature, which sends
+   * none of the three.
+   */
+  claudeDirs?: ClaudeDirName[]
+  defaultClaudeDir?: number
+  lastClaudeDir?: number | null
+}
+
+/** A configured Claude directory as the session label and the New session choice need it. */
+export interface ClaudeDirName {
+  id: number
+  name: string
+}
+
+/** One row of `GET /api/claude-dirs` (Mac only). Mirrors `server/src/claudeDirs/service.ts`. */
+export interface ClaudeDirInfo extends ClaudeDirName {
+  /** Absolute; the path in effect, `ORBITAL_CLAUDE_DIR`'s when that overrides it. */
+  path: string
+  overriddenByEnv: boolean
+  isDefault: boolean
+  /** The directory is on disk now. */
+  exists: boolean
+  /** The signed-in account's e-mail, when the directory's `.claude.json` names one. */
+  account: string | null
 }
 
 /**
@@ -244,6 +274,12 @@ export interface ApiSession {
    * Optional here, like every other snapshot field added after the fixtures.
    */
   limitWait?: LimitWait | null
+  /**
+   * The Claude directory (`claude_dirs.id`) the session belongs to (spec
+   * 2026-10-04-multiple-claude-directories-design § 6). Optional: absent
+   * from a Mac from before the feature, and from the fixtures.
+   */
+  claudeDirId?: number
 }
 
 /**
@@ -315,9 +351,22 @@ export interface LimitsWaitRow {
   willContinue: boolean
 }
 
-/** `GET /api/limits` and the `limits` topic's frames. Mirrors `server/src/types.ts`. */
+/**
+ * `GET /api/limits` and the `limits` topic's frames: one reading per
+ * configured Claude directory, in the directories' order (spec
+ * 2026-10-04-multiple-claude-directories-design § 5). Mirrors
+ * `server/src/limits/logic.ts`.
+ */
 export interface LimitsSnapshot {
-  /** False under an API key: there are no plan windows to show. */
+  dirs: ClaudeDirLimits[]
+}
+
+/** One Claude directory's plan limits. */
+export interface ClaudeDirLimits {
+  /** `claude_dirs.id`. */
+  id: number
+  name: string
+  /** False under an API key, or for an account with no plan windows (billed by usage). */
   tracked: boolean
   readAt: string | null
   /** The last read failed; what is shown is the one before it. */
@@ -1162,7 +1211,11 @@ export type FilePreview =
  * `api.commands` / `api.filesComplete` have one signature and the composer has
  * one prop.
  */
-export type CompletionKey = { session: string } | { cwd: string }
+/**
+ * A session, or the New session dialog's directory plus the Claude directory
+ * it would run under — whose user and plugin commands the catalog lists.
+ */
+export type CompletionKey = { session: string } | { cwd: string; claudeDir?: number }
 
 /** Where a slash command comes from — the popup's right-hand badge (canvas 9b). */
 export type CommandSource = 'user' | 'project' | 'plugin' | `plugin:${string}` | 'built-in'
