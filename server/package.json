@@ -10,26 +10,26 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.0",
-    "@fastify/multipart": "^10.1.1",
-    "@fastify/static": "^10.1.4",
-    "@fastify/websocket": "^11.0.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.287",
+    "@fastify/multipart": "^10.1.2",
+    "@fastify/static": "^10.1.5",
+    "@fastify/websocket": "^11.3.1",
     "@noble/hashes": "^2.0.0",
     "@orbital/shared": "*",
     "better-sqlite3": "^13.0.3",
-    "drizzle-orm": "^0.45.2",
-    "fastify": "^5.2.0",
-    "ws": "^8.18.0",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
+    "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@orbital/relay": "*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.19.1",
-    "@types/ws": "^8.5.13",
-    "drizzle-kit": "^0.31.10",
-    "esbuild": "^0.24.0",
-    "tsx": "^4.19.0",
+    "@types/ws": "^8.18.2",
+    "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
