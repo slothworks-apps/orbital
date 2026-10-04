@@ -32,15 +32,26 @@ Two things are still in every past commit, and only a rewrite removes them:
 
 What to replace with what is deliberately not written here: anything
 committed would put it back into the history the rewrite cleans. The inputs
-live untracked in the main checkout's `.git/going-public/` —
-`replacements.txt` for `--replace-text` and `mailmap` for `--mailmap`; the
-noreply address still has to be filled in there.
+live untracked in the main checkout's `.git/going-public/`, all filled in
+on 2026-10-04:
+
+- `replacements.txt` for `--replace-text` — the removed names, and the
+  maintainer's e-mail, which a recorded CLI transcript in
+  `server/test/fixtures/` carries in its session context.
+- `messages.txt` for `--replace-message` — `--replace-text` does not touch
+  commit messages, and squash merges carry a contributor's personal e-mail
+  in their `Co-authored-by:` trailer.
+- `mailmap` for `--mailmap` — both authors' personal addresses mapped to
+  their GitHub noreply addresses.
+
+A dry run on a `git clone --no-local` copy in `/tmp` came out clean: only
+noreply addresses as authors and no removed term in files or messages.
 
 `ergaily` and the `/Users/tomin/...` paths in tests and docs stay; they are
 fine to publish.
 
 Do it in one `git filter-repo` pass (`brew install git-filter-repo`) with
-those two files, right before the visibility flips. Every commit hash
+those three files, right before the visibility flips. Every commit hash
 changes, so the rewrite needs a force push, and every other branch and
 worktree stops sharing history with `main`. Finish or drop open branches and
 worktrees first, and make sure no other session is working in the checkout.
