@@ -8,8 +8,12 @@ import {
   createScroller,
   enteringKeys,
   isNearBottom,
+  nextBottomIndicator,
+  type BottomIndicator,
   type Scroller,
 } from './transcriptMotion'
+import { JumpToBottom } from './JumpToBottom'
+import { isPendingTurn } from '../store/store'
 import { MessageView } from './MessageView'
 import { NoticeRow } from './NoticeRow'
 import { HarnessTranscriptRow } from './HarnessTranscriptRow'
@@ -663,6 +667,17 @@ export function TranscriptView({
   // scrollHeight — checking "near bottom" post-append would always read as
   // "not near bottom" for a container that hadn't scrolled yet.
   const stickToBottomRef = useRef(true)
+  // The jump-to-bottom indicator mirrors the stick flag, plus whether rows
+  // arrived while it was off (spec 2026-10-04-transcript-jump-to-bottom-design).
+  // State rather than a ref because it renders; `setIndicator` bails out on
+  // an unchanged value, so a scroll does not re-render the transcript.
+  const [indicator, setIndicator] = useState<BottomIndicator>('hidden')
+  // Every change to the stick flag goes through here, so the indicator can
+  // never disagree with whether a new message would be followed.
+  const setStick = useCallback((atBottom: boolean) => {
+    stickToBottomRef.current = atBottom
+    setIndicator((state) => nextBottomIndicator(state, atBottom ? 'bottom' : 'away'))
+  }, [])
   // Arriving at a session — and the first paint of any session — lands at the
   // bottom with no animation. Easing down through a whole backlog would read
   // as the view running away, and there is nothing along the way to see.
@@ -697,6 +712,7 @@ export function TranscriptView({
     prependPendingRef.current = false
     heightBeforePrependRef.current = 0
     stickToBottomRef.current = true
+    setIndicator((state) => nextBottomIndicator(state, 'reset'))
     jumpNextRef.current = true
     scrollerRef.current?.cancel()
   }, [resetKey])
@@ -713,7 +729,7 @@ export function TranscriptView({
       // reader wants to be: mid-flight it is by definition not at the bottom
       // yet, and believing that would un-stick the container halfway through
       // its own scroll.
-      if (!scroller.isAnimating()) stickToBottomRef.current = isNearBottom(el)
+      if (!scroller.isAnimating()) setStick(isNearBottom(el))
     }
     el.addEventListener('scroll', onScroll)
     return () => {
@@ -721,7 +737,7 @@ export function TranscriptView({
       scroller.destroy()
       scrollerRef.current = null
     }
-  }, [])
+  }, [setStick])
 
   // NOTE: the branching below (prepend-compensation vs stick-to-bottom) is
   // inspection-verified rather than covered by a jsdom test — jsdom never
@@ -774,9 +790,9 @@ export function TranscriptView({
     if (!el) return
     scrollerRef.current?.cancel()
     el.scrollIntoView?.({ block: 'center' })
-    stickToBottomRef.current = false
+    setStick(false)
     onRevealed?.()
-  }, [reveal, newestFailedId, items, onRevealed])
+  }, [reveal, newestFailedId, items, onRevealed, setStick])
 
   useLayoutEffect(() => {
     if (footerKey && stickToBottomRef.current) scrollerRef.current?.toBottom({ instant: false })
@@ -784,8 +800,8 @@ export function TranscriptView({
 
   const refreshStick = useCallback(() => {
     const el = containerRef.current
-    if (el && !scrollerRef.current?.isAnimating()) stickToBottomRef.current = isNearBottom(el)
-  }, [])
+    if (el && !scrollerRef.current?.isAnimating()) setStick(isNearBottom(el))
+  }, [setStick])
 
   useLayoutEffect(() => {
     refreshStick()
@@ -801,6 +817,27 @@ export function TranscriptView({
   useLayoutEffect(() => {
     seenRef.current = { resetKey, keys: groups.map((g) => g.key) }
   }, [groups, resetKey])
+
+  // What just arrived, for the jump-to-bottom indicator. The user's own turn
+  // means they chose to continue the conversation, so it takes them back to
+  // the bottom; anything else arriving while they read above marks the
+  // indicator. After the stick-to-bottom effect, which has already followed
+  // the arrival when the transcript was stuck.
+  useLayoutEffect(() => {
+    if (entering.size === 0) return
+    const arrived = groups.filter((g) => entering.has(g.key))
+    if (arrived.some((g) => g.kind === 'message' && isPendingTurn(g.item.message))) {
+      setStick(true)
+      scrollerRef.current?.toBottom()
+    } else if (!stickToBottomRef.current) {
+      setIndicator((state) => nextBottomIndicator(state, 'arrived'))
+    }
+  }, [entering, groups, setStick])
+
+  const jumpToBottom = useCallback(() => {
+    setStick(true)
+    scrollerRef.current?.toBottom()
+  }, [setStick])
 
   // Rows already held but cut off by the window. They come first: they are
   // older than anything held on screen and newer than anything a fetch
@@ -885,8 +922,11 @@ export function TranscriptView({
     : -1
 
   return (
-    // Canvas 1b: the transcript owns the panel's 18px/22px inset and stacks
-    // its rows 14px apart.
+    // The indicator sits over the scroll container, not inside it, so it does
+    // not scroll away with the rows.
+    <div className="relative h-full">
+    {/* Canvas 1b: the transcript owns the panel's 18px/22px inset and stacks
+        its rows 14px apart. */}
     <div
       ref={containerRef}
       className="flex h-full flex-col gap-[14px] overflow-y-auto px-[22px] py-[18px]"
@@ -1082,6 +1122,8 @@ export function TranscriptView({
         )
       })}
       {footer}
+    </div>
+    <JumpToBottom state={indicator} onJump={jumpToBottom} />
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { approach, enteringKeys, isNearBottom, compensatePrepend } from '../panels/transcriptMotion'
+import { approach, enteringKeys, isNearBottom, compensatePrepend, nextBottomIndicator } from '../panels/transcriptMotion'
 
 describe('isNearBottom', () => {
   it('is true within the threshold of the bottom', () => {
@@ -95,5 +95,30 @@ describe('enteringKeys', () => {
     // A re-keyed row in the middle is not an arrival at the bottom; only a
     // trailing run counts.
     expect(enteringKeys(['a', 'b'], ['a', 'x', 'b'])).toEqual([])
+  })
+})
+
+describe('nextBottomIndicator', () => {
+  it('shows the way back once the reader scrolls away', () => {
+    expect(nextBottomIndicator('hidden', 'away')).toBe('above')
+  })
+
+  it('marks rows arriving while the reader is away', () => {
+    expect(nextBottomIndicator('above', 'arrived')).toBe('new')
+    expect(nextBottomIndicator('new', 'arrived')).toBe('new')
+  })
+
+  it('keeps what arrived while the reader scrolls around above the bottom', () => {
+    expect(nextBottomIndicator('new', 'away')).toBe('new')
+  })
+
+  it('clears on reaching the bottom, and scrolling up again starts over', () => {
+    expect(nextBottomIndicator('new', 'bottom')).toBe('hidden')
+    expect(nextBottomIndicator(nextBottomIndicator('new', 'bottom'), 'away')).toBe('above')
+  })
+
+  it('clears on a switch', () => {
+    expect(nextBottomIndicator('new', 'reset')).toBe('hidden')
+    expect(nextBottomIndicator('above', 'reset')).toBe('hidden')
   })
 })

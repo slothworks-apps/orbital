@@ -2,7 +2,7 @@
 id: 2026-10-04-transcript-jump-to-bottom-design
 title: The transcript shows the way back to its bottom
 type: spec
-status: draft
+status: active
 domain: web
 related:
   - why-orbital
@@ -157,5 +157,7 @@ Placement and look are designed in Claude Design. The prompt to give it:
 
 ## Next
 
-Once the Claude Design artboards exist, implement against them and set this
-spec to `done`.
+The behaviour is built. The indicator's look is provisional
+(`panels/JumpToBottom.tsx` borrows the model divider's type and the docked
+panel's fill) until the Claude Design artboards exist. Then do a fidelity
+pass against them and set this spec to `done`.

@@ -195,3 +195,36 @@ export function enteringKeys(prev: readonly string[] | null, next: readonly stri
   while (start > 0 && !known.has(next[start - 1])) start -= 1
   return next.slice(start)
 }
+
+/**
+ * The jump-to-bottom indicator (spec 2026-10-04-transcript-jump-to-bottom-design).
+ *
+ * - `hidden` — the transcript is at its bottom and follows new rows.
+ * - `above` — the reader has scrolled away from the bottom.
+ * - `new` — scrolled away, and rows have arrived below since.
+ *
+ * Deliberately no count: `why-orbital` rules out counters that pile up, so
+ * "something arrived" is all the indicator knows.
+ */
+export type BottomIndicator = 'hidden' | 'above' | 'new'
+
+/**
+ * What can happen to the indicator. `bottom` and `away` are the stick flag
+ * changing (a scroll, a fold, a click back, a send); `arrived` is rows
+ * entering at the bottom while the transcript is not stuck; `reset` is a
+ * session or subagent switch, which lands at the bottom anyway.
+ */
+export type BottomEvent = 'bottom' | 'away' | 'arrived' | 'reset'
+
+export function nextBottomIndicator(state: BottomIndicator, event: BottomEvent): BottomIndicator {
+  switch (event) {
+    case 'bottom':
+    case 'reset':
+      return 'hidden'
+    case 'away':
+      // Scrolling around above the bottom does not forget what arrived.
+      return state === 'new' ? 'new' : 'above'
+    case 'arrived':
+      return 'new'
+  }
+}

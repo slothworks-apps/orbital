@@ -756,7 +756,7 @@ function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T
 
 /** Whether `message` is a user turn this tab appended optimistically and the
  * transcript file has not echoed back yet. */
-function isPendingTurn(message: ChatMessage): boolean {
+export function isPendingTurn(message: ChatMessage): boolean {
   return message.id.startsWith('local:') && message.role === 'user'
 }
 
