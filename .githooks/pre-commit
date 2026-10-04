@@ -1,0 +1,19 @@
+#!/bin/sh
+# Work lands on main through a pull request, not a local commit, and nothing
+# is committed before gitleaks has read what is staged. `--no-verify` skips
+# both, for the rare case that has to.
+
+branch=$(git symbolic-ref --short -q HEAD)
+if [ "$branch" = main ]; then
+  echo "pre-commit: not on main — commit on a branch and open a pull request." >&2
+  exit 1
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact --no-banner --log-level warn || {
+    echo "pre-commit: gitleaks found a secret in the staged changes." >&2
+    exit 1
+  }
+else
+  echo "pre-commit: gitleaks is not installed, staged changes were not scanned (brew install gitleaks)." >&2
+fi

@@ -71,6 +71,16 @@ the Keep a Changelog format. Keep them yourself; do not wait to be asked.
   `## [<new version>] — <date>` and open an empty `## [Unreleased]` above
   it, in the bump commit.
 
+### Branches
+
+`main` changes only through pull requests. The hooks in `.githooks/`
+(wired by `npm install`) refuse a commit on `main` and a push to it, and
+scan every commit with gitleaks. Do the work on a branch, push the branch
+and open a PR with `gh pr create`; a version bump goes into the same PR.
+Do not pass `--no-verify` to get around a hook: if gitleaks flags a
+stand-in value in a test, add it to `.gitleaks.toml`; if it flags a real
+secret, take it out.
+
 ### Every feature has a phone answer
 
 Orbital also runs on the phone: `mobile/` is the Capacitor shell around
