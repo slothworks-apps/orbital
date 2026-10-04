@@ -64,6 +64,10 @@ export function watchDir(dir: string, opts: WatchDirOptions): DirWatch {
   const arm = () => {
     if (closed) return;
     try {
+      // Asked first, not left to `watch` to refuse: on Linux, Node 24's
+      // recursive watch of a missing directory returns a watcher that never
+      // fires instead of throwing ENOENT, and the wait below never starts.
+      if (!existsSync(dir)) throw Object.assign(new Error(`no such directory: ${dir}`), { code: 'ENOENT' });
       current = watch(dir, { recursive: opts.recursive ?? false }, (_event, filename) => {
         // An event that names no entry can be about `dir` itself — removed,
         // which does not always surface as an error. Waiting for it to come

@@ -40,7 +40,7 @@ Kysely.
   in `schema.ts` and the `$inferSelect` types need a Kysely equivalent.
 - Dropping `drizzle-orm`, `drizzle-kit`, `server/drizzle.config.ts` and the
   `db:generate` script; the packaged app's `ORBITAL_MIGRATIONS_DIR`
-  (`desktop/`, `npm run dogfood`) goes with them since migrations would be
+  (`desktop/`) goes with them since migrations would be
   bundled statically the way the relay's are.
 
 ## Why not now
