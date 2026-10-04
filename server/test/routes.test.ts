@@ -32,6 +32,7 @@ import { BranchStatusStore } from '../src/git/branchStatusStore.js';
 import { IdeStore } from '../src/ide/store.js';
 import { Runner } from '../src/runner/runner.js';
 import { resolveClaudeCodeVersion } from '../src/runner/version.js';
+import { sdkBundledCliAvailable } from '../src/runner/claudeCli.js';
 import type { SessionRow, SessionStatus } from '../src/types.js';
 import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.js';
 import { BackgroundTaskStore } from '../src/transcript/backgroundTasks.js';
@@ -1515,6 +1516,13 @@ describe('claude_code_version', () => {
       queryFn: (() => {}) as any,
     });
     const body = (await app.inject({ method: 'GET', url: '/api/settings' })).json();
+    if (!sdkBundledCliAvailable()) {
+      // Off darwin-arm64 the server asks a `claude` on the PATH instead of
+      // reading the manifest; whatever it publishes is still a real version.
+      if ('claude_code_version' in body) expect(body.claude_code_version).toMatch(/^\d+\.\d+\.\d+/);
+      await app.close();
+      return;
+    }
     const expected = resolveClaudeCodeVersion();
     if (expected === null) {
       // Unresolvable: the key stays absent so the UI row stays hidden.

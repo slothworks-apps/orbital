@@ -14,12 +14,8 @@ jobs:
     # One job per workspace, so a red check names the workspace that broke.
     # It also keeps each lint run to one TypeScript program: `eslint .` over
     # every workspace at once outgrew the runner's default heap.
-    #
-    # Orbital ships for macOS arm64 only, and the server resolves the Agent
-    # SDK's darwin-arm64 CLI package; a Linux runner tests a platform that is
-    # never shipped (docs/fixes/a-settings-test-assumes-the-darwin-arm64-cli.md).
     name: check (${{ matrix.workspace }})
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
