@@ -34,6 +34,13 @@ A resumed copy in the second directory therefore stays invisible. That is
 acceptable: it is a copy of a session the map already shows, and resuming
 it from Orbital runs it under its owning directory.
 
+"Never changes" holds between configured directories. A row whose
+directory was removed, or whose directory moved to another path (its rows
+are marked unowned), has no owner left to defer to: the next directory
+that indexes its transcript takes it over. That is how adding a removed
+directory back brings its sessions back, since the new row gets a new id
+(ids are never reused).
+
 ## What is ruled out
 
 - **A composite key (directory, id).** Every route, URL, topic, the phone
