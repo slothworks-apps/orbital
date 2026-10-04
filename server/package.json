@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@orbital/relay": "*",
-    "@types/better-sqlite3": "^7.6.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.13",
     "drizzle-kit": "^0.31.10",
