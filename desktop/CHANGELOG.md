@@ -4,6 +4,9 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.3] — 2026-10-04
+### Fixed
+- A question's answer options now show their whole text instead of cutting off long descriptions or long paths.
 - A session that another session starts on your request now lands under the same tag you gave the first one, instead of falling back to the default.
 
 ## [0.20.2] — 2026-10-04
