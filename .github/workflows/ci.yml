@@ -9,6 +9,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# CI also runs for pull requests from forks; it only needs to read the code.
+permissions:
+  contents: read
+
 jobs:
   check:
     # One job per workspace, so a red check names the workspace that broke.

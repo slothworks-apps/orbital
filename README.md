@@ -46,7 +46,16 @@ principles in full.
 npm install
 ```
 
-This is a single npm workspace covering `server`, `web` and `desktop`.
+One install at the root covers all six npm workspaces:
+
+| workspace | what it is |
+|---|---|
+| `shared` | what the Mac, the relay and the phone agree on: keys, frames, message shapes |
+| `server` | the local API and WebSocket; watches `~/.claude` and runs the sessions Orbital starts |
+| `web` | the React frontend, including the phone UI in `web/src/mobile` |
+| `desktop` | the Electron shell for macOS |
+| `relay` | the blind relay between a Mac and its paired phones, shipped as a Docker image |
+| `mobile` | the Capacitor shell for Android around `web/src/mobile` |
 
 ## Run
 

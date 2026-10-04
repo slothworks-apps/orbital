@@ -1,0 +1,27 @@
+# Weekly version updates, grouped so a week brings a few pull requests
+# rather than one per package. Security updates are switched on in the
+# repository settings and arrive on their own, outside this schedule.
+version: 2
+updates:
+  - package-ecosystem: npm
+    # The root lockfile covers every workspace.
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directory: /relay
+    schedule:
+      interval: weekly
