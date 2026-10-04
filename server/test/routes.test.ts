@@ -168,7 +168,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     },
     // No live query by default — the fs catalog alone, which is what an ended
     // session and the dialog get. Tests that want the SDK half replace this.
-    commands: async (): Promise<any[] | null> => null,
+    commands: async (_id: string): Promise<any[] | null> => null,
     // Nothing parked on a question by default — the state of every session
     // that is not waiting on one. Tests that want a decision replace both.
     pendingDecision: (_id: string): any => null,

@@ -789,7 +789,7 @@ export class Runner {
   private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
   private onDecision?: (sessionId: string) => void;
   private onRateLimit?: (sessionId: string) => void;
-  private onLimitHit?: (sessionId: string, rejected: RejectedLimit, turnError: string | null) => Promise<unknown> | unknown;
+  private onLimitHit?: (sessionId: string, rejected: RejectedLimit, turnError: string | null) => unknown;
   private isLimitWaiting?: (sessionId: string) => boolean;
   private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
   private onPermissionWait?: (sessionId: string, wait: PermissionWait) => void;
@@ -965,7 +965,7 @@ export class Runner {
      * settles, so a wait it makes is already standing when `isLimitWaiting`
      * is asked (spec 2026-10-03-usage-limits-design § Trigger).
      */
-    onLimitHit?: (sessionId: string, rejected: RejectedLimit, turnError: string | null) => Promise<unknown> | unknown;
+    onLimitHit?: (sessionId: string, rejected: RejectedLimit, turnError: string | null) => unknown;
     /** The session is waiting for a usage limit to reset: a finished turn reads `idle`, not `needs_input`. */
     isLimitWaiting?: (sessionId: string) => boolean;
     /**
