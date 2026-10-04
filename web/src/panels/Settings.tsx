@@ -81,6 +81,7 @@ import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { MobileSection } from './MobileSection'
+import { ClaudeDirsRows } from './ClaudeDirsRows'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
 import {
   AUTO_CONTINUE_KEY,
@@ -373,9 +374,9 @@ function FpsSlider({
 export function Settings({ open, onClose }: SettingsProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
+  const claudeDirCount = useOrbital((s) => s.claudeDirs.length)
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
-  const [claudeDirDraft, setClaudeDirDraft] = useState(settings.claude_directory ?? '')
   const [instructionsDraft, setInstructionsDraft] = useState(
     settings.session_instructions_custom_text ?? '',
   )
@@ -459,7 +460,6 @@ export function Settings({ open, onClose }: SettingsProps) {
     if (!open) return
     setProjectDirDraft(settings.default_project_dir ?? '')
     setCliPathDraft(settings.claude_executable_path ?? '')
-    setClaudeDirDraft(settings.claude_directory ?? '')
     setInstructionsDraft(settings.session_instructions_custom_text ?? '')
     setContinueDraft(limitSettings(settings).text)
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
@@ -609,18 +609,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliPathDraft, open])
 
-  // And the third: General's Claude directory.
-  useEffect(() => {
-    if (!open) return
-    if (claudeDirDraft === (settings.claude_directory ?? '')) return
-    const timer = setTimeout(() => {
-      void patchAndSet({ claude_directory: claudeDirDraft })
-    }, DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claudeDirDraft, open])
-
-  // And the fourth: Sessions' own instructions. Stored as typed — the
+  // And the third: Sessions' own instructions. Stored as typed — the
   // composer trims at compose time, so the field keeps showing what was
   // written (spec 2026-09-30-session-instructions-design § 3).
   useEffect(() => {
@@ -633,7 +622,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instructionsDraft, open])
 
-  // And the fifth: the text a limit wait sends at the reset (31c). An emptied
+  // And the fourth: the text a limit wait sends at the reset (31c). An emptied
   // field is not saved — the server would fall back to the default anyway,
   // and the field would then disagree with what goes out.
   useEffect(() => {
@@ -1002,35 +991,14 @@ export function Settings({ open, onClose }: SettingsProps) {
                           className="w-full"
                         />
                       </Row>
-                      {/* `ORBITAL_CLAUDE_DIR` already overrode this; the row is what
-                    makes it reachable without a shell. Same restart caveat as
-                    the executable — `resolveClaudeDir` runs once, at boot. */}
-                      <Row
-                        title="Claude directory"
-                        desc="Where Orbital watches for the CLI's sessions. Leave empty for ~/.claude. The server reads it when it starts, so restart Orbital to apply a change — and ORBITAL_CLAUDE_DIR, if set, wins over this."
-                      >
-                        <Input
-                          id="settings-claude-directory"
-                          aria-label="Claude directory"
-                          font="mono"
-                          size="sm"
-                          value={claudeDirDraft}
-                          onChange={(e) => setClaudeDirDraft(e.target.value)}
-                          placeholder="~/.claude"
-                          className="w-full"
-                        />
-                        {/* What is actually being watched, which is not always what
-                      this field holds: the env var outranks it, and an empty
-                      field means the default. */}
-                        {health?.paths?.claudeDir && (
-                          <span
-                            data-testid="claude-dir-effective"
-                            className="font-mono text-[10px] leading-[1.5] text-[rgba(160,190,225,.55)]"
-                          >
-                            watching {health.paths.claudeDir}
-                          </span>
-                        )}
-                      </Row>
+                      {/* Every directory Orbital watches and launches under; a
+                    change applies at once, no restart (spec
+                    2026-10-04-multiple-claude-directories-design § 1). */}
+                      <ClaudeDirsRows
+                        active={open && section === 'general'}
+                        makeDefault={patchAndSet}
+                        onSaved={() => setSaved(true)}
+                      />
                       {/* Read-only on purpose: this is an environment decision made
                     when the server started, and a toggle for "start charging
                     my card" is not a toggle. */}
@@ -1050,6 +1018,17 @@ export function Settings({ open, onClose }: SettingsProps) {
                               ? 'ORBITAL_USE_API_KEY=1 is set, so ANTHROPIC_API_KEY is left in the server’s environment and usage is billed to that key.'
                               : 'ANTHROPIC_API_KEY is removed from the server’s environment at startup, so sessions bill your subscription the way the CLI does.'}
                           </span>
+                          {/* The key outranks every directory's own login,
+                          enterprise included (spec § 3 Billing) — said only
+                          when there is more than one login to outrank. */}
+                          {health.billing === 'api-key' && claudeDirCount >= 2 && (
+                            <span
+                              data-testid="billing-overrides-dirs"
+                              className="text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]"
+                            >
+                              The key is used for every Claude directory, in place of each one’s own login.
+                            </span>
+                          )}
                         </Row>
                       )}
 
