@@ -1,5 +1,6 @@
 import { ApiError } from '../lib/api'
 import { modelByAnyId } from '../lib/models'
+import { openingClaudeDir } from '../lib/claudeDirs'
 import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
 import { humanizeError } from './composer'
 import { homePath } from './format'
@@ -66,6 +67,22 @@ export function preselectModel(input: {
   const { defaults, project, models } = input
   const remembered = defaults.rememberModelPerProject ? modelByAnyId(project?.lastModel, models) : undefined
   return (remembered ?? modelByAnyId(defaults.model, models))?.value ?? models[0]?.value ?? null
+}
+
+/**
+ * The Claude directory 9d opens on (spec
+ * 2026-10-04-multiple-claude-directories-design § 7): the desktop's order
+ * without its planet step, since the phone opens New session from the list,
+ * never from a session — the last launch's choice, else the Mac's default. A
+ * removed directory falls through. Null from a Mac without directories.
+ */
+export function preselectClaudeDir(defaults: SessionDefaults): number | null {
+  return openingClaudeDir({
+    dirs: defaults.claudeDirs ?? [],
+    planet: null,
+    last: defaults.lastClaudeDir,
+    fallback: defaults.defaultClaudeDir,
+  })
 }
 
 /** The Mac's default mode, except that a mode that never asks is never preselected (the desktop's rule). */

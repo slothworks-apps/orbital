@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { claudeDirLabel } from '../../lib/claudeDirs'
 import { timeAgo } from '../../lib/format'
 import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
@@ -267,7 +268,8 @@ function MacDot({ state }: { state: 'online' | 'asleep' | 'connecting' }) {
   )
 }
 
-function Chip({
+/** A filter chip; the New session screen's directory choice wears it too. */
+export function Chip({
   active,
   onClick,
   label,
@@ -337,6 +339,7 @@ function SessionRow({
   const [moonsOpen, setMoonsOpen] = useState(false)
   const input = group === 'input'
   const reason = input ? inputReason(session) : null
+  const dirName = useOrbital((s) => claudeDirLabel(s.claudeDirs, session.claudeDirId))
   const waitLine = group === 'limit' ? limitLine(session, offline, mac, now) : null
   const idle = group === 'idle'
   // A gate carries no elapsed time (10a); asleep, NEEDS INPUT shows none either (9a). The limit
@@ -395,6 +398,13 @@ function SessionRow({
             {isReadOnly(session) && (
               <span className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.75)]">
                 TERMINAL · READ-ONLY
+              </span>
+            )}
+            {/* The Claude directory, with two or more configured (spec
+                2026-10-04-multiple-claude-directories-design § 7): quiet mono ink. */}
+            {dirName && (
+              <span data-claude-dir-label className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.1em] text-text-muted">
+                {dirName}
               </span>
             )}
           </span>

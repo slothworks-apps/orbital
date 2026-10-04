@@ -438,7 +438,7 @@ describe('Settings — Claude directories', () => {
    * the list has to be read again or they stay off the map until a reload.
    */
   it('reads the sessions again once a directory is added', async () => {
-    const loadSessions = vi.fn(async () => {})
+    const loadSessions = vi.fn(async () => null)
     resetStore()
     useOrbital.setState({ loadSessions })
     vi.mocked(api.listClaudeDirs).mockResolvedValue([PERSONAL])
@@ -454,7 +454,7 @@ describe('Settings — Claude directories', () => {
   })
 
   it('says why a path was refused, and reads nothing again', async () => {
-    const loadSessions = vi.fn(async () => {})
+    const loadSessions = vi.fn(async () => null)
     resetStore()
     useOrbital.setState({ loadSessions })
     vi.mocked(api.listClaudeDirs).mockResolvedValue([PERSONAL])

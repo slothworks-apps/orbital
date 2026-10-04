@@ -4,6 +4,7 @@ import { api } from '../../lib/api'
 import { promptWithFiles } from '../../lib/attachedFiles'
 import { tagColor, type OrbitalModel, type PermissionMode, type SessionDefaults } from '../../lib/types'
 import { timeAgo } from '../../lib/format'
+import { useClaudeDirModels } from '../../lib/useClaudeDirModels'
 import { useNow } from '../../lib/useNow'
 import { Composer } from '../../panels/Composer'
 import { useAttachments } from '../../panels/useAttachments'
@@ -13,10 +14,12 @@ import { ModeCards } from '../../ui/ModeCards'
 import { CLOCK_TICK_MS } from '../constants'
 import { basename, homePath } from '../format'
 import {
-  filterDirectories, noSuchDirectory, preselectMode, preselectModel, startFailureLine, type DirectoryRow,
+  filterDirectories, noSuchDirectory, preselectClaudeDir, preselectMode, preselectModel, startFailureLine,
+  type DirectoryRow,
 } from '../newSession'
 import { isMacAsleep, useMobile } from '../state'
 import { MobileScreen, PrimaryButton } from '../ui'
+import { Chip } from './SessionListScreen'
 
 /** 9d: past this many rows the directory list folds to a window, "Show all N" under it. */
 const COLLAPSED_ROWS = 3
@@ -28,7 +31,6 @@ const COLLAPSED_LIST_PX = 196
  * and a first prompt; nothing typed here outlives the screen.
  */
 export function NewSessionScreen() {
-  const models = useOrbital(useShallow((s) => s.models))
   const tags = useOrbital((s) => s.tags)
   const sessions = useOrbital((s) => s.sessions)
   const launchSession = useOrbital((s) => s.launchSession)
@@ -45,6 +47,8 @@ export function NewSessionScreen() {
   const [mode, setMode] = useState<PermissionMode>('acceptEdits')
   /** A model picked by hand; until then the preselection follows the directory. */
   const [pickedModel, setPickedModel] = useState<string | null>(null)
+  /** A Claude directory picked by hand; until then the Mac's prefill (`preselectClaudeDir`). */
+  const [pickedDir, setPickedDir] = useState<number | null>(null)
   const [prompt, setPrompt] = useState('')
   const [pending, setPending] = useState(false)
   const [notFound, setNotFound] = useState(false)
@@ -68,6 +72,12 @@ export function NewSessionScreen() {
   }, [])
 
   const loaded = defaults !== undefined
+  const dirs = defaults?.claudeDirs ?? []
+  const choosesDir = dirs.length >= 2
+  const claudeDirId = choosesDir ? (pickedDir ?? (defaults ? preselectClaudeDir(defaults) : null)) : null
+  /** The chosen directory's catalog: each account has its own models. */
+  const models = useClaudeDirModels(claudeDirId)
+
   const list = useMemo(() => filterDirectories(projects, cwd), [projects, cwd])
   const project = projects.find((p) => p.cwd === cwd.trim())
   const autoModel = defaults ? preselectModel({ defaults, project, models }) : (models[0]?.value ?? null)
@@ -114,6 +124,8 @@ export function NewSessionScreen() {
           permissionMode: mode,
           model: model ?? undefined,
           requireDirectory: true,
+          // Only when the choice was offered; the Mac remembers it for the next prefill.
+          ...(claudeDirId !== null ? { claudeDirId } : {}),
           ...(refs.length > 0 ? { attachments: refs } : {}),
         },
         images,
@@ -306,6 +318,28 @@ export function NewSessionScreen() {
               <FieldLabel>MODEL</FieldLabel>
               <ModelSegments models={models} value={model} onChange={setPickedModel} />
             </div>
+            {/* The Claude directory (spec 2026-10-04-multiple-claude-directories-design
+                § 7), only with two or more. No canvas yet: the session list's
+                filter chips, without a tag dot. */}
+            {choosesDir && (
+              <div className="flex flex-col gap-1.5">
+                <FieldLabel>CLAUDE DIRECTORY</FieldLabel>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Claude directory">
+                  {dirs.map((dir) => (
+                    <Chip
+                      key={dir.id}
+                      label={dir.name}
+                      active={claudeDirId === dir.id}
+                      onClick={() => {
+                        setPickedDir(dir.id)
+                        // A model picked from another account's catalog may not be in this one.
+                        if (dir.id !== claudeDirId) setPickedModel(null)
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -313,7 +347,7 @@ export function NewSessionScreen() {
           <FieldLabel>FIRST PROMPT</FieldLabel>
         <Composer
           aria-label="First prompt"
-          sessionKey={{ cwd: cwd.trim() }}
+          sessionKey={claudeDirId !== null ? { cwd: cwd.trim(), claudeDir: claudeDirId } : { cwd: cwd.trim() }}
           value={prompt}
           onChange={setPrompt}
           enter="newline"

@@ -7,6 +7,7 @@ import {
   filterDirectories,
   isTypedPath,
   noSuchDirectory,
+  preselectClaudeDir,
   preselectMode,
   preselectModel,
   startFailureLine,
@@ -117,6 +118,26 @@ describe('preselectMode', () => {
   it('never preselects bypassPermissions', () => {
     expect(preselectMode(defaults({ permissionMode: 'bypassPermissions' }))).toBe('acceptEdits')
     expect(preselectMode(defaults({ permissionMode: 'plan' }))).toBe('plan')
+  })
+})
+
+describe('preselectClaudeDir', () => {
+  const claudeDirs = [
+    { id: 1, name: 'Personal' },
+    { id: 2, name: 'Work' },
+  ]
+
+  it("opens on the last launch's directory, else the Mac's default", () => {
+    expect(preselectClaudeDir(defaults({ claudeDirs, defaultClaudeDir: 1, lastClaudeDir: 2 }))).toBe(2)
+    expect(preselectClaudeDir(defaults({ claudeDirs, defaultClaudeDir: 2, lastClaudeDir: null }))).toBe(2)
+  })
+
+  it('lets a removed directory fall through', () => {
+    expect(preselectClaudeDir(defaults({ claudeDirs, defaultClaudeDir: 1, lastClaudeDir: 9 }))).toBe(1)
+  })
+
+  it('has none from a Mac from before directories', () => {
+    expect(preselectClaudeDir(defaults())).toBeNull()
   })
 })
 
