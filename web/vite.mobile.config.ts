@@ -76,7 +76,7 @@ export default defineConfig({
     outDir: 'dist-mobile',
     emptyOutDir: true,
     manifest: true,
-    rollupOptions: { input: fileURLToPath(new URL(`./${ENTRY}`, import.meta.url)) },
+    rolldownOptions: { input: fileURLToPath(new URL(`./${ENTRY}`, import.meta.url)) },
   },
   // Beside the desktop's dev port; the relay's local port is the one below.
   server: { port: 4841, strictPort: true },

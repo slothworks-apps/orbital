@@ -21,6 +21,6 @@
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.7"
+    "vitest": "^5.0.3"
   }
 }

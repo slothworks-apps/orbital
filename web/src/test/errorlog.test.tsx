@@ -47,6 +47,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Reset rolls this test’s api overrides back to apiMock’s defaults;
+  // restore takes the console spies off.
+  vi.resetAllMocks()
   vi.restoreAllMocks()
 })
 

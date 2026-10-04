@@ -93,3 +93,26 @@ is the thing that test is about.
 
 `npm run test:run -w web` exits 0 with no "Errors" line, `npm run typecheck -w
 web` is clean.
+
+## Since vitest 5: reset first, then restore
+
+vitest 4 narrowed `vi.restoreAllMocks()` to spies made with `vi.spyOn`; a plain
+`vi.fn` is no longer touched by it. Measured on vitest 5.0.3, a mock that
+was given an override with `.mockReturnValue('override')`:
+
+| | `vi.fn().mockReturnValue(…)` | `vi.fn(impl)` + override |
+|---|---|---|
+| `mockClear()` | survives | override survives |
+| `mockReset()` | stripped | back to `impl` |
+| `mockRestore()` | stripped | back to `impl` |
+| `vi.restoreAllMocks()` | survives | **override survives** |
+| `vi.resetAllMocks()` | stripped | back to `impl` |
+
+The defaults are still safe — nothing strips an argument implementation — but
+a restore no longer undoes a test's own override, so in `errorboundary.test.tsx`
+the `mockRejectedValue` of "does not report its own failed report" would leak
+into every later test. `apimock.test.ts`, `errorboundary.test.tsx` and
+`errorlog.test.tsx` now call `vi.resetAllMocks()` before
+`vi.restoreAllMocks()` in `afterEach`: the reset rolls the overrides back to
+the defaults, the restore takes the `console.error` spies off. Together they do
+what `restoreAllMocks` alone did on vitest 3.
