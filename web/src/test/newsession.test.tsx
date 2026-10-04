@@ -24,6 +24,7 @@ vi.mock('../lib/socket', () => ({
 
 import { api } from '../lib/api'
 import { NewSessionDialog, openingLaunch } from '../panels/NewSessionDialog'
+import { openingClaudeDir } from '../lib/claudeDirs'
 import { editorOf, fieldValue, replaceField } from './composerField'
 
 /** RFC 4122 v4, the only shape the CLI accepts as a session id. */
@@ -831,5 +832,93 @@ describe('NewSessionDialog — opens on the selected planet', () => {
         expect.objectContaining({ new_session_last_cwd: '/home/tomin/planet', new_session_last_tag: '' }),
       ),
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The Claude directory (spec 2026-10-04-multiple-claude-directories-design § 3)
+// ---------------------------------------------------------------------------
+
+describe('openingClaudeDir — the prefill order', () => {
+  const dirs = [
+    { id: 1, name: 'Personal' },
+    { id: 2, name: 'Work' },
+    { id: 3, name: 'Client' },
+  ]
+
+  it('takes the selected planet`s directory first', () => {
+    expect(openingClaudeDir({ dirs, planet: 3, last: 2, fallback: 1 })).toBe(3)
+  })
+
+  it('takes the last launch`s choice when no planet is selected', () => {
+    expect(openingClaudeDir({ dirs, planet: null, last: 2, fallback: 1 })).toBe(2)
+  })
+
+  it('falls back to the default when nothing launched yet', () => {
+    expect(openingClaudeDir({ dirs, planet: undefined, last: null, fallback: 3 })).toBe(3)
+  })
+
+  it('lets a removed directory fall through to the next step', () => {
+    expect(openingClaudeDir({ dirs, planet: 9, last: 2, fallback: 1 })).toBe(2)
+    expect(openingClaudeDir({ dirs, planet: 9, last: 8, fallback: 1 })).toBe(1)
+    // Even the default may be stale in the store: the first directory there is.
+    expect(openingClaudeDir({ dirs, planet: 9, last: 8, fallback: 7 })).toBe(1)
+  })
+
+  it('has nothing to choose from a server without directories', () => {
+    expect(openingClaudeDir({ dirs: [], planet: 1, last: 1, fallback: 1 })).toBeNull()
+  })
+})
+
+describe('NewSessionDialog — the Claude directory', () => {
+  const dirs = [
+    { id: 1, name: 'Personal' },
+    { id: 2, name: 'Work' },
+  ]
+
+  it('launches under the selected planet`s directory, with that account`s models', async () => {
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    resetStore({
+      sessions: {
+        p1: {
+          id: 'p1', cwd: '/home/tomin/planet', title: 'planet', firstAt: 1, lastAt: 100, messageCount: 1,
+          source: 'web', permissionMode: 'acceptEdits', model: null, resolvedModel: null, tagIds: [],
+          status: 'idle', subagents: [], claudeDirId: 2,
+        },
+      },
+      order: ['p1'],
+      claudeDirs: dirs,
+      defaultClaudeDir: 1,
+      lastClaudeDir: 1,
+      ui: { selectedId: 'p1' },
+    })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+    expect(chip('Work')).toHaveAttribute('data-active', 'true')
+    await waitFor(() => expect(api.listModels).toHaveBeenCalledWith(2))
+
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ claudeDirId: 2 })),
+    )
+  })
+
+  it('offers no choice and sends none with a single directory', async () => {
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    resetStore({
+      settings: { default_project_dir: '/home/tomin/work' },
+      claudeDirs: [dirs[0]],
+      defaultClaudeDir: 1,
+      lastClaudeDir: null,
+    })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+    expect(screen.queryByRole('group', { name: 'Claude directory' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    expect(vi.mocked(api.createSession).mock.calls[0][0]).not.toHaveProperty('claudeDirId')
   })
 })

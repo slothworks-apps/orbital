@@ -19,6 +19,8 @@ import { ModeCards } from '../ui/ModeCards'
 import { ModelCards } from '../ui/ModelCards'
 import { CustomModelField } from '../ui/CustomModelField'
 import { modelByValue, modelByAnyId } from '../lib/models'
+import { openingClaudeDir } from '../lib/claudeDirs'
+import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import { permissionMode as permissionModeDescriptor } from '../lib/permissionModes'
 import type { PermissionMode } from '../lib/types'
 
@@ -132,7 +134,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const tags = useOrbital(useShallow((s) => s.tags))
   const rules = useOrbital(useShallow((s) => s.rules))
-  const models = useOrbital(useShallow((s) => s.models))
+  const claudeDirs = useOrbital(useShallow((s) => s.claudeDirs))
+  const defaultClaudeDir = useOrbital((s) => s.defaultClaudeDir)
+  const lastClaudeDir = useOrbital((s) => s.lastClaudeDir)
   const select = useOrbital((s) => s.select)
   const selectedSession = useOrbital((s) => (s.ui.selectedId ? (s.sessions[s.ui.selectedId] ?? null) : null))
   const launchSession = useOrbital((s) => s.launchSession)
@@ -163,6 +167,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [rememberedTag, setRememberedTag] = useState<{ cwd: string; tagId: number; pickedByHand: boolean } | null>(
     null,
   )
+  /**
+   * The Claude directory the session runs under (spec
+   * 2026-10-04-multiple-claude-directories-design § 3). Only offered with two
+   * or more configured; null when the server named none.
+   */
+  const [claudeDirId, setClaudeDirId] = useState<number | null>(null)
+  const choosesDir = claudeDirs.length >= 2
+  /** The chosen directory's catalog: each account has its own models. */
+  const models = useClaudeDirModels(claudeDirId, open)
 
   const canBrowse = canChooseDirectory()
   const browse = useCallback(() => {
@@ -206,6 +219,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setOtherActive(false)
       setCustomInitial(null)
       setPending(false)
+      setClaudeDirId(
+        openingClaudeDir({
+          dirs: claudeDirs,
+          planet: selectedSession?.claudeDirId,
+          last: lastClaudeDir,
+          fallback: defaultClaudeDir,
+        }),
+      )
       api
         .listProjects()
         .then(setProjects)
@@ -310,6 +331,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         permissionMode,
         tagId: tagId ?? undefined,
         model: model ?? undefined,
+        // Only when the choice was offered: with one directory nothing changes.
+        ...(choosesDir && claudeDirId !== null ? { claudeDirId } : {}),
         // Omitted rather than sent empty: absent and `[]` mean the same thing to
         // the server, and every existing body assertion stays true.
         ...(refs.length > 0 ? { attachments: refs } : {}),
@@ -326,6 +349,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         new_session_last_mode: permissionMode,
         new_session_last_tag: pickedTag ? String(tagId) : '',
       })
+      // The server stores the directory choice itself (the phone cannot write
+      // settings); the store only learns it for the next open.
+      if (choosesDir && claudeDirId !== null) useOrbital.setState({ lastClaudeDir: claudeDirId })
       onClose()
       await select(sessionId)
     } catch (err) {
@@ -333,7 +359,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, pending, awaitingCustomModel, onClose, select, launchSession, attachments])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, pending, awaitingCustomModel, onClose, select, launchSession, attachments])
 
   // `composer.start` launches from anywhere in the dialog.
   useEffect(() => {
@@ -485,12 +511,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             />
             {otherActive && (
               <CustomModelField
-                // Remounts when preselection swaps in another remembered id.
-                key={customInitial ?? ''}
+                // Remounts when preselection swaps in another remembered id, or the
+                // directory changes: the same id is checked again under the new account.
+                key={`${claudeDirId ?? ''}:${customInitial ?? ''}`}
                 size="lg"
                 initial={customInitial ? { id: customInitial, trusted: true } : undefined}
                 onValidated={(id) => setModel(id)}
                 onCleared={() => setModel(null)}
+                claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
               />
             )}
           </div>
@@ -521,6 +549,26 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               ))}
             </div>
           </div>
+
+          {/* The Claude directory (spec 2026-10-04-multiple-claude-directories-design
+              § 3): prefilled and rarely changed, so it comes last and stays
+              quiet. No canvas yet — neutral chips without a dot, so it reads
+              as neither a tag nor a state. Only with two or more directories. */}
+          {choosesDir && (
+            <div className="flex flex-col gap-2">
+              <FieldLabel>CLAUDE DIRECTORY</FieldLabel>
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Claude directory">
+                {claudeDirs.map((dir) => (
+                  <Chip
+                    key={dir.id}
+                    label={dir.name}
+                    active={claudeDirId === dir.id}
+                    onClick={() => setClaudeDirId(dir.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
@@ -543,7 +591,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           <Composer
             id="new-session-prompt"
             aria-label="First prompt"
-            sessionKey={{ cwd: cwd.trim() }}
+            sessionKey={choosesDir && claudeDirId !== null ? { cwd: cwd.trim(), claudeDir: claudeDirId } : { cwd: cwd.trim() }}
             value={prompt}
             onChange={setPrompt}
             enter="newline"
