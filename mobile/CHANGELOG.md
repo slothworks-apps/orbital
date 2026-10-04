@@ -3,6 +3,8 @@
 All notable changes to the Android app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+
+## [0.1.0] — 2026-10-04
 ### Added
 - Pair the phone with a Mac running Orbital: scan the QR code from the Mac's Settings → Mobile, or paste the code, then confirm that the short code matches on both screens. Everything between the phone and the Mac travels end-to-end encrypted through your relay.
 - A session list with the Mac's sessions grouped by tag, their state and tags; when the Mac is offline, the last known list is shown with a notice.
@@ -18,7 +20,3 @@ All notable changes to the Android app. Format: [Keep a Changelog](https://keepa
 - The status bar uses light icons on the app's dark background whatever the system theme.
 ### Security
 - The app's data is excluded from Android backups, since the caches are stored in plain text and the identity key stays on the device.
-
-## [1.0] — 2026-10-02
-### Added
-- First Android build: the app shell that will host Orbital's phone interface. It opens to a placeholder screen and cannot pair with a Mac yet.

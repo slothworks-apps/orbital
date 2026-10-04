@@ -3,6 +3,8 @@
 All notable changes to the relay image. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `relay/package.json`.
 
 ## [Unreleased]
+
+## [0.2.0] — 2026-10-04
 ### Added
 - An optional shared secret (`RELAY_SECRET`): when it is set, the relay accepts only devices and pairing requests that present it, and a device with a missing or wrong secret is told so and stops reconnecting.
 - A phone that connects expecting to be paired is told when its pair no longer exists, so it notices a Mac that removed it while it was away.
