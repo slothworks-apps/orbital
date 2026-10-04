@@ -49,6 +49,15 @@ export const SESSION_TIPS: readonly SessionTip[] = [
       'in the background. Orbital lists background tasks with their live output and lets the user ' +
       'stop each one; a foreground command shows nothing until it ends.',
   },
+  {
+    id: 'stop-background-tasks-when-done',
+    title: 'Stop background tasks when done',
+    text:
+      'When the work is finished — typically after the final commit or after merging the branch — ' +
+      'stop the background tasks you started: dev servers, watchers, anything still running. ' +
+      'Orbital shows a session with a live background task as still working, so a forgotten ' +
+      'server keeps a finished session looking busy. Leave one running only if the user asked for it.',
+  },
 ];
 
 /**

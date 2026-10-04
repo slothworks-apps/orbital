@@ -15,11 +15,12 @@ describe('SESSION_TIPS', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('ships the three tips the spec names, in its order', () => {
+  it('ships the tips the spec names, in its order', () => {
     expect(SESSION_TIPS.map((t) => t.id)).toEqual([
       'ask-user-question',
       'paths-in-code-spans',
       'long-commands-in-background',
+      'stop-background-tasks-when-done',
     ]);
   });
 });
