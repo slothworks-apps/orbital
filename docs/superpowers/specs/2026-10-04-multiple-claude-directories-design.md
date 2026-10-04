@@ -169,13 +169,22 @@ The runner passes `env` to `query()`, built from `process.env` per
 session:
 
 - **Directory is the CLI's default** (`<home>/.claude`):
-  `CLAUDE_CONFIG_DIR` is **removed**. On macOS the CLI names its keychain
-  item differently once the variable is set, so setting it to the default
-  path could fail to find the existing login. Verify this first during
-  implementation, against the bundled CLI.
+  `CLAUDE_CONFIG_DIR` is **removed**. On macOS the CLI keeps its login in
+  the keychain item `Claude Code-credentials`. Once the variable is set,
+  the item becomes `Claude Code-credentials-<first 8 hex of sha256(the
+  variable's string)>`. Checked 2026-10-04 on this Mac: `~/.claude-work`
+  logs in under `…-73a42e99`, and that is its hash. Setting the variable
+  to `~/.claude` would look for `…-b9bae42b`, which does not exist, and the
+  login would be gone.
 - **Any other directory:** `CLAUDE_CONFIG_DIR=<absolute path>`. The CLI
   rejects a relative one and reads the variable only at start-up, so it
   must come through `env`, never through a settings file.
+- **The string is passed exactly as stored.** The hash is taken of the
+  string, so `/x/.claude-work/` and a symlinked spelling name different
+  logins. A path is stored `~`-expanded and with no trailing slash
+  (`path.resolve`), never `realpath`-ed. That is what a shell gives for
+  `CLAUDE_CONFIG_DIR=~/.claude-work`. The `realpath` is used only to
+  refuse duplicates.
 
 ### Authentication
 
