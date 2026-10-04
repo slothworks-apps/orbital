@@ -11,10 +11,25 @@ concurrency:
 
 jobs:
   check:
+    # One job per workspace, so a red check names the workspace that broke.
+    # It also keeps each lint run to one TypeScript program: `eslint .` over
+    # every workspace at once outgrew the runner's default heap.
+    #
     # Orbital ships for macOS arm64 only, and the server resolves the Agent
     # SDK's darwin-arm64 CLI package; a Linux runner tests a platform that is
     # never shipped (docs/fixes/a-settings-test-assumes-the-darwin-arm64-cli.md).
+    name: check (${{ matrix.workspace }})
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { workspace: shared, test: test }
+          - { workspace: server, test: test }
+          - { workspace: web, test: test:run }
+          - { workspace: desktop, test: test }
+          - { workspace: relay, test: test }
+          - { workspace: mobile, test: none }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,8 +37,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm test
+      - run: npm run typecheck -w ${{ matrix.workspace }}
+      - run: npx eslint ${{ matrix.workspace }}
+      - if: matrix.test != 'none'
+        run: npm run ${{ matrix.test }} -w ${{ matrix.workspace }}
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bunx @slothworks/atlas validate
