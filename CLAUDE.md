@@ -55,6 +55,22 @@ own, before you report the work as done. Do not bump without an answer.
 Each workspace's `CLAUDE.md` says which of these versions its changes
 reach.
 
+### Changelogs
+
+Each of the three has its own changelog next to its version:
+`desktop/CHANGELOG.md`, `relay/CHANGELOG.md`, `mobile/CHANGELOG.md`, in
+the Keep a Changelog format. Keep them yourself; do not wait to be asked.
+
+- A change that alters what ships gets a line under `## [Unreleased]` in
+  the changelog of every app it reaches, in the same change. A change in
+  `shared/` that reaches two apps gets a line in both, phrased for each.
+- Write for the person using the app: what changed for them, in plain
+  words, one line. No file names, no commit subjects, no refactors, tests
+  or docs.
+- When a version is bumped, rename `## [Unreleased]` to
+  `## [<new version>] — <date>` and open an empty `## [Unreleased]` above
+  it, in the bump commit.
+
 ### Every feature has a phone answer
 
 Orbital also runs on the phone: `mobile/` is the Capacitor shell around
