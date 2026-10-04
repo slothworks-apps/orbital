@@ -3,6 +3,8 @@
 All notable changes to the Android app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+### Fixed
+- A question's answer options in a session's transcript now show their whole text instead of cutting off long descriptions or long paths.
 
 ## [0.1.0] — 2026-10-04
 ### Added

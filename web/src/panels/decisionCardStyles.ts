@@ -66,13 +66,17 @@ export const ROW_OTHER_OPEN =
 export const GUTTER = 'w-3 shrink-0 text-center font-mono text-[10px] leading-[1.5]'
 
 /**
- * Canvas 9b: label 13/600/1.3 over description 11.5/1.4, clamped to two lines
- * (9d). Neither carries its ink — each row state sets that, and two
- * same-property utilities on one element resolve by stylesheet order rather
- * than by intent (web/CLAUDE.md).
+ * Canvas 9b: label 13/600/1.3 over description 11.5/1.4. Neither carries its
+ * ink — each row state sets that, and two same-property utilities on one
+ * element resolve by stylesheet order rather than by intent (web/CLAUDE.md).
+ *
+ * Both wrap in full rather than clamp as 9d draws it: an option is a choice
+ * the session is stopped on, and a cut description hides what is being
+ * chosen. A long unbroken token (a path, a URL) breaks too — the card is
+ * `overflow-hidden`, so otherwise it would be clipped at the right edge.
  */
-export const LABEL = 'text-[13px] font-semibold leading-[1.3]'
-export const DESCRIPTION = 'line-clamp-2 text-[11.5px] leading-[1.4]'
+export const LABEL = 'text-[13px] font-semibold leading-[1.3] [overflow-wrap:anywhere]'
+export const DESCRIPTION = 'text-[11.5px] leading-[1.4] [overflow-wrap:anywhere]'
 /** Canvas 9d COLOUR: "label / description ink — #e8eef8 / rgba(160,190,225,.62)". */
 export const DESCRIPTION_INK = 'text-[rgba(160,190,225,.62)]'
 
