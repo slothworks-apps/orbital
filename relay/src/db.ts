@@ -6,7 +6,8 @@
  * store converts them (`asNumber`).
  */
 import Database from 'better-sqlite3';
-import { Kysely, Migrator, PostgresDialect, SqliteDialect, type Migration, type MigrationProvider } from 'kysely';
+import { Kysely, PostgresDialect, SqliteDialect } from 'kysely';
+import { Migrator, type Migration, type MigrationProvider } from 'kysely/migration';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import pg from 'pg';
