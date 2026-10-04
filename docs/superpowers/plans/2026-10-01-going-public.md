@@ -68,9 +68,8 @@ and only GitHub Support can delete them. Archiving the pull requests hides
 them from the list but leaves the refs. So the old repository was renamed
 to `slothworks-apps/orbital-private` and stays private, and the rewritten
 `main` went into a new, empty `slothworks-apps/orbital` — no pull requests,
-no tags. Releases, the Actions secrets of `release-mac.yml` and the GHCR
-package's Actions access stayed with the old repository and have to be set
-up again in the new one. The pre-rewrite history is bundled in
+no tags. Releases and the Actions secrets of `release-mac.yml` stayed with the
+old repository and have to be set up again in the new one. The pre-rewrite history is bundled in
 `~/orbital-pre-rewrite-backup/` on the maintainer's Mac. `gitleaks git`
 over the rewritten history finds only the test values already known.
 
@@ -92,6 +91,12 @@ Turn on secret scanning with push protection and Dependabot in the GitHub
 repository settings, and private vulnerability reporting — `SECURITY.md`
 sends reports there, and the link is dead until it is on.
 
+Make the `orbital-relay` container package public too, in its package
+settings. A package's visibility does not follow its repository's, and the
+runbook's `docker pull` fails for everyone else while it is private. The
+package was deleted and recreated from the new repository on 2026-10-04,
+so it is linked to `slothworks-apps/orbital` and its Actions can push to
+it.
+
 These can go on before the flip too, in the new repository: the Actions
-secrets `release-mac.yml` reads, the GHCR package's Actions access for
-`relay-image.yml`, the collaborators, and a release with the current DMG.
+secrets `release-mac.yml` reads, the collaborators, and a release with the current DMG.
