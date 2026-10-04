@@ -67,7 +67,7 @@
     "@vitejs/plugin-react": "^4.2.0",
     "jsdom": "^24.1.1",
     "react-refresh": "^0.17.0",
-    "typescript": "~6.0.2",
+    "typescript": "~7.0.2",
     "vite": "^7.0.0",
     "vitest": "^3.0.0"
   }
