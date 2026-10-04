@@ -61,6 +61,19 @@ Afterwards, confirm with `git log --all -S <each replaced term> -i` and
 Write the commit messages of this work without the removed names too —
 `--replace-text` rewrites file contents, not messages.
 
+**Done 2026-10-04.** A force push alone would not have been enough:
+GitHub keeps `refs/pull/<n>/head` of every pull request pointing at the old
+commits, they stay fetchable and browsable once the repository is public,
+and only GitHub Support can delete them. Archiving the pull requests hides
+them from the list but leaves the refs. So the old repository was renamed
+to `slothworks-apps/orbital-private` and stays private, and the rewritten
+`main` went into a new, empty `slothworks-apps/orbital` — no pull requests,
+no tags. Releases, the Actions secrets of `release-mac.yml` and the GHCR
+package's Actions access stayed with the old repository and have to be set
+up again in the new one. The pre-rewrite history is bundled in
+`~/orbital-pre-rewrite-backup/` on the maintainer's Mac. `gitleaks git`
+over the rewritten history finds only the test values already known.
+
 ## 2. A screenshot with invented content
 
 The README still has a placeholder where the screenshot belongs, and a
@@ -78,3 +91,7 @@ later record a GIF.
 Turn on secret scanning with push protection and Dependabot in the GitHub
 repository settings, and private vulnerability reporting — `SECURITY.md`
 sends reports there, and the link is dead until it is on.
+
+These can go on before the flip too, in the new repository: the Actions
+secrets `release-mac.yml` reads, the GHCR package's Actions access for
+`relay-image.yml`, the collaborators, and a release with the current DMG.
