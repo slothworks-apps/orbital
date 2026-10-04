@@ -1,6 +1,4 @@
 import { readFileSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { McpScope, McpServerDefinition } from '../types.js';
 
 /**
@@ -29,11 +27,13 @@ export interface McpConfigSnapshot {
   find(name: string): ConfiguredServer | undefined;
 }
 
-/** Where the CLI keeps its global config: `$CLAUDE_CONFIG_DIR/.claude.json` when set, else the home directory's. */
-export function claudeJsonPath(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
-  const dir = env.CLAUDE_CONFIG_DIR?.trim();
-  return join(dir || home, '.claude.json');
-}
+/**
+ * Where the CLI keeps its global config for one Claude directory — never
+ * read from the server's own `CLAUDE_CONFIG_DIR`, which says nothing about
+ * the directory a session runs under (spec
+ * 2026-10-04-multiple-claude-directories-design § 4).
+ */
+export { claudeJsonPathFor as claudeJsonPath } from '../claudeDirs/paths.js';
 
 /** Only these keys are understood; an entry with any other is not edited, so an edit can never drop one. */
 const STDIO_KEYS = new Set(['type', 'command', 'args', 'env']);

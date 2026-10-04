@@ -182,7 +182,7 @@ describe('LimitsService — waits', () => {
     });
     restarted.setCancelled('s1', false);
     expect(restarted.waitFor('s1')?.willContinue).toBe(true);
-    expect(restarted.snapshot().waits).toEqual([
+    expect(restarted.snapshot().dirs[0].waits).toEqual([
       { sessionId: 's1', title: 'title s1', resetsAt: new Date(10_000).toISOString(), windowLabel: '5-hour window', willContinue: true },
     ]);
   });
@@ -190,7 +190,7 @@ describe('LimitsService — waits', () => {
   it('makes no wait with an API key, or when the turn did not end on the limit', async () => {
     const keyed = service(undefined, { tracked: false });
     expect(await keyed.limits.limitHit('s1', REJECTED, 'rate_limit')).toBe(false);
-    expect(keyed.limits.snapshot().tracked).toBe(false);
+    expect(keyed.limits.snapshot().dirs[0].tracked).toBe(false);
     const plan = service();
     expect(await plan.limits.limitHit('s1', REJECTED, null)).toBe(false);
     expect(plan.limits.isWaiting('s1')).toBe(false);
@@ -238,7 +238,7 @@ describe('LimitsService — waits', () => {
       limitReset: { resetsAt: new Date(10_000).toISOString(), windowLabel: '5-hour window', continued: true, sent: 'written while waiting' },
     });
     expect(published.some((p) => p.topic === 'session:s1' && p.message?.role === 'user' && p.message.uuid === 'u-1')).toBe(true);
-    expect(published.at(-1)).toMatchObject({ topic: LIMITS_TOPIC, event: 'limits', limits: { waits: [] } });
+    expect(published.at(-1)).toMatchObject({ topic: LIMITS_TOPIC, event: 'limits', limits: { dirs: [{ waits: [] }] } });
   });
 
   it('sends the continuation text per the setting read at firing time', async () => {
@@ -307,14 +307,14 @@ describe('LimitsService — the probe', () => {
         return g;
       }) as any,
     });
-    expect(limits.snapshot()).toMatchObject({ tracked: true, readAt: null, stale: false, windows: [] });
+    expect(limits.snapshot().dirs[0]).toMatchObject({ tracked: true, readAt: null, stale: false, windows: [] });
     await limits.refresh();
-    const good = limits.snapshot();
+    const good = limits.snapshot().dirs[0];
     expect(good.readAt).not.toBeNull();
     expect(good.windows).toHaveLength(1);
     answer.value = new Error('offline');
     await limits.refresh();
-    expect(limits.snapshot()).toMatchObject({ stale: true, readAt: good.readAt, windows: good.windows });
+    expect(limits.snapshot().dirs[0]).toMatchObject({ stale: true, readAt: good.readAt, windows: good.windows });
   });
 
   it('asks the probe for the reset when the event carries none', async () => {
@@ -324,6 +324,55 @@ describe('LimitsService — the probe', () => {
     addSession(db, 's1');
     expect(await limits.limitHit('s1', { resetsAt: null, rateLimitType: 'five_hour' }, 'rate_limit')).toBe(true);
     expect(limits.waitFor('s1')?.resetsAt).toBe('2026-10-03T15:00:00.000Z');
+  });
+});
+
+describe('LimitsService — one plan per Claude directory', () => {
+  /** Two accounts: the probe answers per `CLAUDE_CONFIG_DIR`, the work one at 80 %. */
+  function twoDirs() {
+    const db = openTmpDb('limits-dirs');
+    const probedEnvs: (string | undefined)[] = [];
+    const queryFn = (({ options }: { options: { env?: Record<string, string> } }) => {
+      const dir = options.env?.CLAUDE_CONFIG_DIR;
+      probedEnvs.push(dir);
+      async function* gen(): AsyncGenerator<any> {}
+      const g = gen() as any;
+      g.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET = async () => ({
+        rate_limits_available: true,
+        rate_limits: {
+          limits: [{ kind: 'session', percent: dir === '/work' ? 80 : 10, resets_at: '2026-10-04T20:00:00Z', severity: 'normal' }],
+        },
+      });
+      return g;
+    }) as any;
+    const limits = new LimitsService({
+      db, hub: { publish: () => {} }, settings: { get: () => '' }, tracked: true, republish: () => {}, queryFn,
+      claudeDirs: {
+        list: () => [{ id: 1, name: 'Personal' }, { id: 2, name: 'Work' }],
+        envFor: (id): Record<string, string> => (id === 2 ? { CLAUDE_CONFIG_DIR: '/work' } : {}),
+        dirOf: (sessionId) => (sessionId.startsWith('work') ? 2 : 1),
+      },
+    });
+    return { db, limits, probedEnvs };
+  }
+
+  it('reads only the session\'s own directory on a rate-limit event', async () => {
+    const { limits, probedEnvs } = twoDirs();
+    limits.rateLimitEvent('work-1');
+    await limits.refresh(2);
+    expect(probedEnvs).toEqual(['/work']);
+    const [personal, work] = limits.snapshot().dirs;
+    expect(personal).toMatchObject({ id: 1, name: 'Personal', readAt: null, windows: [] });
+    expect(work).toMatchObject({ id: 2, name: 'Work', windows: [expect.objectContaining({ percent: 80 })] });
+  });
+
+  it('lists a wait under its own directory', async () => {
+    const { db, limits } = twoDirs();
+    addSession(db, 'work-1');
+    await limits.limitHit('work-1', REJECTED, 'rate_limit');
+    const [personal, work] = limits.snapshot().dirs;
+    expect(personal.waits).toEqual([]);
+    expect(work.waits.map((w) => w.sessionId)).toEqual(['work-1']);
   });
 });
 
@@ -439,11 +488,11 @@ describe('limits routes', () => {
   it('serves the snapshot, reads again on POST, and carries the wait on the session', async () => {
     const server = await app();
     const first = (await server.inject({ method: 'GET', url: '/api/limits' })).json();
-    expect(first.tracked).toBe(true);
-    expect(first.waits).toEqual([expect.objectContaining({ sessionId: 'w1', title: 'waiting one', windowLabel: '5-hour window', willContinue: true })]);
+    expect(first.dirs[0].tracked).toBe(true);
+    expect(first.dirs[0].waits).toEqual([expect.objectContaining({ sessionId: 'w1', title: 'waiting one', windowLabel: '5-hour window', willContinue: true })]);
     const fresh = (await server.inject({ method: 'POST', url: '/api/limits/refresh' })).json();
-    expect(fresh.readAt).not.toBeNull();
-    expect(fresh.windows).toEqual([{ kind: 'session', label: '5-hour window', percent: 40, resetsAt: null, severity: 'normal' }]);
+    expect(fresh.dirs[0].readAt).not.toBeNull();
+    expect(fresh.dirs[0].windows).toEqual([{ kind: 'session', label: '5-hour window', percent: 40, resetsAt: null, severity: 'normal' }]);
 
     const session = (await server.inject({ method: 'GET', url: '/api/sessions/w1' })).json();
     expect(session.session.limitWait).toMatchObject({ windowKind: 'five_hour', cancelled: false, queued: [] });
@@ -453,7 +502,7 @@ describe('limits routes', () => {
   it('cancels and undoes a wait, 404 without one', async () => {
     const server = await app();
     expect((await server.inject({ method: 'POST', url: '/api/sessions/w1/limit-wait/cancel' })).statusCode).toBe(204);
-    expect((await server.inject({ method: 'GET', url: '/api/limits' })).json().waits[0].willContinue).toBe(false);
+    expect((await server.inject({ method: 'GET', url: '/api/limits' })).json().dirs[0].waits[0].willContinue).toBe(false);
     expect((await server.inject({ method: 'POST', url: '/api/sessions/w1/limit-wait/undo' })).statusCode).toBe(204);
     expect((await server.inject({ method: 'POST', url: '/api/sessions/n1/limit-wait/cancel' })).statusCode).toBe(404);
     await server.close();
@@ -479,7 +528,7 @@ describe('limits routes', () => {
   it('ending the session drops its wait', async () => {
     const server = await app();
     await server.inject({ method: 'POST', url: '/api/sessions/w1/end' });
-    expect((await server.inject({ method: 'GET', url: '/api/limits' })).json().waits).toEqual([]);
+    expect((await server.inject({ method: 'GET', url: '/api/limits' })).json().dirs[0].waits).toEqual([]);
     await server.close();
   });
 });

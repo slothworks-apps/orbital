@@ -111,15 +111,22 @@ export interface HarnessDeps {
   send(sessionId: string, text: string): string | null;
   /** The session's turn has ended and nothing runs in it: `needs_input` in the Runner. */
   isWaiting(sessionId: string): boolean;
-  /** The watcher's one-shot model call; returns the raw reply. */
-  askWatcher(prompt: string): Promise<string>;
+  /**
+   * The watcher's one-shot model call about `sessionId`, run under that
+   * session's Claude directory; returns the raw reply.
+   */
+  askWatcher(prompt: string, sessionId: string): Promise<string>;
   /** The template drafter's one-shot model call on `model`; returns the raw reply. */
   askDrafter(prompt: string, model: string): Promise<string>;
   /**
    * The lucky reviewer: a read-only agent in the session's directory; returns
-   * its final text. Aborting the controller stops it, and the call rejects.
+   * its final text, run under the session's Claude directory. Aborting the
+   * controller stops it, and the call rejects.
    */
-  askReviewer(prompt: string, cwd: string, opts: { model: string; abortController: AbortController }): Promise<string>;
+  askReviewer(
+    prompt: string, cwd: string,
+    opts: { model: string; abortController: AbortController; sessionId: string },
+  ): Promise<string>;
   /** `git <args>` in a directory. Tests replace it. */
   git?(cwd: string, args: string[]): Promise<VerifyResult>;
   /** Pushes the session's harness (or its removal) to the panel. */
@@ -1164,7 +1171,7 @@ export class HarnessService {
             step: h.steps[index], state, diff: diff?.ok ? diff.output : null,
           }),
           cwd,
-          { model: this.reviewerModel(h), abortController: controller },
+          { model: this.reviewerModel(h), abortController: controller, sessionId },
         );
         parsed = parseReviewReply(reply);
       } catch (err) {
@@ -1255,6 +1262,7 @@ export class HarnessService {
     try {
       const reply = await this.deps.askWatcher(
         buildWatcherPrompt(h.name, checklistLines(h.steps, h.state), step, lastText),
+        sessionId,
       );
       verdict = parseWatcherReply(reply);
     } catch (err) {

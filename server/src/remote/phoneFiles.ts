@@ -5,7 +5,6 @@
  * § 2, which bounds it as 2026-10-03-api-token-and-named-files-design § 2
  * does). Reading only: nothing here opens or runs a file.
  */
-import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { FileAs } from '@orbital/shared/remote/messages';
 import type { OrbitalDb } from '../db/database.js';
@@ -47,17 +46,21 @@ export type PhoneFileReader = (session: string, path: string, as: FileAs, cwd?: 
  * route does (`fileSandboxes`). Without `trees`, the home alone confines.
  */
 export function createPhoneFileReader(
-  db: OrbitalDb, projectsDir: string, trees?: Pick<WorkingTrees, 'sandboxes'>,
+  db: OrbitalDb,
+  transcriptPath: (sessionId: string, projectDir: string, claudeDirId: number) => string,
+  trees?: Pick<WorkingTrees, 'sandboxes'>,
 ): PhoneFileReader {
   const namedPaths = new NamedPathCache(PHONE_NAMED_PATH_CACHE_ENTRIES);
   return (session, path, as, cwd) => {
     const row = db
-      .select({ id: sessions.id, cwd: sessions.cwd, project_dir: sessions.projectDir })
+      .select({
+        id: sessions.id, cwd: sessions.cwd, project_dir: sessions.projectDir, claude_dir_id: sessions.claudeDirId,
+      })
       .from(sessions)
       .where(eq(sessions.id, session))
       .get();
     if (!row) return { status: 404 };
-    const named = namedPaths.forSession(session, join(projectsDir, row.project_dir, `${session}.jsonl`));
+    const named = namedPaths.forSession(session, transcriptPath(session, row.project_dir, row.claude_dir_id));
     const sandboxes = trees?.sandboxes(row, cwd) ?? [row.cwd];
 
     if (as === 'image') {

@@ -24,7 +24,8 @@ import {
 import type { Finding } from '../src/stats/compute.js';
 import { HIST_BUCKET_COUNT } from '../src/stats/constants.js';
 import { recordPermissionWait } from '../src/stats/store.js';
-import { registerRoutes } from '../src/api/routes.js';
+import { registerRoutes, type RouteClaudeDirContext } from '../src/api/routes.js';
+import { ClaudeDirsService, seedClaudeDirs } from '../src/claudeDirs/service.js';
 import { McpConfig } from '../src/mcp/config.js';
 import { buildServer, publishLiveSession, republishCwds } from '../src/index.js';
 import { Hub } from '../src/api/hub.js';
@@ -113,6 +114,23 @@ const branchStatusStore = new BranchStatusStore({ git: gitStore, settings: { get
  * the MCP routes against an injected one.
  */
 const noMcp = new McpConfig({ cliPath: null, claudeJsonPath: '/nonexistent/.claude.json' });
+
+/**
+ * The Claude directories of a hand-built route context: row 1, seeded and
+ * pointed at `path`, and every context answering with `models`. Real, so the
+ * routes' directory checks run against the service they use in the server.
+ */
+function testClaudeDirs(
+  db: OrbitalDb, settings: { get(k: string): string; set(k: string, v: string): void }, path: string, models: object,
+) {
+  seedClaudeDirs(db, { home: '/nonexistent-home' });
+  const dirs = new ClaudeDirsService<RouteClaudeDirContext>({
+    db, settings, override: path, home: '/nonexistent-home',
+    startContext: () => ({ models: models as RouteClaudeDirContext['models'], stop: () => {} }),
+  });
+  dirs.start();
+  return dirs;
+}
 
 /**
  * A real retention context wired to the test's own database, so the route
@@ -222,9 +240,10 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
   };
   registerRoutes(app, {
     harness: stubHarness(db),
-    db, registry: registry as any, runner: runner as any, projectsDir: opts.projectsDir ?? '/nonexistent', hub,
-    images: imageStore, imagesDir, files: fileStore, claudeDir,
-    models: modelCatalog as any,
+    db, registry: registry as any, runner: runner as any, hub,
+    claudeDirs: testClaudeDirs(db, settings, claudeDir, modelCatalog),
+    transcriptPath: (id, projectDir) => join(opts.projectsDir ?? '/nonexistent', projectDir, `${id}.jsonl`),
+    images: imageStore, imagesDir, files: fileStore,
     subagents,
     backgroundTasks,
     recentTools,
@@ -235,7 +254,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     errors,
     titler: stubTitler(),
     narrator,
-    mcp: noMcp,
+    mcpFor: () => noMcp,
     // Off (no `remote_enabled` row), so nothing starts; `remoteRoutes.test.ts` covers it.
     remote: stubRemote(db, hub, imageStore, imagesDir, settings),
     settings,
@@ -1336,6 +1355,7 @@ describe('REST routes', () => {
     const { app, db } = makeApp();
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
       permissionMode: 'acceptEdits', model: 'sonnet', rememberModelPerProject: true,
+      claudeDirs: [{ id: 1, name: 'Personal' }], defaultClaudeDir: 1, lastClaudeDir: null,
     });
     for (const [key, value] of [
       ['default_permission_mode', 'plan'], ['default_model', ''], ['remember_model_per_project', 'false'],
@@ -1344,6 +1364,7 @@ describe('REST routes', () => {
     }
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
       permissionMode: 'plan', model: null, rememberModelPerProject: false,
+      claudeDirs: [{ id: 1, name: 'Personal' }], defaultClaudeDir: 1, lastClaudeDir: null,
     });
   });
 
@@ -1352,7 +1373,100 @@ describe('REST routes', () => {
     db.delete(settingsTable).run();
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
       permissionMode: 'acceptEdits', model: null, rememberModelPerProject: true,
+      claudeDirs: [{ id: 1, name: 'Personal' }], defaultClaudeDir: 1, lastClaudeDir: null,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Claude directories (spec 2026-10-04-multiple-claude-directories-design)
+// ---------------------------------------------------------------------------
+
+describe('Claude directories', () => {
+  const launchBody = { cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' };
+
+  /** Adds a directory through the route and answers its id. */
+  async function addDir(app: FastifyInstance, name: string, path: string): Promise<number> {
+    const res = await app.inject({ method: 'POST', url: '/api/claude-dirs', payload: { name, path } });
+    expect(res.statusCode).toBe(201);
+    return res.json().claudeDir.id;
+  }
+
+  it('lists the directories with their default, presence and account', async () => {
+    const { app, claudeDir } = makeApp();
+    const work = makeTmpDir('work');
+    writeFileSync(join(work, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'me@work.example' } }));
+    const id = await addDir(app, 'Work', work);
+    expect(res200(await app.inject({ method: 'GET', url: '/api/claude-dirs' })).claudeDirs).toEqual([
+      expect.objectContaining({ id: 1, name: 'Personal', path: claudeDir, isDefault: true, exists: true, overriddenByEnv: true }),
+      { id, name: 'Work', path: work, isDefault: false, exists: true, overriddenByEnv: false, account: 'me@work.example' },
+    ]);
+  });
+
+  it('refuses an unknown claudeDirId and starts nothing', async () => {
+    const { app, startCalls } = makeApp();
+    const res = await app.inject({ method: 'POST', url: '/api/sessions', payload: { ...launchBody, claudeDirId: 99 } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'unknown_claude_dir' });
+    expect(startCalls).toEqual([]);
+  });
+
+  it('launches under the chosen directory, shapes the session with it, and remembers the choice', async () => {
+    const { app, startCalls } = makeApp();
+    const work = await addDir(app, 'Work', makeTmpDir('work'));
+    const res = await app.inject({ method: 'POST', url: '/api/sessions', payload: { ...launchBody, claudeDirId: work } });
+    expect(res.statusCode).toBe(201);
+    expect(startCalls[0]).toMatchObject({ claudeDirId: work });
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/web-9' })).session.claudeDirId).toBe(work);
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toMatchObject({
+      claudeDirs: [{ id: 1, name: 'Personal' }, { id: work, name: 'Work' }], defaultClaudeDir: 1, lastClaudeDir: work,
+    });
+  });
+
+  it('runs a launch without a choice under default_claude_dir, which must name a directory', async () => {
+    const { app, startCalls } = makeApp();
+    const work = await addDir(app, 'Work', makeTmpDir('work'));
+    const bad = await app.inject({ method: 'PATCH', url: '/api/settings', payload: { default_claude_dir: '99' } });
+    expect(bad.statusCode).toBe(400);
+    res200(await app.inject({ method: 'PATCH', url: '/api/settings', payload: { default_claude_dir: String(work) } }));
+    await app.inject({ method: 'POST', url: '/api/sessions', payload: launchBody });
+    expect(startCalls[0]).toMatchObject({ claudeDirId: work });
+  });
+
+  it('refuses a path already configured, however it is spelled', async () => {
+    const { app, claudeDir } = makeApp();
+    const root = makeTmpDir('dup');
+    const real = join(root, 'real');
+    mkdirSync(real);
+    symlinkSync(real, join(root, 'link'));
+    await addDir(app, 'Work', real);
+    for (const path of [real, `${real}/`, join(root, 'link'), claudeDir]) {
+      const res = await app.inject({ method: 'POST', url: '/api/claude-dirs', payload: { name: 'Again', path } });
+      expect(res.statusCode, path).toBe(400);
+      expect(res.json()).toEqual({ error: 'duplicate' });
+    }
+  });
+
+  it('never removes the last directory, and hides a removed one\'s sessions', async () => {
+    const { app, db } = makeApp();
+    expect((await app.inject({ method: 'DELETE', url: '/api/claude-dirs/1' })).statusCode).toBe(409);
+    const work = await addDir(app, 'Work', makeTmpDir('work'));
+    db.insert(sessions).values({ id: 'w1', projectDir: 'p', cwd: '/w', lastAt: 300, claudeDirId: work }).run();
+    const listed = async () =>
+      res200(await app.inject({ method: 'GET', url: '/api/sessions' })).sessions.map((s: { id: string }) => s.id);
+    expect(await listed()).toContain('w1');
+    expect((await app.inject({ method: 'DELETE', url: `/api/claude-dirs/${work}` })).statusCode).toBe(204);
+    expect(await listed()).not.toContain('w1');
+    // The row stays, for the directory to bring back.
+    expect(db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, 'w1')).get()).toBeDefined();
+    expect((await app.inject({ method: 'DELETE', url: '/api/claude-dirs/1' })).statusCode).toBe(409);
+  });
+
+  it('reads the model catalog of ?claudeDir, and refuses an unknown one', async () => {
+    const { app } = makeApp();
+    expect(res200(await app.inject({ method: 'GET', url: '/api/models?claudeDir=1' })).models).toHaveLength(1);
+    const res = await app.inject({ method: 'GET', url: '/api/models?claudeDir=99' });
+    expect(res.statusCode).toBe(400);
   });
 });
 
@@ -1392,18 +1506,26 @@ describe('POST /api/sessions with a browser-minted session id', () => {
   function makeLaunchApp() {
     const db = openTmpDb('mint');
     const hub = new Hub();
+    const claudeDirs = testClaudeDirs(db, { get: () => '', set: () => {} }, '/nonexistent', { list: async () => [] });
+    /** The env each spawned CLI was given, in order. */
+    const envs: unknown[] = [];
     const runner = new Runner({
-      hub, queryFn: idleSdk as any, newSessionId: () => SERVER_MINTED,
+      hub, newSessionId: () => SERVER_MINTED,
+      queryFn: ((args: any) => {
+        envs.push(args.options.env);
+        return idleSdk(args);
+      }) as any,
+      envFor: (id) => claudeDirs.envFor(id),
     });
     const app = Fastify();
     registerRoutes(app, {
       harness: stubHarness(db),
       db,
-      registry: { get: () => undefined, all: () => [] } as any,
+      registry: { get: () => undefined, all: () => [] },
       runner,
-      projectsDir: '/nonexistent',
       hub,
-      models: { list: async () => [], recordContextWindows: () => {} } as any,
+      claudeDirs,
+      transcriptPath: (id, projectDir) => join('/nonexistent', projectDir, `${id}.jsonl`),
       subagents: new SubagentStore(),
       backgroundTasks: new BackgroundTaskStore(),
       recentTools: new RecentToolsStore(),
@@ -1416,13 +1538,12 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
       images: { put: () => null, putBytes: () => null, read: () => null, entry: () => null }, imagesDir: '/nonexistent',
       files: { putBytes: () => null },
-      claudeDir: '/nonexistent',
       remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null, entry: () => null }, '/nonexistent', { get: () => '' }),
       settings: { get: () => '', set: () => {} },
-      mcp: noMcp,
+      mcpFor: () => noMcp,
       retention: retentionFor(db),
     });
-    return { app, db, runner, hub, close: () => { runner.dispose(); db.$client.close(); } };
+    return { app, db, runner, hub, claudeDirs, envs, close: () => { runner.dispose(); db.$client.close(); } };
   }
 
   const launch = (app: FastifyInstance, payload: Record<string, unknown>) =>
@@ -1563,6 +1684,22 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       expect(rowOf(db, SERVER_MINTED)).toBeUndefined();
       expect(runner.active()).toEqual([CLIENT_ID]);
       close();
+    });
+
+    it('runs the child under the parent\'s Claude directory', async () => {
+      const launched = makeLaunchApp();
+      const workPath = makeTmpDir('work');
+      const work = launched.claudeDirs.add({ name: 'Work', path: workPath });
+      if (!work.ok) throw new Error('not added');
+      await launch(launched.app, { sessionId: CLIENT_ID, cwd: makeTmpDir('spawn'), claudeDirId: work.dir.id });
+      await launched.runner.spawner!(CLIENT_ID, { prompt: 'go' });
+      expect(rowOf(launched.db, SERVER_MINTED)?.claude_dir_id).toBe(work.dir.id);
+      // Both CLIs got the work directory, and nothing inherited.
+      expect(launched.envs).toEqual([
+        expect.objectContaining({ CLAUDE_CONFIG_DIR: workPath }),
+        expect.objectContaining({ CLAUDE_CONFIG_DIR: workPath }),
+      ]);
+      launched.close();
     });
 
     it('refuses a parent that is not running', async () => {

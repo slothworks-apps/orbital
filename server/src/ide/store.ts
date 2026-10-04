@@ -53,8 +53,11 @@ interface Entry {
 }
 
 export interface IdeStoreOptions {
-  /** The `~/.claude` this server watches; the locks live one level in. */
-  claudeDir: string;
+  /**
+   * A Claude directory to read from the start; the locks live one level in.
+   * The server adds each configured directory with `addClaudeDir` instead.
+   */
+  claudeDir?: string;
   watch?: boolean;
   /** Injected by tests, so the store can be driven without an editor. */
   connect?: (lock: IdeLock) => IdeConnection;
@@ -76,7 +79,16 @@ export interface IdeStoreOptions {
  * is the behaviour Orbital has when no editor is running at all.
  */
 export class IdeStore extends EventEmitter {
-  private lockDir: string;
+  /**
+   * Every Claude directory's `ide/`, and its watch once started. The editors
+   * are the machine's, not a directory's: an extension writes its lock into
+   * whichever directory its CLI uses, so every configured one is read into
+   * the one store (spec 2026-10-04-multiple-claude-directories-design § 2).
+   */
+  private lockDirs = new Map<string, DirWatch | null>();
+  /** Which lock directory each port's lock was read from. */
+  private lockDirByPort = new Map<number, string>();
+  private started = false;
   private watch: boolean;
   private coalesceMs: number;
   private connect: (lock: IdeLock) => IdeConnection;
@@ -90,11 +102,10 @@ export class IdeStore extends EventEmitter {
   private cwdsByRoot = new Map<string, Set<string>>();
   /** Every `cwd` ever asked about — re-resolved when the editors change. */
   private seenCwds = new Set<string>();
-  private watcher: DirWatch | null = null;
 
   constructor(opts: IdeStoreOptions) {
     super();
-    this.lockDir = join(opts.claudeDir, IDE_LOCK_DIR);
+    if (opts.claudeDir !== undefined) this.lockDirs.set(join(opts.claudeDir, IDE_LOCK_DIR), null);
     this.watch = opts.watch ?? true;
     this.coalesceMs = opts.coalesceMs ?? IDE_SELECTION_COALESCE_MS;
     this.connect = opts.connect ?? ((lock) => new IdeSocket(lock));
@@ -107,23 +118,45 @@ export class IdeStore extends EventEmitter {
    * that only wants `locate`.
    */
   start(): void {
-    for (const name of this.listLocks()) this.applyLockEvent(name, 'add');
-    if (!this.watch || this.watcher) return;
+    this.started = true;
+    for (const lockDir of this.lockDirs.keys()) this.startDir(lockDir);
+  }
+
+  /** Reads one more Claude directory's locks — at once when the store is started. */
+  addClaudeDir(claudeDir: string): void {
+    const lockDir = join(claudeDir, IDE_LOCK_DIR);
+    if (this.lockDirs.has(lockDir)) return;
+    this.lockDirs.set(lockDir, null);
+    if (this.started) this.startDir(lockDir);
+  }
+
+  /** Stops reading a Claude directory's locks, and drops the editors they named. */
+  removeClaudeDir(claudeDir: string): void {
+    const lockDir = join(claudeDir, IDE_LOCK_DIR);
+    if (!this.lockDirs.has(lockDir)) return;
+    this.lockDirs.get(lockDir)?.close();
+    this.lockDirs.delete(lockDir);
+    for (const [port, dir] of [...this.lockDirByPort]) if (dir === lockDir) this.dropLock(port);
+  }
+
+  private startDir(lockDir: string): void {
+    for (const name of this.listLocks(lockDir)) this.applyLockEvent(name, 'add', lockDir);
+    if (!this.watch || this.lockDirs.get(lockDir)) return;
     // Not recursive because the extension writes flat into this directory, and
     // a missing directory is not an error: the watch picks it up if it ever
     // appears, and a machine with no editor never creates it. An event does
     // not say what happened to the file, so its existence decides; `add` and
     // `change` are handled alike.
-    this.watcher = watchDir(this.lockDir, {
+    this.lockDirs.set(lockDir, watchDir(lockDir, {
       onEvent: (name) => {
         if (name === null) return;
         const fileName = basename(name);
-        this.applyLockEvent(fileName, existsSync(join(this.lockDir, fileName)) ? 'change' : 'unlink');
+        this.applyLockEvent(fileName, existsSync(join(lockDir, fileName)) ? 'change' : 'unlink', lockDir);
       },
       onAppear: () => {
-        for (const name of this.listLocks()) this.applyLockEvent(name, 'add');
+        for (const name of this.listLocks(lockDir)) this.applyLockEvent(name, 'add', lockDir);
       },
-    });
+    }));
   }
 
   /** The editor open on this `cwd`'s workspace, or null when there is none. */
@@ -280,11 +313,18 @@ export class IdeStore extends EventEmitter {
    * separated from the watch that normally raises it so it can be driven
    * directly — the way `GitStore.applyHeadEvent` is.
    */
-  applyLockEvent(fileName: string, event: 'add' | 'change' | 'unlink'): void {
-    const lock = event === 'unlink' ? null : this.readLock(fileName);
+  applyLockEvent(
+    fileName: string,
+    event: 'add' | 'change' | 'unlink',
+    lockDir: string | undefined = this.lockDirs.keys().next().value,
+  ): void {
+    if (lockDir === undefined) return;
+    const lock = event === 'unlink' ? null : this.readLock(lockDir, fileName);
     if (event === 'unlink') {
       const port = lockPortOf(fileName);
-      if (port !== null) this.dropLock(port);
+      // Only the directory the lock came from can take it away: another
+      // directory's copy of the same port's file is not this one's editor.
+      if (port !== null && (this.lockDirByPort.get(port) ?? lockDir) === lockDir) this.dropLock(port);
       return;
     }
     // Unparseable, or not a lock at all: ignored, and not retried.
@@ -296,11 +336,13 @@ export class IdeStore extends EventEmitter {
     // reissued, or a project it swapped. The old socket is worth nothing.
     if (existing) this.dropLock(lock.port);
     this.addLock(lock);
+    this.lockDirByPort.set(lock.port, lockDir);
   }
 
   close(): void {
-    this.watcher?.close();
-    this.watcher = null;
+    for (const watch of this.lockDirs.values()) watch?.close();
+    for (const lockDir of this.lockDirs.keys()) this.lockDirs.set(lockDir, null);
+    this.started = false;
     // Emptied before the sockets go, so the drops have no resolution left to
     // invalidate: a server shutting down does not want a republish per
     // workspace on its way out.
@@ -310,9 +352,9 @@ export class IdeStore extends EventEmitter {
     for (const port of [...this.byPort.keys()]) this.dropLock(port);
   }
 
-  private listLocks(): string[] {
+  private listLocks(lockDir: string): string[] {
     try {
-      return readdirSync(this.lockDir);
+      return readdirSync(lockDir);
     } catch {
       // No `~/.claude/ide` at all — the ordinary state of a machine whose
       // editor has never run the extension.
@@ -320,10 +362,10 @@ export class IdeStore extends EventEmitter {
     }
   }
 
-  private readLock(fileName: string): IdeLock | null {
+  private readLock(lockDir: string, fileName: string): IdeLock | null {
     if (lockPortOf(fileName) === null) return null;
     try {
-      return parseIdeLock(fileName, readFileSync(join(this.lockDir, fileName), 'utf8'));
+      return parseIdeLock(fileName, readFileSync(join(lockDir, fileName), 'utf8'));
     } catch {
       return null;
     }
@@ -348,6 +390,7 @@ export class IdeStore extends EventEmitter {
     const entry = this.byPort.get(port);
     if (!entry) return;
     this.byPort.delete(port);
+    this.lockDirByPort.delete(port);
     if (entry.timer) clearTimeout(entry.timer);
     entry.connection.removeAllListeners();
     entry.connection.close();

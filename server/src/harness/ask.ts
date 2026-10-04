@@ -9,7 +9,11 @@ import type { TitleQueryFn } from '../titler/titler.js';
 export async function askOnce(
   queryFn: TitleQueryFn,
   prompt: string,
-  opts: { systemPrompt: string; model: string; claudeExecutablePath?: string | null },
+  opts: {
+    systemPrompt: string; model: string; claudeExecutablePath?: string | null;
+    /** The Claude directory environment to ask under (`claudeDirEnv`); absent, the SDK's default. */
+    env?: Record<string, string>;
+  },
 ): Promise<string> {
   const parts: string[] = [];
   const options: Record<string, unknown> = {
@@ -22,6 +26,7 @@ export async function askOnce(
     persistSession: false,
   };
   if (opts.claudeExecutablePath) options.pathToClaudeCodeExecutable = opts.claudeExecutablePath;
+  if (opts.env) options.env = opts.env;
   for await (const message of queryFn({ prompt, options })) {
     if (message?.type === 'assistant') {
       const content = message.message?.content;

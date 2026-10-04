@@ -3,6 +3,7 @@ import type { OrbitalDb } from '../db/database.js';
 import { limitWaits, sessions } from '../db/schema.js';
 import type { QueryFn } from '../runner/runner.js';
 import type { ChatMessage } from '../types.js';
+import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
 import {
   AUTO_CONTINUE_KEY,
   CONTINUE_TEXT_KEY,
@@ -14,6 +15,7 @@ import {
   readUsageAnswer,
   waitFromLimitHit,
   whatFiringSends,
+  type ClaudeDirLimits,
   type ExtraUsage,
   type LimitWait,
   type LimitWindow,
@@ -38,6 +40,33 @@ export const LIMITS_TOPIC = 'limits';
 /** What a delivery into a session did — `deliverToSession`'s outcome. */
 export type LimitDeliveryOutcome = 'sent' | 'revived' | 'not_found' | 'terminal';
 
+/** What the limits need to know about the Claude directories. */
+export interface LimitsClaudeDirs {
+  /** The configured directories, in the order the view lists them. */
+  list(): { id: number; name: string }[];
+  /** The environment a probe of this directory runs under (`claudeDirEnv`). */
+  envFor(claudeDirId: number): Record<string, string> | undefined;
+  /** The directory a session belongs to. */
+  dirOf(sessionId: string): number;
+}
+
+const SINGLE_DIR: LimitsClaudeDirs = {
+  list: () => [{ id: FIRST_CLAUDE_DIR_ID, name: '' }],
+  envFor: () => undefined,
+  dirOf: () => FIRST_CLAUDE_DIR_ID,
+};
+
+/** One directory's last reading of its plan, and the read in flight. */
+interface DirReading {
+  windows: LimitWindow[];
+  extraUsage: ExtraUsage | null;
+  /** False once the server said plan limits do not apply to this account. */
+  serverTracked: boolean;
+  readAt: number | null;
+  stale: boolean;
+  refreshing: Promise<void> | null;
+}
+
 /** One stored wait, as this service holds it. */
 interface StoredWait {
   sessionId: string;
@@ -60,6 +89,13 @@ export interface LimitsServiceDeps {
   tracked: boolean;
   cwd?: string;
   claudeExecutablePath?: string | null;
+  /**
+   * The Claude directories, each with its own account and so its own plan
+   * (spec 2026-10-04-multiple-claude-directories-design § 5). Absent (tests),
+   * one directory, `FIRST_CLAUDE_DIR_ID`, probed in the SDK's default
+   * environment.
+   */
+  claudeDirs?: LimitsClaudeDirs;
   /** Republishes one session's snapshot — `limitWait` rides on it. */
   republish: (sessionId: string) => void;
   /** Records a failure in the error log; never announced. */
@@ -81,12 +117,9 @@ export class LimitsService {
   private deps: LimitsServiceDeps;
   private now: () => number;
   private waits = new Map<string, StoredWait>();
-  private windows: LimitWindow[] = [];
-  private extraUsage: ExtraUsage | null = null;
-  private serverTracked = true;
-  private readAt: number | null = null;
-  private stale = false;
-  private refreshing: Promise<void> | null = null;
+  /** Per Claude directory, made on first use. */
+  private readings = new Map<number, DirReading>();
+  private dirs: LimitsClaudeDirs;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   private waitTimer: ReturnType<typeof setTimeout> | null = null;
   private firing: Promise<void> | null = null;
@@ -97,6 +130,7 @@ export class LimitsService {
   constructor(deps: LimitsServiceDeps) {
     this.deps = deps;
     this.now = deps.now ?? Date.now;
+    this.dirs = deps.claudeDirs ?? SINGLE_DIR;
   }
 
   // ---- Lifecycle --------------------------------------------------------
@@ -131,15 +165,24 @@ export class LimitsService {
 
   // ---- The limits view --------------------------------------------------
 
+  /** Every configured directory's reading, each with the waits of its own sessions. */
   snapshot(): LimitsSnapshot {
-    const tracked = this.deps.tracked && this.serverTracked;
+    return { dirs: this.dirs.list().map((dir) => this.dirSnapshot(dir.id, dir.name)) };
+  }
+
+  private dirSnapshot(id: number, name: string): ClaudeDirLimits {
+    const r = this.reading(id);
+    const tracked = this.deps.tracked && r.serverTracked;
     return {
+      id,
+      name,
       tracked,
-      readAt: this.readAt === null ? null : new Date(this.readAt).toISOString(),
-      stale: this.stale,
-      windows: tracked ? this.windows : [],
-      extraUsage: tracked ? this.extraUsage : null,
+      readAt: r.readAt === null ? null : new Date(r.readAt).toISOString(),
+      stale: r.stale,
+      windows: tracked ? r.windows : [],
+      extraUsage: tracked ? r.extraUsage : null,
       waits: [...this.waits.values()]
+        .filter((w) => this.dirs.dirOf(w.sessionId) === id)
         .sort((a, b) => a.resetsAt - b.resetsAt)
         .map((w) => ({
           sessionId: w.sessionId,
@@ -151,36 +194,61 @@ export class LimitsService {
     };
   }
 
-  /** The cached answer at once; a read behind it when the answer is older than the interval. */
+  /** The cached answer at once; a read behind it for each directory whose answer is older than the interval. */
   get(): LimitsSnapshot {
-    if (this.readAt === null || this.now() - this.readAt >= LIMITS_REFRESH_INTERVAL_MS) void this.refresh();
+    for (const { id } of this.dirs.list()) {
+      const { readAt } = this.reading(id);
+      if (readAt === null || this.now() - readAt >= LIMITS_REFRESH_INTERVAL_MS) void this.refresh(id);
+    }
     return this.snapshot();
   }
 
-  /** Reads the probe again. Concurrent callers share one read; never rejects. */
-  refresh(): Promise<void> {
+  /**
+   * Reads the probe again — one directory's, or every directory's when none
+   * is named. Concurrent callers share one read per directory; never rejects.
+   */
+  refresh(claudeDirId?: number): Promise<void> {
     if (!this.deps.tracked) return Promise.resolve();
-    if (this.refreshing) return this.refreshing;
-    const wasStale = this.stale;
-    this.refreshing = this.probe()
+    if (claudeDirId === undefined) {
+      return Promise.all(this.dirs.list().map(({ id }) => this.refresh(id))).then(() => undefined);
+    }
+    const r = this.reading(claudeDirId);
+    if (r.refreshing) return r.refreshing;
+    const wasStale = r.stale;
+    r.refreshing = this.probe(claudeDirId)
       .then((answer) => {
         const reading = readUsageAnswer(answer);
-        this.serverTracked = reading.tracked;
-        this.windows = reading.windows;
-        this.extraUsage = reading.extraUsage;
-        this.readAt = this.now();
-        this.stale = false;
+        r.serverTracked = reading.tracked;
+        r.windows = reading.windows;
+        r.extraUsage = reading.extraUsage;
+        r.readAt = this.now();
+        r.stale = false;
       })
       .catch((err) => {
-        this.stale = true;
+        r.stale = true;
         // One line per outage, not one per read.
         if (!wasStale) this.deps.onError?.(err, 'reading the plan limits');
       })
       .finally(() => {
-        this.refreshing = null;
+        r.refreshing = null;
         this.publishLimits();
       });
-    return this.refreshing;
+    return r.refreshing;
+  }
+
+  /** A directory was removed: its reading goes with it. */
+  forgetDir(claudeDirId: number): void {
+    this.readings.delete(claudeDirId);
+    this.publishLimits();
+  }
+
+  private reading(claudeDirId: number): DirReading {
+    let r = this.readings.get(claudeDirId);
+    if (!r) {
+      r = { windows: [], extraUsage: null, serverTracked: true, readAt: null, stale: false, refreshing: null };
+      this.readings.set(claudeDirId, r);
+    }
+    return r;
   }
 
   /** Someone opened the view: read now and every interval until `unwatch`. */
@@ -196,9 +264,9 @@ export class LimitsService {
     this.watchTimer = null;
   }
 
-  /** A running session heard a `rate_limit_event`. */
-  rateLimitEvent(): void {
-    void this.refresh();
+  /** A running session heard a `rate_limit_event`: its own directory's plan is read again. */
+  rateLimitEvent(sessionId: string): void {
+    void this.refresh(this.dirs.dirOf(sessionId));
   }
 
   // ---- Waits ------------------------------------------------------------
@@ -230,8 +298,11 @@ export class LimitsService {
    */
   async limitHit(sessionId: string, rejected: RejectedLimit, turnError: string | null): Promise<boolean> {
     if (!this.deps.tracked || turnError !== 'rate_limit') return false;
-    if (rejected.resetsAt === null) await this.refresh();
-    const made = waitFromLimitHit(rejected, turnError, (type) => probeResetFor(type, this.windows));
+    // The session's own account's windows: a work session waits for the
+    // work plan's reset, not the personal one's.
+    const dir = this.dirs.dirOf(sessionId);
+    if (rejected.resetsAt === null) await this.refresh(dir);
+    const made = waitFromLimitHit(rejected, turnError, (type) => probeResetFor(type, this.reading(dir).windows));
     if (!made) return false;
     const prior = this.waits.get(sessionId);
     this.store({
@@ -407,7 +478,7 @@ export class LimitsService {
     this.changed(w.sessionId);
   }
 
-  private async probe(): Promise<unknown> {
+  private async probe(claudeDirId: number): Promise<unknown> {
     // Never yields, so the CLI parks on stdin and no turn is ever billed —
     // the model catalogue's probe (adr models-come-from-the-sdk).
     async function* silent(): AsyncGenerator<never> {
@@ -419,6 +490,8 @@ export class LimitsService {
       persistSession: false,
     };
     if (this.deps.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.deps.claudeExecutablePath;
+    const env = this.dirs.envFor(claudeDirId);
+    if (env) options.env = env;
     const q = this.deps.queryFn({ prompt: silent(), options });
     try {
       const ask = q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;

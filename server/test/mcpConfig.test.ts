@@ -184,9 +184,16 @@ describe('~/.claude.json reader', () => {
     expect(read('{"mcpServers": [1], "projects": null}').find('0')).toBeUndefined();
   });
 
-  it('follows CLAUDE_CONFIG_DIR like the CLI', () => {
-    expect(claudeJsonPath({ CLAUDE_CONFIG_DIR: '/cfg' }, '/home/u')).toBe('/cfg/.claude.json');
-    expect(claudeJsonPath({}, '/home/u')).toBe('/home/u/.claude.json');
+  /**
+   * Per Claude directory, the way the CLI reads it under the env Orbital
+   * spawns it with: inside a directory that gets `CLAUDE_CONFIG_DIR`, in the
+   * home directory for the CLI's own default — never from the server's env.
+   */
+  it('follows the Claude directory, not the server environment', () => {
+    expect(claudeJsonPath('/cfg', '/home/u')).toBe('/cfg/.claude.json');
+    expect(claudeJsonPath('/home/u/.claude-work', '/home/u')).toBe('/home/u/.claude-work/.claude.json');
+    expect(claudeJsonPath('/home/u/.claude', '/home/u')).toBe('/home/u/.claude.json');
+    expect(claudeJsonPath('/home/u/.claude/', '/home/u')).toBe('/home/u/.claude.json');
   });
 });
 

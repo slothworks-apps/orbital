@@ -812,9 +812,13 @@ export class Runner {
   /** See the `appendix` dep. */
   private appendix?: () => string | null;
   /** See the `mcpConfig` dep. */
-  private mcpConfig?: (cwd: string) => McpConfigSnapshot;
+  private mcpConfig?: (cwd: string, sessionId: string) => McpConfigSnapshot;
   /** See the `cwdOf` dep. */
   private cwdOf?: (sessionId: string, agentToolUseId: string | null) => string | null | undefined;
+  /** See the `envFor` dep. */
+  private envFor?: (claudeDirId: number) => Record<string, string> | undefined;
+  /** The Claude directory each session this process started runs under. */
+  private claudeDirs = new Map<string, number>();
   /**
    * Starts a session on behalf of a running one — the `spawn_session` tool's
    * back end (spec 2026-09-30-a-session-spawns-sessions-design). Assigned by
@@ -1046,7 +1050,7 @@ export class Runner {
      * config — what makes a `/mcp` row editable (see `shapeMcpServers`).
      * Unwired (most tests), no row is.
      */
-    mcpConfig?: (cwd: string) => McpConfigSnapshot;
+    mcpConfig?: (cwd: string, sessionId: string) => McpConfigSnapshot;
     /**
      * The `cwd` the session's transcript — or, with an `Agent` call's id,
      * that subagent's — recorded last. The SDK's frames do not carry one, so
@@ -1055,6 +1059,14 @@ export class Runner {
      * carries none.
      */
     cwdOf?: (sessionId: string, agentToolUseId: string | null) => string | null | undefined;
+    /**
+     * The environment a session's CLI runs under, by Claude directory
+     * (`claudeDirEnv`, spec 2026-10-04-multiple-claude-directories-design
+     * § 3). Passed as `options.env` on every start, so the server's own
+     * `CLAUDE_CONFIG_DIR` never reaches a session. Unwired (most tests), the
+     * SDK's default environment.
+     */
+    envFor?: (claudeDirId: number) => Record<string, string> | undefined;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -1089,6 +1101,7 @@ export class Runner {
     this.appendix = deps.appendix;
     this.mcpConfig = deps.mcpConfig;
     this.cwdOf = deps.cwdOf;
+    this.envFor = deps.envFor;
   }
 
   /** Stamps one frame's rows with the `cwd` they were written in, when it is known (`cwdOf`). */
@@ -1096,6 +1109,11 @@ export class Runner {
     if (chats.length === 0 || !this.cwdOf) return chats;
     const cwd = this.cwdOf(sessionId, agentToolUseId);
     return cwd ? chats.map((chat) => ({ ...chat, cwd })) : chats;
+  }
+
+  /** The Claude directory a session this process started runs under, or undefined. */
+  claudeDirOf(sessionId: string): number | undefined {
+    return this.claudeDirs.get(sessionId);
   }
 
   /**
@@ -1309,6 +1327,11 @@ export class Runner {
     promptUuid?: string;
     /** Told whether the CLI took the truncating resume. */
     rewind?: RewindHooks;
+    /**
+     * The Claude directory the session runs under — its login, its
+     * transcripts, its limits. Absent, the CLI's own default environment.
+     */
+    claudeDirId?: number;
   }): Promise<string> {
     // A resume keeps the transcript's own id; otherwise the caller's pinned
     // id if it brought one, and a freshly minted one if it did not.
@@ -1333,6 +1356,7 @@ export class Runner {
     // for the same id can't both get past the check above.
     this.sessions.set(sessionId, state);
     this.ran.add(sessionId);
+    if (opts.claudeDirId !== undefined) this.claudeDirs.set(sessionId, opts.claudeDirId);
     // The claim, announced here rather than left to `setStatus`: the state
     // above is already `working`, so the guarded setter has no transition to
     // fire on, and a session killed before its first turn ended would look
@@ -1399,6 +1423,10 @@ export class Runner {
     // Absent, the SDK spawns its own bundled binary — which is what dev
     // wants and what the packaged app cannot have (spec § 2).
     if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
+    // The directory reaches the CLI only through its environment: it reads
+    // `CLAUDE_CONFIG_DIR` at start-up and nowhere else.
+    const env = opts.claudeDirId !== undefined ? this.envFor?.(opts.claudeDirId) : undefined;
+    if (env) options.env = env;
     // Beside the servers the CLI loads from settings, not instead of them:
     // `strictMcpConfig` stays off. One `orbital` server holds every tool
     // Orbital gives a session: `spawn_session`, and the harness's checklist
@@ -2723,7 +2751,7 @@ export class Runner {
    */
   async mcpServers(sessionId: string, timeoutMs = MCP_STATUS_TIMEOUT_MS): Promise<McpServerRow[]> {
     const s = this.activeSession(sessionId);
-    const config = this.mcpConfig?.(s.attempt.cwd);
+    const config = this.mcpConfig?.(s.attempt.cwd, sessionId);
     const generator = s.generator;
     if (!generator?.mcpServerStatus) {
       if (!s.mcpSnapshot) throw new Error("this session's CLI cannot list its MCP servers yet");

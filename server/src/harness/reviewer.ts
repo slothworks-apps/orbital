@@ -111,7 +111,11 @@ export function reviewerMayRun(command: string): boolean {
  */
 export async function askReviewer(
   queryFn: TitleQueryFn, prompt: string,
-  opts: { cwd: string; model: string; abortController?: AbortController; claudeExecutablePath?: string | null },
+  opts: {
+    cwd: string; model: string; abortController?: AbortController; claudeExecutablePath?: string | null;
+    /** The session's Claude directory environment (adr helper-queries-run-under-the-sessions-account). */
+    env?: Record<string, string>;
+  },
 ): Promise<string> {
   const options: Record<string, unknown> = {
     cwd: opts.cwd,
@@ -131,6 +135,7 @@ export async function askReviewer(
     },
   };
   if (opts.claudeExecutablePath) options.pathToClaudeCodeExecutable = opts.claudeExecutablePath;
+  if (opts.env) options.env = opts.env;
   if (opts.abortController) options.abortController = opts.abortController;
   let last = '';
   for await (const message of queryFn({ prompt, options })) {
