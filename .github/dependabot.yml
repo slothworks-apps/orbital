@@ -25,3 +25,8 @@ updates:
     directory: /relay
     schedule:
       interval: weekly
+    # The relay runs on an LTS line of Node. A new major is not LTS when it
+    # comes out, so moving to it is a deliberate change, not a weekly bump.
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
