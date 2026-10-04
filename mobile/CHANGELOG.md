@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+### Added
+- When the Mac watches more than one Claude Code folder, each session shows which folder it belongs to, and a new session can be started under the folder you choose.
 
 ## [0.5.0] — 2026-10-07
 ### Added

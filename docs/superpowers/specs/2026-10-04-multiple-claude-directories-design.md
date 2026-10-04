@@ -1,7 +1,7 @@
 ---
 id: 2026-10-04-multiple-claude-directories-design
 title: More than one Claude directory — watch them all, launch under the right one
-status: draft
+status: active
 type: spec
 domain: sessions
 related:
@@ -340,6 +340,33 @@ in the appendix. The behaviour the design must carry:
 When built: desktop **minor** (a new feature), Android **minor** (the
 directory choice and label), each with a changelog line. The relay does
 not change.
+
+## As built
+
+These differ from the text above:
+
+- **The server stores the last launch's choice.** `POST /api/sessions`
+  with an explicit `claudeDirId` writes `new_session_last_claude_dir`
+  itself, because the phone cannot write settings.
+- **Unowned rows go to the next directory that indexes them.** A
+  removed directory's id is never reused. A path change marks its sessions
+  unowned (`claude_dir_id = 0`). The next directory to index their
+  transcripts claims them, which is how adding a path back brings them
+  back.
+- **One IDE lock store** watches every directory's `ide/`. The editors
+  belong to the machine, not to an account.
+- **Context windows stay in one map**, because they describe a model.
+  Each directory keeps its own model list: `models_catalog` for the first,
+  `models_catalog:<id>` for the others.
+- **Resume ignores `claudeDirId`.** A `POST /api/sessions` with `resume`
+  always runs under the resumed session's directory.
+- **Two "not tracked" wordings on the Limits page:** API-key billing, or
+  an account without plan windows. Checked 2026-10-04: the enterprise work
+  account answers with no windows.
+- **The map shows no directory label yet.** The planet label has no
+  close-zoom detail to hang one on. It waits for the design.
+- **UI is built from existing components** (the TERMINAL chip, `Chip`,
+  the TagsRules cards, the McpDialog pills) until the Claude Design pass.
 
 ## Out of scope
 
