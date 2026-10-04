@@ -1,0 +1,81 @@
+name: Relay image
+
+# Builds the relay's Docker image and pushes it to GHCR, tagged with the
+# version in relay/package.json, `latest` and the commit. Only when something
+# that goes into the image changes. Nothing is deployed from here; the
+# runbook docs/ops/run-the-relay.md covers pulling the image.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'relay/**'
+      - 'shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/relay-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: relay-image
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # The relay ships as a Linux image, so unlike ci.yml it is tested on Linux.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --workspace shared --workspace relay --include-workspace-root=false
+      - run: npm run typecheck -w relay
+      - run: npm test -w relay
+
+  image:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version
+        id: version
+        run: echo "version=$(node -p "require('./relay/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/orbital-relay
+          # The version tag moves with every push until relay/package.json is
+          # bumped; the sha tag is the one that never moves.
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest
+            type=sha
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: relay/Dockerfile
+          push: true
+          # A plain image manifest, without an attestation index, so every
+          # tag pulls directly.
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=relay
+          cache-to: type=gha,mode=max,scope=relay

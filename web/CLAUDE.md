@@ -125,3 +125,11 @@ jsdom lays nothing out and clips nothing, so a unit test will happily assert
 that the overlay is in the DOM while the real app shows empty space. Verify
 an overlay in a real browser, and guard the invariant structurally: assert
 that no ancestor of the overlay carries the clip.
+
+## Version
+
+`web/` has no version of its own. A fix or a feature here bumps `version`
+in `desktop/package.json`, since the DMG bundles the web app; one that
+reaches `web/src/mobile` (or a component it imports) bumps the Android
+app's `versionName` in `mobile/android/app/build.gradle` too. Propose
+patch, minor or major and ask, as the root `CLAUDE.md` → Versions says.

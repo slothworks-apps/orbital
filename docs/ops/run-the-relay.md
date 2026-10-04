@@ -63,6 +63,23 @@ relay can count ("2 sessions need your input") but not name.
    - a domain with TLS from the Dokploy proxy
    - health check `GET /health`, answering `{"app":"orbital-relay"}`
 
+Instead of building from the repository, the application can pull the
+image GitHub Actions publishes (`.github/workflows/relay-image.yml`, on
+every push to `main` that touches `relay/`, `shared/` or the lockfile):
+
+- `ghcr.io/slothworks-apps/orbital-relay:latest` — the newest build
+- `ghcr.io/slothworks-apps/orbital-relay:<version>` — `version` from
+  `relay/package.json`; it moves with every push until that version is
+  bumped, so bump it when a release should stay pullable by name
+- `ghcr.io/slothworks-apps/orbital-relay:sha-<commit>` — never moves; the
+  one to roll back to
+
+The workflow runs the relay's typecheck and tests on Linux first and does
+not deploy anything; redeploy by hand. The package is private unless it is
+made public in its GitHub settings, so Dokploy needs a registry login for
+`ghcr.io` with a token that has `read:packages`. The image is built for
+`linux/amd64` only.
+
 The build context is the repository root, so the ignore file is
 `relay/Dockerfile.dockerignore` (BuildKit reads it next to the Dockerfile);
 a `relay/.dockerignore` would never apply and the Mac's `node_modules` would

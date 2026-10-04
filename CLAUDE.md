@@ -34,14 +34,26 @@ Six npm workspaces:
 - `mobile/` — the Capacitor shell (Android) around `web/src/mobile`; no
   application logic of its own.
 
-### Desktop version
+### Versions
 
-The desktop app's version is `version` in `desktop/package.json`, and it
-names the DMG. The DMG bundles `server/` and `web/` as well, so a change to
-any of those three workspaces changes what ships. When you finish such a
-change, ask whether to bump the version, and propose patch, minor or major.
-Ask on your own, before you report the work as done. Do not bump it without
-an answer.
+Three things ship, and each carries its own version:
+
+| what ships | its version | changed by |
+|---|---|---|
+| the desktop DMG | `version` in `desktop/package.json` | `desktop/`, `server/`, `web/`, `shared/` |
+| the relay image | `version` in `relay/package.json` | `relay/`, `shared/` |
+| the Android app | `versionName` in `mobile/android/app/build.gradle` | `mobile/`, `web/src/mobile` and what it imports, `shared/` |
+
+When you finish a change that alters what ships — a fix or a feature, not
+a test, a comment or a document — ask whether to bump each version it
+touches. Always propose one of patch, minor or major, with the reason:
+patch for a fix, minor for a new feature, major for a change that breaks
+what is already out there (a relay a shipped Mac or phone can no longer
+talk to, say). Ask with AskUserQuestion, your proposal first. Ask on your
+own, before you report the work as done. Do not bump without an answer.
+
+Each workspace's `CLAUDE.md` says which of these versions its changes
+reach.
 
 ### Every feature has a phone answer
 
