@@ -6,8 +6,8 @@ moons. It shows live terminal sessions (read-only) alongside full session
 history, lets you organize sessions with tags and auto-tag rules, and can
 spawn and drive its own sessions through the Claude Agent SDK — a full chat
 with Claude from the browser, including resuming and continuing historical
-sessions. It runs only on your own machine, binds to `127.0.0.1`, and has no
-authentication.
+sessions. It runs only on your own machine, binds to `127.0.0.1`, and every request
+must carry a token only your user can read (see [SECURITY.md](SECURITY.md)).
 
 Moons appear only around sessions Orbital started itself. A terminal session's
 transcript records a subagent only once it has finished, so there is no moment
@@ -31,7 +31,7 @@ principles in full.
 
 ## Prerequisites
 
-- Node.js 22+
+- Node.js 24+
 - The [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) installed
   and logged in. Orbital's web sessions run through the Claude Agent SDK and
   bill your Claude subscription via the CLI's own OAuth session — not an API
@@ -168,7 +168,7 @@ npm run build -w web
 
 ## Lint and format
 
-One flat ESLint config at the root covers all three workspaces; Prettier
+One flat ESLint config at the root covers every workspace; Prettier
 formats and is not wired into ESLint
 ([`docs/decisions/eslint-and-prettier-side-by-side.md`](docs/decisions/eslint-and-prettier-side-by-side.md)).
 

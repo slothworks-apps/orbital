@@ -9,6 +9,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Orbital runs on Node 24 everywhere (Electron's built-in Node, the relay
+    # image, CI); the types follow that line, not the newest Node.
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
