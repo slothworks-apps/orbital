@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.2] — 2026-10-04
+### Changed
+- Updated dependencies, including the Claude Agent SDK.
+
 ## [0.20.1] — 2026-10-04
 ### Added
 - Opening Orbital in a browser tab without the access token shows a "not signed in" screen that says where to find the sign-in link, covers a token that has changed, and offers a Reload button.
