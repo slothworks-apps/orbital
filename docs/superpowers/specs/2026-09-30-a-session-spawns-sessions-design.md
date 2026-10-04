@@ -50,7 +50,9 @@ The permission mode is not an input. The new session takes the mode the
 parent is in at the moment of the call, so a model cannot hand itself a
 wider mode than the user gave it.
 
-It does not accept attachments, a tag or a session id. The auto-tagger
+It does not accept attachments, a tag or a session id. The new session
+takes the parent's manual tag, if the user gave it one: a session spawned
+from work under a tag belongs to the same work. Otherwise the auto-tagger
 and the titler treat the new session the way they treat one started from
 the dialog.
 

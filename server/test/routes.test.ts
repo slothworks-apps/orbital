@@ -1471,6 +1471,17 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       close();
     });
 
+    it('puts the child under the parent\'s hand-picked tag', async () => {
+      const { db, runner, close } = await withParent();
+      db.insert(tags).values({ id: 42, name: 'work', hue: 10 }).run();
+      db.insert(sessionTags).values({ sessionId: CLIENT_ID, tagId: 42, origin: 'manual' }).run();
+      await runner.spawner!(CLIENT_ID, { prompt: 'go' });
+      const childTags = db.select({ tagId: sessionTags.tagId, origin: sessionTags.origin })
+        .from(sessionTags).where(eq(sessionTags.sessionId, SERVER_MINTED)).all();
+      expect(childTags).toEqual([{ tagId: 42, origin: 'manual' }]);
+      close();
+    });
+
     it('lets the tool pick another model', async () => {
       const { db, runner, close } = await withParent('opus');
       await runner.spawner!(CLIENT_ID, { prompt: 'go', model: 'haiku' });

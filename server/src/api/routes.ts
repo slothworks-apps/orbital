@@ -1057,8 +1057,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       throw new Error(`no such directory: ${cwd}`);
     }
     const model = input.model?.trim() || parent.model || undefined;
+    // The child joins the parent's hand-picked tag: a session spawned from
+    // one under a tag belongs to the same work. A rule-derived tag needs no
+    // copy — the rules tag the child on their own.
+    const parentTag = db
+      .select({ tagId: sessionTags.tagId })
+      .from(sessionTags)
+      .where(and(eq(sessionTags.sessionId, parentId), eq(sessionTags.origin, 'manual')))
+      .orderBy(sessionTags.tagId)
+      .get();
     const sessionId = await launchSession({
-      cwd, prompt: input.prompt, permissionMode, model, spawnedBy: parentId,
+      cwd, prompt: input.prompt, permissionMode, model, spawnedBy: parentId, tagId: parentTag?.tagId,
     });
     return { sessionId, cwd };
   };

@@ -4,6 +4,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+- A session that another session starts on your request now lands under the same tag you gave the first one, instead of falling back to the default.
+
 ## [0.20.2] — 2026-10-04
 ### Changed
 - Updated dependencies, including the Claude Agent SDK.
