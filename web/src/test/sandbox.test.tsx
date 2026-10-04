@@ -12,7 +12,7 @@ beforeAll(() => {
     unobserve() {}
     disconnect() {}
   }
-  global.ResizeObserver = NoopObserver
+  globalThis.ResizeObserver = NoopObserver
 })
 
 describe('SandboxPage', () => {

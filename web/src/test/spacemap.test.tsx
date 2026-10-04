@@ -1293,7 +1293,7 @@ describe('SpaceMap overlays and the live panel width', () => {
       unobserve() {}
       disconnect() {}
     }
-    global.ResizeObserver = NoopObserver
+    globalThis.ResizeObserver = NoopObserver
   })
 
   // `ui` is itself partial — the calls below override a single flag, and the
@@ -1428,7 +1428,7 @@ describe('SpaceMap zoom buttons', () => {
       unobserve() {}
       disconnect() {}
     }
-    global.ResizeObserver = NoopObserver
+    globalThis.ResizeObserver = NoopObserver
   })
 
   // The tween is driven by real `requestAnimationFrame`/`performance.now()`
@@ -1513,7 +1513,7 @@ describe('SpaceMap fit', () => {
       unobserve() {}
       disconnect() {}
     }
-    global.ResizeObserver = NoopObserver
+    globalThis.ResizeObserver = NoopObserver
     // jsdom lays nothing out, so the map container measures 0×0 and every fit
     // would collapse to MIN_ZOOM — which is the same number whatever the
     // insets are, and so would pass no matter what this code did. Give the

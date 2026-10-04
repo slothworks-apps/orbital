@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest'
 import {
   api,
   ApiError,
@@ -9,10 +9,10 @@ import {
 } from '../lib/api'
 
 // Mock fetch
-let fetchMock: ReturnType<typeof vi.fn>
+let fetchMock: Mock<typeof fetch>
 
 beforeEach(() => {
-  fetchMock = vi.fn()
+  fetchMock = vi.fn<typeof fetch>()
   vi.stubGlobal('fetch', fetchMock)
 })
 

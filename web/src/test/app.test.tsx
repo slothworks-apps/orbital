@@ -19,9 +19,9 @@ beforeAll(() => {
     unobserve() {}
     disconnect() {}
   }
-  global.ResizeObserver = NoopObserver
+  globalThis.ResizeObserver = NoopObserver
   // @ts-expect-error jsdom doesn't implement this one at all (no ambient type)
-  global.IntersectionObserver = NoopObserver
+  globalThis.IntersectionObserver = NoopObserver
 })
 
 // ---------------------------------------------------------------------------
