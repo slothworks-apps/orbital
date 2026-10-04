@@ -1,5 +1,5 @@
-# Weekly version updates, grouped so a week brings a few pull requests
-# rather than one per package. Security updates are switched on in the
+# Monthly version updates, grouped so a month brings at most two npm pull
+# requests (minor and patch, and majors) rather than one per package. Security updates are switched on in the
 # repository settings and arrive on their own, outside this schedule.
 version: 2
 updates:
@@ -7,7 +7,7 @@ updates:
     # The root lockfile covers every workspace.
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     # Orbital runs on Node 24 everywhere (Electron's built-in Node, the relay
     # image, CI); the types follow that line, not the newest Node.
@@ -21,11 +21,13 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+      majors:
+        update-types: [major]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       actions:
         patterns: ['*']
@@ -33,7 +35,7 @@ updates:
   - package-ecosystem: docker
     directory: /relay
     schedule:
-      interval: weekly
+      interval: monthly
     # The relay runs on an LTS line of Node. A new major is not LTS when it
     # comes out, so moving to it is a deliberate change, not a weekly bump.
     ignore:
