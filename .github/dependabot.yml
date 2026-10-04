@@ -1,6 +1,7 @@
 # Monthly version updates, grouped so a month brings at most two npm pull
-# requests (minor and patch, and majors) rather than one per package. Security updates are switched on in the
-# repository settings and arrive on their own, outside this schedule.
+# requests (minor and patch, and majors) rather than one per package.
+# Security updates are switched on in the repository settings and arrive on
+# their own, outside this schedule.
 version: 2
 updates:
   - package-ecosystem: npm
