@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react'
-import type { ThreeEvent } from '@react-three/fiber'
+import { useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
@@ -88,6 +88,7 @@ import type { SimBody } from './simulation'
 import { useFrameOnRender, useMapFrame } from './FrameBudget'
 import type { ContextFill } from './sceneModel'
 import { DetachGlyph } from '../ui/UtilityButton'
+import { useClaudeDirMark } from '../ui/ClaudeDirMark'
 import {
   COMPACTED_CAPTION_MS,
   COMPACTING_SWITCH_MS,
@@ -286,6 +287,40 @@ const HOVER_LABEL_ENTER_MS = 160
 const HOVER_LABEL_EXIT_MS = 120
 const HOVER_LABEL_MAX_WIDTH_PX = 240
 const HOVER_LABEL_SCRIM = 'rgba(4,8,16,.85)'
+
+/**
+ * The Claude directory's mark before the planet label (canvas 44b, 44f
+ * "Map"): shown from this zoom up, dropped below it, where it would only add
+ * clutter. `camera.zoom` is the percentage the map's corner reads out.
+ */
+const MAP_MARK_MIN_ZOOM = 70
+
+/**
+ * 44f "Sizes", the map's mark: 12px, an opaque fill and a 1.5px dark ring so
+ * it holds over stars and orbits. No hue — the tag still decides the cluster.
+ * No tooltip: the label takes no pointer, so a press on it reaches the map.
+ */
+const MAP_MARK_STYLE = {
+  display: 'inline-grid',
+  placeItems: 'center',
+  flex: 'none',
+  boxSizing: 'border-box',
+  minWidth: 12,
+  height: 12,
+  padding: '0 2px',
+  borderRadius: 3,
+  background: 'oklch(34% .012 250)',
+  boxShadow: '0 0 0 1.5px rgba(6,10,20,.85)',
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: 7.5,
+  fontWeight: 600,
+  letterSpacing: 0,
+  lineHeight: 1,
+  color: 'rgba(226,236,250,.9)',
+} as const
+
+/** Label to mark, 44b. */
+const MAP_MARK_GAP_PX = 6
 
 /**
  * Per-layer z offsets so the (visually transparent) halo never composites
@@ -1678,6 +1713,13 @@ function PlanetBody({
   const overlayRef = useRef<HTMLSpanElement | null>(null)
   const overlayTextRef = useRef<HTMLSpanElement | null>(null)
   const overlayCursorRef = useRef<HTMLSpanElement | null>(null)
+  /** The directory marks on the resting label and the hover overlay; the frame loop shows them by zoom. */
+  const mapMarkRef = useRef<HTMLSpanElement | null>(null)
+  const overlayMarkRef = useRef<HTMLSpanElement | null>(null)
+  const dirMark = useClaudeDirMark(session.claudeDirId)
+  const camera = useThree((s) => s.camera)
+  /** At mount only — after that the frame loop writes it, as the zoom moves. */
+  const markDisplay = camera.zoom >= MAP_MARK_MIN_ZOOM ? undefined : 'none'
   /** Milliseconds the pointer has rested on the planet — drives `typedLabel`. */
   const hoverTypeElapsed = useRef(0)
   const rippleElapsed = useRef(0)
@@ -1842,6 +1884,11 @@ function PlanetBody({
     }
 
     if (advanceTween(scaleTween, delta)) moving = true
+    // The directory mark follows the zoom (44b): written only when it flips.
+    const markDisplay = state.camera.zoom >= MAP_MARK_MIN_ZOOM ? '' : 'none'
+    for (const mark of [mapMarkRef.current, overlayMarkRef.current]) {
+      if (mark && mark.style.display !== markDisplay) mark.style.display = markDisplay
+    }
     const hide = endedHideTransform(hideFade.value)
     if (groupRef.current) {
       // Counter-zoom: planets shrink more slowly than the map when zooming
@@ -2301,7 +2348,10 @@ function PlanetBody({
             >
               <span
                 style={{
-                  display: 'block',
+                  // With a directory mark the title is a row, the mark first (44b).
+                  ...(dirMark
+                    ? { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: MAP_MARK_GAP_PX }
+                    : { display: 'block' }),
                   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                   fontSize: labelTitlePx,
                   letterSpacing: `${LABEL_TITLE_TRACKING_EM}em`,
@@ -2314,6 +2364,11 @@ function PlanetBody({
                   whiteSpace: 'nowrap',
                 }}
               >
+                {dirMark && (
+                  <span ref={mapMarkRef} style={{ ...MAP_MARK_STYLE, display: markDisplay ?? MAP_MARK_STYLE.display }}>
+                    {dirMark.mono}
+                  </span>
+                )}
                 {truncateLabel(session.title)}
               </span>
               {limitPill !== null ? (
@@ -2434,6 +2489,21 @@ function PlanetBody({
                   overflowWrap: 'anywhere',
                 }}
               >
+                {/* The mark again, so the overlay's text starts where the resting
+                    label's does and the ellipsis still reads as unfolding. */}
+                {dirMark && (
+                  <span
+                    ref={overlayMarkRef}
+                    style={{
+                      ...MAP_MARK_STYLE,
+                      display: markDisplay ?? MAP_MARK_STYLE.display,
+                      marginRight: MAP_MARK_GAP_PX,
+                      verticalAlign: 'middle',
+                    }}
+                  >
+                    {dirMark.mono}
+                  </span>
+                )}
                 <span ref={overlayTextRef} />
                 <span ref={overlayCursorRef} style={{ display: 'none' }}>
                   ▌
