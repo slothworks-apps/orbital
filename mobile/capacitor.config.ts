@@ -19,7 +19,12 @@ const config: CapacitorConfig = {
   android: { allowMixedContent: dev },
   // The app is dark whatever the system theme. `DARK` names the bars' background, so their icons are light;
   // the default follows the system and draws dark icons on our dark background in light mode.
-  plugins: { SystemBars: { style: 'DARK' } },
+  plugins: {
+    SystemBars: { style: 'DARK' },
+    // iOS: a push that arrives while the app is open is not shown, as on Android. The relay pushes
+    // only to a phone it sees offline; an open app posts its own local notification instead.
+    FirebaseMessaging: { presentationOptions: [] },
+  },
 };
 
 export default config;

@@ -95,7 +95,8 @@ A throwaway Mac, a local relay and the phone UI, each in its own terminal
 env -u ORBITAL_MIGRATIONS_DIR -u ORBITAL_STATIC_DIR ORBITAL_PORT=4848 \
   ORBITAL_DATA_DIR=/tmp/orbital-mobile-dev npm run dev -w server
 RELAY_PORT=4840 RELAY_DATA_DIR=/tmp/orbital-mobile-relay npm run dev -w relay
-curl -s -X PATCH http://127.0.0.1:4848/api/settings -H 'content-type: application/json' \
+T=$(cat /tmp/orbital-mobile-dev/api-token)   # every /api call needs the server's token
+curl -s -X PATCH http://127.0.0.1:4848/api/settings -H "Authorization: Bearer $T" -H 'content-type: application/json' \
   -d '{"remote_enabled":"true","remote_relay_url":"http://127.0.0.1:4840","remote_mac_name":"studio"}'
 ```
 
@@ -103,11 +104,11 @@ curl -s -X PATCH http://127.0.0.1:4848/api/settings -H 'content-type: applicatio
 open `http://localhost:4841`, then copy a code and paste it into the field:
 
 ```bash
-curl -s -X POST http://127.0.0.1:4848/api/remote/pair \
+curl -s -X POST -H "Authorization: Bearer $T" http://127.0.0.1:4848/api/remote/pair \
   | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).qr))' | pbcopy
 ```
 
-Accept it on the Mac: `curl -s http://127.0.0.1:4848/api/remote` shows
+Accept it on the Mac: `curl -s -H "Authorization: Bearer $T" http://127.0.0.1:4848/api/remote` shows
 `pendingPair.phone`; post it to `/api/remote/pair/confirm` as
 `{"accept":true,"phone":"<id>"}`.
 
@@ -115,13 +116,14 @@ Accept it on the Mac: `curl -s http://127.0.0.1:4848/api/remote` shows
 launch it, dismiss the system scanner if it opened (`adb shell input keyevent KEYCODE_BACK`),
 then `mobile/scripts/pair-emulator.sh 4848`. It reverses the relay port into
 the emulator, opens a code, types it into the focused paste field and
-accepts the request on the Mac. A real device pairs the same way through
+accepts the request on the Mac; it reads the server's token from
+`ORBITAL_DATA_DIR` (default `/tmp/orbital-mobile-dev`). A real device pairs the same way through
 `adb reverse`, or by scanning the code in Settings → Mobile.
 
 To see the other states from the same stack:
 
 - **Mac asleep (9a offline):** stop the server on 4848.
-- **Unpaired (9h):** `curl -s -X DELETE http://127.0.0.1:4848/api/remote/devices/<phone id>`.
+- **Unpaired (9h):** `curl -s -X DELETE -H "Authorization: Bearer $T" http://127.0.0.1:4848/api/remote/devices/<phone id>`.
 - **Version mismatch (9i):** restart the server with `ORBITAL_VERSION=0.16.0` in its environment.
 
 Stop everything afterwards: `kill $(lsof -t -iTCP:4848 -sTCP:LISTEN) $(lsof -t -iTCP:4840 -sTCP:LISTEN)`.
@@ -129,7 +131,9 @@ Stop everything afterwards: `kill $(lsof -t -iTCP:4848 -sTCP:LISTEN) $(lsof -t -
 ## Push
 
 Push runs through the owner's Firebase project, which holds an Android app
-with the id `io.slothworks.orbital.mobile`. Two files come from it, and
+with the id `io.slothworks.orbital.mobile`, and through
+`@capacitor-firebase/messaging` on the phone, the same plugin iOS uses
+([[build-the-ios-app]]). Two files come from it, and
 neither is ever committed:
 
 - **`google-services.json`** (Firebase console → Project settings → the
@@ -178,8 +182,11 @@ accepts it, and `adb logcat | grep GCM` shows
 recents does not stop it this way; only force-stop (and Settings → Force
 stop) does.
 
-Then open a session that needs input on the Mac (mode `default` with a
-Write prompt). The relay logs `push sent to <token>, count 1` and the
+Then make a session the Mac already knows ask for input: start one in mode
+`default` that only replies ("Reply with the word ok"), and once it has
+answered, send it a message that needs Write. A brand-new session that asks
+at once is not news: the Mac's first sighting of it is already
+`needs_input`, and a first sighting never notifies. The relay logs `push sent to <token>, count 1` and the
 emulator shows "Orbital · <Mac>" / "A session needs your input"; a tap opens
 the app on the session list.
 
@@ -263,6 +270,10 @@ internal testing has no such gate.
 
 ## Troubleshooting
 
+- **The relay logs `push sent` but nothing reaches the emulator**, not even
+  `adb logcat | grep -i gcm`: Play services' connection to FCM has gone
+  stale (seen after the emulator sat idle). `adb shell cmd connectivity
+  airplane-mode enable`, then `disable`, and push again.
 - **`Unsupported class file major version` / `requires Java 21`**: Gradle
   ran on the wrong JDK. Source the env script and check `java -version`.
 - **`SDK location not found`**: `ANDROID_HOME` is unset and the SDK is not

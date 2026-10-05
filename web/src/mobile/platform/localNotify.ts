@@ -1,18 +1,21 @@
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
-import { PushNotifications } from '@capacitor/push-notifications'
+import { FirebaseMessaging } from '@capacitor-firebase/messaging'
 
 export interface LocalNotice {
   /** One per session (`notificationId`): a later transition replaces the earlier one. */
   id: number
   title: string
   body: string
+  /** Android: the channel, which carries the sound. */
   channelId: string
+  /** iOS, which has no channels: whether this one notification makes a sound. */
+  sound: boolean
   sessionId: string | null
 }
 
 /** Posts one system notification now (spec § 6.5); a tap on it opens `sessionId`. */
-export async function postLocalNotification({ id, title, body, channelId, sessionId }: LocalNotice): Promise<void> {
+export async function postLocalNotification({ id, title, body, channelId, sound, sessionId }: LocalNotice): Promise<void> {
   try {
     await LocalNotifications.schedule({
       notifications: [{
@@ -21,6 +24,9 @@ export async function postLocalNotification({ id, title, body, channelId, sessio
         // wants an exact alarm on Android 12+ and, without the permission,
         // opens the "Alarms & reminders" settings screen instead of posting.
         isExactNotification: false,
+        // iOS plays no sound unless one is named, and plays its default sound
+        // for a name it cannot find, so a name nothing carries is the default.
+        ...(sound && Capacitor.getPlatform() === 'ios' ? { sound: 'default' } : {}),
       }],
     })
   } catch (err) {
@@ -44,7 +50,7 @@ export async function clearDeliveredNotifications(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
   const cleared = await Promise.allSettled([
     LocalNotifications.removeAllDeliveredNotifications(),
-    PushNotifications.removeAllDeliveredNotifications(),
+    FirebaseMessaging.removeAllDeliveredNotifications(),
   ])
   for (const result of cleared) {
     if (result.status === 'rejected') console.warn('[mobile] could not clear delivered notifications', result.reason)
