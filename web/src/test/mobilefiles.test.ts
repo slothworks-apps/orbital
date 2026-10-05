@@ -7,6 +7,7 @@ import { FileCache, evictionVictims, pathKey, refKey, type CacheEntry, type Cach
 import { readPath, readRef, type ResolverDeps } from '../mobile/files/fileResolver'
 import { fileKindOf, isCantShowStatus } from '../mobile/files/route'
 import { progressLabel } from '../mobile/files/FileStates'
+import { previewLines } from '../mobile/files/TextPreview'
 import { pagesFor } from '../mobile/screens/FileScreen'
 import {
   DOUBLE_TAP_ZOOM, FIT, MAX_ZOOM, SWIPE_BACK_PX, SWIPE_PAGE_PX, clampPan, clampScale, fitSize, releaseGesture, toggleZoom,
@@ -267,7 +268,13 @@ describe('the viewer’s pages', () => {
   })
 })
 
-describe('the byte count', () => {
+describe('the text preview', () => {
+  it('numbers lines without an empty one after the final newline', () => {
+    expect(previewLines('a\nb\n')).toEqual(['a', 'b'])
+    expect(previewLines('a\r\n\r\nb')).toEqual(['a', '', 'b'])
+    expect(previewLines('')).toEqual([''])
+  })
+
   it('reads the byte count in one unit when both sides share it', () => {
     expect(progressLabel(116 * 1024, 186 * 1024)).toBe('116 of 186 KB')
     expect(progressLabel(512, 2 * 1024 * 1024)).toBe('512 B of 2 MB')

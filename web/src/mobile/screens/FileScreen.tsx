@@ -5,6 +5,7 @@ import { useOrbital } from '../../store/store'
 import { CantShow } from '../files/CantShow'
 import { ImageViewer } from '../files/ImageViewer'
 import { fileKindOf } from '../files/route'
+import { TextPreview } from '../files/TextPreview'
 import { pushedTop, useMobile, type PushedOf } from '../state'
 
 const NO_MESSAGES: ChatMessage[] = []
@@ -44,13 +45,15 @@ export function FileScreen() {
   const message = item.messageId ? messages.find((m) => m.id === item.messageId) : undefined
   const kind = item.ref ? 'image' : item.path ? fileKindOf(item.path) : null
 
+  if (kind === 'text' && item.path) {
+    return <TextPreview sessionId={item.sessionId} path={item.path} line={item.line} onBack={back} />
+  }
   if (kind === 'image') {
     const { items, start } = pagesFor(item, message)
     const caption = [title, clock(message?.timestamp)].filter(Boolean).join(' ')
     return <ImageViewer sessionId={item.sessionId} items={items} start={start} caption={caption} onBack={back} />
   }
-  // Text previews are not built yet; until then, and for a path that did not
-  // come from a link (Decision 8), it says so.
+  // Reached only by a path that did not come from a link (Decision 8).
   return (
     <main className="flex h-full flex-col bg-[#05070d] text-[#e8eef8]">
       <div className="flex h-14 shrink-0 items-center pl-1.5">
