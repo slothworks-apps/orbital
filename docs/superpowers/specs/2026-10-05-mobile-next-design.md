@@ -807,3 +807,112 @@ Worth a test (root `CLAUDE.md` → Tests):
 
 Not tested: the screens render their rows, sizes, inks, motion, the zoom
 gestures (verified on a phone in the fidelity pass).
+
+## As built (2026-10-05)
+
+Built from [[2026-10-05-mobile-next]] by parallel tracks, then integrated
+(Z1). The canvas fidelity pass (Z2) has not run yet; values below are
+behaviour, not looks. Where the build departs from the text above, or
+settles what it left open:
+
+### § 1 Harness gate
+
+- **`harnessStep` once finished** is `{ index: total, total }`; null without
+  a harness or after it was removed. A paused harness still reports.
+- **Reopen has no fold line.** The card shows the REOPENED BY YOU note
+  (10b third phone) for as long as the step's state says reopened, so it
+  also shows a reopen made on the desktop. The header's "REOPENED · YOUR
+  TURN" follows the composer's reopen intent instead, which a send, the
+  list or another session clears; the two can disagree after that.
+- **The fold after Approve or Go back** is held in memory only and gives way
+  once an assistant message newer than the answer arrives. On the last step
+  Approve folds to "Approved step n · every step is done".
+- **Go back** is disabled for a step without `startMessageUuid`. The phone
+  pages back (bounded) to find the step's first message before it calls the
+  route; when it cannot, the card's error line says so and nothing is
+  changed.
+- **The steps sheet's record** is a second sheet over the steps sheet with
+  "‹ steps", not a pushed screen. Before the harness loads, the header
+  segments are drawn from `harnessStep` alone.
+- **Thumbnails** (Decision 4) are read over `file_get` through the phone's
+  file cache: the image online, a cached copy asleep, the dashed "not
+  cached" box only for an image never held. A tap opens the viewer on that
+  one image.
+- **Cache**: `harness:<id>` in Preferences holds the harness, `removed` and
+  the events with `asOf`; live data always wins over it.
+
+### § 2 Images and paths
+
+- **Long-press** is 500 ms within 10 px (the platforms' convention; no
+  canvas value). A copy shows no confirmation.
+- **A tool row's image result** stands full width under its row on the
+  phone, open or folded, with the ⤢ mark (10d); the expanded body keeps
+  only the result's text. The desktop keeps its 96 px thumbnail.
+- **Swiping** pages through the message's image refs, then the image paths
+  its assistant prose names; a path pressed in a tool label or user text
+  opens alone.
+- **A cached path copy** stands in when the tunnel is offline or the Mac
+  answers 404. A timeout or a dropped transfer is COULDN'T LOAD even with a
+  copy held. Image refs (`blob_get`) keep the tunnel's default timeout and
+  show no byte progress.
+- **403** reads "Not on the phone — outside the session's folder" with the
+  path and Copy path; can't-be-shown takes 10e's NOT AN IMAGE OR TEXT layout
+  with its own words.
+- **A file opened from a screen pushed over the same session** (task
+  output, subagent) is pushed on top, so back returns there; from anywhere
+  else the stack restarts over its session.
+- **Server bounds** the text did not set: `FILE_PATH_MAX_CHARS`,
+  `FILE_SESSION_MAX_CHARS`, one `NamedPathCache` shared by every phone; a
+  handler error answers `blob_meta` 500, which the phone shows as COULDN'T
+  LOAD.
+
+### § 3 Subagents and tasks
+
+- **The transcript chip** (10g) comes through a seam in `ToolRow`
+  (`PhoneToolRowContext`) that only the phone's session screen sets; on the
+  phone it replaces the inline `OPEN →` / `OUTPUT →`. A task's chip stands
+  under its row even without an output file, with no ›.
+- **The moons sheet is a sheet**, not a pushed screen: opening an item
+  closes it, so back from the item returns to the session.
+- **A task without output** has no › in the 10a list rows, the sheet or the
+  chip. The list's moon rows word their state as the sheet does ("done ·
+  14s", "running · 3h 04m"), without its inks.
+- **"Stopped by you"** is remembered in memory per session and task, marked
+  when Stop is confirmed.
+- **404 or 410 on the output** is ENDED BEFORE THE RESTART even while the
+  snapshot still says running.
+- **TASK FROM** falls back to the parent's launching call's prompt when the
+  page does not reach the agent's first message, with "N earlier steps not
+  shown". "Subagents take no replies" shows only while it runs.
+- `PHONE_SUBAGENT_PAGE` equals the transcript page size;
+  `PHONE_OUTPUT_TAIL_BYTES` is sized for worst-case JSON escaping inside one
+  frame. Paths in task output open the preview but carry no long-press.
+
+### § 4 The ⋯ sheet and pins
+
+- Pinned rows sort by `pinnedAt`, oldest pin first, then by last activity.
+- Clear's "keeps" lines name a null model or mode as the Mac's default;
+  "context · X → 0" only when context was measured. `carryHarness` follows
+  the loaded harness, or `harnessStep` before it loads.
+- Change tag shows and replaces the first tag; Save in Rename is disabled
+  for an unchanged title too. Failures roll back with the composer's error
+  line. The ✓ Ended / ✓ Cleared line stands at the end of the transcript of
+  the session left on screen.
+
+### § 5 Limit wait and context
+
+- The context thresholds are 10l's, fixed in `limits/context.ts`; the
+  percent is floored and the fill clamped.
+- `LimitWait.autoContinue` / `continueText` are the settings as of each
+  publish; changing the continue text republishes waiting sessions.
+- **Asleep, the queued bubbles still show**, dimmed and without their note,
+  as 10k's asleep phone draws them; the acceptance line "no queue" is read as
+  "nothing can be queued".
+- A malformed `?limit=` or `?maxBytes=` is ignored, not refused.
+
+### Not done here
+
+- The feature map (`desktop-vs-phone-feature-map`) lives on its own branch
+  and is not marked; mark its five items when both have merged.
+- Versions, changelogs and `MIN_SERVER_VERSION` wait for the owner's pick
+  (§ 7).
