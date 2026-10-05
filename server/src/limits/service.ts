@@ -213,6 +213,8 @@ export class LimitsService {
       cancelled: w.cancelled,
       willContinue: this.willContinue(w),
       queued: w.queued.map((q) => q.text),
+      autoContinue: autoContinueOf(this.deps.settings.get(AUTO_CONTINUE_KEY)),
+      continueText: continueTextOf(this.deps.settings.get(CONTINUE_TEXT_KEY)),
     };
   }
 
@@ -269,8 +271,9 @@ export class LimitsService {
   }
 
   /**
-   * The auto-continue switch changed. It applies to sessions already
-   * waiting, so each one is republished with its new `willContinue`.
+   * The auto-continue switch or the continuation text changed. Both apply to
+   * sessions already waiting, so each one is republished with its new
+   * `willContinue`, `autoContinue` and `continueText`.
    */
   settingsChanged(): void {
     for (const sessionId of this.waits.keys()) this.deps.republish(sessionId);

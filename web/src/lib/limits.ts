@@ -156,11 +156,21 @@ export interface LimitWaitCopy {
   showSettings: boolean
 }
 
+/**
+ * The two settings the copy needs come from the wait itself when it carries
+ * them (a Mac that publishes `autoContinue` / `continueText`), and from
+ * `fallback` otherwise — the desktop's own settings, or the defaults on a
+ * client that cannot read them.
+ */
 export function limitWaitCopy(
   wait: LimitWait,
-  settings: { autoContinue: boolean; text: string },
+  fallback: { autoContinue: boolean; text: string } = limitSettings({}),
   now: number = Date.now(),
 ): LimitWaitCopy {
+  const settings =
+    wait.autoContinue !== undefined && wait.continueText !== undefined
+      ? { autoContinue: wait.autoContinue, text: wait.continueText }
+      : fallback
   const phrase = formatResetPhrase(wait.resetsAt, now)
   const continues = continuesAtReset(wait)
   const queued = wait.queued.length

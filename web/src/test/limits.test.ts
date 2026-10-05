@@ -91,4 +91,19 @@ describe('limitWaitCopy', () => {
     expect(copy.title).toBe('Limit reached, continues at 15:00')
     expect(copy.sub).toBe('5-hour window · then sends your 2 queued messages')
   })
+
+  it('prefers the settings the wait carries over the ones it is given', () => {
+    const carried = { ...wait, autoContinue: true, continueText: 'Go on.' }
+    const copy = limitWaitCopy(carried, { autoContinue: false, text: 'ignored' }, NOW)
+    expect(copy.sub).toBe('5-hour window · then sends “Go on.”')
+    expect(copy.action).toBe('cancel')
+    const off = limitWaitCopy({ ...carried, autoContinue: false, willContinue: false }, on, NOW)
+    expect(off.action).toBeNull()
+    expect(off.showSettings).toBe(true)
+  })
+
+  it('falls back to the given settings, then the defaults, when the wait carries none', () => {
+    expect(limitWaitCopy(wait, { autoContinue: true, text: 'Mine.' }, NOW).sub).toBe('5-hour window · then sends “Mine.”')
+    expect(limitWaitCopy(wait, undefined, NOW).sub).toBe('5-hour window · then sends “Continue where you left off.”')
+  })
 })

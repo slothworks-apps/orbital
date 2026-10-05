@@ -64,7 +64,7 @@ import { narrationFields } from '../walkthrough/narration.js';
 import type { Narrator } from '../walkthrough/narrator.js';
 import type { Spine, Walkthrough } from '../walkthrough/types.js';
 import type { LimitsService } from '../limits/service.js';
-import { AUTO_CONTINUE_KEY } from '../limits/logic.js';
+import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY } from '../limits/logic.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -2109,7 +2109,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // confirmation a promise about some later restart.
       if (k === RETENTION_KEY) ctx.retention.sweep();
       if (k === PR_SETTING || k === LINES_SETTING) branchSettings = true;
-      if (k === AUTO_CONTINUE_KEY) limitsSetting = true;
+      if (k === AUTO_CONTINUE_KEY || k === CONTINUE_TEXT_KEY) limitsSetting = true;
     }
     if (limitsSetting) ctx.limits?.settingsChanged();
     // Without a reload: a switch turned off drops the field from the open

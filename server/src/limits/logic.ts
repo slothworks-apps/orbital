@@ -55,6 +55,13 @@ export interface LimitWait {
   willContinue: boolean;
   /** Texts the user wrote during the wait, in order. */
   queued: string[];
+  /**
+   * The auto-continue setting and the continuation text as the wait was
+   * published, so a client that cannot read the Mac's settings (the phone)
+   * can still word the notice (spec 2026-10-05-mobile-next-design § 5 Server).
+   */
+  autoContinue: boolean;
+  continueText: string;
 }
 
 export interface LimitsSnapshot {
