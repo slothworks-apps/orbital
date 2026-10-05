@@ -87,16 +87,21 @@ later record a GIF.
 
 ## 3. After the flip
 
-Turn on secret scanning with push protection and Dependabot in the GitHub
-repository settings, and private vulnerability reporting — `SECURITY.md`
-sends reports there, and the link is dead until it is on.
+Done 2026-10-05. The repository is public, and in its settings:
 
-Make the `orbital-relay` container package public too, in its package
-settings. A package's visibility does not follow its repository's, and the
-runbook's `docker pull` fails for everyone else while it is private. The
-package was deleted and recreated from the new repository on 2026-10-04,
-so it is linked to `slothworks-apps/orbital` and its Actions can push to
-it.
+- secret scanning with push protection, Dependabot alerts and security
+  updates, and private vulnerability reporting, where `SECURITY.md` sends
+  reports;
+- squash merge only, the commit titled and described by the pull request,
+  auto-merge allowed;
+- a ruleset `main` on the default branch: no deletion or force push,
+  linear history, changes through a pull request with its conversations
+  resolved and no approval required (one maintainer cannot approve their
+  own), and the checks `check (<workspace>)` for all six workspaces,
+  `docs` and `attribution` required. Nobody bypasses it.
 
-These can go on before the flip too, in the new repository: the Actions
-secrets `release-mac.yml` reads, the collaborators, and a release with the current DMG.
+The `orbital-relay` container package is public; its tags list without a
+login.
+
+Still open: the Actions secrets `release-mac.yml` reads, and a release
+with the current DMG.
