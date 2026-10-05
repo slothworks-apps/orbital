@@ -12,6 +12,7 @@ import {
   taskStatus, tasksForRow, type GroupKey,
 } from '../sessionList'
 import { isMacAsleep, useMobile } from '../state'
+import { opensTask } from '../subagents/model'
 import { MobileScreen, PrimaryButton } from '../ui'
 import { PlanetGlyph } from './Glyph'
 
@@ -492,23 +493,35 @@ function SessionRow({
                   </li>
                 )
               })}
-              {tasks.map((task) => (
-                <li key={task.id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenTask({ sessionId: session.id, taskId: task.id })}
-                    className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono text-[11px]"
-                  >
+              {tasks.map((task) => {
+                const body = (
+                  <>
                     <span aria-hidden className="block w-2 shrink-0 text-center text-[rgba(200,220,245,.75)]">
                       ▣
                     </span>
                     <span className="min-w-0 truncate text-text-bright">{task.label}</span>
                     <span className="flex-1" />
                     <span className="shrink-0 text-[rgba(160,190,225,.65)]">{taskStatus(task, now)}</span>
-                    <Chevron />
-                  </button>
-                </li>
-              ))}
+                  </>
+                )
+                return (
+                  <li key={task.id}>
+                    {opensTask(task) ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenTask({ sessionId: session.id, taskId: task.id })}
+                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono text-[11px]"
+                      >
+                        {body}
+                        <Chevron />
+                      </button>
+                    ) : (
+                      // A task without an output file has nothing to open, as in the 10f sheet: no ›.
+                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono text-[11px]">{body}</span>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </>
