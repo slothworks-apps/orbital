@@ -4,6 +4,13 @@ All notable changes to the Android app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-10-05
+### Changed
+- Every screen now matches the app's design: sessions show as small planets in their state's colour, the main buttons are solid and bright, New session stays at the bottom of the list, a long folder list folds behind "Show all", and pairing, settings and the notice screens are laid out as designed.
+
+### Fixed
+- The notification switches in Settings no longer stick out of their track, and the tag chips above the session list no longer show a scrollbar.
+
 ## [0.1.1] — 2026-10-04
 ### Added
 - When you scroll up in a session's transcript, a quiet button takes you back to the latest message and says when something new has arrived below. Sending a message also takes you back to the bottom.

@@ -6,6 +6,7 @@ type: spec
 domain: remote
 related:
   - 2026-09-30-mobile-remote-design
+  - switch-model-and-mode-from-the-phone
   - 2026-10-01-settings-mobile-design
   - 2026-10-01-mobile-remote-backend
   - the-phone-client-lives-in-shared-and-tests-against-the-real-mac
@@ -655,6 +656,24 @@ the spec left open or that building corrected:
 - **`MIN_SERVER_VERSION` is `0.18.2`**, the desktop version that ships 2b (the
   defaults route, `lastAt`, `requireDirectory`); a 0.18.1 Mac is refused by
   9i rather than half-working on 9d.
+
+## As built (fidelity pass, 2026-10-05)
+
+The screens were matched to the canvas (9a, 9b, 9d, 9e, 9f, 9h, 9i) on a
+real phone. Where the build departs from the canvas, on purpose:
+
+- **9d's model picker wraps four to a row.** The canvas draws one row of
+  four segments; the catalog comes from the SDK and lists eleven today.
+- **9d's paths print the home folder as `~`** (`homePath`), read off the
+  path's shape since the phone never learns the Mac's home; the field and
+  the launch keep the full path, and a typed `~/…` matches against it.
+- **9e step 1 has no camera feed.** The ML Kit scanner opens over the app,
+  so the canvas's camera window is a striped frame reading "TAP TO SCAN",
+  which reopens the scanner after it is dismissed.
+- **9b's model and mode are labels, and `⋯` is left out**: the phone does
+  not switch either yet — [[switch-model-and-mode-from-the-phone]].
+- **The notification rows keep the desktop's copy**, not 9f's shorter
+  stand-ins: the rows are the desktop's own, in its order.
 
 ## Known limits of 2b
 
