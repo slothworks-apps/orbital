@@ -1,0 +1,9 @@
+#!/bin/sh
+# Commit messages carry no tool attribution: no co-author trailer for an AI
+# agent and no "Generated with" footer. Edit the message and commit again.
+
+if grep -qiE '^co-authored-by:.*(claude|anthropic)|generated with .*claude' "$1"; then
+  echo "commit-msg: the message carries an AI attribution line — remove it." >&2
+  grep -inE '^co-authored-by:.*(claude|anthropic)|generated with .*claude' "$1" >&2
+  exit 1
+fi

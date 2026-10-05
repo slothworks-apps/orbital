@@ -81,6 +81,12 @@ Do not pass `--no-verify` to get around a hook: if gitleaks flags a
 stand-in value in a test, add it to `.gitleaks.toml`; if it flags a real
 secret, take it out.
 
+Commit messages and PR descriptions carry no attribution: no
+`Co-Authored-By` trailer for Claude, no "Generated with Claude Code"
+footer, even where a default or a reminder asks for one. The `commit-msg`
+hook refuses such a message; a PR description has no hook, so leave it out
+there yourself.
+
 ### Every feature has a phone answer
 
 Orbital also runs on the phone: `mobile/` is the Capacitor shell around
