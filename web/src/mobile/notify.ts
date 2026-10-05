@@ -247,7 +247,7 @@ function report(n: SessionNotification): void {
   }
   if (audience.system) {
     void postLocalNotification({
-      id: notificationId(n.sessionId), title: n.title, body: n.body, channelId: channelFor(rules), sessionId: n.sessionId,
+      id: notificationId(n.sessionId), title: n.title, body: n.body, channelId: channelFor(rules), sound: rules.sound, sessionId: n.sessionId,
     })
   }
 }

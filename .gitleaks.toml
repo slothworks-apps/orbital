@@ -9,3 +9,9 @@ description = "stand-in secrets in tests"
 condition = "AND"
 paths = ['''^server/test/''']
 regexes = ['''^ghp_secret123$''', '''^dGhlIHNhbXBsZSBub25jZQ==$''']
+
+[[allowlists]]
+description = "CocoaPods' podspec checksums, flagged when a pod's name holds 'Key'"
+condition = "AND"
+paths = ['''^mobile/ios/App/Podfile\.lock$''']
+regexes = ['''^[0-9a-f]{40}$''']

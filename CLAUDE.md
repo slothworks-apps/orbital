@@ -31,7 +31,7 @@ Six npm workspaces:
 - `relay/` — the blind relay between a Mac running Orbital and its paired
   phones. It is deployed on its own as a Docker image and sees only
   encrypted frames.
-- `mobile/` — the Capacitor shell (Android) around `web/src/mobile`; no
+- `mobile/` — the Capacitor shells (Android and iOS) around `web/src/mobile`; no
   application logic of its own.
 
 ### Versions
@@ -42,7 +42,7 @@ Three things ship, and each carries its own version:
 |---|---|---|
 | the desktop DMG | `version` in `desktop/package.json` | `desktop/`, `server/`, `web/`, `shared/` |
 | the relay image | `version` in `relay/package.json` | `relay/`, `shared/` |
-| the Android app | `versionName` in `mobile/android/app/build.gradle` | `mobile/`, `web/src/mobile` and what it imports, `shared/` |
+| the phone app (Android and iOS) | `versionName` in `mobile/android/app/build.gradle` | `mobile/`, `web/src/mobile` and what it imports, `shared/` |
 
 When you finish a change that alters what ships — a fix or a feature, not
 a test, a comment or a document — ask whether to bump each version it

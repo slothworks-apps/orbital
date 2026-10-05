@@ -22,6 +22,7 @@
     "desktop:build:self": "npm run build -w server && npm run build -w web && npm run dist:self -w desktop",
     "desktop:release": "npm run build -w server && npm run build -w web && npm run dist -w desktop",
     "android:release": "env -u ORBITAL_MOBILE_DEV npm run build -w @orbital/mobile && npm run aab -w @orbital/mobile",
+    "ios:release": "env -u ORBITAL_MOBILE_DEV npm run build:ios -w @orbital/mobile && npm run ipa -w @orbital/mobile",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

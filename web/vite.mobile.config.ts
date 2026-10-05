@@ -18,11 +18,17 @@ const mobileVersion = (
 ).version
 
 /**
- * Whether the Android project carries Firebase's `google-services.json`
- * (git-ignored, the owner's; runbook build-the-android-app, "Push"). Without
- * it the phone must not ask Firebase for a push token.
+ * Whether each native project carries its Firebase config, git-ignored and
+ * the owner's: Android's `google-services.json`, iOS's
+ * `GoogleService-Info.plist` (runbooks build-the-android-app and
+ * build-the-ios-app, "Push"). One web build serves both projects, so the
+ * phone looks up its own platform; without the file it must not ask Firebase
+ * for a push token.
  */
-const pushConfigured = existsSync(new URL('../mobile/android/app/google-services.json', import.meta.url))
+const pushConfigured = {
+  android: existsSync(new URL('../mobile/android/app/google-services.json', import.meta.url)),
+  ios: existsSync(new URL('../mobile/ios/App/App/GoogleService-Info.plist', import.meta.url)),
+}
 
 const ENTRY = 'index.mobile.html'
 
@@ -71,6 +77,10 @@ export default defineConfig({
     __MOBILE_DEV__: JSON.stringify(process.env.ORBITAL_MOBILE_DEV === '1'),
     __MOBILE_VERSION__: JSON.stringify(mobileVersion),
     __MOBILE_PUSH__: JSON.stringify(pushConfigured),
+  },
+  resolve: {
+    // The push plugin's web implementation wants the Firebase web SDK, which the shell never uses.
+    alias: { 'firebase/messaging': fileURLToPath(new URL('./src/mobile/platform/firebaseWebStub.ts', import.meta.url)) },
   },
   build: {
     outDir: 'dist-mobile',

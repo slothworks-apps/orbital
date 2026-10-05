@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-ios-app-design
 title: The phone app on iOS, through TestFlight
-status: draft
+status: done
 type: spec
 domain: remote
 related:
@@ -54,13 +54,25 @@ What differs, and why:
 ### The iOS project
 
 `mobile/ios/`, created by `cap add ios`, committed like `mobile/android/`.
-Bundle id `io.slothworks.orbital.mobile`, display name Orbital, the same
-app icon and splash as Android.
+Bundle id `io.slothworks.orbital.mobile`, display name Orbital, iPhone only
+(`TARGETED_DEVICE_FAMILY` 1), iOS 15.5 at least (ML Kit's floor). The icon
+and splash are Capacitor's placeholders, as on Android today.
 
 Native dependencies come through **CocoaPods**, not Swift Package Manager:
 Google ships ML Kit, which the QR scanner
 (`@capacitor-mlkit/barcode-scanning`) needs, only as CocoaPods. CocoaPods is
 installed on the owner's Mac (Homebrew).
+
+Two consequences of ML Kit:
+
+- **No simulator with the scanner.** ML Kit has no arm64 simulator slice,
+  so the pods build the simulator app for `x86_64`, which the iOS 26
+  simulator refuses. The runbook gives a throwaway recipe that drops the
+  scanner pod for a simulator build; a real iPhone is unaffected.
+- **Firebase leaves CocoaPods.** Firebase publishes no new pods after
+  October 2026; the pods in use keep working. Moving Firebase to SPM while
+  ML Kit stays on pods, or replacing ML Kit, is a later job
+  ([[firebase-ios-leaves-cocoapods]]).
 
 Capabilities: Push Notifications, and Background Modes → Remote
 notifications (required for FCM to deliver to a suspended app). Signing is
@@ -77,9 +89,12 @@ automatic, with the owner's team.
   declaration** — it is made to Apple in their name.
 
 `GoogleService-Info.plist` (Firebase console → the iOS app) goes to
-`mobile/ios/App/App/`, git-ignored like `google-services.json`. The web
-build's `__MOBILE_PUSH__` becomes true when the file for the platform being
-built exists.
+`mobile/ios/App/App/`, git-ignored like `google-services.json`. The project
+cannot list a git-ignored file as a resource — a build without it would
+fail — so a build phase copies it into the app when it is there. One web
+build serves both shells, so `__MOBILE_PUSH__` is per platform
+(`{ android, ios }`, each true when that project's Firebase file exists)
+and the phone reads its own.
 
 ### Push through one plugin on both platforms
 
@@ -103,7 +118,19 @@ Android moves too, and `web/src/mobile/platform/push.ts` and
 | `removeAllDeliveredNotifications` | `removeAllDeliveredNotifications` |
 
 The Firebase web SDK, an optional peer of the plugin, is not installed: the
-app uses the plugin only inside the native shell.
+app uses the plugin only inside the native shell. The plugin's web
+implementation still imports it, so the phone's Vite build aliases
+`firebase/messaging` to a stub that reports push as unsupported.
+
+Two behaviours the plugin swap has to keep:
+
+- **A push to an open app is not shown.** Android's FCM SDK does not show
+  a notification message in the foreground; on iOS the plugin's
+  `presentationOptions` is set to `[]` for the same result. The relay
+  pushes only to a phone it sees offline anyway.
+- **The `sound` rule on iOS.** With no channels, a local notification
+  carries its own sound: none unless the rule is on, then the system
+  default (`LocalNotice.sound`).
 
 The owner's one-time setup for iOS push, written into the runbook: an APNs
 authentication key (`.p8`) from the Apple Developer account, uploaded to
@@ -125,9 +152,10 @@ by hand.
 ### Versions and changelog
 
 The iOS app is the same app as the Android one, built from the same code,
-so it carries the same version: `MARKETING_VERSION` in the Xcode project
-equals `versionName`, and `CURRENT_PROJECT_VERSION` equals `versionCode`.
-Both bump together. `mobile/CHANGELOG.md` covers both; a line that applies
+so it carries the same version. The release script passes `versionName`
+and `versionCode` from `build.gradle` to Xcode as `MARKETING_VERSION` and
+`CURRENT_PROJECT_VERSION`, so a bump is one edit and the platforms cannot
+drift. `mobile/CHANGELOG.md` covers both; a line that applies
 to one platform only says so. The root `CLAUDE.md` versions table and
 `mobile/CLAUDE.md` say this.
 
