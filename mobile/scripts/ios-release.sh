@@ -15,7 +15,9 @@ VERSION="$(sed -n 's/^ *versionName "\(.*\)"$/\1/p' "$GRADLE")"
 BUILD="$(sed -n 's/^ *versionCode \([0-9][0-9]*\)$/\1/p' "$GRADLE")"
 [ -n "$VERSION" ] && [ -n "$BUILD" ] || { echo "no versionName/versionCode in $GRADLE" >&2; exit 1; }
 
-OUT=ios/App/build/release
+# Not under ios/App/build: `cap sync ios` cleans that and refuses a folder
+# the build system did not create.
+OUT=ios/App/output/release
 rm -rf "$OUT"
 xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$OUT/Orbital.xcarchive" \

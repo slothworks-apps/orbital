@@ -56,9 +56,9 @@ back afterwards:
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 sed -i '' '/CapacitorMlkitBarcodeScanning/d' Podfile && pod install
 xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug \
-  -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim build
+  -destination 'generic/platform=iOS Simulator' -derivedDataPath output/sim build
 xcrun simctl boot 'iPhone 17 Pro'
-xcrun simctl install booted build/sim/Build/Products/Debug-iphonesimulator/App.app
+xcrun simctl install booted output/sim/Build/Products/Debug-iphonesimulator/App.app
 xcrun simctl launch --console-pty booted io.slothworks.orbital.mobile
 git checkout Podfile && pod install
 ```
@@ -157,3 +157,7 @@ export-compliance question for each build.
 - **`Unable to find a destination matching the provided destination
   specifier`** for a simulator by id: build for
   `generic/platform=iOS Simulator` instead.
+- **`Could not delete …/ios/App/build because it was not created by the
+  build system`** during `cap sync ios`: something wrote into
+  `ios/App/build` by hand (a `-derivedDataPath` or `-archivePath` there).
+  Delete the folder; the scripts and this runbook write to `ios/App/output`.
