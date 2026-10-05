@@ -2166,18 +2166,20 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // Readings mirror the web's `NewSessionDialog`; `DEFAULT_SETTINGS` seeds
   // every key, so the fallbacks only answer a table someone emptied.
   //
-  // The Claude directories ride here too, names only — the phone's session
-  // label and its New session choice (spec
-  // 2026-10-04-multiple-claude-directories-design § 7). `lastClaudeDir` is
-  // null when nothing launched yet or the directory it named is gone, so the
-  // prefill falls through to `defaultClaudeDir`.
+  // The Claude directories ride here too — the session mark and the New
+  // session choice on both the Mac and the phone (spec
+  // 2026-10-04-multiple-claude-directories-design § 7): the name, and for
+  // the mark's tooltip and the pickers' sub line the path, the account and
+  // whether it is on disk (a missing one is shown but cannot be chosen).
+  // `lastClaudeDir` is null when nothing launched yet or the directory it
+  // named is gone, so the prefill falls through to `defaultClaudeDir`.
   app.get('/api/sessions/defaults', () => {
     const last = Number(ctx.settings.get(LAST_CLAUDE_DIR_KEY) || NaN);
     return {
       permissionMode: (ctx.settings.get('default_permission_mode') || 'acceptEdits') as PermissionMode,
       model: ctx.settings.get('default_model') || null,
       rememberModelPerProject: ctx.settings.get('remember_model_per_project') !== 'false',
-      claudeDirs: ctx.claudeDirs.list().map(({ id, name }) => ({ id, name })),
+      claudeDirs: ctx.claudeDirs.info().map(({ id, name, path, account, exists }) => ({ id, name, path, account, exists })),
       defaultClaudeDir: ctx.claudeDirs.defaultId(),
       lastClaudeDir: Number.isInteger(last) && ctx.claudeDirs.has(last) ? last : null,
     };

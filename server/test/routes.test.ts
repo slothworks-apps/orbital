@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
@@ -1355,7 +1355,7 @@ describe('REST routes', () => {
     const { app, db } = makeApp();
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
       permissionMode: 'acceptEdits', model: 'sonnet', rememberModelPerProject: true,
-      claudeDirs: [{ id: 1, name: 'Personal' }], defaultClaudeDir: 1, lastClaudeDir: null,
+      claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
     for (const [key, value] of [
       ['default_permission_mode', 'plan'], ['default_model', ''], ['remember_model_per_project', 'false'],
@@ -1364,7 +1364,7 @@ describe('REST routes', () => {
     }
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
       permissionMode: 'plan', model: null, rememberModelPerProject: false,
-      claudeDirs: [{ id: 1, name: 'Personal' }], defaultClaudeDir: 1, lastClaudeDir: null,
+      claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
   });
 
@@ -1373,7 +1373,7 @@ describe('REST routes', () => {
     db.delete(settingsTable).run();
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
       permissionMode: 'acceptEdits', model: null, rememberModelPerProject: true,
-      claudeDirs: [{ id: 1, name: 'Personal' }], defaultClaudeDir: 1, lastClaudeDir: null,
+      claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
   });
 });
@@ -1401,6 +1401,17 @@ describe('Claude directories', () => {
       expect.objectContaining({ id: 1, name: 'Personal', path: claudeDir, isDefault: true, exists: true, overriddenByEnv: true }),
       { id, name: 'Work', path: work, isDefault: false, exists: true, overriddenByEnv: false, account: 'me@work.example' },
     ]);
+  });
+
+  it('gives the phone each directory`s path, account and presence through /api/sessions/defaults', async () => {
+    const { app } = makeApp();
+    const work = makeTmpDir('work');
+    writeFileSync(join(work, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'me@work.example' } }));
+    const id = await addDir(app, 'Work', work);
+    const read = async () => res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' })).claudeDirs[1];
+    expect(await read()).toEqual({ id, name: 'Work', path: work, account: 'me@work.example', exists: true });
+    rmSync(work, { recursive: true, force: true });
+    expect(await read()).toEqual({ id, name: 'Work', path: work, account: null, exists: false });
   });
 
   it('refuses an unknown claudeDirId and starts nothing', async () => {
