@@ -1,7 +1,7 @@
 import { kindWord, opensOutput, taskElapsedMs, taskGroups, taskTone } from '../../lib/backgroundTasks'
 import { elapsedMsFor, taskStateFor, withoutLeadingUserFrame } from '../../lib/subagentPanel'
 import type { BackgroundTask, ChatMessage, Subagent } from '../../lib/types'
-import { asOfLabel } from '../format'
+import { asOfLabel, clockLabel } from '../format'
 
 /**
  * What the phone says about a session's subagents and background tasks (spec
@@ -14,7 +14,6 @@ import { asOfLabel } from '../format'
 const SECOND_MS = 1_000
 const MINUTE_MS = 60 * SECOND_MS
 const HOUR_MS = 60 * MINUTE_MS
-const TIME: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
 
 /** Canvas 10f, 10g, 10h inks. */
 export const INK = {
@@ -53,10 +52,8 @@ export function elapsedLabel(ms: number, running = false): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
-/** A moment as the canvas's end lines date it: "13:22". */
-export function clockLabel(at: number): string {
-  return new Date(at).toLocaleTimeString([], TIME)
-}
+/** The end lines' "13:22" is the phone's one clock (`format.ts`). */
+export { clockLabel }
 
 const subagentRunning = (agent: Subagent) => agent.state !== 'ended'
 const taskRunning = (task: BackgroundTask) => task.state === 'running'

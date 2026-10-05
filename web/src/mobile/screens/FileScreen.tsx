@@ -6,14 +6,15 @@ import { CantShow } from '../files/CantShow'
 import { ImageViewer } from '../files/ImageViewer'
 import { fileKindOf } from '../files/route'
 import { TextPreview } from '../files/TextPreview'
+import { clockLabel } from '../format'
 import { pushedTop, useMobile, type PushedOf } from '../state'
 
 const NO_MESSAGES: ChatMessage[] = []
 
 function clock(timestamp: string | undefined): string | null {
   if (!timestamp) return null
-  const at = new Date(timestamp)
-  return Number.isNaN(at.getTime()) ? null : at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const at = Date.parse(timestamp)
+  return Number.isNaN(at) ? null : clockLabel(at)
 }
 
 /**

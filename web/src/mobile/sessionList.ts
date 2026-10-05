@@ -1,10 +1,10 @@
 import type { StateDot } from '../lib/stateStyle'
-import { timeAgo } from '../lib/format'
 import { continuesAtReset, formatResetAt } from '../lib/limits'
 import {
   gateWaits, sessionStateKey, type ApiSession, type BackgroundTask, type PendingDecision, type SessionStateKey, type Subagent, type Tag,
 } from '../lib/types'
 import { asOfLabel } from './format'
+import { subagentStatus as subagentRowStatus, taskStatus as taskRowStatus, type RowStatus } from './subagents/model'
 import { isListable } from '../lib/harnessSession'
 
 /**
@@ -201,21 +201,22 @@ export function tasksForRow(tasks: readonly BackgroundTask[] | undefined): Backg
   })
 }
 
-/** A subagent row's right column (canvas 10a): `running · 2m`, `done · 14s`. */
+const statusText = ({ word, time }: RowStatus): string => (time ? `${word} · ${time}` : word)
+
+/**
+ * A subagent row's right column (canvas 10a): `running · 2m`, `done · 14s` —
+ * the words the 10f sheet and the transcript chip use, without their inks.
+ */
 export function subagentStatus(agent: Subagent, now: number): string {
-  if (agent.state !== 'ended') return `running · ${timeAgo(agent.startedAt, now)}`
-  return `done · ${timeAgo(agent.endedAt ?? agent.startedAt, now)}`
+  return statusText(subagentRowStatus(agent, now))
 }
 
 /**
- * A task row's right column (canvas 10a): `running · 3h`, else how it ended
- * and when. Neutral words only; the task screen (10g) carries the colour.
+ * A task row's right column (canvas 10a): `running · 3h 04m`, else how it
+ * ended and when. Neutral words only; the task screen (10g) carries the colour.
  */
 export function taskStatus(task: BackgroundTask, now: number): string {
-  if (task.state === 'running') return `running · ${timeAgo(task.startedAt, now)}`
-  const word =
-    task.status === 'stopped' ? 'stopped' : task.exitCode !== undefined && task.exitCode !== 0 ? `exit ${task.exitCode}` : 'ended'
-  return `${word} · ${timeAgo(task.endedAt ?? task.startedAt, now)}`
+  return statusText(taskRowStatus(task, now))
 }
 
 /** 9p's glyph per state: the shape carries the meaning; motion only where 9p draws it. */
