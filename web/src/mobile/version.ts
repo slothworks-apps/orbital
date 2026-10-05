@@ -1,9 +1,10 @@
 /**
  * The oldest Orbital on the Mac this phone works with (spec § 5, 9i): the
- * release that shipped phase 2b (the new-session defaults route, `lastAt` on
- * projects, `requireDirectory`), without which 9d half-works.
+ * release that lets the phone answer a harness gate and a limit wait, read
+ * the files a session named (`file_get`) and page subagent and task output
+ * (spec 2026-10-05-mobile-next), without which those screens half-work.
  */
-export const MIN_SERVER_VERSION = '0.18.2'
+export const MIN_SERVER_VERSION = '0.20.6'
 
 /**
  * Dotted numbers, compared part by part; a missing part is zero and a

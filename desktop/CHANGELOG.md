@@ -4,6 +4,13 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.6] — 2026-10-05
+### Changed
+- Clear and start over now keeps the session's folder, tags, model and permission mode every time, so the "New session inherits" settings are gone.
+
+### Added
+- Your phone can now answer a harness step waiting for your OK, stop or resume a session waiting for its usage limit, and show the images and text files a session mentions.
+
 ## [0.20.5] — 2026-10-05
 ### Fixed
 - A session started from Orbital whose background agent is still running now stays shown as working, also when Orbital has lost track of that agent, instead of asking for your input too early.
