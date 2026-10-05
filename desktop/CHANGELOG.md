@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.5] — 2026-10-05
+### Fixed
+- A session started from Orbital whose background agent is still running now stays shown as working, also when Orbital has lost track of that agent, instead of asking for your input too early.
+
 ## [0.20.4] — 2026-10-04
 ### Added
 - When you scroll up in a transcript, a quiet button takes you back to the latest message and says when something new has arrived below. Sending a message, or ⌘↓, also takes you back to the bottom.
