@@ -61,7 +61,7 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
   useMobile.setState({
     pairing: null, link: 'off', macOnline: false, ready: false,
     asOf: null, checkedAt: null, rechecking: null, listedAt: null,
-    sessionId: null, mismatch: null, previous: null,
+    sessionId: null, pushed: [], mismatch: null, previous: null,
     unpaired: opts.unpaired,
     macName: opts.unpaired ? name : null,
     screen: opts.unpaired ? 'unpaired' : 'pairing',

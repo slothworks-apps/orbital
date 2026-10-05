@@ -20,3 +20,45 @@ export const BANNER_MS = 6_000
 export const PHOTO_MAX_EDGE = 1568
 /** JPEG quality of a downscaled photo, as `canvas.toBlob` takes it (spec § 6.2). */
 export const PHOTO_JPEG_QUALITY = 0.85
+/**
+ * How long a file read over `file_get` may go without a chunk before the
+ * viewer says COULDN'T LOAD (spec 2026-10-05-mobile-next § 2, canvas
+ * 10e). Re-armed by every chunk, so a slow but moving read is never
+ * cut off.
+ */
+export const FILE_IDLE_TIMEOUT_MS = 10_000
+/**
+ * The phone's file cache — every image it has shown and every text preview —
+ * holds at most this many bytes; past it, the least recently opened entry is
+ * dropped first (spec 2026-10-05-mobile-next § 2).
+ */
+export const FILE_CACHE_MAX_BYTES = 200 * 1024 * 1024
+/**
+ * The largest text file the phone previews (spec 2026-10-05-mobile-next § 2).
+ * The Mac enforces its own cap of the same name and answers 413 above it;
+ * this one lets the phone say so for a size it already knows.
+ */
+export const PHONE_TEXT_PREVIEW_MAX_BYTES = 512 * 1024
+/**
+ * Complete lines a task's output screen keeps, the newest (spec
+ * 2026-10-05-mobile-next § 3, canvas 10g); passed to `appendOutput` as its
+ * limit, and the number 10g's footer names.
+ */
+export const PHONE_OUTPUT_LINES = 2_000
+/**
+ * The task-output tail the phone asks the Mac for (`taskOutputMaxBytes`, spec
+ * 2026-10-05-mobile-next § 3). The tail comes back as a string inside the
+ * `http_res` JSON, where JSON escaping can grow a byte up to six times (a
+ * control character such as an ANSI escape becomes `\u00XX`); the whole
+ * answer must still fit one relay frame (`MAX_INNER_BYTES` on the Mac). So
+ * this is kept well under a sixth of that bound, leaving room for the rest
+ * of the answer. The newer lines arrive as `task-output` deltas anyway.
+ */
+export const PHONE_OUTPUT_TAIL_BYTES = 32 * 1024
+/**
+ * The newest messages of a subagent the phone asks for (`subagentPageSize`,
+ * spec 2026-10-05-mobile-next § 3); older ones are counted in `droppedCount`.
+ * Kept at `TRANSCRIPT_PAGE_SIZE` for the same reason: one page must fit one
+ * relay frame.
+ */
+export const PHONE_SUBAGENT_PAGE = TRANSCRIPT_PAGE_SIZE

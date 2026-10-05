@@ -13,7 +13,7 @@ import { readNotificationsCache, readSessionsCache } from './platform/cache'
 import { readCachedImage, writeCachedImage } from './platform/imageCache'
 import { loadPairing, loadUnpaired } from './platform/pairing'
 import { installNotificationChannels, installPushListeners, registerPush } from './platform/push'
-import { openFromNotice, pairGoneFor, useMobile } from './state'
+import { dismissTopSheet, openFromNotice, pairGoneFor, useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
@@ -133,6 +133,7 @@ async function installLifecycle(): Promise<void> {
       if (isActive) void recheckOnForeground()
     })
     await App.addListener('backButton', () => {
+      if (dismissTopSheet()) return
       if (useMobile.getState().goBack() === 'exit') void App.minimizeApp()
     })
   } catch {
