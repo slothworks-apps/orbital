@@ -483,6 +483,48 @@ describe('Runner', () => {
     await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
   });
 
+  it('the CLI saying running past its result keeps the session working until it says idle', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    // No task-event reading wired at all: the CLI's own state is the only
+    // thing that knows a background agent is still out there.
+    const runner = new Runner({ hub, queryFn: script.fn as any, newSessionId: () => 'web-1' });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({ type: 'system', subtype: 'session_state_changed', state: 'running' });
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.event === 'turn_result')).toHaveLength(1),
+    );
+    expect(runner.status('web-1')).toBe('working');
+    expect(runner.awaitingSubagents('web-1')).toBe(true);
+
+    script.push({ type: 'system', subtype: 'session_state_changed', state: 'idle' });
+    await vi.waitFor(() => expect(runner.status('web-1')).toBe('needs_input'));
+  });
+
+  it('the CLI saying idle does not end the work Orbital still counts', async () => {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    // A background shell: the CLI goes idle beside it, Orbital does not.
+    const runner = new Runner({
+      hub, queryFn: script.fn as any, newSessionId: () => 'web-1',
+      hasLiveBackgroundWork: () => true,
+    });
+    const events = subscribed(hub, 'session:web-1');
+    await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    script.push({ type: 'system', subtype: 'session_state_changed', state: 'idle' });
+    // The fence: a second turn's result, drained only after the idle above.
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() =>
+      expect(events.filter((e) => e.event === 'turn_result')).toHaveLength(2),
+    );
+    expect(runner.status('web-1')).toBe('working');
+  });
+
   it('an interrupt stops the turn but leaves a session with background work running working', async () => {
     const hub = new Hub();
     const script = scriptedQueryFn();

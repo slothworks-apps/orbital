@@ -619,7 +619,16 @@ interface ManagedSession {
    * is what puts the two together.
    */
   turnEnded: boolean;
-  sleepTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * The CLI's own word on its state, from `session_state_changed`: `null`
+   * until the first one, and for good on a CLI that does not send them.
+   * Its `running` lasts until the main loop AND the background agents it
+   * waits on are done, so it holds a session `working` past the `result`
+   * that sets `turnEnded` — the CLI's view, beside Orbital's own reading
+   * of the task events rather than instead of it (`settleStatus()`).
+   */
+  cliState: 'idle' | 'running' | 'requires_action' | null;
+  sleepTimer:ReturnType<typeof setTimeout> | null;
   attempt: SessionAttempt;
   /** The session's command list once asked for (or pushed), `null` until then.
    * It lives on the session, so it dies with it — see `release()`. */
@@ -1105,6 +1114,14 @@ export class Runner {
    * read `working`; a map that said NEEDS INPUT through either was asking for
    * an answer nobody owed it.
    *
+   * The CLI's own `running` (`cliState`) counts as busy too. It covers the
+   * same two things from the CLI's side — the turn, and the background
+   * agents the CLI will wake up for — so it keeps a session `working` even
+   * where Orbital's reading of the task events missed one. It is only ever
+   * added, never trusted alone: the CLI says `idle` while a background
+   * shell still runs, which Orbital deliberately counts as work, and a CLI
+   * that sends no state at all leaves the reading as it was.
+   *
    * A parked decision is the exception that owns the status outright: the
    * turn has not ended and agents may well be running, but the CLI is
    * genuinely blocked on the human until `settleDecision` frees it — and
@@ -1117,7 +1134,7 @@ export class Runner {
   private settleStatus(sessionId: string): void {
     const s = this.sessions.get(sessionId);
     if (!s || s.decision) return;
-    const busy = !s.turnEnded || this.hasLiveBackgroundWork?.(sessionId) === true;
+    const busy = !s.turnEnded || s.cliState === 'running' || this.hasLiveBackgroundWork?.(sessionId) === true;
     // A session waiting for a usage limit to reset is `idle`: nothing will
     // move before the reset, and nobody is being asked anything.
     const want: SessionStatus = busy ? 'working' : this.isLimitWaiting?.(sessionId) ? 'idle' : 'needs_input';
@@ -1284,7 +1301,7 @@ export class Runner {
     const state: ManagedSession = {
       status: 'working', queue: [], pending: [], stream: null, agentStreams: new Map(), generator: null, sleepTimer: null,
       launchingCalls: new Map(), agentCalls: new Map(), agentParents: new Map(),
-      lastCall: null, turnEnded: false,
+      lastCall: null, turnEnded: false, cliState: null,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
       commands: null, decision: null,
       compacting: null, measuredCompactionMs: null, heldCompaction: null, lastCompacted: null,
@@ -1343,6 +1360,9 @@ export class Runner {
       // background agents and workflows with it (adr
       // the-composers-stop-spares-background-work).
       perTaskStopAffordance: true,
+      // `session_state_changed` is sent only when asked for (`cliState`).
+      // A whole environment, not an addition: `env` replaces the child's.
+      env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
       // Without this the SDK treats every "ask" decision as terminal and
       // auto-denies it, which is what used to push `AskUserQuestion` into
       // plain prose (spec 2026-09-20-interactive-decisions-design).
@@ -1465,6 +1485,15 @@ export class Runner {
     // a different id (a stray from another session) is not ours to
     // publish; messages with no id at all are stream-level noise.
     if (msg?.session_id !== sessionId) return;
+    // Ahead of the held compaction below: this frame says nothing about the
+    // conversation, so it must not be what publishes the mark early.
+    if (msg.type === 'system' && msg.subtype === 'session_state_changed') {
+      if (msg.state === 'idle' || msg.state === 'running' || msg.state === 'requires_action') {
+        state.cliState = msg.state;
+        this.settleStatus(sessionId);
+      }
+      return;
+    }
     // A compaction's mark waits one message for its summary frame. That frame
     // completes it; anything else publishes it as it is, ahead of itself.
     if (state.heldCompaction) {
@@ -2823,7 +2852,8 @@ export class Runner {
   awaitingSubagents(sessionId: string): boolean {
     const s = this.sessions.get(sessionId);
     if (!s || s.status !== 'working' || !s.turnEnded) return false;
-    return this.hasLiveBackgroundWork?.(sessionId) === true;
+    // Past its `result`, the CLI stays `running` only for the agents it waits on.
+    return s.cliState === 'running' || this.hasLiveBackgroundWork?.(sessionId) === true;
   }
 
   active(): string[] {
