@@ -84,8 +84,8 @@ secret, take it out.
 Commit messages and PR descriptions carry no attribution: no
 `Co-Authored-By` trailer for Claude, no "Generated with Claude Code"
 footer, even where a default or a reminder asks for one. The `commit-msg`
-hook refuses such a message; a PR description has no hook, so leave it out
-there yourself.
+hook refuses such a message; the `Attribution` workflow checks the same in
+every PR's commits and description.
 
 ### Every feature has a phone answer
 
