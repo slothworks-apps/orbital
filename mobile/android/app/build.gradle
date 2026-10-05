@@ -65,6 +65,17 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
+// The bundle for Play carries its version in its name; the debug APK keeps
+// Gradle's name, which the runbook's install commands use.
+tasks.matching { it.name == 'bundleRelease' }.configureEach {
+    doLast {
+        def dir = file("$buildDir/outputs/bundle/release")
+        def versioned = new File(dir, "orbital-${android.defaultConfig.versionName}.aab")
+        versioned.delete()
+        new File(dir, 'app-release.aab').renameTo(versioned)
+    }
+}
+
 // Play refuses an unsigned bundle; say why here instead of after the upload.
 gradle.taskGraph.whenReady { graph ->
     if (!keystorePropertiesFile.exists() && graph.allTasks.any { it.name == 'bundleRelease' }) {

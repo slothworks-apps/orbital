@@ -234,7 +234,7 @@ npm run android:release   # from the repo root
 It runs `build` without `ORBITAL_MOBILE_DEV` (a release must never be a dev
 build), then `aab` (`gradlew bundleRelease`).
 
-The bundle is `mobile/android/app/build/outputs/bundle/release/app-release.aab`.
+The bundle is `mobile/android/app/build/outputs/bundle/release/orbital-<versionName>.aab`.
 `google-services.json` must be in place before `build`, or the release has
 no push ([Push](#push)). A release build reaches only an `https` relay.
 
