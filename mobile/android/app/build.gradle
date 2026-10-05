@@ -1,5 +1,13 @@
 apply plugin: 'com.android.application'
 
+// The upload key for Google Play (runbook build-the-android-app → Release to Google Play).
+// It lives in the git-ignored secrets/ at the repo root, never in the project.
+def keystorePropertiesFile = rootProject.file('../../secrets/keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
 android {
     namespace = "io.slothworks.orbital.mobile"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,8 +24,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            upload {
+                storeFile rootProject.file("../../secrets/${keystoreProperties['storeFile']}")
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.upload
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -43,6 +64,24 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+
+// The bundle for Play carries its version in its name; the debug APK keeps
+// Gradle's name, which the runbook's install commands use.
+tasks.matching { it.name == 'bundleRelease' }.configureEach {
+    doLast {
+        def dir = file("$buildDir/outputs/bundle/release")
+        def versioned = new File(dir, "orbital-${android.defaultConfig.versionName}.aab")
+        versioned.delete()
+        new File(dir, 'app-release.aab').renameTo(versioned)
+    }
+}
+
+// Play refuses an unsigned bundle; say why here instead of after the upload.
+gradle.taskGraph.whenReady { graph ->
+    if (!keystorePropertiesFile.exists() && graph.allTasks.any { it.name == 'bundleRelease' }) {
+        throw new GradleException("No upload key: ${keystorePropertiesFile} is missing (runbook build-the-android-app).")
+    }
+}
 
 try {
     def servicesJSON = file('google-services.json')

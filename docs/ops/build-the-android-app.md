@@ -24,7 +24,8 @@ Android project by `cap sync`.
   emulator. Android Studio installs it under `~/Library/Android/sdk`, which is
   where `mobile/scripts/android-env.sh` looks when `ANDROID_HOME` is not set.
 - **JDK 21 for Gradle.** The system `java` on this Mac is 1.8, which Gradle
-  cannot use. The env script takes, in order: `JAVA_HOME` if set; a JDK 21
+  cannot use. The env script takes, in order: `JAVA_HOME` if it is JDK 21
+  (an IDE often sets it to its own newer runtime, which is dropped); a JDK 21
   registered with macOS (`/usr/libexec/java_home -F -v 21`); Android Studio's
   bundled JBR at `$HOME/Applications/Android Studio.app/Contents/jbr/Contents/Home`
   or `/Applications/Android Studio.app/Contents/jbr/Contents/Home`. Check what
@@ -189,6 +190,76 @@ must stay in the project. A channel's sound is fixed once a device has
 created it: a change to a channel reaches only a fresh install (uninstall
 first), and `adb shell dumpsys notification | grep needs_input` shows what a
 device holds.
+
+## Release to Google Play
+
+The app ships through the owner's Play Console developer account, today on
+the **Internal testing** track: no review, live within minutes, up to 100
+testers invited by email.
+
+### The upload key
+
+Play re-signs the app with its own key (Play App Signing); the key here only
+proves an upload came from us. Losing it is recoverable — Play support
+resets an upload key — but keep a backup with the password anyway.
+
+Create it once, in the git-ignored `secrets/` at the repo root:
+
+```bash
+. mobile/scripts/android-env.sh
+keytool -genkeypair -v -keystore secrets/orbital-upload.jks -alias upload \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Then `secrets/keystore.properties`, which `mobile/android/app/build.gradle`
+reads (`storeFile` is relative to `secrets/`):
+
+```properties
+storeFile=orbital-upload.jks
+storePassword=<the keystore password>
+keyAlias=upload
+keyPassword=<the key password; keytool's default is the keystore password>
+```
+
+Without that file a debug build works as before, and `bundleRelease` stops
+with "No upload key" rather than producing an unsigned bundle Play would
+refuse.
+
+### Build the bundle
+
+```bash
+npm run android:release   # from the repo root
+```
+
+It runs `build` without `ORBITAL_MOBILE_DEV` (a release must never be a dev
+build), then `aab` (`gradlew bundleRelease`).
+
+The bundle is `mobile/android/app/build/outputs/bundle/release/orbital-<versionName>.aab`.
+`google-services.json` must be in place before `build`, or the release has
+no push ([Push](#push)). A release build reaches only an `https` relay.
+
+Every upload needs a `versionCode` higher than any bundle Play has seen,
+including ones never rolled out; bump it with `versionName`
+(`mobile/CLAUDE.md`).
+
+### Play Console, the first time
+
+1. Create app: Orbital, App, Free. The first bundle fixes the package name
+   to `io.slothworks.orbital.mobile`.
+2. Testing → Internal testing: a tester list (emails), then a release with
+   Play App Signing on and the `.aab`.
+3. App content, which the Console asks for before the first rollout: a
+   privacy policy URL (the app asks for the camera and notifications), Data
+   safety (the app collects nothing; the relay holds a push token and
+   encrypted frames it cannot read), content rating, target audience, ads
+   (none), and App access (the app needs pairing with a Mac running
+   Orbital).
+4. Testers join through the opt-in link on the Internal testing page and
+   install from Play.
+
+A personal developer account created after November 2023 needs a closed
+test with 12 testers over 14 days before it can publish to production;
+internal testing has no such gate.
 
 ## Troubleshooting
 
