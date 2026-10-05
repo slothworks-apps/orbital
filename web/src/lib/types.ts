@@ -27,10 +27,21 @@ export interface SessionDefaults {
   lastClaudeDir?: number | null
 }
 
-/** A configured Claude directory as the session label and the New session choice need it. */
+/**
+ * A configured Claude directory as the session mark and the New session
+ * choice need it: the name, and for the mark's tooltip and the pickers' sub
+ * line its path, account and presence on disk. Those three are optional: a
+ * Mac from before them sends the id and the name only.
+ */
 export interface ClaudeDirName {
   id: number
   name: string
+  /** Absolute; the path in effect. */
+  path?: string
+  /** The signed-in account's e-mail, when the directory's `.claude.json` names one. */
+  account?: string | null
+  /** False when the directory is missing on disk: shown, but not chosen (canvas 44f). */
+  exists?: boolean
 }
 
 /** One row of `GET /api/claude-dirs` (Mac only). Mirrors `server/src/claudeDirs/service.ts`. */
