@@ -7,12 +7,15 @@ import { useOrbital } from '../../store/store'
 import { recheckMac } from '../connect'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
 import { agoLabel, asOfLabel, basename, checkedLabel } from '../format'
-import { GROUP_LABEL, decisionReason, groupSessions, latestActivity, tagChips, type GroupKey } from '../sessionList'
+import {
+  GROUP_LABEL, groupSessions, inputReason, isGateRow, latestActivity, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
+  taskStatus, tasksForRow, type GroupKey,
+} from '../sessionList'
 import { isMacAsleep, useMobile } from '../state'
 import { MobileScreen, PrimaryButton } from '../ui'
 import { PlanetGlyph } from './Glyph'
 
-/** 9a (spec § 5): the sessions, grouped by what they need from you. */
+/** 9a, updated by 10a (spec 2026-10-05-mobile-next-design): the sessions, grouped by what they need from you. */
 export function SessionListScreen() {
   const sessions = useOrbital(
     useShallow((s) => s.order.map((id) => s.sessions[id]).filter((x): x is ApiSession => x !== undefined)),
@@ -22,6 +25,8 @@ export function SessionListScreen() {
     useShallow((s) => ({ offline: isMacAsleep(s), link: s.link, macName: s.macName, asOf: s.asOf, checkedAt: s.checkedAt })),
   )
   const openSession = useMobile((s) => s.openSession)
+  const openSubagent = useMobile((s) => s.openSubagent)
+  const openTask = useMobile((s) => s.openTask)
   const go = useMobile((s) => s.go)
   const [tagId, setTagId] = useState<number | null>(null)
   const [endedOpen, setEndedOpen] = useState(false)
@@ -148,6 +153,16 @@ export function SessionListScreen() {
               </section>
             )
           }
+          if (group.key === 'pinned') {
+            // Canvas 10a: headless, above the ENDED fold until unpinned.
+            return (
+              <section key="pinned" className="mt-1.5">
+                {group.sessions.map((s) => (
+                  <EndedRow key={s.id} session={s} tag={tagById.get(s.tagIds[0])} now={now} onOpen={openSession} pinned />
+                ))}
+              </section>
+            )
+          }
           const rows = group.sessions.map((s) => (
             <SessionRow
               key={s.id}
@@ -155,9 +170,11 @@ export function SessionListScreen() {
               tag={tagById.get(s.tagIds[0])}
               group={group.key}
               offline={offline}
+              mac={mac}
               now={now}
               onOpen={openSession}
-              tagHue={tagById.get(s.tagIds[0])?.hue}
+              onOpenSubagent={openSubagent}
+              onOpenTask={openTask}
             />
           ))
           const label = (
@@ -184,7 +201,7 @@ export function SessionListScreen() {
                 {rows}
                 {offline && (
                   <p className="pb-3 pl-[70px] pr-4 text-[12px] leading-[1.4] text-[rgba(160,190,225,.6)]">
-                    You can read these; answering waits for the Mac.
+                    Readable, gates and cards included; answering waits for the Mac.
                   </p>
                 )}
               </section>
@@ -192,7 +209,7 @@ export function SessionListScreen() {
           }
           return (
             <section key={group.key}>
-              <div className="px-5 pb-0.5 pt-4 font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">{label}</div>
+              <div className="px-5 pb-0.5 pt-3.5 font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">{label}</div>
               {rows}
             </section>
           )
@@ -292,61 +309,113 @@ function WhereLine({ session, tag, dim = false }: { session: ApiSession; tag: Ta
   )
 }
 
+/** Canvas 10a's pin mark after a title: a ring on a stem. */
+function PinMark({ ink, dim = false }: { ink: string; dim?: boolean }) {
+  return (
+    <span role="img" aria-label="Pinned" className={['relative block h-[13px] w-2.5 shrink-0', dim ? 'opacity-70' : ''].join(' ')}>
+      <span className="absolute left-[1.5px] top-0 box-border block h-[7px] w-[7px] rounded-full border-[1.5px]" style={{ borderColor: ink }} />
+      <span className="absolute left-[4.3px] top-[7px] block h-1.5 w-[1.4px] rounded-[1px]" style={{ background: ink }} />
+    </span>
+  )
+}
+
+/** Canvas 10a: the title row's ink for the pin. */
+const PIN_INK = 'rgba(200,220,245,.75)'
+const PIN_INK_ENDED = 'rgba(200,220,245,.65)'
+
 function SessionRow({
   session,
   tag,
   group,
   offline,
+  mac,
   now,
   onOpen,
-  tagHue,
+  onOpenSubagent,
+  onOpenTask,
 }: {
   session: ApiSession
   tag: Tag | undefined
   group: GroupKey
   offline: boolean
+  mac: string
   now: number
   onOpen: (id: string) => void
-  tagHue: number | undefined
+  onOpenSubagent: (ref: { sessionId: string; toolUseId: string }) => void
+  onOpenTask: (ref: { sessionId: string; taskId: string }) => void
 }) {
   const [moonsOpen, setMoonsOpen] = useState(false)
-  const reason = group === 'input' ? decisionReason(session.pendingDecision) : null
+  const input = group === 'input'
+  const reason = input ? inputReason(session) : null
+  const waitLine = group === 'limit' ? limitLine(session, offline, mac, now) : null
   const idle = group === 'idle'
+  // A gate carries no elapsed time (10a); asleep, NEEDS INPUT shows none either (9a). The limit
+  // row shows its last activity like every other row (spec § 8, Decision 9).
   const time =
-    session.lastAt === null || (offline && group === 'input') ? null : idle ? agoLabel(session.lastAt, now) : timeAgo(session.lastAt, now)
-  const running = session.subagents.filter((a) => a.state !== 'ended').length
-  const moonColor = tagHue !== undefined ? tagColor(tagHue) : 'var(--state-neutral)'
+    session.lastAt === null || (input && (offline || isGateRow(session)))
+      ? null
+      : idle
+        ? agoLabel(session.lastAt, now)
+        : timeAgo(session.lastAt, now)
+  const summary = moonsSummary(session)
+  const hasMoons = summary.subagents !== null || summary.tasks !== null
+  // Canvas 10a asleep: a row with moons trades its where line for the counts, and the
+  // NEEDS INPUT and limit rows keep only their reason.
+  const asleepCounts = offline && hasMoons ? moonsSummaryAsleep(session) : null
+  const showWhere = !(offline && (input || group === 'limit' || asleepCounts !== null))
+  const moonColor = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
+  const tasks = tasksForRow(session.backgroundTasks)
   return (
-    <div className={group === 'input' ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]'}>
+    <div className={input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]'}>
       <button
         type="button"
         onClick={() => onOpen(session.id)}
         className={[
           'flex w-full items-center gap-2.5 text-left',
-          group === 'input' ? 'min-h-16 py-2.5 pl-2 pr-3.5' : offline ? 'min-h-15 p-2' : 'min-h-16 px-2 py-2.5',
+          // Canvas 10a, online and asleep.
+          input
+            ? [offline ? 'min-h-15' : 'min-h-16', 'py-2 pl-2 pr-3.5'].join(' ')
+            : offline
+              ? [group === 'limit' ? 'min-h-15' : asleepCounts !== null ? 'min-h-14' : 'min-h-15', asleepCounts !== null || group === 'limit' ? 'px-2 py-1.5' : 'p-2'].join(' ')
+              : group === 'limit'
+                ? 'min-h-16 p-2'
+                : 'min-h-15 p-2',
         ].join(' ')}
       >
         <PlanetGlyph session={session} offline={offline} />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 items-center gap-[7px]">
             <span
               className={[
                 'truncate text-[15px] font-semibold',
-                offline ? 'text-[rgba(232,238,248,.85)]' : idle ? 'text-[rgba(232,238,248,.88)]' : 'text-text-bright',
+                offline
+                  ? 'text-[rgba(232,238,248,.85)]'
+                  : idle
+                    ? 'text-[rgba(232,238,248,.88)]'
+                    : group === 'limit'
+                      ? 'text-[rgba(232,238,248,.9)]'
+                      : 'text-text-bright',
               ].join(' ')}
             >
               {session.title || 'Untitled session'}
             </span>
+            {session.pinnedAt ? <PinMark ink={PIN_INK} dim={offline} /> : null}
             {isReadOnly(session) && (
               <span className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.75)]">
                 TERMINAL · READ-ONLY
               </span>
             )}
           </span>
-          <WhereLine session={session} tag={tag} dim={offline} />
+          {showWhere && <WhereLine session={session} tag={tag} dim={offline} />}
+          {asleepCounts !== null && <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">{asleepCounts}</span>}
           {reason && (
             <span className={['text-[12.5px] leading-[1.35]', offline ? 'text-[rgba(255,214,173,.75)]' : 'text-[#ffd6ad]'].join(' ')}>
               {reason}
+            </span>
+          )}
+          {waitLine && (
+            <span className={['text-[12.5px] leading-[1.35]', offline ? 'text-[rgba(200,215,235,.7)]' : 'text-[rgba(200,215,235,.8)]'].join(' ')}>
+              {waitLine}
             </span>
           )}
         </span>
@@ -354,44 +423,85 @@ function SessionRow({
           <span
             className={[
               'shrink-0 self-start whitespace-nowrap pt-[3px] font-mono text-[11px]',
-              group === 'input' ? 'text-[var(--state-input)]' : offline ? 'text-[rgba(160,190,225,.5)]' : idle ? 'text-[rgba(160,190,225,.55)]' : 'text-[rgba(160,190,225,.65)]',
+              input ? 'text-[var(--state-input)]' : offline ? 'text-[rgba(160,190,225,.5)]' : idle ? 'text-[rgba(160,190,225,.55)]' : 'text-[rgba(160,190,225,.65)]',
             ].join(' ')}
           >
             {time}
           </span>
         )}
       </button>
-      {session.subagents.length > 0 && (
+      {hasMoons && !offline && (
         <>
+          {/* Canvas 10a: the collapsed summary, tasks after a ·. */}
           <button
             type="button"
             aria-expanded={moonsOpen}
             onClick={() => setMoonsOpen(!moonsOpen)}
             className="-mt-2.5 ml-[62px] flex h-11 items-center gap-[9px] pr-2.5 text-left"
           >
-            <span className="flex gap-[5px]">
-              {session.subagents.map((agent) => (
-                <Moon key={agent.id} color={moonColor} running={!offline && agent.state !== 'ended'} />
-              ))}
-            </span>
-            <span className="font-mono text-[11px] text-[rgba(200,220,245,.75)]">
-              {session.subagents.length} {session.subagents.length === 1 ? 'subagent' : 'subagents'} · {running} running
-            </span>
+            {session.subagents.length > 0 && (
+              <span className="flex gap-[5px]">
+                {session.subagents.map((agent) => (
+                  <Moon key={agent.id} color={moonColor} running={agent.state !== 'ended'} />
+                ))}
+              </span>
+            )}
+            {summary.subagents !== null && <span className="font-mono text-[11px] text-[rgba(200,220,245,.75)]">{summary.subagents}</span>}
+            {summary.tasks !== null && (
+              <span className="font-mono text-[11px] text-[rgba(200,220,245,.75)]">
+                {summary.subagents !== null && <span className="text-[rgba(150,205,255,.3)]">· </span>}▣ {summary.tasks}
+              </span>
+            )}
             <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">
               {moonsOpen ? '▾' : '▸'}
             </span>
           </button>
           {moonsOpen && (
-            <ul className="-mt-1 mb-2.5 ml-[62px] border-l border-[rgba(150,205,255,.12)]">
-              {session.subagents.map((agent) => (
-                <li key={agent.id} className="flex h-[34px] items-center gap-[9px] pl-3 font-mono text-[11px]">
-                  <Moon color={moonColor} running={!offline && agent.state !== 'ended'} small />
-                  <span className="min-w-0 truncate text-text-bright">{agent.name}</span>
-                  <span className="ml-auto shrink-0 pr-2 text-[rgba(160,190,225,.65)]">
-                    {agent.state === 'ended' ? 'done' : 'running'}
-                    {' · '}
-                    {timeAgo(agent.state === 'ended' ? (agent.endedAt ?? agent.startedAt) : agent.startedAt, now)}
-                  </span>
+            // Canvas 10a: 44 px rows ending in ›; a subagent opens 10f, ▣ a task 10g.
+            <ul className="-mt-1 mb-2 ml-[62px] flex flex-col border-l border-[rgba(150,205,255,.12)]">
+              {session.subagents.map((agent) => {
+                const toolUseId = agent.toolUseId
+                const body = (
+                  <>
+                    <Moon color={moonColor} running={agent.state !== 'ended'} small />
+                    <span className="min-w-0 truncate text-text-bright">{agent.name}</span>
+                    <span className="flex-1" />
+                    <span className="shrink-0 text-[rgba(160,190,225,.65)]">{subagentStatus(agent, now)}</span>
+                  </>
+                )
+                return (
+                  <li key={agent.id}>
+                    {toolUseId ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenSubagent({ sessionId: session.id, toolUseId })}
+                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono text-[11px]"
+                      >
+                        {body}
+                        <Chevron />
+                      </button>
+                    ) : (
+                      // A moon without its launching call cannot be opened (spec § 3): no ›.
+                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono text-[11px]">{body}</span>
+                    )}
+                  </li>
+                )
+              })}
+              {tasks.map((task) => (
+                <li key={task.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenTask({ sessionId: session.id, taskId: task.id })}
+                    className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono text-[11px]"
+                  >
+                    <span aria-hidden className="block w-2 shrink-0 text-center text-[rgba(200,220,245,.75)]">
+                      ▣
+                    </span>
+                    <span className="min-w-0 truncate text-text-bright">{task.label}</span>
+                    <span className="flex-1" />
+                    <span className="shrink-0 text-[rgba(160,190,225,.65)]">{taskStatus(task, now)}</span>
+                    <Chevron />
+                  </button>
                 </li>
               ))}
             </ul>
@@ -402,13 +512,22 @@ function SessionRow({
   )
 }
 
+/** The › that ends an openable moons row (canvas 10a). */
+function Chevron() {
+  return (
+    <span aria-hidden className="block w-6 shrink-0 text-center text-[14px] text-[rgba(160,190,225,.6)]">
+      ›
+    </span>
+  )
+}
+
 /** A subagent's dot (9p "SUBAGENTS ROW"): the session's tag hue; running ones pulse. */
 function Moon({ color, running, small = false }: { color: string; running: boolean; small?: boolean }) {
   return (
     <span
       aria-hidden
       className={[
-        'block shrink-0 rounded-full border bg-[oklch(30%_.05_220)]',
+        'box-border block shrink-0 rounded-full border bg-[oklch(30%_.05_220)]',
         small ? 'h-2 w-2' : 'h-[9px] w-[9px]',
         running ? 'orbital-pulse' : '',
       ].join(' ')}
@@ -417,30 +536,47 @@ function Moon({ color, running, small = false }: { color: string; running: boole
   )
 }
 
-/** An ended row (9a, expanded): smaller, faded, a grey planet and no branch. */
+/**
+ * An ended row (9a, expanded): smaller, faded, a grey planet and no branch.
+ * `pinned` is 10a's headless row above the fold: the pin after the title and
+ * "· ended, pinned" after the folder.
+ */
 function EndedRow({
   session,
   tag,
   now,
   onOpen,
+  pinned = false,
 }: {
   session: ApiSession
   tag: Tag | undefined
   now: number
   onOpen: (id: string) => void
+  pinned?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={() => onOpen(session.id)}
-      className="mx-3 flex min-h-13 w-[calc(100%-24px)] items-center gap-2.5 border-b border-[rgba(150,205,255,.05)] px-2 py-1 text-left opacity-75"
+      className={[
+        'mx-3 flex min-h-13 w-[calc(100%-24px)] items-center gap-2.5 text-left',
+        pinned ? 'px-2 py-1 opacity-80' : 'border-b border-[rgba(150,205,255,.05)] px-2 py-1 opacity-75',
+      ].join(' ')}
     >
       <PlanetGlyph session={session} offline={false} />
       <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <span className="truncate text-[14px] font-semibold text-[rgba(220,235,255,.7)]">{session.title || 'Untitled session'}</span>
+        <span className="flex min-w-0 items-center gap-[7px]">
+          <span className={['truncate text-[14px] font-semibold', pinned ? 'text-[rgba(220,235,255,.75)]' : 'text-[rgba(220,235,255,.7)]'].join(' ')}>
+            {session.title || 'Untitled session'}
+          </span>
+          {pinned && <PinMark ink={PIN_INK_ENDED} />}
+        </span>
         <span className="flex items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
-          <span aria-hidden className="block h-1.5 w-1.5 rounded-full opacity-70" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
-          <span className="truncate">{basename(session.cwd)}</span>
+          <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full opacity-70" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
+          <span className="truncate">
+            {basename(session.cwd)}
+            {pinned && ' · ended, pinned'}
+          </span>
         </span>
       </span>
       {session.lastAt !== null && <span className="shrink-0 font-mono text-[11px] text-[rgba(160,190,225,.45)]">{timeAgo(session.lastAt, now)}</span>}

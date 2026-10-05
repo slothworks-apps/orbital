@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { ApiSession, PendingDecision, Tag } from '../lib/types'
+import type { ApiSession, BackgroundTask, LimitWait, PendingDecision, Tag } from '../lib/types'
 import { agoLabel, asOfLabel, basename, checkedLabel, homePath, relayHost } from '../mobile/format'
 import {
-  decisionReason, glyphFor, groupOf, groupSessions, latestActivity, stateLine, tagChips,
+  decisionReason, gateReason, glyphFor, groupOf, groupSessions, inputReason, isGateRow, latestActivity, limitLine, moonsSummary,
+  moonsSummaryAsleep, stateLine, tagChips, tasksForRow,
 } from '../mobile/sessionList'
 
 function session(id: string, patch: Partial<ApiSession> = {}): ApiSession {
@@ -122,5 +123,125 @@ describe('labels', () => {
     expect(homePath('/private/tmp/x')).toBe('/private/tmp/x')
     expect(homePath('/Users')).toBe('/Users')
     expect(homePath('/srv/Users/tomin/a')).toBe('/srv/Users/tomin/a')
+  })
+})
+
+describe('10a groups', () => {
+  const wait = (patch: Partial<LimitWait> = {}): LimitWait => ({
+    resetsAt: new Date(2026, 9, 5, 14, 5).toISOString(), windowKind: 'five_hour', windowLabel: '5-hour window',
+    cancelled: false, willContinue: true, queued: [], ...patch,
+  })
+
+  it('puts a waiting gate in NEEDS INPUT and a reviewing gate with its own state', () => {
+    expect(groupOf(session('g', { status: 'needs_input', harnessGate: 'waiting' }))).toBe('input')
+    expect(groupOf(session('r', { status: 'idle', harnessGate: 'reviewing' }))).toBe('idle')
+  })
+
+  it('puts a limit wait between WORKING and IDLE, cancelled or not, and never a terminal one', () => {
+    const groups = groupSessions(
+      [
+        session('idle'),
+        session('wait', { limitWait: wait() }),
+        session('cancelled', { limitWait: wait({ cancelled: true, willContinue: false }) }),
+        session('work', { status: 'working' }),
+      ],
+      null,
+    )
+    expect(groups.map((g) => g.key)).toEqual(['working', 'limit', 'idle'])
+    expect(groups[1].sessions.map((s) => s.id).sort()).toEqual(['cancelled', 'wait'])
+    expect(groupOf(session('t', { source: 'terminal', limitWait: wait() }))).toBe('idle')
+  })
+
+  it('leads each group with its pinned rows in pin order, then the rest newest first', () => {
+    const [idle] = groupSessions(
+      [
+        session('new', { lastAt: 9 }),
+        session('pin-late', { lastAt: 1, pinnedAt: 20 }),
+        session('old', { lastAt: 2 }),
+        session('pin-early', { lastAt: 1, pinnedAt: 10 }),
+      ],
+      null,
+    )
+    expect(idle.sessions.map((s) => s.id)).toEqual(['pin-early', 'pin-late', 'new', 'old'])
+  })
+
+  it('keeps a pinned ended session above the fold and folds the unpinned ones', () => {
+    const groups = groupSessions(
+      [
+        session('gone', { status: 'ended' }),
+        session('kept', { status: 'ended', pinnedAt: 5 }),
+        session('asks', { status: 'needs_input', pendingDecision: question, pinnedAt: 1 }),
+      ],
+      null,
+    )
+    expect(groups.map((g) => [g.key, g.sessions.map((s) => s.id)])).toEqual([
+      ['input', ['asks']],
+      ['pinned', ['kept']],
+      ['ended', ['gone']],
+    ])
+  })
+})
+
+describe('10a rows', () => {
+  const now = new Date(2026, 9, 5, 13, 41).getTime()
+  const wait = (patch: Partial<LimitWait> = {}): LimitWait => ({
+    resetsAt: new Date(2026, 9, 5, 14, 5).toISOString(), windowKind: 'five_hour', windowLabel: '5-hour window',
+    cancelled: false, willContinue: true, queued: [], ...patch,
+  })
+
+  it('names the gated step, and a parked call outranks the gate', () => {
+    const gate = session('g', { status: 'needs_input', harnessGate: 'waiting', harnessStep: { index: 3, total: 7 } })
+    expect(isGateRow(gate)).toBe(true)
+    expect(inputReason(gate)).toBe('◆ Harness · step 4 of 7 needs your OK')
+    expect(gateReason(null)).toBe('◆ Harness · needs your OK')
+    const parked = { ...gate, pendingDecision: question }
+    expect(isGateRow(parked)).toBe(false)
+    expect(inputReason(parked)).toBe('Which branch?')
+    expect(isGateRow(session('r', { status: 'needs_input', harnessGate: 'reviewing' }))).toBe(false)
+  })
+
+  it("says when a limit wait continues, in each of its forms", () => {
+    const at = '14:05'
+    expect(limitLine(session('w', { limitWait: wait({ queued: ['go on'] }) }), false, 'studio', now)).toBe(
+      `Continues at ${at} · 5-hour window · 1 queued`,
+    )
+    expect(limitLine(session('w', { limitWait: wait() }), false, 'studio', now)).toBe(`Continues at ${at} · 5-hour window`)
+    expect(limitLine(session('c', { limitWait: wait({ cancelled: true, willContinue: false }) }), false, 'studio', now)).toBe(
+      `Limit resets ${at} · auto-continue cancelled`,
+    )
+    expect(limitLine(session('o', { limitWait: wait({ willContinue: false, autoContinue: false }) }), false, 'studio', now)).toBe(
+      `Limit resets ${at} · automatic continue is off`,
+    )
+    expect(limitLine(session('a', { limitWait: wait() }), true, 'studio', now)).toBe(
+      `Resets at ${at} — continues only if studio is awake then`,
+    )
+    expect(limitLine(session('t', { source: 'terminal', limitWait: wait() }), false, 'studio', now)).toBeNull()
+    expect(limitLine(session('n'), false, 'studio', now)).toBeNull()
+  })
+
+  it('adds the tasks to the collapsed summary after the subagents', () => {
+    const agents = [
+      { id: 'a', name: 'tests', state: 'working' as const, startedAt: 1 },
+      { id: 'b', name: 'lint', state: 'ended' as const, startedAt: 1, endedAt: 2 },
+    ]
+    const task: BackgroundTask = { id: 't', kind: 'shell', label: 'npm run dev', state: 'running', startedAt: 1, hasOutput: true }
+    expect(moonsSummary(session('s', { subagents: agents }))).toEqual({ subagents: '2 subagents · 1 running', tasks: null })
+    expect(moonsSummary(session('s', { subagents: agents, backgroundTasks: [task] }))).toEqual({
+      subagents: '2 subagents · 1 running',
+      tasks: '1 task',
+    })
+    expect(moonsSummary(session('s', { backgroundTasks: [task, { ...task, id: 'u' }] }))).toEqual({ subagents: null, tasks: '2 tasks' })
+    expect(moonsSummaryAsleep(session('s', { subagents: agents, backgroundTasks: [task] }))).toBe('2 subagents · ▣ 1 task · last known')
+    expect(moonsSummaryAsleep(session('s'))).toBeNull()
+  })
+
+  it('lists running tasks before ended ones', () => {
+    const base: BackgroundTask = { id: '', kind: 'shell', label: '', state: 'ended', startedAt: 0, hasOutput: true }
+    const tasks = tasksForRow([
+      { ...base, id: 'old-ended', startedAt: 1 },
+      { ...base, id: 'running', state: 'running', startedAt: 2 },
+      { ...base, id: 'new-ended', startedAt: 3 },
+    ])
+    expect(tasks.map((t) => t.id)).toEqual(['running', 'new-ended', 'old-ended'])
   })
 })

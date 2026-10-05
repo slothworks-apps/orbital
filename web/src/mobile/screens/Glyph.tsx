@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import { dotMotionClass, stateColor } from '../../lib/stateStyle'
 import { sessionStateKey, type ApiSession, type SessionStateKey } from '../../lib/types'
 import { StateDot } from '../../ui/StateDot'
-import { glyphFor } from '../sessionList'
+import { glyphFor, isGateRow, waitsForLimit } from '../sessionList'
 
 /** 9b's header dot sizes, px; the fidelity pass owns them. */
 export const GLYPH_SOLID_PX = 7
@@ -26,6 +26,11 @@ const PLANET_IDLE_PX = 26
 const PLANET_ENDED_PX = 18
 const CORE_SOLID_PX = 8
 const CORE_HOLLOW_PX = 7
+/** Canvas 10a `G.gate`: the gate's centre, a square turned to a diamond, and its corner radius. */
+const CORE_DIAMOND_PX = 8
+const CORE_DIAMOND_RADIUS_PX = 1.5
+
+type PlanetFields = StateFields & Pick<ApiSession, 'harnessGate' | 'source' | 'limitWait' | 'pinnedAt'>
 
 /**
  * Which states turn their tick ring (9p: "ring turns"), and how slowly — a
@@ -45,9 +50,15 @@ const RING_MASK = 'radial-gradient(farthest-side, transparent calc(100% - 3px), 
  * A session's planet in the list (9a, 9p "STATE GLYPH · 28 PX"): a tick
  * ring, a body lit in the state's colour and the state's dot at its core.
  * Offline it keeps shape and colour, dimmed, and nothing moves.
+ *
+ * Two rows of 10a differ: a harness gate is NEEDS INPUT's planet held still
+ * — no ring turn, a diamond at its core that does not breathe — and a limit
+ * wait is IDLE's planet with a hollow core, still and never amber.
  */
-export function PlanetGlyph({ session, offline }: { session: StateFields; offline: boolean }) {
+export function PlanetGlyph({ session, offline }: { session: PlanetFields; offline: boolean }) {
   const key = sessionStateKey(session)
+  const gate = isGateRow(session)
+  const limit = !gate && waitsForLimit(session)
   if (key === 'ended') {
     return (
       <span aria-hidden className="grid h-11 w-11 shrink-0 place-items-center">
@@ -58,11 +69,15 @@ export function PlanetGlyph({ session, offline }: { session: StateFields; offlin
       </span>
     )
   }
-  const quiet = key === 'idle'
+  const quiet = key === 'idle' || limit
   const color = quiet ? 'rgba(200,215,235,.7)' : stateColor(key)
-  const dot = glyphFor(key, offline)
+  const dot = limit
+    ? { shape: 'hollow' as const, motion: 'steady' as const }
+    : gate
+      ? { ...glyphFor(key, offline), motion: 'steady' as const }
+      : glyphFor(key, offline)
   const size = quiet ? PLANET_IDLE_PX : PLANET_PX
-  const core = dot.shape === 'solid' ? CORE_SOLID_PX : CORE_HOLLOW_PX
+  const core = gate ? CORE_DIAMOND_PX : dot.shape === 'solid' ? CORE_SOLID_PX : CORE_HOLLOW_PX
   // oklab, not oklch: mixing amber into a blue-black through oklch hue swings it green.
   const mix = (share: number, onto: string) => `color-mix(in oklab, ${color} ${share}%, ${onto})`
   const ring: CSSProperties = {
@@ -70,7 +85,7 @@ export function PlanetGlyph({ session, offline }: { session: StateFields; offlin
     background: `repeating-conic-gradient(${quiet ? 'rgba(200,215,235,.32)' : mix(offline ? 55 : 78, 'transparent')} 0 1.5deg, transparent 1.5deg 8deg)`,
     WebkitMask: RING_MASK,
     mask: RING_MASK,
-    animation: offline ? undefined : RING_SPIN[key],
+    animation: offline || gate ? undefined : RING_SPIN[key],
   }
   const body: CSSProperties = {
     background: `radial-gradient(circle at 50% 42%, ${mix(quiet ? 12 : 22, 'oklch(22% .02 230)')}, ${mix(quiet ? 4 : 10, 'oklch(14% .015 230)')} 72%)`,
@@ -84,11 +99,12 @@ export function PlanetGlyph({ session, offline }: { session: StateFields; offlin
         <span className="absolute inset-0 rounded-full" style={body} />
         {dot.shape !== 'none' && (
           <span
-            className={['absolute left-1/2 top-1/2 box-border rounded-full', dotMotionClass(dot.motion)].join(' ')}
+            className={['absolute left-1/2 top-1/2 box-border', gate ? '' : 'rounded-full', dotMotionClass(dot.motion)].join(' ')}
             style={{
               width: core,
               height: core,
               margin: `-${core / 2}px 0 0 -${core / 2}px`,
+              ...(gate ? { borderRadius: CORE_DIAMOND_RADIUS_PX, transform: 'rotate(45deg)' } : {}),
               ...(dot.shape === 'solid'
                 ? { background: offline ? mix(78, 'transparent') : color }
                 : { border: `1.5px solid ${color}` }),

@@ -1,29 +1,69 @@
 import type { StateDot } from '../lib/stateStyle'
-import { sessionStateKey, type ApiSession, type PendingDecision, type SessionStateKey, type Tag } from '../lib/types'
+import { timeAgo } from '../lib/format'
+import { continuesAtReset, formatResetAt } from '../lib/limits'
+import {
+  gateWaits, sessionStateKey, type ApiSession, type BackgroundTask, type PendingDecision, type SessionStateKey, type Subagent, type Tag,
+} from '../lib/types'
 import { asOfLabel } from './format'
 import { isListable } from '../lib/harnessSession'
 
-export type GroupKey = 'input' | 'working' | 'idle' | 'ended'
+/**
+ * `pinned` is 10a's headless band of ended sessions kept above the ENDED
+ * fold by their pin (spec 2026-10-05-mobile-next-design § 4).
+ */
+export type GroupKey = 'input' | 'working' | 'limit' | 'idle' | 'pinned' | 'ended'
 
-/** 9a's order (spec § 5): what asks for you first, what is over last. */
-export const GROUP_ORDER: readonly GroupKey[] = ['input', 'working', 'idle', 'ended']
+/**
+ * 10a's order (spec 2026-10-05-mobile-next-design § 4, § 5): what asks for
+ * you first, a limit wait between WORKING and IDLE, the pinned ended rows
+ * above the fold, what is over last.
+ */
+export const GROUP_ORDER: readonly GroupKey[] = ['input', 'working', 'limit', 'idle', 'pinned', 'ended']
 
+/** The band's heading; the pinned band has none (canvas 10a). */
 export const GROUP_LABEL: Record<GroupKey, string> = {
-  input: 'NEEDS INPUT', working: 'WORKING', idle: 'IDLE', ended: 'ENDED',
+  input: 'NEEDS INPUT', working: 'WORKING', limit: 'WAITING FOR LIMIT', idle: 'IDLE', pinned: '', ended: 'ENDED',
 }
 
-type StateFields = Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'>
+type StateFields = Pick<
+  ApiSession,
+  'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'
+>
+
+type GroupFields = StateFields & Pick<ApiSession, 'source' | 'limitWait' | 'pinnedAt'>
+
+/**
+ * A harness gate waiting on the user, and nothing else parked: the row that
+ * wears the still diamond and the ◆ reason (canvas 10a). A parked tool call
+ * outranks it, as in `headerState`.
+ */
+export function isGateRow(session: StateFields): boolean {
+  return sessionStateKey(session) === 'needs_input' && !session.pendingDecision && gateWaits(session)
+}
+
+/**
+ * Whether the row sits in WAITING FOR LIMIT: an open wait — cancelled or
+ * not, the row only changes its words — on a session at rest. A terminal
+ * session never has one the phone shows (spec § 8, Decision 1).
+ */
+export function waitsForLimit(session: GroupFields): boolean {
+  if (!session.limitWait || session.source === 'terminal') return false
+  const key = sessionStateKey(session)
+  return key === 'idle' || key === 'done' || key === 'interrupted'
+}
 
 /**
  * The state word decides the group. WAITING is work (its moons run); DONE
  * and INTERRUPTED ask nobody anything, so they sit with IDLE, wearing their
- * own word on the row.
+ * own word on the row. A limit wait is its own neutral group (10a); an ended
+ * session the user pinned stays out of the fold (10a, spec § 4).
  */
-export function groupOf(session: StateFields): GroupKey {
+export function groupOf(session: GroupFields): GroupKey {
   const key = sessionStateKey(session)
   if (key === 'needs_input') return 'input'
   if (key === 'working' || key === 'waiting') return 'working'
-  if (key === 'ended') return 'ended'
+  if (key === 'ended') return session.pinnedAt ? 'pinned' : 'ended'
+  if (waitsForLimit(session)) return 'limit'
   return 'idle'
 }
 
@@ -32,7 +72,20 @@ export interface SessionGroup {
   sessions: ApiSession[]
 }
 
-/** 9a's groups in order, the empty ones left out, each newest first; `tagId` filters locally. */
+/**
+ * Within a group, pinned rows first in pin order (as the desktop's PINNED
+ * section keeps it, `sidebarOrder`), then the rest newest first (spec § 4).
+ */
+function byPinThenActivity(a: ApiSession, b: ApiSession): number {
+  const pa = a.pinnedAt ?? null
+  const pb = b.pinnedAt ?? null
+  if (pa !== null && pb !== null) return pa - pb
+  if (pa !== null) return -1
+  if (pb !== null) return 1
+  return (b.lastAt ?? 0) - (a.lastAt ?? 0)
+}
+
+/** 10a's groups in order, the empty ones left out; `tagId` filters locally. */
 export function groupSessions(sessions: readonly ApiSession[], tagId: number | null): SessionGroup[] {
   const buckets = new Map<GroupKey, ApiSession[]>(GROUP_ORDER.map((key) => [key, []]))
   for (const session of sessions) {
@@ -43,7 +96,7 @@ export function groupSessions(sessions: readonly ApiSession[], tagId: number | n
   }
   return GROUP_ORDER.map((key) => ({
     key,
-    sessions: buckets.get(key)!.sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0)),
+    sessions: buckets.get(key)!.sort(byPinThenActivity),
   })).filter((group) => group.sessions.length > 0)
 }
 
@@ -69,6 +122,100 @@ export function decisionReason(decision: PendingDecision | null | undefined): st
   if (decision.kind === 'question') return decision.input.questions[0]?.question ?? 'has a question'
   if (decision.kind === 'plan') return 'plan to approve'
   return decision.title ?? `wants to run ${decision.toolName ?? 'a tool'}`
+}
+
+/**
+ * A gate row's reason (canvas 10a): ◆, then which step waits, from the
+ * snapshot's `harnessStep` — its `index` is the first step not done, the
+ * gated one. No elapsed time anywhere on the row: a gate can wait all night.
+ */
+export function gateReason(step: ApiSession['harnessStep']): string {
+  if (!step || step.total === 0) return '◆ Harness · needs your OK'
+  return `◆ Harness · step ${Math.min(step.index + 1, step.total)} of ${step.total} needs your OK`
+}
+
+/** A needs-input row's third line: the parked call, else the gate. */
+export function inputReason(session: StateFields & Pick<ApiSession, 'harnessStep'>): string | null {
+  if (session.pendingDecision) return decisionReason(session.pendingDecision)
+  return isGateRow(session) ? gateReason(session.harnessStep) : null
+}
+
+/**
+ * A WAITING FOR LIMIT row's third line (canvas 10a `waitListLine`, spec § 5):
+ * when, which window, how many queued — absolute times only (Decision 9).
+ * Asleep, a wait that would continue says it needs the Mac awake then; a
+ * cancelled or auto-off wait reads the same asleep as awake. Terminal
+ * sessions never have one (Decision 1).
+ */
+export function limitLine(
+  session: Pick<ApiSession, 'limitWait' | 'source'>,
+  offline: boolean,
+  mac: string,
+  now: number,
+): string | null {
+  const wait = session.limitWait
+  if (!wait || session.source === 'terminal') return null
+  const at = formatResetAt(wait.resetsAt, now)
+  if (continuesAtReset(wait)) {
+    if (offline) return `Resets at ${at} — continues only if ${mac} is awake then`
+    const queued = wait.queued.length
+    return `Continues at ${at} · ${wait.windowLabel}${queued > 0 ? ` · ${queued} queued` : ''}`
+  }
+  return `Limit resets ${at} · ${wait.cancelled ? 'auto-continue cancelled' : 'automatic continue is off'}`
+}
+
+/**
+ * The collapsed moons row (canvas 10a `moonLabel`, `taskLabel`): the
+ * subagents and how many run, then the tasks after a ·. Either half is null
+ * when the session has none.
+ */
+export function moonsSummary(session: Pick<ApiSession, 'subagents' | 'backgroundTasks'>): {
+  subagents: string | null
+  tasks: string | null
+} {
+  const agents = session.subagents
+  const tasks = session.backgroundTasks ?? []
+  const running = agents.filter((a) => a.state !== 'ended').length
+  return {
+    subagents: agents.length === 0 ? null : `${agents.length} ${agents.length === 1 ? 'subagent' : 'subagents'} · ${running} running`,
+    tasks: tasks.length === 0 ? null : `${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`,
+  }
+}
+
+/** The asleep row's one line (canvas 10a asleep): counts only, nothing about what runs. */
+export function moonsSummaryAsleep(session: Pick<ApiSession, 'subagents' | 'backgroundTasks'>): string | null {
+  const agents = session.subagents.length
+  const tasks = (session.backgroundTasks ?? []).length
+  const parts = [
+    agents > 0 ? `${agents} ${agents === 1 ? 'subagent' : 'subagents'}` : null,
+    tasks > 0 ? `▣ ${tasks} ${tasks === 1 ? 'task' : 'tasks'}` : null,
+  ].filter((p): p is string => p !== null)
+  return parts.length === 0 ? null : `${parts.join(' · ')} · last known`
+}
+
+/** The expanded rows' tasks: running first, each part newest first (as the 10f sheet orders them). */
+export function tasksForRow(tasks: readonly BackgroundTask[] | undefined): BackgroundTask[] {
+  return [...(tasks ?? [])].sort((a, b) => {
+    if ((a.state === 'running') !== (b.state === 'running')) return a.state === 'running' ? -1 : 1
+    return b.startedAt - a.startedAt
+  })
+}
+
+/** A subagent row's right column (canvas 10a): `running · 2m`, `done · 14s`. */
+export function subagentStatus(agent: Subagent, now: number): string {
+  if (agent.state !== 'ended') return `running · ${timeAgo(agent.startedAt, now)}`
+  return `done · ${timeAgo(agent.endedAt ?? agent.startedAt, now)}`
+}
+
+/**
+ * A task row's right column (canvas 10a): `running · 3h`, else how it ended
+ * and when. Neutral words only; the task screen (10g) carries the colour.
+ */
+export function taskStatus(task: BackgroundTask, now: number): string {
+  if (task.state === 'running') return `running · ${timeAgo(task.startedAt, now)}`
+  const word =
+    task.status === 'stopped' ? 'stopped' : task.exitCode !== undefined && task.exitCode !== 0 ? `exit ${task.exitCode}` : 'ended'
+  return `${word} · ${timeAgo(task.endedAt ?? task.startedAt, now)}`
 }
 
 /** 9p's glyph per state: the shape carries the meaning; motion only where 9p draws it. */
