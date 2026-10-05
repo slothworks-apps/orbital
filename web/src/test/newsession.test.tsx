@@ -895,7 +895,7 @@ describe('NewSessionDialog — the Claude directory', () => {
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
-    expect(chip('Work')).toHaveAttribute('data-active', 'true')
+    expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true')
     await waitFor(() => expect(api.listModels).toHaveBeenCalledWith(2))
 
     fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
@@ -920,5 +920,62 @@ describe('NewSessionDialog — the Claude directory', () => {
     fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
     await waitFor(() => expect(api.createSession).toHaveBeenCalled())
     expect(vi.mocked(api.createSession).mock.calls[0][0]).not.toHaveProperty('claudeDirId')
+  })
+})
+
+describe('NewSessionDialog — ⌘D and four or more directories (canvas 44c, 44f)', () => {
+  it('steps to the next directory on ⌘D, skipping one missing on disk, and launches under it', async () => {
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    resetStore({
+      settings: { default_project_dir: '/home/tomin/work' },
+      claudeDirs: [
+        { id: 1, name: 'Personal' },
+        { id: 2, name: 'Work', exists: false },
+        { id: 3, name: 'Client' },
+      ],
+      defaultClaudeDir: 1,
+      lastClaudeDir: null,
+    })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Personal' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Work' })).toBeDisabled()
+
+    // Letters bind by character, so a Czech QWERTZ D is still `d`.
+    fireEvent.keyDown(document, { key: 'd', code: 'KeyD', metaKey: true })
+    expect(screen.getByRole('button', { name: 'Client' })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ claudeDirId: 3 })),
+    )
+  })
+
+  it('moves the choice to the header control with four directories', async () => {
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    resetStore({
+      settings: { default_project_dir: '/home/tomin/work' },
+      claudeDirs: [
+        { id: 1, name: 'Personal' },
+        { id: 2, name: 'Work' },
+        { id: 3, name: 'Client' },
+        { id: 4, name: 'Sandbox' },
+      ],
+      defaultClaudeDir: 1,
+      lastClaudeDir: 2,
+    })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+    expect(screen.queryByRole('group', { name: 'Claude directory' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /CLAUDE DIR/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sandbox' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ claudeDirId: 4 })),
+    )
   })
 })

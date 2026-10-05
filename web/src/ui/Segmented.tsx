@@ -1,24 +1,55 @@
 import type { ReactNode } from 'react'
 
 /**
- * Which of the segmented control's three sizes this is.
+ * Which of the segmented control's sizes this is.
  *
- * Named for where it is used rather than S/M/L, because the three do not
- * order: `row` has the largest type and the tightest horizontal padding,
- * `filter` the reverse. They are three separate canvas measurements, not
- * three steps of one scale, so a t-shirt name would be a lie the next person
- * has to discover.
+ * Named for where it is used rather than S/M/L, because they do not order:
+ * `row` has the largest type and the tightest horizontal padding, `filter`
+ * the reverse. They are separate canvas measurements, not steps of one scale,
+ * so a t-shirt name would be a lie the next person has to discover.
  */
-export type SegmentedSize = 'tab' | 'filter' | 'row'
+export type SegmentedSize = 'tab' | 'filter' | 'row' | 'field'
+
+/** Selection is a tint, an ink and a weight (see the ADR); hover is neutral underneath it. */
+const ACCENT_ON = 'bg-accent/10 font-semibold text-accent'
+const NEUTRAL_OFF = 'bg-transparent text-[rgba(220,235,255,.85)] hover:bg-white/5'
 
 const SIZES = {
   /** canvas 10a — tabs inside a panel heading (the tool leaderboard's). */
-  tab: { shell: 'rounded-[7px]', item: 'px-[11px] py-[5px] text-[10.5px]' },
+  tab: {
+    shell: 'inline-flex rounded-[7px] border-[rgba(150,205,255,.18)]',
+    item: 'px-[11px] py-[5px] text-[10.5px]',
+    on: ACCENT_ON,
+    off: NEUTRAL_OFF,
+  },
   /** canvas 10a — the stats filter bar. */
-  filter: { shell: 'rounded-lg', item: 'px-3.5 py-[7px] text-[11.5px]' },
+  filter: {
+    shell: 'inline-flex rounded-lg border-[rgba(150,205,255,.18)]',
+    item: 'px-3.5 py-[7px] text-[11.5px]',
+    on: ACCENT_ON,
+    off: NEUTRAL_OFF,
+  },
   /** canvas 1h — a control in the settings dialog's 320px column. */
-  row: { shell: 'rounded-lg', item: 'px-3 py-[7px] text-xs' },
-} as const satisfies Record<SegmentedSize, unknown>
+  row: {
+    shell: 'inline-flex rounded-lg border-[rgba(150,205,255,.18)]',
+    item: 'px-3 py-[7px] text-xs',
+    on: ACCENT_ON,
+    off: NEUTRAL_OFF,
+  },
+  /**
+   * canvas 44c — a field of the New session dialog: the form's full width,
+   * 36px tall, the segments sharing it equally and truncating their names.
+   * The selected ink is the bright text rather than the accent: the field
+   * sits between the project input and the model cards, and an accent label
+   * there would outshout both.
+   */
+  field: {
+    shell: 'flex rounded-[9px] border-[rgba(150,205,255,.16)]',
+    item: 'flex h-9 min-w-0 flex-1 items-center justify-center px-3 text-[11.5px] [&>span]:truncate',
+    on: 'bg-accent/10 font-semibold text-text-bright',
+    off: 'bg-transparent text-[rgba(200,220,245,.78)] hover:bg-[rgba(150,205,255,.07)]',
+  },
+} as const satisfies Record<SegmentedSize, { shell: string; item: string; on: string; off: string }>
 
 export interface SegmentedOption<T extends string> {
   value: T
@@ -28,6 +59,10 @@ export interface SegmentedOption<T extends string> {
    * word. Defaults to the label.
    */
   ariaLabel?: string
+  /** The segment's tooltip. */
+  title?: string
+  /** Shown but not choosable (canvas 44c: a Claude directory missing on disk, at .5). */
+  disabled?: boolean
 }
 
 export interface SegmentedProps<T extends string> {
@@ -49,7 +84,7 @@ export interface SegmentedProps<T extends string> {
 
 /**
  * One choice out of a few, all of them visible at once (canvas 1h's steppers,
- * 10a's window filter and panel tabs).
+ * 10a's window filter and panel tabs, 44c's Claude directory).
  *
  * It is `aria-pressed` buttons inside a `role="group"` rather than a radio
  * group: that is the shape all three of the hand-rolled copies this replaces
@@ -73,13 +108,7 @@ export function Segmented<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={[
-        'inline-flex overflow-hidden border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)]',
-        s.shell,
-        className ?? '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
+      className={['overflow-hidden border bg-[rgba(4,8,16,.5)]', s.shell, className ?? ''].filter(Boolean).join(' ')}
     >
       {options.map((option, index) => {
         const active = option.value === value
@@ -89,9 +118,11 @@ export function Segmented<T extends string>({
             type="button"
             aria-pressed={active}
             aria-label={option.ariaLabel}
+            title={option.title}
+            disabled={option.disabled}
             onClick={() => onChange(option.value)}
             className={[
-              'cursor-pointer text-center font-mono transition-colors',
+              'cursor-pointer text-center font-mono transition-colors disabled:cursor-default disabled:opacity-50',
               s.item,
               // The divider belongs to the segment on its right, so the
               // shell's own border is never doubled at either end.
@@ -102,15 +133,13 @@ export function Segmented<T extends string>({
               // one filled, which made it the single loudest selected state in
               // the app while every other control that picks one of a few
               // (ModeCards, ModelCards, Select's rows) tints. See the ADR.
-              active
-                ? 'bg-accent/10 font-semibold text-accent'
-                : 'bg-transparent text-[rgba(220,235,255,.85)] hover:bg-white/5',
+              active ? s.on : s.off,
             ]
               .filter(Boolean)
               .join(' ')}
             style={minItemWidth ? { minWidth: `${minItemWidth}px` } : undefined}
           >
-            {option.label}
+            {size === 'field' ? <span>{option.label}</span> : option.label}
           </button>
         )
       })}
