@@ -1,6 +1,6 @@
 name: Attribution
 
-# The commit-msg hook in .githooks/ refuses AI attribution in a commit
+# The commit-msg hook in .githooks/ refuses attribution in a commit
 # message, but only where it is installed, and a PR description has no hook
 # at all. This runs the same check over every commit in a pull request and
 # over its description, again whenever the description is edited.

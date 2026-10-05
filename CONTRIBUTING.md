@@ -31,8 +31,8 @@ npm run dev
 ```
 
 `npm install` also points git at the hooks in `.githooks/`: no commit or push
-straight to `main`, no AI attribution in a commit message, and every commit
-is scanned by
+straight to `main`, no `Co-authored-by` or other attribution in a commit
+message, and every commit is scanned by
 [gitleaks](https://github.com/gitleaks/gitleaks) first (`brew install
 gitleaks`; without it the hook warns and lets the commit through). Made-up
 secrets that tests need are allowed by value in `.gitleaks.toml`.

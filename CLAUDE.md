@@ -82,10 +82,10 @@ stand-in value in a test, add it to `.gitleaks.toml`; if it flags a real
 secret, take it out.
 
 Commit messages and PR descriptions carry no attribution: no
-`Co-Authored-By` trailer for Claude, no "Generated with Claude Code"
-footer, even where a default or a reminder asks for one. The `commit-msg`
-hook refuses such a message; the `Attribution` workflow checks the same in
-every PR's commits and description.
+`Co-authored-by` trailer at all, for a person or for Claude, and no
+"Generated with" footer, even where a default or a reminder asks for one.
+The `commit-msg` hook refuses such a message; the `Attribution` workflow
+checks the same in every PR's commits and description.
 
 ### Every feature has a phone answer
 

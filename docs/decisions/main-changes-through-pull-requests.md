@@ -26,13 +26,13 @@ through the root `prepare` script:
   `gitleaks git --pre-commit --staged`. Made-up secrets the tests need are
   allowed in `.gitleaks.toml` by path and value together, so a real secret
   pasted into a test is still caught.
-- `commit-msg` refuses a message with an AI attribution line: a
-  `Co-Authored-By` trailer for Claude or a "Generated with Claude Code"
-  footer. The history is the project's record of what changed and why; a
-  tool credit on every commit is noise in it, and it was stripped from the
-  history once already before going public.
-  The `Attribution` workflow runs the same hook over every commit in a pull
-  request and over its title and description, which no local hook sees.
+- `commit-msg` refuses a message with an attribution line: any
+  `Co-authored-by` trailer, for a person or a tool, or a "Generated with"
+  footer. The author field already says who wrote the commit, and the
+  history is the record of what changed and why; a credit line on every
+  commit is noise in it. The `Attribution` workflow runs the same hook over
+  every commit in a pull request and over its title and description, which
+  no local hook sees.
 - `pre-push` refuses a push whose target is `refs/heads/main`.
 
 Without gitleaks installed the hook warns and commits anyway: a contributor
