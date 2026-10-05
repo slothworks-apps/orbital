@@ -79,16 +79,17 @@ token. The relay changes nothing for iOS. Three things are set up once:
    → Keys → +, with Apple Push Notifications service (APNs) on. Download the
    `.p8` (it downloads once) and note its Key ID; the Team ID is
    `XTAS72W86T`.
-2. **The key in Firebase.** Firebase console → Project settings → Cloud
-   Messaging → Apple app configuration → APNs authentication key: upload the
-   `.p8` with its Key ID and Team ID.
-3. **The iOS app in Firebase.** Project settings → General → Add app → iOS,
+2. **The iOS app in Firebase.** Project settings → General → Add app → iOS,
    bundle id `io.slothworks.orbital.mobile`. Download
    `GoogleService-Info.plist` into `mobile/ios/App/App/`. It is git-ignored.
    The project does not list it as a resource — a build without it would
    fail — but copies it into the app when it is there (the "Copy
    GoogleService-Info.plist" build phase). The web build reads its presence
    too, so run `build:ios` after adding it.
+3. **The key in Firebase**, once the iOS app exists there (the section
+   below appears only then): Project settings → Cloud Messaging → Apple app
+   configuration → APNs Authentication Key: upload the `.p8` with its Key ID
+   and Team ID. One key serves sandbox and production.
 
 Without the file the app builds and runs with no push: the plugin logs
 `Firebase was not configured` and the phone never asks for a token.
@@ -105,7 +106,9 @@ The simulator gets no FCM pushes; test them on a device.
 
 ### Once
 
-1. **App Store Connect → Apps → + → New App**: iOS, name Orbital, bundle id
+1. **App Store Connect → Apps → + → New App**: iOS, name Orbital by SlothWorks
+   (`Orbital` is taken; the name under the icon is the app's own, `Orbital`),
+   bundle id
    `io.slothworks.orbital.mobile` (registered in the developer account by
    Xcode's first automatic signing), a SKU of your choice.
 2. **Users and Access**: add each tester as a user of the team, with a role
