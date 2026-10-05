@@ -6,6 +6,12 @@ vi.mock('@capacitor/filesystem', () => ({ Directory: { Cache: 'CACHE' }, Filesys
 import { FileCache, evictionVictims, pathKey, refKey, type CacheEntry, type CacheIO } from '../mobile/files/fileCache'
 import { readPath, readRef, type ResolverDeps } from '../mobile/files/fileResolver'
 import { fileKindOf, isCantShowStatus } from '../mobile/files/route'
+import { progressLabel } from '../mobile/files/FileStates'
+import { pagesFor } from '../mobile/screens/FileScreen'
+import {
+  DOUBLE_TAP_ZOOM, FIT, MAX_ZOOM, SWIPE_BACK_PX, SWIPE_PAGE_PX, clampPan, clampScale, fitSize, releaseGesture, toggleZoom,
+  zoomAt, zoomLabel,
+} from '../mobile/files/zoom'
 
 function memoryIO(): CacheIO & { files: Map<string, Uint8Array>; index: string | null } {
   const io = {
@@ -190,5 +196,81 @@ describe('the file resolver', () => {
     expect(await readRef(d, 'abc.png')).toMatchObject({ kind: 'ready' })
     expect(getBlob).toHaveBeenCalledTimes(1)
     expect(await d.cache.get(refKey('abc.png'))).not.toBeNull()
+  })
+})
+
+describe('the viewer’s zoom', () => {
+  const stage = { w: 400, h: 800 }
+  const fitted = fitSize({ w: 1280, h: 800 }, stage) // 400 × 250
+
+  it('fits the image inside the stage', () => {
+    expect(fitted).toEqual({ w: 400, h: 250 })
+  })
+
+  it('holds the scale between fit and the maximum', () => {
+    expect(clampScale(0.3)).toBe(1)
+    expect(clampScale(MAX_ZOOM + 3)).toBe(MAX_ZOOM)
+  })
+
+  it('pans no further than the zoomed image overhangs the stage, and centres an axis it does not fill', () => {
+    // At 4×: 1600 × 1000 inside 400 × 800 → 600 px of room on x, 100 on y.
+    expect(clampPan({ scale: 4, x: 5000, y: -5000 }, fitted, stage)).toEqual({ scale: 4, x: 600, y: -100 })
+    // At 2×: 800 × 500, shorter than the stage → y stays centred.
+    expect(clampPan({ scale: 2, x: -10, y: 80 }, fitted, stage)).toEqual({ scale: 2, x: -10, y: 0 })
+  })
+
+  it('a double-tap zooms about the tap, and the next returns to fit', () => {
+    const zoomed = toggleZoom(FIT, { x: 100, y: 0 }, fitted, stage)
+    expect(zoomed.scale).toBe(DOUBLE_TAP_ZOOM)
+    // The tapped point stays under the finger: 100 - (100 - 0) × 2.5.
+    expect(zoomed.x).toBe(-150)
+    expect(toggleZoom(zoomed, { x: 0, y: 0 }, fitted, stage)).toEqual(FIT)
+  })
+
+  it('a pinch keeps the point between the fingers in place', () => {
+    const v = zoomAt(FIT, 2, { x: -50, y: 20 }, fitted, stage)
+    expect(v).toEqual({ scale: 2, x: 50, y: 0 }) // y clamped: 500 tall fits the stage
+  })
+
+  it('a drag at fit goes back when it runs down far enough, pages when sideways, and does nothing zoomed in', () => {
+    expect(releaseGesture(1, 10, SWIPE_BACK_PX + 1)).toBe('back')
+    expect(releaseGesture(1, 10, SWIPE_BACK_PX - 1)).toBeNull()
+    expect(releaseGesture(1, -(SWIPE_PAGE_PX + 1), 5)).toBe('next')
+    expect(releaseGesture(1, SWIPE_PAGE_PX + 1, 5)).toBe('prev')
+    expect(releaseGesture(1, SWIPE_BACK_PX + 10, SWIPE_BACK_PX + 1)).toBe('prev')
+    expect(releaseGesture(2, 0, SWIPE_BACK_PX * 3)).toBeNull()
+  })
+
+  it('labels fit, and any zoom to one decimal', () => {
+    expect(zoomLabel(1)).toBe('fit')
+    expect(zoomLabel(2.5)).toBe('2.5×')
+    expect(zoomLabel(3.04)).toBe('3×')
+  })
+})
+
+describe('the viewer’s pages', () => {
+  const message = {
+    role: 'assistant' as const,
+    text: 'Saved to /tmp/login.png and /tmp/login-2x.png.',
+    images: [{ ref: 'abc.png', w: 1, h: 1, bytes: 1 }],
+  }
+
+  it('pages through the message’s images from the one pressed', () => {
+    const { items, start } = pagesFor({ path: '/tmp/login-2x.png', ref: undefined }, message)
+    expect(items.map((i) => (i.kind === 'ref' ? i.ref : i.path))).toEqual(['abc.png', '/tmp/login.png', '/tmp/login-2x.png'])
+    expect(start).toBe(2)
+  })
+
+  it('shows the pressed image alone when its message is unknown', () => {
+    expect(pagesFor({ path: '/tmp/x.png', ref: undefined }, undefined)).toEqual({ items: [{ kind: 'path', path: '/tmp/x.png' }], start: 0 })
+    expect(pagesFor({ path: null, ref: 'r.png' }, undefined).items.map((i) => i.kind)).toEqual(['ref'])
+  })
+})
+
+describe('the byte count', () => {
+  it('reads the byte count in one unit when both sides share it', () => {
+    expect(progressLabel(116 * 1024, 186 * 1024)).toBe('116 of 186 KB')
+    expect(progressLabel(512, 2 * 1024 * 1024)).toBe('512 B of 2 MB')
+    expect(progressLabel(40 * 1024, null)).toBe('40 KB')
   })
 })
