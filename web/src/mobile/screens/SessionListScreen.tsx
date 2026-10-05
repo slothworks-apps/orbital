@@ -364,6 +364,7 @@ function SessionRow({
   const asleepCounts = offline && hasMoons ? moonsSummaryAsleep(session) : null
   const showWhere = !(offline && (input || group === 'limit' || asleepCounts !== null))
   const moonColor = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
+  const runningMoons = session.subagents.filter((agent) => agent.state !== 'ended')
   const tasks = tasksForRow(session.backgroundTasks)
   return (
     <div className={input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]'}>
@@ -437,16 +438,20 @@ function SessionRow({
             type="button"
             aria-expanded={moonsOpen}
             onClick={() => setMoonsOpen(!moonsOpen)}
-            className="-mt-2.5 ml-[62px] flex h-11 items-center gap-[9px] pr-2.5 text-left"
+            className="-mt-2.5 ml-[62px] flex h-11 min-w-0 max-w-[calc(100%-62px)] items-center gap-[9px] whitespace-nowrap pr-2.5 text-left"
           >
-            {session.subagents.length > 0 && (
-              <span className="flex gap-[5px]">
-                {session.subagents.map((agent) => (
-                  <Moon key={agent.id} color={moonColor} running={agent.state !== 'ended'} />
+            {/* Only the running ones get a dot: a long-finished fleet would otherwise
+                fill the row with dots that say nothing the count does not. */}
+            {runningMoons.length > 0 && (
+              <span className="flex shrink-0 gap-[5px]">
+                {runningMoons.slice(0, MOONS_SHOWN).map((agent) => (
+                  <Moon key={agent.id} color={moonColor} running />
                 ))}
               </span>
             )}
-            {summary.subagents !== null && <span className="font-mono text-[11px] text-[rgba(200,220,245,.75)]">{summary.subagents}</span>}
+            {summary.subagents !== null && (
+              <span className="min-w-0 truncate font-mono text-[11px] text-[rgba(200,220,245,.75)]">{summary.subagents}</span>
+            )}
             {summary.tasks !== null && (
               <span className="font-mono text-[11px] text-[rgba(200,220,245,.75)]">
                 {summary.subagents !== null && <span className="text-[rgba(150,205,255,.3)]">· </span>}▣ {summary.tasks}
@@ -521,7 +526,10 @@ function Chevron() {
   )
 }
 
-/** A subagent's dot (9p "SUBAGENTS ROW"): the session's tag hue; running ones pulse. */
+/** The collapsed moons row draws at most this many running dots before the count. */
+const MOONS_SHOWN = 5
+
+/** A subagent's dot (9p "SUBAGENTS ROW"): the session's tag hue, pulsing while it runs; a finished one goes grey. */
 function Moon({ color, running, small = false }: { color: string; running: boolean; small?: boolean }) {
   return (
     <span
@@ -531,7 +539,7 @@ function Moon({ color, running, small = false }: { color: string; running: boole
         small ? 'h-2 w-2' : 'h-[9px] w-[9px]',
         running ? 'orbital-pulse' : '',
       ].join(' ')}
-      style={{ borderColor: color }}
+      style={{ borderColor: running ? color : 'rgba(200,215,235,.35)' }}
     />
   )
 }
