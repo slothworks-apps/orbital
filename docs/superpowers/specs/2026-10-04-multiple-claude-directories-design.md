@@ -363,10 +363,24 @@ These differ from the text above:
 - **Two "not tracked" wordings on the Limits page:** API-key billing, or
   an account without plan windows. Checked 2026-10-04: the enterprise work
   account answers with no windows.
-- **The map shows no directory label yet.** The planet label has no
-  close-zoom detail to hang one on. It waits for the design.
-- **UI is built from existing components** (the TERMINAL chip, `Chip`,
-  the TagsRules cards, the McpDialog pills) until the Claude Design pass.
+- **The UI follows `Feature - Claude directories` 44a–44f.** A directory
+  is a filled square mark with a monogram (`claudeDirMonograms` in
+  `web/src/lib/claudeDirs.ts`), in front of the planet label from 70 %
+  zoom up, first on the sidebar's and the phone's meta line, as a chip
+  after the tag in the detail header, and as the head of each group on the
+  Limits page. New session shows two or three directories as segments
+  between the project and the model, four or more as a control in its
+  header; ⌘D steps to the next one.
+- **`GET /api/sessions/defaults` carries more than names.** Each entry
+  has `path`, `account` and `exists` too, for the mark's tooltip and the
+  pickers' sub line on the Mac and the phone. The three are optional to the
+  web: an older Mac sends the names only.
+- **A directory missing on disk cannot be chosen.** It is shown, at half
+  strength, in every picker, and the prefill falls through it like a
+  removed one. Its sessions stay on the map, as § Edge cases says; the
+  canvas notes suggest hiding them, which was not taken.
+- **The map's mark has no tooltip.** The label takes no pointer, so a
+  press on it reaches the map.
 
 ## Out of scope
 

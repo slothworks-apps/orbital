@@ -38,8 +38,9 @@ starts from it (`lastLaunch` in `web/src/panels/NewSessionDialog.tsx`):
   write settings and makes the same choice
   ([[2026-10-04-multiple-claude-directories-design]] § 3). The order is the
   selected planet's directory, then this key, then `default_claude_dir`; a
-  removed directory falls through (`openingClaudeDir` in
-  `web/src/lib/claudeDirs.ts`, shared with the phone).
+  removed directory, or one missing on disk, falls through
+  (`claudeDirPrefill` in `web/src/lib/claudeDirs.ts`, shared with the
+  phone). The dialog says which step chose, beside the choice's label.
 
 The model has no key of its own. `remember_model_per_project` already
 preselects the model last used in the directory, and the remembered directory
