@@ -12,6 +12,7 @@ import {
   subagentStatus,
   taskStatus,
 } from '../mobile/subagents/model'
+import { appendedLines, followPill, taskView } from '../mobile/subagents/tasks'
 
 // Local time, so the clock words read the same whatever the machine's zone.
 const NOW = new Date(2026, 9, 5, 13, 41).getTime()
@@ -146,5 +147,77 @@ describe('subagentBody', () => {
     const parent = [msg({ role: 'tool_use', toolUseId: 'tu', toolName: 'Agent', toolInput: { prompt: 'Run the auth tests' } })]
     expect(subagentBody([msg({ text: 'step' })], parent, 'tu', false).task).toBe('Run the auth tests')
     expect(subagentBody([msg({ text: 'step' })], parent, 'other', false).task).toBeNull()
+  })
+})
+
+describe('taskView', () => {
+  const view = (t: BackgroundTask, opts: Partial<Parameters<typeof taskView>[0]> = {}) =>
+    taskView({ task: t, phase: 'ready', stoppedHere: false, offline: false, readOnly: false, asOf: AS_OF, now: NOW, ...opts })
+  const ended = (patch: Partial<BackgroundTask>) => task({ state: 'ended', endedAt: NOW - MIN, ...patch })
+
+  it('runs with a pulse, a cursor and Stop', () => {
+    expect(view(task())).toMatchObject({ word: 'RUNNING · 3m', dot: 'pulse', cursor: true, canStop: true, end: null, live: true })
+  })
+
+  it('offers no Stop on a terminal session', () => {
+    expect(view(task(), { readOnly: true }).canStop).toBe(false)
+  })
+
+  it('says exit 0 in mint and exit ≠ 0 as the failure it is', () => {
+    const ok = view(ended({ exitCode: 0, status: 'completed' }))
+    const bad = view(ended({ exitCode: 1, status: 'completed' }))
+    expect(ok).toMatchObject({ word: 'EXITED · CODE 0', end: { text: 'exited with code 0' }, canStop: false })
+    expect(bad).toMatchObject({ word: 'EXITED · CODE 1', end: { text: 'exited with code 1 · output frozen' } })
+    expect(ok.ink).not.toBe(bad.ink)
+    expect(bad.after).toMatch(/^after 2m · /)
+  })
+
+  it('says "stopped by you" only for a stop this phone sent', () => {
+    const stopped = ended({ status: 'stopped' })
+    expect(view(stopped, { stoppedHere: true })).toMatchObject({
+      word: 'STOPPED BY YOU · 2m', end: { text: 'stopped by you after 2m · output frozen' },
+    })
+    expect(view(stopped)).toMatchObject({ word: 'STOPPED · 2m', end: { text: 'stopped after 2m' } })
+    expect(view(stopped).ink).toBe(view(ended({ status: undefined })).ink)
+  })
+
+  it('ends without an exit code as unknown', () => {
+    expect(view(ended({}))).toMatchObject({ word: 'ENDED', end: { text: 'ended · output frozen' } })
+  })
+
+  it('says the output is gone once the Mac no longer has it', () => {
+    expect(view(task(), { phase: 'gone' })).toMatchObject({
+      word: 'ENDED BEFORE THE RESTART', canStop: false, end: { text: 'output no longer available' },
+    })
+  })
+
+  it('was running as of the last sync while the Mac sleeps: no cursor, no Stop', () => {
+    const asleep = view(task(), { offline: true })
+    expect(asleep.word).toBe(`WAS RUNNING · ${asOfLabel(AS_OF, NOW).toUpperCase()}`)
+    expect(asleep).toMatchObject({ cursor: false, canStop: false, live: false, end: { text: 'nothing newer · Mac asleep' } })
+  })
+})
+
+describe('following the output', () => {
+  it('reads the pill following, or paused with the count', () => {
+    expect(followPill(null)).toBe('following ↓')
+    expect(followPill(214)).toBe('paused · 214 new lines · ↓ live')
+    expect(followPill(1)).toBe('paused · 1 new line · ↓ live')
+  })
+
+  it('counts the lines appended at the end', () => {
+    expect(appendedLines(['a', 'b'], ['a', 'b', 'c', 'd'])).toBe(2)
+    expect(appendedLines([], ['a'])).toBe(1)
+    const same = ['a']
+    expect(appendedLines(same, same)).toBe(0)
+  })
+
+  it('counts appends while old lines fall off the top at the cap', () => {
+    expect(appendedLines(['a', 'b', 'c'], ['c', 'd', 'e'])).toBe(2)
+    expect(appendedLines(['1', '2', '3'], ['2', '3', '4'])).toBe(1)
+  })
+
+  it('counts every line of an output read again from a fresh tail', () => {
+    expect(appendedLines(['a', 'b'], ['x', 'y', 'z'])).toBe(3)
   })
 })
