@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.10] — 2026-10-06
+### Fixed
+- The phone shows your sessions again when one of them has run many background commands; until now such a session made the whole list too large to reach the phone, which then stayed empty.
+
 ## [0.20.9] — 2026-10-06
 ### Fixed
 - An answered multiple-choice question that also had your own text now shows every option you ticked next to that text, instead of only the text.

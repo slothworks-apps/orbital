@@ -176,3 +176,24 @@ export function displayLines(output: OutputLines): string[] {
   }
   return end === lines.length ? lines : lines.slice(0, end)
 }
+
+/**
+ * A session's tasks after an upsert or a list read, which carry only the
+ * running ones (the server's `listedBackgroundTasks`): ended tasks already
+ * held here stay, so the history `GET /api/sessions/:id` filled in survives
+ * every later upsert. An ended task never changes again, so the held copy is
+ * still the truth.
+ */
+export function mergeListedTasks(held: BackgroundTask[] | undefined, next: BackgroundTask[] | undefined): BackgroundTask[] | undefined {
+  if (!held?.length) return next
+  const listed = new Set((next ?? []).map((t) => t.id))
+  const kept = held.filter((t) => !isRunning(t) && !listed.has(t.id))
+  if (kept.length === 0) return next
+  return [...kept, ...(next ?? [])].sort((a, b) => a.startedAt - b.startedAt)
+}
+
+/** A task held as running that `next` no longer lists has ended, and how it ended is only in the detail. */
+export function endedOutOfList(held: BackgroundTask[] | undefined, next: BackgroundTask[] | undefined): boolean {
+  const listed = new Set((next ?? []).map((t) => t.id))
+  return (held ?? []).some((t) => isRunning(t) && !listed.has(t.id))
+}

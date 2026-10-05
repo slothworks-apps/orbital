@@ -442,7 +442,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
-    return { session: toApiSession(ctx, row) };
+    return { session: toApiSession(ctx, row, undefined, { allTasks: true }) };
   });
 
   /**

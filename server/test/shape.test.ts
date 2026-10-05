@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { statusOf, type ShapeContext } from '../src/api/shape.js';
+import { listedBackgroundTasks, statusOf, type ShapeContext } from '../src/api/shape.js';
+import type { BackgroundTaskInfo } from '../src/transcript/backgroundTasks.js';
 import type { SessionRow, SessionSource, SessionStatus } from '../src/types.js';
 
 /**
@@ -39,5 +40,15 @@ describe('statusOf', () => {
 
   it('reads an Orbital session the user ended as ended', () => {
     expect(statusOf(ctxWith(), row('web', 1234))).toBe('ended');
+  });
+});
+
+describe('listedBackgroundTasks', () => {
+  const task = (id: number, state: 'running' | 'ended'): BackgroundTaskInfo =>
+    ({ id: `t${id}`, kind: 'shell', label: 'x', state, startedAt: id }) as BackgroundTaskInfo;
+
+  it('keeps only the running tasks, in start order', () => {
+    const tasks = [task(0, 'running'), task(1, 'ended'), task(2, 'ended'), task(3, 'running')];
+    expect(listedBackgroundTasks(tasks).map((t) => t.id)).toEqual(['t0', 't3']);
   });
 });
