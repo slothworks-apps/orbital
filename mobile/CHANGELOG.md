@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+
+## [0.2.0] — 2026-10-05
 ### Added
 - Orbital runs on the iPhone: pair it with your Mac, follow and answer your sessions, and get a notification when one needs your input, the same as on Android.
 
