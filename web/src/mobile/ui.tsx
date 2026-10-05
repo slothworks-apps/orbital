@@ -267,3 +267,19 @@ export function ConfirmSheet(props: ConfirmProps) {
     </BottomSheet>
   )
 }
+
+/**
+ * The one cyan line an answer folds into at the end of the transcript (canvas
+ * 10b `gateAck*`, 10i after End or Clear): a mark, then what just happened.
+ */
+export function AckLine({ mark, children, className = '' }: { mark: string; children: ReactNode; className?: string }) {
+  return (
+    <div
+      role="status"
+      className={`flex min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 text-[13.5px] ${className}`}
+    >
+      <span aria-hidden className="text-[oklch(85%_.12_205)]">{mark}</span>
+      <span className="min-w-0 flex-1">{children}</span>
+    </div>
+  )
+}

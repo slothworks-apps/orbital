@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { SlotKeyProps, SlotProps } from '../session/slot'
+import { AckLine } from '../ui'
 
 type Outcome = { sessionId: string; kind: 'ended' | 'cleared' }
 
@@ -39,13 +40,9 @@ export function MenuOutcome({ session }: SlotProps) {
   if (!outcome) return null
   // canvas 10i: the cyan-tinted confirmation row.
   return (
-    <div
-      role="status"
-      className="my-3 flex min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 text-[13.5px]"
-    >
-      <span aria-hidden className="text-[oklch(85%_.12_205)]">✓</span>
-      <span className="flex-1">{LINE[outcome.kind]}</span>
-    </div>
+    <AckLine mark="✓" className="my-3">
+      {LINE[outcome.kind]}
+    </AckLine>
   )
 }
 

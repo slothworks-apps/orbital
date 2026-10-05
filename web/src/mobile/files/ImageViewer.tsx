@@ -5,6 +5,7 @@ import { asOfLabel, basename } from '../format'
 import { useMobile } from '../state'
 import { CantShow } from './CantShow'
 import { ByteBar, CachedChip, GoneBlock, ReservedBox, StateButton, StateText } from './FileStates'
+import { useObjectUrl } from './objectUrl'
 import { useFile, type FileSource } from './useFile'
 import {
   DOUBLE_TAP_MS, FIT, clampPan, fitSize, releaseGesture, toggleZoom, zoomAt, zoomLabel,
@@ -81,13 +82,7 @@ function ImagePage({
 
   const outcome = view.phase === 'done' ? view.outcome : null
   const shown = outcome?.kind === 'ready' ? outcome : outcome?.kind === 'gone' ? outcome.copy : null
-  const url = useMemo(
-    () => (shown ? URL.createObjectURL(new Blob([new Uint8Array(shown.bytes)], { type: shown.mediaType ?? '' })) : null),
-    [shown],
-  )
-  useEffect(() => () => {
-    if (url) URL.revokeObjectURL(url)
-  }, [url])
+  const url = useObjectUrl(shown)
 
   const [natural, setNatural] = useState<Size | null>(null)
   const [loaded, setLoaded] = useState(false)

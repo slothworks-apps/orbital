@@ -3,13 +3,14 @@ import { isReadOnly } from '../../lib/types'
 import { clock } from '../../panels/harness/model'
 import { somethingRuns } from '../../panels/harness/actions'
 import { UNNAMED_MAC } from '../composer'
-import { basename } from '../format'
+import { GateThumbs } from '../harness/GateThumbs'
 import { approveStep, decideMyself, goBackFromPhone, reopenStep } from '../harness/answer'
 import { gateView, shortSummary, type GateCardData, type GateView } from '../harness/gate'
 import { setGateFold, useGateFold } from '../harness/gateFold'
 import { GoBackSheet } from '../harness/GoBackSheet'
 import { useHarness } from '../harness/useHarness'
 import { useMobile } from '../state'
+import { AckLine } from '../ui'
 import type { SlotKeyProps, SlotProps } from './slot'
 
 /** What the card shows for this session, from the harness, its log and this phone's last answer. */
@@ -57,12 +58,7 @@ function GateRow({ sessionId, view, offline }: { sessionId: string; view: Exclud
   switch (view.kind) {
     case 'fold':
       // Canvas 10b `gateAck*`: both answers this phone gives fold cyan.
-      return (
-        <div className="flex min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 text-[13.5px]">
-          <span className="text-[oklch(85%_.12_205)]">{view.mark}</span>
-          <span className="min-w-0 flex-1">{view.text}</span>
-        </div>
-      )
+      return <AckLine mark={view.mark}>{view.text}</AckLine>
     case 'reopened':
       // Canvas 10b third phone: the note in the fold line's place.
       return (
@@ -78,7 +74,7 @@ function GateRow({ sessionId, view, offline }: { sessionId: string; view: Exclud
     case 'reviewing':
       return <ReviewerCard sessionId={sessionId} card={view} offline={offline} />
     case 'waiting':
-      return offline ? <AsleepCard card={view} /> : <WaitingCard sessionId={sessionId} card={view} />
+      return offline ? <AsleepCard sessionId={sessionId} card={view} /> : <WaitingCard sessionId={sessionId} card={view} />
   }
 }
 
@@ -109,26 +105,6 @@ const CHIP = 'flex items-center gap-1.5 rounded-[4px] border px-2 py-[3px] font-
 const LABEL = 'font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]'
 const OUTLINED =
   'h-13 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-[rgba(4,8,16,.5)] text-[14px] font-semibold text-text-bright disabled:opacity-40'
-
-/** The thumbnails (Decision 4): canvas 10b's striped boxes, a press opens the image. */
-function Thumbs({ sessionId, paths }: { sessionId: string; paths: string[] }) {
-  const openFile = useMobile((s) => s.openFile)
-  if (paths.length === 0) return null
-  return (
-    <div className="flex gap-2 px-3.5 pt-2.5">
-      {paths.map((path) => (
-        <button
-          key={path}
-          type="button"
-          onClick={() => openFile({ sessionId, path, line: null })}
-          className="grid h-[54px] min-w-0 flex-1 place-items-center overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.16)] bg-[repeating-linear-gradient(135deg,rgba(150,205,255,.07)_0_6px,rgba(150,205,255,.02)_6px_12px)] px-1.5 font-mono text-[9.5px] text-[rgba(200,220,245,.7)]"
-        >
-          <span className="block max-w-full truncate">{basename(path)}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
 
 /** 10b first phone: the waiting gate and its three answers. */
 function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardData }) {
@@ -198,7 +174,7 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
             </ul>
           </>
         )}
-        <Thumbs sessionId={sessionId} paths={card.images} />
+        <GateThumbs sessionId={sessionId} paths={card.images} offline={false} />
         {(card.range || card.verifyPassed) && (
           <div className="flex items-center gap-1.5 px-3.5 pt-2 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
             {card.range}
@@ -282,7 +258,7 @@ function LockedLine() {
 }
 
 /** 10c second phone: the gate as last known, readable and inert. */
-function AsleepCard({ card }: { card: GateCardData }) {
+function AsleepCard({ sessionId, card }: { sessionId: string; card: GateCardData }) {
   return (
     <div className="overflow-hidden rounded-[16px] border border-[rgba(255,187,123,.25)] bg-[rgba(8,12,22,.9)]">
       <div className="px-3.5 pt-3">
@@ -301,19 +277,8 @@ function AsleepCard({ card }: { card: GateCardData }) {
       <div className="px-3.5 pt-2 text-[13px] leading-[1.5] text-[rgba(220,232,248,.75)]">
         {shortSummary(card.summary ?? undefined, card.openQuestions.length)}
       </div>
-      {card.images.length > 0 && (
-        // Nothing can be fetched while the Mac sleeps: a thumbnail not held is the dashed box.
-        <div className="flex gap-2 px-3.5 pt-2.5">
-          {card.images.map((path) => (
-            <span
-              key={path}
-              className="grid h-[54px] min-w-0 flex-1 place-items-center rounded-[8px] border border-dashed border-[rgba(150,205,255,.14)] px-1.5 font-mono text-[9.5px] text-[rgba(160,190,225,.5)]"
-            >
-              <span className="block max-w-full truncate">not cached</span>
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Nothing can be fetched while the Mac sleeps: a cached copy shows, one not held is the dashed box. */}
+      <GateThumbs sessionId={sessionId} paths={card.images} offline />
       <div className="m-3.5">
         <LockedLine />
       </div>
