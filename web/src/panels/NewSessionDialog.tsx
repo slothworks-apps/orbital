@@ -269,6 +269,26 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, resetAttachments])
 
+  // A dialog opened before the directory list arrived (a reload with the
+  // dialog in the URL) had nothing to prefill from on the open transition;
+  // prefill once the list lands, unless the user already chose.
+  useEffect(() => {
+    if (!open || claudeDirId !== null || claudeDirs.length === 0) return
+    const prefill = claudeDirPrefill({
+      dirs: claudeDirs,
+      planet: selectedSession?.claudeDirId,
+      last: lastClaudeDir,
+      fallback: defaultClaudeDir,
+    })
+    if (!prefill) return
+    setClaudeDirId(prefill.id)
+    setClaudeDirPrefilled({
+      id: prefill.id,
+      from: prefill.from,
+      planet: prefill.from === 'planet' ? selectedSession?.title : undefined,
+    })
+  }, [open, claudeDirId, claudeDirs, selectedSession, lastClaudeDir, defaultClaudeDir])
+
   // Preselection, in the order 4b describes: this project's last model when
   // the toggle allows it, otherwise the Settings default, otherwise the first
   // row the catalog offers (the default may name a model this install does
@@ -523,7 +543,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           {choosesDir && claudeDirs.length <= CLAUDE_DIR_SEGMENTS_MAX && (
             <div className="flex flex-col gap-2">
               <FieldLabel>
-                CLAUDE DIRECTORY
+                <span className="shrink-0 whitespace-nowrap">CLAUDE DIRECTORY</span>
                 <span className="min-w-0 truncate tracking-[0.04em] text-[rgba(160,190,225,.45)]">
                   · {claudeDirOriginHint(claudeDirOrigin)}
                 </span>

@@ -186,7 +186,7 @@ export function LimitsPage() {
                       ring="rgba(200,215,235,.35)"
                       title="Limits not tracked"
                       titleInk="rgba(232,238,248,.85)"
-                      text="This account is billed by usage and has no plan windows. Its sessions never wait for a reset."
+                      text="Claude reports no plan windows for this account. Its sessions never wait for a reset."
                     />
                   ) : (
                     <DirWindows dir={dir} now={now} apiKey={apiKey} compact />
