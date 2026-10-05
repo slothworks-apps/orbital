@@ -1,6 +1,6 @@
 import { ApiError } from '../lib/api'
 import { modelByAnyId } from '../lib/models'
-import { openingClaudeDir } from '../lib/claudeDirs'
+import { claudeDirPrefill, type ClaudeDirPrefillSource } from '../lib/claudeDirs'
 import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
 import { humanizeError } from './composer'
 import { homePath } from './format'
@@ -74,15 +74,22 @@ export function preselectModel(input: {
  * 2026-10-04-multiple-claude-directories-design § 7): the desktop's order
  * without its planet step, since the phone opens New session from the list,
  * never from a session — the last launch's choice, else the Mac's default. A
- * removed directory falls through. Null from a Mac without directories.
+ * removed directory, or one missing on disk, falls through. With the step
+ * that chose it, for the hint beside the row (canvas 44d: "last launch",
+ * "default"). Null from a Mac without directories.
  */
-export function preselectClaudeDir(defaults: SessionDefaults): number | null {
-  return openingClaudeDir({
+export function prefillClaudeDir(defaults: SessionDefaults): { id: number; from: ClaudeDirPrefillSource } | null {
+  return claudeDirPrefill({
     dirs: defaults.claudeDirs ?? [],
     planet: null,
     last: defaults.lastClaudeDir,
     fallback: defaults.defaultClaudeDir,
   })
+}
+
+/** `prefillClaudeDir`'s directory alone. */
+export function preselectClaudeDir(defaults: SessionDefaults): number | null {
+  return prefillClaudeDir(defaults)?.id ?? null
 }
 
 /** The Mac's default mode, except that a mode that never asks is never preselected (the desktop's rule). */

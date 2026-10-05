@@ -14,12 +14,12 @@ import { ModeCards } from '../../ui/ModeCards'
 import { CLOCK_TICK_MS } from '../constants'
 import { basename, homePath } from '../format'
 import {
-  filterDirectories, noSuchDirectory, preselectClaudeDir, preselectMode, preselectModel, startFailureLine,
+  filterDirectories, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
   type DirectoryRow,
 } from '../newSession'
 import { isMacAsleep, useMobile } from '../state'
-import { MobileScreen, PrimaryButton } from '../ui'
-import { Chip } from './SessionListScreen'
+import { FieldLabel, MobileScreen, PrimaryButton } from '../ui'
+import { ClaudeDirPicker } from './ClaudeDirPicker'
 
 /** 9d: past this many rows the directory list folds to a window, "Show all N" under it. */
 const COLLAPSED_ROWS = 3
@@ -47,7 +47,7 @@ export function NewSessionScreen() {
   const [mode, setMode] = useState<PermissionMode>('acceptEdits')
   /** A model picked by hand; until then the preselection follows the directory. */
   const [pickedModel, setPickedModel] = useState<string | null>(null)
-  /** A Claude directory picked by hand; until then the Mac's prefill (`preselectClaudeDir`). */
+  /** A Claude directory picked by hand; until then the Mac's prefill (`prefillClaudeDir`). */
   const [pickedDir, setPickedDir] = useState<number | null>(null)
   const [prompt, setPrompt] = useState('')
   const [pending, setPending] = useState(false)
@@ -74,7 +74,11 @@ export function NewSessionScreen() {
   const loaded = defaults !== undefined
   const dirs = defaults?.claudeDirs ?? []
   const choosesDir = dirs.length >= 2
-  const claudeDirId = choosesDir ? (pickedDir ?? (defaults ? preselectClaudeDir(defaults) : null)) : null
+  const prefill = choosesDir && defaults ? prefillClaudeDir(defaults) : null
+  const claudeDirId = choosesDir ? (pickedDir ?? prefill?.id ?? null) : null
+  /** 44d's hint beside the row: where the choice came from. */
+  const claudeDirHint =
+    pickedDir !== null && pickedDir !== prefill?.id ? 'changed' : prefill?.from === 'last' ? 'last launch' : 'default'
   /** The chosen directory's catalog: each account has its own models. */
   const models = useClaudeDirModels(claudeDirId)
 
@@ -310,6 +314,21 @@ export function NewSessionScreen() {
         {/* The cards wait for the Mac's defaults, with nothing drawn in their place (calm). */}
         {loaded && (
           <>
+            {/* Canvas 44d: right under DIRECTORY and before the mode and the
+                model, because the directory's account decides which models are
+                offered. Only with two or more. */}
+            {choosesDir && (
+              <ClaudeDirPicker
+                dirs={dirs}
+                value={claudeDirId}
+                hint={claudeDirHint}
+                onChange={(id) => {
+                  // A model picked from another account's catalog may not be in this one.
+                  if (id !== claudeDirId) setPickedModel(null)
+                  setPickedDir(id)
+                }}
+              />
+            )}
             <div className="flex flex-col gap-1.5">
               <FieldLabel>PERMISSION MODE</FieldLabel>
               <ModeCards value={mode} onChange={setMode} touch />
@@ -318,28 +337,6 @@ export function NewSessionScreen() {
               <FieldLabel>MODEL</FieldLabel>
               <ModelSegments models={models} value={model} onChange={setPickedModel} />
             </div>
-            {/* The Claude directory (spec 2026-10-04-multiple-claude-directories-design
-                § 7), only with two or more. No canvas yet: the session list's
-                filter chips, without a tag dot. */}
-            {choosesDir && (
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel>CLAUDE DIRECTORY</FieldLabel>
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Claude directory">
-                  {dirs.map((dir) => (
-                    <Chip
-                      key={dir.id}
-                      label={dir.name}
-                      active={claudeDirId === dir.id}
-                      onClick={() => {
-                        setPickedDir(dir.id)
-                        // A model picked from another account's catalog may not be in this one.
-                        if (dir.id !== claudeDirId) setPickedModel(null)
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
           </>
         )}
 
@@ -360,16 +357,6 @@ export function NewSessionScreen() {
         </div>
       </div>
     </MobileScreen>
-  )
-}
-
-/** 9d's section label, with the list's hint on its right. */
-function FieldLabel({ children, hint }: { children: string; hint?: string }) {
-  return (
-    <div className="flex items-baseline font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">
-      {children}
-      {hint && <span className="ml-auto min-w-0 truncate pl-3 tracking-[0.04em] text-[rgba(160,190,225,.45)]">{hint}</span>}
-    </div>
   )
 }
 
