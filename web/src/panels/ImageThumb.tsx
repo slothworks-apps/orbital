@@ -3,6 +3,7 @@ import type { ImageRefEntry } from '../lib/types'
 import { formatBytes } from '../lib/format'
 import { Lightbox } from '../ui/Lightbox'
 import { useImageUrl } from '../lib/images'
+import { fileOpenHandlers, useFileMessage } from '../lib/fileOpen'
 
 /**
  * One transcript image thumbnail (canvas 7a/7b/7d), clicking through to
@@ -65,6 +66,10 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
   const box = boxFor(image, variant, widthCapPx)
   const { url, failed, async: fadeIn, retry } = useImageUrl(image.ref)
   const [loaded, setLoaded] = useState(false)
+  // The phone's seam (`lib/fileOpen.ts`): configured, a press opens its own
+  // viewer at this image of this message, and no `Lightbox` is mounted.
+  const routed = fileOpenHandlers()
+  const fileMessage = useFileMessage()
 
   if (missing) {
     return (
@@ -110,7 +115,11 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
       <button
         type="button"
         aria-label="Open image full size"
-        onClick={() => setOpen(true)}
+        onClick={() =>
+          routed
+            ? routed.open({ kind: 'ref', ref: image.ref, messageId: fileMessage?.messageId })
+            : setOpen(true)
+        }
         style={{ ...box, cursor: 'zoom-in' }}
         className={[
           'block overflow-hidden border p-0 transition-[border-color,box-shadow] duration-[160ms] ease-out',
@@ -137,14 +146,14 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
           />
         )}
       </button>
-      <Lightbox
+      {!routed && <Lightbox
         open={open}
         src={url}
         width={image.w}
         height={image.h}
         caption={caption}
         onClose={() => setOpen(false)}
-      />
+      />}
     </>
   )
 }

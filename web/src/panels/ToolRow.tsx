@@ -10,7 +10,8 @@ import { DIFF_ADDED_INK_CLASS, DIFF_REMOVED_INK_CLASS } from '../lib/diff'
 import { ChangeView, changeSectionLabel } from './DiffView'
 import { formatBytes, formatToolDuration } from '../lib/format'
 import { ImageThumb } from './ImageThumb'
-import { PathButton } from './PathButton'
+import { PathButton, PlainPath } from './PathButton'
+import { FileMessageContext, fileOpenHandlers, messageImages, useLongPress } from '../lib/fileOpen'
 
 /** Tools whose salient input lives in a `file_path` field. */
 const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
@@ -37,13 +38,18 @@ const PATH_INPUT_FIELDS = new Set(['file_path', 'notebook_path'])
  * decides, same as prose matching.
  */
 export function pressablePathOf(toolName: string | undefined, toolInput: unknown): string | null {
+  const path = filePathOf(toolName, toolInput)
+  return path !== null && isPressablePath(path) ? path : null
+}
+
+/** The file a path-bearing tool names, pressable or not. */
+function filePathOf(toolName: string | undefined, toolInput: unknown): string | null {
   if (!toolInput || typeof toolInput !== 'object') return null
   const input = toolInput as Record<string, unknown>
   let path: unknown
   if (toolName && FILE_PATH_TOOLS.has(toolName)) path = input.file_path
   else if (toolName === 'NotebookEdit') path = input.notebook_path
-  if (typeof path !== 'string' || !isPressablePath(path)) return null
-  return path
+  return typeof path === 'string' ? path : null
 }
 
 /**
@@ -138,6 +144,18 @@ function InputJson({ input }: { input: unknown }) {
               </span>
             )
           }
+          // A path the phone can only long-press (`lib/fileOpen.ts`); the
+          // desktop configures none and keeps the line as one text node.
+          if (path !== null && fileOpenHandlers()?.longPress) {
+            return (
+              <span key={index}>
+                {match[1]}
+                <PlainPath path={path}>{match[3]}</PlainPath>
+                {match[4]}
+                {trailing}
+              </span>
+            )
+          }
         }
         // A static line list: the index is a stable key.
         return <span key={index}>{line + trailing}</span>
@@ -214,6 +232,12 @@ export function ToolRow({
   // the case, and anything else keeps today's plain bright span.
   const pathInput = pressablePathOf(toolUse.toolName, toolUse.toolInput)
   const pressablePath = pathInput !== null && pathInput === label ? pathInput : null
+  // A label that is a path no press can open: on the phone a long-press on
+  // the row copies it (`lib/fileOpen.ts`), while a tap still folds the row.
+  // Held by the row's own button because the label lets touches through to
+  // it. Empty handlers on the desktop.
+  const filePath = pressablePath === null ? filePathOf(toolUse.toolName, toolUse.toolInput) : null
+  const rowLongPress = useLongPress(filePath !== null && filePath === label ? filePath : null)
   const duration = formatToolDuration(toolDurationMs(toolUse, toolResult))
 
   // An editing tool's expanded body is its diff, not its input JSON (spec:
@@ -295,6 +319,7 @@ export function ToolRow({
       >
         <button
           type="button"
+          {...rowLongPress}
           onClick={() => setOverride(!expanded)}
           aria-expanded={expanded}
           aria-label={`${toolUse.toolName ?? 'Tool'}${label ? `: ${label}` : ''}`}
@@ -413,6 +438,11 @@ export function ToolRow({
                 // An image result is a body under the row, like a <pre>
                 // output block (canvas 7b): 96px thumb, mono readout beside
                 // it — dimensions and size are all an image block carries.
+                // The phone's viewer pages through the result's images
+                // (`lib/fileOpen.ts`); the desktop provides nothing.
+                <FileMessageContext.Provider
+                  value={fileOpenHandlers() ? { messageId: toolResult.id, images: messageImages(toolResult) } : null}
+                >
                 <div className="flex flex-col gap-2">
                   {toolResult.images.map((image) => (
                     <div key={image.ref} className="flex items-start gap-2.5">
@@ -438,6 +468,7 @@ export function ToolRow({
                     </pre>
                   ) : null}
                 </div>
+                </FileMessageContext.Provider>
               ) : toolUse.toolName === 'Bash' ? (
                 <pre
                   className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]"
