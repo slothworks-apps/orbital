@@ -991,6 +991,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           className="w-full"
                         />
                       </Row>
+                      <SectionLabel>CLAUDE CODE</SectionLabel>
                       {/* Every directory Orbital watches and launches under; a
                     change applies at once, no restart (spec
                     2026-10-04-multiple-claude-directories-design § 1). */}
@@ -1011,22 +1012,33 @@ export function Settings({ open, onClose }: SettingsProps) {
                             data-testid="billing-mode"
                             className="font-mono text-[11.5px] text-text-bright"
                           >
-                            {health.billing === 'api-key' ? 'API key' : 'Claude subscription'}
-                          </span>
-                          <span className="text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
                             {health.billing === 'api-key'
-                              ? 'ORBITAL_USE_API_KEY=1 is set, so ANTHROPIC_API_KEY is left in the server’s environment and usage is billed to that key.'
-                              : 'ANTHROPIC_API_KEY is removed from the server’s environment at startup, so sessions bill your subscription the way the CLI does.'}
+                              ? 'API key'
+                              : claudeDirCount >= 2
+                                ? // 44a: with several logins, each bills its own account.
+                                  'Claude account · per directory'
+                                : 'Claude subscription'}
                           </span>
+                          {health.billing !== 'api-key' && claudeDirCount >= 2 ? (
+                            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+                              each directory bills to the account it is signed in to
+                            </span>
+                          ) : (
+                            <span className="text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                              {health.billing === 'api-key'
+                                ? 'ORBITAL_USE_API_KEY=1 is set, so ANTHROPIC_API_KEY is left in the server’s environment and usage is billed to that key.'
+                                : 'ANTHROPIC_API_KEY is removed from the server’s environment at startup, so sessions bill your subscription the way the CLI does.'}
+                            </span>
+                          )}
                           {/* The key outranks every directory's own login,
-                          enterprise included (spec § 3 Billing) — said only
-                          when there is more than one login to outrank. */}
+                          enterprise included (spec § 3 Billing; 44a) — said
+                          only when there is more than one login to outrank. */}
                           {health.billing === 'api-key' && claudeDirCount >= 2 && (
                             <span
                               data-testid="billing-overrides-dirs"
-                              className="text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]"
+                              className="text-[12px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]"
                             >
-                              The key is used for every Claude directory, in place of each one’s own login.
+                              The API key overrides each directory’s own login. All directories bill to this key.
                             </span>
                           )}
                         </Row>

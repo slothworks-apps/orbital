@@ -427,10 +427,10 @@ describe('Settings — Claude directories', () => {
   }
 
   async function addDirectory(name: string, path: string) {
-    fireEvent.click(await screen.findByRole('button', { name: '+ Add a Claude directory' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Add directory' }))
     fireEvent.change(screen.getByLabelText('Directory name'), { target: { value: name } })
     fireEvent.change(screen.getByLabelText('Directory path'), { target: { value: path } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add directory' }))
   }
 
   /**
