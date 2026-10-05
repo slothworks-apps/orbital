@@ -108,9 +108,10 @@ The simulator gets no FCM pushes; test them on a device.
 1. **App Store Connect → Apps → + → New App**: iOS, name Orbital, bundle id
    `io.slothworks.orbital.mobile` (registered in the developer account by
    Xcode's first automatic signing), a SKU of your choice.
-2. **Users and Access**: add each tester as a user of the team (any role,
-   Customer Support is the narrowest). Members of the team are **internal**
-   testers: their builds need no Beta App Review.
+2. **Users and Access**: add each tester as a user of the team, with a role
+   of Marketing or above (Marketing is the narrowest that can test), limited
+   to this app. Members of the team are **internal** testers: their builds
+   need no Beta App Review. An Admin is one already.
 3. **TestFlight → Internal Testing → +**: a group with those users and
    automatic distribution on.
 
