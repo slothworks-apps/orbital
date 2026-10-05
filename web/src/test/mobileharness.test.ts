@@ -6,7 +6,10 @@ import {
   gateImages,
   gateView,
   goBackLines,
+  progress,
+  segmentTone,
   shortSummary,
+  stepsSheet,
   type GateFold,
 } from '../mobile/harness/gate'
 
@@ -198,5 +201,80 @@ describe('goBackLines', () => {
 
   it('with something running: says it stops', () => {
     expect(goBackLines(h, 3, true).body.startsWith('The turn and anything running in the session stop. ')).toBe(true)
+  })
+})
+
+describe('segmentTone (canvas 10b segC)', () => {
+  it('state decides the tone', () => {
+    expect(segmentTone('doneAgent')).toBe('done')
+    expect(segmentTone('doneYou')).toBe('done')
+    expect(segmentTone('doneRev')).toBe('done')
+    expect(segmentTone('doneUnsure')).toBe('done')
+    expect(segmentTone('waiting')).toBe('waiting')
+    expect(segmentTone('active')).toBe('active')
+    expect(segmentTone('sentBack')).toBe('active')
+    expect(segmentTone('reopened')).toBe('reopened')
+    expect(segmentTone('reviewing')).toBe('reviewing')
+    expect(segmentTone('pausedHere')).toBe('paused')
+    expect(segmentTone('pending')).toBe('pending')
+    expect(segmentTone('pendingGate')).toBe('pending')
+  })
+})
+
+describe('progress', () => {
+  const noStep = { harnessStep: null, harnessGate: null }
+
+  it('from the harness: one tone per step, the count at the first step not done', () => {
+    const h = harness([done, done, done, waitingState, pending, pending, pending])
+    expect(progress(h, [], noStep)).toEqual({
+      tones: ['done', 'done', 'done', 'waiting', 'pending', 'pending', 'pending'],
+      count: '4/7',
+    })
+  })
+
+  it('a reopened step reads neutral, a finished harness n/n', () => {
+    const events = [event(1, 'reopened', T0 + 9000, { step: 's3', index: 3 })]
+    const reopened = harness([done, done, done, { status: 'active' }, pending, pending, pending])
+    expect(progress(reopened, events, noStep)?.tones[3]).toBe('reopened')
+    const finished = harness([done, done, done, done, done, done, done])
+    expect(progress(finished, [], noStep)?.count).toBe('7/7')
+  })
+
+  it('before the harness arrives: from the snapshot step and the gate', () => {
+    expect(progress(null, [], { harnessStep: { index: 3, total: 5 }, harnessGate: 'waiting' })).toEqual({
+      tones: ['done', 'done', 'done', 'waiting', 'pending'],
+      count: '4/5',
+    })
+    expect(progress(null, [], { harnessStep: { index: 1, total: 3 }, harnessGate: 'reviewing' })?.tones).toEqual([
+      'done',
+      'reviewing',
+      'pending',
+    ])
+    expect(progress(null, [], { harnessStep: { index: 0, total: 2 }, harnessGate: null })?.tones).toEqual(['active', 'pending'])
+  })
+
+  it('no harness and no step: nothing to draw', () => {
+    expect(progress(null, [], noStep)).toBeNull()
+    expect(progress(harness([done], { removedAt: T0 }), [], noStep)).toBeNull()
+  })
+})
+
+describe('stepsSheet', () => {
+  it('rows carry the rail meta; done rows open their record; the waiting one counts its questions', () => {
+    const events = [
+      event(1, 'attached', T0, { scope: { kind: 'project', root: '/x/orbital', name: 'orbital' } }),
+      event(2, 'approved', T0 + 2000, { step: 's2', index: 2 }),
+    ]
+    const h = harness([done, done, { ...done, approvedBy: 'user' }, waitingState, pending, pending, pending])
+    const sheet = stepsSheet(h, events)
+    expect(sheet.eyebrow).toBe('HARNESS · PROJECT ORBITAL')
+    expect(sheet.status.step).toBe('step 4 of 7')
+    expect(sheet.status.status).toBe('needs your OK')
+    expect(sheet.footer).toBe('auto-continue · sent on when nothing needs you')
+    const steps = sheet.items.filter((i) => i.type === 'step')
+    expect(steps.map((s) => s.record)).toEqual([true, true, true, false, false, false, false])
+    expect(steps[3]).toMatchObject({ title: '4 · Step title 4', gate: true, meta: 'needs your OK · 2 open questions' })
+    expect(steps[2].meta.startsWith('ticked')).toBe(true)
+    expect(sheet.items[0]).toMatchObject({ type: 'event', text: expect.stringMatching(/^started · /) })
   })
 })

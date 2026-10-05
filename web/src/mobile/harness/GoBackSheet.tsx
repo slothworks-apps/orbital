@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import type { SessionHarness } from '../../lib/types'
 import { ConfirmSheet } from '../ui'
 import { goBackLines } from './gate'
@@ -21,7 +22,8 @@ export function GoBackSheet({
   onCancel: () => void
 }) {
   const lines = goBackLines(harness, index, running)
-  return (
+  // Out of the transcript: a fixed sheet inside its scroller (a clip, maybe a transform) would be cut away.
+  return createPortal(
     <ConfirmSheet
       eyebrow={lines.eyebrow}
       title={lines.title}
@@ -32,6 +34,7 @@ export function GoBackSheet({
       confirmLabel={lines.confirm}
       onConfirm={onConfirm}
       onCancel={onCancel}
-    />
+    />,
+    document.body,
   )
 }
