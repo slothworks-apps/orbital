@@ -227,9 +227,11 @@ refuse.
 ### Build the bundle
 
 ```bash
-npm run build -w @orbital/mobile   # never with ORBITAL_MOBILE_DEV=1
-npm run aab -w @orbital/mobile     # gradlew bundleRelease
+npm run mobile:release   # from the repo root
 ```
+
+It runs `build` without `ORBITAL_MOBILE_DEV` (a release must never be a dev
+build), then `aab` (`gradlew bundleRelease`).
 
 The bundle is `mobile/android/app/build/outputs/bundle/release/app-release.aab`.
 `google-services.json` must be in place before `build`, or the release has
