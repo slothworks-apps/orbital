@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
+import { OUTPUT_TAIL_BYTES } from '../src/files/taskOutput.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
 import type { OrbitalDb } from '../src/db/database.js';
 import {
@@ -627,6 +628,43 @@ describe('REST routes', () => {
       ],
       droppedCount: 0,
     });
+  });
+
+  it('GET .../subagents/:toolUseId/messages?limit returns the newest n and counts the rest as dropped', async () => {
+    knownAgent();
+    subagentTranscripts.append('s1', 'tu1', [
+      { id: 'm1', role: 'assistant', text: 'one' },
+      { id: 'm2', role: 'assistant', text: 'two' },
+      { id: 'm3', role: 'assistant', text: 'three' },
+    ]);
+    const read = async (q: string) =>
+      (await app.inject({ method: 'GET', url: `/api/sessions/s1/subagents/tu1/messages${q}` })).json();
+
+    const two = await read('?limit=2');
+    expect(two.messages.map((m: any) => m.id)).toEqual(['m2', 'm3']);
+    expect(two.droppedCount).toBe(1);
+
+    // A limit at or over the buffer leaves it whole; garbage is ignored.
+    for (const q of ['', '?limit=3', '?limit=50', '?limit=abc', '?limit=0', '?limit=-1']) {
+      const all = await read(q);
+      expect(all.messages.map((m: any) => m.id), q).toEqual(['m1', 'm2', 'm3']);
+      expect(all.droppedCount, q).toBe(0);
+    }
+  });
+
+  it('PATCH /api/sessions/:id and PUT .../tags publish the session on `sessions`', async () => {
+    const received = subscribeFake(hub, 'sessions');
+    await app.inject({ method: 'PATCH', url: '/api/sessions/s2', payload: { title: 'renamed' } });
+    expect(received).toEqual([{ topic: 'sessions', event: 'upsert', session: expect.objectContaining({ id: 's2', title: 'renamed' }) }]);
+
+    received.length = 0;
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/tags', payload: { tagIds: [10] } });
+    expect(received).toEqual([{ topic: 'sessions', event: 'upsert', session: expect.objectContaining({ id: 's2', tagIds: [10] }) }]);
+
+    received.length = 0;
+    expect((await app.inject({ method: 'PATCH', url: '/api/sessions/nope', payload: { title: 'x' } })).statusCode).toBe(404);
+    await app.inject({ method: 'PUT', url: '/api/sessions/nope/tags', payload: { tagIds: [] } });
+    expect(received).toEqual([]);
   });
 
   it('GET .../subagents/:toolUseId/messages 404s an agent whose toolUseId is absent — it can never be addressed this way', async () => {
@@ -3602,6 +3640,27 @@ describe('background task routes', () => {
     const res = await app.inject({ url: '/api/sessions/s1/tasks/sh1/output' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ text: 'héllo\nready\n', start: 0, end: Buffer.byteLength('héllo\nready\n') });
+  });
+
+  it('GET .../output?maxBytes reads a shorter tail, never one longer than OUTPUT_TAIL_BYTES, and ignores garbage', async () => {
+    const lines = Array.from({ length: 10 }, (_, i) => `line ${i}\n`).join('');
+    const { app, path } = withShell({ output: lines });
+    const size = Buffer.byteLength(lines);
+    const read = async (q: string) => (await app.inject({ url: `/api/sessions/s1/tasks/sh1/output${q}` })).json();
+
+    const short = await read('?maxBytes=14');
+    expect(short).toEqual({ text: 'line 9\n', start: size - 7, end: size });
+
+    for (const q of ['', '?maxBytes=abc', '?maxBytes=-5', '?maxBytes=0', '?maxBytes=1.5', '?maxBytes=']) {
+      expect(await read(q), q).toEqual({ text: lines, start: 0, end: size });
+    }
+
+    // Over the cap: the bound is OUTPUT_TAIL_BYTES, as without the parameter.
+    const big = 'x'.repeat(OUTPUT_TAIL_BYTES) + '\n' + 'tail\n';
+    writeFileSync(path, big);
+    const capped = await read(`?maxBytes=${OUTPUT_TAIL_BYTES * 4}`);
+    expect(capped).toEqual(await read(''));
+    expect(capped.start).toBeGreaterThan(0);
   });
 
   it('GET .../output 410s once the file is gone, and 404s a task without an output path', async () => {
