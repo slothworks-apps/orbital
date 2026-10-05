@@ -33,7 +33,7 @@ export function SessionComposer({ id }: { id: string }) {
     // 9p "MAC OFFLINE · LOCKED": the well's place, dashed and inert, and the
     // controls under it dimmed with nothing to act on.
     return (
-      <div className="border-t border-panel-border px-4 pb-4 pt-3.5">
+      <div className="border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-3 pb-1 pt-2.5">
         <div className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-[rgba(150,205,255,.22)] px-3 py-3 text-[13px] text-text-muted">
           <LockIcon />
           <span className="min-w-0 truncate">{mode.macName} is asleep — read only</span>
@@ -133,7 +133,7 @@ function LiveComposer({ id }: { id: string }) {
   }
 
   return (
-    <div className="border-t border-panel-border px-4 pb-4 pt-3.5">
+    <div className="border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-3 pb-1 pt-2.5">
       <Composer
         sessionKey={{ session: id }}
         value={draft}
@@ -186,9 +186,9 @@ function Controls(
       },
 ) {
   const live = props.inert ? null : props
-  const iconButton = 'flex min-h-11 min-w-11 items-center justify-center text-text-soft disabled:opacity-40'
+  const iconButton = 'flex h-11 w-11 items-center justify-center rounded-[12px] text-[rgba(200,220,245,.8)] disabled:opacity-40'
   return (
-    <div className={['mt-2 flex items-center gap-1', live ? '' : 'opacity-40'].join(' ')}>
+    <div className={['mt-1 flex items-center gap-0.5', live ? '' : 'opacity-40'].join(' ')}>
       <button
         type="button"
         aria-label="Take a photo"
@@ -213,9 +213,9 @@ function Controls(
           type="button"
           aria-label="Stop"
           onClick={live.onStop}
-          className="mr-2 flex min-h-11 items-center gap-2 rounded-full border border-[rgba(251,169,98,.5)] px-4 text-[14px] font-semibold text-warning"
+          className="flex h-11 items-center gap-2 rounded-[12px] border border-[oklch(80%_.13_60/.5)] px-4 text-[14px] font-semibold text-[oklch(85%_.12_60)]"
         >
-          <span aria-hidden className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
+          <span aria-hidden className="block h-[9px] w-[9px] rounded-[1.5px] bg-current" />
           Stop
         </button>
       )}
@@ -224,8 +224,8 @@ function Controls(
         aria-label="Send"
         onClick={() => live?.onSend()}
         disabled={!live || live.sendDisabled}
-        // A round teal disc, dim while there is nothing to send (9b).
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-[18px] font-semibold text-space-deep disabled:bg-accent/25 disabled:text-accent/70"
+        // A round cyan disc that glows, faded while there is nothing to send (9b).
+        className="ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[oklch(85%_.12_205)] text-[18px] font-bold text-[#03111a] shadow-[0_0_18px_oklch(85%_.12_205/.4)] disabled:opacity-35 disabled:shadow-none"
       >
         ↑
       </button>

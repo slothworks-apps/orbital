@@ -945,6 +945,7 @@ export function TranscriptView({
         its rows 14px apart. */}
     <div
       ref={containerRef}
+      data-transcript-scroller
       className="flex h-full flex-col gap-[14px] overflow-y-auto px-[22px] py-[18px]"
     >
       {/* The negative margin takes back the row gap the sentinel would

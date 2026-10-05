@@ -60,6 +60,11 @@ describe('filterDirectories', () => {
     expect(filterDirectories(projects, '~/lab')).toEqual({ kind: 'rows', rows: [row('~/lab/voice-notes')] })
   })
 
+  it('matches a ~ prefix against the home folder it stands for, as the rows print it', () => {
+    const projects = [row('/Users/tomin/lab/voice-notes'), row('/srv/lab/x')]
+    expect(filterDirectories(projects, '~/lab')).toEqual({ kind: 'rows', rows: [row('/Users/tomin/lab/voice-notes')] })
+  })
+
   it('offers a typed path that matches nothing as is', () => {
     expect(filterDirectories([row('/w/web')], ' /nowhere ')).toEqual({ kind: 'use-as-is', path: '/nowhere' })
     expect(filterDirectories([], '~/new')).toEqual({ kind: 'use-as-is', path: '~/new' })

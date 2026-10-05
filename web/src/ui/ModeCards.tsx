@@ -8,6 +8,8 @@ export interface ModeCardsProps {
   disabled?: boolean
   /** Settings variant (canvas 2f): short copy, `bypass` short label, tighter card, no selection pip. */
   compact?: boolean
+  /** Phone variant (canvas 9d): the compact copy on a taller 12px-radius card a thumb can hit. */
+  touch?: boolean
 }
 
 /**
@@ -22,12 +24,14 @@ export interface ModeCardsProps {
  * readout needs the same strings for its tooltip, and a second copy is how a
  * picker and a readout end up disagreeing about what `auto` does.
  */
-export function ModeCards({ value, onChange, disabled = false, compact = false }: ModeCardsProps) {
+export function ModeCards({ value, onChange, disabled = false, compact: compactProp = false, touch = false }: ModeCardsProps) {
+  const compact = compactProp || touch
   return (
     <div role="radiogroup" aria-label="Permission mode" className="grid w-full grid-cols-2 gap-2">
       {PERMISSION_MODES.map((mode) => {
         const active = value === mode.value
-        const label = compact ? mode.shortLabel : mode.label
+        // 9d spells `bypassPermissions` out: the phone card is wide enough.
+        const label = compact && !touch ? mode.shortLabel : mode.label
         return (
           <button
             key={mode.value}
@@ -43,7 +47,12 @@ export function ModeCards({ value, onChange, disabled = false, compact = false }
               'relative min-w-0 text-left transition-colors',
               'disabled:cursor-not-allowed disabled:opacity-40',
               // 2f: 10px/12px on a 9px radius. 2d: 12px/14px on a 10px radius.
-              compact ? 'rounded-[9px] border px-3 py-2.5' : 'rounded-[10px] border px-3.5 py-3',
+              // 9d: 10px/12px on a 12px radius, 60px tall.
+              touch
+                ? 'min-h-15 rounded-[12px] border px-3 py-2.5'
+                : compact
+                  ? 'rounded-[9px] border px-3 py-2.5'
+                  : 'rounded-[10px] border px-3.5 py-3',
               active
                 ? compact
                   ? 'border-accent/70 bg-accent/8'
@@ -63,7 +72,7 @@ export function ModeCards({ value, onChange, disabled = false, compact = false }
             <span
               className={[
                 'flex items-center font-mono text-text-bright',
-                compact ? 'gap-[7px] text-[11.5px]' : 'gap-2 text-xs',
+                touch ? 'gap-[7px] text-[12px]' : compact ? 'gap-[7px] text-[11.5px]' : 'gap-2 text-xs',
               ].join(' ')}
             >
               <ModeDot mode={mode.value} />
@@ -72,8 +81,8 @@ export function ModeCards({ value, onChange, disabled = false, compact = false }
             <span
               className={[
                 'block leading-[1.4] [text-wrap:pretty]',
-                compact ? 'mt-1 text-[11px]' : 'mt-[5px] text-[11.5px]',
-                active && !compact ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.7)]',
+                touch ? 'mt-1 text-[11.5px] leading-[1.35]' : compact ? 'mt-1 text-[11px]' : 'mt-[5px] text-[11.5px]',
+                active && !compact ? 'text-[rgba(200,220,245,.85)]' : touch ? 'text-[rgba(160,190,225,.65)]' : 'text-[rgba(160,190,225,.7)]',
               ].join(' ')}
             >
               {compact ? mode.shortDescription : mode.description}

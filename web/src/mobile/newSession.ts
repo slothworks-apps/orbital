@@ -2,6 +2,7 @@ import { ApiError } from '../lib/api'
 import { modelByAnyId } from '../lib/models'
 import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
 import { humanizeError } from './composer'
+import { homePath } from './format'
 
 /** One row of `GET /api/projects`: a directory a session ran in. */
 export interface DirectoryRow {
@@ -31,7 +32,8 @@ export function isTypedPath(query: string): boolean {
 /**
  * 9d's directory list (spec § 6.4). Nothing typed: the first
  * `RECENT_DIRECTORIES` rows. Otherwise every row with a path segment that
- * contains the query, or whose full path starts with it — case-insensitive,
+ * contains the query, or whose full path starts with it — written out or
+ * from `~`, as the rows print it — case-insensitive,
  * in the order the route gave (most recent first).
  */
 export function filterDirectories(projects: readonly DirectoryRow[], query: string): DirectoryList {
@@ -40,7 +42,11 @@ export function filterDirectories(projects: readonly DirectoryRow[], query: stri
   const needle = q.toLowerCase()
   const rows = projects.filter((p) => {
     const cwd = p.cwd.toLowerCase()
-    return cwd.startsWith(needle) || cwd.split('/').some((segment) => segment.includes(needle))
+    return (
+      cwd.startsWith(needle) ||
+      homePath(p.cwd).toLowerCase().startsWith(needle) ||
+      cwd.split('/').some((segment) => segment.includes(needle))
+    )
   })
   if (rows.length > 0) return { kind: 'rows', rows }
   return isTypedPath(q) ? { kind: 'use-as-is', path: q } : { kind: 'no-match', query: q }

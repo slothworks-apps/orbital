@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ApiSession, PendingDecision, Tag } from '../lib/types'
-import { agoLabel, asOfLabel, basename, checkedLabel, relayHost } from '../mobile/format'
+import { agoLabel, asOfLabel, basename, checkedLabel, homePath, relayHost } from '../mobile/format'
 import {
   decisionReason, glyphFor, groupOf, groupSessions, latestActivity, stateLine, tagChips,
 } from '../mobile/sessionList'
@@ -112,5 +112,15 @@ describe('labels', () => {
     expect(basename('/w/orbital/')).toBe('orbital')
     expect(relayHost('https://relay.example.org:8443/x')).toBe('relay.example.org:8443')
     expect(relayHost('not a url')).toBe('not a url')
+  })
+
+  it('folds the home folder into ~ and leaves every other path alone', () => {
+    expect(homePath('/Users/tomin/Projects/orbital')).toBe('~/Projects/orbital')
+    expect(homePath('/home/ci/work')).toBe('~/work')
+    expect(homePath('/Users/tomin')).toBe('~')
+    expect(homePath('/Users/tomin2x/a')).toBe('~/a')
+    expect(homePath('/private/tmp/x')).toBe('/private/tmp/x')
+    expect(homePath('/Users')).toBe('/Users')
+    expect(homePath('/srv/Users/tomin/a')).toBe('/srv/Users/tomin/a')
   })
 })

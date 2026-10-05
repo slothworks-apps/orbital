@@ -22,6 +22,9 @@ import { SessionComposer } from './SessionComposer'
 
 const EMPTY: ChatMessage[] = []
 
+/** 9b's header draws at most this many moons before the count. */
+const MOONS_SHOWN = 3
+
 /** 9b (spec § 5, § 6.1): one session's transcript and its composer. */
 export function SessionScreen() {
   const id = useMobile((s) => s.sessionId)
@@ -85,38 +88,75 @@ function SessionView({ id }: { id: string }) {
   }, [loadOlder, id])
 
   const key = session ? sessionStateKey(session) : null
+  const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
   const header = (
-    <div className="pb-1.5 pt-1">
-      <div className="flex items-center gap-1 pr-4">
-        <button type="button" aria-label="Back" onClick={() => goBack()} className="min-h-11 min-w-11 text-[22px] text-text-soft">
+    <div className="px-1.5 pb-0.5">
+      <div className="flex h-13 items-center gap-1">
+        <button
+          type="button"
+          aria-label="Back to sessions"
+          onClick={() => goBack()}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+        >
           ‹
         </button>
-        <h1 className="min-w-0 flex-1 truncate text-[16px] font-semibold">{session?.title || 'Untitled session'}</h1>
-        {session && (
-          <span className="flex min-w-0 max-w-[45%] shrink items-center gap-1.5 font-mono text-[11px] text-text-muted">
-            <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
-            <span className="truncate">{basename(session.cwd)}</span>
-            {session.git && <span className="truncate">⎇ {session.git.ref}</span>}
-          </span>
-        )}
+        <div className="min-w-0 flex-1 pr-2">
+          <h1 className="truncate text-[16.5px] font-bold tracking-[-0.01em]">{session?.title || 'Untitled session'}</h1>
+          {session && (
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+              <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tagHue }} />
+              <span className="shrink-0">{basename(session.cwd)}</span>
+              {session.git && <span className="truncate">· ⎇ {session.git.ref}</span>}
+            </div>
+          )}
+        </div>
       </div>
       {session && key && (
-        <div className="flex min-w-0 items-center gap-2 pl-11 pr-4 font-mono text-[10.5px] text-text-muted">
-          <span className="flex shrink-0 items-center gap-1.5 tracking-[0.1em]" style={{ color: stateColor(key) }}>
+        <div className="flex h-11 min-w-0 items-center gap-0.5 pl-2.5">
+          <span
+            className="flex shrink-0 items-center gap-[7px] pr-2.5 font-mono text-[10.5px] tracking-[0.1em]"
+            style={{ color: stateColor(key) }}
+          >
             <Glyph session={session} offline={offline} />
             {stateLine(key, offline, asOf, now)}
+            {/* Live, the last activity; offline, the state line already says when. */}
+            {!offline && session.lastAt !== null && <span>· {timeAgo(session.lastAt, now)}</span>}
           </span>
-          {/* Live, the last activity; offline, the state line already says when. */}
-          {!offline && session.lastAt !== null && <span className="shrink-0">· {timeAgo(session.lastAt, now)}</span>}
           {session.subagents.length > 0 && (
-            <span className="shrink-0">
-              · {session.subagents.length} {session.subagents.length === 1 ? 'subagent' : 'subagents'}
+            <span
+              aria-label={`${session.subagents.length} ${session.subagents.length === 1 ? 'subagent' : 'subagents'}`}
+              className="flex shrink-0 items-center gap-[5px] px-2 font-mono text-[10.5px] text-[rgba(200,220,245,.75)]"
+            >
+              {session.subagents.slice(0, MOONS_SHOWN).map((agent) => (
+                <span
+                  key={agent.id}
+                  aria-hidden
+                  className={[
+                    'block h-2 w-2 rounded-full border bg-[oklch(30%_.05_220)]',
+                    !offline && agent.state !== 'ended' ? 'orbital-pulse' : '',
+                  ].join(' ')}
+                  style={{ borderColor: tagHue }}
+                />
+              ))}
+              {session.subagents.length}
             </span>
           )}
+          <span aria-hidden className="flex-1" />
+          {/* The phone reads the model and the mode; switching either stays on the Mac for now. */}
           {(session.model || session.resolvedModel) && (
-            <span className="min-w-0 truncate">· {sessionModelLabel(session, models)}</span>
+            <span className="mx-1.5 flex h-7 min-w-0 items-center rounded-[6px] border border-[rgba(150,205,255,.2)] px-[9px] font-mono text-[11px] text-text-bright">
+              <span className="truncate">{sessionModelLabel(session, models)}</span>
+            </span>
           )}
-          {session.permissionMode && <ModeDot mode={session.permissionMode} className="ml-auto" />}
+          {session.permissionMode && (
+            <span
+              role="img"
+              aria-label={`Permission mode ${session.permissionMode}`}
+              className="mx-2 grid h-7 w-7 shrink-0 place-items-center rounded-[6px] border border-[rgba(150,205,255,.2)]"
+            >
+              <ModeDot mode={session.permissionMode} size={8} />
+            </span>
+          )}
         </div>
       )}
     </div>

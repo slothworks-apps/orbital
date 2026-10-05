@@ -3,6 +3,11 @@
 All notable changes to the Android app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+### Changed
+- Every screen now matches the app's design: sessions show as small planets in their state's colour, the main buttons are solid and bright, New session stays at the bottom of the list, a long folder list folds behind "Show all", and pairing, settings and the notice screens are laid out as designed.
+
+### Fixed
+- The notification switches in Settings no longer stick out of their track, and the tag chips above the session list no longer show a scrollbar.
 
 ## [0.1.1] — 2026-10-04
 ### Added

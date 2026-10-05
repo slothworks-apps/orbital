@@ -1,6 +1,6 @@
 import { App } from '@capacitor/app'
 import { useMobile } from '../state'
-import { MobileMark, MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
+import { NoticeScreen, PrimaryButton, SecondaryButton } from '../ui'
 
 /**
  * 9h (spec § 4): the Mac revoked this phone. Its pairing, identity and cache
@@ -12,18 +12,20 @@ export function UnpairedScreen() {
   const macName = useMobile((s) => s.macName)
   const name = macName || 'Your Mac'
   return (
-    <MobileScreen>
-      <div className="flex flex-col gap-5 px-6 pt-20">
-        <MobileMark muted />
-        <h1 className="text-[22px] font-semibold">This phone is no longer paired</h1>
-        <div className="flex flex-col gap-2 text-[14px] text-text-soft">
-          <p>{name} removed this phone.</p>
-          <p>Its key is gone, so are the sessions it showed. To connect again, scan a new code on the Mac.</p>
-        </div>
-        <PrimaryButton onClick={() => useMobile.getState().go('pairing')}>Pair again</PrimaryButton>
-        <SecondaryButton onClick={() => void notNow()}>Not now</SecondaryButton>
-      </div>
-    </MobileScreen>
+    <NoticeScreen
+      actions={
+        <>
+          <PrimaryButton onClick={() => useMobile.getState().go('pairing')}>Pair again</PrimaryButton>
+          <SecondaryButton onClick={() => void notNow()}>Not now</SecondaryButton>
+        </>
+      }
+    >
+      <h1 className="mt-3.5 text-[24px] font-bold tracking-[-0.01em] [text-wrap:balance]">This phone is no longer paired</h1>
+      <p className="text-[15px] leading-[1.5] text-[rgba(220,232,248,.88)]">{name} removed this phone.</p>
+      <p className="max-w-[290px] text-[13px] leading-[1.55] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        Its key is gone, so are the sessions it showed. To connect again, scan a new code on the Mac.
+      </p>
+    </NoticeScreen>
   )
 }
 

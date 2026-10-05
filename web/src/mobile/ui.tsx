@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { Logo } from '../ui/Logo'
 
 /**
  * One phone screen (9a–9i): the header pinned at the top, the body
@@ -12,21 +11,40 @@ export function MobileScreen({
   children,
   footer,
   scroll = true,
+  divider = true,
+  glow = false,
 }: {
   header?: ReactNode
   children: ReactNode
   footer?: ReactNode
   scroll?: boolean
+  /** The header's bottom rule; 9a's list header runs straight into its chips without one. */
+  divider?: boolean
+  /** 9a's faint violet and cyan light behind the list. */
+  glow?: boolean
 }) {
   return (
-    <main className="flex h-full min-h-0 flex-col">
-      {header && <header className="shrink-0 border-b border-panel-border bg-[rgba(5,7,13,.92)]">{header}</header>}
-      <div className={scroll ? 'min-h-0 flex-1 overflow-y-auto' : 'flex min-h-0 flex-1 flex-col'}>{children}</div>
-      {footer && <div className="shrink-0">{footer}</div>}
+    <main className="relative flex h-full min-h-0 flex-col">
+      {glow && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_320px_260px_at_20%_10%,rgba(110,80,220,.13),transparent),radial-gradient(ellipse_360px_300px_at_90%_85%,rgba(40,170,220,.08),transparent)]"
+        />
+      )}
+      {header && (
+        <header className={['relative shrink-0', divider ? 'border-b border-panel-border bg-[rgba(5,7,13,.92)]' : ''].join(' ')}>
+          {header}
+        </header>
+      )}
+      <div className={['relative', scroll ? 'min-h-0 flex-1 overflow-y-auto' : 'flex min-h-0 flex-1 flex-col'].join(' ')}>
+        {children}
+      </div>
+      {footer && <div className="relative shrink-0">{footer}</div>}
     </main>
   )
 }
 
+/** 9a–9i's two button kinds: filled cyan for the screen's one action, outlined for the rest. */
 type ButtonProps = { children: ReactNode; onClick?: () => void; disabled?: boolean; type?: 'button' | 'submit' }
 
 export function PrimaryButton({ children, onClick, disabled, type = 'button' }: ButtonProps) {
@@ -35,7 +53,7 @@ export function PrimaryButton({ children, onClick, disabled, type = 'button' }: 
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="min-h-11 w-full rounded-[10px] border border-[rgba(89,228,243,.45)] bg-[rgba(89,228,243,.12)] px-4 text-[15px] font-semibold text-text-bright disabled:opacity-40"
+      className="flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] bg-[oklch(85%_.12_205)] px-4 text-[15px] font-bold text-[#03111a] shadow-[0_0_22px_oklch(85%_.12_205/.3)] disabled:opacity-35 disabled:shadow-none"
     >
       {children}
     </button>
@@ -48,13 +66,17 @@ export function SecondaryButton({ children, onClick, disabled, type = 'button' }
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="min-h-11 w-full rounded-[10px] border border-panel-border px-4 text-[15px] text-text-soft disabled:opacity-40"
+      className="flex h-13 w-full items-center justify-center rounded-[14px] border border-[rgba(150,205,255,.2)] px-4 text-[15px] font-semibold text-text-bright disabled:opacity-40"
     >
       {children}
     </button>
   )
 }
 
+/**
+ * 9f's switch: a 40×24 track inside a 56×44 target. On, the track is lit cyan
+ * and the knob goes dark; off, a faint track and a pale knob.
+ */
 export function Toggle({
   checked,
   onChange,
@@ -74,46 +96,58 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={[
-        'relative h-7 w-12 shrink-0 rounded-full border transition-colors duration-150',
-        checked ? 'border-[rgba(89,228,243,.6)] bg-[rgba(89,228,243,.35)]' : 'border-panel-border bg-[rgba(150,205,255,.08)]',
-        disabled ? 'opacity-40' : '',
-      ].join(' ')}
+      className="grid h-11 w-14 shrink-0 place-items-center disabled:opacity-40"
     >
       <span
         aria-hidden
         className={[
-          'absolute top-0.5 h-5.5 w-5.5 rounded-full bg-text-bright transition-transform duration-150',
-          checked ? 'translate-x-5.5' : 'translate-x-0.5',
+          'relative block h-6 w-10 rounded-full transition-[background-color] duration-[180ms] ease-out',
+          checked ? 'bg-[oklch(85%_.12_205)] shadow-[0_0_10px_oklch(85%_.12_205/.45)]' : 'bg-[rgba(150,205,255,.16)]',
         ].join(' ')}
-      />
+      >
+        <span
+          className={[
+            'absolute top-[3px] block h-[18px] w-[18px] rounded-full transition-[left] duration-[180ms] ease-out',
+            checked ? 'left-[19px] bg-[#03111a]' : 'left-[3px] bg-[rgba(220,235,255,.85)]',
+          ].join(' ')}
+        />
+      </span>
     </button>
   )
 }
 
-export function SectionLabel({ children }: { children: ReactNode }) {
-  return <div className="px-4 pb-1.5 pt-5 font-mono text-[10.5px] tracking-[0.14em] text-text-muted">{children}</div>
+/** 9f's section label over a card: mono caps, indented to the card's text. */
+export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }) {
+  return (
+    <div className={['px-1 pb-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]', first ? 'pt-3' : 'pt-5'].join(' ')}>
+      {children}
+    </div>
+  )
 }
 
+/** 9f's grouped card: rows inside, hairlines between them. */
+export const CARD = 'overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)]'
+
 /**
- * The Orbital mark at screen size (9e paired, 9h): `ui/Logo`'s drawing
- * scaled up. `checked` adds the check of "Paired with"; `muted` is 9h's
- * grey mark — no red, no icon.
+ * 9h and 9i's mark: the Orbital ring and its moon drawn in grey — news, not
+ * an error, so no red and no warning icon.
  */
-export function MobileMark({ checked = false, muted = false }: { checked?: boolean; muted?: boolean }) {
+export function QuietMark() {
   return (
-    <div className={['relative flex h-12 w-12 items-center justify-center', muted ? 'opacity-50 grayscale' : ''].join(' ')}>
-      <span className="block [&>svg]:h-12 [&>svg]:w-12">
-        <Logo />
-      </span>
-      {checked && (
-        <span
-          aria-hidden
-          className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[rgba(89,228,243,.5)] bg-space text-[11px] text-accent"
-        >
-          ✓
-        </span>
-      )}
-    </div>
+    <span aria-hidden className="relative block h-16 w-16 rounded-full border-[1.5px] border-[rgba(200,215,235,.4)]">
+      <span className="absolute -right-1.5 top-1 block h-3 w-3 rounded-full border-[1.5px] border-[rgba(200,215,235,.4)] bg-space" />
+    </span>
+  )
+}
+
+/** A 9h/9i screen: the message centred in the space, the actions pinned at the bottom. */
+export function NoticeScreen({ children, actions }: { children: ReactNode; actions: ReactNode }) {
+  return (
+    <MobileScreen footer={<div className="flex flex-col gap-2 px-4 pb-1.5 pt-2.5">{actions}</div>}>
+      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-7 pb-10 text-center">
+        <QuietMark />
+        {children}
+      </div>
+    </MobileScreen>
   )
 }

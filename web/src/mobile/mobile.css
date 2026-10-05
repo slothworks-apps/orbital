@@ -78,3 +78,27 @@
 :root[data-platform='mobile'] [data-composer-hint][data-empty] {
   display: none;
 }
+
+/*
+ * 9a: a phone scrolls by touch, so no scroller draws a bar — the tag chips'
+ * row least of all. The desktop's thin thumb (`theme.css`) stays desktop-only.
+ */
+:root[data-platform='mobile'] * {
+  scrollbar-width: none;
+}
+:root[data-platform='mobile'] *::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * 9b: the phone's transcript sits closer to the screen edge than the desktop
+ * panel's 18px/22px inset, rows 12px apart, and reads at 14px / 1.55.
+ */
+:root[data-platform='mobile'] [data-transcript-scroller] {
+  gap: 12px;
+  padding: 12px 14px;
+}
+:root[data-platform='mobile'] .message-markdown {
+  font-size: 14px;
+  line-height: 1.55;
+}

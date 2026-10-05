@@ -8,7 +8,7 @@ import { setRules as setNotifierRules } from '../notify'
 import { readNotificationsCache, writeNotificationsCache } from '../platform/cache'
 import { useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
-import { MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, Toggle } from '../ui'
+import { CARD, MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, Toggle } from '../ui'
 
 /**
  * The desktop's five rows, in its order (Settings → Notifications). Three
@@ -56,6 +56,7 @@ export function SettingsScreen() {
   const [rules, setRules] = useState<NotificationSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [relayOpen, setRelayOpen] = useState(false)
   const name = macName ?? pairing?.macName ?? 'Your Mac'
 
   // Read on open: from the Mac when the tunnel is up, as last read when it is not.
@@ -101,63 +102,97 @@ export function SettingsScreen() {
   }
 
   const header = (
-    <div className="flex items-center gap-1 px-1 py-1">
-      <button type="button" aria-label="Back" onClick={() => goBack()} className="min-h-11 min-w-11 text-[22px] text-text-soft">
+    <div className="flex h-13 items-center gap-1 px-1.5">
+      <button
+        type="button"
+        aria-label="Back"
+        onClick={() => goBack()}
+        className="grid h-11 w-11 place-items-center text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+      >
         ‹
       </button>
-      <h1 className="text-[17px] font-semibold">Settings</h1>
+      <h1 className="flex-1 text-[17px] font-bold">Settings</h1>
     </div>
   )
 
   return (
     <MobileScreen header={header}>
-      <SectionLabel>MAC</SectionLabel>
-      <div className="mx-4 rounded-[12px] border border-panel-border px-4 py-3">
-        <div className="flex items-baseline gap-2">
-          <span className="truncate text-[15px] text-text-bright">{name}</span>
-          <span className="ml-auto shrink-0 font-mono text-[11px] text-text-muted">{macOnline ? 'online' : 'offline'}</span>
-        </div>
-        <div className="mt-0.5 font-mono text-[11px] text-text-muted">
-          {live} live {live === 1 ? 'session' : 'sessions'}
-        </div>
-        <div className="mt-3">
-          <SecondaryButton onClick={() => setConfirming(true)}>Pair a different Mac</SecondaryButton>
-          <p className="mt-2 text-center font-mono text-[10.5px] text-text-muted">one Mac per phone · the name is set on the Mac</p>
-        </div>
-      </div>
-
-      <SectionLabel>NOTIFICATIONS</SectionLabel>
-      <div className="mx-4 rounded-[12px] border border-panel-border">
-        {NOTIFICATION_ROWS.map((row) => (
-          <div key={row.key} className="flex min-h-12 items-center gap-3 border-b border-panel-border px-4 py-3 last:border-b-0">
-            <span className="min-w-0 flex-1">
-              <span className="block text-[14px] text-text-soft">{row.label}</span>
-              <span className="mt-0.5 block text-[12px] leading-[1.45] text-text-muted">{row.desc}</span>
-            </span>
-            <Toggle
-              label={row.label}
-              checked={rules?.[row.key] ?? false}
-              disabled={!rules || !ready || saving}
-              onChange={(next) => void toggle(row.key, next)}
+      <div className="flex flex-col px-4 pb-4 pt-1.5">
+        <SectionLabel first>MAC</SectionLabel>
+        <div className={CARD}>
+          <div className="flex min-h-16 items-center gap-3 px-3.5">
+            <span
+              aria-hidden
+              className={[
+                'block h-2 w-2 shrink-0 rounded-full',
+                macOnline ? 'bg-[oklch(85%_.12_205)] shadow-[0_0_8px_oklch(85%_.12_205)]' : 'border-[1.5px] border-[rgba(200,215,235,.6)]',
+              ].join(' ')}
             />
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate text-[14.5px] font-semibold">{name}</span>
+              <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+                {macOnline ? 'online' : 'offline'} · {live} live {live === 1 ? 'session' : 'sessions'}
+              </span>
+            </span>
           </div>
-        ))}
-      </div>
-      <p className="px-4 pt-2 text-[12px] text-text-muted">Just for this phone. Copied from your Mac when you paired.</p>
-
-      <SectionLabel>ADVANCED</SectionLabel>
-      <div className="mx-4 rounded-[12px] border border-panel-border px-4 py-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[14px] text-text-soft">Relay</span>
-          <span className="ml-auto truncate font-mono text-[12px] text-text-muted">{pairing ? relayHost(pairing.relay) : '—'}</span>
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="flex min-h-13 w-full items-center border-t border-[rgba(150,205,255,.08)] px-3.5 text-left text-[14px] font-semibold text-text-bright"
+          >
+            Pair a different Mac
+          </button>
         </div>
-        <p className="mt-1 text-[12px] text-text-muted">Must match the relay set on the Mac.</p>
-      </div>
+        <p className="px-1 pt-2 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">one Mac per phone · the name is set on the Mac</p>
 
-      <footer className="px-4 py-8 text-center font-mono text-[10.5px] text-text-muted">
-        orbital mobile {__MOBILE_VERSION__}
-        {pairing && ` · fingerprint ${formatFingerprint(pairing.fingerprint)}`}
-      </footer>
+        <SectionLabel>NOTIFICATIONS</SectionLabel>
+        <div className={CARD}>
+          {NOTIFICATION_ROWS.map((row, i) => (
+            <div
+              key={row.key}
+              className={['flex min-h-15 items-center gap-2.5 py-2 pl-3.5 pr-1.5', i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : ''].join(' ')}
+            >
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="text-[14px] font-semibold">{row.label}</span>
+                <span className="text-[11.5px] leading-[1.4] text-[rgba(160,190,225,.6)]">{row.desc}</span>
+              </span>
+              <Toggle
+                label={row.label}
+                checked={rules?.[row.key] ?? false}
+                disabled={!rules || !ready || saving}
+                onChange={(next) => void toggle(row.key, next)}
+              />
+            </div>
+          ))}
+        </div>
+        <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">Just for this phone. Copied from your Mac when you paired.</p>
+
+        <SectionLabel>ADVANCED</SectionLabel>
+        <div className={CARD}>
+          <button
+            type="button"
+            aria-expanded={relayOpen}
+            onClick={() => setRelayOpen(!relayOpen)}
+            className="flex min-h-13 w-full items-center gap-2.5 px-3.5 text-left"
+          >
+            <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">
+              {relayOpen ? '▾' : '▸'}
+            </span>
+            <span className="flex-1 text-[14px] font-semibold">Relay</span>
+            <span className="min-w-0 truncate font-mono text-[11px] text-[rgba(160,190,225,.6)]">{pairing ? relayHost(pairing.relay) : '—'}</span>
+          </button>
+          {relayOpen && (
+            <p className="px-3.5 pb-3.5 text-[11.5px] leading-[1.45] text-[rgba(160,190,225,.6)]">
+              Must match the relay set on the Mac. The relay only sees encrypted bytes.
+            </p>
+          )}
+        </div>
+
+        <footer className="px-1 pt-[18px] font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.45)]">
+          orbital mobile {__MOBILE_VERSION__}
+          {pairing && ` · fingerprint ${formatFingerprint(pairing.fingerprint)}`}
+        </footer>
+      </div>
 
       {confirming && (
         <div
@@ -165,17 +200,18 @@ export function SettingsScreen() {
           aria-modal="true"
           aria-label={`Replace ${name}?`}
           onClick={() => setConfirming(false)}
-          className="fixed inset-0 z-20 flex items-end bg-[rgba(2,4,9,.6)]"
+          className="fixed inset-0 z-20 flex items-end bg-[rgba(2,3,8,.62)]"
         >
           <div
             onClick={(event) => event.stopPropagation()}
-            className="w-full rounded-t-[16px] border-t border-panel-border bg-panel-solid px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5"
+            className="flex w-full flex-col gap-3 rounded-t-[26px] border-t border-[rgba(150,205,255,.18)] bg-[rgba(10,16,28,.98)] px-4 pb-[calc(30px+env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.5)]"
           >
-            <h2 className="text-[17px] font-semibold">Replace {name}?</h2>
-            <p className="mt-2 text-[14px] text-text-soft">
+            <span aria-hidden className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-[rgba(232,238,248,.25)]" />
+            <h2 className="text-[18px] font-bold">Replace {name}?</h2>
+            <p className="text-[14px] leading-[1.5] text-[rgba(200,214,235,.85)]">
               This phone forgets {name} and its key, then opens the scanner. Sessions on the Mac keep running.
             </p>
-            <div className="mt-5 flex flex-col gap-2">
+            <div className="mt-1.5 flex flex-col gap-3">
               <PrimaryButton onClick={() => void replace()}>Forget and scan</PrimaryButton>
               <SecondaryButton onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
             </div>
