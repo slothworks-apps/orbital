@@ -4,15 +4,17 @@
  * A change in `server/src/remote/` that breaks a phone breaks this test.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { generateIdentity } from '@orbital/shared/remote/keys';
+import { BLOB_CHUNK_BYTES } from '@orbital/shared/remote/messages';
 import { QrPayload } from '@orbital/shared/remote/relayApi';
 import { RemoteClient, type RemoteClientEvent } from '@orbital/shared/remote/client';
 import { createImageStore } from '../src/images/store.js';
 import { RETENTION_KEY, RETENTION_NEVER } from '../src/retention.js';
 import { startMacAndRelay, until } from './remoteHarness.js';
+import { makeTmpDir } from './tmp.js';
 
 const SESSION_ID = 's-e2e';
 
@@ -155,6 +157,40 @@ describe('the phone client against a real relay and a real Mac', () => {
     expect(await bye).toEqual({ type: 'bye', reason: 'revoked' });
     expect(client.status).toBe('off');
   }, 40_000);
+
+  it('reads a PNG the transcript named, in chunks with progress, and nothing it did not name', async () => {
+    const outside = makeTmpDir('e2e-outside');
+    const shot = join(outside, 'shot.png');
+    const png = Buffer.alloc(BLOB_CHUNK_BYTES * 2 + 100, 3);
+    Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').copy(png, 0);
+    png.writeUInt32BE(800, 16);
+    png.writeUInt32BE(600, 20);
+    writeFileSync(shot, png);
+    writeFileSync(join(outside, 'other.png'), png);
+    const { api } = await startMacAndRelay(closers, {
+      settings: [[RETENTION_KEY, RETENTION_NEVER]],
+      beforeBoot: (d) => {
+        const transcript = join(d, 'claude', 'projects', 'p', `${SESSION_ID}.jsonl`);
+        mkdirSync(join(d, 'claude', 'projects', 'p'), { recursive: true });
+        copyFileSync(join(import.meta.dirname, 'fixtures/transcript-basic.jsonl'), transcript);
+        appendFileSync(transcript, JSON.stringify({
+          type: 'assistant', uuid: 'a2', timestamp: '2026-09-01T10:02:00.000Z',
+          message: { role: 'assistant', content: [{ type: 'text', text: `Saved the screenshot to ${shot}` }] },
+        }) + '\n');
+      },
+    });
+    await until(async () => (await api('GET', '/api/sessions')).json().sessions.some((s: any) => s.id === SESSION_ID));
+    const { client } = await pairPhone(api, closers);
+
+    const progress: number[] = [];
+    const file = await client.getFile(SESSION_ID, shot, 'image', { onProgress: (received) => progress.push(received) });
+    expect(file).toMatchObject({ status: 200, mediaType: 'image/png', size: png.length, w: 800, h: 600 });
+    expect(Buffer.from(file.bytes).equals(png)).toBe(true);
+    expect(progress).toEqual([BLOB_CHUNK_BYTES, BLOB_CHUNK_BYTES * 2, png.length]);
+
+    expect(await client.getFile(SESSION_ID, join(outside, 'other.png'), 'image')).toMatchObject({ status: 403, bytes: new Uint8Array(0) });
+    expect(await client.getFile('no-such-session', shot, 'image')).toMatchObject({ status: 404 });
+  }, 20_000);
 
   it('a phone revoked while it was away learns it on its next connect', async () => {
     const { api } = await startMacAndRelay(closers);

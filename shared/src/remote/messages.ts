@@ -83,6 +83,18 @@ export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
 const HttpMethod = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const ImageRef = z.string().regex(/^[a-f0-9]{64}\.(png|jpg|gif|webp)$/);
 
+/** The longest path a `file_get` may name; the Mac never looks at a longer one. */
+export const FILE_PATH_MAX_CHARS = 4096;
+/** The longest session id a `file_get` may name. */
+export const FILE_SESSION_MAX_CHARS = 256;
+// Not empty, and no C0 control character or DEL: nothing a path a session
+// named carries, and each one a way to make a log line or a comparison lie.
+// eslint-disable-next-line no-control-regex
+const NO_CONTROL_CHARS = /^[^\u0000-\u001f\u007f]+$/;
+/** How the phone wants a file: an image for the viewer, or text for the read-only preview. */
+export const FileAs = z.enum(['image', 'text']);
+export type FileAs = z.infer<typeof FileAs>;
+
 export const PhoneMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('hello'), protocol: z.number().int(), app: z.string() }),
   z.object({ t: z.literal('ws'), type: z.enum(['subscribe', 'unsubscribe']), topic: z.string() }),
@@ -91,6 +103,18 @@ export const PhoneMessage = z.discriminatedUnion('t', [
     body: z.unknown().optional(),
   }),
   z.object({ t: z.literal('blob_get'), id: z.number().int(), ref: ImageRef }),
+  /**
+   * A file a session may show, by path (spec 2026-10-05-mobile-next-design
+   * § 2), answered like `blob_get`: `blob_meta`, then chunks. The Mac
+   * confines `path` to what the session may show; these bounds only keep
+   * junk away from that check.
+   */
+  z.object({
+    t: z.literal('file_get'), id: z.number().int(),
+    session: z.string().max(FILE_SESSION_MAX_CHARS).regex(NO_CONTROL_CHARS),
+    path: z.string().max(FILE_PATH_MAX_CHARS).regex(NO_CONTROL_CHARS),
+    as: FileAs,
+  }),
   z.object({
     t: z.literal('blob_put'), id: z.number().int(), mediaType: z.string(), bytes: z.number().int().nonnegative(),
   }),
@@ -113,6 +137,14 @@ export const MacMessage = z.discriminatedUnion('t', [
   z.object({
     t: z.literal('blob_meta'), id: z.number().int(), status: z.number().int(),
     bytes: z.number().int().optional(), mediaType: z.string().optional(),
+    /**
+     * `file_get` only: the file's size on disk (on a 413 too), and an
+     * image's pixel size when its header gives it — so the viewer can
+     * reserve the box before the bytes arrive.
+     */
+    size: z.number().int().nonnegative().optional(),
+    w: z.number().int().positive().optional(),
+    h: z.number().int().positive().optional(),
   }),
   z.object({
     t: z.literal('blob_put_done'), id: z.number().int(),

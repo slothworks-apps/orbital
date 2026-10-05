@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  BLOB_CHUNK_BYTES, MacMessage, PhoneMessage, chunkBlob, decodeInner, encodeInner,
+  BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, MacMessage, PhoneMessage, chunkBlob, decodeInner, encodeInner,
 } from '../src/remote/messages.js';
 
 describe('inner codec', () => {
@@ -46,6 +46,23 @@ describe('message schemas', () => {
       { t: 'seen', sessionId: 's1' },
     ]) expect(PhoneMessage.safeParse(m).success, JSON.stringify(m)).toBe(true);
     expect(PhoneMessage.safeParse({ t: 'nope' }).success).toBe(false);
+    expect(PhoneMessage.safeParse({ t: 'file_get', id: 5, session: 's1', path: '/tmp/a b/shot.png', as: 'image' }).success).toBe(true);
+    expect(PhoneMessage.safeParse({ t: 'file_get', id: 5, session: 's1', path: 'ünï/código.md', as: 'text' }).success).toBe(true);
+  });
+  it('refuses a file_get with a control character, an over-long or empty path, or no kind', () => {
+    const ok = { t: 'file_get', id: 5, session: 's1', path: '/tmp/a.md', as: 'text' };
+    for (const bad of [
+      { ...ok, path: '/tmp/a\n.md' },
+      { ...ok, path: '/tmp/a\u0000.md' },
+      { ...ok, path: '/tmp/a\u007f.md' },
+      { ...ok, path: '/' + 'a'.repeat(FILE_PATH_MAX_CHARS) },
+      { ...ok, path: '' },
+      { ...ok, session: '' },
+      { ...ok, session: 's\r1' },
+      { ...ok, as: undefined },
+      { ...ok, as: 'pdf' },
+    ]) expect(PhoneMessage.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    expect(PhoneMessage.safeParse({ ...ok, path: '/' + 'a'.repeat(FILE_PATH_MAX_CHARS - 1) }).success).toBe(true);
     expect(PhoneMessage.safeParse({ t: 'http', id: 1, method: 'TRACE', path: '/' }).success).toBe(false);
   });
   it('accepts every mac message', () => {
@@ -56,6 +73,8 @@ describe('message schemas', () => {
       { t: 'http_res', id: 1, status: 200, body: [] },
       { t: 'blob_meta', id: 3, status: 404 },
       { t: 'blob_meta', id: 3, status: 200, bytes: 12, mediaType: 'image/png' },
+      { t: 'blob_meta', id: 3, status: 200, bytes: 12, mediaType: 'image/png', size: 12, w: 3, h: 2 },
+      { t: 'blob_meta', id: 3, status: 413, size: 9_000_000 },
       { t: 'blob_put_done', id: 4, entry: { ref: 'a'.repeat(64) + '.png', w: 1, h: 1, bytes: 10 } },
       { t: 'blob_put_done', id: 4, error: 'not_image' },
       { t: 'notifications', settings: { needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true } },

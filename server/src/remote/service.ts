@@ -13,11 +13,13 @@ import {
 } from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Hub } from '../api/hub.js';
+import { CONFIG } from '../config.js';
 import type { OrbitalDb } from '../db/database.js';
 import type { ImageStore } from '../images/store.js';
 import { DeviceStore, type RemoteDevice } from './devices.js';
 import { DeviceWatcher } from './deviceWatcher.js';
 import { loadOrCreateIdentity, macDisplayName } from './identity.js';
+import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
 import { PhoneSession, type InjectFn } from './phoneSession.js';
 import { RelayClient, type RelayClientOptions } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
@@ -55,6 +57,12 @@ export type RemoteServiceOptions = {
   dataDir: string;
   images: ImageStore;
   imagesDir: string;
+  /**
+   * Where the session transcripts live, for `file_get`'s named-path check.
+   * The server passes its own (the Claude directory can be moved); tests
+   * that never read a file leave it at the configured one.
+   */
+  projectsDir?: string;
   serverVersion: string;
   inject: InjectFn;
   settings: { get(key: string): string };
@@ -74,10 +82,13 @@ export class RemoteService {
   private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
   private error: string | null = null;
   private readonly now: () => number;
+  /** One for every phone, so its named-path cache serves them all. */
+  private readonly files: PhoneFileReader;
 
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
     this.now = opts.now ?? Date.now;
+    this.files = createPhoneFileReader(opts.db, opts.projectsDir ?? CONFIG.projectsDir);
   }
 
   private get enabled(): boolean {
@@ -360,7 +371,7 @@ export class RemoteService {
       const client = this.client;
       session = new PhoneSession({
         deviceId: from, identity: this.identity, phonePublicKey, hub: this.opts.hub,
-        inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir,
+        inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir, files: this.files,
         serverVersion: this.opts.serverVersion, macName: this.macName,
         notifications: {
           get: () => this.devices.get(from)?.notifications ?? device.notifications,
