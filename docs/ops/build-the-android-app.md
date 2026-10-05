@@ -24,7 +24,8 @@ Android project by `cap sync`.
   emulator. Android Studio installs it under `~/Library/Android/sdk`, which is
   where `mobile/scripts/android-env.sh` looks when `ANDROID_HOME` is not set.
 - **JDK 21 for Gradle.** The system `java` on this Mac is 1.8, which Gradle
-  cannot use. The env script takes, in order: `JAVA_HOME` if set; a JDK 21
+  cannot use. The env script takes, in order: `JAVA_HOME` if it is JDK 21
+  (an IDE often sets it to its own newer runtime, which is dropped); a JDK 21
   registered with macOS (`/usr/libexec/java_home -F -v 21`); Android Studio's
   bundled JBR at `$HOME/Applications/Android Studio.app/Contents/jbr/Contents/Home`
   or `/Applications/Android Studio.app/Contents/jbr/Contents/Home`. Check what
