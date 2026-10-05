@@ -22,6 +22,25 @@ import {
  * tasks, each running before ended; a row opens its screen over the
  * session, a row with nothing to open has no › and does nothing.
  */
+/**
+ * The session whose sheet a subagent or task was opened from. The sheet is not
+ * on the navigation stack, so back from that screen lands on the session; its
+ * chip reads this once on mount and opens the sheet again, so back returns
+ * where the tap came from.
+ */
+let returnToSheet: string | null = null
+
+function markReturnToSheet(sessionId: string): void {
+  returnToSheet = sessionId
+}
+
+/** True once, for the session a sheet item was opened from. */
+export function takeReturnToSheet(sessionId: string): boolean {
+  const hit = returnToSheet === sessionId
+  returnToSheet = null
+  return hit
+}
+
 export function MoonsSheet({
   session,
   tagHue,
@@ -43,6 +62,7 @@ export function MoonsSheet({
 
   const open = (go: () => void) => {
     onClose()
+    markReturnToSheet(session.id)
     go()
   }
 

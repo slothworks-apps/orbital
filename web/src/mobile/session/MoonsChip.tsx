@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { tagColor } from '../../lib/types'
 import { useOrbital } from '../../store/store'
 import { chipLabel } from '../subagents/model'
-import { MoonsSheet } from '../subagents/MoonsSheet'
+import { MoonsSheet, takeReturnToSheet } from '../subagents/MoonsSheet'
 import type { SlotProps } from './slot'
 
 /** 9b's header draws at most this many moons before the count. */
@@ -16,7 +16,7 @@ const MOONS_SHOWN = 3
  */
 export function MoonsChip({ session, offline }: SlotProps) {
   const tag = useOrbital((s) => s.tags.find((t) => t.id === session.tagIds[0]))
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => takeReturnToSheet(session.id))
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
   const tasks = session.backgroundTasks ?? []
   const label = chipLabel(session.subagents, tasks)
