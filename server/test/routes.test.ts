@@ -1058,73 +1058,51 @@ describe('REST routes', () => {
     expect(ended).toEqual([]);
   });
 
-  it('POST /api/sessions/:id/clear with startNew uses computed permission mode', async () => {
-    // Capture runner.start() calls
-    const startCalls: any[] = [];
-    runner.start = async (body: any) => {
-      startCalls.push(body);
-      return 'web-10';
-    };
-
-    // Set inherit_permission_mode to false, default to plan, and inherit_tags to false
+  // Clear keeps what it cleared (spec 2026-10-05-mobile-next-design § 4
+  // Server, Decision 7): folder, model, mode and tags, whatever the old
+  // inherit settings and the defaults say.
+  it('POST /api/sessions/:id/clear with startNew keeps the folder, model, mode and tags', async () => {
+    const { app, db, startCalls } = makeApp();
+    db.update(sessions).set({ model: 'haiku', source: 'web' }).where(eq(sessions.id, 's1')).run();
     await app.inject({
       method: 'PATCH', url: '/api/settings',
       payload: {
-        inherit_permission_mode: 'false',
-        default_permission_mode: 'plan',
-        inherit_tags: 'false',
+        inherit_permission_mode: 'false', inherit_tags: 'false',
+        default_permission_mode: 'plan', default_model: 'sonnet',
       },
     });
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/clear', payload: { startNew: true } });
+    expect(res.json()).toMatchObject({ sessionId: 'web-9' });
+    expect(startCalls).toEqual([expect.objectContaining({ cwd: '/w/x', permissionMode: 'acceptEdits', model: 'haiku' })]);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
+    expect(row).toMatchObject({ cwd: '/w/x', permission_mode: 'acceptEdits', model: 'haiku' });
+    const created = (await app.inject({ method: 'GET', url: '/api/sessions/web-9' })).json().session;
+    expect(created.tagIds).toEqual([10]);
+  });
 
-    // Old session has acceptEdits mode, but we should use default (plan) because inherit is false
-    const res = await app.inject({
-      method: 'POST', url: '/api/sessions/s1/clear',
-      payload: { startNew: true },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ sessionId: 'web-10' });
-
-    // Verify runner.start() received the default (plan) mode, not old session's mode
-    expect(startCalls).toHaveLength(1);
+  it('POST /api/sessions/:id/clear keeps a session on the default model, and gives one with no mode the default mode', async () => {
+    const { app, db, startCalls } = makeApp();
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's2')).run();
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { default_permission_mode: 'plan', default_model: 'sonnet' } });
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: { startNew: true } });
+    expect(startCalls[0].model).toBeUndefined();
     expect(startCalls[0].permissionMode).toBe('plan');
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
+    expect(row).toMatchObject({ model: null, permission_mode: 'plan' });
+  });
 
-    // Verify new session in DB has the default mode
-    const newSession = db
-      .select({ permissionMode: sessions.permissionMode })
-      .from(sessions)
-      .where(eq(sessions.id, 'web-10'))
-      .get()!;
-    expect(newSession.permissionMode).toBe('plan');
+  it('POST /api/sessions/:id/clear keeps a rule tag the user took off taken off', async () => {
+    const { app, db } = makeApp();
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's2')).run();
+    const ruleTagId = (await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'ruletag', hue: 5 } })).json().id;
+    await app.inject({ method: 'POST', url: '/api/tag-rules', payload: { tagId: ruleTagId, condition: 'path_matches', pattern: '/w/y' } });
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/s2' })).json().session.tagIds).toEqual([ruleTagId]);
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/tags', payload: { tagIds: [] } });
+    const cleared = (await app.inject({ method: 'GET', url: '/api/sessions/s2' })).json().session.tagIds;
+    expect(cleared).not.toContain(ruleTagId);
 
-    // Verify manual tags are NOT copied (inherit_tags=false)
-    const newTags = db
-      .select({ tagId: sessionTags.tagId })
-      .from(sessionTags)
-      .where(eq(sessionTags.sessionId, 'web-10'))
-      .all();
-    expect(newTags).toHaveLength(0);
-
-    // Now test with inherit_tags=true
-    await app.inject({
-      method: 'PATCH', url: '/api/settings',
-      payload: { inherit_tags: 'true' },
-    });
-
-    const res2 = await app.inject({
-      method: 'POST', url: '/api/sessions/s1/clear',
-      payload: { startNew: true },
-    });
-    expect(res2.statusCode).toBe(200);
-    const newSessionId = res2.json().sessionId;
-
-    // Verify manual tags ARE copied
-    const copiedTags = db
-      .select({ tagId: sessionTags.tagId })
-      .from(sessionTags)
-      .where(eq(sessionTags.sessionId, newSessionId))
-      .all();
-    expect(copiedTags).toHaveLength(1);
-    expect(copiedTags[0].tagId).toBe(10);
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: { startNew: true } });
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/web-9' })).json().session.tagIds).toEqual(cleared);
   });
 
   it('POST /api/sessions/:id/clear with startNew publishes an upsert for the new session on the sessions topic', async () => {
@@ -1162,16 +1140,6 @@ describe('REST routes', () => {
     await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: {} });
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
     expect(typeof row.ended_at).toBe('number');
-  });
-
-  it('clear + startNew uses the settings default model, not the parent one', async () => {
-    const { app, db, startCalls } = makeApp();
-    db.update(sessions).set({ model: 'haiku', source: 'web' }).where(eq(sessions.id, 's2')).run();
-    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'sonnet' } });
-    await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: { startNew: true } });
-    expect(startCalls[0].model).toBe('sonnet');
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
-    expect(row.model).toBe('sonnet');
   });
 
   it('switches the model of a live session', async () => {

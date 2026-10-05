@@ -1786,14 +1786,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!row) return reply.code(404).send({ error: 'not found' });
     await endSession(id);
     if (!startNew) return { ok: true };
-    const inheritMode = ctx.settings.get('inherit_permission_mode') === 'true';
-    const permissionMode = (inheritMode && row.permission_mode
-      ? row.permission_mode
-      : ctx.settings.get('default_permission_mode')) as any;
-    // 4c: the default model is "used by Clear". Deliberately unlike
-    // permission mode, there is no inherit toggle — the canvas does not ask
-    // for one.
-    const model = ctx.settings.get('default_model') || undefined;
+    // Clear keeps what it cleared: the new session runs in the same folder,
+    // on the same model and permission mode, wearing the same tags — always,
+    // for the desktop and the phone alike (spec 2026-10-05-mobile-next-design
+    // § 4 Server, Decision 7). A session that ran on the default model stays
+    // on it; one with no mode recorded gets the default mode, as a new
+    // session would.
+    const permissionMode = (row.permission_mode ?? ctx.settings.get('default_permission_mode')) as any;
+    const model = row.model ?? undefined;
     const newId = await ctx.runner.start({
       cwd: row.cwd, prompt: '',
       permissionMode, model,
@@ -1805,21 +1805,22 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       })
       .onConflictDoNothing()
       .run();
-    if (ctx.settings.get('inherit_tags') === 'true') {
-      db.insert(sessionTags)
-        .select(
-          db
-            .select({
-              sessionId: sql<string>`${newId}`.as('sessionId'),
-              tagId: sessionTags.tagId,
-              origin: sql<string>`'manual'`.as('origin'),
-            })
-            .from(sessionTags)
-            .where(and(eq(sessionTags.sessionId, id), eq(sessionTags.origin, 'manual'))),
-        )
-        .onConflictDoNothing()
-        .run();
-    }
+    // The manual picks and the rule tags taken off by hand; the rule tags
+    // themselves follow from the folder once the rules are applied below.
+    db.insert(sessionTags)
+      .select(
+        db
+          .select({
+            sessionId: sql<string>`${newId}`.as('sessionId'),
+            tagId: sessionTags.tagId,
+            origin: sessionTags.origin,
+          })
+          .from(sessionTags)
+          .where(and(eq(sessionTags.sessionId, id), inArray(sessionTags.origin, ['manual', 'manual_removed']))),
+      )
+      .onConflictDoNothing()
+      .run();
+    regenerateRuleTags(db);
     const newRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, newId)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, newRow) });
     if (carryHarness !== true) return { ok: true, sessionId: newId };

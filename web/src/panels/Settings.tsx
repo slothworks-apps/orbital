@@ -778,8 +778,6 @@ export function Settings({ open, onClose }: SettingsProps) {
   const instructionCustom = settings.session_instructions_custom !== 'false'
   const autoContinue = limitSettings(settings).autoContinue
   const continueIsDefault = continueDraft === DEFAULT_CONTINUE_TEXT
-  const inheritTags = settings.inherit_tags !== 'false'
-  const inheritPermissionMode = settings.inherit_permission_mode !== 'false'
   // Off unless the stored value is one of the offered policies: an absent or
   // unreadable row must show as "Never", the same way the server parses it.
   const storedRetention = settings.delete_sessions_older_than_days ?? 'never'
@@ -1748,7 +1746,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       <SectionLabel first>NEW SESSIONS</SectionLabel>
                       <Row
                         title="Default model"
-                        desc="Pre-selected in the New session dialog and used by Clear. Never changes a running session."
+                        desc="Pre-selected in the New session dialog. Never changes a running session."
                       >
                         <ModelCards
                           compact
@@ -1785,7 +1783,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Default permission mode"
-                        desc="Applied to every new session and to sessions created by Clear. Can be changed per session."
+                        desc="Applied to every new session. Can be changed per session."
                       >
                         <ModeCards
                           compact
@@ -1819,27 +1817,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(checked) =>
                             void patchAndSet({ confirm_before_clear: checked ? 'true' : 'false' })
                           }
-                        />
-                      </Row>
-                      <Row
-                        title="New session inherits"
-                        desc="What Clear carries over from the ended session."
-                      >
-                        <Checkbox
-                          checked={inheritTags}
-                          onChange={(checked) =>
-                            void patchAndSet({ inherit_tags: checked ? 'true' : 'false' })
-                          }
-                          label="Tags"
-                        />
-                        <Checkbox
-                          checked={inheritPermissionMode}
-                          onChange={(checked) =>
-                            void patchAndSet({
-                              inherit_permission_mode: checked ? 'true' : 'false',
-                            })
-                          }
-                          label="Permission mode"
                         />
                       </Row>
                       <SectionLabel>INSTRUCTIONS</SectionLabel>
