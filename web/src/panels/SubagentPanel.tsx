@@ -466,6 +466,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
             isWorking={taskState === 'running'}
             models={models}
             resetKey={`${panel.sessionId}:${subagent.id}`}
+            surface="subagent"
             // The PARENT session's id — `QuestionCard` needs a real session
             // to read `pendingDecisions` off, and the panel has no session
             // of its own to give it.

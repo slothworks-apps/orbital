@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.4] — 2026-10-04
+### Added
+- When you scroll up in a transcript, a quiet button takes you back to the latest message and says when something new has arrived below. Sending a message, or ⌘↓, also takes you back to the bottom.
+
 ## [0.20.3] — 2026-10-04
 ### Fixed
 - A question's answer options now show their whole text instead of cutting off long descriptions or long paths.

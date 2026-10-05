@@ -3,6 +3,11 @@
 All notable changes to the Android app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+
+## [0.1.1] — 2026-10-04
+### Added
+- When you scroll up in a session's transcript, a quiet button takes you back to the latest message and says when something new has arrived below. Sending a message also takes you back to the bottom.
+
 ### Fixed
 - A question's answer options in a session's transcript now show their whole text instead of cutting off long descriptions or long paths.
 
