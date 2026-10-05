@@ -3,7 +3,9 @@ import { modelNameForId } from '../../lib/models'
 import { ELAPSED_TICK_MS, subagentModelFrom, taskStateFor } from '../../lib/subagentPanel'
 import { tagColor, type ChatMessage, type Subagent } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
+import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
+import { usePhoneToolRow } from '../session/TranscriptChip'
 import { useOrbital } from '../../store/store'
 import { isMacAsleep, pushedTop, useMobile } from '../state'
 import { subagentBody, subagentHeader, INK, type SubagentHeader } from '../subagents/model'
@@ -75,6 +77,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
   const rawModel = subagentModelFrom(messages)
   const model = rawModel ? modelNameForId(rawModel, models) : undefined
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
+  const phoneRows = usePhoneToolRow(sessionId, tagHue, offline)
 
   const head = (
     <div className="px-1.5 pb-0.5">
@@ -166,6 +169,8 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
   return (
     <MobileScreen header={head} footer={footer} scroll={false}>
       {body.task !== null && <TaskFrom parentTitle={parentTitle} text={body.task} dropped={panel?.droppedCount ?? 0} />}
+      {/* The phone's tool rows (wide image results); no chips — a subagent's own calls have no moons. */}
+      <PhoneToolRowContext.Provider value={phoneRows}>
       <TranscriptView
         messages={found ? body.rows : NO_MESSAGES}
         isWorking={running && !offline}
@@ -178,6 +183,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
         footer={tail}
         footerKey={`${header.word}|${body.result !== null}`}
       />
+      </PhoneToolRowContext.Provider>
     </MobileScreen>
   )
 }

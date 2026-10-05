@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { ImageRefEntry } from '../lib/types'
 import { formatBytes } from '../lib/format'
 import { Lightbox } from '../ui/Lightbox'
@@ -19,6 +20,8 @@ const THUMB_HEIGHT_PX: Record<ThumbVariant, number> = {
   'user-solo': 120,
   user: 120,
   tool: 96,
+  // Only the box of a wide thumb whose image carries no dimensions.
+  'tool-wide': 96,
 }
 const THUMB_MAX_WIDTH_PX = 349
 
@@ -28,22 +31,28 @@ const THUMB_MAX_WIDTH_PX = 349
  * corner geometry and the tag-hue border. `user` — under a text bubble:
  * neutral hairline, 8px radius. `tool` — inside an expanded tool row.
  * Only the solo turn borrows the hue; hue stays reserved for tags (7d).
+ * `tool-wide` — the phone's image result under its tool row (canvas 10d):
+ * the row's full width at the image's own aspect, with the ⤢ mark; only the
+ * phone's tool-row seam (`PhoneToolRowContext`) asks for it.
  */
-export type ThumbVariant = 'user-solo' | 'user' | 'tool'
+export type ThumbVariant = 'user-solo' | 'user' | 'tool' | 'tool-wide'
 
 const FRAME_CLASSES: Record<ThumbVariant, string> = {
   'user-solo':
     'rounded-[12px_12px_4px_12px] border-[oklch(80%_.13_210_/_.3)] hover:border-[oklch(80%_.13_210_/_.6)]',
   user: 'rounded-lg border-[rgba(150,205,255,.18)] hover:border-[rgba(150,205,255,.42)]',
   tool: 'rounded-[6px] border-[rgba(150,205,255,.12)] hover:border-[rgba(150,205,255,.42)]',
+  // canvas 10d
+  'tool-wide': 'relative rounded-[8px] border-[rgba(150,205,255,.16)]',
 }
 
 /** The reserved box: stored dims scaled into the caps, never upscaled. */
-function boxFor(
-  image: ImageRefEntry,
-  variant: ThumbVariant,
-  widthCapPx?: number,
-): { width?: number; height: number } {
+function boxFor(image: ImageRefEntry, variant: ThumbVariant, widthCapPx?: number): CSSProperties {
+  if (variant === 'tool-wide') {
+    return image.w && image.h
+      ? { width: '100%', aspectRatio: `${image.w} / ${image.h}` }
+      : { width: '100%', height: THUMB_HEIGHT_PX[variant] }
+  }
   const capH = THUMB_HEIGHT_PX[variant]
   const capW = widthCapPx ?? THUMB_MAX_WIDTH_PX
   if (!image.w || !image.h) return { height: capH }
@@ -144,6 +153,15 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
               ...(fadeIn ? { opacity: loaded ? 1 : 0, transition: 'opacity 160ms ease-out' } : {}),
             }}
           />
+        )}
+        {variant === 'tool-wide' && (
+          // canvas 10d: the mark that says a press opens it full screen.
+          <span
+            aria-hidden
+            className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-[8px] bg-[rgba(5,7,13,.75)] text-[13px] text-[#e8eef8]"
+          >
+            ⤢
+          </span>
         )}
       </button>
       {!routed && <Lightbox

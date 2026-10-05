@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { createContext, useContext, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital, editDiffsExpanded } from '../store/store'
 import type { BackgroundTask, ChatMessage, Subagent } from '../lib/types'
@@ -25,6 +26,30 @@ const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
  * 2026-09-22-subagent-transcript-panel-design.md § 5 / task 9 brief).
  */
 const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
+
+/** What started a row's chip: the subagent or the background task joined on its `toolUseId`. */
+export type ToolRowChipTarget = { kind: 'subagent'; subagent: Subagent } | { kind: 'task'; task: BackgroundTask }
+
+/**
+ * The phone's seam into the tool row (spec 2026-10-05-mobile-next § 2, § 3).
+ * Absent — the desktop and every panel — the row is exactly as it was. Given
+ * — the phone's session screen provides it around its transcript — the row
+ * draws two things the phone's canvas asks for and the desktop's does not:
+ *
+ * - under a row that started a subagent or a background task, the 44 px chip
+ *   `renderChip` returns (canvas 10g), in place of the inline `OPEN →` /
+ *   `OUTPUT →`, which the chip opens instead;
+ * - an image result as a full-width preview under the row, open or folded,
+ *   with the ⤢ mark (canvas 10d), in place of the 96 px thumbnail in the
+ *   expanded body.
+ *
+ * `panels/` never imports the phone: the phone hands its chip in.
+ */
+export interface PhoneToolRow {
+  renderChip(target: ToolRowChipTarget): ReactNode
+}
+
+export const PhoneToolRowContext = createContext<PhoneToolRow | null>(null)
 
 /** Input fields that name a file (spec: 2026-09-19-file-viewer-design §
  * Where paths come from) — pressable in the collapsed label and in the
@@ -287,10 +312,25 @@ export function ToolRow({
       : undefined
   // The same for a background `Bash` or `Monitor` call (26a): its task, joined
   // on the launching call, and `OUTPUT →` when it has output to open.
-  const openableTask =
-    toolUse.toolUseId && (toolUse.toolName === 'Bash' || toolUse.toolName === 'Monitor')
-      ? backgroundTasks?.find((task) => task.toolUseId === toolUse.toolUseId && opensOutput(task))
-      : undefined
+  const launchesTask = toolUse.toolUseId && (toolUse.toolName === 'Bash' || toolUse.toolName === 'Monitor')
+  const openableTask = launchesTask
+    ? backgroundTasks?.find((task) => task.toolUseId === toolUse.toolUseId && opensOutput(task))
+    : undefined
+
+  // The phone's chip and wide image (`PhoneToolRowContext`). A task chip
+  // stands under its row whether or not the task has output to open — it
+  // still tells the truth about how the task ended; the chip decides what a
+  // press does.
+  const phone = useContext(PhoneToolRowContext)
+  const chipTarget: ToolRowChipTarget | null = !phone
+    ? null
+    : openableSubagent && onOpenSubagent
+      ? { kind: 'subagent', subagent: openableSubagent }
+      : (() => {
+          const task = launchesTask && onOpenTaskOutput ? backgroundTasks?.find((t) => t.toolUseId === toolUse.toolUseId) : undefined
+          return task ? { kind: 'task', task } : null
+        })()
+  const wideImages = phone && toolResult?.images?.length ? toolResult.images : null
 
   return (
     <div
@@ -372,7 +412,7 @@ export function ToolRow({
             // still running — see `toolDurationMs`.
             <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {duration}</span>
           )}
-          {openableSubagent && onOpenSubagent && (
+          {!phone && openableSubagent && onOpenSubagent && (
             // Canvas 11a: `oklch(85% .12 205)`, tracked .12em. A sibling of
             // the expand button (not inside it) for the same reason
             // `PathButton` is — its own press, not the row's toggle.
@@ -391,7 +431,7 @@ export function ToolRow({
               </button>
             </span>
           )}
-          {openableTask && onOpenTaskOutput && (
+          {!phone && openableTask && onOpenTaskOutput && (
             <span className="pointer-events-auto shrink-0">
               <button
                 type="button"
@@ -418,6 +458,20 @@ export function ToolRow({
         </div>
       </div>
 
+      {phone && chipTarget && phone.renderChip(chipTarget)}
+      {wideImages && toolResult && (
+        // Canvas 10d: the phone shows what a call made right under its row,
+        // full width; a press opens the viewer at it, paging through the
+        // result's images.
+        <FileMessageContext.Provider value={{ messageId: toolResult.id, images: messageImages(toolResult) }}>
+          <div className="flex flex-col gap-2 px-2.5 pb-2.5">
+            {wideImages.map((image) => (
+              <ImageThumb key={image.ref} image={image} variant="tool-wide" source={toolUse.toolName ?? 'tool result'} />
+            ))}
+          </div>
+        </FileMessageContext.Provider>
+      )}
+
       {expanded && (
         <div className="flex flex-col gap-2 border-t border-[rgba(150,205,255,.08)] px-3 pb-2.5 pt-2">
           <div>
@@ -431,10 +485,15 @@ export function ToolRow({
           {/* A file change that went through says nothing its diff does
               not ("has been updated successfully"); only a failed one's
               result — the error — is worth the space. */}
-          {toolResult && (!change || failed) && (
+          {toolResult && (!change || failed) && !(wideImages && !toolResult.text) && (
             <div>
               <SectionLabel>RESULT</SectionLabel>
-              {toolResult.images?.length ? (
+              {wideImages ? (
+                // The images already stand under the row (above); the text is what is left.
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                  {toolResult.text}
+                </pre>
+              ) : toolResult.images?.length ? (
                 // An image result is a body under the row, like a <pre>
                 // output block (canvas 7b): 96px thumb, mono readout beside
                 // it — dimensions and size are all an image block carries.

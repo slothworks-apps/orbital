@@ -11,12 +11,13 @@
  *   header row 1, last         session/SessionMenuButton.tsx     T4.1
  *   header row 2, first        session/StateLine.tsx             F2 (words: stateWords.ts)
  *   header row 2, after state  session/HarnessProgress.tsx       T1.2
- *   header row 2, after that   session/MoonsChip.tsx             T3.1 (draws 9b's moons until then)
- *   transcript tail            session/TranscriptTail.tsx        F2: GateCard, LimitNotice, divider
- *     gate card + its key      session/GateCard.tsx              T1.1, T1.3
+ *   header row 2, after that   session/MoonsChip.tsx             T3.1
+ *   transcript tail            session/TranscriptTail.tsx        F2: GateCard, LimitNotice, MenuOutcome, divider
+ *     gate card + its key      session/GateCard.tsx              T1.1, T1.3 (thumbnails: harness/GateThumbs.tsx)
  *     limit notice + its key   session/LimitNotice.tsx           T5.1
+ *     ✓ after End / Clear      menu/MenuOutcome.tsx              T4.1
  *   harness rows               session/harnessRows.ts            F2 (T1.3 adds the cached copy)
- *   transcript chips           openSubagent / openTask (state)   T3.1, T3.2 build the screens
+ *   tool rows: chips, images   session/TranscriptChip.tsx        Z1, through `PhoneToolRowContext`
  *   path and image presses     files/open.ts (`installFileOpen`) T2.1
  *   composer focus + hint      `focusComposer` (state)           T1.1 calls it on Reopen
  *
@@ -26,6 +27,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { sessionModelLabel } from '../../lib/models'
 import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
 import { getSocket } from '../../lib/socket'
+import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useOrbital, type SessionEvent } from '../../store/store'
 import { ModeDot } from '../../ui/ModeDot'
@@ -39,6 +41,7 @@ import { useHarnessRows } from '../session/harnessRows'
 import { MoonsChip } from '../session/MoonsChip'
 import { SessionMenuButton } from '../session/SessionMenuButton'
 import { StateLine } from '../session/StateLine'
+import { usePhoneToolRow } from '../session/TranscriptChip'
 import { TranscriptTail, useTranscriptTailKey } from '../session/TranscriptTail'
 import { isMacAsleep, keepsSelection, useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
@@ -130,6 +133,7 @@ function SessionView({ id }: { id: string }) {
   const tailKey = useTranscriptTailKey({ session, offline })
 
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
+  const phoneRows = usePhoneToolRow(id, tagHue, offline)
   const header = (
     <div className="px-1.5 pb-0.5">
       <div className="flex h-13 items-center gap-1">
@@ -184,6 +188,8 @@ function SessionView({ id }: { id: string }) {
     // No footer until the row exists: 9d opens a session before its upsert lands,
     // and a footer then would flash the terminal line.
     <MobileScreen header={header} footer={session ? <SessionComposer id={id} /> : undefined} scroll={false}>
+      {/* The phone's tool rows: 10g's chips, 10d's wide image results. */}
+      <PhoneToolRowContext.Provider value={phoneRows}>
       <TranscriptView
         messages={shown}
         isWorking={!offline && session?.status === 'working'}
@@ -204,6 +210,7 @@ function SessionView({ id }: { id: string }) {
         footer={session ? <TranscriptTail session={session} offline={offline} /> : undefined}
         footerKey={tailKey}
       />
+      </PhoneToolRowContext.Provider>
     </MobileScreen>
   )
 }
