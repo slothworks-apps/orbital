@@ -227,7 +227,7 @@ refuse.
 ### Build the bundle
 
 ```bash
-npm run mobile:release   # from the repo root
+npm run android:release   # from the repo root
 ```
 
 It runs `build` without `ORBITAL_MOBILE_DEV` (a release must never be a dev
