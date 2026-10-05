@@ -1,0 +1,10 @@
+#!/bin/sh
+# Nothing is pushed straight to main; it changes through pull requests.
+# `--no-verify` skips this, for the rare case that has to.
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  if [ "$remote_ref" = refs/heads/main ]; then
+    echo "pre-push: not pushing to main — push a branch and open a pull request." >&2
+    exit 1
+  fi
+done

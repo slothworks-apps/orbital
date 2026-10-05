@@ -1,0 +1,11 @@
+# Gitleaks, run by the pre-commit hook in .githooks/. The default rules,
+# plus the made-up values the tests use as stand-ins for real secrets.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "stand-in secrets in tests"
+# Both must hold: a real secret pasted into a test is still caught.
+condition = "AND"
+paths = ['''^server/test/''']
+regexes = ['''^ghp_secret123$''', '''^dGhlIHNhbXBsZSBub25jZQ==$''']

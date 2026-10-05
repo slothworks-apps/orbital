@@ -22,13 +22,20 @@ Two things that will be declined, so you do not spend time on them:
 
 ## Setting up
 
-The README covers the prerequisites (Node.js 22+, the Claude Code CLI logged
+The README covers the prerequisites (Node.js 24+, the Claude Code CLI logged
 in), installing and running. In short:
 
 ```bash
 npm install
 npm run dev
 ```
+
+`npm install` also points git at the hooks in `.githooks/`: no commit or push
+straight to `main`, no `Co-authored-by` or other attribution in a commit
+message, and every commit is scanned by
+[gitleaks](https://github.com/gitleaks/gitleaks) first (`brew install
+gitleaks`; without it the hook warns and lets the commit through). Made-up
+secrets that tests need are allowed by value in `.gitleaks.toml`.
 
 ## Before you open a PR
 

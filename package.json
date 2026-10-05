@@ -12,6 +12,7 @@
     "mobile"
   ],
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "dev": "concurrently -n server,web -c blue,magenta \"npm run dev:server\" \"npm run dev:web\"",
     "dev:seed": "bash scripts/seed-dev-db.sh",
     "dev:server": "ORBITAL_PORT=4838 ORBITAL_DEV_TOOLS=1 ORBITAL_DATA_DIR=\"$HOME/Library/Application Support/orbital-dev\" npm run dev -w server",
