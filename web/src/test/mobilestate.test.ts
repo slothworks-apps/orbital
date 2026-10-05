@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '../mobile/version'
 import {
-  back, dismissTopSheet, initialMobileState, isMacAsleep, isPairGone, mayOpenFromNotice, pairGoneFor, push, pushedTop, reduce,
+  back, dismissTopSheet, initialMobileState, isMacAsleep, isPairGone, keepsSelection, mayOpenFromNotice, pairGoneFor, push, pushedTop, reduce,
   registerSheet, useMobile, type MobileState, type Pushed,
 } from '../mobile/state'
 
@@ -110,7 +110,7 @@ describe('reduce', () => {
 
 describe('back', () => {
   it('walks session and settings back to the list, and leaves the app from the list', () => {
-    expect(back(state({ screen: 'session', sessionId: 's1' }))).toEqual({ screen: 'list', sessionId: null, pushed: [] })
+    expect(back(state({ screen: 'session', sessionId: 's1' }))).toEqual({ screen: 'list', sessionId: null, pushed: [], composerIntent: null })
     expect(back(state({ screen: 'settings' }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'new' }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'list' }))).toBe('exit')
@@ -188,6 +188,54 @@ describe('pushed screens', () => {
       useMobile.getState().go('settings')
       expect(useMobile.getState()).toMatchObject({ screen: 'settings', pushed: [] })
     })
+  })
+})
+
+describe('keepsSelection', () => {
+  beforeEach(() => useMobile.setState({ ...initialMobileState, screen: 'session', sessionId: 's1' }))
+
+  it('keeps the session selected while a screen is pushed over it', () => {
+    useMobile.getState().openSubagent({ sessionId: 's1', toolUseId: 'tu1' })
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(true)
+    useMobile.getState().openFile({ sessionId: 's1', path: 'a.png', line: null })
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(true)
+  })
+
+  it('lets it go on the way back to the list, to a base screen, or to another session', () => {
+    useMobile.getState().goBack()
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(false)
+    useMobile.setState({ screen: 'session', sessionId: 's1' })
+    useMobile.getState().go('settings')
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(false)
+    useMobile.setState({ screen: 'session', sessionId: 's1' })
+    useMobile.getState().openTask({ sessionId: 's2', taskId: 't1' })
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(false)
+  })
+})
+
+describe('focusComposer', () => {
+  beforeEach(() => useMobile.setState({ ...initialMobileState, screen: 'session', sessionId: 's1' }))
+
+  it('belongs to the open session and counts every request', () => {
+    useMobile.getState().focusComposer({ kind: 'reopen', step: 4 })
+    useMobile.getState().focusComposer({ kind: 'reopen', step: 4 })
+    expect(useMobile.getState().composerIntent).toEqual({ sessionId: 's1', intent: { kind: 'reopen', step: 4 }, seq: 2 })
+  })
+
+  it('survives a screen pushed over the session and is gone back on the list or in another session', () => {
+    useMobile.getState().focusComposer({ kind: 'reopen', step: 4 })
+    useMobile.getState().openFile({ sessionId: 's1', path: 'a.png', line: null })
+    useMobile.getState().goBack()
+    expect(useMobile.getState().composerIntent).not.toBeNull()
+    useMobile.getState().goBack()
+    expect(useMobile.getState().composerIntent).toBeNull()
+
+    useMobile.setState({ screen: 'session', sessionId: 's1' })
+    useMobile.getState().focusComposer({ kind: 'reopen', step: 2 })
+    useMobile.getState().openSession('s1')
+    expect(useMobile.getState().composerIntent).not.toBeNull()
+    useMobile.getState().openSession('s2')
+    expect(useMobile.getState().composerIntent).toBeNull()
   })
 })
 

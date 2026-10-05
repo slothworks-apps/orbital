@@ -29,6 +29,14 @@ export type Pushed =
       messageId?: string
     }
 
+/**
+ * What the session screen's composer is asked to do from outside it (spec
+ * 2026-10-05-mobile-next § 1): `reopen` is a gate's Reopen — the field takes
+ * the focus and says which step the message goes to. `step` is the step's
+ * number as the user reads it (1-based), not its index.
+ */
+export type ComposerIntent = { kind: 'reopen'; step: number }
+
 export type PushedScreen = Pushed['kind']
 export type PushedOf<K extends PushedScreen> = Extract<Pushed, { kind: K }>
 
@@ -76,12 +84,18 @@ export interface MobileState {
   unpaired: boolean
   pairing: Pairing | null
   macName: string | null
+  /**
+   * The open composer's standing intent and the session it belongs to;
+   * `seq` grows with every request, so asking twice focuses twice. Cleared
+   * by a send, by going back to the list and by opening another session.
+   */
+  composerIntent: { sessionId: string; intent: ComposerIntent; seq: number } | null
 }
 
 export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null,
-  mismatch: null, unpaired: false, pairing: null, macName: null,
+  mismatch: null, unpaired: false, pairing: null, macName: null, composerIntent: null,
 }
 
 /**
@@ -169,7 +183,7 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
   }
   switch (state.screen) {
     case 'session':
-      return { screen: 'list', sessionId: null, pushed: [] }
+      return { screen: 'list', sessionId: null, pushed: [], composerIntent: null }
     case 'settings':
     case 'new':
       return { screen: 'list' }
@@ -199,6 +213,16 @@ export function push(state: MobileState, item: Pushed): Partial<MobileState> {
   }
 }
 
+/**
+ * Whether the session screen of `id`, as it goes away, leaves the store's
+ * selection alone: only when a screen is pushed over that same session (spec
+ * 2026-10-05-mobile-next § 3). The store closes its subagent and task views
+ * the moment the selection changes, and the pushed screen is one of them.
+ */
+export function keepsSelection(state: Pick<MobileState, 'screen' | 'sessionId'>, id: string): boolean {
+  return isPushedScreen(state.screen) && state.sessionId === id
+}
+
 /** The top of the stack when it is a `kind`; what a pushed screen renders. */
 export function pushedTop<K extends PushedScreen>(state: Pick<MobileState, 'pushed'>, kind: K): PushedOf<K> | null {
   const top = state.pushed.at(-1)
@@ -213,13 +237,20 @@ interface MobileActions {
   openTask(ref: { sessionId: string; taskId: string }): void
   openFile(ref: Omit<PushedOf<'file'>, 'kind'>): void
   goBack(): 'exit' | 'stayed'
+  /** Asks the open session's composer for `intent`; a gate's Reopen calls it. */
+  focusComposer(intent: ComposerIntent): void
+  clearComposerIntent(): void
 }
 
 export const useMobile = create<MobileState & MobileActions>()((set, get) => ({
   ...initialMobileState,
   apply: (event) => set(reduce(get(), event, Date.now())),
   go: (screen) => set((s) => ({ screen, previous: s.screen, pushed: [] })),
-  openSession: (id) => set({ screen: 'session', sessionId: id, pushed: [] }),
+  openSession: (id) =>
+    set((s) => ({
+      screen: 'session', sessionId: id, pushed: [],
+      composerIntent: s.composerIntent?.sessionId === id ? s.composerIntent : null,
+    })),
   openSubagent: (ref) => set(push(get(), { kind: 'subagent', ...ref })),
   openTask: (ref) => set(push(get(), { kind: 'task', ...ref })),
   openFile: (ref) => set(push(get(), { kind: 'file', ...ref })),
@@ -229,6 +260,13 @@ export const useMobile = create<MobileState & MobileActions>()((set, get) => ({
     set(next)
     return 'stayed'
   },
+  focusComposer: (intent) =>
+    set((s) =>
+      s.sessionId === null
+        ? {}
+        : { composerIntent: { sessionId: s.sessionId, intent, seq: (s.composerIntent?.seq ?? 0) + 1 } },
+    ),
+  clearComposerIntent: () => set((s) => (s.composerIntent ? { composerIntent: null } : {})),
 }))
 
 /**

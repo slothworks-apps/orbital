@@ -5,6 +5,8 @@ import { clearCaches } from './platform/cache'
 import { forgetIdentity } from './platform/identity'
 import { clearImageCache } from './platform/imageCache'
 import { clearDeliveredNotifications } from './platform/localNotify'
+import { clearFileCache } from './files/fileCache'
+import { clearHarnessCache } from './harness/harnessCache'
 import { clearPairing, setUnpaired } from './platform/pairing'
 import { useMobile } from './state'
 import { clientRef } from './transport/clientRef'
@@ -47,21 +49,24 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
     }
   }
   // Independent of each other and of the flag above: one failing clear must not skip the rest.
-  const clears = await Promise.allSettled([clearPairing(), forgetIdentity(), clearCaches(), clearImageCache()])
+  const clears = await Promise.allSettled([
+    clearPairing(), forgetIdentity(), clearCaches(), clearImageCache(), clearHarnessCache(), clearFileCache(),
+  ])
   for (const result of clears) {
     if (result.status === 'rejected') console.warn('[mobile] could not clear everything stored for the Mac', result.reason)
   }
   useOrbital.getState().seatSessions([], [])
   // No store action leaves a session without side effects, so the old Mac's
-  // selection and transcripts are dropped here: the next pairing's resync
+  // selection, transcripts and harnesses are dropped here: the next pairing's resync
   // must not `select()` a session that Mac owns.
   useOrbital.setState((s) => ({
     transcripts: {}, historyLoaded: {}, ui: { ...s.ui, selectedId: null, fileViewer: null },
+    harnesses: {}, harnessRemoved: {}, harnessEvents: {}, harnessEventsMore: {},
   }))
   useMobile.setState({
     pairing: null, link: 'off', macOnline: false, ready: false,
     asOf: null, checkedAt: null, rechecking: null, listedAt: null,
-    sessionId: null, pushed: [], mismatch: null, previous: null,
+    sessionId: null, pushed: [], composerIntent: null, mismatch: null, previous: null,
     unpaired: opts.unpaired,
     macName: opts.unpaired ? name : null,
     screen: opts.unpaired ? 'unpaired' : 'pairing',
