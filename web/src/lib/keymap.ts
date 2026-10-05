@@ -199,6 +199,16 @@ export const COMMANDS: readonly Command[] = [
     menu: { menu: 'Session', order: 4 },
   },
   {
+    // Canvas `Feature - Jump to bottom` 43e, Triggers: the indicator's
+    // action, from the transcript or the composer.
+    id: 'session.latest',
+    label: 'Jump to latest',
+    scope: 'session',
+    chords: ['meta+ArrowDown'],
+    whileTyping: true,
+    note: 'while the transcript is scrolled up',
+  },
+  {
     id: 'session.tag',
     label: 'Change tag',
     scope: 'session',

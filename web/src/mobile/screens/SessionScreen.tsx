@@ -141,6 +141,7 @@ function SessionView({ id }: { id: string }) {
         models={models}
         resetKey={id}
         sessionId={id}
+        surface="phone"
         // The parked tool call is lifted out of its run and drawn as its card (§ 6.3).
         pendingDecisionId={pendingDecisionId}
         onLoadOlder={ready ? handleLoadOlder : undefined}

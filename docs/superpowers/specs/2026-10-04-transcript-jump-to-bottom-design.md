@@ -2,7 +2,7 @@
 id: 2026-10-04-transcript-jump-to-bottom-design
 title: The transcript shows the way back to its bottom
 type: spec
-status: active
+status: done
 domain: web
 related:
   - why-orbital
@@ -30,14 +30,16 @@ be able to see — quietly — that something new is waiting there.
 
 ## Behaviour
 
-1. **When it shows.** The indicator is shown whenever the transcript is not
-   at its bottom, and hidden when it is. "At the bottom" is the same test
-   that decides stick-to-bottom today (`isNearBottom` with its default
-   threshold), so the indicator and the following can never disagree: the
-   indicator is visible exactly when a new message would *not* be followed.
-   Positions produced by the scroller's own animation do not change it, for
-   the reason the stick flag ignores them (see
-   [[the-transcript-scrolls-on-its-own-raf-loop]]).
+1. **When it shows.** The indicator is shown exactly when the transcript is
+   not stuck to its bottom, so it and the following can never disagree: it is
+   visible exactly when a new message would *not* be followed. The stick flag
+   has two thresholds (`stuckAfterScroll`, canvas 43e): it lets go once more
+   than `LET_GO_BELOW_PX` is hidden below the viewport and sticks again only
+   under `STICK_BELOW_PX`. Between them it keeps what it was, so a position
+   on the edge cannot flicker the indicator. It is therefore never drawn at
+   the bottom, and no room is reserved under the last row. Positions produced
+   by the scroller's own animation do not change it, for the reason the stick
+   flag ignores them (see [[the-transcript-scrolls-on-its-own-raf-loop]]).
 
 2. **Two states, no number.** The indicator is either *above the bottom* or
    *above the bottom, with something new below*. It never shows a count.
@@ -55,16 +57,19 @@ be able to see — quietly — that something new is waiting there.
    indicator, a manual scroll, a send — clears it. Scrolling up again starts
    from *above the bottom*, not from *new*.
 
-5. **What a click does.** It calls the existing `Scroller.toBottom()`,
-   without new motion: eased over a short distance, an instant jump past
-   `INSTANT_ABOVE_VIEWPORTS`, always instant under `prefers-reduced-motion`.
-   The transcript is stuck to the bottom again, and the indicator goes away
-   when the bottom is reached.
+5. **What a click does.** It sticks the transcript again, so the indicator
+   starts leaving at the click, and calls `Scroller.jump()`: a timed
+   ease-out (`jumpDurationMs`) that re-reads the bottom every frame. Past two
+   viewports it first lands just short of the bottom and eases the rest.
+   Under `prefers-reduced-motion` it is instant. In the session panel, focus
+   then moves to the composer; on the phone, focus and the keyboard are left
+   alone. ⌘↓ (`session.latest`) is the same action, from the transcript or
+   the composer, while there is somewhere to jump to.
 
 6. **Sending re-sticks.** When the user's own optimistic turn (a `local:`
    user message, see `isPendingTurn` in the store) arrives among the
-   entering rows, the transcript sticks to the bottom again and scrolls
-   there, as a click would. Sending is choosing to continue the
+   entering rows while the reader is above, the transcript sticks to the
+   bottom again and jumps there, as a click would. Sending is choosing to continue the
    conversation. This is detected inside `TranscriptView` from the rows it
    is given, so it needs no new prop and covers every composer that goes
    through `sendPrompt`, the phone's included.
@@ -76,7 +81,9 @@ be able to see — quietly — that something new is waiting there.
 8. **Calm.** The indicator appears and disappears with a gentle transition.
    The change into *new* is a slow state change, made once. Nothing blinks,
    pulses, bounces or repeats, and nothing makes a sound (`why-orbital`,
-   "Nothing blinks", "Silence by default").
+   "Nothing blinks", "Silence by default"). The ink is neutral, never the
+   accent or the amber of a session waiting for input. Screen readers hear
+   "New messages below" once, politely, when *new* starts.
 
 9. **Where.** Everywhere `TranscriptView` is used: the session transcript,
    the subagent panel and the phone's session screen. It applies to terminal
@@ -92,23 +99,34 @@ be able to see — quietly — that something new is waiting there.
   effects and must not cause renders), and mirrors the indicator's state
   into React state only when it changes, so scrolling does not re-render the
   transcript on every frame.
-- The indicator is a component of its own, rendered by `TranscriptView`
-  outside the scroll container so it does not scroll with the rows.
+- The indicator is a component of its own (`panels/JumpToBottom.tsx`),
+  rendered by `TranscriptView` outside the scroll container so it does not
+  scroll with the rows. `TranscriptView`'s `surface` prop picks its
+  geometry: the session panel, the subagent panel or the phone.
+
+## Look
+
+Canvas `Feature - Jump to bottom` (43a–43e) is the design. *Above* is a round
+↓ at the bottom-right of the transcript viewport, the emptiest corner of
+ragged-right prose. *New* widens it leftwards to say "NEW BELOW" while the
+arrow stays put. A scrim fades the last rows into the panel under it. On the
+phone it is larger, with a 48px touch target.
 
 ## Phone
 
 Built for the phone too, with nothing extra: `mobile/screens/SessionScreen`
 renders the same `TranscriptView`, so the indicator and the re-stick on send
 reach the phone with the component. No route, no WS topic and no allowlist
-change is needed. What differs is only layout, which belongs to the design
-brief below: a touch-sized target, and a place clear of the composer, the
-offline divider and a parked decision card.
+change is needed. What differs is only the geometry (canvas 43c): a
+touch-sized target anchored to the composer's top edge, clear of the offline
+divider and the keyboard. ⌘↓ does not exist there.
 
 ## Testing
 
 - Unit tests for the state-transition function: hidden → above on scrolling
   away; above → new on rows entering; new stays new on more rows; any state →
-  hidden on reaching the bottom; own turn → hidden and stuck; reset → hidden.
+  hidden on reaching the bottom; reset → hidden. And for the two thresholds
+  of `stuckAfterScroll`.
 - No render tests: whether the indicator shows its props is not worth a test
   (see the root `CLAUDE.md`), and jsdom computes no scroll metrics.
 - Checked by hand in the built app and on the phone emulator: scroll up in a
@@ -116,48 +134,15 @@ offline divider and a parked decision card.
 
 ## Out of scope
 
-- A keyboard shortcut. `End` already scrolls the container natively.
+- Background-task output and the file viewer (43, Scope).
 - Jumping to the first row that arrived rather than to the bottom.
 - Saying *what* arrived (a question waiting, a session ended). The map and
   the session's own cards already say that.
 
-## Design brief for Claude Design
+## Not taken from the canvas
 
-Placement and look are designed in Claude Design. The prompt to give it:
-
-> Design a "jump to bottom" indicator for Orbital's session transcript, for
-> the desktop detail panel, the subagent panel and the phone's session screen
-> (artboards for each).
->
-> It has two states and is otherwise hidden:
-> 1. *Above the bottom* — the reader has scrolled up; the indicator offers the
->    way back.
-> 2. *Above the bottom, something new below* — rows arrived while the reader
->    was away.
->
-> Constraints:
-> - No number or count, ever. The second state is a quiet difference from the
->   first, not a badge.
-> - Calm per Orbital's principles: no blinking, pulsing, bouncing or
->   attention-pulling colour. Appearing, disappearing and the change into the
->   second state are slow, gentle transitions. No alarm or accent colour
->   reserved for sessions waiting on the user.
-> - It floats over the transcript and must not cover the last row's content
->   in a way that hides text being read, the composer, a parked decision card
->   (Allow/Deny), or the phone's "NOTHING NEWER · MAC ASLEEP" divider.
-> - On the phone it is a comfortable touch target and sits clear of the
->   composer and the on-screen keyboard.
-> - It belongs to the transcript surface (opaque docked panels, not frosted
->   glass), and must read on every map theme.
-> - It has an accessible label ("Jump to the latest message", and a variant
->   for the second state).
->
-> Show both states on desktop and phone, and the transition between them as
-> a short note on timing and easing.
-
-## Next
-
-The behaviour is built. The indicator's look is provisional
-(`panels/JumpToBottom.tsx` borrows the model divider's type and the docked
-panel's fill) until the Claude Design artboards exist. Then do a fidelity
-pass against them and set this spec to `done`.
+- 43a's composer hint reads "⏎ send · ⌘↓ latest". The real hint carries
+  more (newline, paste image) and ⌘↓ is listed in Settings → Shortcuts, so
+  the hint is left as it is.
+- 43e keeps *new* if the reader leaves the bottom again before
+  `FORGET_NEW_MS` has passed. Here leaving the bottom always starts from *above*.

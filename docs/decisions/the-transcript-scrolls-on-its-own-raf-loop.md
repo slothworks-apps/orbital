@@ -71,3 +71,15 @@ Easing is for following along, not for travelling. Three cases skip it:
 Prepend compensation after "Load older" is also instant, and for a different
 reason again: it is not a move at all. It puts the reader back where they
 already were, and animating a correction would turn a no-op into a lurch.
+
+## The reader's own jump is timed
+
+The jump back to the bottom (the indicator, ⌘↓, a send from above; spec
+[[2026-10-04-transcript-jump-to-bottom-design]]) is travel the reader asked
+for, so it is the one case that does travel. It runs on the same loop, under
+the same `isAnimating()` flag, but as a timed ease-out (`jumpDurationMs`,
+canvas `Feature - Jump to bottom` 43e) rather than decay: the reader started
+it and should feel it arrive. It still re-reads the bottom every frame, so
+rows landing mid-jump move the end and nothing restarts. A long jump lands
+just short of the bottom first and eases the rest, which keeps the rule
+above: nothing several screens long is animated.

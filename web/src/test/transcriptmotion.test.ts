@@ -1,14 +1,34 @@
 import { describe, it, expect } from 'vitest'
-import { approach, enteringKeys, isNearBottom, compensatePrepend, nextBottomIndicator } from '../panels/transcriptMotion'
+import {
+  approach,
+  compensatePrepend,
+  enteringKeys,
+  LET_GO_BELOW_PX,
+  nextBottomIndicator,
+  STICK_BELOW_PX,
+  stuckAfterScroll,
+} from '../panels/transcriptMotion'
 
-describe('isNearBottom', () => {
-  it('is true within the threshold of the bottom', () => {
-    expect(isNearBottom({ scrollTop: 900, scrollHeight: 1000, clientHeight: 100 })).toBe(true)
-    expect(isNearBottom({ scrollTop: 850, scrollHeight: 1000, clientHeight: 100 }, 80)).toBe(true)
+describe('stuckAfterScroll', () => {
+  /** A container with `below` pixels of content hidden under the viewport. */
+  const hiding = (below: number) => ({ scrollTop: 900 - below, scrollHeight: 1000, clientHeight: 100 })
+  const between = Math.round((LET_GO_BELOW_PX + STICK_BELOW_PX) / 2)
+
+  it('stays stuck at the bottom', () => {
+    expect(stuckAfterScroll(true, hiding(0))).toBe(true)
   })
 
-  it('is false further up than that', () => {
-    expect(isNearBottom({ scrollTop: 0, scrollHeight: 1000, clientHeight: 100 })).toBe(false)
+  it('lets go once more than the upper threshold is hidden', () => {
+    expect(stuckAfterScroll(true, hiding(LET_GO_BELOW_PX + 1))).toBe(false)
+  })
+
+  it('sticks again only under the lower threshold', () => {
+    expect(stuckAfterScroll(false, hiding(STICK_BELOW_PX - 1))).toBe(true)
+  })
+
+  it('keeps whatever it was between the two, so the indicator cannot flicker', () => {
+    expect(stuckAfterScroll(true, hiding(between))).toBe(true)
+    expect(stuckAfterScroll(false, hiding(between))).toBe(false)
   })
 })
 

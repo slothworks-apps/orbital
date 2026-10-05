@@ -8,7 +8,7 @@
  * appended row apart from one that merely scrolled into the window).
  */
 
-/** Minimal shape `isNearBottom` needs from a scroll container — lets tests
+/** Minimal shape `stuckAfterScroll` needs from a scroll container — lets tests
  * inject fixture values, since jsdom never computes real scroll metrics. */
 export interface ScrollMetrics {
   scrollTop: number
@@ -16,10 +16,25 @@ export interface ScrollMetrics {
   clientHeight: number
 }
 
-/** True when the bottom of the scrollable content is within `threshold`
- * pixels of the current scroll position. */
-export function isNearBottom(el: ScrollMetrics, threshold = 80): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
+/** Content hidden below the viewport past which a stuck transcript lets go
+ * (canvas `Feature - Jump to bottom` 43e, Visibility). */
+export const LET_GO_BELOW_PX = 64
+
+/** Content hidden below the viewport under which a transcript that let go
+ * sticks again (43e, Visibility). */
+export const STICK_BELOW_PX = 24
+
+/**
+ * Whether the transcript follows new rows after the reader scrolled it to
+ * `el`'s position. Two thresholds, not one: between them the answer is
+ * whatever it already was, so a position hovering on a single line cannot
+ * flip the jump-to-bottom indicator on and off with every pixel. The
+ * indicator shows exactly when this is false, so it is never drawn over a
+ * transcript that is at its bottom.
+ */
+export function stuckAfterScroll(stuck: boolean, el: ScrollMetrics): boolean {
+  const below = el.scrollHeight - el.scrollTop - el.clientHeight
+  return stuck ? below <= LET_GO_BELOW_PX : below < STICK_BELOW_PX
 }
 
 /**
@@ -75,9 +90,31 @@ export function approach(current: number, target: number, elapsedMs: number, hal
   return Math.abs(target - next) < SNAP_EPSILON_PX ? target : next
 }
 
+/**
+ * Duration of the reader's own jump back to the bottom, for a distance in
+ * pixels (43e, Scroll). A jump is travel the reader asked for, not following
+ * along, so it has a duration and an ease-out instead of `approach`'s decay.
+ */
+export function jumpDurationMs(distance: number): number {
+  return Math.min(640, Math.max(320, 200 + distance * 0.18))
+}
+
+/** Past this many viewports a jump lands just short of the bottom first (43e). */
+const JUMP_LAND_SHORT_ABOVE_VIEWPORTS = 2
+
+/** How far short of the bottom that landing is, and the ease that finishes it (43e). */
+const JUMP_LAND_SHORT_PX = 120
+const JUMP_LAND_SHORT_MS = 240
+
 export interface Scroller {
   /** Ease (or, per the rules above, jump) to the bottom of the content. */
   toBottom(options?: { instant?: boolean }): void
+  /**
+   * The reader's jump back to the bottom (the indicator, ⌘↓). Retargets like
+   * `toBottom`: the bottom is re-read every frame, so rows arriving during
+   * the jump are where it ends.
+   */
+  jump(): void
   /** True while the loop below owns `scrollTop` — see `Transcript`'s listener. */
   isAnimating(): boolean
   /** Hand `scrollTop` back to the user, leaving it wherever it got to. */
@@ -160,6 +197,34 @@ export function createScroller(el: HTMLElement): Scroller {
       if (frame !== null) return // already on its way; the loop retargets itself
       last = performance.now()
       frame = requestAnimationFrame(step)
+    },
+    jump() {
+      stop()
+      const target = () => el.scrollHeight - el.clientHeight
+      let from = el.scrollTop
+      const distance = target() - from
+      if (distance <= 1 || prefersReducedMotion()) {
+        el.scrollTop = target()
+        return
+      }
+      let duration = jumpDurationMs(distance)
+      if (distance > JUMP_LAND_SHORT_ABOVE_VIEWPORTS * el.clientHeight) {
+        el.scrollTop = target() - JUMP_LAND_SHORT_PX
+        from = el.scrollTop
+        duration = JUMP_LAND_SHORT_MS
+      }
+      const start = performance.now()
+      const travel = (now: number) => {
+        const t = Math.min(1, (now - start) / duration)
+        const eased = 1 - (1 - t) ** 3
+        el.scrollTop = from + (target() - from) * eased
+        if (t < 1) frame = requestAnimationFrame(travel)
+        else {
+          el.scrollTop = target()
+          frame = null
+        }
+      }
+      frame = requestAnimationFrame(travel)
     },
     isAnimating: () => frame !== null,
     cancel: stop,

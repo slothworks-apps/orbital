@@ -7,13 +7,14 @@ import {
   compensatePrepend,
   createScroller,
   enteringKeys,
-  isNearBottom,
   nextBottomIndicator,
+  stuckAfterScroll,
   type BottomIndicator,
   type Scroller,
 } from './transcriptMotion'
-import { JumpToBottom } from './JumpToBottom'
+import { JumpToBottom, type JumpSurface } from './JumpToBottom'
 import { isPendingTurn } from '../store/store'
+import { useCommand } from '../lib/commands'
 import { MessageView } from './MessageView'
 import { NoticeRow } from './NoticeRow'
 import { HarnessTranscriptRow } from './HarnessTranscriptRow'
@@ -399,6 +400,11 @@ export interface TranscriptViewProps {
   onOpenTaskOutput?: (task: BackgroundTask) => void
   /** Pick mode is on (spec 2026-09-29-rewind-design § Behaviour 2). Absent, the transcript is exactly as it always was. */
   rewind?: TranscriptRewind
+  /** Which surface the jump-to-bottom indicator is sized and inked for (canvas 43a/43b/43c). */
+  surface?: JumpSurface
+  /** Called after the reader clicks the jump-to-bottom indicator — the session
+   * panel moves focus to its composer (43e, Triggers). */
+  onJump?: () => void
 }
 
 /**
@@ -632,6 +638,8 @@ export function TranscriptView({
   onOpenTaskOutput,
   compaction,
   rewind,
+  surface = 'panel',
+  onJump,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
   // The row under the pointer in pick mode. Forgotten when the mode ends, so
@@ -729,7 +737,7 @@ export function TranscriptView({
       // reader wants to be: mid-flight it is by definition not at the bottom
       // yet, and believing that would un-stick the container halfway through
       // its own scroll.
-      if (!scroller.isAnimating()) setStick(isNearBottom(el))
+      if (!scroller.isAnimating()) setStick(stuckAfterScroll(stickToBottomRef.current, el))
     }
     el.addEventListener('scroll', onScroll)
     return () => {
@@ -743,7 +751,7 @@ export function TranscriptView({
   // inspection-verified rather than covered by a jsdom test — jsdom never
   // computes real scrollHeight/clientHeight layout, so a DOM-level test
   // here would just be asserting against hand-set fixture properties, not
-  // real behavior. `isNearBottom` and `compensatePrepend`, the two pieces
+  // real behavior. `stuckAfterScroll` and `compensatePrepend`, the two pieces
   // of actual logic, are unit-tested directly instead.
   useLayoutEffect(() => {
     const el = containerRef.current
@@ -800,7 +808,7 @@ export function TranscriptView({
 
   const refreshStick = useCallback(() => {
     const el = containerRef.current
-    if (el && !scrollerRef.current?.isAnimating()) setStick(isNearBottom(el))
+    if (el && !scrollerRef.current?.isAnimating()) setStick(stuckAfterScroll(stickToBottomRef.current, el))
   }, [setStick])
 
   useLayoutEffect(() => {
@@ -827,17 +835,25 @@ export function TranscriptView({
     if (entering.size === 0) return
     const arrived = groups.filter((g) => entering.has(g.key))
     if (arrived.some((g) => g.kind === 'message' && isPendingTurn(g.item.message))) {
-      setStick(true)
-      scrollerRef.current?.toBottom()
+      if (!stickToBottomRef.current) {
+        setStick(true)
+        scrollerRef.current?.jump()
+      }
     } else if (!stickToBottomRef.current) {
       setIndicator((state) => nextBottomIndicator(state, 'arrived'))
     }
   }, [entering, groups, setStick])
 
+  // The indicator starts leaving at the click, not when the scroll arrives
+  // (43e, Acceptance): the stick flag is set before the jump begins.
   const jumpToBottom = useCallback(() => {
     setStick(true)
-    scrollerRef.current?.toBottom()
+    scrollerRef.current?.jump()
   }, [setStick])
+  // ⌘↓ is the same action. Only while there is somewhere to jump to, so the
+  // key does nothing at all at the bottom. With the subagent panel open over
+  // a scrolled-up session both register, and the panel, mounted last, wins.
+  useCommand('session.latest', jumpToBottom, indicator !== 'hidden')
 
   // Rows already held but cut off by the window. They come first: they are
   // older than anything held on screen and newer than anything a fetch
@@ -1123,7 +1139,14 @@ export function TranscriptView({
       })}
       {footer}
     </div>
-    <JumpToBottom state={indicator} onJump={jumpToBottom} />
+    <JumpToBottom
+      state={indicator}
+      surface={surface}
+      onJump={() => {
+        jumpToBottom()
+        onJump?.()
+      }}
+    />
     </div>
   )
 }

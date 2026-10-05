@@ -21,6 +21,11 @@ const NO_SUBAGENTS: Subagent[] = []
 const NO_TASKS: BackgroundTask[] = []
 const NO_EVENTS: HarnessEvent[] = []
 
+/** Puts the caret in the session's composer, when it has one. */
+function focusComposer() {
+  document.querySelector<HTMLElement>('[data-composer-field]')?.focus()
+}
+
 export { pairMessages, groupToolRuns, insertModelDividers, summarizeToolRun } from './TranscriptView'
 export type { TranscriptItem, TranscriptGroup } from './TranscriptView'
 
@@ -223,6 +228,10 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       onOpenTaskOutput={handleOpenTaskOutput}
       compaction={compaction}
       rewind={rewind}
+      // Back at the bottom, the next thing to do is usually to reply (canvas
+      // `Feature - Jump to bottom` 43e, Triggers). A terminal session has no
+      // field, and then nothing moves.
+      onJump={focusComposer}
       footerKey={
         compacting
           ? 'compacting'
