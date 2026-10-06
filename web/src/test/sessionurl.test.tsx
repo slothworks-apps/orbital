@@ -141,7 +141,9 @@ describe('useSessionUrl', () => {
     await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('a'))
     // The restore is the entry the user landed on, not a step they took.
     expect(url()).toBe('?session=a')
-    expect(api.getSession).not.toHaveBeenCalled()
+    // Once, for the selected session's task history (`select`); a known id
+    // needs no fetch of its own before it is selected.
+    expect(api.getSession).toHaveBeenCalledTimes(1)
   })
 
   it('fetches a session the initial page did not include, then selects it', async () => {

@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-10-06
+### Fixed
+- An open session shows all the background commands it has run, also with a Mac that sends only the running ones with the session list.
+
 ## [0.3.0] — 2026-10-05
 ### Added
 - Answer a harness step waiting for your OK — approve it, reopen it or go back — and see the plan's steps and what each one did.

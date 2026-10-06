@@ -37,7 +37,7 @@ import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
 import { registerRoutes } from './api/routes.js';
-import { statusOf, toApiSession, type ShapeContext } from './api/shape.js';
+import { listedBackgroundTasks, statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
@@ -94,7 +94,7 @@ export function publishLiveSession(ctx: PublishContext, live: LiveSession): void
         lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
         permissionMode: null, tagIds: [], status: live.status,
         subagents: ctx.subagents.all(live.sessionId),
-        backgroundTasks: ctx.backgroundTasks.all(live.sessionId),
+        backgroundTasks: listedBackgroundTasks(ctx.backgroundTasks.all(live.sessionId)),
         recentTools: ctx.recentTools.all(live.sessionId),
       };
   ctx.hub.publish('sessions', { event: 'upsert', session });

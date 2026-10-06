@@ -298,7 +298,22 @@ export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
  * registry-upsert publishing, where `ctx.registry` may not yet reflect the
  * live session that triggered the call (see index.ts's `publishLiveSession`).
  */
-export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: SessionStatus): ApiSession {
+/**
+ * The list and its upserts carry only the tasks running now: everything that
+ * reads a session from the list (the map, the phone's list, the working
+ * checks) asks only what is running. A session that ran hundreds of commands
+ * would otherwise grow the list past what one relay frame holds, and the
+ * phone would get no list at all. `GET /api/sessions/:id` carries the whole
+ * history, ended tasks included, for the open session.
+ */
+export function listedBackgroundTasks(tasks: BackgroundTaskInfo[]): BackgroundTaskInfo[] {
+  return tasks.filter((t) => t.state === 'running');
+}
+
+export function toApiSession(
+  ctx: ShapeContext, row: SessionRow, status?: SessionStatus, opts: { allTasks?: boolean } = {},
+): ApiSession {
+  const tasks = ctx.backgroundTasks.all(row.id);
   return {
     id: row.id, cwd: row.cwd, title: row.title,
     firstAt: row.first_at, lastAt: row.last_at,
@@ -313,7 +328,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     status: status ?? statusOf(ctx, row),
     awaitingSubagents: ctx.runner.awaitingSubagents(row.id),
     subagents: ctx.subagents.all(row.id),
-    backgroundTasks: ctx.backgroundTasks.all(row.id),
+    backgroundTasks: opts.allTasks ? tasks : listedBackgroundTasks(tasks),
     recentTools: ctx.recentTools.all(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
     git: ctx.git.locate(row.cwd),

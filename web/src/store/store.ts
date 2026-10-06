@@ -6,7 +6,7 @@ import { isAttachable, promptWithOpenFile, promptWithSelection, selectionId } fr
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
-import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
+import { EMPTY_OUTPUT, appendOutput, endedOutOfList, mergeListedTasks, type OutputLines } from '../lib/backgroundTasks'
 import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
 import { ENDED_HIDE_MS } from '../map/transition'
 import { REWIND_REFUSED_TOAST } from '../lib/rewind'
@@ -1130,7 +1130,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   seatSessions(list, tags) {
     const sessionsMap: Record<string, ApiSession> = {}
     const pendingDecisions: Record<string, PendingDecision> = {}
-    for (const session of list) {
+    const held = get().sessions
+    for (const listed of list) {
+      const session = withHeldTasks(held[listed.id], listed)
       sessionsMap[session.id] = session
       if (session.pendingDecision) pendingDecisions[session.id] = session.pendingDecision
     }
@@ -1719,6 +1721,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // a-reply-is-in-the-transcript-file-but-not-in-the-open-panel).
     if (get().historyLoaded[id]) return
 
+    void loadTaskHistory(id)
     try {
       const fetched = await messagesPage(id)
       set((state) => {
@@ -2658,7 +2661,12 @@ function sessionsEventPatch(
 ): Partial<OrbitalState> | null {
   if (msg.event === 'upsert') {
     const isNew = !(msg.session.id in state.sessions)
-    const sessions = { ...state.sessions, [msg.session.id]: msg.session }
+    const heldTasks = state.sessions[msg.session.id]?.backgroundTasks
+    if (state.ui.selectedId === msg.session.id && endedOutOfList(heldTasks, msg.session.backgroundTasks)) {
+      const id = msg.session.id
+      after.push(() => void loadTaskHistory(id))
+    }
+    const sessions = { ...state.sessions, [msg.session.id]: withHeldTasks(state.sessions[msg.session.id], msg.session) }
     // A sent rewind is settled once the row stops carrying it — the CLI took
     // the truncating resume (or a refusal took it back).
     const rewindSettled = !msg.session.rewindPending && state.rewindSending[msg.session.id]
@@ -2731,6 +2739,33 @@ function sessionsEventPatch(
   }
 
   return null
+}
+
+/** `next` with the ended tasks `held` knows and the listed shape leaves out (`mergeListedTasks`). */
+function withHeldTasks(held: ApiSession | undefined, next: ApiSession): ApiSession {
+  const backgroundTasks = mergeListedTasks(held?.backgroundTasks, next.backgroundTasks)
+  return backgroundTasks === next.backgroundTasks ? next : { ...next, backgroundTasks }
+}
+
+/**
+ * The selected session's whole task history, ended tasks included: the list
+ * and its upserts carry only the running ones, and the open session shows
+ * every task it ran and links each launching call to its output. Asked again
+ * when a task ends, since how it ended is not in the upsert. Older builds of
+ * the server send the whole history in the list anyway.
+ */
+async function loadTaskHistory(id: string): Promise<void> {
+  try {
+    const { session } = await api.getSession(id)
+    useOrbital.setState((state) => {
+      const current = state.sessions[id]
+      if (!current) return {}
+      const backgroundTasks = mergeListedTasks(session.backgroundTasks, current.backgroundTasks)
+      return { sessions: { ...state.sessions, [id]: { ...current, backgroundTasks } } }
+    })
+  } catch {
+    // The listed tasks stay; the next selection asks again.
+  }
 }
 
 /** Applies `msgs` in order, as one store write. */
