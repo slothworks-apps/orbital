@@ -9,6 +9,7 @@
     "build:ios": "npm run build:mobile -w @orbital/web && npm run test:bundle -w @orbital/web && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 cap sync ios",
     "apk": ". ./scripts/android-env.sh && cd android && ./gradlew assembleDebug",
     "aab": ". ./scripts/android-env.sh && cd android && ./gradlew bundleRelease",
+    "play": ". ./scripts/android-env.sh && cd android && ./gradlew publishReleaseBundle",
     "ipa": "./scripts/ios-release.sh",
     "run": ". ./scripts/android-env.sh && cap run android",
     "ios:open": "cap open ios",

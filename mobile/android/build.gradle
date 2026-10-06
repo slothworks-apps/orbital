@@ -5,9 +5,12 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.0'
+        // Uploads the release bundle to Google Play (runbook build-the-android-app → Release to Google Play).
+        classpath 'com.github.triplet.gradle:play-publisher:3.12.1'
         classpath 'com.google.gms:google-services:4.4.4'
 
         // NOTE: Do not place your application dependencies here; they belong

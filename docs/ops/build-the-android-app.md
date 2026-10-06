@@ -232,14 +232,20 @@ Without that file a debug build works as before, and `bundleRelease` stops
 with "No upload key" rather than producing an unsigned bundle Play would
 refuse.
 
-### Build the bundle
+### Build and upload
 
 ```bash
-npm run android:release   # from the repo root
+npm run android:release   # from the repo root: build, bundle, upload to Internal testing
+npm run android:bundle    # the same without the upload
 ```
 
-It runs `build` without `ORBITAL_MOBILE_DEV` (a release must never be a dev
-build), then `aab` (`gradlew bundleRelease`).
+Both run `build` without `ORBITAL_MOBILE_DEV` (a release must never be a dev
+build). `android:bundle` then runs `aab` (`gradlew bundleRelease`);
+`android:release` runs `play` (`gradlew publishReleaseBundle`), which builds
+the same bundle and uploads it to the Internal testing track, rolled out at
+once — the Android side of `ios:release`. It needs the service account
+below and stops with "No Play service account" without it. Production stays
+a release made by hand in the Console.
 
 The bundle is `mobile/android/app/build/outputs/bundle/release/orbital-<versionName>.aab`.
 `google-services.json` must be in place before `build`, or the release has
@@ -248,6 +254,26 @@ no push ([Push](#push)). A release build reaches only an `https` relay.
 Every upload needs a `versionCode` higher than any bundle Play has seen,
 including ones never rolled out; bump it with `versionName`
 (`mobile/CLAUDE.md`).
+
+### Upload from the command line
+
+The upload goes through the Google Play Developer API with a service
+account ([Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher),
+configured in `mobile/android/app/build.gradle`). Set it up once:
+
+1. Google Cloud Console, any project: enable the **Google Play Android
+   Developer API**; IAM → Service accounts → create one (no roles needed);
+   Keys → Add key → JSON. Save it as `secrets/play-service-account.json`.
+2. Play Console → Users and permissions → Invite new users: the service
+   account's e-mail, with the app selected and **Release to testing tracks**
+   (and **View app information**). Invitations to service accounts take
+   effect at once.
+3. The app must already exist with one bundle uploaded by hand: the API
+   cannot create an app.
+
+An app that has never been rolled out is a draft and takes only draft
+releases: `npm run play -w @orbital/mobile -- -PplayStatus=draft`, then roll
+the draft out in the Console.
 
 ### Play Console, the first time
 
