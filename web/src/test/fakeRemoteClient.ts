@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
-import type { BlobResult, PutBlobResult, RemoteClientEvent, TunnelResponse } from '@orbital/shared/remote/client'
-import type { NotificationSettings } from '@orbital/shared/remote/messages'
+import type { BlobResult, FileResult, GetFileOptions, PutBlobResult, RemoteClientEvent, TunnelResponse } from '@orbital/shared/remote/client'
+import type { FileAs, NotificationSettings } from '@orbital/shared/remote/messages'
 import type { SwappableClient } from '../mobile/transport/clientRef'
 
 const RULES: NotificationSettings = {
@@ -21,6 +21,11 @@ export class FakeClient implements SwappableClient {
   )
   readonly getBlob = vi.fn(
     async (_ref: string): Promise<BlobResult> => ({ status: 404, bytes: new Uint8Array(0), mediaType: null }),
+  )
+  readonly getFile = vi.fn(
+    async (_session: string, _path: string, _as: FileAs, _opts?: GetFileOptions): Promise<FileResult> => ({
+      status: 404, bytes: new Uint8Array(0), mediaType: null, size: null, w: null, h: null,
+    }),
   )
   readonly putBlob = vi.fn(
     async (_bytes: Uint8Array, _mediaType: string): Promise<PutBlobResult> => ({ kind: 'not_image' }),

@@ -1,29 +1,56 @@
+/*
+ * SLOTS — where each feature of spec 2026-10-05-mobile-next lands on this
+ * screen. Every slot takes `SlotProps` (`session/slot.ts`: the session and
+ * whether the Mac sleeps) and reads anything else from the stores itself, so
+ * a feature replaces its own file and never edits this one or the composer.
+ * A tail piece also exports a key hook (`SlotKeyProps`, the session possibly
+ * not yet there) that `TranscriptTail` folds into the transcript's footerKey.
+ *
+ *   slot                       file                              filled by
+ *   header row 1, after title  session/ContextReadout.tsx        T5.1
+ *   header row 1, last         session/SessionMenuButton.tsx     T4.1
+ *   header row 2, first        session/StateLine.tsx             F2 (words: stateWords.ts)
+ *   header row 2, after state  session/HarnessProgress.tsx       T1.2
+ *   header row 2, after that   session/MoonsChip.tsx             T3.1
+ *   transcript tail            session/TranscriptTail.tsx        F2: GateCard, LimitNotice, MenuOutcome, divider
+ *     gate card + its key      session/GateCard.tsx              T1.1, T1.3 (thumbnails: harness/GateThumbs.tsx)
+ *     limit notice + its key   session/LimitNotice.tsx           T5.1
+ *     ✓ after End / Clear      menu/MenuOutcome.tsx              T4.1
+ *   harness rows               session/harnessRows.ts            F2 (T1.3 adds the cached copy)
+ *   tool rows: chips, images   session/TranscriptChip.tsx        Z1, through `PhoneToolRowContext`
+ *   path and image presses     files/open.ts (`installFileOpen`) T2.1
+ *   composer focus + hint      `focusComposer` (state)           T1.1 calls it on Reopen
+ *
+ * The model label and the mode dot stay labels (spec "Decided before").
+ */
 import { useCallback, useEffect, useState } from 'react'
-import { getSocket } from '../../lib/socket'
-import { timeAgo } from '../../lib/format'
 import { sessionModelLabel } from '../../lib/models'
-import { stateColor } from '../../lib/stateStyle'
-import { isReadOnly, sessionStateKey, tagColor, type ChatMessage } from '../../lib/types'
-import { useNow } from '../../lib/useNow'
+import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
+import { getSocket } from '../../lib/socket'
+import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useOrbital, type SessionEvent } from '../../store/store'
 import { ModeDot } from '../../ui/ModeDot'
-import { CLOCK_TICK_MS } from '../constants'
-import { notificationId } from '../notify'
 import { basename } from '../format'
+import { notificationId } from '../notify'
 import { readTranscriptCache } from '../platform/cache'
 import { removeDeliveredNotification } from '../platform/localNotify'
-import { stateLine } from '../sessionList'
-import { isMacAsleep, useMobile } from '../state'
+import { ContextReadout } from '../session/ContextReadout'
+import { HarnessProgress } from '../session/HarnessProgress'
+import { useHarnessRows } from '../session/harnessRows'
+import { MoonsChip } from '../session/MoonsChip'
+import { SessionMenuButton } from '../session/SessionMenuButton'
+import { StateLine } from '../session/StateLine'
+import { usePhoneToolRow } from '../session/TranscriptChip'
+import { TranscriptTail, useTranscriptTailKey } from '../session/TranscriptTail'
+import { isMacAsleep, keepsSelection, useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
-import { Glyph } from './Glyph'
 import { SessionComposer } from './SessionComposer'
 
 const EMPTY: ChatMessage[] = []
-
-/** 9b's header draws at most this many moons before the count. */
-const MOONS_SHOWN = 3
+const NO_SUBAGENTS: Subagent[] = []
+const NO_TASKS: BackgroundTask[] = []
 
 /** 9b (spec § 5, § 6.1): one session's transcript and its composer. */
 export function SessionScreen() {
@@ -41,11 +68,11 @@ function SessionView({ id }: { id: string }) {
   const loadOlder = useOrbital((s) => s.loadOlder)
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const ready = useMobile((s) => s.ready)
-  const asOf = useMobile((s) => s.asOf)
   const offline = useMobile(isMacAsleep)
   const goBack = useMobile((s) => s.goBack)
+  const openSubagent = useMobile((s) => s.openSubagent)
+  const openTask = useMobile((s) => s.openTask)
   const [exhausted, setExhausted] = useState(false)
-  const now = useNow(true, CLOCK_TICK_MS)
 
   // Open: from the cache while the Mac is away, over the tunnel when it is
   // not (spec § 4). Seated as loaded, so the reconnect's resync replaces it
@@ -69,6 +96,10 @@ function SessionView({ id }: { id: string }) {
     void removeDeliveredNotification(notificationId(id))
     return () => {
       live = false
+      // A subagent, a task or a file pushed over this session keeps it selected:
+      // the store would otherwise close the very view being opened (spec
+      // 2026-10-05-mobile-next § 3).
+      if (keepsSelection(useMobile.getState(), id)) return
       // Leaving drops the held transcript (the store's own rule), so coming back reads the file again.
       useOrbital.setState((s) => (s.ui.selectedId === id ? { ui: { ...s.ui, selectedId: null } } : s))
     }
@@ -87,8 +118,22 @@ function SessionView({ id }: { id: string }) {
     return added.length
   }, [loadOlder, id])
 
-  const key = session ? sessionStateKey(session) : null
+  const shown = useHarnessRows(session, messages, exhausted, ready)
+
+  // A transcript chip opens its subagent or task over this session (canvas
+  // 10g); a moon without a `toolUseId` has no transcript to open.
+  const handleOpenSubagent = useCallback(
+    (agent: Subagent) => {
+      if (agent.toolUseId) openSubagent({ sessionId: id, toolUseId: agent.toolUseId })
+    },
+    [openSubagent, id],
+  )
+  const handleOpenTask = useCallback((task: BackgroundTask) => openTask({ sessionId: id, taskId: task.id }), [openTask, id])
+
+  const tailKey = useTranscriptTailKey({ session, offline })
+
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
+  const phoneRows = usePhoneToolRow(id, tagHue, offline)
   const header = (
     <div className="px-1.5 pb-0.5">
       <div className="flex h-13 items-center gap-1">
@@ -110,37 +155,14 @@ function SessionView({ id }: { id: string }) {
             </div>
           )}
         </div>
+        {session && <ContextReadout session={session} offline={offline} />}
+        {session && <SessionMenuButton session={session} offline={offline} />}
       </div>
-      {session && key && (
+      {session && (
         <div className="flex h-11 min-w-0 items-center gap-0.5 pl-2.5">
-          <span
-            className="flex shrink-0 items-center gap-[7px] pr-2.5 font-mono text-[10.5px] tracking-[0.1em]"
-            style={{ color: stateColor(key) }}
-          >
-            <Glyph session={session} offline={offline} />
-            {stateLine(key, offline, asOf, now)}
-            {/* Live, the last activity; offline, the state line already says when. */}
-            {!offline && session.lastAt !== null && <span>· {timeAgo(session.lastAt, now)}</span>}
-          </span>
-          {session.subagents.length > 0 && (
-            <span
-              aria-label={`${session.subagents.length} ${session.subagents.length === 1 ? 'subagent' : 'subagents'}`}
-              className="flex shrink-0 items-center gap-[5px] px-2 font-mono text-[10.5px] text-[rgba(200,220,245,.75)]"
-            >
-              {session.subagents.slice(0, MOONS_SHOWN).map((agent) => (
-                <span
-                  key={agent.id}
-                  aria-hidden
-                  className={[
-                    'block h-2 w-2 rounded-full border bg-[oklch(30%_.05_220)]',
-                    !offline && agent.state !== 'ended' ? 'orbital-pulse' : '',
-                  ].join(' ')}
-                  style={{ borderColor: tagHue }}
-                />
-              ))}
-              {session.subagents.length}
-            </span>
-          )}
+          <StateLine session={session} offline={offline} />
+          <HarnessProgress session={session} offline={offline} />
+          <MoonsChip session={session} offline={offline} />
           <span aria-hidden className="flex-1" />
           {/* The phone reads the model and the mode; switching either stays on the Mac for now. */}
           {(session.model || session.resolvedModel) && (
@@ -162,21 +184,14 @@ function SessionView({ id }: { id: string }) {
     </div>
   )
 
-  // Where the data ends while the Mac sleeps (9b offline).
-  const divider = offline ? (
-    <div className="my-4 flex items-center gap-3 font-mono text-[10px] tracking-[0.14em] text-text-muted">
-      <span className="h-px flex-1 bg-panel-border" />
-      <span>NOTHING NEWER · MAC ASLEEP</span>
-      <span className="h-px flex-1 bg-panel-border" />
-    </div>
-  ) : undefined
-
   return (
     // No footer until the row exists: 9d opens a session before its upsert lands,
     // and a footer then would flash the terminal line.
     <MobileScreen header={header} footer={session ? <SessionComposer id={id} /> : undefined} scroll={false}>
+      {/* The phone's tool rows: 10g's chips, 10d's wide image results. */}
+      <PhoneToolRowContext.Provider value={phoneRows}>
       <TranscriptView
-        messages={messages}
+        messages={shown}
         isWorking={!offline && session?.status === 'working'}
         models={models}
         resetKey={id}
@@ -188,9 +203,14 @@ function SessionView({ id }: { id: string }) {
         exhausted={exhausted}
         // An Orbital session's cards answer; a terminal session's say where to (§ 6.3).
         readOnly={session ? isReadOnly(session) : true}
-        footer={divider}
-        footerKey={offline ? 'offline' : 'live'}
+        subagents={session?.subagents ?? NO_SUBAGENTS}
+        onOpenSubagent={handleOpenSubagent}
+        backgroundTasks={session?.backgroundTasks ?? NO_TASKS}
+        onOpenTaskOutput={handleOpenTask}
+        footer={session ? <TranscriptTail session={session} offline={offline} /> : undefined}
+        footerKey={tailKey}
       />
+      </PhoneToolRowContext.Provider>
     </MobileScreen>
   )
 }

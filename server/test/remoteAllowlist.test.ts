@@ -27,7 +27,7 @@ describe('remote allowlist', () => {
       ['GET', '/api/errors'], ['POST', '/api/errors'], ['GET', '/api/tag-rules'], ['POST', '/api/tag-rules/preview'],
       ['POST', '/api/tags'], ['DELETE', '/api/tags/1'], ['POST', '/api/dev/sessions/abc/simulate-compaction'],
       ['POST', '/api/attachments'], ['POST', '/api/sessions/abc/attachments'], ['GET', '/api/images/abc.png'],
-      ['POST', '/api/sessions/abc/rewind'], ['POST', '/api/sessions/abc/retitle'],
+      ['POST', '/api/sessions/abc/retitle'],
       ['POST', '/api/sessions/abc/walkthrough/narrate'], ['POST', '/api/models/validate'],
       ['POST', '/api/branch-status/refresh'], ['GET', '/api/sessions/retention-preview'],
       ['GET', '/api/remote'], ['POST', '/api/remote/pair'], ['DELETE', '/api/remote/devices/x'],
@@ -37,6 +37,53 @@ describe('remote allowlist', () => {
       ['PATCH', '/api/sessions/defaults'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
   });
+  describe('harness gate, rewind and limit wait', () => {
+    const added: ReadonlyArray<readonly [string, string]> = [
+      ['GET', '/api/sessions/abc/harness'],
+      ['POST', '/api/sessions/abc/harness/steps/3/approve'],
+      ['POST', '/api/sessions/abc/harness/steps/3/reopen'],
+      ['POST', '/api/sessions/abc/harness/steps/3/go-back'],
+      ['POST', '/api/sessions/abc/harness/steps/3/decide-myself'],
+      ['POST', '/api/sessions/abc/rewind'],
+      ['POST', '/api/sessions/abc/limit-wait/cancel'],
+      ['POST', '/api/sessions/abc/limit-wait/undo'],
+    ];
+
+    it('allows each new route for its one method only', () => {
+      for (const [method, path] of added) {
+        for (const m of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+          expect(isAllowed(m, path), `${m} ${path}`).toBe(m === method);
+        }
+      }
+    });
+
+    it('keeps the neighbours denied', () => {
+      for (const [m, p] of [
+        ['DELETE', '/api/sessions/abc/rewind'],
+        ['POST', '/api/sessions/abc/harness'],
+        ['PATCH', '/api/sessions/abc/harness'],
+        ['DELETE', '/api/sessions/abc/harness'],
+        ['POST', '/api/sessions/abc/harness/carry'],
+        ['GET', '/api/sessions/abc/harness/steps/1/diff'],
+        ['GET', '/api/harness/templates'],
+        ['GET', '/api/files'],
+        ['GET', '/api/files/image'],
+        ['GET', '/api/limits'],
+        ['POST', '/api/limits/refresh'],
+      ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
+    });
+
+    it('refuses a step index that is not one plain segment', () => {
+      for (const index of ['..', '.', '%2e', '%2e%2e', '', '1%2F..']) {
+        const p = `/api/sessions/abc/harness/steps/${index}/approve`;
+        expect(isAllowed('POST', p), JSON.stringify(p)).toBe(false);
+      }
+      expect(isAllowed('POST', '/api/sessions/abc/harness/steps/1/approve/')).toBe(false);
+      expect(isAllowed('GET', '/api/sessions/abc/harness/')).toBe(false);
+      expect(isAllowed('POST', '/api/sessions/abc/limit-wait/cancel/')).toBe(false);
+    });
+  });
+
   it('is strict about shape: method case, traversal, empty segments, encoded slashes', () => {
     expect(isAllowed('get', '/api/sessions')).toBe(false);
     expect(isAllowed('GET', '/api/sessions/../files')).toBe(false);
@@ -64,7 +111,9 @@ describe('remote allowlist', () => {
         ['GET', '/api/files'],
         ['GET', '/api/files/complete'],
         ['PATCH', '/api/settings'],
-        ['POST', '/api/sessions/:id/rewind'],
+        ['DELETE', '/api/sessions/:id/rewind'],
+        ['POST', '/api/sessions/:id/harness'],
+        ['GET', '/api/sessions/:id/harness/steps/:index/diff'],
         ['POST', '/api/sessions/:id/ide/open-file'],
         ['POST', '/api/remote/pair'],
         ['GET', '/api/sessions/retention-preview'],

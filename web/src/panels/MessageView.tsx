@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../lib/types'
 import { formatBytes } from '../lib/format'
 import { highlightCode } from '../lib/highlight'
+import { FileMessageContext, fileOpenHandlers, messageImages } from '../lib/fileOpen'
 import { rehypePathLinks } from '../lib/pathLinks'
 import { rehypeSentTokens } from '../lib/sentTokens'
 import { ImageThumb } from './ImageThumb'
-import { PathButton } from './PathButton'
+import { PathButton, PlainPath } from './PathButton'
 import { parseSentSelection, stripSentOpenFile } from '../lib/ideSelection'
 import { parseSentFiles } from '../lib/attachedFiles'
 import { FileGlyph } from './AttachmentChip'
@@ -223,6 +224,7 @@ type AnchorProps = ComponentPropsWithoutRef<'a'> & {
   'data-path'?: string
   'data-line'?: string
   'data-code'?: string
+  'data-plain'?: string
 }
 
 /**
@@ -233,6 +235,9 @@ type AnchorProps = ComponentPropsWithoutRef<'a'> & {
  */
 function MarkdownLink({ children, node: _node, ...rest }: AnchorProps & { node?: unknown }) {
   const path = rest['data-path']
+  // A path no press can open, wrapped only for the phone's long-press
+  // (`rehypePathLinks({ plain: true })`): text, never a link.
+  if (path && rest['data-plain'] !== undefined) return <PlainPath path={path}>{children}</PlainPath>
   if (path) {
     const rawLine = rest['data-line']
     // The child text is the full hit area (`web/src/App.tsx:42:7`) — the
@@ -354,8 +359,19 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
    * the chip trails what they said.
    */
   const authored = hasText || hasImages || files.length > 0
+  // The phone's seam (`lib/fileOpen.ts`): its presses say which message they
+  // came from, so its viewer can page through this message's images, and a
+  // path it cannot open is still wrapped, for the long-press. The desktop
+  // configures nothing, provides nothing and matches as before.
+  const routed = fileOpenHandlers()
+  const fileMessage = useMemo(
+    () => (routed ? { messageId: message.id, images: messageImages(message) } : null),
+    [routed, message],
+  )
+  const plainPaths = Boolean(routed?.longPress)
 
   return (
+    <FileMessageContext.Provider value={fileMessage}>
     <div
       data-role={message.role}
       className={['flex flex-col gap-1', isUser && authored ? 'items-end' : 'items-start'].join(' ')}
@@ -393,7 +409,9 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           // The user turn gets the composer's tints instead, holding after the
           // turn went out (canvas 9e SENT). The two never share a turn: one
           // makes paths pressable, the other says "this was parsed".
-          rehypePlugins={isUser ? [rehypeSentTokens] : [rehypePathLinks]}
+          rehypePlugins={
+            isUser ? [rehypeSentTokens] : plainPaths ? [[rehypePathLinks, { plain: true }]] : [rehypePathLinks]
+          }
           components={isUser ? { code: Code, pre: Pre } : { code: Code, pre: Pre, a: MarkdownLink }}
         >
           {bodyText}
@@ -541,5 +559,6 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
         </span>
       )}
     </div>
+    </FileMessageContext.Provider>
   )
 }

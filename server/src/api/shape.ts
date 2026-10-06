@@ -1,7 +1,7 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { effectiveTagIds } from '../tags/rules.js';
 import { compactionFailures, pendingRewinds, sessionHarnesses } from '../db/schema.js';
-import { gateOf } from '../harness/logic.js';
+import { activeIndex, gateOf } from '../harness/logic.js';
 import type { HarnessGate } from '../harness/types.js';
 import type { OrbitalDb } from '../db/database.js';
 import type { CompactingState, LastCompacted, PendingDecision, Runner } from '../runner/runner.js';
@@ -204,6 +204,14 @@ export interface ApiSession {
    */
   harnessGate: HarnessGate | null;
   /**
+   * Where the session's live harness stands: `index` is the first step not
+   * done (0-based, as the step routes count), `total` the step count; once
+   * every step is done `index === total`. Null without a harness, or after
+   * it was removed. Lets a list say "step n of m" without reading every
+   * harness (spec 2026-10-05-mobile-next-design § 1 Server).
+   */
+  harnessStep: { index: number; total: number } | null;
+  /**
    * The usage-limit window this session waits for, or null (spec
    * 2026-10-03-usage-limits-design § 1). While it waits the session reads
    * `idle`; like `awaitingSubagents` this is a label on a status, not a
@@ -221,6 +229,18 @@ export function harnessGateOf(db: OrbitalDb, sessionId: string): HarnessGate | n
     .where(eq(sessionHarnesses.sessionId, sessionId))
     .get();
   return row ? gateOf(row) : null;
+}
+
+/** Where the session's live harness stands, as `ApiSession.harnessStep` carries it. */
+export function harnessStepOf(db: OrbitalDb, sessionId: string): { index: number; total: number } | null {
+  const row = db
+    .select({ state: sessionHarnesses.state, removedAt: sessionHarnesses.removedAt })
+    .from(sessionHarnesses)
+    .where(eq(sessionHarnesses.sessionId, sessionId))
+    .get();
+  if (!row || row.removedAt !== null) return null;
+  const i = activeIndex(row.state);
+  return { index: i === -1 ? row.state.length : i, total: row.state.length };
 }
 
 /** The session's pending rewind as the snapshot carries it, or null. */
@@ -305,6 +325,7 @@ export function toApiSession(ctx: ShapeContext, row: SessionRow, status?: Sessio
     rewindPending: rewindPendingOf(ctx.db, row.id),
     purpose: row.purpose ?? null,
     harnessGate: harnessGateOf(ctx.db, row.id),
+    harnessStep: harnessStepOf(ctx.db, row.id),
     limitWait: ctx.limits?.waitFor(row.id) ?? null,
   };
 }

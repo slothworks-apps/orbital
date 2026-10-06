@@ -13,7 +13,7 @@ import { concat, deviceId, fromBase64Url, publicKeyOf, type Identity } from './k
 import { ZERO_WAKE, decodeFrame, encodeFrame } from './frame.js';
 import { HANDSHAKE_BYTES, startHandshake, type Handshake, type SessionCipher } from './handshake.js';
 import {
-  MacMessage, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type ImageRefEntry, type Inner,
+  MacMessage, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type FileAs, type ImageRefEntry, type Inner,
   type NotificationSettings, type PhoneMessage,
 } from './messages.js';
 import {
@@ -35,7 +35,7 @@ export const CONNECT_TIMEOUT_MS = 15_000;
 export const TUNNEL_SILENCE_TIMEOUT_MS = RELAY_PING_INTERVAL_MS * 3;
 /** How long one handshake waits for the Mac's half before a fresh one goes out. */
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
-/** How long a `request`, a `getBlob` (per chunk) or a notifications call waits for its answer. */
+/** How long a `request`, a `getBlob` or `getFile` (per chunk, unless told otherwise) or a notifications call waits for its answer. */
 export const REQUEST_TIMEOUT_MS = 20_000;
 /** The relay's `RedeemPayload` caps (relay/src/pairing.ts). */
 export const PAIR_NAME_MAX_CHARS = 80;
@@ -75,6 +75,19 @@ export type RemoteClientEvent =
 
 export type TunnelResponse = { status: number; body: unknown };
 export type BlobResult = { status: number; bytes: Uint8Array; mediaType: string | null };
+/**
+ * A `getFile` answer. `status` is the Mac's: 200, or 403 outside what the
+ * session may show, 404 no such session or file, 413 too large (with
+ * `size`), 415 not an image or not text (with `mediaType` when the Mac
+ * knows it). `w`/`h` only for an image whose header gives them.
+ */
+export type FileResult = BlobResult & { size: number | null; w: number | null; h: number | null };
+export type GetFileOptions = {
+  /** Called once per chunk that arrives, in order: bytes so far, and the total when the Mac sent it. */
+  onProgress?: (received: number, total: number | null) => void;
+  /** How long to wait for the answer and then for each next chunk; `REQUEST_TIMEOUT_MS` by default. */
+  idleTimeoutMs?: number;
+};
 /** The Mac's two refusals the composer shows are values; every other failure is a `TunnelError`. */
 export type PutBlobResult =
   | { kind: 'ok'; entry: ImageRefEntry }
@@ -130,7 +143,19 @@ export type RemoteClientOptions = {
 
 type Timer = ReturnType<typeof setTimeout>;
 type Waiter<T> = { resolve: (value: T) => void; reject: (err: Error) => void; timer: Timer };
-type BlobWaiter = Waiter<BlobResult> & { mediaType: string | null; parts: Uint8Array[]; nextSeq: number };
+/** One `getBlob` or `getFile` on its way in; `getBlob` leaves the file-only fields at their defaults. */
+type BlobWaiter = Waiter<FileResult> & {
+  mediaType: string | null;
+  parts: Uint8Array[];
+  nextSeq: number;
+  received: number;
+  total: number | null;
+  size: number | null;
+  w: number | null;
+  h: number | null;
+  idleMs: number;
+  onProgress?: (received: number, total: number | null) => void;
+};
 
 export class RemoteClient {
   status: LinkStatus = 'off';
@@ -235,12 +260,32 @@ export class RemoteClient {
   }
 
   getBlob(ref: string): Promise<BlobResult> {
+    return this.receiveBlob((id) => ({ t: 'blob_get', id, ref }), {})
+      .then(({ status, bytes, mediaType }) => ({ status, bytes, mediaType }));
+  }
+
+  /**
+   * A file a session may show, by path (spec 2026-10-05-mobile-next-design
+   * § 2): the Mac decides what that is and answers a refusal as a status,
+   * never as a rejection. The idle timeout re-arms with every chunk, so a
+   * large file on a slow link is fine while it keeps moving.
+   */
+  getFile(session: string, path: string, as: FileAs, opts: GetFileOptions = {}): Promise<FileResult> {
+    return this.receiveBlob((id) => ({ t: 'file_get', id, session, path, as }), opts);
+  }
+
+  /** What `getBlob` and `getFile` share: ask, then `blob_meta` and the chunks (`onMac`, `onChunk`). */
+  private receiveBlob(ask: (id: number) => PhoneMessage, opts: GetFileOptions): Promise<FileResult> {
     if (!this.ready) return Promise.reject(new TunnelError('offline'));
     const id = this.nextId++;
-    return new Promise<BlobResult>((resolve, reject) => {
-      const timer = setTimeout(() => this.fail(this.blobs, id, new TunnelError('timeout')), this.requestTimeoutMs);
-      this.blobs.set(id, { resolve, reject, timer, mediaType: null, parts: [], nextSeq: 0 });
-      if (!this.sendJson({ t: 'blob_get', id, ref })) this.fail(this.blobs, id, new TunnelError('lost'));
+    const idleMs = opts.idleTimeoutMs ?? this.requestTimeoutMs;
+    return new Promise<FileResult>((resolve, reject) => {
+      const timer = setTimeout(() => this.fail(this.blobs, id, new TunnelError('timeout')), idleMs);
+      this.blobs.set(id, {
+        resolve, reject, timer, mediaType: null, parts: [], nextSeq: 0, received: 0, total: null,
+        size: null, w: null, h: null, idleMs, onProgress: opts.onProgress,
+      });
+      if (!this.sendJson(ask(id))) this.fail(this.blobs, id, new TunnelError('lost'));
     });
   }
 
@@ -572,14 +617,21 @@ export class RemoteClient {
       case 'blob_meta': {
         const waiter = this.blobs.get(msg.id);
         if (!waiter) return;
+        waiter.size = msg.size ?? null;
+        waiter.w = msg.w ?? null;
+        waiter.h = msg.h ?? null;
         if (msg.status === 200) {
           waiter.mediaType = msg.mediaType ?? null;
+          waiter.total = msg.bytes ?? null;
           this.rearmBlob(msg.id, waiter);
           return;
         }
         this.blobs.delete(msg.id);
         clearTimeout(waiter.timer);
-        waiter.resolve({ status: msg.status, bytes: new Uint8Array(0), mediaType: null });
+        waiter.resolve({
+          status: msg.status, bytes: new Uint8Array(0), mediaType: msg.mediaType ?? null,
+          size: waiter.size, w: waiter.w, h: waiter.h,
+        });
         return;
       }
       case 'notifications': {
@@ -622,19 +674,30 @@ export class RemoteClient {
     }
     waiter.nextSeq++;
     waiter.parts.push(chunk.bytes);
+    waiter.received += chunk.bytes.length;
+    try {
+      waiter.onProgress?.(waiter.received, waiter.total);
+    } catch {
+      /* a throwing progress listener is its own problem; the transfer goes on */
+    }
+    // The listener may have stopped the client, which failed this waiter.
+    if (this.blobs.get(chunk.id) !== waiter) return;
     if (!chunk.last) {
       this.rearmBlob(chunk.id, waiter);
       return;
     }
     this.blobs.delete(chunk.id);
     clearTimeout(waiter.timer);
-    waiter.resolve({ status: 200, bytes: concat(...waiter.parts), mediaType: waiter.mediaType });
+    waiter.resolve({
+      status: 200, bytes: concat(...waiter.parts), mediaType: waiter.mediaType,
+      size: waiter.size, w: waiter.w, h: waiter.h,
+    });
   }
 
   /** A large image is many chunks: its timeout counts from the last one, not from the ask. */
   private rearmBlob(id: number, waiter: BlobWaiter): void {
     clearTimeout(waiter.timer);
-    waiter.timer = setTimeout(() => this.fail(this.blobs, id, new TunnelError('timeout')), this.requestTimeoutMs);
+    waiter.timer = setTimeout(() => this.fail(this.blobs, id, new TunnelError('timeout')), waiter.idleMs);
   }
 
   private askNotifications(msg: PhoneMessage): Promise<NotificationSettings> {

@@ -1,12 +1,13 @@
 ---
 id: phone-opens-files-the-session-named
 title: The phone should open files the session named
-status: backlog
+status: done
 type: idea
 domain: mobile
 related:
   - 2026-10-03-api-token-and-named-files-design
   - 2026-09-30-mobile-remote-design
+  - 2026-10-05-mobile-next-design
 tags:
   - security
   - file-viewer
@@ -37,3 +38,11 @@ phone could read, so the phone no longer has to be shut out entirely.
   the image store.
 - **Client.** The phone's file viewer and lightbox. The text preview fits
   the `http` frame as it is.
+
+## Built
+
+Built in [[2026-10-05-mobile-next-design]] § 2, differently from the
+sketch above: the routes stay off the allowlist, and the phone reads a file
+over a sealed `file_get` message the Mac answers in blob frames, confined by
+`resolveForSession` exactly as the desktop viewer is. Text previews ride the
+same message, since a 512 KB text does not fit one `http` frame.

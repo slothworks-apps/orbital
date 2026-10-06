@@ -1,16 +1,16 @@
 import {
-  TunnelError, type BlobResult, type HttpMethod, type PutBlobResult, type RemoteClient, type RemoteClientEvent, type TunnelResponse,
+  TunnelError, type BlobResult, type FileResult, type GetFileOptions, type HttpMethod, type PutBlobResult, type RemoteClient, type RemoteClientEvent, type TunnelResponse,
 } from '@orbital/shared/remote/client'
-import type { NotificationSettings } from '@orbital/shared/remote/messages'
+import type { FileAs, NotificationSettings } from '@orbital/shared/remote/messages'
 
 /** What the app calls on a client once it exists; `start`, `redeem` and `waitForPairing` stay with whoever made it. */
 export type SwappableClient = Pick<
   RemoteClient,
-  'ready' | 'on' | 'stop' | 'request' | 'getBlob' | 'putBlob' | 'subscribe' | 'unsubscribe' | 'getNotifications' | 'setNotifications' | 'seen' | 'recheck' | 'pushToken'
+  'ready' | 'on' | 'stop' | 'request' | 'getBlob' | 'getFile' | 'putBlob' | 'subscribe' | 'unsubscribe' | 'getNotifications' | 'setNotifications' | 'seen' | 'recheck' | 'pushToken'
 >
 
 /** The part the four seams use. */
-export type TunnelClient = Pick<SwappableClient, 'ready' | 'on' | 'request' | 'getBlob' | 'putBlob' | 'subscribe' | 'unsubscribe'>
+export type TunnelClient = Pick<SwappableClient, 'ready' | 'on' | 'request' | 'getBlob' | 'getFile' | 'putBlob' | 'subscribe' | 'unsubscribe'>
 
 /**
  * The one client the app talks to, swappable: pairing a different Mac
@@ -69,6 +69,10 @@ export class ClientRef implements SwappableClient {
 
   getBlob(ref: string): Promise<BlobResult> {
     return this.current ? this.current.getBlob(ref) : Promise.reject(new TunnelError('offline'))
+  }
+
+  getFile(session: string, path: string, as: FileAs, opts?: GetFileOptions): Promise<FileResult> {
+    return this.current ? this.current.getFile(session, path, as, opts) : Promise.reject(new TunnelError('offline'))
   }
 
   putBlob(bytes: Uint8Array, mediaType: string): Promise<PutBlobResult> {

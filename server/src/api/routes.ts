@@ -40,7 +40,7 @@ import { LINES_SETTING, PR_SETTING, type BranchStatusStore } from '../git/branch
 import type { IdeStore } from '../ide/store.js';
 import type { SubagentStore, SubagentTranscripts } from '../transcript/subagents.js';
 import type { BackgroundTaskStore } from '../transcript/backgroundTasks.js';
-import { readOutputTail } from '../files/taskOutput.js';
+import { OUTPUT_TAIL_BYTES, readOutputTail } from '../files/taskOutput.js';
 import { SESSION_TIPS } from '../runner/sessionInstructions.js';
 import type { ChatMessage, ErrorKind, PermissionMode, SessionPurpose, SessionRow, TagRule } from '../types.js';
 import { isPermissionMode } from '../types.js';
@@ -64,7 +64,7 @@ import { narrationFields } from '../walkthrough/narration.js';
 import type { Narrator } from '../walkthrough/narrator.js';
 import type { Spine, Walkthrough } from '../walkthrough/types.js';
 import type { LimitsService } from '../limits/service.js';
-import { AUTO_CONTINUE_KEY } from '../limits/logic.js';
+import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY } from '../limits/logic.js';
 
 export interface RouteContext {
   db: OrbitalDb;
@@ -341,6 +341,18 @@ export const PROJECTS_LIMIT = 500;
 export const PROJECTS_SCAN_ROWS = 5000;
 
 /**
+ * A query parameter that bounds a read (`?limit=`, `?maxBytes=`): a positive
+ * whole number, or null when it is absent or anything else — a bound the
+ * caller got wrong is ignored rather than refused, so the read stays what it
+ * is without one.
+ */
+function positiveIntParam(raw: unknown): number | null {
+  if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+/**
  * Whether a body's `attachments` is anything other than a list of refs the
  * image store could have written. Absent is fine — most turns have none.
  *
@@ -366,6 +378,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * (spec 2026-09-23-ide-bridge-design § Open files, for `@` completion).
    */
   const openTabs = new OpenTabsReader(ctx.ide);
+  /** Publishes one session's snapshot on `sessions`; nothing for an unknown id. */
+  const publishSession = (id: string): void => {
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
+    if (row) ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+  };
   /** Parsed transcripts by path, so paging back does not re-parse per page. */
   const transcriptMessages = new StampedCache<BranchRead>(TRANSCRIPT_CACHE_SESSIONS);
   /** Pending and sent rewinds (spec 2026-09-29-rewind-design § Pending rewind). */
@@ -571,6 +588,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    *    transcript was lost.
    * 3. The agent is known and has a buffer → 200 with its messages and
    *    `droppedCount`.
+   *
+   * `?limit=n` returns only the newest n, the rest counted in `droppedCount`
+   * like the ones the buffer already let go: the phone asks for less so the
+   * answer fits one relay frame (spec 2026-10-05-mobile-next-design § 3
+   * Server).
    */
   app.get('/api/sessions/:id/subagents/:toolUseId/messages', (req, reply) => {
     const { id, toolUseId } = req.params as { id: string; toolUseId: string };
@@ -580,7 +602,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!known) return reply.code(404).send({ error: 'not found' });
     const transcript = ctx.subagentTranscripts.get(id, toolUseId);
     if (!transcript) return { messages: [], droppedCount: 0 };
-    return { messages: transcript.messages, droppedCount: transcript.droppedCount };
+    const limit = positiveIntParam((req.query as { limit?: unknown }).limit);
+    const left = limit === null ? 0 : Math.max(0, transcript.messages.length - limit);
+    return { messages: transcript.messages.slice(left), droppedCount: transcript.droppedCount + left };
   });
 
   /**
@@ -621,12 +645,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    *
    * 404 for an unknown task or one with no output file; 410 once the file is
    * gone (`/tmp` does not survive a reboot, and a finished task outlives it).
+   *
+   * `?maxBytes=n` reads a shorter tail, never a longer one than
+   * `OUTPUT_TAIL_BYTES`: the phone's answer has to fit one relay frame (spec
+   * 2026-10-05-mobile-next-design § 3 Server).
    */
   app.get('/api/sessions/:id/tasks/:taskId/output', (req, reply) => {
     const { id, taskId } = req.params as { id: string; taskId: string };
     const path = ctx.backgroundTasks.outputPath(id, taskId);
     if (!path) return reply.code(404).send({ error: 'not found' });
-    const tail = readOutputTail(path);
+    const maxBytes = positiveIntParam((req.query as { maxBytes?: unknown }).maxBytes);
+    const tail = readOutputTail(path, Math.min(maxBytes ?? OUTPUT_TAIL_BYTES, OUTPUT_TAIL_BYTES));
     if (!tail) return reply.code(410).send({ error: 'output_gone' });
     return tail;
   });
@@ -1757,14 +1786,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!row) return reply.code(404).send({ error: 'not found' });
     await endSession(id);
     if (!startNew) return { ok: true };
-    const inheritMode = ctx.settings.get('inherit_permission_mode') === 'true';
-    const permissionMode = (inheritMode && row.permission_mode
-      ? row.permission_mode
-      : ctx.settings.get('default_permission_mode')) as any;
-    // 4c: the default model is "used by Clear". Deliberately unlike
-    // permission mode, there is no inherit toggle — the canvas does not ask
-    // for one.
-    const model = ctx.settings.get('default_model') || undefined;
+    // Clear keeps what it cleared: the new session runs in the same folder,
+    // on the same model and permission mode, wearing the same tags — always,
+    // for the desktop and the phone alike (spec 2026-10-05-mobile-next-design
+    // § 4 Server, Decision 7). A session that ran on the default model stays
+    // on it; one with no mode recorded gets the default mode, as a new
+    // session would.
+    const permissionMode = (row.permission_mode ?? ctx.settings.get('default_permission_mode')) as any;
+    const model = row.model ?? undefined;
     const newId = await ctx.runner.start({
       cwd: row.cwd, prompt: '',
       permissionMode, model,
@@ -1776,21 +1805,22 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       })
       .onConflictDoNothing()
       .run();
-    if (ctx.settings.get('inherit_tags') === 'true') {
-      db.insert(sessionTags)
-        .select(
-          db
-            .select({
-              sessionId: sql<string>`${newId}`.as('sessionId'),
-              tagId: sessionTags.tagId,
-              origin: sql<string>`'manual'`.as('origin'),
-            })
-            .from(sessionTags)
-            .where(and(eq(sessionTags.sessionId, id), eq(sessionTags.origin, 'manual'))),
-        )
-        .onConflictDoNothing()
-        .run();
-    }
+    // The manual picks and the rule tags taken off by hand; the rule tags
+    // themselves follow from the folder once the rules are applied below.
+    db.insert(sessionTags)
+      .select(
+        db
+          .select({
+            sessionId: sql<string>`${newId}`.as('sessionId'),
+            tagId: sessionTags.tagId,
+            origin: sessionTags.origin,
+          })
+          .from(sessionTags)
+          .where(and(eq(sessionTags.sessionId, id), inArray(sessionTags.origin, ['manual', 'manual_removed']))),
+      )
+      .onConflictDoNothing()
+      .run();
+    regenerateRuleTags(db);
     const newRow = db.select(sessionColumns).from(sessions).where(eq(sessions.id, newId)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, newRow) });
     if (carryHarness !== true) return { ok: true, sessionId: newId };
@@ -1810,6 +1840,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .where(eq(sessions.id, id))
       .run();
     if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
+    // Every other window and the phone see the new name now, not at a reload.
+    publishSession(id);
     return { ok: true };
   });
 
@@ -1888,6 +1920,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // would keep showing the tag until an unrelated rule mutation happened to
     // run regenerateRuleTags. See spec finding C1.
     regenerateRuleTags(db);
+    // Every other window and the phone see the new tags now, not at a reload.
+    publishSession(id);
     return { ok: true };
   });
 
@@ -2109,7 +2143,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // confirmation a promise about some later restart.
       if (k === RETENTION_KEY) ctx.retention.sweep();
       if (k === PR_SETTING || k === LINES_SETTING) branchSettings = true;
-      if (k === AUTO_CONTINUE_KEY) limitsSetting = true;
+      if (k === AUTO_CONTINUE_KEY || k === CONTINUE_TEXT_KEY) limitsSetting = true;
     }
     if (limitsSetting) ctx.limits?.settingsChanged();
     // Without a reload: a switch turned off drops the field from the open

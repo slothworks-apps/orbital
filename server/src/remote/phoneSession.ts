@@ -21,6 +21,7 @@ import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
 import { allowedPath } from './allowlist.js';
+import type { PhoneFileReader } from './phoneFiles.js';
 
 export const BLOB_PUT_MAX_BYTES = ATTACHMENT_MAX_BYTES;
 /** Uploads a phone may hold open at once; each buffers in memory until its last chunk. */
@@ -60,6 +61,8 @@ export type PhoneSessionOptions = {
   inject: InjectFn;
   images: ImageStore;
   imagesDir: string;
+  /** Reads what a `file_get` asks for, confined to what that session may show (`createPhoneFileReader`). */
+  files: PhoneFileReader;
   serverVersion: string;
   macName: string;
   notifications: { get(): NotificationSettings; set(s: NotificationSettings): void };
@@ -153,7 +156,7 @@ export class PhoneSession {
     } catch (err) {
       this.fail(msg.t, err);
       if (msg.t === 'http') this.sendJson({ t: 'http_res', id: msg.id, status: 500, body: { error: 'internal' } });
-      else if (msg.t === 'blob_get') this.sendJson({ t: 'blob_meta', id: msg.id, status: 500 });
+      else if (msg.t === 'blob_get' || msg.t === 'file_get') this.sendJson({ t: 'blob_meta', id: msg.id, status: 500 });
       else if (msg.t === 'blob_put') this.sendJson({ t: 'blob_put_done', id: msg.id, error: 'internal' });
     }
   }
@@ -217,6 +220,9 @@ export class PhoneSession {
       case 'blob_get':
         this.onBlobGet(msg.id, msg.ref);
         return;
+      case 'file_get':
+        this.onFileGet(msg);
+        return;
       case 'blob_put':
         if (msg.bytes > BLOB_PUT_MAX_BYTES) return this.sendJson({ t: 'blob_put_done', id: msg.id, error: 'too_large' });
         if (this.uploads.size >= MAX_OPEN_UPLOADS) return this.sendJson({ t: 'blob_put_done', id: msg.id, error: 'busy' });
@@ -267,6 +273,25 @@ export class PhoneSession {
     const ext = ref.slice(ref.lastIndexOf('.') + 1);
     this.sendJson({ t: 'blob_meta', id, status: 200, bytes: bytes.length, mediaType: IMAGE_CONTENT_TYPES[ext] });
     for (const chunk of chunkBlob(id, new Uint8Array(bytes))) this.sendInner(encodeInner(chunk));
+  }
+
+  /**
+   * A file by path (spec 2026-10-05-mobile-next-design § 2). `files` owns
+   * the whole confinement; this only frames its answer the way `onBlobGet`
+   * frames a stored image, so the phone reassembles both alike.
+   */
+  private onFileGet(msg: Extract<PhoneMessage, { t: 'file_get' }>): void {
+    const answer = this.opts.files(msg.session, msg.path, msg.as);
+    const meta = {
+      ...(answer.mediaType !== undefined ? { mediaType: answer.mediaType } : {}),
+      ...(answer.size !== undefined ? { size: answer.size } : {}),
+      ...(answer.w !== undefined && answer.h !== undefined ? { w: answer.w, h: answer.h } : {}),
+    };
+    if (answer.status !== 200 || !answer.bytes) {
+      return this.sendJson({ t: 'blob_meta', id: msg.id, status: answer.status === 200 ? 404 : answer.status, ...meta });
+    }
+    this.sendJson({ t: 'blob_meta', id: msg.id, status: 200, bytes: answer.bytes.length, ...meta });
+    for (const chunk of chunkBlob(msg.id, answer.bytes)) this.sendInner(encodeInner(chunk));
   }
 
   private onChunk(chunk: { id: number; seq: number; last: boolean; bytes: Uint8Array }): void {

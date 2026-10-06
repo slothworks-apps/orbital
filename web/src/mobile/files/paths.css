@@ -1,0 +1,38 @@
+/*
+ * Paths in the phone's transcript (canvas 10d, first phone; spec
+ * 2026-10-05-mobile-next § 2). The desktop's `PathButton` and `PlainPath`
+ * reach the phone's look through `data-platform="mobile"`, as 9b's touch
+ * metrics do (`mobile.css`), never through props threaded into `panels/`.
+ */
+
+/* 10d: a path the phone can show is cyan mono with a dotted underline; the
+   12px vertical pad and its negative margin make the hit area 44px without
+   moving the line. */
+:root[data-platform='mobile'] [data-path-button] {
+  margin: -12px 0;
+  padding: 12px 0;
+  background: none;
+  color: oklch(85% 0.12 205);
+  text-decoration: underline dotted;
+  text-decoration-color: currentColor;
+  text-underline-offset: 3px;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+/* 10d: in prose the path is mono 12.5px inside 14px text. */
+:root[data-platform='mobile'] [data-path-button][data-variant='prose'] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+/* Spec § 8 Decision 8: a path the phone cannot show is no link — plain mono
+   text that only a long-press copies. It keeps the prose size of 10d's
+   links so the two kinds read as the same kind of thing. */
+:root[data-platform='mobile'] [data-path-plain] {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+:root[data-platform='mobile'] .message-markdown [data-path-plain]:not(code *) {
+  font-size: 12.5px;
+}

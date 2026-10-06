@@ -394,6 +394,78 @@ describe('RemoteClient blobs, hub and wake', () => {
   });
 });
 
+describe('RemoteClient getFile', () => {
+  const PATH = '/tmp/shot.png';
+
+  /** A connected client with one `getFile` asked; the Mac's view of the ask. */
+  function asked(opts: Parameters<RemoteClient['getFile']>[3] = {}) {
+    const s = setup();
+    connect(s);
+    const file = s.client.getFile('s1', PATH, 'image', opts);
+    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'file_get' }>;
+    return { s, file, get };
+  }
+
+  it('asks by session, path and kind, and reports progress per chunk in order', async () => {
+    const progress: [number, number | null][] = [];
+    const { s, file, get } = asked({ onProgress: (received, total) => progress.push([received, total]) });
+    expect(get).toEqual({ t: 'file_get', id: get.id, session: 's1', path: PATH, as: 'image' });
+    const bytes = new Uint8Array(150_000).map((_, i) => i % 251);
+    const chunks = chunkBlob(get.id, bytes);
+    s.mac.send(s.sock, {
+      t: 'blob_meta', id: get.id, status: 200, bytes: bytes.length, mediaType: 'image/png', size: bytes.length, w: 640, h: 480,
+    });
+    for (const chunk of chunks) s.mac.sendInner(s.sock, chunk);
+    const result = await file;
+    expect(result).toMatchObject({ status: 200, mediaType: 'image/png', size: 150_000, w: 640, h: 480 });
+    expect(Array.from(result.bytes)).toEqual(Array.from(bytes));
+    expect(progress).toEqual([[65_536, 150_000], [131_072, 150_000], [150_000, 150_000]]);
+  });
+
+  it('answers a refusal as its status, with the size and media type the Mac sent', async () => {
+    const { s, file, get } = asked();
+    s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 413, size: 9_000_000 });
+    await expect(file).resolves.toEqual({ status: 413, bytes: new Uint8Array(0), mediaType: null, size: 9_000_000, w: null, h: null });
+    const second = s.client.getFile('s1', '/tmp/a.bin', 'text');
+    const get2 = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'file_get' }>;
+    s.mac.send(s.sock, { t: 'blob_meta', id: get2.id, status: 415, size: 3, mediaType: 'binary' });
+    await expect(second).resolves.toMatchObject({ status: 415, mediaType: 'binary', size: 3 });
+  });
+
+  it('times out when no chunk arrives for the idle timeout, which every chunk re-arms', async () => {
+    vi.useFakeTimers();
+    const { s, file, get } = asked({ idleTimeoutMs: 1_000 });
+    const caught = file.catch((e: unknown) => e);
+    const chunks = chunkBlob(get.id, new Uint8Array(150_000));
+    vi.advanceTimersByTime(900);
+    s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 200, bytes: 150_000 });
+    vi.advanceTimersByTime(900);
+    s.mac.sendInner(s.sock, chunks[0]);
+    vi.advanceTimersByTime(900);
+    s.mac.sendInner(s.sock, chunks[1]);
+    vi.advanceTimersByTime(1_000);
+    const err = await caught;
+    expect(err).toBeInstanceOf(TunnelError);
+    expect(err).toMatchObject({ reason: 'timeout' });
+    // The link itself is fine; only the transfer gave up.
+    expect(s.client.ready).toBe(true);
+  });
+
+  it('fails as lost when the tunnel drops mid-file', async () => {
+    const { s, file, get } = asked();
+    const caught = file.catch((e: unknown) => e);
+    s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 200, bytes: 150_000 });
+    s.mac.sendInner(s.sock, chunkBlob(get.id, new Uint8Array(150_000))[0]);
+    s.sock.serverClose();
+    expect(await caught).toMatchObject({ reason: 'lost' });
+  });
+
+  it('rejects at once while offline', async () => {
+    const s = setup();
+    await expect(s.client.getFile('s1', PATH, 'text')).rejects.toMatchObject({ reason: 'offline' });
+  });
+});
+
 describe('RemoteClient putBlob', () => {
   const entry = { ref: `${'b'.repeat(64)}.jpg`, w: 1568, h: 1176, bytes: 150_000 };
 

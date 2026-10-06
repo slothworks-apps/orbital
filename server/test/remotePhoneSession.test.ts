@@ -1,13 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { startHandshake, type SessionCipher } from '@orbital/shared/remote/handshake';
-import { BLOB_CHUNK_BYTES, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type MacMessage } from '@orbital/shared/remote/messages';
+import {
+  BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type MacMessage,
+} from '@orbital/shared/remote/messages';
 import { Hub } from '../src/api/hub.js';
+import { sessions } from '../src/db/schema.js';
 import { createImageStore } from '../src/images/store.js';
 import { DeviceWatcher } from '../src/remote/deviceWatcher.js';
+import { PHONE_TEXT_PREVIEW_MAX_BYTES, createPhoneFileReader, type PhoneFileReader } from '../src/remote/phoneFiles.js';
 import { MAX_INNER_BYTES, PhoneSession } from '../src/remote/phoneSession.js';
 import { wakeToken } from '../src/remote/wake.js';
-import { makeTmpDir } from './tmp.js';
+import { makeTmpDir, openTmpDb } from './tmp.js';
 
 const allOn = { needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true };
 
@@ -38,7 +44,7 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Phon
   return { me, hs, out, blobs, onMacBody, send, sendBlob, rehandshake, hasCipher: () => cipher !== null };
 }
 
-function build(opts: { inject?: PhoneSession['opts']['inject']; handshake?: boolean } = {}) {
+function build(opts: { inject?: PhoneSession['opts']['inject']; handshake?: boolean; files?: PhoneFileReader } = {}) {
   const mac = generateIdentity();
   const hub = new Hub({ heartbeatIntervalMs: 60_000 });
   const dir = makeTmpDir('remote');
@@ -51,7 +57,7 @@ function build(opts: { inject?: PhoneSession['opts']['inject']; handshake?: bool
   const session: PhoneSession = new PhoneSession({
     deviceId: deviceId(phone.me.publicKey), identity: mac, phonePublicKey: phone.me.publicKey, hub,
     inject: opts.inject ?? (async () => ({ statusCode: 500, body: '{}' })),
-    images, imagesDir: dir, serverVersion: '0.15.0', macName: 'studio',
+    images, imagesDir: dir, files: opts.files ?? (() => ({ status: 404 })), serverVersion: '0.15.0', macName: 'studio',
     notifications, send: phone.onMacBody, onSeen, onClose,
   });
   // The initiator's half exists from the start; only the responder's waits for `complete`.
@@ -235,6 +241,131 @@ describe('PhoneSession', () => {
     expect(phone.out).toContainEqual({ t: 'blob_put_done', id: 6, error: 'internal' });
     expect(() => phone.send({ t: 'seen', sessionId: 's1' })).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+});
+
+/** A PNG whose IHDR says `w`×`h`, padded to `bytes` so it can span chunks. */
+function pngOf(w: number, h: number, bytes = 64): Buffer {
+  const b = Buffer.alloc(Math.max(bytes, 24), 1);
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(b, 0);
+  b.writeUInt32BE(13, 8);
+  b.write('IHDR', 12, 'ascii');
+  b.writeUInt32BE(w, 16);
+  b.writeUInt32BE(h, 20);
+  return b;
+}
+
+/**
+ * A real session row, a real transcript and the real reader the service
+ * builds: the confinement under test is the one a phone meets. The cwd and
+ * the outside dir are in the OS temp dir, which on macOS is a symlink
+ * (`/var` → `/private/var`), so a named path is read through its realpath.
+ */
+function fileWorld() {
+  const db = openTmpDb('phone-files');
+  const projectsDir = makeTmpDir('phone-projects');
+  const cwd = makeTmpDir('phone-cwd');
+  const outside = makeTmpDir('phone-outside');
+  const named = join(outside, 'shot.png');
+  writeFileSync(named, pngOf(3, 2));
+  writeFileSync(join(outside, 'secret.png'), pngOf(1, 1));
+  writeFileSync(join(outside, 'secret.txt'), 'never named');
+  mkdirSync(join(projectsDir, 'p'));
+  writeFileSync(
+    join(projectsDir, 'p', 'sf.jsonl'),
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: `Saved ${named}` }] } }) + '\n',
+  );
+  db.insert(sessions).values({ id: 'sf', projectDir: 'p', cwd, title: 'files', lastAt: 1, source: 'web' }).run();
+  const { phone } = build({ files: createPhoneFileReader(db, projectsDir) });
+  phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
+  let nextId = 1;
+  /** One `file_get`; its `blob_meta`, and its bytes reassembled. */
+  const get = (path: string, as: 'image' | 'text', session = 'sf') => {
+    const id = nextId++;
+    phone.send({ t: 'file_get', id, session, path, as });
+    const meta = phone.out.find((m) => m.t === 'blob_meta' && m.id === id);
+    const chunks = phone.blobs.filter((b) => b.id === id);
+    return { meta, chunks, bytes: Buffer.concat(chunks.map((c) => c.bytes)) };
+  };
+  return { cwd, outside, named, phone, get };
+}
+
+describe('PhoneSession file_get', () => {
+  it('reads a text file inside the cwd', () => {
+    const { cwd, get } = fileWorld();
+    writeFileSync(join(cwd, 'notes.md'), '# hi\n');
+    const res = get('notes.md', 'text');
+    expect(res.meta).toEqual({ t: 'blob_meta', id: 1, status: 200, bytes: 5, mediaType: 'text/plain; charset=utf-8', size: 5 });
+    expect(res.bytes.toString()).toBe('# hi\n');
+    expect(get(join(cwd, 'notes.md'), 'text').bytes.toString()).toBe('# hi\n');
+  });
+  it('refuses a path outside the cwd that the session never named', () => {
+    const { cwd, outside, get } = fileWorld();
+    expect(get(join(outside, 'secret.png'), 'image')).toMatchObject({ meta: { status: 403 }, chunks: [] });
+    expect(get(join(outside, 'secret.txt'), 'text')).toMatchObject({ meta: { status: 403 }, chunks: [] });
+    expect(get('/etc/passwd', 'text')).toMatchObject({ meta: { status: 403 }, chunks: [] });
+    // Spelled to climb out, and through a symlink inside the cwd: the realpath decides.
+    const climb = join('..', outside.split('/').pop()!, 'secret.txt');
+    expect(get(climb, 'text').meta).toMatchObject({ status: 403 });
+    symlinkSync(join(outside, 'secret.txt'), join(cwd, 'link.txt'));
+    expect(get('link.txt', 'text')).toMatchObject({ meta: { status: 403 }, chunks: [] });
+    // Naming one file outside opens that file, not its neighbours.
+    expect(get(join(outside, 'shot.png.bak'), 'image').meta).toMatchObject({ status: 404 });
+  });
+  it('reads an absolute path the transcript named, through its realpath, with its pixel size', () => {
+    const { named, get } = fileWorld();
+    const res = get(named, 'image');
+    expect(res.meta).toEqual({ t: 'blob_meta', id: 1, status: 200, bytes: 64, mediaType: 'image/png', size: 64, w: 3, h: 2 });
+    expect(res.bytes.equals(pngOf(3, 2))).toBe(true);
+  });
+  it('answers 404 for a missing file and for an unknown session', () => {
+    const { named, get } = fileWorld();
+    expect(get('nope.md', 'text')).toMatchObject({ meta: { status: 404 }, chunks: [] });
+    expect(get(named, 'image', 'no-such-session')).toMatchObject({ meta: { status: 404 }, chunks: [] });
+  });
+  it('answers 413 with the size for text over the phone cap, and 415 for binary as text', () => {
+    const { cwd, get } = fileWorld();
+    writeFileSync(join(cwd, 'big.log'), 'x'.repeat(PHONE_TEXT_PREVIEW_MAX_BYTES + 1));
+    expect(get('big.log', 'text')).toMatchObject({ meta: { status: 413, size: PHONE_TEXT_PREVIEW_MAX_BYTES + 1 }, chunks: [] });
+    writeFileSync(join(cwd, 'blob.dat'), Buffer.from([1, 0, 2]));
+    expect(get('blob.dat', 'text')).toMatchObject({ meta: { status: 415, mediaType: 'binary', size: 3 }, chunks: [] });
+  });
+  it('answers 415 for a file that is not an image when an image was asked', () => {
+    const { cwd, get } = fileWorld();
+    writeFileSync(join(cwd, 'notes.md'), '# hi');
+    expect(get('notes.md', 'image')).toMatchObject({ meta: { status: 415 }, chunks: [] });
+  });
+  it('sends a large image in chunks, in order', () => {
+    const { cwd, get } = fileWorld();
+    const png = pngOf(640, 480, BLOB_CHUNK_BYTES * 2 + 5);
+    writeFileSync(join(cwd, 'big.png'), png);
+    const res = get('big.png', 'image');
+    expect(res.meta).toMatchObject({ status: 200, bytes: png.length, size: png.length, w: 640, h: 480 });
+    expect(res.chunks.map((c) => [c.seq, c.last])).toEqual([[0, false], [1, false], [2, true]]);
+    expect(res.bytes.equals(png)).toBe(true);
+  });
+  it('drops a malformed file_get without an answer', () => {
+    const { phone, named } = fileWorld();
+    const before = phone.out.length;
+    for (const bad of [
+      { t: 'file_get', id: 1, session: 'sf', path: `${named}\n` },
+      { t: 'file_get', id: 2, session: 'sf', path: `${named}\u0000.txt`, as: 'text' },
+      { t: 'file_get', id: 3, session: 'sf', path: `/${'a'.repeat(FILE_PATH_MAX_CHARS)}`, as: 'text' },
+      { t: 'file_get', id: 4, session: 'sf', path: named },
+      { t: 'file_get', id: 5, session: 'sf', path: named, as: 'pdf' },
+      { t: 'file_get', id: 6, session: 'sf', path: '', as: 'text' },
+      { t: 'file_get', id: 7, session: 's\tf', path: named, as: 'image' },
+    ]) phone.send(bad);
+    expect(phone.out.length).toBe(before);
+    expect(phone.blobs).toEqual([]);
+  });
+  it('a reader that throws answers 500 instead of throwing out of receive', () => {
+    const { phone } = build({ files: () => { throw new Error('EACCES'); } });
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => phone.send({ t: 'file_get', id: 9, session: 'sf', path: 'a.md', as: 'text' })).not.toThrow();
+    expect(phone.out.at(-1)).toEqual({ t: 'blob_meta', id: 9, status: 500 });
     warn.mockRestore();
   });
 });

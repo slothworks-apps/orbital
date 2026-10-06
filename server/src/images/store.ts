@@ -100,7 +100,8 @@ function webpDims(b: Buffer): [number, number] | null {
   return null;
 }
 
-function sniffDims(bytes: Buffer): [number, number] | null {
+/** An image's pixel size from its header (PNG, GIF, JPEG, WebP), or null when it gives none. */
+export function sniffDims(bytes: Buffer): [number, number] | null {
   return pngDims(bytes) ?? gifDims(bytes) ?? jpegDims(bytes) ?? webpDims(bytes);
 }
 
