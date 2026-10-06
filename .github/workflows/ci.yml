@@ -14,22 +14,81 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    # Every job below runs only for the paths that can break it. A skipped
+    # job reports no check of its own, so the ruleset on main requires only
+    # `ci passed` at the end, which counts a skipped job as passed.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      workspaces: ${{ steps.workspaces.outputs.list }}
+      filters: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          # `root` reaches everything: the lockfile, the lint config and this
+          # workflow. server's tests start a relay, and web reads the desktop
+          # version from desktop/package.json.
+          filters: |
+            root: &root
+              - package.json
+              - package-lock.json
+              - eslint.config.js
+              - .github/workflows/ci.yml
+            shared: &shared
+              - *root
+              - 'shared/**'
+            server:
+              - *shared
+              - 'server/**'
+              - 'relay/**'
+            web: &web
+              - *shared
+              - 'web/**'
+              - desktop/package.json
+            desktop:
+              - *shared
+              - 'desktop/**'
+            relay: &relay
+              - *shared
+              - 'relay/**'
+            mobile:
+              - *web
+              - 'mobile/**'
+            desktop-app:
+              - *web
+              - 'server/**'
+              - 'desktop/**'
+            relay-image: *relay
+            docs:
+              - .github/workflows/ci.yml
+              - 'docs/**'
+            dependencies:
+              - '**/package.json'
+              - package-lock.json
+              - '.github/workflows/**'
+      - id: workspaces
+        env:
+          CHANGES: ${{ steps.filter.outputs.changes }}
+        run: |
+          echo "list=$(jq -c 'map(select(IN("shared","server","web","desktop","relay","mobile")))' <<<"$CHANGES")" >> "$GITHUB_OUTPUT"
+
   check:
     # One job per workspace, so a red check names the workspace that broke.
     # It also keeps each lint run to one TypeScript program: `eslint .` over
     # every workspace at once outgrew the runner's default heap.
     name: check (${{ matrix.workspace }})
+    needs: changes
+    if: needs.changes.outputs.workspaces != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { workspace: shared, test: test }
-          - { workspace: server, test: test }
-          - { workspace: web, test: test:run }
-          - { workspace: desktop, test: test }
-          - { workspace: relay, test: test }
-          - { workspace: mobile, test: none }
+        workspace: ${{ fromJSON(needs.changes.outputs.workspaces) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -39,12 +98,109 @@ jobs:
       - run: npm ci
       - run: npm run typecheck -w ${{ matrix.workspace }}
       - run: npx eslint ${{ matrix.workspace }}
-      - if: matrix.test != 'none'
-        run: npm run ${{ matrix.test }} -w ${{ matrix.workspace }}
+      # mobile/ has no tests of its own; web's `test` is vitest in watch mode,
+      # `test:run` the single run.
+      - if: matrix.workspace != 'mobile'
+        run: npm run ${{ matrix.workspace == 'web' && 'test:run' || 'test' }} -w ${{ matrix.workspace }}
+
+  desktop-app:
+    # Packages Orbital.app the way the release does, minus the Developer ID:
+    # ad-hoc signed, not notarized, no DMG. It catches what typecheck cannot,
+    # a resource electron-builder.yml names that the build no longer makes.
+    name: build (desktop)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.filters), 'desktop-app')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w server
+      - run: npm run build -w web
+      - run: npm run build -w desktop
+      - working-directory: desktop
+        run: npx electron-builder --mac --arm64 --dir -c.mac.identity=- -c.mac.notarize=false
+
+  relay-image:
+    # The image relay-image.yml pushes after the merge, built here and
+    # thrown away.
+    name: build (relay)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.filters), 'relay-image')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: relay/Dockerfile
+          push: false
+          cache-from: type=gha,scope=relay
 
   docs:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.filters), 'docs')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bunx @slothworks/atlas validate
+
+  secrets:
+    # The pre-commit hook scans only where gitleaks is installed, and
+    # `--no-verify` or a fork skips it. This scans every commit in the pull
+    # request with the same .gitleaks.toml. The binary rather than
+    # gitleaks-action, which needs a paid licence in an organisation.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: install gitleaks
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION"
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "$base/$tarball"
+          curl -fsSL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" | grep " $tarball\$" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: scan the pull request's commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: gitleaks git --log-opts="$BASE..$HEAD" --redact --no-banner
+
+  dependencies:
+    # Refuses a pull request that adds a dependency, or an action, with a
+    # known vulnerability.
+    needs: changes
+    if: github.event_name == 'pull_request' && contains(fromJSON(needs.changes.outputs.filters), 'dependencies')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5
+
+  passed:
+    # The one check the ruleset on main requires. A job skipped because its
+    # paths did not change counts as passed; a failed or cancelled one does
+    # not.
+    name: ci passed
+    if: always()
+    needs: [changes, check, desktop-app, relay-image, docs, secrets, dependencies]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

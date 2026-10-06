@@ -46,5 +46,8 @@ plan) enforces the same rule on GitHub, where `--no-verify` does not reach.
   supports. Two short shell scripts do not need a manager.
 - **Ruleset alone.** It stops the push but only after the commit exists,
   and it does not scan for secrets before they leave the machine.
-- **gitleaks in CI.** It sees the secret only once it is pushed; and the
+- **gitleaks in CI instead of the hook.** It sees the secret only once it
+  is pushed. It runs in CI as well, though (ADR
+  ci-runs-what-a-change-reaches): the hook does not reach a fork or a
+  `--no-verify` commit. The CI job runs the gitleaks binary, since the
   official action needs a paid licence for an organisation's repository.

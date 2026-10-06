@@ -45,7 +45,10 @@ npm run lint
 npm test
 ```
 
-CI runs the same checks and `atlas validate` on every PR.
+CI runs the same checks and `atlas validate` on every PR, for the
+workspaces its changes reach. It also packages the desktop app and builds
+the relay image when they are affected, scans the PR's commits with
+gitleaks and reviews any dependency it adds.
 
 **Tests.** Add one where it can catch a real regression — parsing, path and
 URL handling, server routes, persistence, logic that is hard to eyeball. Do
