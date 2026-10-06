@@ -4,7 +4,6 @@ import {
   NONE_ANSWER,
   activeQuestionIndex,
   chipLabel,
-  chosenOptions,
   completedAnswers,
   confirmLabel,
   isComplete,
@@ -15,6 +14,7 @@ import {
   openQuestion,
   optionIndexForDigit,
   parseResultAnswers,
+  readAnswer,
   rowCount,
   toggleSelection,
 } from '../lib/questionCard'
@@ -187,18 +187,26 @@ describe('optionIndexForDigit', () => {
   })
 })
 
-describe('chosenOptions', () => {
+describe('readAnswer', () => {
+  const single = question()
+  const multiSelect = question({ multiSelect: true })
+
   it('reads one clicked label back', () => {
-    expect(chosenOptions('Shadow table', OPTIONS)).toEqual([OPTIONS[1]])
+    expect(readAnswer('Shadow table', single)).toEqual({ chosen: [OPTIONS[1]], other: '' })
   })
 
   it('reads a joined multiSelect answer back in order', () => {
-    expect(chosenOptions('In place, Leave it', OPTIONS)).toEqual([OPTIONS[0], OPTIONS[2]])
+    expect(readAnswer('In place, Leave it', multiSelect)).toEqual({
+      chosen: [OPTIONS[0], OPTIONS[2]],
+      other: '',
+    })
   })
 
   it('treats free text as taking none of the offered options', () => {
-    expect(chosenOptions('Neither — the wrapper is dead code.', OPTIONS)).toEqual([])
-    expect(chosenOptions(NONE_ANSWER, OPTIONS)).toEqual([])
+    const text = 'Neither — the wrapper is dead code.'
+    expect(readAnswer(text, single)).toEqual({ chosen: [], other: text })
+    expect(readAnswer(text, multiSelect)).toEqual({ chosen: [], other: text })
+    expect(readAnswer(NONE_ANSWER, multiSelect)).toEqual({ chosen: [], other: '' })
   })
 
   it('prefers a whole-string label match over splitting it', () => {
@@ -207,11 +215,21 @@ describe('chosenOptions', () => {
       { label: 'Ship now', description: '' },
       { label: 'hold the migration', description: '' },
     ]
-    expect(chosenOptions('Ship now, hold the migration', options)).toEqual([options[0]])
+    expect(readAnswer('Ship now, hold the migration', question({ options, multiSelect: true })))
+      .toEqual({ chosen: [options[0]], other: '' })
   })
 
-  it('treats a partially matching join as free text, not as a half-answer', () => {
-    expect(chosenOptions('In place, and also something else', OPTIONS)).toEqual([])
+  it('reads ticked options plus Other… text back as both', () => {
+    const answer = joinSelection(['In place', 'Leave it'], 'and a note, with a comma')
+    expect(readAnswer(answer, multiSelect)).toEqual({
+      chosen: [OPTIONS[0], OPTIONS[2]],
+      other: 'and a note, with a comma',
+    })
+  })
+
+  it('never splits a single-select answer into an option and text', () => {
+    const text = 'In place, and also something else'
+    expect(readAnswer(text, single)).toEqual({ chosen: [], other: text })
   })
 })
 

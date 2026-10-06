@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.9] — 2026-10-06
+### Fixed
+- An answered multiple-choice question that also had your own text now shows every option you ticked next to that text, instead of only the text.
+
 ## [0.20.8] — 2026-10-06
 ### Fixed
 - A message you send from your phone, or from another Orbital window, now shows up in the open transcript right away instead of only after a reload.
