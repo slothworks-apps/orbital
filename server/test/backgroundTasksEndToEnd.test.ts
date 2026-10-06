@@ -81,8 +81,8 @@ function tempDirs() {
 }
 
 async function sessionOf(app: any, id: string) {
-  const res = await app.inject({ method: 'GET', url: '/api/sessions' });
-  return res.json().sessions.find((s: { id: string }) => s.id === id);
+  const res = await app.inject({ method: 'GET', url: `/api/sessions/${id}` });
+  return res.json().session;
 }
 
 async function launch(app: any): Promise<string> {
