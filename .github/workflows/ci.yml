@@ -121,7 +121,12 @@ jobs:
       - run: npm run build -w server
       - run: npm run build -w web
       - run: npm run build -w desktop
+      # electron-builder skips signing in a pull request unless told not to,
+      # and build/verify-signature.cjs then fails the build. An ad-hoc
+      # signature needs no secret, so a fork's pull request is safe to sign.
       - working-directory: desktop
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'
         run: npx electron-builder --mac --arm64 --dir -c.mac.identity=- -c.mac.notarize=false
 
   relay-image:
