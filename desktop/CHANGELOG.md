@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.8] — 2026-10-06
+### Fixed
+- A message you send from your phone, or from another Orbital window, now shows up in the open transcript right away instead of only after a reload.
+
 ## [0.20.7] — 2026-10-06
 ### Changed
 - A pinned session leaves the map once it has ended, like any other; it stays in the sidebar's Pinned section.
