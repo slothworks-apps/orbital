@@ -8,6 +8,7 @@ import { TranscriptView } from '../../panels/TranscriptView'
 import { usePhoneToolRow } from '../session/TranscriptChip'
 import { useOrbital } from '../../store/store'
 import { isMacAsleep, pushedTop, useMobile } from '../state'
+import { nameInSentence } from '../format'
 import { subagentBody, subagentHeader, INK, type SubagentHeader } from '../subagents/model'
 import { MobileScreen, SecondaryButton } from '../ui'
 
@@ -129,7 +130,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
           style={{ borderColor: completed ? 'rgba(127,227,176,.3)' : 'rgba(150,205,255,.12)' }}
         >
           <div className="font-mono text-[9.5px] tracking-[0.16em]" style={{ color: completed ? INK.done : header.ink }}>
-            RESULT · RETURNED TO {parentTitle}
+            RESULT · RETURNED TO {nameInSentence(parentTitle)}
           </div>
           <div className="mt-1.5 whitespace-pre-wrap text-pretty text-[13.5px] leading-[1.5] text-[rgba(232,238,248,.92)]">
             {body.result}
@@ -157,11 +158,11 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
     <div className="flex flex-col gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-4 pb-1.5 pt-2.5">
       {running && (
         <div className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.7)]">
-          Subagents take no replies — its result goes back to {parentTitle}.
+          Subagents take no replies — its result goes back to {nameInSentence(parentTitle)}.
         </div>
       )}
       <SecondaryButton variant="sheet" onClick={() => openSession(sessionId)}>
-        Open {parentTitle}
+        Open {nameInSentence(parentTitle, 'session')}
       </SecondaryButton>
     </div>
   )
@@ -171,6 +172,8 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
       {body.task !== null && <TaskFrom parentTitle={parentTitle} text={body.task} dropped={panel?.droppedCount ?? 0} />}
       {/* The phone's tool rows (wide image results); no chips — a subagent's own calls have no moons. */}
       <PhoneToolRowContext.Provider value={phoneRows}>
+      {/* The transcript takes what TASK FROM leaves; at full height it would run under the footer. */}
+      <div className="min-h-0 flex-1">
       <TranscriptView
         messages={found ? body.rows : NO_MESSAGES}
         isWorking={running && !offline}
@@ -183,6 +186,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
         footer={tail}
         footerKey={`${header.word}|${body.result !== null}`}
       />
+      </div>
       </PhoneToolRowContext.Provider>
     </MobileScreen>
   )
@@ -204,7 +208,7 @@ function TaskFrom({ parentTitle, text, dropped }: { parentTitle: string; text: s
         onClick={() => setFull((v) => !v)}
         className="block w-full rounded-[10px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.45)] px-3 py-2.5 text-left"
       >
-        <div className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">TASK FROM {parentTitle}</div>
+        <div className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">TASK FROM {nameInSentence(parentTitle)}</div>
         <div
           className={[
             'mt-1.5 whitespace-pre-wrap text-pretty text-[13px] leading-[1.5] text-[rgba(220,232,248,.9)]',

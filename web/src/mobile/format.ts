@@ -33,6 +33,17 @@ export function basename(path: string): string {
 }
 
 /**
+ * A session's title is often its whole first prompt. Inside a sentence or a
+ * label (10f, 10g) only a short one reads as a name; a long one becomes
+ * `fallback`.
+ */
+export const NAME_IN_SENTENCE_MAX = 32
+export function nameInSentence(title: string | null | undefined, fallback = 'the session'): string {
+  const t = (title ?? '').trim()
+  return t && t.length <= NAME_IN_SENTENCE_MAX ? t : fallback
+}
+
+/**
  * A directory as 9d prints it: the home folder as `~`. The phone never
  * learns the Mac's home, so it is read off the path's shape — macOS's
  * `/Users/<name>` or Linux's `/home/<name>`. Display only; the full path is

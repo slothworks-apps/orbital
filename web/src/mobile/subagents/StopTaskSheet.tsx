@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { nameInSentence } from '../format'
 import { ConfirmSheet } from '../ui'
 
 /**
@@ -37,7 +38,7 @@ export function StopTaskSheet({
     <ConfirmSheet
       eyebrow="STOP TASK"
       title={`Stop ${label}?`}
-      body={`${ranFor ? `It has run for ${ranFor}. ` : ''}The process stops, its output stays readable here, and ${parentTitle} is told it was stopped. The session itself keeps going.`}
+      body={`${ranFor ? `It has run for ${ranFor}. ` : ''}The process stops, its output stays readable here, and ${nameInSentence(parentTitle)} is told it was stopped. The session itself keeps going.`}
       confirmLabel="Stop task"
       cancelLabel="Keep running"
       onConfirm={onStop}
