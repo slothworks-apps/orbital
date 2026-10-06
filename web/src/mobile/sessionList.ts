@@ -165,20 +165,21 @@ export function limitLine(
 }
 
 /**
- * The collapsed moons row (canvas 10a `moonLabel`, `taskLabel`): the
- * subagents and how many run, then the tasks after a ·. Either half is null
- * when the session has none.
+ * The list row's collapsed summary (canvas 10a), or nulls when nothing runs:
+ * the list is for what is happening now, so a session whose subagents and
+ * tasks have all finished shows no row there — its header chip (9b) still
+ * opens every one of them.
  */
 export function moonsSummary(session: Pick<ApiSession, 'subagents' | 'backgroundTasks'>): {
   subagents: string | null
   tasks: string | null
 } {
   const agents = session.subagents
-  const tasks = session.backgroundTasks ?? []
   const running = agents.filter((a) => a.state !== 'ended').length
+  const tasks = (session.backgroundTasks ?? []).filter((t) => t.state === 'running').length
   return {
-    subagents: agents.length === 0 ? null : `${agents.length} ${agents.length === 1 ? 'subagent' : 'subagents'} · ${running} running`,
-    tasks: tasks.length === 0 ? null : `${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`,
+    subagents: running === 0 ? null : `${agents.length} ${agents.length === 1 ? 'subagent' : 'subagents'} · ${running} running`,
+    tasks: tasks === 0 ? null : `${tasks} ${tasks === 1 ? 'task' : 'tasks'} running`,
   }
 }
 

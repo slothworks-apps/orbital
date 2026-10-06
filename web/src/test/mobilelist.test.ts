@@ -219,7 +219,7 @@ describe('10a rows', () => {
     expect(limitLine(session('n'), false, 'studio', now)).toBeNull()
   })
 
-  it('adds the tasks to the collapsed summary after the subagents', () => {
+  it('counts only what runs, and says nothing once all of it has finished', () => {
     const agents = [
       { id: 'a', name: 'tests', state: 'working' as const, startedAt: 1 },
       { id: 'b', name: 'lint', state: 'ended' as const, startedAt: 1, endedAt: 2 },
@@ -228,9 +228,14 @@ describe('10a rows', () => {
     expect(moonsSummary(session('s', { subagents: agents }))).toEqual({ subagents: '2 subagents · 1 running', tasks: null })
     expect(moonsSummary(session('s', { subagents: agents, backgroundTasks: [task] }))).toEqual({
       subagents: '2 subagents · 1 running',
-      tasks: '1 task',
+      tasks: '1 task running',
     })
-    expect(moonsSummary(session('s', { backgroundTasks: [task, { ...task, id: 'u' }] }))).toEqual({ subagents: null, tasks: '2 tasks' })
+    expect(moonsSummary(session('s', { backgroundTasks: [task, { ...task, id: 'u' }] }))).toEqual({ subagents: null, tasks: '2 tasks running' })
+    const done = agents.map((a) => ({ ...a, state: 'ended' as const }))
+    expect(moonsSummary(session('s', { subagents: done, backgroundTasks: [{ ...task, state: 'ended' }] }))).toEqual({
+      subagents: null,
+      tasks: null,
+    })
     expect(moonsSummaryAsleep(session('s', { subagents: agents, backgroundTasks: [task] }))).toBe('2 subagents · ▣ 1 task · last known')
     expect(moonsSummaryAsleep(session('s'))).toBeNull()
   })

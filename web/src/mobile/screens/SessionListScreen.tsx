@@ -366,7 +366,8 @@ function SessionRow({
   const showWhere = !(offline && (input || group === 'limit' || asleepCounts !== null))
   const moonColor = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
   const runningMoons = session.subagents.filter((agent) => agent.state !== 'ended')
-  const tasks = tasksForRow(session.backgroundTasks)
+  // Expanded, the row lists what runs; the finished ones live behind the session's header chip.
+  const tasks = tasksForRow(session.backgroundTasks).filter((task) => task.state === 'running')
   return (
     <div className={input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]'}>
       <button
@@ -465,7 +466,7 @@ function SessionRow({
           {moonsOpen && (
             // Canvas 10a: 44 px rows ending in ›; a subagent opens 10f, ▣ a task 10g.
             <ul className="-mt-1 mb-2 ml-[62px] flex flex-col border-l border-[rgba(150,205,255,.12)]">
-              {session.subagents.map((agent) => {
+              {runningMoons.map((agent) => {
                 const toolUseId = agent.toolUseId
                 const body = (
                   <>

@@ -19,6 +19,9 @@ type View = 'menu' | 'end' | 'clear' | 'rename' | 'tag'
  * back with the composer's error line on failure, as the desktop panel does;
  * End and Clear only ever act from their confirm.
  */
+/** ✎ with the text-presentation selector: Android draws the bare character as a colour emoji. */
+const TEXT_PENCIL = '\u270E\uFE0E'
+
 export function SessionMenuSheet({
   session,
   offline,
@@ -147,7 +150,7 @@ export function SessionMenuSheet({
     )
   } else {
     const rows: Record<MenuItem, ReactNode> = {
-      rename: <Row key="rename" glyph={<span className="text-[rgba(200,220,245,.7)]">✎</span>} label="Rename" onPress={() => setView('rename')} />,
+      rename: <Row key="rename" glyph={<span className="text-[rgba(200,220,245,.7)]">{TEXT_PENCIL}</span>} label="Rename" onPress={() => setView('rename')} />,
       tag: (
         <Row
           key="tag"

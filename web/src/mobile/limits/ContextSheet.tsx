@@ -54,9 +54,6 @@ export function ContextSheet({
           Grows with every turn. Near the window, Claude Code compacts the conversation on its own.
         </div>
         <div className="mt-2 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{meta}</div>
-        <div className="mt-3 text-[12px] leading-[1.5] text-pretty text-[rgba(160,190,225,.7)]">
-          Read-only facts. To start fresh, use ⋯ → Clear; compacting is not a phone action.
-        </div>
       </div>
     </BottomSheet>
   )

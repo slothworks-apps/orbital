@@ -11,13 +11,17 @@ export function SessionMenuButton({ session, offline }: SlotProps) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      {/* canvas 10i: the header's ⋯, a tinted 44 px square. */}
+      {/* The header's ⋯: plain at rest (9b, 10k), a tinted 44 px square while its sheet is up (10i). */}
       <button
         type="button"
         aria-label="More"
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-[rgba(150,205,255,.1)] text-[18px] text-text-bright"
+        aria-expanded={open}
+        className={[
+          'grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[18px]',
+          open ? 'bg-[rgba(150,205,255,.1)] text-text-bright' : 'text-[rgba(200,220,245,.8)]',
+        ].join(' ')}
       >
         ⋯
       </button>
