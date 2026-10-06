@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { LinkStatus, RemoteClientEvent } from '@orbital/shared/remote/client'
+import type { EndedSummary } from '../lib/api'
 import type { Pairing } from './platform/parse'
 import { MIN_SERVER_VERSION, isSupportedServer } from './version'
 
@@ -80,6 +81,14 @@ export interface MobileState {
   rechecking: { asleep: boolean } | null
   /** When the Mac's session list was last read over the tunnel (9e's "N live sessions are waiting."). */
   listedAt: number | null
+  /**
+   * What the Mac said about the ENDED fold its list left out (`ended:
+   * 'exclude'`), or null: before the first live list, or from a Mac that
+   * sends every session anyway.
+   */
+  endedSummary: EndedSummary | null
+  /** The fold has been read (`ended: 'only'`) and merged into the store; every resync reads it again. */
+  endedLoaded: boolean
   mismatch: { macVersion: string | null; needed: string } | null
   unpaired: boolean
   pairing: Pairing | null
@@ -94,7 +103,7 @@ export interface MobileState {
 
 export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
-  asOf: null, checkedAt: null, rechecking: null, listedAt: null,
+  asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
   mismatch: null, unpaired: false, pairing: null, macName: null, composerIntent: null,
 }
 

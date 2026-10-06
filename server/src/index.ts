@@ -37,7 +37,7 @@ import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
 import { registerRoutes } from './api/routes.js';
-import { listedBackgroundTasks, statusOf, toApiSession, type ShapeContext } from './api/shape.js';
+import { listedBackgroundTasks, listedSubagents, statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
@@ -89,15 +89,24 @@ export function publishLiveSession(ctx: PublishContext, live: LiveSession): void
     .get() as SessionRow | undefined;
   const session = row
     ? toApiSession(ctx, row, live.status)
-    : {
-        id: live.sessionId, cwd: live.cwd, title: live.name, firstAt: null,
-        lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
-        permissionMode: null, tagIds: [], status: live.status,
-        subagents: ctx.subagents.all(live.sessionId),
-        backgroundTasks: listedBackgroundTasks(ctx.backgroundTasks.all(live.sessionId)),
-        recentTools: ctx.recentTools.all(live.sessionId),
-      };
+    : rowlessSession(ctx, live);
   ctx.hub.publish('sessions', { event: 'upsert', session });
+}
+
+/** A live session whose row has not landed yet, in the listed shape `toApiSession` gives the rest. */
+function rowlessSession(ctx: PublishContext, live: LiveSession) {
+  const agents = ctx.subagents.all(live.sessionId);
+  const tasks = ctx.backgroundTasks.all(live.sessionId);
+  return {
+    id: live.sessionId, cwd: live.cwd, title: live.name, firstAt: null,
+    lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
+    permissionMode: null, tagIds: [], status: live.status,
+    subagents: listedSubagents(agents),
+    subagentCount: agents.length,
+    backgroundTasks: listedBackgroundTasks(tasks),
+    backgroundTaskCount: tasks.length,
+    recentTools: ctx.recentTools.all(live.sessionId),
+  };
 }
 
 /** What it takes to put a session on the `sessions` topic. */
@@ -105,12 +114,11 @@ export type PublishContext = ShapeContext & { hub: Hub };
 
 /**
  * Republishes one session because something about it changed that lives
- * outside its DB row — today, its subagents. Not just the RUNNING ones,
- * which is what this said while `SubagentStore` had a single `get()`:
- * `toApiSession` carries `all()` now (ended agents included), so an agent
- * FINISHING is itself one of the changes this exists to publish — its row in
- * the subagent list needs the `status` and `endedAt` it ended with (subagent
- * list spec § 3, adr: subagentstore-splits-into-all-and-running).
+ * outside its DB row — today, its subagents. An agent FINISHING is one of
+ * the changes this exists to publish: the upsert carries only the running
+ * agents (`listedSubagents`), so the finished one drops out of it, and a
+ * client showing that session reads how it ended from `GET /api/sessions/:id`
+ * (subagent list spec § 3, adr: subagentstore-splits-into-all-and-running).
  *
  * Subagents ride along in the session shape rather than on a topic of their
  * own, so the map sees them for every session (not only the selected one)

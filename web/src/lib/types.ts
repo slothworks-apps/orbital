@@ -95,16 +95,31 @@ export interface ApiSession {
    * mean the same thing to every reader.
    */
   awaitingSubagents?: boolean
-  /** Subagents running in this session right now — the map's moons. */
+  /**
+   * The list and its upserts carry the running subagents (the map's moons);
+   * `GET /api/sessions/:id` carries every one the session has had, and the
+   * store keeps the ended ones it learnt that way across later upserts
+   * (`mergeListed`). So the selected session holds its whole history, any
+   * other only what runs. An older Mac sends every agent in the list too.
+   */
   subagents: Subagent[]
   /**
-   * Every background task — shell, monitor, workflow, MCP task — the session
-   * has had, ended included, in start order (spec
-   * 2026-09-28-background-tasks-design § 2). Optional for the same reason
-   * as `interruptedAt`: absent and empty mean the same thing to every
-   * reader, and requiring it would rewrite every session fixture.
+   * How many subagents the session has had, ended included, however many
+   * `subagents` holds. Absent from an older Mac: fall back to
+   * `subagents.length`, which is the whole history there.
+   */
+  subagentCount?: number
+  /**
+   * Background tasks — shell, monitor, workflow, MCP task — in start order
+   * (spec 2026-09-28-background-tasks-design § 2), held the way `subagents`
+   * is: the running ones for every session, the whole history for the
+   * selected one. Optional for the same reason as `interruptedAt`: absent
+   * and empty mean the same thing to every reader, and requiring it would
+   * rewrite every session fixture.
    */
   backgroundTasks?: BackgroundTask[]
+  /** How many background tasks the session has had, ended included; `subagentCount`'s fallback applies. */
+  backgroundTaskCount?: number
   /**
    * The last 30 tool calls this session has made, in order. Used by
    * Archipelago ships and Desk cards to show the latest call (spec

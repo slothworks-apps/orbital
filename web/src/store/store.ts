@@ -1,12 +1,13 @@
 import { create } from 'zustand'
-import { api, ApiError } from '../lib/api'
+import { api, ApiError, type EndedSummary } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
 import { isAttachable, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
-import { EMPTY_OUTPUT, appendOutput, endedOutOfList, mergeListedTasks, type OutputLines } from '../lib/backgroundTasks'
+import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
+import { historyEndedOutOfList, withDetailHistory, withHeldHistory } from '../lib/listedHistory'
 import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
 import { ENDED_HIDE_MS } from '../map/transition'
 import { REWIND_REFUSED_TOAST } from '../lib/rewind'
@@ -493,8 +494,27 @@ export interface OrbitalActions {
    * 2026-10-02-mobile-app-design § 3).
    */
   seatSessions(sessions: ApiSession[], tags: Tag[]): void
-  /** The phone's `loadInitial`: sessions, tags and the model catalog, each a route the tunnel allows. */
-  loadSessions(): Promise<void>
+  /**
+   * The phone's `loadInitial`: sessions, tags and the model catalog, each a
+   * route the tunnel allows. The list leaves the ENDED fold out
+   * (`ended: 'exclude'`) unless `endedToo`, which reads it alongside and seats
+   * both at once. Resolves to what the Mac said about the fold it left out,
+   * or null from a Mac that sent every session anyway.
+   */
+  loadSessions(opts?: { endedToo?: boolean }): Promise<EndedSummary | null>
+  /**
+   * Adds sessions to the ones held, without replacing the map the way
+   * `seatSessions` does: the phone's ENDED fold, read when it is opened.
+   */
+  mergeSessions(sessions: ApiSession[]): void
+  /**
+   * The session's whole history — every subagent and background task it has
+   * had, ended included — from `GET /api/sessions/:id`, folded into what the
+   * store holds (`withDetailHistory`). The list and its upserts carry only
+   * what runs. A session the store does not hold at all (an ended one the
+   * phone's list left out, opened from a notification) is added as it comes.
+   */
+  loadSessionHistory(id: string): Promise<void>
   /**
    * The catch-up after the socket was away (spec:
    * 2026-09-22-ws-reconnect-resync-design). Nothing is replayed over the WS,
@@ -1132,23 +1152,66 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const pendingDecisions: Record<string, PendingDecision> = {}
     const held = get().sessions
     for (const listed of list) {
-      const session = withHeldTasks(held[listed.id], listed)
+      const session = withHeldHistory(held[listed.id], listed)
       sessionsMap[session.id] = session
       if (session.pendingDecision) pendingDecisions[session.id] = session.pendingDecision
+    }
+    // The open session stays even when the list leaves it out: the phone's
+    // list does not carry the ENDED fold, and an ended session can be open.
+    const selectedId = get().ui.selectedId
+    const selected = selectedId ? held[selectedId] : undefined
+    if (selected && !(selected.id in sessionsMap)) {
+      sessionsMap[selected.id] = selected
+      if (selected.pendingDecision) pendingDecisions[selected.id] = selected.pendingDecision
     }
     // As in `loadInitial`: anything queued goes in first, the snapshot over it.
     flushSessionsEvents()
     set({ sessions: sessionsMap, order: sortIdsByLastAtDesc(sessionsMap), pendingDecisions, tags })
   },
 
-  async loadSessions() {
-    const [list, tags, modelsPayload] = await Promise.all([
-      api.listSessions(),
+  async loadSessions(opts = {}) {
+    const [page, ended, tags, modelsPayload] = await Promise.all([
+      api.listSessionPage({ ended: 'exclude' }),
+      opts.endedToo ? api.listSessionPage({ ended: 'only' }) : null,
       api.listTags(),
       api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {} })),
     ])
-    get().seatSessions(list, tags)
+    // A Mac that ignores `ended` answers both with every session; the map keeps one of each.
+    get().seatSessions(ended ? [...page.sessions, ...ended.sessions] : page.sessions, tags)
     set({ models: modelsPayload.models, contextWindows: modelsPayload.contextWindows })
+    return page.ended ?? null
+  },
+
+  mergeSessions(list) {
+    if (list.length === 0) return
+    flushSessionsEvents()
+    set((state) => {
+      const sessions = { ...state.sessions }
+      const pendingDecisions = { ...state.pendingDecisions }
+      for (const listed of list) {
+        sessions[listed.id] = withHeldHistory(state.sessions[listed.id], listed)
+        if (listed.pendingDecision) pendingDecisions[listed.id] = listed.pendingDecision
+      }
+      return { sessions, order: sortIdsByLastAtDesc(sessions), pendingDecisions }
+    })
+  },
+
+  async loadSessionHistory(id) {
+    try {
+      const { session } = await api.getSession(id)
+      if (!(id in get().sessions)) {
+        // Not held at all: added the way any session first heard of is.
+        get().applySessionsEvent({ event: 'upsert', session })
+        return
+      }
+      set((state) => {
+        const current = state.sessions[id]
+        if (!current) return {}
+        return { sessions: { ...state.sessions, [id]: withDetailHistory(current, session) } }
+      })
+    } catch {
+      // What the list carries stays; the next selection asks again.
+    }
   },
 
   async resyncAfterReconnect() {
@@ -1163,6 +1226,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // cannot be mis-ordered. Pages pulled in by `loadOlder` are lost with
       // it, at the cost of scrolling up through them again.
       const selectedId = get().ui.selectedId
+      // The snapshot carries only what runs, so the open session's ended
+      // subagents and tasks are read again (and the session itself, when the
+      // snapshot's page does not reach it).
+      if (selectedId) await get().loadSessionHistory(selectedId)
       // Fetched before the swap, so the open transcript never flashes empty.
       const fetched = selectedId ? await messagesPage(selectedId) : null
 
@@ -1721,7 +1788,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // a-reply-is-in-the-transcript-file-but-not-in-the-open-panel).
     if (get().historyLoaded[id]) return
 
-    void loadTaskHistory(id)
+    // Its subagents and tasks too: the list carries only the running ones.
+    void get().loadSessionHistory(id)
     try {
       const fetched = await messagesPage(id)
       set((state) => {
@@ -2661,12 +2729,14 @@ function sessionsEventPatch(
 ): Partial<OrbitalState> | null {
   if (msg.event === 'upsert') {
     const isNew = !(msg.session.id in state.sessions)
-    const heldTasks = state.sessions[msg.session.id]?.backgroundTasks
-    if (state.ui.selectedId === msg.session.id && endedOutOfList(heldTasks, msg.session.backgroundTasks)) {
+    const held = state.sessions[msg.session.id]
+    // The selected session shows its whole history, and how a subagent or a
+    // task ended is not in the upsert that drops it.
+    if (state.ui.selectedId === msg.session.id && historyEndedOutOfList(held, msg.session)) {
       const id = msg.session.id
-      after.push(() => void loadTaskHistory(id))
+      after.push(() => void useOrbital.getState().loadSessionHistory(id))
     }
-    const sessions = { ...state.sessions, [msg.session.id]: withHeldTasks(state.sessions[msg.session.id], msg.session) }
+    const sessions = { ...state.sessions, [msg.session.id]: withHeldHistory(held, msg.session) }
     // A sent rewind is settled once the row stops carrying it — the CLI took
     // the truncating resume (or a refusal took it back).
     const rewindSettled = !msg.session.rewindPending && state.rewindSending[msg.session.id]
@@ -2739,33 +2809,6 @@ function sessionsEventPatch(
   }
 
   return null
-}
-
-/** `next` with the ended tasks `held` knows and the listed shape leaves out (`mergeListedTasks`). */
-function withHeldTasks(held: ApiSession | undefined, next: ApiSession): ApiSession {
-  const backgroundTasks = mergeListedTasks(held?.backgroundTasks, next.backgroundTasks)
-  return backgroundTasks === next.backgroundTasks ? next : { ...next, backgroundTasks }
-}
-
-/**
- * The selected session's whole task history, ended tasks included: the list
- * and its upserts carry only the running ones, and the open session shows
- * every task it ran and links each launching call to its output. Asked again
- * when a task ends, since how it ended is not in the upsert. Older builds of
- * the server send the whole history in the list anyway.
- */
-async function loadTaskHistory(id: string): Promise<void> {
-  try {
-    const { session } = await api.getSession(id)
-    useOrbital.setState((state) => {
-      const current = state.sessions[id]
-      if (!current) return {}
-      const backgroundTasks = mergeListedTasks(session.backgroundTasks, current.backgroundTasks)
-      return { sessions: { ...state.sessions, [id]: { ...current, backgroundTasks } } }
-    })
-  } catch {
-    // The listed tasks stay; the next selection asks again.
-  }
 }
 
 /** Applies `msgs` in order, as one store write. */

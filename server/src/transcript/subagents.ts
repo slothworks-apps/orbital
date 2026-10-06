@@ -343,13 +343,13 @@ export class SubagentStore {
   }
 
   /**
-   * Every agent the session has ever seen, ended included. This list is what
-   * `toApiSession` puts on the wire, and it answers three readers: the
-   * subagent list, the parent transcript's `OPEN →` control, and
-   * (server-side, via the messages route's `known` check) whether a buffer
-   * may be served at all. None of them may lose an agent because it ended —
-   * the map drops finished moons on the client side, not here (subagent list
-   * spec § 5).
+   * Every agent the session has ever seen, ended included. `toApiSession`
+   * puts all of it on the wire in `GET /api/sessions/:id` (the list and its
+   * upserts carry the running ones, `listedSubagents`), and it answers three
+   * readers: the subagent list, the parent transcript's `OPEN →` control,
+   * and (server-side, via the messages route's `known` check) whether a
+   * buffer may be served at all. None of them may lose an agent because it
+   * ended (subagent list spec § 5).
    */
   all(sessionId: string): SubagentInfo[] {
     return this.trackers.get(sessionId)?.all() ?? [];

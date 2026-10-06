@@ -5,8 +5,6 @@ import {
   appendOutput,
   badgeText,
   displayLines,
-  endedOutOfList,
-  mergeListedTasks,
   rowWord,
   taskChipModel,
   taskGroups,
@@ -125,35 +123,5 @@ describe('displayLines', () => {
 
   it('shows the line still being written', () => {
     expect(displayLines(appendOutput(EMPTY_OUTPUT, 'a\nloading'))).toEqual(['a', 'loading'])
-  })
-})
-
-describe('mergeListedTasks', () => {
-  it('keeps ended tasks the listed shape left out, in start order', () => {
-    const held = [task({ id: 'a', startedAt: 1 }), task({ id: 'b', startedAt: 2 })]
-    const next = [task({ id: 'b', startedAt: 2, label: 'fresh' }), task({ id: 'c', startedAt: 3, state: 'running' })]
-    const merged = mergeListedTasks(held, next)
-    expect(merged?.map((t) => t.id)).toEqual(['a', 'b', 'c'])
-    expect(merged?.[1].label).toBe('fresh')
-  })
-
-  it('drops a held running task the next list no longer has', () => {
-    const next = [task({ id: 'b' })]
-    expect(mergeListedTasks([task({ id: 'a', state: 'running' })], next)).toBe(next)
-  })
-
-  it('passes next through when nothing is held', () => {
-    const next = [task({ id: 'a' })]
-    expect(mergeListedTasks(undefined, next)).toBe(next)
-  })
-})
-
-describe('endedOutOfList', () => {
-  it('is true when a held running task is missing from the listed ones', () => {
-    expect(endedOutOfList([task({ id: 'a', state: 'running' })], [])).toBe(true)
-  })
-
-  it('is false when every held running task is still listed, or only ended ones are missing', () => {
-    expect(endedOutOfList([task({ id: 'a', state: 'running' }), task({ id: 'b' })], [task({ id: 'a', state: 'running' })])).toBe(false)
   })
 })

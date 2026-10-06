@@ -99,20 +99,27 @@ export interface ApiSession {
    */
   awaitingSubagents: boolean;
   /**
-   * Every subagent this session has ever seen, ended included — not just
-   * the running ones, so a finished agent keeps its row in the subagent list
-   * and its transcript stays reachable (subagent list spec §§ 3, 5). Empty
-   * for every session that has never launched one.
+   * In `GET /api/sessions/:id`, every subagent this session has ever seen,
+   * ended included, so a finished agent keeps its row in the subagent list
+   * and its transcript stays reachable (subagent list spec §§ 3, 5). In the
+   * list and the `sessions` upserts, only the running ones
+   * (`listedSubagents`); the client keeps the ended ones it already holds.
+   * Empty for every session that has never launched one.
    */
   subagents: SubagentInfo[];
+  /** How many subagents the session has had, ended included, in either shape of `subagents`. */
+  subagentCount: number;
   /**
-   * Every background task — shell, monitor, workflow, MCP task — this
-   * session has had, ended included, in start order (spec
-   * 2026-09-28-background-tasks-design § 2). Kept in SQLite, so it survives
-   * a restart. Empty for every session Orbital does not run: the task
-   * events exist only on the SDK stream.
+   * Background tasks — shell, monitor, workflow, MCP task — in start order
+   * (spec 2026-09-28-background-tasks-design § 2): every one the session has
+   * had in `GET /api/sessions/:id`, only the running ones in the list and its
+   * upserts (`listedBackgroundTasks`). Kept in SQLite, so it survives a
+   * restart. Empty for every session Orbital does not run: the task events
+   * exist only on the SDK stream.
    */
   backgroundTasks: BackgroundTaskInfo[];
+  /** How many background tasks the session has had, ended included, in either shape of `backgroundTasks`. */
+  backgroundTaskCount: number;
   /**
    * The last 30 tool calls this session has made, in order. Used by
    * Archipelago ships and Desk cards to show the latest call (spec
@@ -293,12 +300,6 @@ export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
 }
 
 /**
- * The REST-shaped session object shared by REST responses and the `sessions`
- * WS topic. `status`, when passed, overrides the computed status — needed by
- * registry-upsert publishing, where `ctx.registry` may not yet reflect the
- * live session that triggered the call (see index.ts's `publishLiveSession`).
- */
-/**
  * The list and its upserts carry only the tasks running now: everything that
  * reads a session from the list (the map, the phone's list, the working
  * checks) asks only what is running. A session that ran hundreds of commands
@@ -310,9 +311,25 @@ export function listedBackgroundTasks(tasks: BackgroundTaskInfo[]): BackgroundTa
   return tasks.filter((t) => t.state === 'running');
 }
 
+/** The subagents the list and its upserts carry: the running ones, for the reason `listedBackgroundTasks` gives. */
+export function listedSubagents(agents: SubagentInfo[]): SubagentInfo[] {
+  return agents.filter((a) => a.state !== 'ended');
+}
+
+/**
+ * The REST-shaped session object shared by REST responses and the `sessions`
+ * WS topic. `status`, when passed, overrides the computed status — needed by
+ * registry-upsert publishing, where `ctx.registry` may not yet reflect the
+ * live session that triggered the call (see index.ts's `publishLiveSession`).
+ *
+ * `history` is the detail's shape (`GET /api/sessions/:id`): every subagent
+ * and background task the session has had. Without it, only the running ones
+ * (`listedSubagents`, `listedBackgroundTasks`), with the totals beside them.
+ */
 export function toApiSession(
-  ctx: ShapeContext, row: SessionRow, status?: SessionStatus, opts: { allTasks?: boolean } = {},
+  ctx: ShapeContext, row: SessionRow, status?: SessionStatus, opts: { history?: boolean } = {},
 ): ApiSession {
+  const agents = ctx.subagents.all(row.id);
   const tasks = ctx.backgroundTasks.all(row.id);
   return {
     id: row.id, cwd: row.cwd, title: row.title,
@@ -327,8 +344,10 @@ export function toApiSession(
     tagIds: effectiveTagIds(ctx.db, row.id),
     status: status ?? statusOf(ctx, row),
     awaitingSubagents: ctx.runner.awaitingSubagents(row.id),
-    subagents: ctx.subagents.all(row.id),
-    backgroundTasks: opts.allTasks ? tasks : listedBackgroundTasks(tasks),
+    subagents: opts.history ? agents : listedSubagents(agents),
+    subagentCount: agents.length,
+    backgroundTasks: opts.history ? tasks : listedBackgroundTasks(tasks),
+    backgroundTaskCount: tasks.length,
     recentTools: ctx.recentTools.all(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
     git: ctx.git.locate(row.cwd),
