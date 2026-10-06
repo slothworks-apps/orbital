@@ -1005,10 +1005,12 @@ export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision' | 'harne
 /**
  * A harness gate waits for the user's OK (spec 2026-10-02-harness-redesign-design
  * § 2, canvas 30a-d / 30i): the session is NEEDS INPUT, worded NEEDS YOUR OK,
- * with a steady dot — a gate can wait all night. A gate the reviewer is
- * reading is not: the reviewer is quiet, and the session keeps its own state.
+ * with a steady dot — a gate can wait all night. So does what the agent
+ * proposed (spec 2026-10-06-harness-graph-and-proposals-design). A gate the
+ * reviewer is reading is not: the reviewer is quiet, and the session keeps
+ * its own state.
  */
-export const gateWaits = (session: Pick<ApiSession, 'harnessGate'>): boolean => session.harnessGate === 'waiting'
+export const gateWaits = (session: Pick<ApiSession, 'harnessGate'>): boolean => session.harnessGate === 'waiting' || session.harnessGate === 'proposal'
 
 /**
  * Whether a parked session is actually blocked on the human — the NEEDS INPUT
@@ -1044,6 +1046,10 @@ export function sessionStateKey(
 ): SessionStateKey {
   if (session.interruptedAt) return 'interrupted'
   if (session.status === 'needs_input') return asksForHuman(session) ? 'needs_input' : 'done'
+  // A gate or a proposal asks for the user at once, while the agent works on
+  // other steps (spec 2026-10-06-harness-graph-and-proposals-design § A gate
+  // while other work goes on): it is counted and shown as NEEDS YOUR OK.
+  if (session.status === 'working' && gateWaits(session)) return 'needs_input'
   if (session.status === 'working') return awaitedCount(awaitedWork(session)) > 0 ? 'waiting' : 'working'
   return session.status
 }
@@ -1455,6 +1461,8 @@ export interface HarnessStep {
   mode: StepMode
   doneWhen: string
   verify?: string
+  /** The ids of earlier steps this one needs. Absent: the step before it; `[]`: none. */
+  dependsOn?: string[]
 }
 
 export type StepStatus = 'pending' | 'active' | 'awaiting_approval' | 'done'
@@ -1519,10 +1527,10 @@ export interface StepState {
   previousRuns?: PreviousRun[]
 }
 
-/** A step's record as it stood when the user reopened it (`reopened`) or went back past it (`went_back`, "before going back"). */
+/** A step's record as it stood when the user reopened it (`reopened`), went back past it (`went_back`, "before going back"), or an edit made it wait again (`edited`). */
 export interface PreviousRun extends Omit<StepState, 'previousRuns' | 'reviewing' | 'reviewerOff' | 'unsentFindings'> {
   endedAt: number
-  reason: 'went_back' | 'reopened'
+  reason: 'went_back' | 'reopened' | 'edited'
 }
 
 /** Where a template is offered: every project, or one project's sessions only. */
@@ -1541,13 +1549,30 @@ export interface KnownHarnessProject extends HarnessProject {
   templates: number
 }
 
-export type HarnessGate = 'waiting' | 'reviewing'
+export type HarnessGate = 'waiting' | 'reviewing' | 'proposal'
 
 export type PauseKind = 'user' | 'nudge_cap' | 'message_cap' | 'review_failed' | 'send_failed' | 'session_ended'
 
-export type HarnessMessageKind = 'kickoff' | 'advance' | 'nudge' | 'findings'
+export type HarnessMessageKind = 'kickoff' | 'advance' | 'nudge' | 'findings' | 'edited'
 
 export type DraftModel = 'opus' | 'sonnet'
+
+/** A change to a running harness: steps added at the end, changed in place, removed. */
+export interface HarnessChanges {
+  add?: HarnessStep[]
+  update?: HarnessStep[]
+  remove?: string[]
+}
+
+/**
+ * What the agent proposed with `harness_propose` and the user has not applied
+ * or discarded yet: a whole harness, or a change to the running one (spec
+ * 2026-10-06-harness-graph-and-proposals-design § Proposals).
+ */
+export type HarnessProposal = (
+  | { kind: 'harness'; harness: { name: string; steps: HarnessStep[] } }
+  | { kind: 'changes'; changes: HarnessChanges }
+) & { note: string | null; createdAt: number }
 
 export interface HarnessTemplate {
   id: number
@@ -1611,6 +1636,11 @@ export type HarnessEventKind =
   | 'went_back'
   | 'removed'
   | 'carried_over'
+  | 'proposed'
+  | 'proposal_applied'
+  | 'proposal_discarded'
+  | 'proposal_superseded'
+  | 'edited'
 
 export interface HarnessEvent {
   id: number

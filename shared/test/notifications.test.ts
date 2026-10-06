@@ -313,4 +313,38 @@ describe('notification settings', () => {
       expect(notifier.current).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
     });
   });
+
+  describe('a harness gate while the agent works on', () => {
+    let notifier: SessionNotifier;
+    beforeEach(() => {
+      notifier = new SessionNotifier();
+      notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working', harnessGate: null }));
+    });
+
+    it('notifies once when a gate or a proposal starts waiting, and not again at the turn\'s end', () => {
+      expect(notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working', harnessGate: 'waiting' }))).toEqual({
+        title: 'Map', body: 'Needs your OK', sessionId: 's1',
+      });
+      // Status frames carry no gate; the one the last upsert said still holds.
+      expect(notifier.onEvent(status('s1', 'working'))).toBeNull();
+      expect(notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working', harnessGate: 'waiting' }))).toBeNull();
+      expect(notifier.onEvent(status('s1', 'needs_input'))).toBeNull();
+    });
+
+    it('a reviewer reading the gate is not news; a proposal is', () => {
+      expect(notifier.onEvent(upsert({ id: 's1', status: 'working', harnessGate: 'reviewing' }))).toBeNull();
+      expect(notifier.onEvent(upsert({ id: 's1', status: 'working', harnessGate: 'proposal' }))?.body).toBe('Needs your OK');
+    });
+
+    it('after the user decided, the next turn end is news again', () => {
+      notifier.onEvent(upsert({ id: 's1', status: 'working', harnessGate: 'waiting' }));
+      notifier.onEvent(upsert({ id: 's1', status: 'working', harnessGate: null }));
+      expect(notifier.onEvent(status('s1', 'needs_input'))?.body).toBe('Needs your input');
+    });
+
+    it('stays quiet with needs-input notifications off', () => {
+      notifier.setSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, needsInput: false });
+      expect(notifier.onEvent(upsert({ id: 's1', status: 'working', harnessGate: 'waiting' }))).toBeNull();
+    });
+  });
 });

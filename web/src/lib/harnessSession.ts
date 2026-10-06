@@ -6,6 +6,7 @@
  * `panels/harness/`.
  */
 
+import { currentIndex } from './harnessGraph'
 import type { ApiSession, ChatMessage, HarnessEvent, HarnessMessageKind, PauseKind, SessionHarness } from './types'
 
 /** The state tokens the harness draws in (30a-d's `AMB`, `CY`, `MINT`, `NEU`, `MUT`). */
@@ -78,7 +79,7 @@ export function pauseWords(kind: PauseKind | null, options: SessionHarness['opti
 /** What the pill and its flyout say about a live harness (30a-d). */
 export function pillReading(harness: SessionHarness): PillReading {
   const total = harness.steps.length
-  const current = harness.state.findIndex((s) => s.status !== 'done')
+  const current = currentIndex(harness.state)
   const segments = harness.state.map((s, i) => {
     if (s.status === 'done') return SEGMENT.done
     if (s.status === 'awaiting_approval') return s.reviewing ? SEGMENT.reviewing : SEGMENT.waiting
@@ -161,6 +162,8 @@ export function harnessMessageText(
       return `nudged · step ${n}`
     case 'findings':
       return `sent back · step ${n} · the reviewer's findings`
+    case 'edited':
+      return 'the checklist changed · the agent was told'
   }
 }
 
@@ -219,10 +222,19 @@ export function harnessEventText(
       return 'carried over from the previous session'
     case 'finished':
       return 'finished · every step is done'
+    case 'proposed':
+      return d.kind === 'harness' ? 'the agent proposed a harness · waits for your OK' : 'the agent proposed a change · waits for your OK'
+    case 'proposal_applied':
+      return d.kind === 'harness' ? 'you attached the proposed harness' : 'you applied the proposed change'
+    case 'proposal_discarded':
+      return 'you discarded the proposal'
     case 'attached':
     case 'advanced':
     case 'nudged':
     case 'options':
+    case 'proposal_superseded':
+    case 'edited':
+      // An edit's row is the message the agent was sent about it.
       return null
   }
 }

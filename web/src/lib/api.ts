@@ -37,6 +37,9 @@ import type {
   SessionHarness,
   HarnessEvent,
   HarnessOptions,
+  HarnessChanges,
+  HarnessProposal,
+  HarnessStep,
   RemoteStatus,
   SessionDefaults,
 } from './types'
@@ -1000,6 +1003,7 @@ export const api = {
     harness: SessionHarness | null
     removed: SessionHarness | null
     events: HarnessEvent[]
+    proposal: HarnessProposal | null
   }> {
     const params = new URLSearchParams()
     if (page.limit !== undefined) params.set('limit', String(page.limit))
@@ -1056,6 +1060,23 @@ export const api = {
 
   async reopenHarnessStep(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
     return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/reopen`)
+  },
+
+  /** Applies what the agent proposed: attaches the harness it worked out, or makes its change. */
+  async applyHarnessProposal(
+    sessionId: string,
+    edited?: { harness: { name: string; steps: HarnessStep[] } } | { changes: HarnessChanges },
+  ): Promise<{ harness: SessionHarness }> {
+    return request('POST', `/api/sessions/${sessionId}/harness/proposal/apply`, edited ?? {})
+  },
+
+  async discardHarnessProposal(sessionId: string): Promise<{ ok: true }> {
+    return request('POST', `/api/sessions/${sessionId}/harness/proposal/discard`)
+  },
+
+  /** Edits the running harness; the agent is told what changed. */
+  async editHarnessSteps(sessionId: string, changes: HarnessChanges): Promise<{ harness: SessionHarness }> {
+    return request('PUT', `/api/sessions/${sessionId}/harness/steps`, changes)
   },
 
   // Mobile remote — Settings → Mobile and the pairing dialog (spec

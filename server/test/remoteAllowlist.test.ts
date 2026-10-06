@@ -17,6 +17,7 @@ describe('remote allowlist', () => {
       ['GET', '/api/tags'], ['GET', '/api/projects'], ['GET', '/api/models'], ['GET', '/api/commands'],
       ['GET', '/api/sessions/abc/walkthrough'], ['GET', '/api/sessions/abc/walkthrough/summary'],
       ['GET', '/api/health'], ['GET', '/api/sessions/defaults'],
+      ['POST', '/api/sessions/abc/harness/proposal/apply'], ['POST', '/api/sessions/abc/harness/proposal/discard'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
   it('denies the file system, the editor, settings, errors, rules and dev routes', () => {
@@ -35,6 +36,7 @@ describe('remote allowlist', () => {
       // `defaults` is a literal, never an id: no other method or shape reaches it.
       ['GET', '/api/sessions/defaults/'], ['GET', '/api/sessions/defaults/x'], ['POST', '/api/sessions/defaults'],
       ['PATCH', '/api/sessions/defaults'],
+      ['PUT', '/api/sessions/abc/harness/steps'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
   });
   describe('harness gate, rewind and limit wait', () => {

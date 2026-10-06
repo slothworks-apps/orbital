@@ -101,6 +101,7 @@ const initialSnapshot: OrbitalState = {
   harnessEvents: {},
   harnessEventsMore: {},
   harnessRemoved: {},
+  harnessProposals: {},
   harnessPanel: null,
   harnessTemplatesFocus: null,
   ui: {

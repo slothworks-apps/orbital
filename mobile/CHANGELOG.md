@@ -4,6 +4,13 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-06
+### Added
+- When the agent proposes a harness for a session, or a change to the one it runs, you can attach or discard it from your phone.
+
+### Changed
+- A harness whose steps branch shows the step waiting for your OK first, and the steps sheet says which steps each one needs.
+
 ## [0.3.0] — 2026-10-05
 ### Added
 - Answer a harness step waiting for your OK — approve it, reopen it or go back — and see the plan's steps and what each one did.

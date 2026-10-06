@@ -4,6 +4,15 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-10-06
+### Added
+- A harness can branch: a step names the steps it needs, independent steps are open at the same time, and a gate holds back only what depends on it. The checklist draws the branches in its margin.
+- The agent can propose a harness for the session you are talking in, or a change to the one it runs; you attach, edit or discard it from the harness panel. A harness no longer needs a template, and Save as template turns one into a template afterwards.
+- Edit steps changes a running harness: add, change or remove the steps that are not finished, and the agent is told what changed.
+
+### Changed
+- A gate, or something the agent proposed, shows as NEEDS YOUR OK and notifies you the moment it waits, even while the agent goes on with other steps.
+
 ## [0.20.9] — 2026-10-06
 ### Fixed
 - An answered multiple-choice question that also had your own text now shows every option you ticked next to that text, instead of only the text.

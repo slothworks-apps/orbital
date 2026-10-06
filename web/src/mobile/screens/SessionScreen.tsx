@@ -39,6 +39,7 @@ import { ContextReadout } from '../session/ContextReadout'
 import { HarnessProgress } from '../session/HarnessProgress'
 import { useHarnessRows } from '../session/harnessRows'
 import { MoonsChip } from '../session/MoonsChip'
+import { ProposalLine } from '../session/ProposalCard'
 import { SessionMenuButton } from '../session/SessionMenuButton'
 import { StateLine } from '../session/StateLine'
 import { usePhoneToolRow } from '../session/TranscriptChip'
@@ -181,6 +182,7 @@ function SessionView({ id }: { id: string }) {
           )}
         </div>
       )}
+      {!offline && <ProposalLine sessionId={id} />}
     </div>
   )
 

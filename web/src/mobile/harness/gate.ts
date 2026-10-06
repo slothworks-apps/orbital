@@ -8,6 +8,7 @@
  * what the phone draws from it.
  */
 
+import { currentIndex as graphCurrentIndex, depsOf } from '../../lib/harnessGraph'
 import { findPathMatches, isImagePath } from '../../lib/pathLinks'
 import type { ApiSession, ChatMessage, HarnessEvent, SessionHarness } from '../../lib/types'
 import {
@@ -35,9 +36,13 @@ function kindsOf(harness: SessionHarness, events: readonly HarnessEvent[]): Step
   )
 }
 
-/** The step the harness stands at: the first one not done, or -1 when every one is. */
+/**
+ * The step the harness stands at: a gate waiting for the user first — with
+ * branches it need not be the first step not done — else the first one not
+ * done, or -1 when every one is (`lib/harnessGraph`).
+ */
 export function currentIndex(harness: Pick<SessionHarness, 'state'>): number {
-  return harness.state.findIndex((s) => s.status !== 'done')
+  return graphCurrentIndex(harness.state)
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -143,7 +148,9 @@ function cardData(harness: SessionHarness, events: readonly HarnessEvent[], inde
     verifyPassed = own[i].detail.verify === 'passed'
     break
   }
-  const nextStep = harness.steps[index + 1]
+  // What the approval opens: the first step that needs this one.
+  const nextIndex = harness.steps.findIndex((_, j) => j > index && depsOf(harness.steps, j).includes(step.id))
+  const nextStep = nextIndex === -1 ? undefined : harness.steps[nextIndex]
   const range = commitRange(state)
   const words = [state.summary, state.evidence]
   const files = namedPaths(words)
@@ -158,7 +165,7 @@ function cardData(harness: SessionHarness, events: readonly HarnessEvent[], inde
     images: gateImages(words),
     range,
     verifyPassed,
-    next: nextStep ? { step: index + 2, title: nextStep.title, gate: nextStep.mode === 'gate' } : null,
+    next: nextStep ? { step: nextIndex + 1, title: nextStep.title, gate: nextStep.mode === 'gate' } : null,
     reading: reading.length > 0 ? `reading · ${reading.join(' · ')}` : null,
   }
 }
@@ -293,13 +300,15 @@ export function stepsSheet(
     const kind = kinds[i]
     const who = stepWho(kind, step, state, harness, eventsOfStep(own, step, i, harness.createdAt))
     const questions = kind === 'waiting' ? (state.openQuestions?.length ?? 0) : 0
+    // A step that names what it needs says it, so the branches read in a list.
+    const needs = step.dependsOn ? `← ${step.dependsOn.map((id) => harness.steps.findIndex((s) => s.id === id) + 1).join(', ') || 'none'}` : null
     return {
       type: 'step',
       index: i,
       title: `${i + 1} · ${step.title}`,
       kind,
       gate: isGateShape(kind, step),
-      meta: [who, questions > 0 ? plural(questions, 'open question') : null].filter(Boolean).join(' · '),
+      meta: [who, questions > 0 ? plural(questions, 'open question') : null, needs].filter(Boolean).join(' · '),
       record: isDone(kind),
     }
   })

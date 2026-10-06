@@ -55,6 +55,10 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/sessions/:id/limit-wait/undo'],
   ['GET', '/api/sessions/:id/walkthrough'],
   ['GET', '/api/sessions/:id/walkthrough/summary'],
+  // What the agent proposed, applied or discarded as it stands; editing it stays on the Mac
+  // (spec 2026-10-06-harness-graph-and-proposals-design § The phone).
+  ['POST', '/api/sessions/:id/harness/proposal/apply'],
+  ['POST', '/api/sessions/:id/harness/proposal/discard'],
   ['GET', '/api/tags'],
   ['GET', '/api/projects'],
   ['GET', '/api/models'],

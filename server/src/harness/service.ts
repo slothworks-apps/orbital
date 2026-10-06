@@ -14,19 +14,21 @@ import { and, desc, eq, gte, isNull, lt, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import type { OrbitalDb } from '../db/database.js';
 import {
-  harnessEvents, harnessInterviews, harnessMessages, harnessTemplates, sessionHarnesses, sessions,
+  harnessEvents, harnessInterviews, harnessMessages, harnessTemplates, sessionHarnessProposals, sessionHarnesses, sessions,
 } from '../db/schema.js';
 import type { SessionTools } from '../runner/runner.js';
 import { ORBITAL_MCP_SERVER as HARNESS_MCP_SERVER } from '../runner/spawnTool.js';
 import type { ChatMessage } from '../types.js';
 import {
-  activeIndex, advanceMessage, approve, checklistLines, decideTurnEnd, goBack, initialState, kickoffMessage,
-  normalizeOptions, nudgeMessage, patchStep, reviewerReopen, reviewerReopenMessage, reviewerTakes, snapshotSteps,
-  statusText, tick, userReopen, validateTemplate, withReview, type TickRecord,
+  advanceMessage, applyChanges, approve, checklistLines, decideTurnEnd, descendantsOf, editedMessage, gateIndexes,
+  goBack, initialState, isFinished, kickoffMessage, normalizeOptions, nudgeMessage, openIndexes, patchStep,
+  reviewerReopen, reviewerReopenMessage, reviewerTakes, snapshotSteps, statusText, tick, userReopen, validateTemplate,
+  withReview, type ChecklistDiff, type TickRecord,
 } from './logic.js';
 import type {
-  HarnessEvent, HarnessEventKind, HarnessInput, HarnessMessageKind, HarnessOptions, HarnessProject, HarnessStep,
-  HarnessTemplate, PauseKind, SessionHarness, StepReview, StepState, TemplateScope,
+  HarnessChanges, HarnessEvent, HarnessEventKind, HarnessInput, HarnessMessageKind, HarnessOptions, HarnessProject,
+  HarnessProposal, HarnessStep, HarnessTemplate, PauseKind, ProposedHarness, SessionHarness, StepReview, StepState,
+  TemplateScope,
 } from './types.js';
 import { buildReviewPrompt, parseReviewReply } from './reviewer.js';
 import { buildWatcherPrompt, parseWatcherReply } from './watcher.js';
@@ -36,9 +38,21 @@ import { projectName, projectOf, projectRootOf } from './project.js';
 const TOOL_STATUS = 'harness_status';
 const TOOL_COMPLETE = 'harness_complete_step';
 const TOOL_SAVE_TEMPLATE = 'harness_save_template';
+const TOOL_PROPOSE = 'harness_propose';
 
 /** The model a drafting call or conversation runs on when none is named (spec 2026-10-02 § Drafting model). */
 export const DEFAULT_DRAFT_MODEL = 'opus';
+
+/** A step as the agent's tools take it. */
+const STEP_SCHEMA = z.object({
+  id: z.string(),
+  title: z.string(),
+  instructions: z.string(),
+  mode: z.enum(['auto', 'gate']),
+  doneWhen: z.string(),
+  verify: z.string().optional(),
+  dependsOn: z.array(z.string()).optional().describe('Ids of earlier steps this one needs. Absent: the step before it; []: none.'),
+});
 /** The models a drafting call or conversation may run on. */
 export const DRAFT_MODELS = ['opus', 'sonnet'] as const;
 export type DraftModel = (typeof DRAFT_MODELS)[number];
@@ -258,6 +272,7 @@ function cleanBody(body: Partial<TemplateBody>) {
     steps: (body.steps ?? []).map((s: HarnessStep) => ({
       id: s.id.trim(), title: s.title, instructions: s.instructions, mode: s.mode, doneWhen: s.doneWhen,
       ...(s.verify?.trim() ? { verify: s.verify.trim() } : {}),
+      ...(s.dependsOn ? { dependsOn: s.dependsOn.map((d) => d.trim()) } : {}),
     })),
   };
 }
@@ -511,6 +526,149 @@ export class HarnessService {
     return new Map(rows.map((r) => [r.uuid, { kind: r.kind, step: r.stepIndex }]));
   }
 
+  // ── Proposals and edits ───────────────────────────────────────────────
+
+  /** What the agent proposed and the user has not decided yet, or null. */
+  proposal(sessionId: string): HarnessProposal | null {
+    const row = this.deps.db.select().from(sessionHarnessProposals).where(eq(sessionHarnessProposals.sessionId, sessionId)).get();
+    if (!row) return null;
+    const rest = { note: row.note, createdAt: row.createdAt };
+    return row.kind === 'harness'
+      ? { kind: 'harness', harness: row.body as ProposedHarness, ...rest }
+      : { kind: 'changes', changes: row.body as HarnessChanges, ...rest };
+  }
+
+  /**
+   * `harness_propose`: the agent proposes a whole harness, when the session
+   * has none, or a change to the one it runs. Checked as it would be applied;
+   * a newer proposal replaces one the user has not decided yet.
+   */
+  propose(
+    sessionId: string,
+    proposed: { kind: 'harness'; harness: ProposedHarness } | { kind: 'changes'; changes: HarnessChanges } | null,
+    note: string | null,
+  ): Result<HarnessProposal> {
+    const checked = this.checkProposal(sessionId, proposed);
+    if (!checked.ok) return checked;
+    const earlier = this.proposal(sessionId);
+    if (earlier) this.log(sessionId, 'proposal_superseded', { kind: earlier.kind });
+    this.storeProposal(sessionId, checked.value.kind, checked.value.body, note?.trim() || null);
+    this.log(sessionId, 'proposed', { kind: checked.value.kind, note: note?.trim() || null });
+    this.deps.publish(sessionId, this.get(sessionId));
+    return { ok: true, value: this.proposal(sessionId)! };
+  }
+
+  /** A proposal as it would be stored, or why it cannot be: checked as it would be applied. */
+  private checkProposal(
+    sessionId: string,
+    proposed: { kind: 'harness'; harness: ProposedHarness } | { kind: 'changes'; changes: HarnessChanges } | null,
+  ): Result<{ kind: 'harness' | 'changes'; body: ProposedHarness | HarnessChanges }> {
+    if (!proposed) return { ok: false, status: 400, error: 'send a harness or changes' };
+    const h = this.get(sessionId);
+    let body: ProposedHarness | HarnessChanges;
+    if (proposed.kind === 'harness') {
+      if (h) return { ok: false, status: 409, error: `this session already runs the harness "${h.name}"; propose changes to it instead` };
+      const { name, steps } = cleanBody({ name: proposed.harness.name, steps: proposed.harness.steps });
+      const error = validateTemplate({ name, tags: [], inputs: [], steps });
+      if (error) return { ok: false, status: 400, error };
+      body = { name, steps };
+    } else {
+      if (!h) return { ok: false, status: 409, error: 'this session runs no harness; propose a whole harness instead' };
+      const tried = applyChanges(h.steps, h.state, proposed.changes, this.now());
+      if (!tried.ok) return { ok: false, status: 400, error: tried.error };
+      body = proposed.changes;
+    }
+    return { ok: true, value: { kind: proposed.kind, body } };
+  }
+
+  private storeProposal(sessionId: string, kind: 'harness' | 'changes', body: ProposedHarness | HarnessChanges, note: string | null): void {
+    const row = { kind, body, note, createdAt: this.now() };
+    this.deps.db.insert(sessionHarnessProposals).values({ sessionId, ...row })
+      .onConflictDoUpdate({ target: sessionHarnessProposals.sessionId, set: row }).run();
+  }
+
+  discardProposal(sessionId: string): Result<null> {
+    if (!this.proposal(sessionId)) return { ok: false, status: 409, error: 'nothing is proposed' };
+    this.dropProposal(sessionId);
+    this.log(sessionId, 'proposal_discarded');
+    this.deps.publish(sessionId, this.get(sessionId));
+    return { ok: true, value: null };
+  }
+
+  private dropProposal(sessionId: string): void {
+    this.deps.db.delete(sessionHarnessProposals).where(eq(sessionHarnessProposals.sessionId, sessionId)).run();
+  }
+
+  /**
+   * The user applies what the agent proposed. A whole harness is attached,
+   * without a template, and its kickoff returned for the caller to deliver;
+   * changes are applied as the user's edit would be. `edited` is the user's
+   * version of it from Edit, of the same kind. 409 when nothing is proposed,
+   * or when the harness moved on and the changes no longer apply.
+   */
+  applyProposal(
+    sessionId: string,
+    edited?: { kind: 'harness'; harness: ProposedHarness } | { kind: 'changes'; changes: HarnessChanges },
+  ): Result<{ harness: SessionHarness; message: string | null; kind: 'kickoff' | 'edited' }> {
+    const pending = this.proposal(sessionId);
+    if (!pending) return { ok: false, status: 409, error: 'nothing is proposed' };
+    if (edited) {
+      if (edited.kind !== pending.kind) return { ok: false, status: 400, error: `the proposal is ${pending.kind === 'harness' ? 'a harness' : 'a change'}` };
+      const checked = this.checkProposal(sessionId, edited);
+      if (!checked.ok) return checked;
+      this.storeProposal(sessionId, checked.value.kind, checked.value.body, pending.note);
+    }
+    const p = this.proposal(sessionId)!;
+    if (p.kind === 'changes') {
+      const result = this.edit(sessionId, p.changes, 'agent');
+      if (!result.ok) return { ok: false, status: 409, error: result.error };
+      this.dropProposal(sessionId);
+      this.log(sessionId, 'proposal_applied', { kind: 'changes' });
+      this.deps.publish(sessionId, result.value.harness);
+      return { ok: true, value: { ...result.value, kind: 'edited' } };
+    }
+    if (this.get(sessionId)) return { ok: false, status: 409, error: 'this session already has a harness' };
+    const now = this.now();
+    const { name, steps } = p.harness;
+    this.deps.db.delete(sessionHarnesses).where(eq(sessionHarnesses.sessionId, sessionId)).run();
+    const row = this.deps.db
+      .insert(sessionHarnesses)
+      .values({
+        sessionId, templateId: null, name, steps, inputs: {}, state: initialState(steps), options: normalizeOptions({}),
+        createdAt: now, updatedAt: now,
+      })
+      .returning()
+      .get();
+    const harness = toHarness(row);
+    this.dropProposal(sessionId);
+    this.log(sessionId, 'proposal_applied', { kind: 'harness' });
+    this.log(sessionId, 'attached', { templateId: null, name, inputs: {} });
+    this.deps.publish(sessionId, harness);
+    return { ok: true, value: { harness, message: kickoffMessage(harness, []), kind: 'kickoff' } };
+  }
+
+  /**
+   * Changes the running harness (spec 2026-10-06-harness-graph-and-proposals-
+   * design § Edits by the user). Returns the message that tells the agent,
+   * for the caller to deliver; null while paused — resuming sends the open
+   * steps — or when nothing is left to do.
+   */
+  edit(sessionId: string, changes: HarnessChanges, by: 'user' | 'agent'): Result<{ harness: SessionHarness; message: string | null }> {
+    const h = this.get(sessionId);
+    if (!h) return { ok: false, status: 409, error: 'no harness' };
+    const result = applyChanges(h.steps, h.state, changes, this.now());
+    if (!result.ok) return { ok: false, status: 400, error: result.error };
+    const saved = this.save({ ...h, steps: result.steps, state: result.state });
+    const diff: ChecklistDiff = result.diff;
+    this.log(sessionId, 'edited', { by, ...diff });
+    if (isFinished(saved.state)) {
+      this.log(sessionId, 'finished');
+      return { ok: true, value: { harness: saved, message: null } };
+    }
+    const message = saved.paused ? null : editedMessage(saved, diff, by);
+    return { ok: true, value: { harness: saved, message } };
+  }
+
   private log(sessionId: string, kind: HarnessEventKind, detail: Record<string, unknown> = {}): void {
     this.deps.db.insert(harnessEvents).values({ sessionId, at: this.now(), kind, detail }).run();
   }
@@ -525,6 +683,7 @@ export class HarnessService {
     this.deps.db
       .update(sessionHarnesses)
       .set({
+        steps: updated.steps,
         state: updated.state,
         options: updated.options,
         paused: updated.paused ? 1 : 0,
@@ -601,6 +760,18 @@ export class HarnessService {
   }
 
   /**
+   * `stepStarted` for every open step that has not begun yet: the ones a
+   * message just sent the agent to.
+   */
+  async openStepsStarted(sessionId: string, messageUuid: string | null): Promise<void> {
+    const h = this.get(sessionId);
+    if (!h) return;
+    for (const i of openIndexes(h.state)) {
+      if (h.state[i].startedAt === undefined) await this.stepStarted(sessionId, i, messageUuid);
+    }
+  }
+
+  /**
    * The harness leaves the session; automation stops. The row stays, marked
    * removed, so the step records stay readable (spec § 6).
    */
@@ -622,23 +793,24 @@ export class HarnessService {
   }
 
   /**
-   * The user approves a gate. Returns the next step's instructions for the
-   * caller to deliver, or null when the approved step was the last.
+   * The user approves a gate. Returns the message that sends the agent to the
+   * steps the approval opened, for the caller to deliver, or null when it
+   * opened none — the last step, or the agent is still on other branches.
    */
   approve(sessionId: string, index: number): Result<{ harness: SessionHarness; message: string | null }> {
     const h = this.get(sessionId);
     if (!h) return { ok: false, status: 404, error: 'no harness' };
-    const state = approve(h.state, index);
+    const state = approve(h.steps, h.state, index);
     if (!state) return { ok: false, status: 409, error: 'that step does not wait for approval' };
     this.abortReview(sessionId);
     const saved = this.save({ ...h, state, idleNudges: 0 });
     this.logStep(h, index, 'approved', { by: 'user' });
-    const next = activeIndex(state);
-    if (next === -1) {
+    if (isFinished(state)) {
       this.log(sessionId, 'finished');
       return { ok: true, value: { harness: saved, message: null } };
     }
-    return { ok: true, value: { harness: saved, message: advanceMessage(saved, next) } };
+    const opened = openIndexes(state).some((i) => h.state[i].status !== 'active');
+    return { ok: true, value: { harness: saved, message: opened ? advanceMessage(saved) : null } };
   }
 
   /**
@@ -665,10 +837,10 @@ export class HarnessService {
   goBack(sessionId: string, index: number): Result<SessionHarness> {
     const h = this.get(sessionId);
     if (!h) return { ok: false, status: 404, error: 'no harness' };
-    const state = goBack(h.state, index, this.now());
+    const state = goBack(h.steps, h.state, index, this.now());
     if (!state) return { ok: false, status: 409, error: 'that step is not finished' };
     this.abortReview(sessionId);
-    this.logStep(h, index, 'went_back', { pending: h.steps.slice(index).map((s) => s.id) });
+    this.logStep(h, index, 'went_back', { pending: [index, ...descendantsOf(h.steps, index)].map((i) => h.steps[i].id) });
     return { ok: true, value: this.save({ ...h, state, idleNudges: 0 }) };
   }
 
@@ -684,32 +856,27 @@ export class HarnessService {
   }
 
   /**
-   * Auto-continue back on: carry on from the current step (30f). A gate goes
-   * to the reviewer when lucky is on; findings held back while paused go out;
-   * a step nobody sent yet is sent; otherwise a session waiting for input is
-   * treated as a turn that just ended.
+   * Auto-continue back on: carry on from where the checklist stands (30f).
+   * Gates go to the reviewer when lucky is on; findings held back while
+   * paused go out; open steps nobody sent yet are sent; otherwise a session
+   * waiting for input is treated as a turn that just ended.
    */
   private async continueFrom(h: SessionHarness): Promise<void> {
-    if (!this.deps.isEnabled()) return;
-    const i = activeIndex(h.state);
-    if (i === -1) return;
-    const s = h.state[i];
-    if (s.status === 'awaiting_approval') {
-      this.reviewIfWaiting(h);
+    if (!this.deps.isEnabled() || isFinished(h.state)) return;
+    this.reviewIfWaiting(h);
+    const open = openIndexes(h.state);
+    const held = open.find((i) => h.state[i].unsentFindings && h.state[i].reviews?.length);
+    if (held !== undefined) {
+      const { unsentFindings: _u, ...rest } = h.state[held];
+      const saved = this.save({ ...h, state: h.state.map((x, j) => (j === held ? rest : x)) });
+      await this.sendOnOwn(saved, reviewerReopenMessage(saved, held, rest.reviews!.at(-1)!), { kind: 'findings', step: held }, { revive: true });
       return;
     }
-    const review = s.reviews?.at(-1);
-    if (s.unsentFindings && review) {
-      const { unsentFindings: _u, ...rest } = s;
-      const saved = this.save({ ...h, state: h.state.map((x, j) => (j === i ? rest : x)) });
-      await this.sendOnOwn(saved, reviewerReopenMessage(saved, i, review), { kind: 'findings', step: i }, { revive: true });
+    if (open.some((i) => h.state[i].startedAt === undefined)) {
+      await this.advanceTo(h, { revive: true });
       return;
     }
-    if (s.startedAt === undefined) {
-      await this.advanceTo(h, i, { revive: true });
-      return;
-    }
-    if (this.deps.isWaiting(h.sessionId)) await this.handleTurnEnd(h.sessionId);
+    if (open.length > 0 && this.deps.isWaiting(h.sessionId)) await this.handleTurnEnd(h.sessionId);
   }
 
   /**
@@ -723,15 +890,18 @@ export class HarnessService {
     const options = normalizeOptions({ ...h.options, ...patch });
     this.log(sessionId, 'options', { ...patch });
     let state = h.state;
-    const i = activeIndex(state);
-    if (i !== -1 && h.options.lucky && !options.lucky && state[i].reviewing) {
+    const reviewing = state.findIndex((s) => s.reviewing);
+    if (reviewing !== -1 && h.options.lucky && !options.lucky) {
       this.abortReview(sessionId);
-      state = stripReviewing(state, i);
-      this.logStep(h, i, 'review_aborted', { by: 'lucky_off' });
+      state = stripReviewing(state, reviewing);
+      this.logStep(h, reviewing, 'review_aborted', { by: 'lucky_off' });
     }
-    if (i !== -1 && !h.options.lucky && options.lucky && state[i].reviewerOff) {
-      const { reviewerOff: _o, ...rest } = state[i];
-      state = state.map((s, j) => (j === i ? rest : s));
+    if (!h.options.lucky && options.lucky) {
+      state = state.map((s) => {
+        if (!s.reviewerOff) return s;
+        const { reviewerOff: _o, ...rest } = s;
+        return rest;
+      });
     }
     const saved = this.save({ ...h, options, state });
     this.reviewIfWaiting(saved);
@@ -761,9 +931,10 @@ export class HarnessService {
     controller.abort();
   }
 
+  /** Hands a gate the reviewer takes to it; one review runs at a time, the next gate waits for the next chance. */
   private reviewIfWaiting(h: SessionHarness): void {
-    const i = activeIndex(h.state);
-    if (i !== -1 && reviewerTakes(h, i)) {
+    const i = gateIndexes(h.state).find((g) => reviewerTakes(h, g));
+    if (i !== undefined) {
       void this.review(h.sessionId, i).catch((err) => this.report(h.sessionId, err, 'reviewing a harness gate'));
     }
   }
@@ -796,12 +967,13 @@ export class HarnessService {
   sessionEnded(sessionId: string): void {
     const h = this.get(sessionId);
     if (!h) return;
-    const i = activeIndex(h.state);
+    const i = h.state.findIndex((s) => s.status !== 'done');
     if (i === -1) return;
     this.abortReview(sessionId);
     const reason = `The session ended during step ${i + 1}. Start a new session from Clear to continue with this harness.`;
     this.logStep(h, i, 'paused', { by: 'harness', kind: 'session_ended', reason });
-    this.pause({ ...h, state: stripReviewing(h.state, i) }, 'session_ended', reason);
+    const state = h.state.map((s, j) => (s.reviewing ? stripReviewing(h.state, j)[j] : s));
+    this.pause({ ...h, state }, 'session_ended', reason);
   }
 
   /**
@@ -815,16 +987,18 @@ export class HarnessService {
     const h = this.get(fromId);
     if (!h) return { ok: false, status: 404, error: 'no harness to carry' };
     if (this.get(toId)) return { ok: false, status: 409, error: 'the new session already has a harness' };
-    const index = activeIndex(h.state);
+    const index = h.state.findIndex((s) => s.status !== 'done');
     if (index === -1) return { ok: false, status: 409, error: 'the harness is finished' };
     this.abortReview(fromId);
     const now = this.now();
     const { db } = this.deps;
     db.update(sessionHarnesses).set({ removedAt: now, updatedAt: now }).where(eq(sessionHarnesses.sessionId, fromId)).run();
-    // The step starts over in the new session: its message and start are the kickoff's.
-    const state = h.state.map((s, j) => {
-      if (j !== index) return s;
-      const { reviewing: _r, startedAt: _s, startMessageUuid: _m, ...rest } = s;
+    // Open steps start over in the new session: their message and start are the kickoff's.
+    const state = h.state.map((s) => {
+      if (s.status !== 'active' && !s.reviewing) return s;
+      const { reviewing: _r, ...kept } = s;
+      if (s.status !== 'active') return kept;
+      const { startedAt: _s, startMessageUuid: _m, ...rest } = kept;
       return rest;
     });
     db.delete(sessionHarnesses).where(eq(sessionHarnesses.sessionId, toId)).run();
@@ -912,10 +1086,11 @@ export class HarnessService {
   async completeStep(sessionId: string, stepId: string, record: TickRecord): Promise<string> {
     const h = this.get(sessionId);
     if (!h) return 'This session has no harness.';
-    const i = activeIndex(h.state);
-    const step = i === -1 ? undefined : h.steps[i];
+    const i = h.steps.findIndex((s) => s.id === stepId);
+    // Only an open step is checked; `tick` says what is wrong with any other.
+    const step = h.state[i]?.status === 'active' ? h.steps[i] : undefined;
     const cwd = this.deps.cwdOf(sessionId);
-    if (h.options.commitPerStep && cwd && step?.id === stepId) {
+    if (h.options.commitPerStep && cwd && step) {
       // Outside a repository `git status` fails, and the option does nothing.
       const status = await this.git(cwd, ['status', '--porcelain']);
       if (status.ok && status.output.trim()) {
@@ -923,7 +1098,7 @@ export class HarnessService {
       }
     }
     let verified = false;
-    if (step?.verify && step.id === stepId && h.state[i].status === 'active') {
+    if (step?.verify) {
       const result = cwd
         ? await (this.deps.runVerify ?? runShell)(cwd, step.verify)
         : { ok: false, output: 'Orbital does not know this session\'s directory.' };
@@ -940,17 +1115,27 @@ export class HarnessService {
     if (!result.ok) return `Not ticked: ${result.error}`;
     const endHead = await this.head(sessionId);
     const index = current.steps.findIndex((s) => s.id === stepId);
-    const state = endHead ? patchStep(result.state, index, { endHead }) : result.state;
+    // Ticks come one after another, so what was committed since the last one
+    // is this step's: the other open steps' ranges start here (spec
+    // 2026-10-06-harness-graph-and-proposals-design § Records and git).
+    const state = endHead
+      ? result.state.map((s, j) => (j === index ? { ...s, endHead } : s.status === 'active' && s.startedAt !== undefined ? { ...s, startHead: endHead } : s))
+      : result.state;
     const saved = this.save({ ...current, state, idleNudges: 0 });
     this.tickedThisTurn.set(sessionId, this.lastAgentText.get(sessionId) ?? '');
     this.logStep(current, index, 'ticked', {
       summary: record.summary, verify: verified ? 'passed' : null, gate: current.steps[index].mode === 'gate',
+      unlocked: result.unlocked.map((j) => current.steps[j].id),
     });
     if (result.outcome === 'finished') {
       this.log(sessionId, 'finished');
       return 'Ticked. Every step of the checklist is done — end with a short summary for the user.';
     }
     if (result.outcome === 'awaiting_approval') {
+      const who = saved.options.lucky ? 'a reviewer looks at it' : 'the user reviews it';
+      if (openIndexes(saved.state).length > 0) {
+        return `Ticked. This step is a gate: ${who} before the steps that need it. Carry on with the open steps meanwhile.\n\n${statusText(saved)}`;
+      }
       return saved.options.lucky
         ? 'Ticked. This step is a gate: a reviewer looks at it before the next step. End your turn with a short summary.'
         : 'Ticked. This step is a gate: the user reviews it before the next step. End your turn with a short summary of what they should look at.';
@@ -981,15 +1166,15 @@ export class HarnessService {
       instructions:
         'Orbital harness: when this session follows a checklist, tick each step with harness_complete_step as you finish it.',
       tools: [
-        tool(TOOL_STATUS, 'The Orbital harness checklist of this session and the active step\'s instructions.', {}, () => {
+        tool(TOOL_STATUS, 'The Orbital harness checklist of this session and the open steps\' instructions.', {}, () => {
           const h = this.get(sessionId);
           return Promise.resolve({ content: [{ type: 'text' as const, text: h ? statusText(h) : 'This session has no harness.' }] });
         }, { alwaysLoad: true }),
         tool(
           TOOL_COMPLETE,
-          'Tick the active step of this session\'s Orbital harness checklist once its done-criteria hold. Runs the step\'s verify command first when it has one.',
+          'Tick an open step of this session\'s Orbital harness checklist once its done-criteria hold. Runs the step\'s verify command first when it has one.',
           {
-            step_id: z.string().describe('The id of the active step.'),
+            step_id: z.string().describe('The id of the open step that is done.'),
             summary: z.string().describe('What was done in this step and where it is.'),
             decisions: z
               .array(z.object({
@@ -1027,6 +1212,7 @@ export class HarnessService {
                 mode: z.enum(['auto', 'gate']),
                 doneWhen: z.string(),
                 verify: z.string().optional(),
+                dependsOn: z.array(z.string()).optional(),
               }),
             ),
           },
@@ -1039,8 +1225,32 @@ export class HarnessService {
             return Promise.resolve({ content: [{ type: 'text' as const, text }] });
           },
         ),
+        tool(
+          TOOL_PROPOSE,
+          'Propose an Orbital harness for this session — a checklist worked out with the user, without a template — or a change to the harness it runs. The user applies, edits or discards it in Orbital; nothing runs until they apply it. A newer proposal replaces one they have not decided yet. Answers with the problem when it is not valid.',
+          {
+            harness: z.object({
+              name: z.string(),
+              steps: z.array(STEP_SCHEMA),
+            }).optional().describe('A whole harness, when the session has none.'),
+            changes: z.object({
+              add: z.array(STEP_SCHEMA).optional().describe('New steps, appended in this order.'),
+              update: z.array(STEP_SCHEMA).optional().describe('Open or pending steps, by id, replaced whole.'),
+              remove: z.array(z.string()).optional().describe('Ids of open or pending steps to drop.'),
+            }).optional().describe('A change to the running harness.'),
+            note: z.string().optional().describe('One or two sentences for the user: why.'),
+          },
+          ({ harness, changes, note }) => {
+            const result = this.propose(sessionId, harness ? { kind: 'harness', harness } : changes ? { kind: 'changes', changes } : null, note ?? null);
+            const text = result.ok
+              ? 'Proposed. The user applies, edits or discards it in Orbital. Tell them in a sentence what you proposed; do not start on it before it is applied.'
+              : `Not proposed: ${result.error}. Fix it and call ${TOOL_PROPOSE} again.`;
+            return Promise.resolve({ content: [{ type: 'text' as const, text }] });
+          },
+          { alwaysLoad: true },
+        ),
       ],
-      allowedTools: [TOOL_STATUS, TOOL_COMPLETE, TOOL_SAVE_TEMPLATE].map((name) => `mcp__${HARNESS_MCP_SERVER}__${name}`),
+      allowedTools: [TOOL_STATUS, TOOL_COMPLETE, TOOL_SAVE_TEMPLATE, TOOL_PROPOSE].map((name) => `mcp__${HARNESS_MCP_SERVER}__${name}`),
     };
   }
 
@@ -1125,10 +1335,13 @@ export class HarnessService {
     }
   }
 
-  /** Sends the next step's instructions and records the message that began it. */
-  private async advanceTo(h: SessionHarness, index: number, opts: { revive?: boolean } = {}): Promise<void> {
-    const uuid = await this.sendOnOwn(h, advanceMessage(h, index), { kind: 'advance', step: index }, opts);
-    if (uuid !== null || opts.revive) await this.stepStarted(h.sessionId, index, uuid);
+  /** Sends the agent on to the open steps and records the message that began those new to it. */
+  private async advanceTo(h: SessionHarness, opts: { revive?: boolean } = {}): Promise<void> {
+    const open = openIndexes(h.state);
+    if (open.length === 0) return;
+    const step = open.find((i) => h.state[i].startedAt === undefined) ?? open[0];
+    const uuid = await this.sendOnOwn(h, advanceMessage(h), { kind: 'advance', step }, opts);
+    if (uuid !== null || opts.revive) await this.openStepsStarted(h.sessionId, uuid);
   }
 
   /** The reviewer's model: the harness's choice, else the session's, else the fallback. */
@@ -1196,13 +1409,13 @@ export class HarnessService {
         verdict: review.verdict, uncertain: review.uncertain, reason: review.reasoning,
       });
       if (review.verdict === 'approve') {
-        const approved = approve(reviewed, index, 'reviewer')!;
+        const approved = approve(current.steps, reviewed, index, 'reviewer')!;
         this.logStep(current, index, 'approved', { by: 'reviewer' });
         const saved = this.save({ ...current, state: approved, idleNudges: 0 });
-        const next = activeIndex(approved);
-        if (next === -1) this.log(sessionId, 'finished');
-        // Paused: the next step is active but not sent; resuming sends it.
-        else if (!saved.paused && this.deps.isEnabled()) await this.advanceTo(saved, next, { revive: true });
+        const opened = openIndexes(approved).some((i) => current.state[i].status !== 'active');
+        if (isFinished(approved)) this.log(sessionId, 'finished');
+        // Paused: the next steps are active but not sent; resuming sends them.
+        else if (opened && !saved.paused && this.deps.isEnabled()) await this.advanceTo(saved, { revive: true });
         return;
       }
       const reopened = reviewerReopen(reviewed, index)!;
@@ -1237,6 +1450,8 @@ export class HarnessService {
       await this.review(sessionId, decision.index);
       return;
     }
+    // The agent goes on with the open steps; a gate waiting meanwhile is reviewed alongside.
+    this.reviewIfWaiting(h);
     if (decision.kind === 'pause') {
       this.log(sessionId, 'paused', { by: 'harness', kind: decision.pauseKind, reason: decision.reason });
       this.pause(h, decision.pauseKind, decision.reason);
@@ -1245,16 +1460,15 @@ export class HarnessService {
     if (decision.kind === 'advance') {
       const saved = this.save({ ...h, autoRounds: h.autoRounds + 1 });
       this.logStep(h, decision.index, 'advanced');
-      await this.advanceTo(saved, decision.index);
+      await this.advanceTo(saved);
       return;
     }
 
-    const step = h.steps[decision.index];
     const lastText = this.lastAgentText.get(sessionId) ?? '';
     let verdict;
     try {
       const reply = await this.deps.askWatcher(
-        buildWatcherPrompt(h.name, checklistLines(h.steps, h.state), step, lastText),
+        buildWatcherPrompt(h.name, checklistLines(h.steps, h.state), openIndexes(h.state).map((i) => h.steps[i]), lastText),
       );
       verdict = parseWatcherReply(reply);
     } catch (err) {
@@ -1272,7 +1486,7 @@ export class HarnessService {
       // Progress was made: an advance, not a nudge, so the nudge cap stays put.
       const saved = this.save({ ...current, autoRounds: current.autoRounds + 1 });
       this.logStep(h, decision.index, 'advanced', { agent: lastText.slice(-1500) });
-      await this.advanceTo(saved, decision.index);
+      await this.advanceTo(saved);
       return;
     }
     const nudges = (current.state[decision.index].nudges ?? 0) + 1;
@@ -1285,6 +1499,6 @@ export class HarnessService {
     this.logStep(h, decision.index, 'nudged', {
       agent: lastText.slice(-1500), n: saved.idleNudges, of: saved.options.maxIdleNudges,
     });
-    await this.sendOnOwn(saved, nudgeMessage(saved, decision.index), { kind: 'nudge', step: decision.index });
+    await this.sendOnOwn(saved, nudgeMessage(saved), { kind: 'nudge', step: decision.index });
   }
 }

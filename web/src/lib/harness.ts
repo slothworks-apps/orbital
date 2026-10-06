@@ -65,6 +65,11 @@ const EVENT_WORD: Record<HarnessEvent['kind'], string> = {
   went_back: 'went back to',
   removed: 'removed',
   carried_over: 'carried over',
+  proposed: 'proposed',
+  proposal_applied: 'proposal applied',
+  proposal_discarded: 'proposal discarded',
+  proposal_superseded: 'proposal superseded',
+  edited: 'edited',
 }
 
 /** One line of the panel's log: what happened, to which step, and why when the harness said. */

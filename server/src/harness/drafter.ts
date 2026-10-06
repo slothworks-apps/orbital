@@ -37,7 +37,8 @@ step by step. JSON shape:
     "instructions": "What the agent does in this step, concretely. May use {{figma}}.",
     "mode": "auto" | "gate",
     "doneWhen": "Checkable criteria for the step being done.",
-    "verify": "optional shell command that must exit 0"
+    "verify": "optional shell command that must exit 0",
+    "dependsOn": ["optional: ids of earlier steps it needs"]
   }]
 }
 
@@ -51,6 +52,10 @@ What makes a good template:
   outward: pushing, merging, opening a PR or sending anything to anyone is
   not part of any step. The last step prepares it (a gate, "PR description
   and screenshots ready locally"), and the user does the outward part.
+- A step without dependsOn needs the step before it. Give dependsOn only
+  where the work really branches: a step that needs other steps than the one
+  before it, or none ([]), so independent parts are open at the same time
+  and a gate holds back only what depends on it.
 - doneWhen is concrete and checkable, never "the step is complete".
 - verify only when the command is certain for this kind of project; leave it
   out otherwise.

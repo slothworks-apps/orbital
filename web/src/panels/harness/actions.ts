@@ -22,6 +22,18 @@ export async function act(
   }
 }
 
+/** Runs a harness route for a dialog: the error it answered with, to show there, or null when it went through. */
+export async function attempt(sessionId: string, call: () => Promise<{ harness: SessionHarness }>): Promise<string | null> {
+  try {
+    const { harness } = await call()
+    useOrbital.setState((s) => ({ harnesses: { ...s.harnesses, [sessionId]: harness } }))
+    void useOrbital.getState().loadHarness(sessionId)
+    return null
+  } catch (err) {
+    return err instanceof Error ? err.message : 'Could not save'
+  }
+}
+
 /**
  * Whether going back ends something that runs — a turn, a background task, a
  * subagent: then the dialog is Rewind v2's amber "Stop the session and go

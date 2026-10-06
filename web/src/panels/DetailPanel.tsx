@@ -1015,6 +1015,7 @@ export function DetailPanel({
                   // two — it hears `decision_pending` directly.
                   state={stateKey}
                   gate={gateWaits(session)}
+                  working={session.status === 'working'}
                 />
               )}
               {/* Subagent list spec § 1: the chip is as tall as the badge,
