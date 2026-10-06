@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.21.0] — 2026-10-06
 ### Added
 - A harness can branch: a step names the steps it needs, independent steps are open at the same time, and a gate holds back only what depends on it. The checklist draws the branches in its margin.
 - The agent can propose a harness for the session you are talking in, or a change to the one it runs; you attach, edit or discard it from the harness panel. A harness no longer needs a template, and Save as template turns one into a template afterwards.
