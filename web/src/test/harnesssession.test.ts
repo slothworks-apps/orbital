@@ -159,6 +159,13 @@ describe('a waiting gate as the session state', () => {
     expect(sessionStateKey({ ...base, harnessGate: 'reviewing' })).toBe('done')
   })
 
+  it('asks at once while the agent works on other steps, and so does a proposal', () => {
+    const working = { ...base, status: 'working' as const }
+    expect(sessionStateKey({ ...working, harnessGate: 'waiting' })).toBe('needs_input')
+    expect(statePill({ ...working, harnessGate: 'proposal' })?.label).toBe('NEEDS YOUR OK')
+    expect(sessionStateKey({ ...working, harnessGate: 'reviewing' })).toBe('working')
+  })
+
   it('holds the dot still', () => {
     expect(stateDot('needs_input', 'label', true).motion).toBe('steady')
     expect(stateDot('needs_input', 'label').motion).toBe('breathe')
@@ -167,7 +174,7 @@ describe('a waiting gate as the session state', () => {
 
 describe('the store', () => {
   beforeEach(() => {
-    vi.spyOn(api, 'getSessionHarness').mockResolvedValue({ harness: null, removed: null, events: [] })
+    vi.spyOn(api, 'getSessionHarness').mockResolvedValue({ harness: null, removed: null, events: [], proposal: null })
     useOrbital.setState((s) => ({
       harnessPanel: null, subagentPanel: null, taskOutput: null, transcripts: { s1: [] },
       ui: { ...s.ui, selectedId: 's1' },

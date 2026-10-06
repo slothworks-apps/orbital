@@ -18,6 +18,7 @@ import { isMacAsleep, useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
 import { Glyph } from './Glyph'
+import { HarnessStrip } from './HarnessStrip'
 import { SessionComposer } from './SessionComposer'
 
 const EMPTY: ChatMessage[] = []
@@ -159,6 +160,7 @@ function SessionView({ id }: { id: string }) {
           )}
         </div>
       )}
+      {!offline && <HarnessStrip sessionId={id} />}
     </div>
   )
 

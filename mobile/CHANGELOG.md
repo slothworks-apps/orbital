@@ -3,6 +3,8 @@
 All notable changes to the Android app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+### Added
+- A session with a harness shows it under its header: open it to see the checklist with its branches, approve a gate, or attach or discard what the agent proposed.
 
 ## [0.1.2] — 2026-10-05
 ### Changed

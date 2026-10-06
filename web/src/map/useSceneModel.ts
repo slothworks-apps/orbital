@@ -101,6 +101,7 @@ export function useSceneModel(): SceneModel {
           harnessEvents: {},
           harnessEventsMore: {},
           harnessRemoved: {},
+          harnessProposals: {},
           harnessPanel: null,
           harnessTemplatesFocus: null,
           ui: {

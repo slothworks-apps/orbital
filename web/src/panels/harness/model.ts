@@ -6,6 +6,7 @@
  * never durations (30d RULES, 30g).
  */
 
+import { currentIndex, descendantsOf } from '../../lib/harnessGraph'
 import type { HarnessEvent, HarnessStep, PauseKind, SessionHarness, StepReview, StepState } from '../../lib/types'
 
 /** 24 h clock time, `22:46` (30g: "times are clock times, never “12 min ago”"). */
@@ -191,9 +192,13 @@ export function recordMeta(kind: StepKind, step: HarnessStep, state: StepState, 
 /** The header's status (30b/30d): the word and its ink. */
 export function headerStatus(harness: SessionHarness, kinds: readonly StepKind[]): { step: string; status: string; ink: string } {
   const total = harness.steps.length
-  const current = kinds.findIndex((k) => !isDone(k))
+  const current = currentIndex(harness.state)
   if (current === -1) return { step: `${total} of ${total} done`, status: 'finished', ink: MUT }
-  const step = `step ${current + 1} of ${total}`
+  // Branches open at once: the header names them all.
+  const open = harness.state.flatMap((s, i) => (s.status === 'active' ? [i + 1] : []))
+  const step = open.length > 1 && harness.state[current].status === 'active'
+    ? `steps ${open.join(', ')} of ${total}`
+    : `step ${current + 1} of ${total}`
   if (harness.paused) return { step, status: 'paused', ink: NEU }
   switch (kinds[current]) {
     case 'waiting':
@@ -436,19 +441,30 @@ export function runSpan(harness: SessionHarness, events: readonly HarnessEvent[]
   return end ? `${start} → ${clock(end)}` : start
 }
 
-/** Steps a go-back to `index` turns pending again: it and every later one that has begun. */
+/**
+ * Steps a go-back to `index` turns pending again: it and every step that
+ * needs it, through others too, that has begun. Other branches keep theirs.
+ */
 export function stepsGoingBack(harness: SessionHarness, index: number): number[] {
-  const out: number[] = []
-  for (let i = index; i < harness.steps.length; i++) {
-    if (i === index || harness.state[i]?.status !== 'pending') out.push(i)
-  }
-  return out
+  return [index, ...descendantsOf(harness.steps, index).filter((i) => harness.state[i]?.status !== 'pending')]
 }
 
-/** "3–4" or "3" for the go-back dialog's copy. */
+/**
+ * Steps of other branches the agent finished after `index` began: a go-back
+ * keeps them done, but the rewind and the reset it offers reach past them.
+ */
+export function finishedSince(harness: SessionHarness, index: number): number[] {
+  const since = harness.state[index]?.startedAt
+  if (since === undefined) return []
+  const going = new Set(stepsGoingBack(harness, index))
+  return harness.state.flatMap((s, i) => (!going.has(i) && s.status === 'done' && (s.completedAt ?? 0) > since ? [i] : []))
+}
+
+/** "3–4", "3" or "3, 5, 6" for the go-back dialog's copy. */
 export function stepRange(indices: readonly number[]): string {
   if (indices.length === 0) return ''
-  const first = indices[0] + 1
-  const last = indices[indices.length - 1] + 1
-  return first === last ? String(first) : `${first}–${last}`
+  const n = indices.map((i) => i + 1)
+  const contiguous = n.every((v, k) => k === 0 || v === n[k - 1] + 1)
+  if (n.length === 1) return String(n[0])
+  return contiguous ? `${n[0]}–${n[n.length - 1]}` : n.join(', ')
 }

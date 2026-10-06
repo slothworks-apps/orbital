@@ -4,8 +4,14 @@ import { api } from '../../lib/api'
 import { copyToClipboard } from '../../lib/clipboard'
 import type { HarnessEvent, SessionHarness, StepState } from '../../lib/types'
 import { MENU_SEPARATOR, MenuButton, type MenuEntry } from '../../ui/Menu'
-import { act } from './actions'
+import { gutterLayout, type GutterRow } from '../../lib/harnessGraph'
+import { diffSteps } from '../../lib/harnessGraph'
+import { reportError } from '../../lib/errors'
+import { act, attempt } from './actions'
 import { RemoveDialog } from './dialogs'
+import { GutterCell, GutterPass, LANE_PX } from './Gutter'
+import { ProposalCard } from './ProposalCard'
+import { StepsDialog } from './StepsDialog'
 import { recordMarkdown } from './markdown'
 import {
   MARKER,
@@ -28,7 +34,7 @@ import {
   stepWho,
   type StepKind,
 } from './model'
-import { AccentLink, FilledButton, HeadButton, HeaderBlock, Kicker, Label, Marker, OutlineButton, ScopeChip, Switch, type Chrome } from './parts'
+import { AccentLink, FilledButton, HeadButton, HeaderBlock, Kicker, Label, OutlineButton, ScopeChip, Switch, type Chrome } from './parts'
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -79,14 +85,15 @@ interface StepProps {
   state: StepState
   own: HarnessEvent[]
   open: boolean
-  last: boolean
+  row: GutterRow
+  lanes: number
   readOnly: boolean
   onToggle: () => void
   onRecord: () => void
 }
 
 /** One step on the rail (30d): marker, title, mono line; the open ones carry their box. */
-function StepRow({ sessionId, harness, index, kind, state, own, open, last, readOnly, onToggle, onRecord }: StepProps) {
+function StepRow({ sessionId, harness, index, kind, state, own, open, row, lanes, readOnly, onToggle, onRecord }: StepProps) {
   const step = harness.steps[index]
   const m = MARKER[kind]
   const who = stepWho(kind, step, state, harness, own)
@@ -101,12 +108,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
 
   return (
     <div className="flex gap-2.5">
-      <div className="flex w-[14px] shrink-0 flex-col items-center">
-        <span className="mt-[5px]">
-          <Marker kind={kind} gate={isGateShape(kind, step)} />
-        </span>
-        {!last && <span aria-hidden className="mt-[7px] block w-px flex-1 bg-[rgba(150,205,255,.12)]" />}
-      </div>
+      <GutterCell row={row} lanes={lanes} kind={kind} gate={isGateShape(kind, step)} />
       <div className="flex min-w-0 flex-1 flex-col gap-[9px] pb-[15px]">
         <button type="button" onClick={onToggle} aria-expanded={open} className="flex flex-col gap-1 text-left">
           <span className="text-pretty text-[12.5px] font-semibold leading-[1.42]" style={{ color: m.titleInk }}>
@@ -202,12 +204,15 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
   )
 }
 
-/** A harness-level event between the steps (30g): a dashed row. */
-function EventRow({ text }: { text: string }) {
+/** A harness-level event between the steps (30g): a dashed row; the branches' lines pass it by. */
+function EventRow({ text, lanes, below }: { text: string; lanes: number; below: number[] }) {
   return (
-    <div className="-mt-1 mb-3.5 flex items-center gap-2 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
-      <span className="flex w-[14px] shrink-0 justify-center">
-        <span aria-hidden className="block h-[1.4px] w-[7px] bg-[rgba(160,190,225,.6)]" />
+    <div className="relative -mt-1 mb-3.5 flex items-center gap-2 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
+      <GutterPass below={below} />
+      <span className="flex shrink-0" style={{ width: lanes * LANE_PX }}>
+        <span className="flex w-[14px] justify-center">
+          <span aria-hidden className="block h-[1.4px] w-[7px] bg-[rgba(160,190,225,.6)]" />
+        </span>
       </span>
       <span className="shrink-0">{text}</span>
       <span
@@ -265,8 +270,12 @@ export function RunningView({
 }) {
   const [toggled, setToggled] = useState<Record<number, boolean>>({})
   const [removing, setRemoving] = useState(false)
+  const [editing, setEditing] = useState(false)
   const openTemplates = useOrbital((s) => s.openHarnessTemplates)
+  const proposal = useOrbital((s) => s.harnessProposals[sessionId]) ?? null
+  const cwd = useOrbital((s) => s.sessions[sessionId]?.cwd)
   const steps = useSteps(harness, events)
+  const gutter = gutterLayout(harness.steps)
   const kinds = steps.map((s) => s.kind)
   const head = headerStatus(harness, kinds)
   const chip = scopeChip(harness, events)
@@ -274,10 +283,25 @@ export function RunningView({
   const auto = !harness.paused
 
   const templateId = harness.templateId
+  const finished = harness.state.flatMap((s, i) => (s.status === 'done' || s.status === 'awaiting_approval' ? [harness.steps[i].id] : []))
+  // The steps as they run now become a template of this project, opened in Settings to name and tidy.
+  const saveAsTemplate = async () => {
+    try {
+      const t = await api.createHarnessTemplate({
+        name: harness.name, description: '', tags: [], inputs: [], steps: harness.steps, options: harness.options,
+        ...(cwd ? { scope: { kind: 'project', root: cwd } } : {}),
+      })
+      openTemplates({ templateId: t.id })
+    } catch (err) {
+      reportError(err, 'Failed to save the harness as a template')
+    }
+  }
   const menu: MenuEntry[] = [
     ...(templateId !== null && !chrome.inWindow && !readOnly
       ? [{ key: 'template', label: 'Open template in Settings', onSelect: () => openTemplates({ templateId: templateId ?? undefined }) }]
       : []),
+    ...(readOnly ? [] : [{ key: 'edit', label: 'Edit steps…', onSelect: () => setEditing(true) }]),
+    ...(chrome.inWindow ? [] : [{ key: 'save', label: 'Save as template…', onSelect: () => void saveAsTemplate() }]),
     {
       key: 'copy',
       label: 'Copy record as Markdown',
@@ -378,12 +402,20 @@ export function RunningView({
       </HeaderBlock>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[18px] pb-1 pt-4">
+        {proposal && !readOnly && (
+          <div className="mb-4">
+            <ProposalCard sessionId={sessionId} harness={harness} proposal={proposal} />
+          </div>
+        )}
         {railItems(harness, events).map((item, n, items) => {
-          if (item.kind === 'event') return <EventRow key={`e${item.event.id}`} text={item.text} />
+          if (item.kind === 'event') {
+            const before = items.slice(0, n).reverse().find((x) => x.kind === 'step')
+            const below = before?.kind === 'step' ? gutter.rows[before.index].below : []
+            return <EventRow key={`e${item.event.id}`} text={item.text} lanes={gutter.lanes} below={below} />
+          }
           const i = item.index
           const s = steps[i]
           const open = toggled[i] ?? opensByDefault(s.kind)
-          const last = !items.slice(n + 1).some((x) => x.kind === 'step')
           return (
             <StepRow
               key={harness.steps[i].id}
@@ -394,7 +426,8 @@ export function RunningView({
               state={s.state}
               own={s.own}
               open={open}
-              last={last}
+              row={gutter.rows[i]}
+              lanes={gutter.lanes}
               readOnly={readOnly}
               onToggle={() => setToggled((t) => ({ ...t, [i]: !open }))}
               onRecord={() => onRecord(i)}
@@ -409,6 +442,27 @@ export function RunningView({
         {!readOnly && <span className="shrink-0">⎋ close</span>}
       </div>
 
+      {!readOnly && (
+        <StepsDialog
+          open={editing}
+          eyebrow="EDIT STEPS"
+          title={harness.name}
+          steps={harness.steps}
+          locked={finished}
+          saveLabel="Save and tell the agent"
+          onClose={() => setEditing(false)}
+          onSave={async (steps) => {
+            const changes = diffSteps(harness.steps, steps)
+            if (Object.keys(changes).length === 0) {
+              setEditing(false)
+              return null
+            }
+            const error = await attempt(sessionId, () => api.editHarnessSteps(sessionId, changes))
+            if (!error) setEditing(false)
+            return error
+          }}
+        />
+      )}
       {!readOnly && (
         <RemoveDialog
           open={removing}

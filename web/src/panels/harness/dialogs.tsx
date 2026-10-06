@@ -3,7 +3,7 @@ import { Dialog } from '../../ui/Dialog'
 import { Button } from '../../ui/Button'
 import { copyToClipboard } from '../../lib/clipboard'
 import type { SessionHarness } from '../../lib/types'
-import { pad2, shortSha, stepRange, stepsGoingBack } from './model'
+import { finishedSince, pad2, shortSha, stepRange, stepsGoingBack } from './model'
 
 /** "Copy" → "Copied" for this long (30e). */
 export const COPIED_MS = 2000
@@ -91,6 +91,7 @@ export function GoBackDialog({
   const state = harness.state[i]
   const going = stepsGoingBack(harness, i)
   const range = stepRange(going)
+  const kept = finishedSince(harness, i)
   const n = i + 1
   const git = state?.startHead ? `git reset --hard ${shortSha(state.startHead)}` : null
 
@@ -136,6 +137,13 @@ export function GoBackDialog({
               </li>
             ))}
           </ul>
+        )}
+        {kept.length > 0 && (
+          <p className="mt-3 text-pretty text-[12px] leading-[1.55] text-[rgba(160,190,225,.7)]">
+            {kept.length > 1 ? `Steps ${stepRange(kept)} stay done` : `Step ${kept[0] + 1} stays done`}: another branch, finished
+            after step {n} began. The conversation goes back past {kept.length > 1 ? 'them' : 'it'}, and the reset below would
+            drop {kept.length > 1 ? 'their' : 'its'} commits too.
+          </p>
         )}
         {git && state?.startHead && (
           <>

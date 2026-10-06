@@ -22,6 +22,8 @@ export interface HarnessStep {
   doneWhen: string;
   /** Shell command run in the session's cwd; exit 0 is required to tick. */
   verify?: string;
+  /** The ids of the steps this one depends on. Absent means "the step before it"; [] makes it a root. */
+  dependsOn?: string[];
 }
 
 export type StepStatus = 'pending' | 'active' | 'awaiting_approval' | 'done';
@@ -115,8 +117,8 @@ export interface StepState {
 export interface PreviousRun extends Omit<StepState, 'previousRuns' | 'reviewing' | 'reviewerOff' | 'unsentFindings'> {
   /** When it was set aside (epoch ms). */
   endedAt: number;
-  /** `went_back`: "before going back"; `reopened`: the user reopened the gate. */
-  reason: 'went_back' | 'reopened';
+  /** `went_back`: "before going back"; `reopened`: the user reopened the gate; `edited`: the harness was edited. */
+  reason: 'went_back' | 'reopened' | 'edited';
 }
 
 /** Where a template is offered: everywhere, or in one project's sessions only. */
@@ -147,7 +149,7 @@ export interface HarnessTemplate {
 export type PauseKind = 'user' | 'nudge_cap' | 'message_cap' | 'review_failed' | 'send_failed' | 'session_ended';
 
 /** What Orbital sent into the session on the harness's account. */
-export type HarnessMessageKind = 'kickoff' | 'advance' | 'nudge' | 'findings';
+export type HarnessMessageKind = 'kickoff' | 'advance' | 'nudge' | 'findings' | 'edited';
 
 export interface SessionHarness {
   sessionId: string;
@@ -201,14 +203,23 @@ export type HarnessEventKind =
   /** The harness left the session; its records are kept. */
   | 'removed'
   /** The harness came over from another session (Clear → new session). */
-  | 'carried_over';
+  | 'carried_over'
+  /** The agent proposed a harness or a change to it; the user applies or discards it. */
+  | 'proposed'
+  | 'proposal_applied'
+  | 'proposal_discarded'
+  /** A newer proposal replaced one the user had not decided yet. */
+  | 'proposal_superseded'
+  /** The checklist was changed while it ran: by the user, or by a proposal they applied. */
+  | 'edited';
 
 /**
  * A session's harness gate as the session's state sees it: `waiting` is
  * NEEDS YOUR OK (the session reads `needs_input`), `reviewing` is REVIEWER
- * READING (spec 2026-10-02-harness-redesign-design § 2).
+ * READING (spec 2026-10-02-harness-redesign-design § 2), `proposal` is a
+ * pending proposal waiting for the user (spec 2026-10-06-harness-graph-and-proposals).
  */
-export type HarnessGate = 'waiting' | 'reviewing';
+export type HarnessGate = 'waiting' | 'reviewing' | 'proposal';
 
 /** A project as harness scopes know it: a git repository's root, or a plain directory. */
 export interface HarnessProject {
@@ -223,3 +234,26 @@ export interface HarnessEvent {
   kind: HarnessEventKind;
   detail: Record<string, unknown>;
 }
+
+/** A change to a running harness: steps added at the end, changed in place, removed. */
+export interface HarnessChanges {
+  add?: HarnessStep[];
+  update?: HarnessStep[];
+  remove?: string[];
+}
+
+/** A harness the agent worked out in the conversation, without a template. */
+export interface ProposedHarness {
+  name: string;
+  steps: HarnessStep[];
+}
+
+/**
+ * What the agent proposed with `harness_propose` and the user has not taken
+ * or discarded yet: a whole harness, or a change to the running one (spec
+ * 2026-10-06-harness-graph-and-proposals-design § Proposals).
+ */
+export type HarnessProposal = (
+  | { kind: 'harness'; harness: ProposedHarness }
+  | { kind: 'changes'; changes: HarnessChanges }
+) & { note: string | null; createdAt: number };

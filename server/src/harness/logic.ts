@@ -5,7 +5,7 @@
  */
 
 import {
-  DEFAULT_OPTIONS, type HarnessGate, type HarnessInput, type HarnessOptions, type HarnessStep, type PauseKind,
+  DEFAULT_OPTIONS, type HarnessChanges, type HarnessGate, type HarnessInput, type HarnessOptions, type HarnessStep, type PauseKind,
   type PreviousRun, type SessionHarness, type StepDecision, type StepReview, type StepState,
 } from './types.js';
 
@@ -41,24 +41,56 @@ export function snapshotSteps(steps: HarnessStep[], inputs: Record<string, strin
   }));
 }
 
+/** The ids a step needs: the ones it names, or the step before it when it names none. */
+export function depsOf(steps: HarnessStep[], index: number): string[] {
+  return steps[index].dependsOn ?? (index === 0 ? [] : [steps[index - 1].id]);
+}
+
 export function initialState(steps: HarnessStep[]): StepState[] {
-  return steps.map((_, i) => ({ status: i === 0 ? 'active' : 'pending' }));
+  return promote(steps, steps.map(() => ({ status: 'pending' })));
 }
 
-/** The first step not done, or -1 when every step is. */
-export function activeIndex(state: StepState[]): number {
-  return state.findIndex((s) => s.status !== 'done');
+/** Every step done. */
+export function isFinished(state: StepState[]): boolean {
+  return state.every((s) => s.status === 'done');
 }
 
-/** Promotes the first step not done to `active`, if it is still `pending`. */
-function promote(state: StepState[]): StepState[] {
-  const i = activeIndex(state);
-  if (i === -1 || state[i].status !== 'pending') return state;
-  return state.map((s, j) => (j === i ? { status: 'active' } : s));
+/** The steps open for work: every `active` one, in checklist order. */
+export function openIndexes(state: StepState[]): number[] {
+  return state.flatMap((s, i) => (s.status === 'active' ? [i] : []));
+}
+
+/** The steps the agent finished that wait at their gate, in checklist order. */
+export function gateIndexes(state: StepState[]): number[] {
+  return state.flatMap((s, i) => (s.status === 'awaiting_approval' ? [i] : []));
+}
+
+/** The steps that need `index`, directly or through others. */
+export function descendantsOf(steps: HarnessStep[], index: number): Set<number> {
+  const ids = new Set([steps[index].id]);
+  const found = new Set<number>();
+  // Steps only depend on earlier ones, so one pass in order finds them all.
+  for (let j = index + 1; j < steps.length; j++) {
+    if (depsOf(steps, j).some((id) => ids.has(id))) {
+      ids.add(steps[j].id);
+      found.add(j);
+    }
+  }
+  return found;
+}
+
+/** The ids `index` still waits for. */
+function waitingFor(steps: HarnessStep[], state: StepState[], index: number): string[] {
+  return depsOf(steps, index).filter((id) => state[steps.findIndex((s) => s.id === id)]?.status !== 'done');
+}
+
+/** Opens every pending step whose steps it needs are all done. */
+function promote(steps: HarnessStep[], state: StepState[]): StepState[] {
+  return state.map((s, i) => (s.status === 'pending' && waitingFor(steps, state, i).length === 0 ? { ...s, status: 'active' } : s));
 }
 
 export type TickResult =
-  | { ok: true; state: StepState[]; outcome: 'advanced' | 'awaiting_approval' | 'finished' }
+  | { ok: true; state: StepState[]; outcome: 'advanced' | 'awaiting_approval' | 'finished'; unlocked: number[] }
   | { ok: false; error: string };
 
 /** What the agent writes into a step's record when it ticks it. */
@@ -68,27 +100,37 @@ export interface TickRecord {
   openQuestions: string[];
 }
 
+/** The steps a change opened: active now, not before. */
+function opened(before: StepState[], after: StepState[]): number[] {
+  return after.flatMap((s, i) => (s.status === 'active' && before[i]?.status !== 'active' ? [i] : []));
+}
+
 /**
- * The agent says the active step is done. Only the active step can be ticked:
- * a checklist that lets a later step go first stops being a checklist.
+ * The agent says a step is done. Any open step can be ticked; a step whose
+ * steps it needs are not done yet cannot — the graph is still a checklist.
  */
 export function tick(
   steps: HarnessStep[], state: StepState[], stepId: string, record: TickRecord, now: number,
 ): TickResult {
-  const i = activeIndex(state);
-  if (i === -1) return { ok: false, error: 'Every step is already done.' };
+  if (isFinished(state)) return { ok: false, error: 'Every step is already done.' };
+  const open = openIndexes(state).map((i) => `"${steps[i].id}"`).join(', ') || 'none';
   const index = steps.findIndex((s) => s.id === stepId);
-  if (index === -1) return { ok: false, error: `No step "${stepId}". The active step is "${steps[i].id}".` };
-  if (index !== i) return { ok: false, error: `Step "${stepId}" is not the active step. The active step is "${steps[i].id}".` };
-  if (state[i].status === 'awaiting_approval') {
+  if (index === -1) return { ok: false, error: `No step "${stepId}". The open steps are: ${open}.` };
+  const status = state[index].status;
+  if (status === 'awaiting_approval') {
     return { ok: false, error: `Step "${stepId}" is already done and waits for the user's approval.` };
   }
-  const gate = steps[i].mode === 'gate';
+  if (status === 'done') return { ok: false, error: `Step "${stepId}" is already done. The open steps are: ${open}.` };
+  if (status === 'pending') {
+    return { ok: false, error: `Step "${stepId}" waits for ${waitingFor(steps, state, index).map((id) => `"${id}"`).join(', ')}. The open steps are: ${open}.` };
+  }
+  const gate = steps[index].mode === 'gate';
   // What Orbital recorded when the step began (heads, the message) stays.
-  const ticked: StepState = { ...state[i], ...record, status: gate ? 'awaiting_approval' : 'done', completedAt: now };
-  const next = promote(state.map((s, j) => (j === i ? ticked : s)));
-  if (gate) return { ok: true, state: next, outcome: 'awaiting_approval' };
-  return { ok: true, state: next, outcome: activeIndex(next) === -1 ? 'finished' : 'advanced' };
+  const ticked: StepState = { ...state[index], ...record, status: gate ? 'awaiting_approval' : 'done', completedAt: now };
+  const next = promote(steps, state.map((s, j) => (j === index ? ticked : s)));
+  const unlocked = opened(state, next);
+  if (gate) return { ok: true, state: next, outcome: 'awaiting_approval', unlocked };
+  return { ok: true, state: next, outcome: isFinished(next) ? 'finished' : 'advanced', unlocked };
 }
 
 /** A step leaving its gate: whatever was going on around the review is over. */
@@ -98,15 +140,17 @@ function offGate(s: StepState): StepState {
 }
 
 /** A gate step the agent finished is approved — by the user, or by the reviewer. */
-export function approve(state: StepState[], index: number, by: 'user' | 'reviewer' = 'user'): StepState[] | null {
+export function approve(
+  steps: HarnessStep[], state: StepState[], index: number, by: 'user' | 'reviewer' = 'user',
+): StepState[] | null {
   if (state[index]?.status !== 'awaiting_approval') return null;
-  return promote(state.map((s, j) => (j === index ? { ...offGate(s), status: 'done', approvedBy: by } : s)));
+  return promote(steps, state.map((s, j) => (j === index ? { ...offGate(s), status: 'done', approvedBy: by } : s)));
 }
 
 /**
  * The reviewer sends a gate step back to the agent. It keeps the step's
  * record — the reviews are the point — and touches no other step: nothing
- * after a gate has started yet.
+ * that needs the gate has started yet.
  */
 export function reviewerReopen(state: StepState[], index: number): StepState[] | null {
   if (state[index]?.status !== 'awaiting_approval') return null;
@@ -146,24 +190,32 @@ export function userReopen(state: StepState[], index: number, now: number): Step
 
 /**
  * "Go back here": the checklist reopens from a step the agent finished. It
- * becomes active again and every step after it pending — what followed was
- * built on it — and each one's record so far is kept as a previous run,
- * "before going back" (spec 2026-10-02-harness-redesign-design § 6).
+ * becomes active again and every step that needs it pending — what followed
+ * was built on it — and each one's record so far is kept as a previous run,
+ * "before going back" (spec 2026-10-02-harness-redesign-design § 6). Other
+ * branches keep theirs (spec 2026-10-06-harness-graph-and-proposals-design).
  */
-export function goBack(state: StepState[], index: number, now: number): StepState[] | null {
+export function goBack(steps: HarnessStep[], state: StepState[], index: number, now: number): StepState[] | null {
   const target = state[index];
   if (!target || target.status === 'pending' || target.status === 'active') return null;
-  return state.map((s, j) =>
-    j < index ? s : withRuns({ status: j === index ? 'active' : 'pending' }, setAside(s, now, 'went_back')),
-  );
+  const after = descendantsOf(steps, index);
+  return state.map((s, j) => {
+    if (j === index) return withRuns({ status: 'active' }, setAside(s, now, 'went_back'));
+    return after.has(j) ? withRuns({ status: 'pending' }, setAside(s, now, 'went_back')) : s;
+  });
 }
 
-/** The gate the session's state shows, or null when no step waits at one. */
-export function gateOf(h: Pick<SessionHarness, 'state' | 'removedAt'>): HarnessGate | null {
-  if (h.removedAt !== null) return null;
-  const i = activeIndex(h.state);
-  if (i === -1 || h.state[i].status !== 'awaiting_approval') return null;
-  return h.state[i].reviewing ? 'reviewing' : 'waiting';
+/**
+ * What the session's state shows of its harness: a gate waiting for the user,
+ * or a proposal waiting for them — both NEEDS YOUR OK — else a gate a
+ * reviewer is reading, else null.
+ */
+export function gateOf(h: Pick<SessionHarness, 'state' | 'removedAt'> | null, proposal = false): HarnessGate | null {
+  const live = h && h.removedAt === null ? h : null;
+  const gates = live ? gateIndexes(live.state).map((i) => live.state[i]) : [];
+  if (gates.some((s) => !s.reviewing)) return 'waiting';
+  if (proposal) return 'proposal';
+  return gates.length > 0 ? 'reviewing' : null;
 }
 
 /** A review, added to the step's record. */
@@ -211,18 +263,23 @@ export function reviewerTakes(h: SessionHarness, index: number): boolean {
 
 /** What the harness does when a turn of its session ends (spec § At the end of a turn). */
 export function decideTurnEnd(h: SessionHarness, facts: TurnFacts): TurnDecision {
-  const i = activeIndex(h.state);
+  const open = openIndexes(h.state);
+  const gates = gateIndexes(h.state);
+  const reviewable = gates.find((i) => reviewerTakes(h, i));
   // A gate ticked by hand while paused is still reviewed; nothing else happens while paused.
   if (h.paused) {
-    return i !== -1 && reviewerTakes(h, i) && !facts.decisionPending ? { kind: 'review', index: i } : { kind: 'wait', reason: 'paused' };
+    return reviewable !== undefined && !facts.decisionPending ? { kind: 'review', index: reviewable } : { kind: 'wait', reason: 'paused' };
   }
   if (facts.decisionPending || facts.backgroundWork) return { kind: 'wait', reason: 'busy' };
-  if (i === -1) return { kind: 'wait', reason: 'finished' };
-  const { options } = h;
-  if (h.state[i].status === 'awaiting_approval') {
-    if (h.state[i].reviewing) return { kind: 'wait', reason: 'reviewing' };
-    return reviewerTakes(h, i) ? { kind: 'review', index: i } : { kind: 'wait', reason: 'awaiting_approval' };
+  if (isFinished(h.state)) return { kind: 'wait', reason: 'finished' };
+  // Only gates are left. With steps still open, the agent goes on with them
+  // while a gate waits; the service hands such gates to the reviewer alongside.
+  if (open.length === 0) {
+    if (gates.some((i) => h.state[i].reviewing)) return { kind: 'wait', reason: 'reviewing' };
+    return reviewable !== undefined ? { kind: 'review', index: reviewable } : { kind: 'wait', reason: 'awaiting_approval' };
   }
+  const { options } = h;
+  const i = open[0];
   // Lucky means "run until it is done": no cap on rounds, only on getting stuck.
   if (!options.lucky && h.autoRounds >= options.maxAutoRounds) {
     return {
@@ -236,10 +293,16 @@ export function decideTurnEnd(h: SessionHarness, facts: TurnFacts): TurnDecision
   if (h.idleNudges >= options.maxIdleNudges) {
     return {
       kind: 'pause', pauseKind: 'nudge_cap',
-      reason: `Stuck: ${options.maxIdleNudges} nudges without a tick. The agent keeps ending its turn on step ${i + 1} without ticking it.`,
+      reason: `Stuck: ${options.maxIdleNudges} nudges without a tick. The agent keeps ending its turn on ${stepNames(h, open)} without ticking it.`,
     };
   }
   return { kind: 'ask_watcher', index: i, afterTick: false };
+}
+
+/** "step 3" or "steps 3 and 6". */
+function stepNames(h: SessionHarness, indexes: number[]): string {
+  const n = indexes.map((i) => String(i + 1));
+  return n.length === 1 ? `step ${n[0]}` : `steps ${n.slice(0, -1).join(', ')} and ${n.at(-1)}`;
 }
 
 export function checklistLines(steps: HarnessStep[], state: StepState[]): string {
@@ -248,7 +311,11 @@ export function checklistLines(steps: HarnessStep[], state: StepState[]): string
       const s = state[i]?.status ?? 'pending';
       const mark = s === 'done' ? '[x]' : s === 'awaiting_approval' ? '[~]' : s === 'active' ? '[>]' : '[ ]';
       const gate = step.mode === 'gate' ? ' (gate: the user approves it)' : '';
-      return `${mark} ${i + 1}. ${step.title} — id \`${step.id}\`${gate}`;
+      // Only a step that names its own dependencies says them; the rest follow the one before.
+      const needs = step.dependsOn
+        ? ` — needs ${step.dependsOn.length ? step.dependsOn.map((id) => steps.findIndex((x) => x.id === id) + 1).join(', ') : 'nothing'}`
+        : '';
+      return `${mark} ${i + 1}. ${step.title} — id \`${step.id}\`${gate}${needs}`;
     })
     .join('\n');
 }
@@ -262,7 +329,25 @@ function howToTick(options: HarnessOptions): string {
   const commit = options.commitPerStep
     ? ' Before ticking, commit the step\'s work locally with a message naming the step (never push); Orbital refuses the tick while the working tree has uncommitted changes.'
     : '';
-  return `When a step is done, call the \`harness_complete_step\` tool with its id, a summary of what you did, the decisions you made (what, why, what else you considered) and anything the user should still look at. That record is what the user reads later, so make the reasons real.${commit} Tick only the active step. Do not stop to ask whether to continue with the next step: Orbital sends you on. Stop and ask only when you need a real decision or information only the user has, or before anything outward (push, merge, PR, deleting data).`;
+  return `When a step is done, call the \`harness_complete_step\` tool with its id, a summary of what you did, the decisions you made (what, why, what else you considered) and anything the user should still look at. That record is what the user reads later, so make the reasons real.${commit} Tick only an open step ([>]); a step marked [ ] waits for the steps it needs. Do not stop to ask whether to continue with the next step: Orbital sends you on. Stop and ask only when you need a real decision or information only the user has, or before anything outward (push, merge, PR, deleting data).`;
+}
+
+/**
+ * Where the checklist stands, for the agent: the gates waiting for the user,
+ * then each open step — in full when it has not begun yet, or always when
+ * `full` — or that every step is done.
+ */
+function where(h: SessionHarness, full: boolean): string {
+  const open = openIndexes(h.state);
+  const gates = gateIndexes(h.state).map((i) => open.length === 0
+    ? `Step ${i + 1} "${h.steps[i].title}" is done and waits for the user's approval. Do not start the next step until Orbital sends it.`
+    : `Step ${i + 1} "${h.steps[i].title}" is done and waits for the user's approval; the steps that need it wait too.`);
+  const blocks = open.map((i) => full || open.length === 1 || h.state[i].startedAt === undefined
+    ? stepBlock(h.steps[i], i)
+    : `Step ${i + 1} "${h.steps[i].title}" is in progress. Done when: ${h.steps[i].doneWhen}`);
+  if (open.length > 1) blocks.unshift(`${stepNames(h, open)[0].toUpperCase()}${stepNames(h, open).slice(1)} are open: work through them one at a time, in any order, and tick each as it is done.`);
+  if (gates.length === 0 && blocks.length === 0) return 'Every step is done.';
+  return [...gates, ...blocks].join('\n\n');
 }
 
 export function kickoffMessage(h: SessionHarness, inputs: HarnessInput[]): string {
@@ -270,25 +355,50 @@ export function kickoffMessage(h: SessionHarness, inputs: HarnessInput[]): strin
     .filter((input) => h.inputs[input.key]?.trim())
     .map((input) => `- ${input.label}: ${h.inputs[input.key]}`)
     .join('\n');
-  const i = Math.max(activeIndex(h.state), 0);
-  // A harness carried into a new session may stand at a gate the user has not decided yet.
-  const tail = h.state[i]?.status === 'awaiting_approval'
-    ? `Step ${i + 1} "${h.steps[i].title}" is done and waits for the user's approval. Do not start the next step until Orbital sends it.`
-    : stepBlock(h.steps[i], i);
   return [
     `This session follows the Orbital harness "${h.name}". The checklist:`,
     checklistLines(h.steps, h.state),
     given ? `Inputs:\n${given}` : '',
     howToTick(h.options),
-    tail,
+    where(h, true),
   ].filter(Boolean).join('\n\n');
 }
 
-export function advanceMessage(h: SessionHarness, index: number): string {
+/** Sends the agent on: the open steps, those that have not begun in full. */
+export function advanceMessage(h: SessionHarness): string {
+  const open = openIndexes(h.state);
   return [
-    `Harness "${h.name}": continue with step ${index + 1} of ${h.steps.length}.`,
-    stepBlock(h.steps[index], index),
+    open.length === 1
+      ? `Harness "${h.name}": continue with step ${open[0] + 1} of ${h.steps.length}.`
+      : `Harness "${h.name}": continue.`,
+    where(h, false),
     `Checklist:\n${checklistLines(h.steps, h.state)}`,
+  ].join('\n\n');
+}
+
+/** What changed in a checklist, by step id. */
+export interface ChecklistDiff {
+  added: string[];
+  changed: string[];
+  removed: string[];
+}
+
+/** The checklist changed under the agent: what changed, and where it stands now. */
+export function editedMessage(h: SessionHarness, diff: ChecklistDiff, by: 'user' | 'agent'): string {
+  const title = (id: string) => {
+    const i = h.steps.findIndex((s) => s.id === id);
+    return i === -1 ? `\`${id}\`` : `${i + 1} "${h.steps[i].title}"`;
+  };
+  const parts = [
+    diff.added.length ? `added ${diff.added.map(title).join(', ')}` : '',
+    diff.changed.length ? `changed ${diff.changed.map(title).join(', ')}` : '',
+    diff.removed.length ? `removed ${diff.removed.map((id) => `\`${id}\``).join(', ')}` : '',
+  ].filter(Boolean);
+  const who = by === 'agent' ? 'The user accepted the changes you proposed' : 'The user changed the checklist';
+  return [
+    `Harness "${h.name}": ${who}: ${parts.join('; ') || 'nothing'}.`,
+    `Checklist:\n${checklistLines(h.steps, h.state)}`,
+    where(h, false),
   ].join('\n\n');
 }
 
@@ -303,21 +413,19 @@ export function reviewerReopenMessage(h: SessionHarness, index: number, review: 
   ].join('\n\n');
 }
 
-export function nudgeMessage(h: SessionHarness, index: number): string {
-  const step = h.steps[index];
-  return `Harness "${h.name}": step ${index + 1} "${step.title}" is not ticked yet. Nothing in the checklist needs the user here, so carry on with it. Done when: ${step.doneWhen}. When it is done, call \`harness_complete_step\` with id \`${step.id}\`.`;
+export function nudgeMessage(h: SessionHarness): string {
+  const open = openIndexes(h.state);
+  if (open.length === 1) {
+    const step = h.steps[open[0]];
+    return `Harness "${h.name}": step ${open[0] + 1} "${step.title}" is not ticked yet. Nothing in the checklist needs the user here, so carry on with it. Done when: ${step.doneWhen}. When it is done, call \`harness_complete_step\` with id \`${step.id}\`.`;
+  }
+  const list = open.map((i) => `- ${i + 1} "${h.steps[i].title}" (id \`${h.steps[i].id}\`): done when ${h.steps[i].doneWhen}`).join('\n');
+  return `Harness "${h.name}": ${stepNames(h, open)} are open and not ticked yet. Nothing in the checklist needs the user here, so carry on with them, one at a time. When one is done, call \`harness_complete_step\` with its id.\n\n${list}`;
 }
 
-/** What `harness_status` answers: the checklist and the active step in full. */
+/** What `harness_status` answers: the checklist and every open step in full. */
 export function statusText(h: SessionHarness): string {
-  const i = activeIndex(h.state);
-  const tail =
-    i === -1
-      ? 'Every step is done.'
-      : h.state[i].status === 'awaiting_approval'
-        ? `Step ${i + 1} is done and waits for the user's approval.`
-        : stepBlock(h.steps[i], i);
-  return `Harness "${h.name}"${h.paused ? ' (paused)' : ''}\n\n${checklistLines(h.steps, h.state)}\n\n${tail}`;
+  return `Harness "${h.name}"${h.paused ? ' (paused)' : ''}\n\n${checklistLines(h.steps, h.state)}\n\n${where(h, true)}`;
 }
 
 /** A template scope as a request names it: global, or a project by its absolute root. */
@@ -354,6 +462,91 @@ export function validateTemplate(t: { name?: unknown; inputs?: unknown; steps?: 
     if (step.mode !== 'auto' && step.mode !== 'gate') return `step "${step.id}" mode must be auto or gate`;
     if (typeof step.doneWhen !== 'string') return `step "${step.id}" needs done criteria`;
     if (step.verify !== undefined && typeof step.verify !== 'string') return `step "${step.id}" verify must be a command`;
+    if (step.dependsOn !== undefined && (!Array.isArray(step.dependsOn) || step.dependsOn.some((d) => typeof d !== 'string'))) {
+      return `step "${step.id}" dependsOn must be a list of step ids`;
+    }
+  }
+  return validateGraph(t.steps as HarnessStep[]);
+}
+
+/**
+ * Why the steps do not form a checklist graph, or null. A step may need only
+ * steps before it, which also rules out every cycle; the array order stays
+ * the order the checklist is read in.
+ */
+export function validateGraph(steps: HarnessStep[]): string | null {
+  const seen = new Set<string>();
+  const all = new Set(steps.map((s) => s.id));
+  for (const step of steps) {
+    for (const id of step.dependsOn ?? []) {
+      if (id === step.id) return `step "${step.id}" depends on itself`;
+      if (!all.has(id)) return `step "${step.id}" depends on "${id}", which is not a step`;
+      if (!seen.has(id)) return `step "${step.id}" depends on "${id}", which comes after it; move it before`;
+    }
+    seen.add(step.id);
   }
   return null;
+}
+
+export type ApplyResult =
+  | { ok: true; steps: HarnessStep[]; state: StepState[]; diff: ChecklistDiff; opened: number[] }
+  | { ok: false; error: string };
+
+/**
+ * Edits a running harness (spec 2026-10-06-harness-graph-and-proposals-design
+ * § Edits by the user). A step done or at its gate cannot change; going back
+ * to it is how it is redone. Removing a step hands what it needed to the
+ * steps that needed it. An open step whose steps it needs are no longer all
+ * done waits again, its record so far kept as an `edited` previous run.
+ */
+export function applyChanges(
+  steps: HarnessStep[], state: StepState[], changes: HarnessChanges, now: number,
+): ApplyResult {
+  const add = changes.add ?? [];
+  const update = changes.update ?? [];
+  const remove = changes.remove ?? [];
+  const index = new Map(steps.map((s, i) => [s.id, i]));
+  const locked = (id: string) => {
+    const status = state[index.get(id)!].status;
+    return status === 'done' || status === 'awaiting_approval';
+  };
+  for (const id of [...update.map((s) => s.id), ...remove]) {
+    if (!index.has(id)) return { ok: false, error: `there is no step "${id}"` };
+    if (locked(id)) return { ok: false, error: `step "${id}" is finished; go back to it to change it` };
+  }
+  for (const step of add) {
+    if (index.has(step.id)) return { ok: false, error: `step id "${step.id}" is used already` };
+  }
+  // Every dependency written out, so removing or adding a step moves none by accident.
+  let next: HarnessStep[] = steps.map((s, i) => ({ ...s, dependsOn: depsOf(steps, i) }));
+  for (const changed of update) {
+    next = next.map((s) => (s.id === changed.id ? { ...changed, dependsOn: changed.dependsOn ?? s.dependsOn } : s));
+  }
+  for (const id of remove) {
+    const gone = next.find((s) => s.id === id)!;
+    next = next
+      .filter((s) => s.id !== id)
+      .map((s) => (s.dependsOn!.includes(id)
+        ? { ...s, dependsOn: [...new Set(s.dependsOn!.flatMap((d) => (d === id ? gone.dependsOn! : [d])))] }
+        : s));
+  }
+  for (const step of add) {
+    next.push({ ...step, dependsOn: step.dependsOn ?? (next.length ? [next[next.length - 1].id] : []) });
+  }
+  const error = validateTemplate({ name: 'harness', tags: [], inputs: [], steps: next });
+  if (error) return { ok: false, error: error === 'a template needs at least one step' ? 'a harness needs at least one step' : error };
+  const byId = new Map(steps.map((s, i) => [s.id, state[i]]));
+  const placed: StepState[] = next.map((s) => byId.get(s.id) ?? { status: 'pending' });
+  const waiting = placed.map((s, i) => {
+    if (s.status !== 'active' || waitingFor(next, placed, i).length === 0) return s;
+    return withRuns({ status: 'pending' }, setAside(s, now, 'edited'));
+  });
+  const promoted = promote(next, waiting);
+  return {
+    ok: true,
+    steps: next,
+    state: promoted,
+    diff: { added: add.map((s) => s.id), changed: update.map((s) => s.id), removed: [...remove] },
+    opened: opened(placed, promoted),
+  };
 }

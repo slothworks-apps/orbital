@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { effectiveTagIds } from '../tags/rules.js';
-import { compactionFailures, pendingRewinds, sessionHarnesses } from '../db/schema.js';
+import { compactionFailures, pendingRewinds, sessionHarnessProposals, sessionHarnesses } from '../db/schema.js';
 import { gateOf } from '../harness/logic.js';
 import type { HarnessGate } from '../harness/types.js';
 import type { OrbitalDb } from '../db/database.js';
@@ -199,8 +199,10 @@ export interface ApiSession {
   purpose: SessionPurpose | null;
   /**
    * The session's harness stands at a gate: `waiting` — NEEDS YOUR OK, and the
-   * session reads `needs_input` — or `reviewing`, REVIEWER READING. Null
-   * without a harness or a gate (spec 2026-10-02-harness-redesign-design § 2).
+   * session reads `needs_input` — or `reviewing`, REVIEWER READING; or the
+   * agent proposed a harness or a change, `proposal`, NEEDS YOUR OK as well.
+   * Null without any (spec 2026-10-02-harness-redesign-design § 2,
+   * 2026-10-06-harness-graph-and-proposals-design).
    */
   harnessGate: HarnessGate | null;
   /**
@@ -220,7 +222,12 @@ export function harnessGateOf(db: OrbitalDb, sessionId: string): HarnessGate | n
     .from(sessionHarnesses)
     .where(eq(sessionHarnesses.sessionId, sessionId))
     .get();
-  return row ? gateOf(row) : null;
+  const proposal = db
+    .select({ sessionId: sessionHarnessProposals.sessionId })
+    .from(sessionHarnessProposals)
+    .where(eq(sessionHarnessProposals.sessionId, sessionId))
+    .get();
+  return gateOf(row ?? null, proposal !== undefined);
 }
 
 /** The session's pending rewind as the snapshot carries it, or null. */
@@ -269,7 +276,8 @@ export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
   // A gate waiting for the user is the session's state, asleep or not: it is
   // their turn (spec 2026-10-02-harness-redesign-design § 2). A live session
   // at a gate already reads `needs_input` from the Runner — its turn ended.
-  return harnessGateOf(ctx.db, row.id) === 'waiting' ? 'needs_input' : 'idle';
+  const gate = harnessGateOf(ctx.db, row.id);
+  return gate === 'waiting' || gate === 'proposal' ? 'needs_input' : 'idle';
 }
 
 /**

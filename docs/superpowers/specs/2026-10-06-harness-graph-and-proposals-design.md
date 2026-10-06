@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-harness-graph-and-proposals-design
 title: Harness graph and proposals — branching steps, one-off harnesses, edits while it runs
-status: draft
+status: done
 type: spec
 domain: sessions
 related:
@@ -222,11 +222,14 @@ panel: the steps as they stand, with the filled-in values left as written
 
 ## The phone
 
-- **Proposals and gates:** the phone shows the proposal card and can Apply
-  or Discard; it already approves gates. The two proposal routes go into
-  `server/src/remote/allowlist.ts`.
-- **The checklist:** the phone's harness view shows the gutter graph
-  read-only through the shared component.
+- **The phone had no harness at all before this** (none of its routes was
+  on the allowlist). It gets the minimum: reading the harness, approving a
+  gate, applying or discarding a proposal. `GET /api/sessions/:id/harness`,
+  `…/steps/:index/approve`, `…/proposal/apply` and `…/proposal/discard` go
+  into `server/src/remote/allowlist.ts`; starting, editing, reopening and
+  going back stay on the Mac.
+- **The checklist:** a strip under the session screen's header opens the
+  checklist with its gutter, read-only but for Approve on a waiting gate.
 - **Editing the graph is left out on purpose**: a dependency editor does
   not fit a phone screen, and Edit on the phone opens nothing. Written down
   as [[harness-graph-editor-on-the-phone]].
@@ -251,6 +254,40 @@ New kinds: `proposed { kind }`, `proposal_applied { by }`,
 - `harness_propose`: the validation path returns errors to the agent.
 - Existing harness tests keep passing unchanged — the compatibility claim
   of the implicit `dependsOn`.
+
+## As built
+
+Where the build settled what the spec left open or changed it:
+
+- **`harness_propose`** takes `{ harness: { name, steps } }` or
+  `{ changes }`, plus `note`. A proposed harness has no inputs and runs on
+  the default options; the panel's switches change them after attaching.
+- **Edit on a proposal** sends the user's version along:
+  `POST …/proposal/apply` takes an optional `{ harness: { name, steps } }`
+  or `{ changes }` of the proposal's kind, checked as the agent's would be.
+- **The user's edit** is `PUT /api/sessions/:id/harness/steps`
+  `{ add?, update?, remove? }` → `{ harness }`. Added steps go at the end;
+  an added step without `dependsOn` needs the step before it.
+- **Delivery.** An approval, an edit or an applied change that opens steps
+  is delivered at once through the composer's path; a running turn takes it
+  after the turn, so "waits for the turn's end" holds without a queue of
+  its own. Paused, nothing is sent; resuming sends the open steps.
+- **The state.** A live session at a waiting gate or proposal stays
+  `working` on the server; the client's `sessionStateKey` reads it as
+  NEEDS INPUT (worded NEEDS YOUR OK), and the session panel's chip says
+  NEEDS YOUR OK · STILL WORKING.
+- **Notifications** (`shared/src/notifications.ts`): an upsert that turns
+  `harnessGate` to `waiting` or `proposal` while the session stays
+  `working` notifies once, "Needs your OK". The turn end that follows,
+  `working → needs_input` with the gate still waiting, is not news again.
+- **The full window** names each step's needs on its line (`← 2, 3`)
+  rather than drawing boxes and arrows; the side panel's gutter is the
+  graph.
+- **Go back** warns when steps of other branches finished after the target
+  step began: they stay done, but the conversation's rewind and the
+  `git reset` the dialog offers reach past them.
+- **Save as template** writes the running steps as a template of the
+  session's project and opens it in Settings.
 
 ## Open
 

@@ -72,6 +72,8 @@ type Known = {
   status: string;
   /** `title ?? basename(cwd)` from the last upsert — status frames carry neither. */
   name: string | null;
+  /** A harness gate or proposal waits for the user's OK, as of the last upsert. */
+  asks: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -86,6 +88,18 @@ function str(value: unknown): string | null {
 
 /** The body of a `working → needs_input` transition; a consumer that words it its own way compares against this. */
 export const NEEDS_INPUT_BODY = 'Needs your input';
+
+/**
+ * The body when a harness gate or proposal starts waiting while the agent
+ * works on other steps (spec 2026-10-06-harness-graph-and-proposals-design §
+ * A gate while other work goes on).
+ */
+export const NEEDS_OK_BODY = 'Needs your OK';
+
+/** A session's `harnessGate` that waits for the user. */
+function asksForOk(gate: unknown): boolean {
+  return gate === 'waiting' || gate === 'proposal';
+}
 
 /** The body of a transition worth reporting, or null when it is not one. */
 function bodyFor(from: string, to: string): string | null {
@@ -147,7 +161,7 @@ export class SessionNotifier {
       const id = str(session.id);
       if (!id) return null;
       const name = str(session.title) ?? this.cwdName(session.cwd);
-      return this.record(id, session.status, name);
+      return this.record(id, session.status, name, asksForOk(session.harnessGate));
     }
 
     if (frame.event === 'status') {
@@ -168,7 +182,7 @@ export class SessionNotifier {
    * Fold one status sighting in. `name`, when given, replaces what we knew —
    * a session gets titled after it starts, so the newest upsert wins.
    */
-  private record(id: string, rawStatus: unknown, name: string | null): SessionNotification | null {
+  private record(id: string, rawStatus: unknown, name: string | null, asks?: boolean): SessionNotification | null {
     const status = str(rawStatus);
     const known = this.seen.get(id);
 
@@ -176,20 +190,26 @@ export class SessionNotifier {
       // Unknown status on a first sighting: remember the name, but do not
       // invent a state we would later report a transition away from.
       if (!status || !STATUSES.has(status)) return null;
-      this.seen.set(id, { status, name });
+      this.seen.set(id, { status, name, asks: asks ?? false });
       return null;
     }
 
     if (name) known.name = name;
     if (!status || !STATUSES.has(status)) return null;
 
-    const body = bodyFor(known.status, status);
+    // Status frames do not carry the gate: what the last upsert said holds.
+    const announced = known.asks;
+    known.asks = asks ?? known.asks;
+    // A gate or a proposal while the agent works on: news now, once, not
+    // at the turn's end — and that turn's end is not news a second time.
+    const gateNews = known.status === 'working' && status === 'working' && known.asks && !announced;
+    const body = gateNews ? NEEDS_OK_BODY : bodyFor(known.status, status);
     known.status = status;
-    if (!body) return null;
+    if (!body || (body === NEEDS_INPUT_BODY && announced && known.asks)) return null;
     // Muted AFTER the fold, and gated on the transition rather than on the
     // body text: `seen` stays true either way, so turning a row back on
     // reports the next transition instead of replaying a stale one.
-    if (status === 'needs_input' && !this.settings.needsInput) return null;
+    if ((status === 'needs_input' || gateNews) && !this.settings.needsInput) return null;
     if (status === 'ended' && !this.settings.sessionEnded) return null;
     return { title: known.name ?? FALLBACK_TITLE, body, sessionId: id };
   }

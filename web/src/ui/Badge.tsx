@@ -19,6 +19,8 @@ export type BadgeProps =
        * NEEDS YOUR OK, its dot steady (canvas 30a-d).
        */
       gate?: boolean
+      /** The agent still works on other steps meanwhile: NEEDS YOUR OK · STILL WORKING. */
+      working?: boolean
     }
   | {
       /**
@@ -196,7 +198,7 @@ export function Badge(props: BadgeProps) {
           // WORKING keeps its glow; its dot is the state cyan now, not the tag hue.
           glow={state === 'working'}
         />
-        {gate ? 'NEEDS YOUR OK' : stateWord(state, awaiting)}
+        {gate ? (props.working ? 'NEEDS YOUR OK · STILL WORKING' : 'NEEDS YOUR OK') : stateWord(state, awaiting)}
       </span>
     )
   }

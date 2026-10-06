@@ -3,6 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import { tagColor, type HarnessInput, type HarnessStep, type KnownHarnessProject, type StepMode, type Tag, type TemplateScope } from '../../lib/types'
 import { Checkbox } from '../../ui/Checkbox'
 import { MenuButton } from '../../ui/Menu'
+import { depsOf } from '../../lib/harnessGraph'
 import { inputUsage } from './logic'
 import { newStep, type EditorDraft } from './editorDraft'
 import {
@@ -92,28 +93,73 @@ function StepMark({ mode }: { mode: StepMode }) {
   )
 }
 
+/**
+ * NEEDS: which earlier steps this one waits for, one chip each (spec
+ * 2026-10-06-harness-graph-and-proposals-design). A step that names none
+ * needs the one before it; picking exactly that one goes back to naming none.
+ */
+function NeedsChips({ steps, index, onChange }: { steps: readonly HarnessStep[]; index: number; onChange: (dependsOn: string[] | undefined) => void }) {
+  if (index === 0) return null
+  const needs = new Set(depsOf(steps, index))
+  const toggle = (id: string) => {
+    const next = steps.slice(0, index).map((s) => s.id).filter((d) => (d === id ? !needs.has(d) : needs.has(d)))
+    onChange(next.length === 1 && next[0] === steps[index - 1].id ? undefined : next)
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <span className={FIELD_LABEL}>NEEDS · {needs.size === 0 ? 'nothing, starts at once' : 'starts once these are done'}</span>
+      <div className="flex flex-wrap gap-1.5">
+        {steps.slice(0, index).map((s, i) => (
+          <button
+            key={s.id}
+            type="button"
+            aria-pressed={needs.has(s.id)}
+            onClick={() => toggle(s.id)}
+            className={[
+              'max-w-[220px] truncate rounded-md border px-2 py-[3px] text-left font-mono text-[10px]',
+              needs.has(s.id)
+                ? 'border-[oklch(85%_.12_205_/_.55)] bg-[oklch(85%_.12_205_/_.1)] text-[#e8eef8]'
+                : 'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.6)] hover:text-[rgba(220,235,255,.85)]',
+            ].join(' ')}
+          >
+            {String(i + 1).padStart(2, '0')} {s.title.trim() || 'Untitled step'}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** One step, one line when closed; the open one carries its fields (30k). */
-function StepCard({
-  step,
+export function StepCard({
+  steps,
   index,
-  count,
   open,
   known,
+  locked = false,
+  note = 'inputs resolve when the harness starts · a gate waits for an OK once ticked',
   onToggle,
   onMove,
   onChange,
   onRemove,
 }: {
-  step: HarnessStep
+  /** Every step, for the step's number and the earlier ones it may need. */
+  steps: readonly HarnessStep[]
   index: number
-  count: number
   open: boolean
   known: ReadonlySet<string>
+  /** A step a running harness has finished: shown, not changed (go back to it to redo it). */
+  locked?: boolean
+  note?: string
   onToggle: () => void
-  onMove: (by: -1 | 1) => void
+  /** Absent where the order is not the user's to change. */
+  onMove?: (by: -1 | 1) => void
   onChange: (patch: Partial<HarnessStep>) => void
   onRemove: () => void
 }) {
+  const step = steps[index]
+  const count = steps.length
+  const named = step.dependsOn?.map((id) => steps.findIndex((s) => s.id === id) + 1).filter((n) => n > 0)
   const arrow = 'cursor-pointer px-[3px] text-[8px] leading-none text-[rgba(200,220,245,.75)] disabled:cursor-default disabled:opacity-30'
   return (
     <div
@@ -123,25 +169,33 @@ function StepCard({
       ].join(' ')}
     >
       <div className="flex items-center gap-2.5 py-[7px] pl-2.5 pr-2">
-        <span className="flex flex-col gap-px">
-          <button type="button" aria-label="Move up" disabled={index === 0} onClick={() => onMove(-1)} className={arrow}>
-            ▲
-          </button>
-          <button type="button" aria-label="Move down" disabled={index === count - 1} onClick={() => onMove(1)} className={arrow}>
-            ▼
-          </button>
-        </span>
+        {onMove && (
+          <span className="flex flex-col gap-px">
+            <button type="button" aria-label="Move up" disabled={index === 0} onClick={() => onMove(-1)} className={arrow}>
+              ▲
+            </button>
+            <button type="button" aria-label="Move down" disabled={index === count - 1} onClick={() => onMove(1)} className={arrow}>
+              ▼
+            </button>
+          </span>
+        )}
         <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{String(index + 1).padStart(2, '0')}</span>
         <StepMark mode={step.mode} />
         <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
           <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">
             {step.title.trim() ? <KeyedText text={step.title} known={known} /> : <span className="text-[rgba(160,190,225,.5)]">Untitled step</span>}
           </span>
-          <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">{step.mode}</span>
+          {named && <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">← {named.length ? named.join(', ') : 'none'}</span>}
+          <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">{locked ? 'done' : step.mode}</span>
           <span className="w-2.5 text-[9px] text-[rgba(160,190,225,.6)]">{open ? '▾' : '▸'}</span>
         </button>
       </div>
-      {open && (
+      {open && locked && (
+        <div className="pb-3 pl-[42px] pr-3 pt-1 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+          finished · go back to it from its record to redo it
+        </div>
+      )}
+      {open && !locked && (
         <div className="flex flex-col gap-2.5 pb-3 pl-[42px] pr-3 pt-1">
           <div className="flex items-center gap-2.5">
             <input
@@ -195,8 +249,9 @@ function StepCard({
               />
             </label>
           </div>
+          <NeedsChips steps={steps} index={index} onChange={(dependsOn) => onChange({ dependsOn })} />
           <div className="flex items-center gap-2.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
-            inputs resolve when the harness starts · a gate waits for an OK once ticked
+            {note}
             <span className="flex-1" />
             <button type="button" onClick={onRemove} className="text-[rgba(220,235,255,.8)] hover:text-text-bright">
               Remove step
@@ -462,9 +517,8 @@ export function TemplateEditor({
         {draft.steps.map((step, i) => (
           <StepCard
             key={step.id}
-            step={step}
+            steps={draft.steps}
             index={i}
-            count={draft.steps.length}
             open={openStep === step.id}
             known={known}
             onToggle={() => setOpenStep(openStep === step.id ? null : step.id)}

@@ -37,7 +37,7 @@ import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
 import { registerRoutes } from './api/routes.js';
-import { statusOf, toApiSession, type ShapeContext } from './api/shape.js';
+import { harnessGateOf, statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
@@ -49,7 +49,6 @@ import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
 import { DRAFT_SYSTEM_PROMPT } from './harness/drafter.js';
 import { askReviewer } from './harness/reviewer.js';
-import { gateOf } from './harness/logic.js';
 import type { HarnessGate } from './harness/types.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
@@ -484,10 +483,11 @@ export async function buildServer(overrides: {
         systemPrompt: DRAFT_SYSTEM_PROMPT, model, claudeExecutablePath: claudeCli.path,
       }),
     publish: (sessionId, h) => {
-      hub.publish(`session:${sessionId}`, { event: 'harness', harness: h });
-      // A gate waiting or being reviewed is the session's state (spec
-      // 2026-10-02-harness-redesign-design § 2): republish the session when it flips.
-      const gate = h ? gateOf(h) : null;
+      hub.publish(`session:${sessionId}`, { event: 'harness', harness: h, proposal: harness.proposal(sessionId) });
+      // A gate waiting or being reviewed, or a proposal waiting, is the
+      // session's state (spec 2026-10-02-harness-redesign-design § 2): republish
+      // the session when it flips — at the tick, not only when the turn ends.
+      const gate = harnessGateOf(db, sessionId);
       if ((harnessGates.get(sessionId) ?? null) !== gate) {
         harnessGates.set(sessionId, gate);
         republish(sessionId);

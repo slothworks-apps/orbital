@@ -4,6 +4,7 @@ import { api } from '../../lib/api'
 import { reportError } from '../../lib/errors'
 import type { HarnessProject, HarnessTemplate } from '../../lib/types'
 import { HeaderBlock, Kicker, Marker, ScopeMark, Switch, type Chrome } from './parts'
+import { ProposalCard } from './ProposalCard'
 
 /** "required unless the hint says optional" (30c). */
 export const isOptional = (hint: string | undefined) => /optional/i.test(hint ?? '')
@@ -139,6 +140,7 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
   const [lucky, setLucky] = useState(false)
   const [busy, setBusy] = useState(false)
   const openTemplates = useOrbital((s) => s.openHarnessTemplates)
+  const proposal = useOrbital((s) => s.harnessProposals[sessionId]) ?? null
 
   useEffect(() => {
     let live = true
@@ -219,6 +221,11 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
         </div>
       </HeaderBlock>
       <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-[18px] py-[14px]" role="radiogroup" aria-label="Templates">
+        {proposal?.kind === 'harness' && (
+          <div className="mb-2.5">
+            <ProposalCard sessionId={sessionId} harness={null} proposal={proposal} />
+          </div>
+        )}
         {!data ? null : (
           <>
             {projectName && (
@@ -270,6 +277,11 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
             {!projectName && globalTemplates.length === 0 && (
               <div className="text-pretty text-[12.5px] leading-[1.55] text-[rgba(200,214,235,.85)]">
                 No harness templates yet. Create one in Settings → Harness templates.
+              </div>
+            )}
+            {!proposal && (
+              <div className="pt-2 font-mono text-[9.5px] leading-[1.6] text-[rgba(160,190,225,.5)]">
+                or talk the work through with the agent and ask it to propose a harness · it shows up here
               </div>
             )}
           </>

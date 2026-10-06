@@ -12,6 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { DEFAULT_DRAFT_MODEL, DRAFT_MODELS, INTERVIEW_PROMPT, MAX_EVENTS_PAGE, type Deliver, type TemplateBody } from '../harness/service.js';
 import { projectRootOf } from '../harness/project.js';
 import { isScope } from '../harness/logic.js';
+import type { HarnessChanges, HarnessStep } from '../harness/types.js';
 import type { ChatMessage, PermissionMode, SessionPurpose } from '../types.js';
 import type { RouteContext } from './routes.js';
 
@@ -53,6 +54,17 @@ function canonicalRoot(root: string): string {
 function withCanonicalScope(body: unknown): Partial<TemplateBody> {
   const b = (body ?? {}) as Partial<TemplateBody>;
   return isScope(b.scope) && b.scope.kind === 'project' ? { ...b, scope: { kind: 'project', root: canonicalRoot(b.scope.root) } } : b;
+}
+
+/** A request body's checklist change, or what is wrong with it; the service checks the steps themselves. */
+function parseChanges(raw: unknown): HarnessChanges | { error: string } {
+  const b = (raw ?? {}) as Record<string, unknown>;
+  const list = (v: unknown) => v === undefined || Array.isArray(v);
+  if (!list(b.add) || !list(b.update) || !list(b.remove)) return { error: 'add, update and remove must be lists' };
+  if ((b.remove as unknown[] | undefined)?.some((id) => typeof id !== 'string')) return { error: 'remove must be a list of step ids' };
+  const steps = [...((b.add ?? []) as unknown[]), ...((b.update ?? []) as unknown[])];
+  if (steps.some((s) => !s || typeof s !== 'object' || typeof (s as { id?: unknown }).id !== 'string')) return { error: 'every step needs an id' };
+  return { add: b.add as HarnessStep[] | undefined, update: b.update as HarnessStep[] | undefined, remove: b.remove as string[] | undefined };
 }
 
 export function registerHarnessRoutes(
@@ -179,7 +191,8 @@ export function registerHarnessRoutes(
 
   /**
    * The session's live harness, the one it removed (kept for its records,
-   * session stats → Harness), and the log newest first: `?limit=` up to
+   * session stats → Harness), what the agent proposed and the user has not
+   * decided yet, and the log newest first: `?limit=` up to
    * `MAX_EVENTS_PAGE`, `?before=<event id>` for the page after.
    */
   app.get('/api/sessions/:id/harness', (req) => {
@@ -190,6 +203,7 @@ export function registerHarnessRoutes(
     return {
       harness: harness.get(id),
       removed: harness.removed(id),
+      proposal: harness.proposal(id),
       events: harness.events(id, { limit, before: Number.isFinite(before) ? before : undefined }),
     };
   });
@@ -215,7 +229,7 @@ export function registerHarnessRoutes(
       harness.discard(id);
       return reply.code(409).send({ error: delivery.outcome === 'terminal' ? 'session_is_terminal' : 'not found' });
     }
-    await harness.stepStarted(id, 0, delivery.uuid);
+    await harness.openStepsStarted(id, delivery.uuid);
     return reply.code(201).send({ harness: harness.get(id) });
   });
 
@@ -251,12 +265,65 @@ export function registerHarnessRoutes(
     if (!result.ok) return reply.code(result.status).send({ error: result.error });
     const { message } = result.value;
     // Paused: the next step is active but not sent; resuming sends it.
-    if (message && enabled() && !result.value.harness.paused) {
-      const next = Number(index) + 1;
-      const delivery = await harness.say(id, message, 'advance', next);
-      await harness.stepStarted(id, next, delivery.uuid);
+    if (message && enabled() && !result.value.harness.paused) await sendOpenSteps(id, message, 'advance');
+    return { harness: harness.get(id) };
+  });
+
+  /**
+   * Edit the running harness: `{ add?, update?, remove? }` (spec
+   * 2026-10-06-harness-graph-and-proposals-design § Edits by the user). The
+   * agent is told what changed. 400 for a change the rules refuse.
+   */
+  app.put('/api/sessions/:id/harness/steps', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const changes = parseChanges(req.body);
+    if ('error' in changes) return reply.code(400).send({ error: changes.error });
+    const result = harness.edit(id, changes, 'user');
+    if (!result.ok) return reply.code(result.status).send({ error: result.error });
+    if (result.value.message && enabled()) await sendOpenSteps(id, result.value.message, 'edited');
+    return { harness: harness.get(id) };
+  });
+
+  /**
+   * Apply what the agent proposed: attach the harness it worked out, or make
+   * its change. A body `{ harness: { name, steps } }` or `{ changes }` is the
+   * user's edited version of it, applied instead.
+   */
+  app.post('/api/sessions/:id/harness/proposal/apply', async (req, reply) => {
+    if (!enabled()) return reply.code(403).send({ error: 'harness_disabled' });
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { harness?: unknown; changes?: unknown };
+    let edited: Parameters<typeof harness.applyProposal>[1];
+    if (body.harness !== undefined) {
+      const h = body.harness as { name?: unknown; steps?: unknown };
+      if (!h || typeof h.name !== 'string' || !Array.isArray(h.steps)) return reply.code(400).send({ error: 'harness needs a name and steps' });
+      edited = { kind: 'harness', harness: { name: h.name, steps: h.steps as HarnessStep[] } };
+    } else if (body.changes !== undefined) {
+      const changes = parseChanges(body.changes);
+      if ('error' in changes) return reply.code(400).send({ error: changes.error });
+      edited = { kind: 'changes', changes };
+    }
+    const result = harness.applyProposal(id, edited);
+    if (!result.ok) return reply.code(result.status).send({ error: result.error });
+    const { message, kind } = result.value;
+    if (kind === 'kickoff') {
+      const delivery = await harness.say(id, message!, 'kickoff', 0);
+      if (delivery.outcome === 'not_found' || delivery.outcome === 'terminal') {
+        harness.discard(id);
+        return reply.code(409).send({ error: delivery.outcome === 'terminal' ? 'session_is_terminal' : 'not found' });
+      }
+      await harness.openStepsStarted(id, delivery.uuid);
+    } else if (message) {
+      await sendOpenSteps(id, message, 'edited');
     }
     return { harness: harness.get(id) };
+  });
+
+  app.post('/api/sessions/:id/harness/proposal/discard', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const result = harness.discardProposal(id);
+    if (!result.ok) return reply.code(result.status).send({ error: result.error });
+    return { ok: true };
   });
 
   app.get('/api/sessions/:id/harness/steps/:index/diff', async (req, reply) => {
@@ -311,7 +378,16 @@ export function registerHarnessRoutes(
     if (!result.ok) return result;
     const { kickoff, index } = result.value;
     const delivery = await harness.say(toId, kickoff, 'kickoff', index);
-    if (harness.get(toId)?.state[index]?.status === 'active') await harness.stepStarted(toId, index, delivery.uuid);
+    await harness.openStepsStarted(toId, delivery.uuid);
     return { ok: true };
+  }
+
+  /** Delivers a message that sends the agent to the open steps, and records where the new ones began. */
+  async function sendOpenSteps(id: string, message: string, kind: 'advance' | 'edited'): Promise<void> {
+    const state = harness.get(id)?.state ?? [];
+    const fresh = state.findIndex((s) => s.status === 'active' && s.startedAt === undefined);
+    const step = fresh !== -1 ? fresh : Math.max(state.findIndex((s) => s.status === 'active'), 0);
+    const delivery = await harness.say(id, message, kind, step);
+    await harness.openStepsStarted(id, delivery.uuid);
   }
 }

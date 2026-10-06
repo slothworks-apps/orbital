@@ -43,6 +43,12 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/sessions/:id/clear'],
   ['GET', '/api/sessions/:id/walkthrough'],
   ['GET', '/api/sessions/:id/walkthrough/summary'],
+  // The harness, read and decided (spec 2026-10-06-harness-graph-and-proposals-design § The phone):
+  // approving a gate, applying or discarding what the agent proposed. Editing it and starting one stay on the Mac.
+  ['GET', '/api/sessions/:id/harness'],
+  ['POST', '/api/sessions/:id/harness/steps/:index/approve'],
+  ['POST', '/api/sessions/:id/harness/proposal/apply'],
+  ['POST', '/api/sessions/:id/harness/proposal/discard'],
   ['GET', '/api/tags'],
   ['GET', '/api/projects'],
   ['GET', '/api/models'],

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { WINDOW_STRIP_INSET_PX } from '../../ui/Panel'
+import { currentIndex } from '../../lib/harnessGraph'
 import type { HarnessEvent, SessionHarness } from '../../lib/types'
 import { MARKER, clock, isDone, isGateShape, runSpan, scopeChip, stepMeta, stepWho, toLookAt } from './model'
 import { Kicker, Marker, ScopeChip } from './parts'
@@ -7,9 +8,9 @@ import { WideRecord } from './RecordView'
 import { Segments, useSteps } from './RunningView'
 import { WideStepDiff } from './StepDiffView'
 
-/** The step the full window opens on: the one in progress, else the last one. */
+/** The step the full window opens on: a gate waiting for you, else the one in progress, else the last one. */
 export function defaultPick(harness: SessionHarness): number {
-  const current = harness.state.findIndex((s) => s.status !== 'done')
+  const current = currentIndex(harness.state)
   return current === -1 ? Math.max(0, harness.steps.length - 1) : current
 }
 
@@ -121,6 +122,7 @@ export function FullWindow({
                   </span>
                   <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
                     {stepMeta(i, step, stepWho(s.kind, step, s.state, harness, s.own))}
+                    {step.dependsOn && ` · ← ${step.dependsOn.map((id) => harness.steps.findIndex((x) => x.id === id) + 1).join(', ') || 'none'}`}
                   </span>
                 </span>
               </button>

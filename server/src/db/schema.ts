@@ -22,7 +22,8 @@ import type {
 } from '../types.js';
 import type { Finding, PermissionOutcome, SubagentModelUsage, ToolStat } from '../stats/compute.js';
 import type {
-  HarnessEventKind, HarnessInput, HarnessMessageKind, HarnessOptions, HarnessStep, PauseKind, StepState,
+  HarnessChanges, HarnessEventKind, HarnessInput, HarnessMessageKind, HarnessOptions, HarnessStep, PauseKind, ProposedHarness,
+  StepState,
 } from '../harness/types.js';
 
 export const sessions = sqliteTable(
@@ -615,6 +616,21 @@ export const harnessEvents = sqliteTable(
   },
   (table) => [index('idx_harness_events_session').on(table.sessionId, table.at)],
 );
+
+/**
+ * What a session's agent proposed with `harness_propose` and the user has not
+ * applied or discarded yet: one per session, a newer one replaces it (spec
+ * 2026-10-06-harness-graph-and-proposals-design § The pending proposal).
+ * `body` is the `ProposedHarness` for `harness`, the `HarnessChanges` for
+ * `changes`.
+ */
+export const sessionHarnessProposals = sqliteTable('session_harness_proposals', {
+  sessionId: text('session_id').primaryKey(),
+  kind: text('kind').$type<'harness' | 'changes'>().notNull(),
+  body: text('body', { mode: 'json' }).$type<ProposedHarness | HarnessChanges>().notNull(),
+  note: text('note'),
+  createdAt: integer('created_at').notNull(),
+});
 
 /**
  * Projects a table's columns keyed by their actual DB column name

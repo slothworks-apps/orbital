@@ -29,6 +29,7 @@ import type {
   SessionHarness,
   HarnessEvent,
   HarnessMessageKind,
+  HarnessProposal,
   Subagent,
   Tag,
   TagRule,
@@ -98,8 +99,8 @@ export type SessionEvent =
    * 2026-09-29-rewind-design § Behaviour 8). Handled by the rewind UI step.
    */
   | { event: 'rewind_refused'; message: string; hiddenCount: number | null }
-  /** The session's harness changed (added, updated, or removed). */
-  | { event: 'harness'; harness: SessionHarness | null }
+  /** The session's harness changed (added, updated, or removed), or what its agent proposed. */
+  | { event: 'harness'; harness: SessionHarness | null; proposal?: HarnessProposal | null }
   /**
    * Orbital sent this on the harness's account (kickoff, sent on, nudge,
    * findings): the user entry `uuid` is the harness's, a dashed ◆ row and
@@ -447,6 +448,11 @@ export interface OrbitalState {
    * Harness), or null; undefined until `loadHarness` has read it.
    */
   harnessRemoved: Record<string, SessionHarness | null | undefined>
+  /**
+   * What each session's agent proposed and the user has not decided yet, or
+   * null (spec 2026-10-06-harness-graph-and-proposals-design § Proposals).
+   */
+  harnessProposals: Record<string, HarnessProposal | null | undefined>
   /**
    * The Harness panel in the side slot, which it shares with the subagent
    * panel and the task output view (spec 2026-09-30-session-harness-design § UI).
@@ -1069,6 +1075,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   harnessEvents: {},
   harnessEventsMore: {},
   harnessRemoved: {},
+  harnessProposals: {},
   harnessPanel: null,
   harnessTemplatesFocus: null,
 
@@ -1538,7 +1545,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
 
     if (msg.event === 'harness') {
-      set({ harnesses: { ...state.harnesses, [sessionId]: msg.harness } })
+      set({
+        harnesses: { ...state.harnesses, [sessionId]: msg.harness },
+        ...(msg.proposal !== undefined ? { harnessProposals: { ...state.harnessProposals, [sessionId]: msg.proposal } } : {}),
+      })
       // The log only rides the REST read; an open panel reads it again, and so
       // does a transcript on screen, whose dashed ◆ rows come from it.
       if (state.harnessPanel?.sessionId === sessionId || state.ui.selectedId === sessionId || sessionId in state.transcripts) {
@@ -2512,12 +2522,13 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   async loadHarness(sessionId) {
     try {
       // The whole log: the panel folds it into the steps' records (canvas 30g).
-      const { harness, removed, events } = await api.getSessionHarness(sessionId, { limit: HARNESS_EVENTS_PAGE })
+      const { harness, removed, events, proposal } = await api.getSessionHarness(sessionId, { limit: HARNESS_EVENTS_PAGE })
       set((state) => ({
         harnesses: { ...state.harnesses, [sessionId]: harness },
         harnessRemoved: { ...state.harnessRemoved, [sessionId]: removed },
         harnessEvents: { ...state.harnessEvents, [sessionId]: events },
         harnessEventsMore: { ...state.harnessEventsMore, [sessionId]: events.length >= HARNESS_EVENTS_PAGE },
+        harnessProposals: { ...state.harnessProposals, [sessionId]: proposal ?? null },
       }))
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load the harness'

@@ -2,8 +2,8 @@ import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { registerHarnessRoutes } from '../src/api/harness.js';
 import {
-  approve, decideTurnEnd, fillInputs, snapshotSteps, gateOf, goBack, initialState, tick, userReopen,
-  validateTemplate,
+  advanceMessage, applyChanges, approve, decideTurnEnd, fillInputs, snapshotSteps, gateOf, goBack, initialState,
+  kickoffMessage, nudgeMessage, tick, userReopen, validateTemplate,
 } from '../src/harness/logic.js';
 import { HarnessService, isLocalCommit, type HarnessDeps } from '../src/harness/service.js';
 import { DEFAULT_OPTIONS, type HarnessStep, type SessionHarness } from '../src/harness/types.js';
@@ -12,12 +12,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRootOf } from '../src/harness/project.js';
-import { statusOf } from '../src/api/shape.js';
+import { harnessGateOf, statusOf } from '../src/api/shape.js';
 import { sessionHarnesses as sessionHarnessesTable } from '../src/db/schema.js';
 const MAX_AUTO_ROUNDS = DEFAULT_OPTIONS.maxAutoRounds;
 const MAX_IDLE_NUDGES = DEFAULT_OPTIONS.maxIdleNudges;
 const rec = (summary = '') => ({ summary, decisions: [], openQuestions: [] });
-import { parseWatcherReply } from '../src/harness/watcher.js';
+import { buildWatcherPrompt, parseWatcherReply } from '../src/harness/watcher.js';
 import { buildDraftPrompt, digestTranscript, draftTemplate, parseDraftReply } from '../src/harness/drafter.js';
 
 const steps: HarnessStep[] = [
@@ -66,8 +66,8 @@ describe('step state machine', () => {
     expect(gate).toMatchObject({ ok: true, outcome: 'awaiting_approval' });
     if (!gate.ok) throw new Error();
     expect(tick(steps, gate.state, 'api', rec(''), 3)).toMatchObject({ ok: false });
-    expect(approve(gate.state, 0)).toBeNull();
-    const approved = approve(gate.state, 1);
+    expect(approve(steps, gate.state, 0)).toBeNull();
+    const approved = approve(steps, gate.state, 1);
     expect(approved?.map((s) => s.status)).toEqual(['done', 'done', 'active']);
   });
 
@@ -82,13 +82,13 @@ describe('step state machine', () => {
       { status: 'done' as const, summary: 'tuned', previousRuns: [{ status: 'done' as const, summary: 'first try', endedAt: 1, reason: 'reopened' as const }] },
       { status: 'active' as const },
     ];
-    const back = goBack(state, 0, 9)!;
+    const back = goBack(steps, state, 0, 9)!;
     expect(back.map((s) => s.status)).toEqual(['active', 'pending', 'pending']);
     expect(back[0].summary).toBeUndefined();
     expect(back[0].previousRuns).toEqual([{ status: 'done', summary: 'built', endedAt: 9, reason: 'went_back' }]);
     expect(back[1].previousRuns?.map((r) => r.summary)).toEqual(['first try', 'tuned']);
     expect(back[2].previousRuns?.[0]).toMatchObject({ status: 'active', reason: 'went_back' });
-    expect(goBack(state, 2, 9)).toBeNull();
+    expect(goBack(steps, state, 2, 9)).toBeNull();
   });
 
   it('the user reopening a gate keeps its record and where it began', () => {
@@ -295,6 +295,7 @@ describe('HarnessService', () => {
     const { service } = makeService();
     expect(service.tools('s1')?.allowedTools).toEqual([
       'mcp__orbital__harness_status', 'mcp__orbital__harness_complete_step', 'mcp__orbital__harness_save_template',
+      'mcp__orbital__harness_propose',
     ]);
   });
 });
@@ -830,7 +831,7 @@ describe('the redesigned run', () => {
     await r.service.completeStep('s1', 'api', rec('x'));
     const reviewing = r.service.handleTurnEnd('s1');
     await vi.waitFor(() => expect(r.started()).toBe(true));
-    expect(gateOf(r.service.get('s1')!)).toBe('reviewing');
+    expect(gateOf(r.service.get('s1'))).toBe('reviewing');
     expect(r.service.decideMyself('s1', 0)).toMatchObject({ ok: true });
     expect(r.controller().signal.aborted).toBe(true);
     r.release();
@@ -856,7 +857,7 @@ describe('the redesigned run', () => {
     await vi.waitFor(() => expect(r.started()).toBe(true));
     r.service.setOptions('s1', { lucky: false });
     expect(r.controller().signal.aborted).toBe(true);
-    expect(gateOf(r.service.get('s1')!)).toBe('waiting');
+    expect(gateOf(r.service.get('s1'))).toBe('waiting');
     expect(r.service.events('s1').map((e) => e.kind)).toContain('review_aborted');
   });
 
@@ -1010,4 +1011,273 @@ describe('the redesigned run', () => {
     }, () => null);
     return { ...made, app, delivered };
   }
+});
+
+describe('the step graph', () => {
+  // load → build → story → ◆parity ─┐
+  //      └→ calls ─┴→ migrate ───────┴→ pr
+  const graph: HarnessStep[] = [
+    { id: 'load', title: 'Load', instructions: 'Load.', mode: 'auto', doneWhen: 'loaded' },
+    { id: 'build', title: 'Build', instructions: 'Build.', mode: 'auto', doneWhen: 'built' },
+    { id: 'calls', title: 'Call sites', instructions: 'Find them.', mode: 'auto', doneWhen: 'listed', dependsOn: ['load'] },
+    { id: 'story', title: 'Storybook', instructions: 'Stories.', mode: 'auto', doneWhen: 'stories', dependsOn: ['build'] },
+    { id: 'parity', title: 'Parity', instructions: 'Compare.', mode: 'gate', doneWhen: 'matches', dependsOn: ['story'] },
+    { id: 'migrate', title: 'Migrate', instructions: 'Migrate.', mode: 'auto', doneWhen: 'migrated', dependsOn: ['build', 'calls'] },
+    { id: 'pr', title: 'PR', instructions: 'Prepare.', mode: 'auto', doneWhen: 'ready', dependsOn: ['parity', 'migrate'] },
+  ];
+  const statuses = (state: { status: string }[]) => Object.fromEntries(graph.map((s, i) => [s.id, state[i]?.status]));
+  function run(ids: string[], state = initialState(graph)) {
+    for (const id of ids) {
+      const r = tick(graph, state, id, rec(id), 1);
+      if (!r.ok) throw new Error(r.error);
+      state = r.state;
+    }
+    return state;
+  }
+
+  it('opens every step whose steps it needs are done, and refuses one that still waits', () => {
+    expect(statuses(initialState(graph))).toMatchObject({ load: 'active', build: 'pending', calls: 'pending' });
+    const afterLoad = tick(graph, initialState(graph), 'load', rec(), 1);
+    expect(afterLoad).toMatchObject({ ok: true, outcome: 'advanced', unlocked: [1, 2] });
+    const state = run(['load', 'build']);
+    expect(statuses(state)).toMatchObject({ calls: 'active', story: 'active', migrate: 'pending' });
+    const early = tick(graph, state, 'migrate', rec(), 1);
+    expect(early).toMatchObject({ ok: false });
+    expect(!early.ok && early.error).toContain('"calls"');
+    // Several roots open at once.
+    expect(initialState([{ ...graph[0] }, { ...graph[1], dependsOn: [] }]).map((s) => s.status)).toEqual(['active', 'active']);
+  });
+
+  it('a waiting gate holds back only the steps that need it', () => {
+    const state = run(['load', 'build', 'story', 'parity']);
+    expect(statuses(state)).toMatchObject({ parity: 'awaiting_approval', calls: 'active', pr: 'pending' });
+    const h = harness({ steps: graph, state });
+    expect(gateOf(h)).toBe('waiting');
+    // The agent goes on with the open step, rather than waiting for the user.
+    expect(decideTurnEnd(h, { ...idle, tickedThisTurn: true })).toEqual({ kind: 'advance', index: 2 });
+    const approved = approve(graph, state, 4)!;
+    expect(statuses(approved)).toMatchObject({ parity: 'done', pr: 'pending' });
+    // With nothing else open, the gate is what is left: wait for the user.
+    const onlyGate = run(['calls', 'migrate'], state);
+    expect(decideTurnEnd(harness({ steps: graph, state: onlyGate }), idle)).toEqual({ kind: 'wait', reason: 'awaiting_approval' });
+  });
+
+  it('a gate behind an open step still asks for the user', () => {
+    const state = run(['load', 'build', 'story', 'parity']);
+    // `calls` comes before `parity` in the list and is still open.
+    expect(gateOf({ state, removedAt: null })).toBe('waiting');
+    expect(gateOf({ state, removedAt: null }, true)).toBe('waiting');
+    expect(gateOf(null, true)).toBe('proposal');
+    expect(gateOf({ state: initialState(graph), removedAt: null }, false)).toBeNull();
+  });
+
+  it('a step may need only steps before it; one that names none follows the step before', () => {
+    const t = (s: HarnessStep[]) => validateTemplate({ name: 'x', tags: [], inputs: [], steps: s });
+    expect(t(graph)).toBeNull();
+    expect(t([{ ...graph[0], dependsOn: ['load'] }])).toMatch(/itself/);
+    expect(t([graph[0], { ...graph[1], dependsOn: ['nope'] }])).toMatch(/not a step/);
+    expect(t([{ ...graph[0], dependsOn: ['build'] }, graph[1]])).toMatch(/comes after it/);
+    expect(t([graph[0], { ...graph[1], dependsOn: 'load' as never }])).toMatch(/list of step ids/);
+    // A linear template says nothing about dependencies to the agent.
+    expect(kickoffMessage(harness(), [])).not.toContain('— needs');
+    expect(kickoffMessage(harness({ steps: graph, state: initialState(graph) }), [])).toContain('— needs 2, 3');
+  });
+
+  it('going back reopens the step and what needs it, and leaves the other branch alone', () => {
+    const state = run(['load', 'build', 'calls', 'story', 'parity']);
+    const back = goBack(graph, state, 1, 9)!;
+    expect(statuses(back)).toEqual({
+      load: 'done', build: 'active', calls: 'done', story: 'pending', parity: 'pending', migrate: 'pending', pr: 'pending',
+    });
+    expect(back[3].previousRuns?.[0]).toMatchObject({ summary: 'story', reason: 'went_back' });
+    expect(back[2].previousRuns).toBeUndefined();
+  });
+
+  it('several open steps are named in the advance and the nudge', () => {
+    const h = harness({ steps: graph, state: run(['load']) });
+    expect(advanceMessage(h)).toMatch(/Steps 2 and 3 are open/);
+    expect(advanceMessage(h)).toContain('## Step 3: Call sites');
+    expect(nudgeMessage(h)).toContain('id `calls`');
+    expect(buildWatcherPrompt('x', '', [graph[1], graph[2]], '')).toContain('Open step: Call sites');
+  });
+});
+
+describe('editing a running harness', () => {
+  const linear = steps.map((s) => ({ ...s, title: s.id }));
+
+  it('refuses to change a finished step, and gives a removed step\'s needs to the steps after it', () => {
+    const state = tick(linear, initialState(linear), 'build', rec('b'), 1);
+    if (!state.ok) throw new Error();
+    expect(applyChanges(linear, state.state, { remove: ['build'] }, 2)).toMatchObject({ ok: false, error: expect.stringMatching(/finished/) });
+    expect(applyChanges(linear, state.state, { update: [{ ...linear[1], id: 'nope' }] }, 2)).toMatchObject({ ok: false });
+    const r = applyChanges(linear, state.state, { remove: ['api'] }, 2);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.steps.map((s) => [s.id, s.dependsOn])).toEqual([['build', []], ['pr', ['build']]]);
+    // `pr` needed `api`; now it needs what `api` needed, which is done.
+    expect(r.state.map((s) => s.status)).toEqual(['done', 'active']);
+    expect(r.opened).toEqual([1]);
+    expect(linear[2].dependsOn).toBeUndefined();
+  });
+
+  it('an open step that comes to need an unfinished step waits again, its record kept', () => {
+    const state = tick(linear, initialState(linear), 'build', rec('b'), 1);
+    if (!state.ok) throw new Error();
+    const started = patchStepAt(state.state, 1, { startedAt: 5 });
+    const added = { id: 'docs', title: 'Docs', instructions: 'Write.', mode: 'auto' as const, doneWhen: 'written', dependsOn: ['build'] };
+    const r = applyChanges(linear, started, { add: [added], update: [{ ...linear[1], dependsOn: ['build', 'docs'] }] }, 7);
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/comes after it/) });
+    const moved = applyChanges(linear, started, { add: [added] }, 7);
+    if (!moved.ok) throw new Error(moved.error);
+    // Appended with explicit needs: open at once, since `build` is done.
+    expect(moved.state.map((s) => s.status)).toEqual(['done', 'active', 'pending', 'active']);
+    const back = applyChanges(moved.steps, moved.state, { update: [{ ...moved.steps[1], dependsOn: ['build', 'docs'] }] }, 9);
+    expect(back).toMatchObject({ ok: false });
+    const waits = applyChanges(linear, started, { update: [{ ...linear[1], title: 'Tune harder' }] }, 9);
+    if (!waits.ok) throw new Error(waits.error);
+    expect(waits.state[1]).toMatchObject({ status: 'active', startedAt: 5 });
+    expect(applyChanges(linear, started, { remove: ['api', 'pr'] }, 9)).toMatchObject({ ok: true });
+  });
+
+  it('removing what an open step needs from its branch sends the step back to waiting', () => {
+    const two: HarnessStep[] = [
+      { id: 'a', title: 'A', instructions: '', mode: 'auto', doneWhen: 'a' },
+      { id: 'b', title: 'B', instructions: '', mode: 'auto', doneWhen: 'b', dependsOn: [] },
+      { id: 'c', title: 'C', instructions: '', mode: 'auto', doneWhen: 'c', dependsOn: [] },
+    ];
+    const state = patchStepAt(initialState(two), 2, { startedAt: 3, summary: 'half' });
+    const r = applyChanges(two, state, { update: [{ ...two[2], dependsOn: ['a'] }] }, 8);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.state[2]).toMatchObject({ status: 'pending', previousRuns: [{ status: 'active', summary: 'half', reason: 'edited', endedAt: 8 }] });
+  });
+});
+
+function patchStepAt<T extends object>(state: T[], index: number, patch: object): T[] {
+  return state.map((s, i) => (i === index ? { ...s, ...patch } : s));
+}
+
+describe('the graph and proposals, in the service and the routes', () => {
+  const graph: HarnessStep[] = [
+    { id: 'load', title: 'Load', instructions: 'Load.', mode: 'auto', doneWhen: 'loaded' },
+    { id: 'build', title: 'Build', instructions: 'Build.', mode: 'auto', doneWhen: 'built' },
+    { id: 'calls', title: 'Call sites', instructions: 'Find.', mode: 'auto', doneWhen: 'listed', dependsOn: ['load'] },
+    { id: 'parity', title: 'Parity', instructions: 'Compare.', mode: 'gate', doneWhen: 'matches', dependsOn: ['build'] },
+    { id: 'pr', title: 'PR', instructions: 'Prepare.', mode: 'auto', doneWhen: 'ready', dependsOn: ['parity', 'calls'] },
+  ];
+
+  function app(over: Partial<HarnessDeps> = {}) {
+    const made = makeService(over);
+    const delivered: string[] = [];
+    const server = Fastify();
+    registerHarnessRoutes(server, {
+      harness: made.service, errors: { record: vi.fn() },
+      settings: { get: (k: string) => (k === 'harness_enabled' ? 'true' : ''), set: () => {} },
+    } as never, async (_id, text) => {
+      delivered.push(text);
+      return { outcome: 'sent' as const, uuid: `d-${delivered.length}` };
+    }, () => null);
+    return { ...made, app: server, delivered };
+  }
+
+  it('each step\'s commit range starts at the tick before it, whichever step that was', async () => {
+    let head = 'h0';
+    const { service, templateId: _t } = makeService({
+      git: async (_cwd, args) => (args[0] === 'rev-parse' ? { ok: true, output: `${head}\n` } : { ok: true, output: '' }),
+    });
+    const t = service.createTemplate({ name: 'G', description: '', tags: [], inputs: [], steps: graph });
+    if (!t.ok) throw new Error(t.error);
+    service.attach('s1', t.value.id, {});
+    await service.openStepsStarted('s1', 'm1');
+    head = 'h1';
+    await service.completeStep('s1', 'load', rec());
+    await service.openStepsStarted('s1', 'm2');
+    head = 'h2';
+    await service.completeStep('s1', 'calls', rec());
+    head = 'h3';
+    await service.completeStep('s1', 'build', rec());
+    const state = service.get('s1')!.state;
+    expect(state[0]).toMatchObject({ startHead: 'h0', endHead: 'h1' });
+    expect(state[2]).toMatchObject({ startHead: 'h1', endHead: 'h2' });
+    // `build` opened with `calls` at h1, but `calls` was ticked at h2 since.
+    expect(state[1]).toMatchObject({ startHead: 'h2', endHead: 'h3' });
+  });
+
+  it('a gate ticked while other steps are open asks for the user at once', async () => {
+    const { db, service } = makeService();
+    const t = service.createTemplate({ name: 'G', description: '', tags: [], inputs: [], steps: graph });
+    if (!t.ok) throw new Error(t.error);
+    service.attach('s1', t.value.id, {});
+    await service.completeStep('s1', 'load', rec());
+    await service.completeStep('s1', 'build', rec());
+    const reply = await service.completeStep('s1', 'parity', rec());
+    expect(reply).toMatch(/Carry on with the open steps/);
+    expect(harnessGateOf(db, 's1')).toBe('waiting');
+  });
+
+  it('the agent proposes a harness; the user applies it and the kickoff goes out', async () => {
+    const { app: server, service, db, delivered } = app();
+    expect(service.propose('s1', { kind: 'harness', harness: { name: 'One-off', steps: [{ ...graph[0], dependsOn: ['pr'] }] } }, null))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/not a step/) });
+    expect(service.propose('s1', { kind: 'changes', changes: {} }, null)).toMatchObject({ ok: false, status: 409 });
+    expect(service.propose('s1', { kind: 'harness', harness: { name: 'First', steps: graph.slice(0, 2) } }, null).ok).toBe(true);
+    expect(service.propose('s1', { kind: 'harness', harness: { name: 'One-off', steps: graph } }, 'Branches for the call sites.').ok).toBe(true);
+    expect(harnessGateOf(db, 's1')).toBe('proposal');
+    const read = (await server.inject({ method: 'GET', url: '/api/sessions/s1/harness' })).json();
+    expect(read.proposal).toMatchObject({ kind: 'harness', note: 'Branches for the call sites.', harness: { name: 'One-off' } });
+    expect(read.events.map((e: { kind: string }) => e.kind)).toContain('proposal_superseded');
+    const applied = await server.inject({ method: 'POST', url: '/api/sessions/s1/harness/proposal/apply' });
+    expect(applied.statusCode).toBe(200);
+    expect(applied.json().harness).toMatchObject({ templateId: null, name: 'One-off' });
+    expect(delivered[0]).toContain('This session follows the Orbital harness "One-off"');
+    expect(service.get('s1')!.state[0]).toMatchObject({ startMessageUuid: 'd-1' });
+    expect(service.proposal('s1')).toBeNull();
+    expect(harnessGateOf(db, 's1')).toBeNull();
+    expect((await server.inject({ method: 'POST', url: '/api/sessions/s1/harness/proposal/apply' })).statusCode).toBe(409);
+    expect(service.propose('s1', { kind: 'harness', harness: { name: 'Again', steps: graph } }, null)).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it('a proposed change the harness moved past no longer applies; discard drops it', async () => {
+    const { app: server, service, templateId } = app();
+    service.attach('s1', templateId, {});
+    const proposed = service.propose('s1', { kind: 'changes', changes: { update: [{ ...steps[0], title: 'Build better' }] } }, null);
+    expect(proposed.ok).toBe(true);
+    await service.completeStep('s1', 'build', rec());
+    const stale = await server.inject({ method: 'POST', url: '/api/sessions/s1/harness/proposal/apply' });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error).toMatch(/finished/);
+    expect((await server.inject({ method: 'POST', url: '/api/sessions/s1/harness/proposal/discard' })).json()).toEqual({ ok: true });
+  });
+
+  it('the user\'s edited version of a proposal is applied instead of it', async () => {
+    const { app: server, service, delivered } = app();
+    service.propose('s1', { kind: 'harness', harness: { name: 'One-off', steps: graph } }, 'why');
+    const wrong = await server.inject({ method: 'POST', url: '/api/sessions/s1/harness/proposal/apply', payload: { changes: {} } });
+    expect(wrong.statusCode).toBe(400);
+    const bad = await server.inject({
+      method: 'POST', url: '/api/sessions/s1/harness/proposal/apply',
+      payload: { harness: { name: 'Mine', steps: [{ ...graph[0], dependsOn: ['load'] }] } },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(service.proposal('s1')).toMatchObject({ harness: { name: 'One-off' } });
+    const ok = await server.inject({
+      method: 'POST', url: '/api/sessions/s1/harness/proposal/apply', payload: { harness: { name: 'Mine', steps: graph.slice(0, 2) } },
+    });
+    expect(ok.json().harness).toMatchObject({ name: 'Mine', steps: [{ id: 'load' }, { id: 'build' }] });
+    expect(delivered[0]).toContain('"Mine"');
+    expect((await server.inject({ method: 'POST', url: '/api/sessions/s1/harness/proposal/discard' })).statusCode).toBe(409);
+  });
+
+  it('the user edits the running harness, and the agent is told what changed', async () => {
+    const { app: server, service, templateId, delivered } = app();
+    service.attach('s1', templateId, {});
+    const added = { id: 'docs', title: 'Docs', instructions: 'Write the docs.', mode: 'auto', doneWhen: 'written', dependsOn: [] };
+    const edited = await server.inject({ method: 'PUT', url: '/api/sessions/s1/harness/steps', payload: { add: [added] } });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().harness.state.map((s: { status: string }) => s.status)).toEqual(['active', 'pending', 'pending', 'active']);
+    expect(delivered[0]).toMatch(/The user changed the checklist: added 4 "Docs"/);
+    expect(delivered[0]).toContain('## Step 4: Docs');
+    expect(service.get('s1')!.state[3].startMessageUuid).toBe('d-1');
+    expect(service.events('s1').map((e) => e.kind)).toContain('edited');
+    expect((await server.inject({ method: 'PUT', url: '/api/sessions/s1/harness/steps', payload: { add: [added] } })).statusCode).toBe(400);
+    expect((await server.inject({ method: 'PUT', url: '/api/sessions/s1/harness/steps', payload: { remove: 'docs' } })).statusCode).toBe(400);
+  });
 });

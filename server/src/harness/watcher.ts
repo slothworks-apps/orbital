@@ -2,7 +2,7 @@
  * The harness's watcher: asked only when a turn ends without a tick, it
  * decides whether the agent stopped for nothing (spec 2026-09-30-session-
  * harness-design § The watcher). Unlike the judges the spike measured, it
- * sees the checklist and the active step's done criteria.
+ * sees the checklist and the open steps' done criteria.
  */
 
 import type { TitleQueryFn } from '../titler/titler.js';
@@ -13,7 +13,7 @@ import type { HarnessStep } from './types.js';
 const MAX_AGENT_CHARS = 3000;
 
 export const WATCHER_SYSTEM_PROMPT = `You watch a coding agent that follows a checklist. The agent's turn ended
-without ticking its active step. Decide whether Orbital should send it on
+without ticking an open step. Decide whether Orbital should send it on
 without the user.
 
 Answer CONTINUE when the agent only asks permission for work the checklist
@@ -32,7 +32,7 @@ Reply with CONTINUE, or with STOP: followed by a one-line reason.`;
 export type WatcherVerdict = { continue: true } | { continue: false; reason: string };
 
 export function buildWatcherPrompt(
-  harnessName: string, checklist: string, step: HarnessStep, lastAgentText: string,
+  harnessName: string, checklist: string, open: HarnessStep[], lastAgentText: string,
 ): string {
   const text = lastAgentText.length > MAX_AGENT_CHARS
     ? `…${lastAgentText.slice(-MAX_AGENT_CHARS)}`
@@ -40,7 +40,7 @@ export function buildWatcherPrompt(
   return [
     `Harness: ${harnessName}`,
     `Checklist:\n${checklist}`,
-    `Active step: ${step.title}\nInstructions: ${step.instructions}\nDone when: ${step.doneWhen}`,
+    ...open.map((step) => `Open step: ${step.title}\nInstructions: ${step.instructions}\nDone when: ${step.doneWhen}`),
     `The agent's last message:\n<<<\n${text || '(no text)'}\n>>>`,
   ].join('\n\n');
 }
