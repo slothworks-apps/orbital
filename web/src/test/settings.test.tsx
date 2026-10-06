@@ -61,8 +61,6 @@ function resetStore(
       default_permission_mode: 'acceptEdits',
       default_project_dir: '',
       confirm_before_clear: 'true',
-      inherit_tags: 'true',
-      inherit_permission_mode: 'true',
     },
     transcripts: {},
     historyLoaded: {},
@@ -227,20 +225,6 @@ describe('Settings', () => {
       expect(api.patchSettings).toHaveBeenCalledWith({ confirm_before_clear: 'false' })
     )
     expect(useOrbital.getState().settings.confirm_before_clear).toBe('false')
-  })
-
-  it('patches the inherit-tags and inherit-permission-mode checkboxes independently', async () => {
-    resetStore()
-    render(<Settings open onClose={vi.fn()} />)
-    openSection('Sessions')
-
-    fireEvent.click(screen.getByRole('checkbox', { name: /^tags$/i }))
-    await waitFor(() => expect(api.patchSettings).toHaveBeenCalledWith({ inherit_tags: 'false' }))
-
-    fireEvent.click(screen.getByRole('checkbox', { name: /^permission mode$/i }))
-    await waitFor(() =>
-      expect(api.patchSettings).toHaveBeenCalledWith({ inherit_permission_mode: 'false' })
-    )
   })
 
   it('does not update the store when patchSettings rejects', async () => {

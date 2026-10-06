@@ -8,6 +8,7 @@ import { useAttachments } from '../../panels/useAttachments'
 import { useOrbital, type SentAttachment } from '../../store/store'
 import {
   DESKTOP_COMMAND_LINE, PHOTO_FAILED_LINE, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError,
+  reopenHint,
 } from '../composer'
 import { pickPhoto, type PhotoSource } from '../platform/photo'
 import { isMacAsleep, useMobile } from '../state'
@@ -62,8 +63,13 @@ function LiveComposer({ id }: { id: string }) {
   const sendPrompt = useOrbital((s) => s.sendPrompt)
   const pending = useOrbital((s) => s.pendingDecisions[id])
   const answers = useOrbital((s) => (pending?.kind === 'question' ? s.decisionAnswers[pending.id] : undefined))
+  const limitWait = useOrbital((s) => s.sessions[id]?.limitWait ?? null)
   const ready = useMobile((s) => s.ready)
   const macName = useMobile((s) => s.macName)
+  // A gate's Reopen, asked from the card (canvas 10b, third phone).
+  const intent = useMobile((s) => (s.composerIntent?.sessionId === id ? s.composerIntent : null))
+  const clearComposerIntent = useMobile((s) => s.clearComposerIntent)
+  const reopenStep = intent?.intent.kind === 'reopen' ? intent.intent.step : null
   const attachments = useAttachments(id)
   const [stopOpen, setStopOpen] = useState(false)
   // The phone has no toast surface: what this client's own requests raise (a
@@ -79,10 +85,19 @@ function LiveComposer({ id }: { id: string }) {
     useOrbital.setState({ toast: null })
   }, [raised, macName])
 
+  // Every request focuses the field once, also a second Reopen of the same step.
+  const intentSeq = intent?.seq
+  useEffect(() => {
+    if (intentSeq === undefined) return
+    document.querySelector<HTMLElement>('[data-composer-field]')?.focus()
+  }, [intentSeq])
+
   const { text: placeholder, answering } = composerPlaceholder({
     pending,
     answers,
     ended: status === 'ended',
+    reopenStep,
+    limitWait,
   })
 
   // A send waits for its uploads: the well is taken only once every chip has landed.
@@ -102,6 +117,8 @@ function LiveComposer({ id }: { id: string }) {
       return
     }
     setComposerDraft(id, '')
+    // What the reopened step was waiting for has been written.
+    clearComposerIntent()
     if (!attachments.armed) {
       send(text)
       return
@@ -157,6 +174,7 @@ function LiveComposer({ id }: { id: string }) {
         </div>
       )}
       <Controls
+        hint={reopenStep !== null ? reopenHint(reopenStep) : undefined}
         photosDisabled={!ready || locked}
         onPhoto={attachPhoto}
         onStop={status === 'working' ? () => setStopOpen(true) : undefined}
@@ -178,6 +196,8 @@ function Controls(
     | { inert: true }
     | {
         inert?: false
+        /** A line in the photos' place: where a reopened step's message goes (canvas 10b, third phone). */
+        hint?: string
         photosDisabled: boolean
         onPhoto(source: PhotoSource): void
         onStop?: () => void
@@ -189,25 +209,34 @@ function Controls(
   const iconButton = 'flex h-11 w-11 items-center justify-center rounded-[12px] text-[rgba(200,220,245,.8)] disabled:opacity-40'
   return (
     <div className={['mt-1 flex items-center gap-0.5', live ? '' : 'opacity-40'].join(' ')}>
-      <button
-        type="button"
-        aria-label="Take a photo"
-        className={iconButton}
-        disabled={!live || live.photosDisabled}
-        onClick={() => live?.onPhoto('camera')}
-      >
-        <CameraIcon />
-      </button>
-      <button
-        type="button"
-        aria-label="Choose from gallery"
-        className={iconButton}
-        disabled={!live || live.photosDisabled}
-        onClick={() => live?.onPhoto('gallery')}
-      >
-        <GalleryIcon />
-      </button>
-      <span aria-hidden className="flex-1" />
+      {live?.hint ? (
+        // Canvas 10b, third phone: the hint takes the photos' place.
+        <span className="min-w-0 flex-1 truncate pl-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+          {live.hint}
+        </span>
+      ) : (
+        <>
+          <button
+            type="button"
+            aria-label="Take a photo"
+            className={iconButton}
+            disabled={!live || live.photosDisabled}
+            onClick={() => live?.onPhoto('camera')}
+          >
+            <CameraIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="Choose from gallery"
+            className={iconButton}
+            disabled={!live || live.photosDisabled}
+            onClick={() => live?.onPhoto('gallery')}
+          >
+            <GalleryIcon />
+          </button>
+          <span aria-hidden className="flex-1" />
+        </>
+      )}
       {live?.onStop && (
         <button
           type="button"

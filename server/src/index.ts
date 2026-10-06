@@ -1177,7 +1177,7 @@ export async function buildServer(overrides: {
   // routes always have something to ask. `inject` is how a phone's REST call
   // enters: in-process, same routes, same host guard satisfied by the header.
   const remote = new RemoteService({
-    db, hub, dataDir, images, imagesDir,
+    db, hub, dataDir, images, imagesDir, projectsDir,
     serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
     inject: async (req) => {
       const res = await app.inject(remoteInjectOptions(req, apiToken));

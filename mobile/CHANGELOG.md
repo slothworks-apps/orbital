@@ -1,12 +1,31 @@
-# Changelog — Orbital for Android
+# Changelog — Orbital for the phone
 
-All notable changes to the Android app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
+All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
 
-## [0.2.0] — 2026-10-06
+## [0.4.0] — 2026-10-06
 ### Added
-- A session with a harness shows it under its header: open it to see the checklist with its branches, approve a gate, or attach or discard what the agent proposed.
+- When the agent proposes a harness for a session, or a change to the one it runs, you can attach or discard it from your phone.
+
+### Changed
+- A harness whose steps branch shows the step waiting for your OK first, and the steps sheet says which steps each one needs.
+
+## [0.3.0] — 2026-10-05
+### Added
+- Answer a harness step waiting for your OK — approve it, reopen it or go back — and see the plan's steps and what each one did.
+- Tap a file path or an image in a session to see it full screen, with zoom; text files open as a read-only preview, and what you have seen stays available while the Mac sleeps.
+- Open a subagent's own conversation and a background task's live output, and stop a running task.
+- A ⋯ menu on a session to rename it, change its tag, pin it, clear and start over, or end it; pinned sessions lead the list.
+- See when a session is waiting for its usage limit to reset, cancel or undo its automatic continue, and how full its context is.
+
+### Changed
+- Needs Orbital 0.20.6 or newer on the Mac.
+- The subagents row in the list shows a dot only for the subagents still running.
+
+## [0.2.0] — 2026-10-05
+### Added
+- Orbital runs on the iPhone: pair it with your Mac, follow and answer your sessions, and get a notification when one needs your input, the same as on Android.
 
 ## [0.1.2] — 2026-10-05
 ### Changed

@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
+import { OUTPUT_TAIL_BYTES } from '../src/files/taskOutput.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
 import type { OrbitalDb } from '../src/db/database.js';
 import {
@@ -629,6 +630,43 @@ describe('REST routes', () => {
     });
   });
 
+  it('GET .../subagents/:toolUseId/messages?limit returns the newest n and counts the rest as dropped', async () => {
+    knownAgent();
+    subagentTranscripts.append('s1', 'tu1', [
+      { id: 'm1', role: 'assistant', text: 'one' },
+      { id: 'm2', role: 'assistant', text: 'two' },
+      { id: 'm3', role: 'assistant', text: 'three' },
+    ]);
+    const read = async (q: string) =>
+      (await app.inject({ method: 'GET', url: `/api/sessions/s1/subagents/tu1/messages${q}` })).json();
+
+    const two = await read('?limit=2');
+    expect(two.messages.map((m: any) => m.id)).toEqual(['m2', 'm3']);
+    expect(two.droppedCount).toBe(1);
+
+    // A limit at or over the buffer leaves it whole; garbage is ignored.
+    for (const q of ['', '?limit=3', '?limit=50', '?limit=abc', '?limit=0', '?limit=-1']) {
+      const all = await read(q);
+      expect(all.messages.map((m: any) => m.id), q).toEqual(['m1', 'm2', 'm3']);
+      expect(all.droppedCount, q).toBe(0);
+    }
+  });
+
+  it('PATCH /api/sessions/:id and PUT .../tags publish the session on `sessions`', async () => {
+    const received = subscribeFake(hub, 'sessions');
+    await app.inject({ method: 'PATCH', url: '/api/sessions/s2', payload: { title: 'renamed' } });
+    expect(received).toEqual([{ topic: 'sessions', event: 'upsert', session: expect.objectContaining({ id: 's2', title: 'renamed' }) }]);
+
+    received.length = 0;
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/tags', payload: { tagIds: [10] } });
+    expect(received).toEqual([{ topic: 'sessions', event: 'upsert', session: expect.objectContaining({ id: 's2', tagIds: [10] }) }]);
+
+    received.length = 0;
+    expect((await app.inject({ method: 'PATCH', url: '/api/sessions/nope', payload: { title: 'x' } })).statusCode).toBe(404);
+    await app.inject({ method: 'PUT', url: '/api/sessions/nope/tags', payload: { tagIds: [] } });
+    expect(received).toEqual([]);
+  });
+
   it('GET .../subagents/:toolUseId/messages 404s an agent whose toolUseId is absent — it can never be addressed this way', async () => {
     // `feed()` (the transcript-only path) never learns a `toolUseId`; only
     // `feedTask()` does, from the SDK's task events.
@@ -839,6 +877,31 @@ describe('REST routes', () => {
     expect(upsert.session).toMatchObject({ source: 'web', status: 'working' });
   });
 
+  // The SDK does not replay a turn Orbital sends, and only the sending client
+  // holds its own copy — so every other window, and a phone, would not see
+  // the message until the transcript was read again.
+  it('POST /sessions/:id/messages publishes the sent turn on the session topic, images included', async () => {
+    const { app, runner, hub, imageStore } = makeApp();
+    runner.send = () => 'u-sent';
+    const image = imageStore.putBytes('image/png', Buffer.from('fake png bytes'))!;
+    const received = subscribeFake(hub, 'session:s2');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'from the phone', attachments: [image.ref] },
+    });
+    expect(res200(res)).toMatchObject({ ok: true, uuid: 'u-sent' });
+    const turns = received.filter((r) => r.event === 'message' && r.message.role === 'user');
+    expect(turns).toHaveLength(1);
+    expect(turns[0].message).toMatchObject({ role: 'user', text: 'from the phone', uuid: 'u-sent', images: [image] });
+  });
+
+  it('POST /sessions/:id/messages publishes no turn when the text only settled a parked decision', async () => {
+    const { app, runner, hub } = makeApp();
+    runner.send = () => null;
+    const received = subscribeFake(hub, 'session:s2');
+    res200(await app.inject({ method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'yes' } }));
+    expect(received.filter((r) => r.event === 'message')).toEqual([]);
+  });
+
   it('POST /sessions/:id/messages 409s for a live terminal session', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/sessions/s1/messages', payload: { text: 'hi' },
@@ -1020,73 +1083,51 @@ describe('REST routes', () => {
     expect(ended).toEqual([]);
   });
 
-  it('POST /api/sessions/:id/clear with startNew uses computed permission mode', async () => {
-    // Capture runner.start() calls
-    const startCalls: any[] = [];
-    runner.start = async (body: any) => {
-      startCalls.push(body);
-      return 'web-10';
-    };
-
-    // Set inherit_permission_mode to false, default to plan, and inherit_tags to false
+  // Clear keeps what it cleared (spec 2026-10-05-mobile-next-design § 4
+  // Server, Decision 7): folder, model, mode and tags, whatever the old
+  // inherit settings and the defaults say.
+  it('POST /api/sessions/:id/clear with startNew keeps the folder, model, mode and tags', async () => {
+    const { app, db, startCalls } = makeApp();
+    db.update(sessions).set({ model: 'haiku', source: 'web' }).where(eq(sessions.id, 's1')).run();
     await app.inject({
       method: 'PATCH', url: '/api/settings',
       payload: {
-        inherit_permission_mode: 'false',
-        default_permission_mode: 'plan',
-        inherit_tags: 'false',
+        inherit_permission_mode: 'false', inherit_tags: 'false',
+        default_permission_mode: 'plan', default_model: 'sonnet',
       },
     });
+    const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/clear', payload: { startNew: true } });
+    expect(res.json()).toMatchObject({ sessionId: 'web-9' });
+    expect(startCalls).toEqual([expect.objectContaining({ cwd: '/w/x', permissionMode: 'acceptEdits', model: 'haiku' })]);
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
+    expect(row).toMatchObject({ cwd: '/w/x', permission_mode: 'acceptEdits', model: 'haiku' });
+    const created = (await app.inject({ method: 'GET', url: '/api/sessions/web-9' })).json().session;
+    expect(created.tagIds).toEqual([10]);
+  });
 
-    // Old session has acceptEdits mode, but we should use default (plan) because inherit is false
-    const res = await app.inject({
-      method: 'POST', url: '/api/sessions/s1/clear',
-      payload: { startNew: true },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ sessionId: 'web-10' });
-
-    // Verify runner.start() received the default (plan) mode, not old session's mode
-    expect(startCalls).toHaveLength(1);
+  it('POST /api/sessions/:id/clear keeps a session on the default model, and gives one with no mode the default mode', async () => {
+    const { app, db, startCalls } = makeApp();
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's2')).run();
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { default_permission_mode: 'plan', default_model: 'sonnet' } });
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: { startNew: true } });
+    expect(startCalls[0].model).toBeUndefined();
     expect(startCalls[0].permissionMode).toBe('plan');
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
+    expect(row).toMatchObject({ model: null, permission_mode: 'plan' });
+  });
 
-    // Verify new session in DB has the default mode
-    const newSession = db
-      .select({ permissionMode: sessions.permissionMode })
-      .from(sessions)
-      .where(eq(sessions.id, 'web-10'))
-      .get()!;
-    expect(newSession.permissionMode).toBe('plan');
+  it('POST /api/sessions/:id/clear keeps a rule tag the user took off taken off', async () => {
+    const { app, db } = makeApp();
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's2')).run();
+    const ruleTagId = (await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'ruletag', hue: 5 } })).json().id;
+    await app.inject({ method: 'POST', url: '/api/tag-rules', payload: { tagId: ruleTagId, condition: 'path_matches', pattern: '/w/y' } });
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/s2' })).json().session.tagIds).toEqual([ruleTagId]);
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/tags', payload: { tagIds: [] } });
+    const cleared = (await app.inject({ method: 'GET', url: '/api/sessions/s2' })).json().session.tagIds;
+    expect(cleared).not.toContain(ruleTagId);
 
-    // Verify manual tags are NOT copied (inherit_tags=false)
-    const newTags = db
-      .select({ tagId: sessionTags.tagId })
-      .from(sessionTags)
-      .where(eq(sessionTags.sessionId, 'web-10'))
-      .all();
-    expect(newTags).toHaveLength(0);
-
-    // Now test with inherit_tags=true
-    await app.inject({
-      method: 'PATCH', url: '/api/settings',
-      payload: { inherit_tags: 'true' },
-    });
-
-    const res2 = await app.inject({
-      method: 'POST', url: '/api/sessions/s1/clear',
-      payload: { startNew: true },
-    });
-    expect(res2.statusCode).toBe(200);
-    const newSessionId = res2.json().sessionId;
-
-    // Verify manual tags ARE copied
-    const copiedTags = db
-      .select({ tagId: sessionTags.tagId })
-      .from(sessionTags)
-      .where(eq(sessionTags.sessionId, newSessionId))
-      .all();
-    expect(copiedTags).toHaveLength(1);
-    expect(copiedTags[0].tagId).toBe(10);
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: { startNew: true } });
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/web-9' })).json().session.tagIds).toEqual(cleared);
   });
 
   it('POST /api/sessions/:id/clear with startNew publishes an upsert for the new session on the sessions topic', async () => {
@@ -1124,16 +1165,6 @@ describe('REST routes', () => {
     await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: {} });
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 's2')).get() as SessionRow;
     expect(typeof row.ended_at).toBe('number');
-  });
-
-  it('clear + startNew uses the settings default model, not the parent one', async () => {
-    const { app, db, startCalls } = makeApp();
-    db.update(sessions).set({ model: 'haiku', source: 'web' }).where(eq(sessions.id, 's2')).run();
-    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'sonnet' } });
-    await app.inject({ method: 'POST', url: '/api/sessions/s2/clear', payload: { startNew: true } });
-    expect(startCalls[0].model).toBe('sonnet');
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, 'web-9')).get() as SessionRow;
-    expect(row.model).toBe('sonnet');
   });
 
   it('switches the model of a live session', async () => {
@@ -1349,10 +1380,10 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
-      images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
+      images: { put: () => null, putBytes: () => null, read: () => null, entry: () => null }, imagesDir: '/nonexistent',
       files: { putBytes: () => null },
       claudeDir: '/nonexistent',
-      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null }, '/nonexistent', { get: () => '' }),
+      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null, entry: () => null }, '/nonexistent', { get: () => '' }),
       settings: { get: () => '', set: () => {} },
       mcp: noMcp,
       retention: retentionFor(db),
@@ -3602,6 +3633,27 @@ describe('background task routes', () => {
     const res = await app.inject({ url: '/api/sessions/s1/tasks/sh1/output' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ text: 'héllo\nready\n', start: 0, end: Buffer.byteLength('héllo\nready\n') });
+  });
+
+  it('GET .../output?maxBytes reads a shorter tail, never one longer than OUTPUT_TAIL_BYTES, and ignores garbage', async () => {
+    const lines = Array.from({ length: 10 }, (_, i) => `line ${i}\n`).join('');
+    const { app, path } = withShell({ output: lines });
+    const size = Buffer.byteLength(lines);
+    const read = async (q: string) => (await app.inject({ url: `/api/sessions/s1/tasks/sh1/output${q}` })).json();
+
+    const short = await read('?maxBytes=14');
+    expect(short).toEqual({ text: 'line 9\n', start: size - 7, end: size });
+
+    for (const q of ['', '?maxBytes=abc', '?maxBytes=-5', '?maxBytes=0', '?maxBytes=1.5', '?maxBytes=']) {
+      expect(await read(q), q).toEqual({ text: lines, start: 0, end: size });
+    }
+
+    // Over the cap: the bound is OUTPUT_TAIL_BYTES, as without the parameter.
+    const big = 'x'.repeat(OUTPUT_TAIL_BYTES) + '\n' + 'tail\n';
+    writeFileSync(path, big);
+    const capped = await read(`?maxBytes=${OUTPUT_TAIL_BYTES * 4}`);
+    expect(capped).toEqual(await read(''));
+    expect(capped.start).toBeGreaterThan(0);
   });
 
   it('GET .../output 410s once the file is gone, and 404s a task without an output path', async () => {

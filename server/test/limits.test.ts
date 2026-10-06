@@ -177,6 +177,8 @@ describe('LimitsService — waits', () => {
       cancelled: true,
       willContinue: false,
       queued: ['also this'],
+      autoContinue: true,
+      continueText: DEFAULT_CONTINUE_TEXT,
     });
     restarted.setCancelled('s1', false);
     expect(restarted.waitFor('s1')?.willContinue).toBe(true);
@@ -257,6 +259,16 @@ describe('LimitsService — waits', () => {
     await limits.fireDue();
     expect(delivered).toHaveLength(1);
     expect(limits.isWaiting('s1')).toBe(false);
+  });
+
+  it('carries the two limit settings on the wait, as they stand when it is published', async () => {
+    const { db, limits } = service();
+    addSession(db, 's1');
+    await limits.limitHit('s1', REJECTED, 'rate_limit');
+    expect(limits.waitFor('s1')).toMatchObject({ autoContinue: true, continueText: DEFAULT_CONTINUE_TEXT });
+    db.update(settingsTable).set({ value: 'false' }).where(eq(settingsTable.key, AUTO_CONTINUE_KEY)).run();
+    db.update(settingsTable).set({ value: 'Go on.' }).where(eq(settingsTable.key, CONTINUE_TEXT_KEY)).run();
+    expect(limits.waitFor('s1')).toMatchObject({ autoContinue: false, continueText: 'Go on.', willContinue: false });
   });
 
   it('fires an overdue wait on start, and never one for an ended session', async () => {
@@ -453,6 +465,14 @@ describe('limits routes', () => {
     expect(res.json()).toEqual({ ok: true, queued: true });
     const snap = (await server.inject({ method: 'GET', url: '/api/sessions/w1' })).json();
     expect(snap.session.limitWait.queued).toEqual(['later please']);
+    await server.close();
+  });
+
+  it('carries the saved limit settings on the waiting session', async () => {
+    const server = await app();
+    await server.inject({ method: 'PATCH', url: '/api/settings', payload: { [CONTINUE_TEXT_KEY]: 'Go on.', [AUTO_CONTINUE_KEY]: 'false' } });
+    const snap = (await server.inject({ method: 'GET', url: '/api/sessions/w1' })).json();
+    expect(snap.session.limitWait).toMatchObject({ continueText: 'Go on.', autoContinue: false, willContinue: false });
     await server.close();
   });
 

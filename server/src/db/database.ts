@@ -22,9 +22,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   default_permission_mode: 'acceptEdits',
   default_project_dir: '',
   confirm_before_clear: 'true',
-  inherit_tags: 'true',
-  inherit_permission_mode: 'true',
-  /** Pre-selected in the New session dialog and used by Clear (canvas 4c). A
+  /** Pre-selected in the New session dialog (canvas 4c). A
    * value the catalog does not offer falls back to its first row, client-side. */
   default_model: 'sonnet',
   remember_model_per_project: 'true',

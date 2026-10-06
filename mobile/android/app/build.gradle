@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'com.github.triplet.play'
 
 // The upload key for Google Play (runbook build-the-android-app → Release to Google Play).
 // It lives in the git-ignored secrets/ at the repo root, never in the project.
@@ -8,6 +9,9 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
 
+// The Play service account that uploads releases, in the same git-ignored secrets/.
+def playServiceAccountFile = rootProject.file('../../secrets/play-service-account.json')
+
 android {
     namespace = "io.slothworks.orbital.mobile"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -15,8 +19,8 @@ android {
         applicationId "io.slothworks.orbital.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "0.2.0"
+        versionCode 6
+        versionName "0.4.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -45,6 +49,18 @@ android {
     }
 }
 
+// `npm run android:release` uploads the bundle to the Internal testing track,
+// rolled out at once, as `ios:release` sends iOS to TestFlight. Production
+// stays a hand-made release in the Console. A draft app (never rolled out)
+// takes only draft releases: `-PplayStatus=draft`.
+play {
+    serviceAccountCredentials.set(playServiceAccountFile)
+    track.set('internal')
+    defaultToAppBundles.set(true)
+    releaseStatus.set(com.github.triplet.gradle.androidpublisher.ReleaseStatus.valueOf(
+        (project.findProperty('playStatus') ?: 'completed').toString().toUpperCase()))
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
@@ -66,13 +82,14 @@ dependencies {
 apply from: 'capacitor.build.gradle'
 
 // The bundle for Play carries its version in its name; the debug APK keeps
-// Gradle's name, which the runbook's install commands use.
+// Gradle's name, which the runbook's install commands use. A copy, not a
+// rename: the Play upload reads the bundle at Gradle's own path.
 tasks.matching { it.name == 'bundleRelease' }.configureEach {
     doLast {
         def dir = file("$buildDir/outputs/bundle/release")
         def versioned = new File(dir, "orbital-${android.defaultConfig.versionName}.aab")
-        versioned.delete()
-        new File(dir, 'app-release.aab').renameTo(versioned)
+        java.nio.file.Files.copy(new File(dir, 'app-release.aab').toPath(), versioned.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING)
     }
 }
 
@@ -80,6 +97,9 @@ tasks.matching { it.name == 'bundleRelease' }.configureEach {
 gradle.taskGraph.whenReady { graph ->
     if (!keystorePropertiesFile.exists() && graph.allTasks.any { it.name == 'bundleRelease' }) {
         throw new GradleException("No upload key: ${keystorePropertiesFile} is missing (runbook build-the-android-app).")
+    }
+    if (!playServiceAccountFile.exists() && graph.allTasks.any { it.name.startsWith('publish') }) {
+        throw new GradleException("No Play service account: ${playServiceAccountFile} is missing (runbook build-the-android-app → Upload from the command line).")
     }
 }
 

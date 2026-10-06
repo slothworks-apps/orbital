@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '../mobile/version'
 import {
-  back, initialMobileState, isMacAsleep, isPairGone, mayOpenFromNotice, pairGoneFor, reduce, useMobile, type MobileState,
+  back, dismissTopSheet, initialMobileState, isMacAsleep, isPairGone, keepsSelection, mayOpenFromNotice, pairGoneFor, push, pushedTop, reduce,
+  registerSheet, useMobile, type MobileState, type Pushed,
 } from '../mobile/state'
 
 // `recheck`, `client` and `ready` are all of `clientRef` the module under test reads.
@@ -109,7 +110,7 @@ describe('reduce', () => {
 
 describe('back', () => {
   it('walks session and settings back to the list, and leaves the app from the list', () => {
-    expect(back(state({ screen: 'session', sessionId: 's1' }))).toEqual({ screen: 'list', sessionId: null })
+    expect(back(state({ screen: 'session', sessionId: 's1' }))).toEqual({ screen: 'list', sessionId: null, pushed: [], composerIntent: null })
     expect(back(state({ screen: 'settings' }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'new' }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'list' }))).toBe('exit')
@@ -121,6 +122,138 @@ describe('back', () => {
     expect(back(state({ screen: 'pairing', previous: null }))).toBe('exit')
   })
 })
+
+describe('pushed screens', () => {
+  const subagent: Pushed = { kind: 'subagent', sessionId: 's1', toolUseId: 'tu1' }
+  const task: Pushed = { kind: 'task', sessionId: 's1', taskId: 't1' }
+  const file: Pushed = { kind: 'file', sessionId: 's1', path: 'src/a.ts', line: 42 }
+
+  it('opens over its own session and keeps the session id', () => {
+    for (const item of [subagent, task, file]) {
+      expect(push(state({ screen: 'session', sessionId: 's1' }), item)).toEqual({ screen: item.kind, sessionId: 's1', pushed: [item] })
+    }
+  })
+
+  it('opens its session underneath it from the list, a notice or another session', () => {
+    expect(push(state({ screen: 'list' }), task)).toEqual({ screen: 'task', sessionId: 's1', pushed: [task] })
+    const elsewhere = state({ screen: 'subagent', sessionId: 's2', pushed: [{ kind: 'subagent', sessionId: 's2', toolUseId: 'x' }] })
+    expect(push(elsewhere, file)).toEqual({ screen: 'file', sessionId: 's1', pushed: [file] })
+  })
+
+  it('goes back from every pushed screen to its session, not the list', () => {
+    for (const item of [subagent, task, file]) {
+      expect(back(state({ screen: item.kind, sessionId: 's1', pushed: [item] }))).toEqual({ screen: 'session', pushed: [] })
+    }
+  })
+
+  it('goes back from a file opened in a task output to the output, then to the session', () => {
+    const onTask = state({ screen: 'task', sessionId: 's1', pushed: [task] })
+    const onFile = { ...onTask, ...push(onTask, file) }
+    expect(onFile).toMatchObject({ screen: 'file', sessionId: 's1', pushed: [task, file] })
+    const backOnTask = { ...onFile, ...(back(onFile) as Partial<MobileState>) }
+    expect(backOnTask).toMatchObject({ screen: 'task', sessionId: 's1', pushed: [task] })
+    expect(back(backOnTask)).toEqual({ screen: 'session', pushed: [] })
+  })
+
+  it('reads the top only as the kind asked for', () => {
+    const s = state({ pushed: [task, file] })
+    expect(pushedTop(s, 'file')).toBe(file)
+    expect(pushedTop(s, 'task')).toBeNull()
+    expect(pushedTop(state(), 'subagent')).toBeNull()
+  })
+
+  it('drops the stack when the session closes or the pair is gone', () => {
+    expect(back(state({ screen: 'session', sessionId: 's1' }))).toMatchObject({ pushed: [] })
+    expect(reduce(state({ screen: 'task', sessionId: 's1', pushed: [task] }), { type: 'unpaired' }, NOW)).toMatchObject({ pushed: [], sessionId: null })
+  })
+
+  describe('through the store', () => {
+    beforeEach(() => useMobile.setState({ ...initialMobileState, screen: 'session', sessionId: 's1' }))
+
+    it('walks open → back → back from a subagent to the list', () => {
+      const m = useMobile.getState()
+      m.openSubagent({ sessionId: 's1', toolUseId: 'tu1' })
+      expect(useMobile.getState()).toMatchObject({ screen: 'subagent', sessionId: 's1' })
+      expect(useMobile.getState().goBack()).toBe('stayed')
+      expect(useMobile.getState()).toMatchObject({ screen: 'session', sessionId: 's1', pushed: [] })
+      expect(useMobile.getState().goBack()).toBe('stayed')
+      expect(useMobile.getState()).toMatchObject({ screen: 'list', sessionId: null })
+    })
+
+    it('starts a fresh stack when a session or a base screen opens', () => {
+      useMobile.getState().openTask({ sessionId: 's1', taskId: 't1' })
+      useMobile.getState().openSession('s2')
+      expect(useMobile.getState()).toMatchObject({ screen: 'session', sessionId: 's2', pushed: [] })
+      useMobile.getState().openFile({ sessionId: 's2', path: 'a.png', line: null })
+      useMobile.getState().go('settings')
+      expect(useMobile.getState()).toMatchObject({ screen: 'settings', pushed: [] })
+    })
+  })
+})
+
+describe('keepsSelection', () => {
+  beforeEach(() => useMobile.setState({ ...initialMobileState, screen: 'session', sessionId: 's1' }))
+
+  it('keeps the session selected while a screen is pushed over it', () => {
+    useMobile.getState().openSubagent({ sessionId: 's1', toolUseId: 'tu1' })
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(true)
+    useMobile.getState().openFile({ sessionId: 's1', path: 'a.png', line: null })
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(true)
+  })
+
+  it('lets it go on the way back to the list, to a base screen, or to another session', () => {
+    useMobile.getState().goBack()
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(false)
+    useMobile.setState({ screen: 'session', sessionId: 's1' })
+    useMobile.getState().go('settings')
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(false)
+    useMobile.setState({ screen: 'session', sessionId: 's1' })
+    useMobile.getState().openTask({ sessionId: 's2', taskId: 't1' })
+    expect(keepsSelection(useMobile.getState(), 's1')).toBe(false)
+  })
+})
+
+describe('focusComposer', () => {
+  beforeEach(() => useMobile.setState({ ...initialMobileState, screen: 'session', sessionId: 's1' }))
+
+  it('belongs to the open session and counts every request', () => {
+    useMobile.getState().focusComposer({ kind: 'reopen', step: 4 })
+    useMobile.getState().focusComposer({ kind: 'reopen', step: 4 })
+    expect(useMobile.getState().composerIntent).toEqual({ sessionId: 's1', intent: { kind: 'reopen', step: 4 }, seq: 2 })
+  })
+
+  it('survives a screen pushed over the session and is gone back on the list or in another session', () => {
+    useMobile.getState().focusComposer({ kind: 'reopen', step: 4 })
+    useMobile.getState().openFile({ sessionId: 's1', path: 'a.png', line: null })
+    useMobile.getState().goBack()
+    expect(useMobile.getState().composerIntent).not.toBeNull()
+    useMobile.getState().goBack()
+    expect(useMobile.getState().composerIntent).toBeNull()
+
+    useMobile.setState({ screen: 'session', sessionId: 's1' })
+    useMobile.getState().focusComposer({ kind: 'reopen', step: 2 })
+    useMobile.getState().openSession('s1')
+    expect(useMobile.getState().composerIntent).not.toBeNull()
+    useMobile.getState().openSession('s2')
+    expect(useMobile.getState().composerIntent).toBeNull()
+  })
+})
+
+describe('dismissTopSheet', () => {
+  it('closes the newest open sheet first, and reports when there is none', () => {
+    const closed: string[] = []
+    const offA = registerSheet({ dismiss: () => closed.push('a') })
+    const offB = registerSheet({ dismiss: () => closed.push('b') })
+    expect(dismissTopSheet()).toBe(true)
+    expect(closed).toEqual(['b'])
+    offB()
+    expect(dismissTopSheet()).toBe(true)
+    expect(closed).toEqual(['b', 'a'])
+    offA()
+    expect(dismissTopSheet()).toBe(false)
+  })
+})
+
 
 describe('back from pairing once paired', () => {
   it('goes to the list, not to where pairing began', () => {

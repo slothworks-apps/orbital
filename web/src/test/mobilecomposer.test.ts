@@ -80,6 +80,32 @@ describe('composerPlaceholder', () => {
       answering: false,
     })
   })
+
+  // Local time, so the reset reads 14:05 whatever the machine's zone.
+  const NOW = new Date(2026, 9, 5, 13, 41).getTime()
+  const wait = { resetsAt: new Date(2026, 9, 5, 14, 5).toISOString() }
+
+  it('asks what should change in a reopened step', () => {
+    expect(composerPlaceholder({ pending: undefined, answers: undefined, ended: false, reopenStep: 4 })).toEqual({
+      text: 'What should change in step 4?',
+      answering: false,
+    })
+  })
+
+  it('queues for the reset while the session waits for a limit', () => {
+    expect(
+      composerPlaceholder({ pending: undefined, answers: undefined, ended: false, limitWait: wait, now: NOW }),
+    ).toEqual({ text: 'Queue a message for 14:05…', answering: false })
+  })
+
+  it('lets a parked decision speak first, then the reopened step, then the wait', () => {
+    expect(
+      composerPlaceholder({ pending: verdict('plan'), answers: undefined, ended: false, reopenStep: 4, limitWait: wait, now: NOW }).text,
+    ).toBe(composerPlaceholderFor('plan'))
+    expect(
+      composerPlaceholder({ pending: undefined, answers: undefined, ended: false, reopenStep: 4, limitWait: wait, now: NOW }).text,
+    ).toBe('What should change in step 4?')
+  })
 })
 
 describe('isDesktopCommand', () => {

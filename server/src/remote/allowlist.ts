@@ -41,12 +41,22 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/sessions/:id/end'],
   ['POST', '/api/sessions/:id/reopen'],
   ['POST', '/api/sessions/:id/clear'],
-  ['GET', '/api/sessions/:id/walkthrough'],
-  ['GET', '/api/sessions/:id/walkthrough/summary'],
-  // The harness, read and decided (spec 2026-10-06-harness-graph-and-proposals-design § The phone):
-  // approving a gate, applying or discarding what the agent proposed. Editing it and starting one stay on the Mac.
+  // Answering a harness gate: read it, and the four answers. Starting,
+  // removing, pausing, carrying or editing a harness and the step diff stay
+  // off (spec 2026-10-05-mobile-next-design § 1 Server).
   ['GET', '/api/sessions/:id/harness'],
   ['POST', '/api/sessions/:id/harness/steps/:index/approve'],
+  ['POST', '/api/sessions/:id/harness/steps/:index/reopen'],
+  ['POST', '/api/sessions/:id/harness/steps/:index/go-back'],
+  ['POST', '/api/sessions/:id/harness/steps/:index/decide-myself'],
+  // Go back's rewind only; cancelling a pending rewind (`DELETE`) stays off.
+  ['POST', '/api/sessions/:id/rewind'],
+  ['POST', '/api/sessions/:id/limit-wait/cancel'],
+  ['POST', '/api/sessions/:id/limit-wait/undo'],
+  ['GET', '/api/sessions/:id/walkthrough'],
+  ['GET', '/api/sessions/:id/walkthrough/summary'],
+  // What the agent proposed, applied or discarded as it stands; editing it stays on the Mac
+  // (spec 2026-10-06-harness-graph-and-proposals-design § The phone).
   ['POST', '/api/sessions/:id/harness/proposal/apply'],
   ['POST', '/api/sessions/:id/harness/proposal/discard'],
   ['GET', '/api/tags'],

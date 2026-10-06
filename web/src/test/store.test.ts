@@ -1287,11 +1287,12 @@ describe('statusCounts (pure)', () => {
       b: makeSession({ id: 'b', status: 'working' }),
       c: makeSession({ id: 'c', status: 'idle' }),
       d: makeSession({ id: 'd', status: 'needs_input' }),
-      e: makeSession({ id: 'e', status: 'ended', pinnedAt: 1 }),
+      e: makeSession({ id: 'e', status: 'ended' }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
+      leavingSince: { e: NOW - 1 },
     }
     expect(statusCounts(state, NOW)).toEqual({ working: 2, idle: 1, needs_input: 1, ended: 1 })
   })
@@ -1311,11 +1312,12 @@ describe('statusCounts (pure)', () => {
       b: makeSession({ id: 'b', status: 'working', tagIds: [2] }), // muted
       c: makeSession({ id: 'c', status: 'idle', tagIds: [1] }),
       d: makeSession({ id: 'd', status: 'needs_input', tagIds: [2] }), // muted
-      e: makeSession({ id: 'e', status: 'ended', tagIds: [1], pinnedAt: 1 }),
+      e: makeSession({ id: 'e', status: 'ended', tagIds: [1] }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
+      leavingSince: { e: NOW - 1 },
       ui: { ...initialSnapshot.ui, filterTagId: 1 },
     }
     // Only sessions a, c, e (tagIds includes 1) should be counted.
@@ -1330,11 +1332,12 @@ describe('statusCounts (pure)', () => {
       a: makeSession({ id: 'a', status: 'working', title: 'Fix login' }),
       b: makeSession({ id: 'b', status: 'working', title: 'Refactor', cwd: '/src/login-service' }),
       c: makeSession({ id: 'c', status: 'needs_input', title: 'Docs' }),
-      d: makeSession({ id: 'd', status: 'ended', title: 'Release notes', pinnedAt: 1 }),
+      d: makeSession({ id: 'd', status: 'ended', title: 'Release notes' }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
+      leavingSince: { d: NOW - 1 },
       ui: { ...initialSnapshot.ui, search: 'LOGIN' },
     }
     expect(statusCounts(state, NOW)).toEqual({ working: 2, idle: 0, needs_input: 0, ended: 0 })
@@ -1368,12 +1371,12 @@ describe('absorptionFor (pure)', () => {
     }
   })
 
-  // spec 2026-09-24-sessions-end-only-by-hand-design § 3: the pin still means
-  // "keep this here".
-  it('draws a pinned ended session', () => {
+  // spec 2026-09-24-sessions-end-only-by-hand-design § 3: a pin keeps an
+  // ended session in the sidebar, not on the map.
+  it('does not draw a pinned ended session', () => {
     const pinned = makeSession({ id: 'p', status: 'ended', lastAt: null, pinnedAt: NOW - DAY })
-    expect(absorptionFor(pinned, NOW, undefined)).toBe('none')
-    expect(absorptionFor(pinned, NOW, NOW - 1)).toBe('none')
+    expect(absorptionFor(pinned, NOW, undefined)).toBe('gone')
+    expect(absorptionFor(pinned, NOW, NOW - 1)).toBe('leaving')
   })
 
   it('an ended, unpinned session this tab never saw leave is gone outright', () => {
@@ -1412,7 +1415,7 @@ describe('trashDropFor (pure)', () => {
 })
 
 describe('mapSessions (pure)', () => {
-  it('drops ended, unpinned sessions and keeps pinned ones and every live one, however old', () => {
+  it('drops ended sessions, pinned or not, and keeps every live one, however old', () => {
     const sessions: Record<string, ApiSession> = {
       ended: makeSession({ id: 'ended', status: 'ended', lastAt: NOW - 1_000 }),
       pinned: makeSession({ id: 'pinned', status: 'ended', lastAt: NOW - 400 * DAY, pinnedAt: 1 }),
@@ -1421,7 +1424,7 @@ describe('mapSessions (pure)', () => {
       n: makeSession({ id: 'n', status: 'needs_input', lastAt: NOW - 90 * DAY }),
     }
     const state: OrbitalState = { ...initialSnapshot, sessions }
-    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['i', 'n', 'pinned', 'w'])
+    expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['i', 'n', 'w'])
   })
 
   it('keeps a session that left the map while its grace runs, so the fade can play', () => {
@@ -1469,15 +1472,16 @@ describe('mapSessions (pure)', () => {
   })
 
   // The map filters everything it draws: a planet the filter excludes must
-  // not survive just because the session behind it is pinned.
-  it('applies the origin filter to pinned ended sessions too', () => {
+  // not survive just because the session behind it is still fading out.
+  it('applies the origin filter to ended sessions still leaving too', () => {
     const sessions: Record<string, ApiSession> = {
-      webEnded: makeSession({ id: 'webEnded', status: 'ended', source: 'web', pinnedAt: 1 }),
-      termEnded: makeSession({ id: 'termEnded', status: 'ended', source: 'terminal', pinnedAt: 1 }),
+      webEnded: makeSession({ id: 'webEnded', status: 'ended', source: 'web' }),
+      termEnded: makeSession({ id: 'termEnded', status: 'ended', source: 'terminal' }),
     }
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
+      leavingSince: { webEnded: NOW - 1, termEnded: NOW - 1 },
       ui: { ...initialSnapshot.ui, sourceFilter: 'web' },
     }
     expect(mapSessions(state, NOW).map((s) => s.id)).toEqual(['webEnded'])
@@ -1487,11 +1491,12 @@ describe('mapSessions (pure)', () => {
 describe('statusCounts and ended sessions', () => {
   it('counts ended sessions still on the map only', () => {
     const sessions: Record<string, ApiSession> = {
+      leaving: makeSession({ id: 'leaving', status: 'ended' }),
       pinned: makeSession({ id: 'pinned', status: 'ended', pinnedAt: 1 }),
       gone: makeSession({ id: 'gone', status: 'ended' }),
       live: makeSession({ id: 'live', status: 'working' }),
     }
-    const state: OrbitalState = { ...initialSnapshot, sessions }
+    const state: OrbitalState = { ...initialSnapshot, sessions, leavingSince: { leaving: NOW - 1 } }
     expect(statusCounts(state, NOW)).toEqual({ working: 1, idle: 0, needs_input: 0, ended: 1 })
   })
 })
@@ -1510,16 +1515,17 @@ describe('leavingSince', () => {
     expect(useOrbital.getState().leavingSince).toEqual({ a: expect.any(Number), b: expect.any(Number) })
   })
 
-  it('stamps an ended session that loses its pin, and nothing that keeps its place', () => {
-    const pinned = makeSession({ id: 'p', status: 'ended', pinnedAt: 1 })
+  it('stamps a pinned session that ends, and nothing that keeps its place or only loses a pin', () => {
+    const pinned = makeSession({ id: 'p', status: 'idle', pinnedAt: 1 })
+    const ended = makeSession({ id: 'e', status: 'ended', pinnedAt: 1 })
     useOrbital.setState({
-      sessions: { p: pinned, i: makeSession({ id: 'i', status: 'working' }) },
+      sessions: { p: pinned, e: ended, i: makeSession({ id: 'i', status: 'working' }) },
     })
     useOrbital.getState().applySessionEvent('i', { event: 'status', status: 'idle' })
-    useOrbital.getState().applySessionsEvent({ event: 'status', sessionId: 'p', status: 'ended' })
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: { ...ended, pinnedAt: null } })
     expect(useOrbital.getState().leavingSince).toEqual({})
 
-    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: { ...pinned, pinnedAt: null } })
+    useOrbital.getState().applySessionsEvent({ event: 'status', sessionId: 'p', status: 'ended' })
     expect(useOrbital.getState().leavingSince).toEqual({ p: expect.any(Number) })
   })
 })
@@ -1599,7 +1605,6 @@ describe('trashSession', () => {
 
     expect(api.endSession).not.toHaveBeenCalled()
     expect(api.setSessionPinned).toHaveBeenCalledWith('sd', false)
-    expect(useOrbital.getState().leavingSince.sd).toEqual(expect.any(Number))
 
     useOrbital.getState().toast?.action?.run()
     await vi.waitFor(() => expect(api.setSessionPinned).toHaveBeenLastCalledWith('sd', true))
@@ -1652,13 +1657,13 @@ describe('setSessionPinned', () => {
     expect(useOrbital.getState().toast).toBeNull()
   })
 
-  it('unpinning clears the stamp, saves the clear, and starts an ended session leaving', async () => {
+  it('unpinning clears the stamp and saves the clear, with no map change for an ended session', async () => {
     await useOrbital.getState().setSessionPinned('sp', true)
     await useOrbital.getState().setSessionPinned('sp', false)
 
     expect(useOrbital.getState().sessions.sp.pinnedAt).toBeNull()
     expect(api.setSessionPinned).toHaveBeenLastCalledWith('sp', false)
-    expect(useOrbital.getState().leavingSince.sp).toEqual(expect.any(Number))
+    expect(useOrbital.getState().leavingSince.sp).toBeUndefined()
   })
 
   it('rolls the pin back and reports when the save fails', async () => {

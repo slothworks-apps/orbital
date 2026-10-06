@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vite
 import {
   api,
   ApiError,
+  configureApi,
   type ApiSession,
   type ChatMessage,
   type Tag,
@@ -823,5 +824,43 @@ describe('Attachments API', () => {
     })
 
     expect((fetchMock.mock.calls[0][1] as RequestInit).body).toContain('"attachments":["a.png"]')
+  })
+})
+
+describe('read bounds for the phone', () => {
+  afterEach(() => {
+    configureApi({ subagentPageSize: null, taskOutputMaxBytes: null })
+  })
+
+  const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 })
+
+  it('asks for the whole buffer and the default tail when nothing is configured', async () => {
+    fetchMock.mockResolvedValueOnce(ok({ messages: [], droppedCount: 0 }))
+    await api.subagentMessages('s1', 'tu1')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/sessions/s1/subagents/tu1/messages')
+
+    fetchMock.mockResolvedValueOnce(ok({ text: '', start: 0, end: 0 }))
+    await api.taskOutput('s1', 'sh1')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/sessions/s1/tasks/sh1/output')
+  })
+
+  it('appends limit and maxBytes once configured, and drops them again on null', async () => {
+    configureApi({ subagentPageSize: 40, taskOutputMaxBytes: 65536 })
+    fetchMock.mockResolvedValueOnce(ok({ messages: [], droppedCount: 0 }))
+    await api.subagentMessages('s1', 'tu1')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/sessions/s1/subagents/tu1/messages?limit=40')
+
+    fetchMock.mockResolvedValueOnce(ok({ text: '', start: 0, end: 0 }))
+    await api.taskOutput('s1', 'sh1')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/sessions/s1/tasks/sh1/output?maxBytes=65536')
+
+    configureApi({ subagentPageSize: null })
+    fetchMock.mockResolvedValueOnce(ok({ messages: [], droppedCount: 0 }))
+    await api.subagentMessages('s1', 'tu1')
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/sessions/s1/subagents/tu1/messages')
+    // Configuring one bound leaves the other as it was.
+    fetchMock.mockResolvedValueOnce(ok({ text: '', start: 0, end: 0 }))
+    await api.taskOutput('s1', 'sh1')
+    expect(fetchMock.mock.calls[3][0]).toBe('/api/sessions/s1/tasks/sh1/output?maxBytes=65536')
   })
 })

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useOrbital } from '../store/store'
+import { fileOpenHandlers, useFileMessage, useLongPress } from '../lib/fileOpen'
 import { apiFileImagePath } from '../lib/images'
 import { isImagePath } from '../lib/pathLinks'
 import { Lightbox } from '../ui/Lightbox'
@@ -135,6 +137,12 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const receiptTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The phone's seam (`lib/fileOpen.ts`): when configured, a press goes to
+  // its handler instead of the viewer or the lightbox, and a long-press is
+  // its own gesture. Unconfigured, all three are inert.
+  const routed = fileOpenHandlers()
+  const fileMessage = useFileMessage()
+  const longPress = useLongPress(routed ? path : null)
 
   // Only while the pointer is over this path, so one listener exists at a
   // time no matter how many paths a transcript carries. The pointer events
@@ -186,17 +194,31 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
       data-open={isOpen || undefined}
       data-ide-armed={armed || undefined}
       data-ide-receipt={showReceipt || undefined}
+      data-variant={routed ? variant : undefined}
+      onPointerDown={longPress.onPointerDown}
+      onPointerUp={longPress.onPointerUp}
+      onPointerCancel={longPress.onPointerCancel}
+      onContextMenu={longPress.onContextMenu}
+      onClickCapture={longPress.onClickCapture}
       onPointerEnter={(event) => {
         setHovered(true)
         setHeld(event.altKey)
       }}
-      onPointerMove={(event) => setHeld(event.altKey)}
+      onPointerMove={(event) => {
+        setHeld(event.altKey)
+        longPress.onPointerMove?.(event)
+      }}
       onPointerLeave={() => {
         setHovered(false)
         setHeld(false)
+        longPress.onPointerLeave?.()
       }}
       onClick={(event) => {
         event.stopPropagation()
+        if (routed) {
+          routed.open({ kind: 'path', path, line, messageId: fileMessage?.messageId })
+          return
+        }
         // The modifier wins over everything, the OPEN state included: the
         // two destinations are different places, so a path already showing
         // in the viewer is still worth sending to the editor.
@@ -269,7 +291,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
     </button>
   )
 
-  if (!image) return button
+  if (!image || routed) return button
   return (
     <>
       {button}
@@ -285,5 +307,23 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
         />
       </span>
     </>
+  )
+}
+
+/**
+ * A path no press can open (`isPressablePath` false) at a site that would
+ * otherwise draw a `PathButton`. Unconfigured — the desktop — it is the bare
+ * text it always was. With a `longPress` configured (the phone, spec
+ * 2026-10-05-mobile-next § 8 Decision 8) it is a plain mono span carrying
+ * that one gesture: never a link, never anything a tap does.
+ */
+export function PlainPath({ path, children }: { path: string; children?: ReactNode }) {
+  const longPress = useLongPress(fileOpenHandlers()?.longPress ? path : null)
+  const text = children ?? path
+  if (!longPress.onPointerDown) return <>{text}</>
+  return (
+    <span data-path-plain className="font-mono" {...longPress}>
+      {text}
+    </span>
   )
 }

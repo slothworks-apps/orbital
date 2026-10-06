@@ -13,6 +13,25 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Changed
 - A gate, or something the agent proposed, shows as NEEDS YOUR OK and notifies you the moment it waits, even while the agent goes on with other steps.
 
+## [0.20.9] — 2026-10-06
+### Fixed
+- An answered multiple-choice question that also had your own text now shows every option you ticked next to that text, instead of only the text.
+
+## [0.20.8] — 2026-10-06
+### Fixed
+- A message you send from your phone, or from another Orbital window, now shows up in the open transcript right away instead of only after a reload.
+
+## [0.20.7] — 2026-10-06
+### Changed
+- A pinned session leaves the map once it has ended, like any other; it stays in the sidebar's Pinned section.
+
+## [0.20.6] — 2026-10-05
+### Changed
+- Clear and start over now keeps the session's folder, tags, model and permission mode every time, so the "New session inherits" settings are gone.
+
+### Added
+- Your phone can now answer a harness step waiting for your OK, stop or resume a session waiting for its usage limit, and show the images and text files a session mentions.
+
 ## [0.20.5] — 2026-10-05
 ### Fixed
 - A session started from Orbital whose background agent is still running now stays shown as working, also when Orbital has lost track of that agent, instead of asking for your input too early.

@@ -267,15 +267,42 @@ export type PreviewResult =
  * `resolveForSession` is what holds the path to it.
  */
 export function readFilePreview(cwd: string, rawPath: string, named: NamedCheck = NAMES_NOTHING): PreviewResult {
+  const read = readTextFile(cwd, rawPath, named, FILE_PREVIEW_MAX_BYTES);
+  if (read.kind !== 'ok') return read;
+
+  const content = read.bytes.toString('utf8');
+  let lines = 1;
+  for (let i = 0; i < content.length; i++) if (content[i] === '\n') lines++;
+  return { kind: 'ok', content, size: read.size, mtimeMs: read.mtimeMs, lines };
+}
+
+export type TextFileResult =
+  | { kind: 'ok'; bytes: Buffer; size: number; mtimeMs: number }
+  | { kind: 'not_found' }
+  | { kind: 'outside' }
+  | { kind: 'too_large'; size: number }
+  | { kind: 'binary'; size: number; mediaType: string };
+
+/**
+ * A text file's bytes, undecoded, refusals first: confined by
+ * `resolveForSession`, refused past `maxBytes` from the stat alone, refused
+ * as binary by the sniff. The viewer's read decodes them; the phone's
+ * `file_get` sends them as they are, under its own smaller cap.
+ */
+export function readTextFile(
+  cwd: string, rawPath: string, named: NamedCheck = NAMES_NOTHING, maxBytes: number = FILE_PREVIEW_MAX_BYTES,
+): TextFileResult {
   const confined = resolveForSession(cwd, rawPath, named);
   if (confined.kind !== 'ok') return confined;
   const resolved = confined.path;
 
   const stat = statSync(resolved);
   if (stat.isDirectory()) return { kind: 'not_found' };
-  if (stat.size > FILE_PREVIEW_MAX_BYTES) return { kind: 'too_large', size: stat.size };
+  if (stat.size > maxBytes) return { kind: 'too_large', size: stat.size };
 
   const bytes = readFileSync(resolved);
+  // The file may have grown between the stat and the read.
+  if (bytes.length > maxBytes) return { kind: 'too_large', size: bytes.length };
   if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
     const ext = /\.([A-Za-z0-9]+)$/.exec(resolved)?.[1]?.toLowerCase();
     return {
@@ -284,11 +311,7 @@ export function readFilePreview(cwd: string, rawPath: string, named: NamedCheck 
       mediaType: (ext && BINARY_MEDIA_TYPES[ext]) || 'binary',
     };
   }
-
-  const content = bytes.toString('utf8');
-  let lines = 1;
-  for (let i = 0; i < content.length; i++) if (content[i] === '\n') lines++;
-  return { kind: 'ok', content, size: stat.size, mtimeMs: stat.mtimeMs, lines };
+  return { kind: 'ok', bytes, size: bytes.length, mtimeMs: stat.mtimeMs };
 }
 
 /** Content type per extension for `readImageFile` — the formats an `<img>`

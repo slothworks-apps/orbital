@@ -3,10 +3,15 @@ import { timeAgo } from '../lib/format'
 const MINUTE_MS = 60_000
 const TIME: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
 
+/** A moment as the phone's lines date it: "13:22". */
+export function clockLabel(at: number): string {
+  return new Date(at).toLocaleTimeString([], TIME)
+}
+
 /** "as of 14:32" today, "as of 1 Oct 14:32" before that (9a offline, 9b). */
 export function asOfLabel(asOf: number, now: number): string {
   const at = new Date(asOf)
-  const time = at.toLocaleTimeString([], TIME)
+  const time = clockLabel(asOf)
   if (at.toDateString() === new Date(now).toDateString()) return `as of ${time}`
   return `as of ${at.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${time}`
 }
@@ -25,6 +30,17 @@ export function agoLabel(ts: number, now: number): string {
 export function basename(path: string): string {
   const trimmed = path.replace(/\/+$/, '')
   return trimmed.slice(trimmed.lastIndexOf('/') + 1) || path
+}
+
+/**
+ * A session's title is often its whole first prompt. Inside a sentence or a
+ * label (10f, 10g) only a short one reads as a name; a long one becomes
+ * `fallback`.
+ */
+export const NAME_IN_SENTENCE_MAX = 32
+export function nameInSentence(title: string | null | undefined, fallback = 'the session'): string {
+  const t = (title ?? '').trim()
+  return t && t.length <= NAME_IN_SENTENCE_MAX ? t : fallback
 }
 
 /**

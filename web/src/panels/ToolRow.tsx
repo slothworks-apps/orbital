@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { createContext, useContext, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital, editDiffsExpanded } from '../store/store'
 import type { BackgroundTask, ChatMessage, Subagent } from '../lib/types'
@@ -10,7 +11,8 @@ import { DIFF_ADDED_INK_CLASS, DIFF_REMOVED_INK_CLASS } from '../lib/diff'
 import { ChangeView, changeSectionLabel } from './DiffView'
 import { formatBytes, formatToolDuration } from '../lib/format'
 import { ImageThumb } from './ImageThumb'
-import { PathButton } from './PathButton'
+import { PathButton, PlainPath } from './PathButton'
+import { FileMessageContext, fileOpenHandlers, messageImages, useLongPress } from '../lib/fileOpen'
 
 /** Tools whose salient input lives in a `file_path` field. */
 const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
@@ -25,6 +27,30 @@ const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
  */
 const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
 
+/** What started a row's chip: the subagent or the background task joined on its `toolUseId`. */
+export type ToolRowChipTarget = { kind: 'subagent'; subagent: Subagent } | { kind: 'task'; task: BackgroundTask }
+
+/**
+ * The phone's seam into the tool row (spec 2026-10-05-mobile-next § 2, § 3).
+ * Absent — the desktop and every panel — the row is exactly as it was. Given
+ * — the phone's session screen provides it around its transcript — the row
+ * draws two things the phone's canvas asks for and the desktop's does not:
+ *
+ * - under a row that started a subagent or a background task, the 44 px chip
+ *   `renderChip` returns (canvas 10g), in place of the inline `OPEN →` /
+ *   `OUTPUT →`, which the chip opens instead;
+ * - an image result as a full-width preview under the row, open or folded,
+ *   with the ⤢ mark (canvas 10d), in place of the 96 px thumbnail in the
+ *   expanded body.
+ *
+ * `panels/` never imports the phone: the phone hands its chip in.
+ */
+export interface PhoneToolRow {
+  renderChip(target: ToolRowChipTarget): ReactNode
+}
+
+export const PhoneToolRowContext = createContext<PhoneToolRow | null>(null)
+
 /** Input fields that name a file (spec: 2026-09-19-file-viewer-design §
  * Where paths come from) — pressable in the collapsed label and in the
  * expanded INPUT's pretty-print. */
@@ -37,13 +63,18 @@ const PATH_INPUT_FIELDS = new Set(['file_path', 'notebook_path'])
  * decides, same as prose matching.
  */
 export function pressablePathOf(toolName: string | undefined, toolInput: unknown): string | null {
+  const path = filePathOf(toolName, toolInput)
+  return path !== null && isPressablePath(path) ? path : null
+}
+
+/** The file a path-bearing tool names, pressable or not. */
+function filePathOf(toolName: string | undefined, toolInput: unknown): string | null {
   if (!toolInput || typeof toolInput !== 'object') return null
   const input = toolInput as Record<string, unknown>
   let path: unknown
   if (toolName && FILE_PATH_TOOLS.has(toolName)) path = input.file_path
   else if (toolName === 'NotebookEdit') path = input.notebook_path
-  if (typeof path !== 'string' || !isPressablePath(path)) return null
-  return path
+  return typeof path === 'string' ? path : null
 }
 
 /**
@@ -138,6 +169,18 @@ function InputJson({ input }: { input: unknown }) {
               </span>
             )
           }
+          // A path the phone can only long-press (`lib/fileOpen.ts`); the
+          // desktop configures none and keeps the line as one text node.
+          if (path !== null && fileOpenHandlers()?.longPress) {
+            return (
+              <span key={index}>
+                {match[1]}
+                <PlainPath path={path}>{match[3]}</PlainPath>
+                {match[4]}
+                {trailing}
+              </span>
+            )
+          }
         }
         // A static line list: the index is a stable key.
         return <span key={index}>{line + trailing}</span>
@@ -214,6 +257,12 @@ export function ToolRow({
   // the case, and anything else keeps today's plain bright span.
   const pathInput = pressablePathOf(toolUse.toolName, toolUse.toolInput)
   const pressablePath = pathInput !== null && pathInput === label ? pathInput : null
+  // A label that is a path no press can open: on the phone a long-press on
+  // the row copies it (`lib/fileOpen.ts`), while a tap still folds the row.
+  // Held by the row's own button because the label lets touches through to
+  // it. Empty handlers on the desktop.
+  const filePath = pressablePath === null ? filePathOf(toolUse.toolName, toolUse.toolInput) : null
+  const rowLongPress = useLongPress(filePath !== null && filePath === label ? filePath : null)
   const duration = formatToolDuration(toolDurationMs(toolUse, toolResult))
 
   // An editing tool's expanded body is its diff, not its input JSON (spec:
@@ -263,10 +312,25 @@ export function ToolRow({
       : undefined
   // The same for a background `Bash` or `Monitor` call (26a): its task, joined
   // on the launching call, and `OUTPUT →` when it has output to open.
-  const openableTask =
-    toolUse.toolUseId && (toolUse.toolName === 'Bash' || toolUse.toolName === 'Monitor')
-      ? backgroundTasks?.find((task) => task.toolUseId === toolUse.toolUseId && opensOutput(task))
-      : undefined
+  const launchesTask = toolUse.toolUseId && (toolUse.toolName === 'Bash' || toolUse.toolName === 'Monitor')
+  const openableTask = launchesTask
+    ? backgroundTasks?.find((task) => task.toolUseId === toolUse.toolUseId && opensOutput(task))
+    : undefined
+
+  // The phone's chip and wide image (`PhoneToolRowContext`). A task chip
+  // stands under its row whether or not the task has output to open — it
+  // still tells the truth about how the task ended; the chip decides what a
+  // press does.
+  const phone = useContext(PhoneToolRowContext)
+  const chipTarget: ToolRowChipTarget | null = !phone
+    ? null
+    : openableSubagent && onOpenSubagent
+      ? { kind: 'subagent', subagent: openableSubagent }
+      : (() => {
+          const task = launchesTask && onOpenTaskOutput ? backgroundTasks?.find((t) => t.toolUseId === toolUse.toolUseId) : undefined
+          return task ? { kind: 'task', task } : null
+        })()
+  const wideImages = phone && toolResult?.images?.length ? toolResult.images : null
 
   return (
     <div
@@ -295,6 +359,7 @@ export function ToolRow({
       >
         <button
           type="button"
+          {...rowLongPress}
           onClick={() => setOverride(!expanded)}
           aria-expanded={expanded}
           aria-label={`${toolUse.toolName ?? 'Tool'}${label ? `: ${label}` : ''}`}
@@ -347,7 +412,7 @@ export function ToolRow({
             // still running — see `toolDurationMs`.
             <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {duration}</span>
           )}
-          {openableSubagent && onOpenSubagent && (
+          {!phone && openableSubagent && onOpenSubagent && (
             // Canvas 11a: `oklch(85% .12 205)`, tracked .12em. A sibling of
             // the expand button (not inside it) for the same reason
             // `PathButton` is — its own press, not the row's toggle.
@@ -366,7 +431,7 @@ export function ToolRow({
               </button>
             </span>
           )}
-          {openableTask && onOpenTaskOutput && (
+          {!phone && openableTask && onOpenTaskOutput && (
             <span className="pointer-events-auto shrink-0">
               <button
                 type="button"
@@ -393,6 +458,20 @@ export function ToolRow({
         </div>
       </div>
 
+      {phone && chipTarget && phone.renderChip(chipTarget)}
+      {wideImages && toolResult && (
+        // Canvas 10d: the phone shows what a call made right under its row,
+        // full width; a press opens the viewer at it, paging through the
+        // result's images.
+        <FileMessageContext.Provider value={{ messageId: toolResult.id, images: messageImages(toolResult) }}>
+          <div className="flex flex-col gap-2 px-2.5 pb-2.5">
+            {wideImages.map((image) => (
+              <ImageThumb key={image.ref} image={image} variant="tool-wide" source={toolUse.toolName ?? 'tool result'} />
+            ))}
+          </div>
+        </FileMessageContext.Provider>
+      )}
+
       {expanded && (
         <div className="flex flex-col gap-2 border-t border-[rgba(150,205,255,.08)] px-3 pb-2.5 pt-2">
           <div>
@@ -406,13 +485,23 @@ export function ToolRow({
           {/* A file change that went through says nothing its diff does
               not ("has been updated successfully"); only a failed one's
               result — the error — is worth the space. */}
-          {toolResult && (!change || failed) && (
+          {toolResult && (!change || failed) && !(wideImages && !toolResult.text) && (
             <div>
               <SectionLabel>RESULT</SectionLabel>
-              {toolResult.images?.length ? (
+              {wideImages ? (
+                // The images already stand under the row (above); the text is what is left.
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                  {toolResult.text}
+                </pre>
+              ) : toolResult.images?.length ? (
                 // An image result is a body under the row, like a <pre>
                 // output block (canvas 7b): 96px thumb, mono readout beside
                 // it — dimensions and size are all an image block carries.
+                // The phone's viewer pages through the result's images
+                // (`lib/fileOpen.ts`); the desktop provides nothing.
+                <FileMessageContext.Provider
+                  value={fileOpenHandlers() ? { messageId: toolResult.id, images: messageImages(toolResult) } : null}
+                >
                 <div className="flex flex-col gap-2">
                   {toolResult.images.map((image) => (
                     <div key={image.ref} className="flex items-start gap-2.5">
@@ -438,6 +527,7 @@ export function ToolRow({
                     </pre>
                   ) : null}
                 </div>
+                </FileMessageContext.Provider>
               ) : toolUse.toolName === 'Bash' ? (
                 <pre
                   className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]"

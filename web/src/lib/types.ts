@@ -198,6 +198,13 @@ export interface ApiSession {
    */
   harnessGate?: HarnessGate | null
   /**
+   * Where the live harness stands: `index` is the first step not done
+   * (0-based), `total` the step count, `index === total` once every step is
+   * done; null without a harness. Mirrors `server/src/api/shape.ts` (spec
+   * 2026-10-05-mobile-next-design § 1 Server).
+   */
+  harnessStep?: { index: number; total: number } | null
+  /**
    * The session ran out of a plan limit and waits for its window to reset,
    * or null (spec 2026-10-03-usage-limits-design § 1). While it waits the
    * status is `idle`; the wait is a label on it, like `interruptedAt`, not a
@@ -222,6 +229,13 @@ export interface LimitWait {
   cancelled: boolean
   willContinue: boolean
   queued: string[]
+  /**
+   * The Mac's auto-continue setting and continuation text as the wait was
+   * published, for a client that cannot read the settings (the phone).
+   * Absent from a Mac older than spec 2026-10-05-mobile-next-design § 5.
+   */
+  autoContinue?: boolean
+  continueText?: string
 }
 
 /**

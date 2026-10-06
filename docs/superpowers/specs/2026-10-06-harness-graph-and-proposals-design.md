@@ -222,17 +222,18 @@ panel: the steps as they stand, with the filled-in values left as written
 
 ## The phone
 
-- **The phone had no harness at all before this** (none of its routes was
-  on the allowlist). It gets the minimum: reading the harness, approving a
-  gate, applying or discarding a proposal. `GET /api/sessions/:id/harness`,
-  `…/steps/:index/approve`, `…/proposal/apply` and `…/proposal/discard` go
-  into `server/src/remote/allowlist.ts`; starting, editing, reopening and
-  going back stay on the Mac.
-- **The checklist:** a strip under the session screen's header opens the
-  checklist with its gutter, read-only but for Approve on a waiting gate.
+- **Gates on the phone came with 2026-10-05-mobile-next** (the gate card,
+  the steps sheet, approve · reopen · go back · decide myself). This change
+  makes them read the graph: the step the phone stands at is a waiting gate
+  first (`currentIndex` in `web/src/lib/harnessGraph.ts`), the card's "next"
+  is the first step that needs the gate, and the steps sheet says what each
+  step needs (`← 2, 3`).
+- **Proposals:** an amber line under the session header opens the proposal
+  card; Attach / Apply or Discard. `…/proposal/apply` and
+  `…/proposal/discard` go into `server/src/remote/allowlist.ts`.
 - **Editing the graph is left out on purpose**: a dependency editor does
-  not fit a phone screen, and Edit on the phone opens nothing. Written down
-  as [[harness-graph-editor-on-the-phone]].
+  not fit a phone screen; the card has no Edit there. Written down as
+  [[harness-graph-editor-on-the-phone]].
 
 ## Events
 

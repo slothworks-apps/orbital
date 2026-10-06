@@ -6,14 +6,15 @@ import { configureSocket, getSocket } from '../lib/socket'
 import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
 import { connect, recheckOnForeground } from './connect'
 import { wireCache } from './cacheWriter'
-import { TRANSCRIPT_PAGE_SIZE } from './constants'
+import { PHONE_OUTPUT_TAIL_BYTES, PHONE_SUBAGENT_PAGE, TRANSCRIPT_PAGE_SIZE } from './constants'
+import { installFileOpen } from './files/open'
 import { forgetEverything } from './forget'
 import { seedNotifications, setActive, setRules, wireNotifications } from './notify'
 import { readNotificationsCache, readSessionsCache } from './platform/cache'
 import { readCachedImage, writeCachedImage } from './platform/imageCache'
 import { loadPairing, loadUnpaired } from './platform/pairing'
 import { installNotificationChannels, installPushListeners, registerPush } from './platform/push'
-import { openFromNotice, pairGoneFor, useMobile } from './state'
+import { dismissTopSheet, openFromNotice, pairGoneFor, useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
@@ -46,9 +47,16 @@ export async function boot(): Promise<void> {
   void installNotificationChannels()
   wireNotifications()
   configureTranscriptPages(TRANSCRIPT_PAGE_SIZE)
-  configureApi({ fetch: makeTunnelFetch(clientRef), upload: makeTunnelUpload(clientRef) })
+  configureApi({
+    fetch: makeTunnelFetch(clientRef),
+    upload: makeTunnelUpload(clientRef),
+    // Each answer must fit one relay frame (spec 2026-10-05-mobile-next § 3).
+    subagentPageSize: PHONE_SUBAGENT_PAGE,
+    taskOutputMaxBytes: PHONE_OUTPUT_TAIL_BYTES,
+  })
   configureSocket({ WebSocketImpl: () => new TunnelSocket(clientRef) as unknown as WebSocket })
   configureImages({ resolve: makeImageResolver(clientRef, { read: readCachedImage, write: writeCachedImage }) })
+  installFileOpen()
   clientRef.on(onClientEvent)
   wireSocket()
   wireCache()
@@ -133,6 +141,7 @@ async function installLifecycle(): Promise<void> {
       if (isActive) void recheckOnForeground()
     })
     await App.addListener('backButton', () => {
+      if (dismissTopSheet()) return
       if (useMobile.getState().goBack() === 'exit') void App.minimizeApp()
     })
   } catch {

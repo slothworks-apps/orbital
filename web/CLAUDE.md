@@ -130,6 +130,6 @@ that no ancestor of the overlay carries the clip.
 
 `web/` has no version of its own. A fix or a feature here bumps `version`
 in `desktop/package.json`, since the DMG bundles the web app; one that
-reaches `web/src/mobile` (or a component it imports) bumps the Android
+reaches `web/src/mobile` (or a component it imports) bumps the phone
 app's `versionName` in `mobile/android/app/build.gradle` too. Propose
 patch, minor or major and ask, as the root `CLAUDE.md` → Versions says.

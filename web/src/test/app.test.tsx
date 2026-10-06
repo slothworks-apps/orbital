@@ -653,21 +653,25 @@ describe('App: session in the URL', () => {
 
 // ---------------------------------------------------------------------------
 // Map aggregate readout — plain text since tag clusters: an ended session
-// leaves the map unless pinned (spec 2026-09-24-sessions-end-only-by-hand-
-// design § 3), so the 2a/2b suppression toggle is gone.
+// leaves the map (spec 2026-09-24-sessions-end-only-by-hand-design § 3), so
+// the 2a/2b suppression toggle is gone.
 // ---------------------------------------------------------------------------
 
 describe('map aggregate readout', () => {
-  /** Two live sessions plus two ended ones, pinned so they stay on the map. */
+  /** Two live sessions plus two that just ended, still fading out on the map. */
   async function renderWithEnded() {
     const recent = Date.now() - 60_000
     vi.mocked(api.listSessions).mockResolvedValue([
       makeSession({ id: 'w', status: 'working', lastAt: recent }),
       makeSession({ id: 'i', status: 'idle', lastAt: recent }),
-      makeSession({ id: 'e1', status: 'ended', lastAt: recent, pinnedAt: recent }),
-      makeSession({ id: 'e2', status: 'ended', lastAt: recent, pinnedAt: recent }),
+      makeSession({ id: 'e1', status: 'ended', lastAt: recent }),
+      makeSession({ id: 'e2', status: 'ended', lastAt: recent }),
     ])
-    return renderApp()
+    const rendered = await renderApp()
+    act(() => {
+      useOrbital.setState({ leavingSince: { e1: Date.now(), e2: Date.now() } })
+    })
+    return rendered
   }
 
   it('renders every segment, ENDED included, as plain text — no pressable parts', async () => {

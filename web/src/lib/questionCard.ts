@@ -157,26 +157,50 @@ export function optionIndexForDigit(e: KeyboardEventLike, optionCount: number): 
   return index < optionCount ? index : null
 }
 
+/** A stored answer read back: the offered options it names, and its free text. */
+export interface ReadAnswer {
+  chosen: QuestionOption[]
+  /** The Other… text, or `''` when the answer is options only. */
+  other: string
+}
+
 /**
- * Which offered options an answer string names — the answered card's job of
- * reading a stored answer back (canvas 9b D vs E). An answer that matches no
- * option is free text and yields `[]`, which is what puts it under the
- * `YOUR ANSWER` eyebrow instead of in an option row.
+ * What an answer string says — the answered card's job of reading a stored
+ * answer back (canvas 9b D vs E). An answer that names no option is free
+ * text: `chosen` is `[]` and the whole string is `other`, which is what puts
+ * it under the `YOUR ANSWER` eyebrow instead of in an option row.
  *
  * The whole string is matched against a single label FIRST, so a label that
  * itself contains the join separator still reads back as one chosen option.
+ *
+ * A multiSelect answer is read as `joinSelection` wrote it: the ticked labels
+ * in the options' order, then the Other… text. Labels are consumed as
+ * prefixes rather than by splitting, so a label or a text containing the
+ * separator survives. A single-select answer is one label or free text,
+ * never a mix.
  */
-export function chosenOptions(
-  answer: string,
-  options: readonly QuestionOption[],
-): QuestionOption[] {
+export function readAnswer(answer: string, question: QuestionSpec): ReadAnswer {
+  const { options } = question
   const exact = options.find((o) => o.label === answer)
-  if (exact) return [exact]
-  if (answer === NONE_ANSWER) return []
-  const parts = answer.split(MULTI_SELECT_JOIN)
-  if (parts.length < 2) return []
-  const matched = parts.map((part) => options.find((o) => o.label === part))
-  return matched.every((o) => o !== undefined) ? (matched) : []
+  if (exact) return { chosen: [exact], other: '' }
+  if (answer === NONE_ANSWER) return { chosen: [], other: '' }
+  if (!question.multiSelect) return { chosen: [], other: answer }
+
+  const chosen: QuestionOption[] = []
+  let rest = answer
+  for (const option of options) {
+    if (rest === option.label) {
+      chosen.push(option)
+      rest = ''
+      break
+    }
+    if (rest.startsWith(option.label + MULTI_SELECT_JOIN)) {
+      chosen.push(option)
+      rest = rest.slice(option.label.length + MULTI_SELECT_JOIN.length)
+    }
+  }
+  if (chosen.length === 0) return { chosen: [], other: answer }
+  return { chosen, other: rest }
 }
 
 /**

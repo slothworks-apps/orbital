@@ -89,6 +89,8 @@ export type UploadLike = (
 
 let fetchImpl: FetchLike = defaultApiFetch
 let uploadImpl: UploadLike | null = null
+let subagentPageSize: number | null = null
+let taskOutputMaxBytes: number | null = null
 
 /**
  * Replaces the transport every call in this file goes through. The phone
@@ -97,10 +99,23 @@ let uploadImpl: UploadLike | null = null
  * multipart POST (spec 2026-10-02-mobile-app-design §§ 3, 6.2); the desktop
  * never calls this. Each option is applied only when given; `upload: null`
  * restores the multipart POST. Call it before the first request.
+ *
+ * `subagentPageSize` and `taskOutputMaxBytes` bound two reads that can
+ * outgrow one relay frame: `subagentMessages` then asks for the newest that
+ * many messages (`?limit=`) and `taskOutput` for at most that many bytes
+ * (`?maxBytes=`) (spec 2026-10-05-mobile-next-design § 3). Null takes the
+ * bound off again.
  */
-export function configureApi(opts: { fetch?: FetchLike; upload?: UploadLike | null }): void {
+export function configureApi(opts: {
+  fetch?: FetchLike
+  upload?: UploadLike | null
+  subagentPageSize?: number | null
+  taskOutputMaxBytes?: number | null
+}): void {
   if (opts.fetch) fetchImpl = opts.fetch
   if (opts.upload !== undefined) uploadImpl = opts.upload
+  if (opts.subagentPageSize !== undefined) subagentPageSize = opts.subagentPageSize
+  if (opts.taskOutputMaxBytes !== undefined) taskOutputMaxBytes = opts.taskOutputMaxBytes
 }
 
 async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
@@ -219,7 +234,8 @@ export const api = {
    * simply running with nothing to show yet, not lost.
    */
   async subagentMessages(id: string, toolUseId: string): Promise<SubagentTranscript> {
-    return request<SubagentTranscript>('GET', `/api/sessions/${id}/subagents/${toolUseId}/messages`)
+    const limit = subagentPageSize === null ? '' : `?limit=${subagentPageSize}`
+    return request<SubagentTranscript>('GET', `/api/sessions/${id}/subagents/${toolUseId}/messages${limit}`)
   },
 
   /**
@@ -237,7 +253,8 @@ export const api = {
    * § 4). 410 when the file no longer exists.
    */
   async taskOutput(id: string, taskId: string): Promise<TaskOutputTail> {
-    return request<TaskOutputTail>('GET', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/output`)
+    const bound = taskOutputMaxBytes === null ? '' : `?maxBytes=${taskOutputMaxBytes}`
+    return request<TaskOutputTail>('GET', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/output${bound}`)
   },
 
   /**

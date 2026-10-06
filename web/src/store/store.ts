@@ -2084,8 +2084,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
    * faded back in, and the unpin's upsert started the fade over. A failure
    * rolls back both, since neither happened.
    *
-   * A session that had already ended (only a pinned one is still on the map
-   * to be dropped) is not ended again: the drop is then just the unpin, and
+   * A session that had already ended (one still fading out as it is
+   * dropped) is not ended again: the drop is then just the unpin, and
    * its Undo just the re-pin.
    *
    * With `undo`, success raises the toast; it expires after `UNDO_TOAST_MS`
@@ -2912,14 +2912,14 @@ export function listableSessions(state: Pick<OrbitalState, 'sessions'>): ApiSess
 export const MAP_LEAVE_GRACE_MS = 2 * ENDED_HIDE_MS
 
 /**
- * Whether a session has a place on the map: anything not ended, and an ended
- * session the user pinned (spec 2026-09-24-sessions-end-only-by-hand-design
- * § 3). An ended session is over by the user's own hand — or, for a terminal
- * one, because its CLI went away — so there is nothing left to watch; the
- * pin is the one way to keep it in view.
+ * Whether a session has a place on the map: anything not ended (spec
+ * 2026-09-24-sessions-end-only-by-hand-design § 3). An ended session is over
+ * by the user's own hand — or, for a terminal one, because its CLI went away
+ * — so there is nothing left to watch. A pin does not keep it there: an
+ * ended pinned session lives in the sidebar's PINNED only.
  */
 export function holdsMapPlace(session: ApiSession): boolean {
-  return session.status !== 'ended' || session.pinnedAt != null
+  return session.status !== 'ended'
 }
 
 /**

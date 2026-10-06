@@ -2,7 +2,8 @@ import { composerPlaceholderFor } from '../lib/decisionCard'
 import { isMcpCommand } from '../lib/mcp'
 import { openQuestion, type AnswerMap } from '../lib/questionCard'
 import { isRewindCommand } from '../lib/rewind'
-import type { PendingDecision } from '../lib/types'
+import { formatResetAt } from '../lib/limits'
+import type { LimitWait, PendingDecision } from '../lib/types'
 import type { Toast } from '../store/store'
 
 /**
@@ -31,11 +32,18 @@ export function footerMode(input: { offline: boolean; macName: string | null; re
  * The placeholder, and whether the well wears the answering accent. While a
  * decision is parked the composer is its escape hatch (§ 6.3) and says so; a
  * question whose every part is answered no longer is, so it falls through.
+ * Then a gate's Reopen (canvas 10b `gComposerPh`) names the step the message
+ * goes to, and a limit wait (canvas 10k) says the message waits for the reset
+ * (spec 2026-10-05-mobile-next § 1, § 5).
  */
 export function composerPlaceholder(input: {
   pending: PendingDecision | undefined
   answers: AnswerMap | undefined
   ended: boolean
+  /** The step a Reopen left to the user (1-based), or null. */
+  reopenStep?: number | null
+  limitWait?: Pick<LimitWait, 'resetsAt'> | null
+  now?: number
 }): { text: string; answering: boolean } {
   const { pending } = input
   if (pending?.kind === 'question') {
@@ -44,7 +52,16 @@ export function composerPlaceholder(input: {
   } else if (pending) {
     return { text: composerPlaceholderFor(pending.kind), answering: true }
   }
+  if (input.reopenStep != null) return { text: `What should change in step ${input.reopenStep}?`, answering: false }
+  if (input.limitWait) {
+    return { text: `Queue a message for ${formatResetAt(input.limitWait.resetsAt, input.now)}…`, answering: false }
+  }
   return { text: input.ended ? 'Continue conversation…' : 'Reply to Claude…', answering: false }
+}
+
+/** The reopened composer's line beside Send (canvas 10b, third phone). */
+export function reopenHint(step: number): string {
+  return `to step ${step} · stays a gate`
 }
 
 // The composer's error line (spec § 6.1). Copy provisional until the canvas words it.

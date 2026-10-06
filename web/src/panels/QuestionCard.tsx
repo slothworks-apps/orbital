@@ -5,7 +5,6 @@ import {
   FREE_TEXT_CAP,
   activeQuestionIndex,
   chipLabel,
-  chosenOptions,
   confirmLabel,
   joinSelection,
   selectionCount,
@@ -13,9 +12,11 @@ import {
   notTakenLine,
   optionIndexForDigit,
   parseResultAnswers,
+  readAnswer,
   rowCount,
   toggleSelection,
   type AnswerMap,
+  type ReadAnswer,
 } from '../lib/questionCard'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { command, matches } from '../lib/keymap'
@@ -44,7 +45,7 @@ import {
   STATUS_BASE,
 } from './decisionCardStyles'
 import { isReadOnly } from '../lib/types'
-import type { AskUserQuestionInput, ChatMessage, QuestionOption, QuestionSpec } from '../lib/types'
+import type { AskUserQuestionInput, ChatMessage, QuestionSpec } from '../lib/types'
 
 /**
  * The `AskUserQuestion` tool call, rendered as the thing it is: a decision
@@ -295,8 +296,8 @@ function QuestionBlock({
   compact,
   onAnswer,
 }: QuestionBlockProps) {
-  const chosen = answer === undefined ? [] : chosenOptions(answer, question.options)
-  const freeText = answer !== undefined && chosen.length === 0
+  const read = answer === undefined ? undefined : readAnswer(answer, question)
+  const freeText = read !== undefined && read.chosen.length === 0
 
   const status =
     state === 'answered'
@@ -365,7 +366,7 @@ function QuestionBlock({
       </div>
 
       {state === 'answered' ? (
-        <AnsweredBody question={question} answer={answer!} chosen={chosen} />
+        <AnsweredBody question={question} answer={answer!} read={read!} />
       ) : live ? (
         <LiveBody question={question} onAnswer={onAnswer} />
       ) : (
@@ -375,34 +376,40 @@ function QuestionBlock({
   )
 }
 
-/** Canvas 9b D/E: the chosen option keeps the accent row, the rest become one mono line. */
+/**
+ * Canvas 9b D/E: the chosen options keep the accent row, the rest become one
+ * mono line. A multiSelect answer that also carries Other… text shows both:
+ * the ticked rows, then the text under its own eyebrow.
+ */
 function AnsweredBody({
   question,
   answer,
-  chosen,
+  read,
 }: {
   question: QuestionSpec
   answer: string
-  chosen: QuestionOption[]
+  read: ReadAnswer
 }) {
+  const { chosen, other } = read
   const line = notTakenLine(question.options.length, chosen.length)
+  // Nothing chosen: the whole answer is the text (`none` included).
+  const text = chosen.length === 0 ? answer : other
   return (
     <div className="flex flex-col gap-1.5">
-      {chosen.length > 0 ? (
-        chosen.map((option) => (
-          <div key={option.label} className={`${ROW_BASE} ${ROW_CHOSEN}`}>
-            <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
-              ✓
+      {chosen.map((option) => (
+        <div key={option.label} className={`${ROW_BASE} ${ROW_CHOSEN}`}>
+          <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
+            ✓
+          </span>
+          <span className="flex min-w-0 flex-col gap-[3px]">
+            <span className={`${LABEL} text-[#e8eef8]`}>{option.label}</span>
+            <span className={`${DESCRIPTION} ${DESCRIPTION_INK} text-pretty`}>
+              {option.description}
             </span>
-            <span className="flex min-w-0 flex-col gap-[3px]">
-              <span className={`${LABEL} text-[#e8eef8]`}>{option.label}</span>
-              <span className={`${DESCRIPTION} ${DESCRIPTION_INK} text-pretty`}>
-                {option.description}
-              </span>
-            </span>
-          </div>
-        ))
-      ) : (
+          </span>
+        </div>
+      ))}
+      {text && (
         // 9b E: free text under its own eyebrow, exact text preserved.
         <div className={`${ROW_BASE} ${ROW_CHOSEN}`}>
           <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
@@ -412,7 +419,7 @@ function AnsweredBody({
             <span className="font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]">
               YOUR ANSWER
             </span>
-            <span className="text-[13px] leading-[1.45] text-pretty text-[#e8eef8]">{answer}</span>
+            <span className="text-[13px] leading-[1.45] text-pretty text-[#e8eef8]">{text}</span>
           </span>
         </div>
       )}

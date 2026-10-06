@@ -84,8 +84,34 @@ const PATH_RUN = new RegExp(`(?:${SEGMENT})?(?:/${SEGMENT})+`, 'g')
 /** Optional `:line` or `:line:col` immediately after the path. */
 const LINE_SUFFIX = /^:(\d+)(?::\d+)?/
 
+/**
+ * An extension a file name could carry: a letter, then up to nine letters
+ * or digits. What keeps `1/2.5` or `v1.2/3.0` from reading as a path when
+ * every extension counts ({@link findPathMentions}).
+ */
+const NAMED_EXTENSION = /^[a-z][a-z0-9]{0,9}$/
+
+/** True when the path's basename carries something that reads as a file extension. */
+function hasNamedExtension(path: string): boolean {
+  const ext = extensionOf(path)
+  return ext !== null && NAMED_EXTENSION.test(ext)
+}
+
 /** Every path-shaped run in `text` whose extension a press can open. */
 export function findPathMatches(text: string): PathMatch[] {
+  return scanPaths(text, isPressablePath)
+}
+
+/**
+ * Every path-shaped run in `text` with a file extension, pressable or not —
+ * for a reader that does something with a path it cannot open (the phone's
+ * long-press copy, spec 2026-10-05-mobile-next § 2). The desktop never asks.
+ */
+export function findPathMentions(text: string): PathMatch[] {
+  return scanPaths(text, hasNamedExtension)
+}
+
+function scanPaths(text: string, accept: (path: string) => boolean): PathMatch[] {
   const matches: PathMatch[] = []
   PATH_RUN.lastIndex = 0
   for (let m = PATH_RUN.exec(text); m !== null; m = PATH_RUN.exec(text)) {
@@ -96,7 +122,7 @@ export function findPathMatches(text: string): PathMatch[] {
     // A candidate preceded by another slash is the tail of a `//` URL run
     // (`https://…`), not a file path.
     if (m.index > 0 && text[m.index - 1] === '/') continue
-    if (!isPressablePath(path)) continue
+    if (!accept(path)) continue
 
     const suffix = LINE_SUFFIX.exec(text.slice(m.index + path.length))
     const hit = suffix ? path + suffix[0] : path
@@ -163,10 +189,17 @@ function pathLinkElement(match: PathMatch, inCode = false): HastElement {
       // The button sits inside a code chip, which already sets the type
       // and the box.
       ...(inCode ? { dataCode: '' } : {}),
+      // A path no press can open — wrapped only when the plugin was asked
+      // for every mention (`plain`): the override draws it as text, never
+      // as a link.
+      ...(isPressablePath(match.path) ? {} : { dataPlain: '' }),
     },
     children: [{ type: 'text', value: match.text }],
   }
 }
+
+/** What the walk matches with: pressable paths only, or every path mention. */
+type Finder = (text: string) => PathMatch[]
 
 /**
  * The match an inline code span stands for, or null. Only a span that is
@@ -174,23 +207,23 @@ function pathLinkElement(match: PathMatch, inCode = false): HastElement {
  * reference, while `` `cat web/src/App.tsx` `` is a command that happens to
  * contain one, and stays quoted material.
  */
-export function codeSpanPath(text: string): PathMatch | null {
+export function codeSpanPath(text: string, find: Finder = findPathMatches): PathMatch | null {
   const trimmed = text.trim()
-  const matches = findPathMatches(trimmed)
+  const matches = find(trimmed)
   if (matches.length !== 1) return null
   const [match] = matches
   return match.index === 0 && match.length === trimmed.length ? match : null
 }
 
-function linkCodeSpan(code: HastElement): void {
+function linkCodeSpan(code: HastElement, find: Finder): void {
   const [only] = code.children
   if (code.children.length !== 1 || only.type !== 'text') return
-  const match = codeSpanPath((only as HastText).value)
+  const match = codeSpanPath((only as HastText).value, find)
   if (match) code.children = [pathLinkElement(match, true)]
 }
 
-function splitTextNode(node: HastText): HastNode[] | null {
-  const matches = findPathMatches(node.value)
+function splitTextNode(node: HastText, find: Finder): HastNode[] | null {
+  const matches = find(node.value)
   if (matches.length === 0) return null
   const out: HastNode[] = []
   let cursor = 0
@@ -203,7 +236,7 @@ function splitTextNode(node: HastText): HastNode[] | null {
   return out
 }
 
-function walk(node: HastParent | HastElement): void {
+function walk(node: HastParent | HastElement, find: Finder): void {
   const children = node.children
   for (let i = 0; i < children.length; i += 1) {
     const child = children[i]
@@ -212,21 +245,21 @@ function walk(node: HastParent | HastElement): void {
       if (SKIP_TAGS.has(tagName)) continue
       // Reached only outside `pre`, so any `code` here is an inline span.
       if (tagName === 'code') {
-        linkCodeSpan(child as HastElement)
+        linkCodeSpan(child as HastElement, find)
         continue
       }
-      walk(child)
+      walk(child, find)
       continue
     }
     if (child.type === 'text') {
-      const replacement = splitTextNode(child as HastText)
+      const replacement = splitTextNode(child as HastText, find)
       if (replacement) {
         children.splice(i, 1, ...replacement)
         i += replacement.length - 1
       }
       continue
     }
-    if (isParent(child)) walk(child)
+    if (isParent(child)) walk(child, find)
   }
 }
 
@@ -235,9 +268,14 @@ function walk(node: HastParent | HastElement): void {
  * markdown `components.a` override renders as a `PathButton`. An inline
  * code span that is exactly one path gets the same link inside it; text in
  * `pre` and existing `a` elements is never touched.
+ *
+ * `plain: true` also wraps the paths no press can open, marked `data-plain`,
+ * for a reader that long-presses them (the phone, spec 2026-10-05-mobile-next
+ * § 2). Without it — the desktop — those stay bare text.
  */
-export function rehypePathLinks() {
+export function rehypePathLinks(options: { plain?: boolean } = {}) {
+  const find = options.plain ? findPathMentions : findPathMatches
   return (tree: HastRoot): void => {
-    walk(tree)
+    walk(tree, find)
   }
 }
