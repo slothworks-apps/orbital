@@ -76,6 +76,11 @@ Agreed with Tomin on 2026-09-24. The reasoning is in
 
 ### 3. The map: ended means gone, the hole becomes a trash
 
+> **Amended 2026-10-06:** a pin no longer keeps an ended session on the
+> map. Ended means gone from the map, pinned or not; a pinned ended session
+> lives in the sidebar's PINNED section only. The pin keeps its other
+> effects there and in the retention sweep.
+
 **Ended planets leave at once.** An ended session that is not pinned is not
 on the map. It fades out where it is, with no timer and no fall. What goes
 away: `map_release_ended_after_minutes` (its Settings row and seed),

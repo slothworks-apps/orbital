@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.20.7] — 2026-10-06
+### Changed
+- A pinned session leaves the map once it has ended, like any other; it stays in the sidebar's Pinned section.
+
 ## [0.20.6] — 2026-10-05
 ### Changed
 - Clear and start over now keeps the session's folder, tags, model and permission mode every time, so the "New session inherits" settings are gone.

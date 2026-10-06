@@ -1067,9 +1067,9 @@ export function SpaceMap() {
 
   /**
    * The aggregate readout. ENDED is plain text again: the 2a/2b suppression
-   * toggle is gone — an ended session leaves the map on its own unless it is
-   * pinned (spec 2026-09-24-sessions-end-only-by-hand-design § 3), so the
-   * ENDED count is the pinned ones and those still fading out.
+   * toggle is gone — an ended session leaves the map on its own, pinned or
+   * not (spec 2026-09-24-sessions-end-only-by-hand-design § 3), so the ENDED
+   * count is the ones still fading out.
    *
    * Each `N WORD` segment wears its state colour, count and word as one token
    * (canvas 24b); NEEDS INPUT carries its breathing dot here too. WAITING
