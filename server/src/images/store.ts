@@ -31,6 +31,12 @@ export interface ImageStore {
    * nothing — a pruned attachment is skipped, never an error.
    */
   read(ref: string): { mediaType: string; base64: string } | null;
+  /**
+   * A stored image's wire entry by its ref — what a sent turn is published
+   * with, so the sender's own copy and every other window's carry the same
+   * images. Null for a ref that names nothing, as `read`.
+   */
+  entry(ref: string): ImageRefEntry | null;
 }
 
 /**
@@ -179,19 +185,32 @@ export function createImageStore(
     },
 
     read(ref) {
-      // The same shape guard `GET /api/images/:ref` applies, for the same
-      // reason: 64 hex chars plus a whitelisted extension can neither
-      // traverse nor name anything this store did not write.
-      const match = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.exec(ref);
-      if (!match) return null;
-      const mediaType = MEDIA_TYPE[match[1]];
-      try {
-        return { mediaType, base64: readFileSync(join(dir, ref)).toString('base64') };
-      } catch {
-        // Pruned — the caller drops the attachment rather than failing a turn.
-        return null;
-      }
+      const stored = readStored(ref);
+      return stored ? { mediaType: stored.mediaType, base64: stored.bytes.toString('base64') } : null;
+    },
+
+    entry(ref) {
+      const stored = readStored(ref);
+      if (!stored) return null;
+      const dims = sniffDims(stored.bytes);
+      return { ref, w: dims?.[0] ?? null, h: dims?.[1] ?? null, bytes: stored.bytes.length };
     },
   };
+
+  /** A stored image's bytes and media type, or null for a ref that names nothing. */
+  function readStored(ref: string): { mediaType: string; bytes: Buffer } | null {
+    // The same shape guard `GET /api/images/:ref` applies, for the same
+    // reason: 64 hex chars plus a whitelisted extension can neither
+    // traverse nor name anything this store did not write.
+    const match = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.exec(ref);
+    if (!match) return null;
+    try {
+      return { mediaType: MEDIA_TYPE[match[1]], bytes: readFileSync(join(dir, ref)) };
+    } catch {
+      // Pruned — the caller drops the attachment rather than failing a turn.
+      return null;
+    }
+  }
+
   return store;
 }

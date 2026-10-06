@@ -877,6 +877,31 @@ describe('REST routes', () => {
     expect(upsert.session).toMatchObject({ source: 'web', status: 'working' });
   });
 
+  // The SDK does not replay a turn Orbital sends, and only the sending client
+  // holds its own copy — so every other window, and a phone, would not see
+  // the message until the transcript was read again.
+  it('POST /sessions/:id/messages publishes the sent turn on the session topic, images included', async () => {
+    const { app, runner, hub, imageStore } = makeApp();
+    runner.send = () => 'u-sent';
+    const image = imageStore.putBytes('image/png', Buffer.from('fake png bytes'))!;
+    const received = subscribeFake(hub, 'session:s2');
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'from the phone', attachments: [image.ref] },
+    });
+    expect(res200(res)).toMatchObject({ ok: true, uuid: 'u-sent' });
+    const turns = received.filter((r) => r.event === 'message' && r.message.role === 'user');
+    expect(turns).toHaveLength(1);
+    expect(turns[0].message).toMatchObject({ role: 'user', text: 'from the phone', uuid: 'u-sent', images: [image] });
+  });
+
+  it('POST /sessions/:id/messages publishes no turn when the text only settled a parked decision', async () => {
+    const { app, runner, hub } = makeApp();
+    runner.send = () => null;
+    const received = subscribeFake(hub, 'session:s2');
+    res200(await app.inject({ method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'yes' } }));
+    expect(received.filter((r) => r.event === 'message')).toEqual([]);
+  });
+
   it('POST /sessions/:id/messages 409s for a live terminal session', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/sessions/s1/messages', payload: { text: 'hi' },
@@ -1355,10 +1380,10 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
-      images: { put: () => null, putBytes: () => null, read: () => null }, imagesDir: '/nonexistent',
+      images: { put: () => null, putBytes: () => null, read: () => null, entry: () => null }, imagesDir: '/nonexistent',
       files: { putBytes: () => null },
       claudeDir: '/nonexistent',
-      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null }, '/nonexistent', { get: () => '' }),
+      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null, entry: () => null }, '/nonexistent', { get: () => '' }),
       settings: { get: () => '', set: () => {} },
       mcp: noMcp,
       retention: retentionFor(db),

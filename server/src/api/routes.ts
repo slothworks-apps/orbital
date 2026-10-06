@@ -1416,8 +1416,29 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       if (err instanceof RewindStopError) return reply.code(504).send({ error: 'stop_timeout', message: err.message });
       throw err;
     }
+    if (delivery.uuid) publishSentTurn(id, delivery.uuid, text, attachments);
     return deliveryReply(delivery, reply, 'session is live in a terminal');
   });
+
+  /**
+   * Puts a turn the composer sent on the session's topic. The SDK does not
+   * replay it, and only the client that sent it holds a copy — without this
+   * every other window, and a phone, would see it only once the transcript
+   * was read again. The sender's copy takes this one's place by text and
+   * images, so both carry the image entries the same way.
+   */
+  function publishSentTurn(id: string, uuid: string, text: string, attachments?: string[]) {
+    const images = (attachments ?? []).flatMap((ref) => ctx.images.entry(ref) ?? []);
+    const turn: ChatMessage = {
+      id: `sent:${uuid}`,
+      role: 'user',
+      text,
+      timestamp: new Date().toISOString(),
+      uuid,
+      ...(images.length > 0 ? { images } : {}),
+    };
+    ctx.hub.publish(`session:${id}`, { event: 'message', message: turn });
+  }
 
   /**
    * The answer every turn-sending route gives. `uuid` names the turn's
