@@ -141,8 +141,8 @@ export type Berth =
 
 /**
  * The bucket a state's ships queue in for berths; ships in one bucket get
- * indices 0, 1, 2… An ended ship on the map is a pinned one (or one leaving,
- * which stays where it is while it fades), so `ended` anchors aside.
+ * indices 0, 1, 2… An ended ship on the map is one leaving, which stays where
+ * it is while it fades, so `ended` anchors aside.
  */
 export function berthGroup(state: SessionStateKey): 'orbit' | 'hove' | 'pier' | 'roads' | 'bay' | 'aside' {
   switch (state) {

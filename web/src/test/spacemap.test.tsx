@@ -155,9 +155,9 @@ describe('buildSceneModel', () => {
   it('applies active/ended scale from the layout to each planet', () => {
     const sessions = [
       makeSession({ id: 'a', tagIds: [1], status: 'working' }),
-      makeSession({ id: 'b', tagIds: [1], status: 'ended', pinnedAt: 1 }),
+      makeSession({ id: 'b', tagIds: [1], status: 'ended' }),
     ]
-    const model = sceneModelAt(withSessions(sessions))
+    const model = sceneModelAt(withSessions(sessions, { leavingSince: { b: NOW - 1 } }))
 
     const a = model.planets.find((p) => p.session.id === 'a')
     const b = model.planets.find((p) => p.session.id === 'b')
@@ -187,10 +187,11 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'a', tagIds: [1], title: 'Alpha', status: 'working', subagents: [makeSubagent({ id: 'sa' })] }),
       makeSession({ id: 'b', tagIds: [1], title: 'Beta', status: 'working', subagents: [makeSubagent({ id: 'sb' })] }),
       makeSession({ id: 'c', tagIds: [2], title: 'Gamma', cwd: '/home/alpha-tools', status: 'idle' }),
-      makeSession({ id: 'd', tagIds: [2], title: 'Delta', status: 'ended', pinnedAt: 1 }),
+      makeSession({ id: 'd', tagIds: [2], title: 'Delta', status: 'ended' }),
     ]
-    const plain = sceneModelAt(withSessions(sessions))
-    const searched = sceneModelAt(withSessions(sessions, { ui: { ...defaultUi, search: '  ALPHA ' } }))
+    const leavingSince = { d: NOW - 1 }
+    const plain = sceneModelAt(withSessions(sessions, { leavingSince }))
+    const searched = sceneModelAt(withSessions(sessions, { leavingSince, ui: { ...defaultUi, search: '  ALPHA ' } }))
 
     const place = (m: SceneModel) =>
       m.planets.map((p) => ({ id: p.session.id, x: p.x, y: p.y, scale: p.scale, footprint: p.footprint }))
@@ -264,9 +265,9 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'a', tagIds: [1], status: 'working' }),
       makeSession({ id: 'b', tagIds: [1], status: 'working' }),
       makeSession({ id: 'c', tagIds: [1], status: 'idle' }),
-      makeSession({ id: 'd', tagIds: [1], status: 'ended', pinnedAt: 1 }),
+      makeSession({ id: 'd', tagIds: [1], status: 'ended' }),
     ]
-    const model = sceneModelAt(withSessions(sessions))
+    const model = sceneModelAt(withSessions(sessions, { leavingSince: { d: NOW - 1 } }))
 
     expect(model.counts).toEqual({ working: 2, idle: 1, needs_input: 0, ended: 1 })
   })
@@ -581,7 +582,7 @@ describe('moon orbits around a gauged planet', () => {
 
 // spec 2026-09-24-sessions-end-only-by-hand-design § 3.
 describe('buildSceneModel and ended sessions', () => {
-  it('draws no planet for an ended, unpinned session, a pinned one as usual, and flags a leaving one', () => {
+  it('draws no planet for an ended session, pinned or not, and flags a leaving one', () => {
     const sessions = [
       makeSession({ id: 'idle', tagIds: [1], status: 'idle', lastAt: NOW - 90 * DAY }),
       makeSession({ id: 'pinned', tagIds: [1], status: 'ended', pinnedAt: NOW - DAY }),
@@ -591,9 +592,8 @@ describe('buildSceneModel and ended sessions', () => {
     const model = buildSceneModel(withSessions(sessions, { leavingSince: { leaving: NOW - 1 } }), NOW)
 
     const byId = new Map(model.planets.map((p) => [p.session.id, p]))
-    expect([...byId.keys()].sort()).toEqual(['idle', 'leaving', 'pinned'])
+    expect([...byId.keys()].sort()).toEqual(['idle', 'leaving'])
     expect(byId.get('leaving')?.leaving).toBe(true)
-    expect(byId.get('pinned')?.leaving).toBe(false)
     expect(byId.get('idle')?.leaving).toBe(false)
   })
 

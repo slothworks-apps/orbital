@@ -511,8 +511,8 @@ export function UtilityStrip({
               shortcut="session.pin"
               description={
                 pinned
-                  ? 'Unpinned, it leaves the map once it has ended.'
-                  : 'Keeps the session on the map after it has ended.'
+                  ? 'Unpinned, it goes back to its place in the list.'
+                  : 'Keeps the session at the top of the list, also after it has ended.'
               }
               align="right"
               delayMs={PIN_TOOLTIP_DELAY_MS}
