@@ -343,6 +343,40 @@ describe('REST routes', () => {
     expect(res.json().sessions.map((s: any) => s.id)).toEqual(['s1']);
   });
 
+  // The phone's ENDED fold, read only when it is opened. A pinned ended
+  // session is not in the fold, and comes with the list.
+  it('GET /api/sessions?ended= leaves the unpinned ended sessions out, or returns only them', async () => {
+    db.insert(sessions).values({ id: 'pin', projectDir: '', cwd: '/w/p', source: 'web', lastAt: 50, endedAt: 60, pinnedAt: 70 }).run();
+    db.insert(sessions).values({ id: 'old', projectDir: '', cwd: '/w/o', source: 'web', lastAt: 150, endedAt: 160 }).run();
+    const ids = (body: any) => body.sessions.map((s: any) => s.id);
+
+    const all = res200(await app.inject({ method: 'GET', url: '/api/sessions' }));
+    expect(ids(all)).toEqual(['pin', 's1', 'old', 's2']);
+    expect(all).not.toHaveProperty('ended');
+
+    const listed = res200(await app.inject({ method: 'GET', url: '/api/sessions?ended=exclude' }));
+    expect(ids(listed)).toEqual(['pin', 's1']);
+    expect(listed.ended).toEqual({ count: 2, latestAt: 150 });
+
+    const fold = res200(await app.inject({ method: 'GET', url: '/api/sessions?ended=only' }));
+    expect(ids(fold)).toEqual(['old', 's2']);
+
+    // The count is the page `ended=only` would return, not the whole index.
+    const capped = res200(await app.inject({ method: 'GET', url: '/api/sessions?ended=exclude&limit=1' }));
+    expect(capped.ended).toEqual({ count: 1, latestAt: 150 });
+  });
+
+  it('GET /api/sessions carries the running subagents and the totals; GET /api/sessions/:id every one', async () => {
+    subagents.feedTask('s1', { type: 'system', subtype: 'task_started', task_id: 'a1', description: 'done', task_type: 'local_agent' } as any);
+    subagents.feedTask('s1', { type: 'system', subtype: 'task_notification', task_id: 'a1', status: 'completed' } as any);
+    subagents.feedTask('s1', { type: 'system', subtype: 'task_started', task_id: 'a2', description: 'busy', task_type: 'local_agent' } as any);
+    const listed = res200(await app.inject({ method: 'GET', url: '/api/sessions' })).sessions[0];
+    expect(listed.subagents.map((a: any) => a.id)).toEqual(['a2']);
+    expect(listed).toMatchObject({ subagentCount: 2, backgroundTaskCount: 0 });
+    const detail = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1' })).session;
+    expect(detail.subagents.map((a: any) => a.id)).toEqual(['a1', 'a2']);
+  });
+
   it('PATCH /api/sessions/:id renames', async () => {
     const res = await app.inject({
       method: 'PATCH', url: '/api/sessions/s1', payload: { title: 'renamed' },

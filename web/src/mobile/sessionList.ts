@@ -1,3 +1,4 @@
+import type { EndedSummary } from '../lib/api'
 import type { StateDot } from '../lib/stateStyle'
 import { continuesAtReset, formatResetAt } from '../lib/limits'
 import {
@@ -109,6 +110,37 @@ export function latestActivity(sessions: readonly ApiSession[]): number | null {
   return latest
 }
 
+/** The ENDED fold's header: how many, and how long ago the newest; a null count is not known. */
+export interface EndedHeading {
+  count: number | null
+  latest: number | null
+}
+
+/**
+ * The ENDED fold's header, or null when there is nothing to fold. Once the
+ * fold is read — or with no summary: before the first live list, or from a
+ * Mac that sent every session — it is the group as held. Before that, the
+ * Mac's summary of the fold its list left out, plus the ended sessions held
+ * that the summary does not count (`countedBySummary`): the ones that ended
+ * while the phone watched. The summary is not per tag, so under a tag filter
+ * the count is not known until the fold is read.
+ */
+export function endedHeading(
+  group: readonly ApiSession[],
+  fold: { summary: EndedSummary | null; loaded: boolean },
+  countedBySummary: (id: string) => boolean,
+  tagFiltered: boolean,
+): EndedHeading | null {
+  const { summary, loaded } = fold
+  if (loaded || !summary) return group.length === 0 ? null : { count: group.length, latest: latestActivity(group) }
+  if (tagFiltered) return group.length === 0 && summary.count === 0 ? null : { count: null, latest: null }
+  const extra = group.filter((s) => !countedBySummary(s.id))
+  const count = summary.count + extra.length
+  if (count === 0) return null
+  const latests = [summary.latestAt, latestActivity(extra)].filter((at): at is number => at !== null)
+  return { count, latest: latests.length === 0 ? null : Math.max(...latests) }
+}
+
 /** The chips (9a): every tag some session carries, with its live — not ended — sessions counted. */
 export function tagChips(sessions: readonly ApiSession[], tags: readonly Tag[]): { tag: Tag; live: number }[] {
   return tags
@@ -164,29 +196,39 @@ export function limitLine(
   return `Limit resets ${at} · ${wait.cancelled ? 'auto-continue cancelled' : 'automatic continue is off'}`
 }
 
+type MoonCounts = Pick<ApiSession, 'subagents' | 'subagentCount' | 'backgroundTasks' | 'backgroundTaskCount'>
+
+/**
+ * How many subagents and tasks the session has had. The list carries only
+ * the running ones, so the Mac counts the rest; a Mac from before the counts
+ * sends every one, and the arrays are the count.
+ */
+const subagentTotal = (session: MoonCounts): number => session.subagentCount ?? session.subagents.length
+const taskTotal = (session: MoonCounts): number => session.backgroundTaskCount ?? (session.backgroundTasks ?? []).length
+
 /**
  * The list row's collapsed summary (canvas 10a), or nulls when nothing runs:
  * the list is for what is happening now, so a session whose subagents and
  * tasks have all finished shows no row there — its header chip (9b) still
  * opens every one of them.
  */
-export function moonsSummary(session: Pick<ApiSession, 'subagents' | 'backgroundTasks'>): {
+export function moonsSummary(session: MoonCounts): {
   subagents: string | null
   tasks: string | null
 } {
-  const agents = session.subagents
-  const running = agents.filter((a) => a.state !== 'ended').length
+  const agents = subagentTotal(session)
+  const running = session.subagents.filter((a) => a.state !== 'ended').length
   const tasks = (session.backgroundTasks ?? []).filter((t) => t.state === 'running').length
   return {
-    subagents: running === 0 ? null : `${agents.length} ${agents.length === 1 ? 'subagent' : 'subagents'} · ${running} running`,
+    subagents: running === 0 ? null : `${agents} ${agents === 1 ? 'subagent' : 'subagents'} · ${running} running`,
     tasks: tasks === 0 ? null : `${tasks} ${tasks === 1 ? 'task' : 'tasks'} running`,
   }
 }
 
 /** The asleep row's one line (canvas 10a asleep): counts only, nothing about what runs. */
-export function moonsSummaryAsleep(session: Pick<ApiSession, 'subagents' | 'backgroundTasks'>): string | null {
-  const agents = session.subagents.length
-  const tasks = (session.backgroundTasks ?? []).length
+export function moonsSummaryAsleep(session: MoonCounts): string | null {
+  const agents = subagentTotal(session)
+  const tasks = taskTotal(session)
   const parts = [
     agents > 0 ? `${agents} ${agents === 1 ? 'subagent' : 'subagents'}` : null,
     tasks > 0 ? `▣ ${tasks} ${tasks === 1 ? 'task' : 'tasks'}` : null,

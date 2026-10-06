@@ -1,5 +1,6 @@
 import { useOrbital } from '../store/store'
 import { cancelCacheWrite } from './cacheWriter'
+import { forgetEndedFold } from './endedFold'
 import { useBanner } from './notify'
 import { clearCaches } from './platform/cache'
 import { forgetIdentity } from './platform/identity'
@@ -55,17 +56,19 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
   for (const result of clears) {
     if (result.status === 'rejected') console.warn('[mobile] could not clear everything stored for the Mac', result.reason)
   }
-  useOrbital.getState().seatSessions([], [])
   // No store action leaves a session without side effects, so the old Mac's
   // selection, transcripts and harnesses are dropped here: the next pairing's resync
-  // must not `select()` a session that Mac owns.
+  // must not `select()` a session that Mac owns. Before the seat, which
+  // would otherwise keep the selected session.
   useOrbital.setState((s) => ({
     transcripts: {}, historyLoaded: {}, ui: { ...s.ui, selectedId: null, fileViewer: null },
     harnesses: {}, harnessRemoved: {}, harnessEvents: {}, harnessEventsMore: {},
   }))
+  useOrbital.getState().seatSessions([], [])
+  forgetEndedFold()
   useMobile.setState({
     pairing: null, link: 'off', macOnline: false, ready: false,
-    asOf: null, checkedAt: null, rechecking: null, listedAt: null,
+    asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
     sessionId: null, pushed: [], composerIntent: null, mismatch: null, previous: null,
     unpaired: opts.unpaired,
     macName: opts.unpaired ? name : null,

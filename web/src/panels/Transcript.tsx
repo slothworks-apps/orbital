@@ -84,7 +84,8 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   // rather than in `TranscriptView`, because a pending decision belongs to a
   // session and the view does not know what a session is.
   const pendingDecisionId = useOrbital((s) => s.pendingDecisions[sessionId]?.id)
-  // The session's own live subagents, for the `Agent`/`Task` row's `OPEN →`
+  // The session's own subagents, ended ones included once `select` has read
+  // its history (`loadSessionHistory`), for the `Agent`/`Task` row's `OPEN →`
   // control (spec § 5, canvas 11a) — `TranscriptView` joins each row against
   // this by `toolUseId`, `ToolRow`'s own doc has the reasoning.
   const subagents = useOrbital(useShallow((s) => s.sessions[sessionId]?.subagents ?? NO_SUBAGENTS))

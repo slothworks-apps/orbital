@@ -35,15 +35,50 @@ describe('seatSessions', () => {
 describe('loadSessions', () => {
   it('reads only routes the tunnel allows', async () => {
     const tags: Tag[] = [{ id: 1, name: 'orbital', hue: 200, is_default: 1 }]
-    vi.mocked(api.listSessions).mockResolvedValue([session('a', 1)])
+    vi.mocked(api.listSessionPage).mockResolvedValue({ sessions: [session('a', 1)], ended: { count: 3, latestAt: 9 } })
     vi.mocked(api.listTags).mockResolvedValue(tags)
     vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
-    await useOrbital.getState().loadSessions()
+    await expect(useOrbital.getState().loadSessions()).resolves.toEqual({ count: 3, latestAt: 9 })
+    expect(api.listSessionPage).toHaveBeenCalledTimes(1)
+    expect(api.listSessionPage).toHaveBeenCalledWith({ ended: 'exclude' })
     expect(Object.keys(useOrbital.getState().sessions)).toEqual(['a'])
     expect(useOrbital.getState().tags).toEqual(tags)
     expect(api.getSettings).not.toHaveBeenCalled()
     expect(api.listTagRules).not.toHaveBeenCalled()
     expect(api.listErrors).not.toHaveBeenCalled()
+  })
+
+  it('seats the ENDED fold with the list once it has been opened, and a Mac that ignores the fold says nothing of it', async () => {
+    vi.mocked(api.listSessionPage).mockImplementation(async (params) =>
+      params?.ended === 'only'
+        ? { sessions: [session('done', 1, { status: 'ended' })] }
+        : { sessions: [session('live', 2), session('done', 1, { status: 'ended' })] },
+    )
+    vi.mocked(api.listTags).mockResolvedValue([])
+    vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
+    await expect(useOrbital.getState().loadSessions({ endedToo: true })).resolves.toBeNull()
+    expect(useOrbital.getState().order).toEqual(['live', 'done'])
+  })
+})
+
+describe('seatSessions and the open session', () => {
+  afterEach(() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } })))
+
+  it('keeps the selected session the new list leaves out, and drops the rest', () => {
+    useOrbital.getState().seatSessions([session('open', 1, { status: 'ended' }), session('other', 2, { status: 'ended' })], [])
+    useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'open' } }))
+    useOrbital.getState().seatSessions([session('live', 3)], [])
+    expect(Object.keys(useOrbital.getState().sessions).sort()).toEqual(['live', 'open'])
+  })
+})
+
+describe('loadSessionHistory', () => {
+  it('adds a session the store does not hold, as the detail carries it', async () => {
+    useOrbital.getState().seatSessions([], [])
+    const detail = session('gone', 1, { status: 'ended', subagents: [{ id: 'a', name: 'a', state: 'ended', startedAt: 0 }] })
+    vi.mocked(api.getSession).mockResolvedValue({ session: detail })
+    await useOrbital.getState().loadSessionHistory('gone')
+    expect(useOrbital.getState().sessions.gone?.subagents).toEqual(detail.subagents)
   })
 })
 

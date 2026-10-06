@@ -7,7 +7,7 @@ import { makeTmpDir } from './tmp.js';
 /**
  * The whole chain against a real `buildServer`, the one place the pieces meet:
  * SDK stream -> Runner.onTaskEvent -> SubagentStore -> toApiSession ->
- * GET /api/sessions. The unit tests each prove one link; only this proves
+ * GET /api/sessions/:id. The unit tests each prove one link; only this proves
  * index.ts wires them to each other.
  *
  * Orbital's own sessions are the only ones that can have subagents at all —
@@ -84,9 +84,10 @@ function tempClaudeDir() {
   return { claudeDir, dbPath: join(claudeDir, 'index.db') };
 }
 
+/** The detail, not the list: the list carries only running subagents, and this follows one to its end. */
 async function sessionOf(app: any, id: string) {
-  const res = await app.inject({ method: 'GET', url: '/api/sessions' });
-  return res.json().sessions.find((s: { id: string }) => s.id === id);
+  const res = await app.inject({ method: 'GET', url: `/api/sessions/${id}` });
+  return res.statusCode === 200 ? res.json().session : undefined;
 }
 
 describe("a subagent in one of orbital's own sessions, end to end", () => {
@@ -120,7 +121,7 @@ describe("a subagent in one of orbital's own sessions, end to end", () => {
 
       // The session stops waiting on the agent — that reads off
       // `running()`, which the notification empties — but the agent itself
-      // is not forgotten: `all()` (what the REST shape reports) keeps it,
+      // is not forgotten: `all()` (what the detail reports) keeps it,
       // now ended with the notification's own status and the moment it
       // ended, for the subagent list (subagent list spec § 3).
       await vi.waitFor(async () => {

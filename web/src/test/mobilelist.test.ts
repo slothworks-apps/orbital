@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ApiSession, BackgroundTask, LimitWait, PendingDecision, Tag } from '../lib/types'
 import { agoLabel, asOfLabel, basename, checkedLabel, homePath, relayHost } from '../mobile/format'
 import {
-  decisionReason, gateReason, glyphFor, groupOf, groupSessions, inputReason, isGateRow, latestActivity, limitLine, moonsSummary,
+  decisionReason, endedHeading, gateReason, glyphFor, groupOf, groupSessions, inputReason, isGateRow, latestActivity, limitLine, moonsSummary,
   moonsSummaryAsleep, stateLine, tagChips, tasksForRow,
 } from '../mobile/sessionList'
 
@@ -42,6 +42,35 @@ describe('groupSessions', () => {
   it('filters by tag, locally', () => {
     const groups = groupSessions([session('a', { tagIds: [1] }), session('b', { tagIds: [2] })], 2)
     expect(groups.flatMap((g) => g.sessions.map((s) => s.id))).toEqual(['b'])
+  })
+})
+
+describe('endedHeading', () => {
+  const ended = (id: string, lastAt: number) => session(id, { status: 'ended', lastAt })
+  const none = () => false
+
+  it('adds the sessions that ended while the phone watched to the count the Mac left out', () => {
+    const summary = { count: 4, latestAt: 50 }
+    const group = [ended('watched', 90), ended('opened', 40)]
+    // `opened` was ended when the list was read: the summary has it already.
+    const heading = endedHeading(group, { summary, loaded: false }, (id) => id === 'opened', false)
+    expect(heading).toEqual({ count: 5, latest: 90 })
+    expect(endedHeading([], { summary, loaded: false }, none, false)).toEqual({ count: 4, latest: 50 })
+  })
+
+  it('is the group as held once the fold is read, or with no summary at all', () => {
+    const group = [ended('a', 10), ended('b', 30)]
+    expect(endedHeading(group, { summary: { count: 9, latestAt: 99 }, loaded: true }, none, false)).toEqual({ count: 2, latest: 30 })
+    expect(endedHeading(group, { summary: null, loaded: false }, none, false)).toEqual({ count: 2, latest: 30 })
+    expect(endedHeading([], { summary: null, loaded: false }, none, false)).toBeNull()
+  })
+
+  it('has nothing to fold when the Mac counts none and none ended since', () => {
+    expect(endedHeading([], { summary: { count: 0, latestAt: null }, loaded: false }, none, false)).toBeNull()
+  })
+
+  it('leaves the count unknown under a tag filter until the fold is read', () => {
+    expect(endedHeading([], { summary: { count: 3, latestAt: 5 }, loaded: false }, none, true)).toEqual({ count: null, latest: null })
   })
 })
 
@@ -238,6 +267,15 @@ describe('10a rows', () => {
     })
     expect(moonsSummaryAsleep(session('s', { subagents: agents, backgroundTasks: [task] }))).toBe('2 subagents · ▣ 1 task · last known')
     expect(moonsSummaryAsleep(session('s'))).toBeNull()
+  })
+
+  it('takes the totals from the Mac, whose list carries only what runs', () => {
+    const running = { id: 'a', name: 'tests', state: 'working' as const, startedAt: 1 }
+    const task: BackgroundTask = { id: 't', kind: 'shell', label: 'npm run dev', state: 'running', startedAt: 1, hasOutput: true }
+    const listed = session('s', { subagents: [running], subagentCount: 5, backgroundTasks: [task], backgroundTaskCount: 40 })
+    expect(moonsSummary(listed).subagents).toBe('5 subagents · 1 running')
+    expect(moonsSummaryAsleep(listed)).toBe('5 subagents · ▣ 40 tasks · last known')
+    expect(moonsSummaryAsleep(session('s', { subagentCount: 2, backgroundTaskCount: 0 }))).toBe('2 subagents · last known')
   })
 
   it('lists running tasks before ended ones', () => {

@@ -8,9 +8,10 @@ import { recheckMac } from '../connect'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
 import { agoLabel, asOfLabel, basename, checkedLabel } from '../format'
 import {
-  GROUP_LABEL, groupSessions, inputReason, isGateRow, latestActivity, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
+  GROUP_LABEL, endedHeading, groupSessions, inputReason, isGateRow, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
   taskStatus, tasksForRow, type GroupKey,
 } from '../sessionList'
+import { countedBySummary, loadEndedFold } from '../endedFold'
 import { isMacAsleep, useMobile } from '../state'
 import { opensTask } from '../subagents/model'
 import { MobileScreen, PrimaryButton } from '../ui'
@@ -34,8 +35,13 @@ export function SessionListScreen() {
   const [checking, setChecking] = useState(false)
   const now = useNow(true, CLOCK_TICK_MS)
 
+  const endedFold = useMobile(useShallow((s) => ({ summary: s.endedSummary, loaded: s.endedLoaded })))
+
   const mac = macName ?? 'Your Mac'
-  const groups = useMemo(() => groupSessions(sessions, tagId), [sessions, tagId])
+  const held = useMemo(() => groupSessions(sessions, tagId), [sessions, tagId])
+  const heading = endedHeading(held.find((g) => g.key === 'ended')?.sessions ?? [], endedFold, countedBySummary, tagId !== null)
+  // The fold is drawn from the Mac's count even before a single ended row is held.
+  const groups = heading && !held.some((g) => g.key === 'ended') ? [...held, { key: 'ended' as const, sessions: [] }] : held
   const chips = useMemo(() => tagChips(sessions, tags), [sessions, tags])
   const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags])
   const liveCount = useMemo(() => sessions.filter((s) => s.status !== 'ended').length, [sessions])
@@ -130,13 +136,17 @@ export function SessionListScreen() {
       <div className="pb-3">
         {groups.map((group) => {
           if (group.key === 'ended') {
-            const latest = latestActivity(group.sessions)
+            const latest = heading?.latest ?? null
             return (
               <section key="ended">
                 <button
                   type="button"
                   aria-expanded={endedOpen}
-                  onClick={() => setEndedOpen(!endedOpen)}
+                  onClick={() => {
+                    // Read from the Mac the first time it opens (`loadEndedFold`).
+                    if (!endedOpen) void loadEndedFold()
+                    setEndedOpen(!endedOpen)
+                  }}
                   className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]"
                 >
                   <span aria-hidden className="text-[9px]">
@@ -144,7 +154,8 @@ export function SessionListScreen() {
                   </span>
                   <span aria-hidden className="block h-2 w-2 rounded-full border border-[rgba(200,215,235,.45)]" />
                   <span>
-                    {GROUP_LABEL.ended} · {group.sessions.length}
+                    {GROUP_LABEL.ended}
+                    {heading?.count != null && <> · {heading.count}</>}
                   </span>
                   {latest !== null && (
                     <span className="ml-auto tracking-[0.04em] text-[rgba(160,190,225,.45)]">latest {agoLabel(latest, now)}</span>

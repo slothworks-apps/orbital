@@ -6,6 +6,7 @@ import { configureSocket, getSocket } from '../lib/socket'
 import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
 import { connect, recheckOnForeground } from './connect'
 import { wireCache } from './cacheWriter'
+import { markSummarized, wireEndedFold } from './endedFold'
 import { PHONE_OUTPUT_TAIL_BYTES, PHONE_SUBAGENT_PAGE, TRANSCRIPT_PAGE_SIZE } from './constants'
 import { installFileOpen } from './files/open'
 import { forgetEverything } from './forget'
@@ -60,6 +61,7 @@ export async function boot(): Promise<void> {
   clientRef.on(onClientEvent)
   wireSocket()
   wireCache()
+  wireEndedFold()
   await installLifecycle()
 
   const [pairing, unpaired, cached, rules] = await Promise.all([
@@ -122,13 +124,20 @@ function wireSocket(): void {
 export async function resync(): Promise<void> {
   try {
     const id = useOrbital.getState().ui.selectedId
-    await useOrbital.getState().loadSessions()
+    // The ENDED fold, once opened, is read again with the list: the seat
+    // replaces the map, and the fold would close itself otherwise.
+    const endedToo = useMobile.getState().endedLoaded
+    const endedSummary = await useOrbital.getState().loadSessions({ endedToo })
+    if (!endedToo) markSummarized()
     // The Mac replays nothing on a new tunnel: its list is what the notifier knows from.
     seedNotifications(Object.values(useOrbital.getState().sessions))
-    useMobile.setState({ listedAt: Date.now() })
+    // No summary is a Mac that sent every session: nothing is left to read.
+    useMobile.setState({ listedAt: Date.now(), endedSummary, endedLoaded: endedToo || endedSummary === null })
     if (!id) return
-    if (useOrbital.getState().historyLoaded[id]) await useOrbital.getState().reloadTranscript(id)
-    else await useOrbital.getState().select(id)
+    if (useOrbital.getState().historyLoaded[id]) {
+      // What ended while the tunnel was down, and the session itself when the list left it out.
+      await Promise.all([useOrbital.getState().reloadTranscript(id), useOrbital.getState().loadSessionHistory(id)])
+    } else await useOrbital.getState().select(id)
   } catch {
     // The next open, or the next return to the foreground, tries again.
   }

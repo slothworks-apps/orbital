@@ -55,6 +55,28 @@ export interface SendResult {
   rewind?: true
 }
 
+export interface SessionListParams {
+  tag?: number
+  q?: string
+  source?: string
+  limit?: number
+  offset?: number
+  /** The ENDED fold (unpinned ended sessions): left out, or alone. Absent, everything. */
+  ended?: 'exclude' | 'only'
+}
+
+/** The ENDED fold `ended: 'exclude'` left out: how many, capped by the page, and the newest one's `lastAt`. */
+export interface EndedSummary {
+  count: number
+  latestAt: number | null
+}
+
+export interface SessionListPage {
+  sessions: ApiSession[]
+  /** Only with `ended: 'exclude'`, and only from a Mac that knows the parameter. */
+  ended?: EndedSummary
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -171,22 +193,26 @@ function applyCompletionKey(url: URL, key: CompletionKey): void {
 
 // Sessions API
 export const api = {
-  async listSessions(params?: {
-    tag?: number
-    q?: string
-    source?: string
-    limit?: number
-    offset?: number
-  }): Promise<ApiSession[]> {
+  async listSessions(params?: SessionListParams): Promise<ApiSession[]> {
+    return (await api.listSessionPage(params)).sessions
+  },
+
+  /**
+   * `listSessions` with the whole answer: with `ended: 'exclude'`, the Mac
+   * leaves the unpinned ended sessions out and says what `ended: 'only'`
+   * would return in `ended`. A Mac from before the parameter ignores it,
+   * answers with every session and no `ended`.
+   */
+  async listSessionPage(params?: SessionListParams): Promise<SessionListPage> {
     const url = new URL('/api/sessions', window.location.origin)
     if (params?.tag !== undefined) url.searchParams.set('tag', String(params.tag))
     if (params?.q !== undefined) url.searchParams.set('q', params.q)
     if (params?.source !== undefined) url.searchParams.set('source', params.source)
     if (params?.limit !== undefined) url.searchParams.set('limit', String(params.limit))
     if (params?.offset !== undefined) url.searchParams.set('offset', String(params.offset))
+    if (params?.ended !== undefined) url.searchParams.set('ended', params.ended)
 
-    const data = await request<{ sessions: ApiSession[] }>('GET', url.pathname + url.search)
-    return data.sessions
+    return request<SessionListPage>('GET', url.pathname + url.search)
   },
 
   async getSession(id: string): Promise<{ session: ApiSession }> {

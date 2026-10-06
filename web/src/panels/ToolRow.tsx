@@ -299,7 +299,10 @@ export function ToolRow({
   // the map (subagent list spec § 5), so this row and the detail panel's
   // subagent list are the ways left in — which is why the list this joins
   // against (`sessions[id].subagents`) carries every agent the session ever
-  // had, and only `map/sceneModel.ts` narrows it to the running ones.
+  // had. The session list carries only the running ones, but a transcript is
+  // only open for the selected session, whose history `select` reads from
+  // `GET /api/sessions/:id` (`loadSessionHistory`); `map/sceneModel.ts`
+  // narrows it to the running ones.
   //
   // What genuinely renders no control — not a disabled one, since there is
   // nothing to press and nothing to explain — is a row with no match at

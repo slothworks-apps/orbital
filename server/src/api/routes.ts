@@ -34,7 +34,7 @@ import { mergeCompactionFailures, type CompactionFailureRecord } from '../transc
 import { RETENTION_KEY } from '../retention.js';
 import type { SessionRegistry } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
-import { statusOf, toApiSession } from './shape.js';
+import { statusOf, toApiSession, type ApiSession } from './shape.js';
 import type { GitStore } from '../git/store.js';
 import { LINES_SETTING, PR_SETTING, type BranchStatusStore } from '../git/branchStatusStore.js';
 import type { IdeStore } from '../ide/store.js';
@@ -422,6 +422,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (q.q) rows = rows.filter((r) => r.title.toLowerCase().includes(q.q.toLowerCase()));
     let sessionsOut = rows.map((r) => toApiSession(ctx, r));
     if (q.tag) sessionsOut = sessionsOut.filter((s) => s.tagIds.includes(Number(q.tag)));
+    // The phone's list asks for the ENDED fold apart, when it is opened: an
+    // ended session the user pinned is not in the fold and stays in the list.
+    // Without `ended`, everything, as the desktop and older phones expect.
+    const folded = (s: ApiSession) => s.status === 'ended' && s.pinnedAt === null;
+    if (q.ended === 'only') sessionsOut = sessionsOut.filter(folded);
+    if (q.ended === 'exclude') {
+      // What `ended=only` with the same paging would return, so the fold's
+      // header can count it before it is opened.
+      const fold = sessionsOut.filter(folded).slice(offset, offset + limit);
+      const latestAt = fold.reduce<number | null>((max, s) => (s.lastAt !== null && (max === null || s.lastAt > max) ? s.lastAt : max), null);
+      const listed = sessionsOut.filter((s) => !folded(s));
+      return { sessions: listed.slice(offset, offset + limit), ended: { count: fold.length, latestAt } };
+    }
     return { sessions: sessionsOut.slice(offset, offset + limit) };
   });
 
@@ -442,7 +455,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
-    return { session: toApiSession(ctx, row, undefined, { allTasks: true }) };
+    return { session: toApiSession(ctx, row, undefined, { history: true }) };
   });
 
   /**
