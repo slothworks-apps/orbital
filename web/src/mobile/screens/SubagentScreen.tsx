@@ -8,6 +8,9 @@ import { TranscriptView } from '../../panels/TranscriptView'
 import { usePhoneToolRow } from '../session/TranscriptChip'
 import { useOrbital } from '../../store/store'
 import { isMacAsleep, pushedTop, useMobile } from '../state'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Code, Pre } from '../../panels/MessageView'
 import { nameInSentence } from '../format'
 import { subagentBody, subagentHeader, INK, type SubagentHeader } from '../subagents/model'
 import { MobileScreen, SecondaryButton } from '../ui'
@@ -132,8 +135,11 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
           <div className="font-mono text-[9.5px] tracking-[0.16em]" style={{ color: completed ? INK.done : header.ink }}>
             RESULT · RETURNED TO {nameInSentence(parentTitle)}
           </div>
-          <div className="mt-1.5 whitespace-pre-wrap text-pretty text-[13.5px] leading-[1.5] text-[rgba(232,238,248,.92)]">
-            {body.result}
+          {/* Markdown like any assistant turn (the agent writes it so); long paths wrap rather than run off the card. */}
+          <div className="message-markdown mt-1.5 text-pretty text-[13.5px] leading-[1.5] text-[rgba(232,238,248,.92)] [overflow-wrap:anywhere] [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-5">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: Code, pre: Pre }}>
+              {body.result}
+            </ReactMarkdown>
           </div>
         </div>
       )}

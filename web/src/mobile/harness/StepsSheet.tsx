@@ -134,8 +134,9 @@ export function StepsSheet({
               )
             })}
           </div>
-          <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-5 py-3 font-mono text-[10px] text-[rgba(160,190,225,.55)]">
-            <span className="min-w-0 truncate">{sheet.footer}</span>
+          {/* canvas 10b: the footer wraps rather than cutting its sentence. */}
+          <div className="flex items-start gap-2 border-t border-[rgba(150,205,255,.08)] px-5 py-3 font-mono text-[10px] leading-[1.5] text-[rgba(160,190,225,.55)]">
+            <span className="min-w-0">{sheet.footer}</span>
             <span aria-hidden className="flex-1" />
             <span className="shrink-0">● auto ◆ gate</span>
           </div>
