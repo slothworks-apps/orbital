@@ -4,6 +4,13 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-10-06
+### Fixed
+- An open session shows every subagent it has run, now that the Mac sends only the running ones with the session list.
+
+### Changed
+- The Ended group loads its sessions when you open it, so the list arrives faster.
+
 ## [0.3.1] — 2026-10-06
 ### Fixed
 - An open session shows all the background commands it has run, also with a Mac that sends only the running ones with the session list.
