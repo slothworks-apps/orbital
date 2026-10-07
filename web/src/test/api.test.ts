@@ -535,6 +535,18 @@ describe('Files API', () => {
     expect(call).toContain('/api/files?')
     expect(call).toContain('session=s1')
     expect(call).toContain(`path=${encodeURIComponent('web/src/App.tsx')}`)
+    expect(call).not.toContain('cwd=')
+  })
+
+  it('filePreview sends the cwd the path was written in, when given', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ content: 'x', size: 1, mtimeMs: 2, lines: 1 }), { status: 200 })
+    )
+
+    await api.filePreview('s1', 'a.ts', '/r/o/.claude/worktrees/x')
+
+    const call = fetchMock.mock.calls[0][0] as string
+    expect(call).toContain(`cwd=${encodeURIComponent('/r/o/.claude/worktrees/x')}`)
   })
 
   it('filePreview returns kind ok with the file body on 200', async () => {

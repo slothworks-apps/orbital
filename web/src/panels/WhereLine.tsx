@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, Ref } from 'react'
 import { lineGroups, linesReadout, prAriaLabel } from '../lib/branchStatus'
 import type { LinesMode } from '../lib/branchStatus'
 import { Tooltip } from '../ui/Tooltip'
-import type { BranchLines, BranchPr, GitLocation } from '../lib/types'
-import { BranchLinesTooltipContent, LineGroups, LinesTooltipContent, PrTooltipContent } from './BranchSuffixes'
-import { fitWhereRow, whereFoldReservePx } from './whereFit'
+import type { BranchLines, BranchPr, GitLocation, OtherTree } from '../lib/types'
+import {
+  markOf,
+  treeList,
+  treesAriaLabel,
+  treesCompactText,
+  treesCountText,
+  treesHeadText,
+  treesMoreText,
+  whereFormOf,
+} from '../lib/whereForm'
+import type { GitMark, WhereForm } from '../lib/whereForm'
+import { LineGroups, LinesTooltipContent, PrTooltipContent } from './BranchSuffixes'
+import { COUNT_MARK_GAP_PX, fitTreesRow, fitWhereRow, treesFoldReservePx, whereFoldReservePx } from './whereFit'
+import type { CountMode, WhereCount } from './whereFit'
 
 /**
  * The detail header's first line: the path, and where that directory sits in
@@ -15,15 +27,15 @@ import { fitWhereRow, whereFoldReservePx } from './whereFit'
  * After the branch, two opt-in suffixes (canvas `Feature - Branch status`):
  * the pull request's number, which is the row's one button, and the line
  * changes, another read-out. With neither, the row is exactly the one above.
+ *
+ * Last, the count of other trees running subagents work in (`Feature - Git
+ * worktree` turn 2, 2e; spec 2026-10-07-live-working-tree-design § 5): "+3
+ * worktrees" after the suffixes (form A), or — on the default branch in the
+ * main checkout — "3 worktrees" alone after the path (form B). Another
+ * read-out, its list one hover away. `lib/whereForm.ts` decides the form.
  */
 
-/** Which mark the reading draws. Picked here, never sent by the server. */
-type Mark = 'trunk' | 'fork' | 'tree'
-
-function markOf(git: GitLocation): Mark {
-  if (git.worktree) return 'tree'
-  return git.detached || git.defaultBranch ? 'trunk' : 'fork'
-}
+type Mark = GitMark
 
 /** The marks' drawn widths, which the width split has to pay for. */
 const MARK_PX: Record<Mark, number> = { trunk: 8, fork: 10, tree: 13 }
@@ -51,6 +63,9 @@ export const BRANCH_FADE_MS = 130
 
 /** 1h: the #PR's tooltip waits this long under the pointer; the lines' does not wait. */
 const PR_TOOLTIP_DELAY_MS = 300
+
+/** 2e: the worktree list's bubble — the Branch status shell, wider. */
+const TREES_TOOLTIP_PX = 300
 
 const MARK_INK = 'rgba(160,190,225,.75)'
 /** A step above the path, so the branch does not read as another path segment. */
@@ -122,6 +137,113 @@ function TreeMark() {
 
 const MARKS: Record<Mark, () => ReactElement> = { trunk: TrunkMark, fork: ForkMark, tree: TreeMark }
 
+/** 2d/2k: where each mark sits in the list's 13 × 13 mark column. */
+const LIST_MARK_OFFSET: Record<Mark, { left: number; top: number }> = {
+  trunk: { left: 2.5, top: 0.5 },
+  fork: { left: 1.5, top: 0.5 },
+  tree: { left: 0, top: 0 },
+}
+
+function ListMark({ mark }: { mark: Mark }) {
+  const Drawn = MARKS[mark]
+  return (
+    <span aria-hidden className="relative block" style={{ width: 13, height: 13 }}>
+      <span className="absolute" style={LIST_MARK_OFFSET[mark]}>
+        <Drawn />
+      </span>
+    </span>
+  )
+}
+
+/**
+ * 2d/2k: the trees running subagents work in — one block per tree (its mark
+ * by its own git, the branch, the directory), then each subagent's task on
+ * its own line behind a hanging "·", two lines at most. Text only: nothing
+ * in it is a click target.
+ */
+function TreesTooltipContent({ form, trees }: { form: WhereForm; trees: readonly OtherTree[] }) {
+  const list = treeList(trees)
+  return (
+    <span className="flex flex-col gap-[10px]">
+      <span className="flex items-baseline gap-2 font-mono">
+        <span className="text-[11px] text-text-bright">{treesHeadText(form)}</span>
+        <span className="flex-1" />
+        <span className="text-[10px] text-[rgba(160,190,225,.6)]">running subagents</span>
+      </span>
+      <span className="flex flex-col gap-2">
+        {list.rows.map((row) => (
+          <span
+            key={row.root}
+            className="grid grid-cols-[13px_minmax(0,1fr)_auto] items-center gap-x-[7px] gap-y-0.5 whitespace-nowrap font-mono text-[11px]"
+          >
+            <ListMark mark={row.mark} />
+            <span className="min-w-0 overflow-hidden text-text-bright">{row.branch}</span>
+            <span className="text-[rgba(160,190,225,.6)]">{row.dir}</span>
+            <span className="col-[2/4] flex flex-col gap-0.5 whitespace-normal">
+              {row.agents.map((agent, i) => (
+                <span
+                  key={i}
+                  className="grid grid-cols-[9px_minmax(0,1fr)] font-sans text-[12px] leading-[1.4] text-[rgba(190,212,238,.82)]"
+                >
+                  <span className="text-[rgba(160,190,225,.5)]">·</span>
+                  <span className="line-clamp-2">{agent}</span>
+                </span>
+              ))}
+            </span>
+          </span>
+        ))}
+      </span>
+      {list.more > 0 && (
+        <span className="border-t border-[rgba(150,205,255,.1)] pt-2 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+          {treesMoreText(list.more)}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** The count as the row draws it: the word, or the tree mark and the number (2e compact form). */
+function CountReadout({ text, compact }: { text: string; compact: boolean }) {
+  return (
+    <>
+      {compact && <TreeMark />}
+      <span>{text}</span>
+    </>
+  )
+}
+
+/**
+ * 1e, BRANCH · LINES MOVED IN, and 2e's last step: the full name, then
+ * whatever left the row for this bubble, each under a hairline — the lines,
+ * and the worktree count as the last line.
+ */
+function BranchMovedTooltipContent({
+  branch,
+  detached,
+  lines,
+  count,
+}: {
+  branch: string
+  detached: boolean
+  lines?: BranchLines
+  count?: string
+}) {
+  const rule = <span className="block h-px bg-[rgba(150,205,255,.1)]" />
+  return (
+    <>
+      <span className="font-mono text-[11px] leading-[1.45] text-text-bright [overflow-wrap:anywhere]">{branch}</span>
+      {lines && rule}
+      {lines && <LinesTooltipContent lines={lines} branch={branch} detached={detached} />}
+      {count && rule}
+      {count && (
+        <span className="flex items-center font-mono text-[11px]" style={{ gap: COUNT_MARK_GAP_PX, color: PATH_INK }}>
+          <CountReadout text={count} compact />
+        </span>
+      )}
+    </>
+  )
+}
+
 /** The whole reading, for the screen reader and for the hover title. */
 function readingLabel(path: string, git: GitLocation | null): string {
   if (!git) return path
@@ -186,6 +308,13 @@ function useFaded<T>(value: T, keyOf: (v: T) => string, sessionId: string | null
 }
 
 const prKey = (pr: BranchPr | undefined) => (pr ? String(pr.number) : '')
+const readingShownKey = (r: { git: GitLocation | null; hidden: boolean }) => (r.hidden ? 'hidden' : readingKey(r.git))
+const markShownKey = (mark: Mark | null) => mark ?? ''
+const pathShownKey = (path: string) => path
+/** The number and the form fade; the list under it is taken at once, so an open bubble updates in place (2e). */
+const countShownKey = (c: { form: WhereForm }) => (c.form.kind === 'plain' ? '' : `${c.form.kind}|${c.form.count}`)
+
+const NO_TREES: readonly OtherTree[] = []
 
 export function WhereLine({
   path,
@@ -200,8 +329,9 @@ export function WhereLine({
   linesMode = 'off',
   folded = false,
   onFoldReserve,
+  otherTrees,
 }: {
-  /** The path as the header has always drawn it — `shortenPath(cwd)`. */
+  /** Where the session works now, shortened — `shortenPath(workingDirOf(session))`. Fades when it changes (2f). */
   path: string
   /** The undisplayed whole of it, which only the screen reader gets. */
   fullPath: string
@@ -230,29 +360,64 @@ export function WhereLine({
    * suffixes (`whereFoldReservePx`), reported once their fade has settled.
    */
   onFoldReserve?: (px: number) => void
+  /** The trees running subagents work in, other than this one — the count and its list (2e). */
+  otherTrees?: readonly OtherTree[]
 }) {
-  // The reading on screen, which lags the one from the server by the length
-  // of the fade — the old branch fades out before the new one fades in.
-  const { shown, opacity } = useFaded(git, readingKey, sessionId)
-  const linesKey = useCallback((l: BranchLines | undefined) => JSON.stringify(lineGroups(l, linesMode)), [linesMode])
-  const { shown: shownPr, opacity: prOpacity } = useFaded(pr, prKey, sessionId)
-  const { shown: shownLines, opacity: linesOpacity } = useFaded(lines, linesKey, sessionId)
+  const trees = otherTrees ?? NO_TREES
+  const form = useMemo(() => whereFormOf(git, trees), [git, trees])
+  const formB = form.kind === 'trees'
 
-  const mark = shown ? markOf(shown) : null
-  const markPx = mark ? MARK_PX[mark] + PATH_GAP_PX + MARK_GAP_PX : 0
+  // What is on screen lags the server by the length of the fade — the old
+  // value fades out before the new one fades in. Each part fades on its own,
+  // so only what changed moves: the path when the session changes trees, the
+  // mark when it changes kind, the count when it changes number (2e, 2f).
+  // Form B draws no reading, so a form change fades the reading out with it.
+  const reading = useMemo(() => ({ git, hidden: formB }), [git, formB])
+  const { shown: shownReading, opacity } = useFaded(reading, readingShownKey, sessionId)
+  const { shown: shownMark, opacity: markOpacity } = useFaded(
+    formB || !git ? null : markOf(git),
+    markShownKey,
+    sessionId,
+  )
+  const { shown: shownPath, opacity: pathOpacity } = useFaded(path, pathShownKey, sessionId)
+  const counted = useMemo(() => ({ form, trees }), [form, trees])
+  const { shown: shownCount, opacity: countOpacity } = useFaded(counted, countShownKey, sessionId)
+  const linesKey = useCallback((l: BranchLines | undefined) => JSON.stringify(lineGroups(l, linesMode)), [linesMode])
+  // Form B drops the suffixes with the branch (spec § 5).
+  const { shown: shownPr, opacity: prOpacity } = useFaded(formB ? undefined : pr, prKey, sessionId)
+  const { shown: shownLines, opacity: linesOpacity } = useFaded(formB ? undefined : lines, linesKey, sessionId)
+
+  const shown = shownReading.hidden ? null : shownReading.git
+  const shownForm = shownCount.form
+  const count: WhereCount | null =
+    shownForm.kind === 'plain' ? null : { full: treesCountText(shownForm), compact: treesCompactText(shownForm) }
+  const markPx = shownMark && shown ? MARK_PX[shownMark] + PATH_GAP_PX + MARK_GAP_PX : 0
   const available = cellWidthPx !== undefined && cellWidthPx > 0 ? cellWidthPx : panelWidthPx - ROW_CHROME_PX
   const branch = shown?.ref ?? ''
   const prText = shownPr ? `#${shownPr.number}` : ''
   // Line changes belong to a working tree, so they need its reading to hang off.
   const groups = shown ? lineGroups(shownLines, linesMode) : []
-  const fit = fitWhereRow({ path, branch, markPx, cellPx: available, pr: prText, lines: groups, folded })
-  const reservePx = whereFoldReservePx({ path, branch, markPx, pr: prText, lines: groups })
+  const rowInput = { path: shownPath, branch, markPx, pr: prText, lines: groups, count }
+  // Form B, once its fade has swapped it in: the path and the count alone.
+  const treesFit =
+    shownReading.hidden && count ? fitTreesRow({ path: shownPath, cellPx: available, folded, count }) : null
+  const fit = fitWhereRow({ ...rowInput, cellPx: available, folded })
+  const reservePx = count && treesFit ? treesFoldReservePx({ path: shownPath, count }) : whereFoldReservePx(rowInput)
   useLayoutEffect(() => onFoldReserve?.(reservePx), [reservePx, onFoldReserve])
 
-  const Mark = mark ? MARKS[mark] : null
-  // The lines are no control, so a screen reader hears them here (1h).
-  const label = readingLabel(fullPath, shown) + (groups.length > 0 ? ` · ${linesReadout(groups)}` : '')
+  const pathText = treesFit ? treesFit.path : fit.path
+  const countMode: CountMode = treesFit ? treesFit.count : fit.count
+  const Mark = shownMark && shown ? MARKS[shownMark] : null
+  const countLabel = count ? treesAriaLabel(shownForm, shownCount.trees) : ''
+  // The lines and the count are no control, so a screen reader hears them here (1h, 2e).
+  const label =
+    readingLabel(fullPath, shownReading.git) +
+    (groups.length > 0 ? ` · ${linesReadout(groups)}` : '') +
+    (countLabel ? ` · ${countLabel}` : '')
   const cut = Boolean(shown) && fit.branch !== shown?.ref
+  // Steps 4 and 5: what left the row lives in the branch's bubble (1e, 2e).
+  const linesMoved = !treesFit && fit.linesMoved && Boolean(shownLines)
+  const countMoved = !treesFit && countMode === 'moved'
 
   // Bubbles stay inside the header row (1h: "clamped to the panel").
   const cell = useRef<HTMLSpanElement | null>(null)
@@ -271,14 +436,57 @@ export function WhereLine({
   // which also puts the bubble's left edge on the mark, where 1f aligns it.
   // `data-no-drag`: in a detached window this row is the title bar, and a
   // drag region would swallow the hover that raises the bubble.
-  const reading = Mark ? (
+  const readingEl = Mark ? (
     <span data-testid="git-reading" data-no-drag className="flex flex-none items-center" style={{ gap: MARK_GAP_PX }}>
-      <Mark />
-      <span style={{ color: BRANCH_INK, opacity, transition: `opacity ${BRANCH_FADE_MS}ms ease` }}>
-        {fit.branch}
+      <span className="flex" style={fade(markOpacity)}>
+        <Mark />
       </span>
+      <span style={{ color: BRANCH_INK, ...fade(opacity) }}>{fit.branch}</span>
     </span>
   ) : null
+
+  // 2e: the count — a read-out like the lines, no fill, no cursor change, not
+  // a tab stop; the list rises at once under the pointer.
+  const countEl =
+    count && (countMode === 'full' || countMode === 'compact') ? (
+      <span className="flex flex-none" style={fade(countOpacity)}>
+        <Tooltip
+          variant="panel"
+          widthPx={TREES_TOOLTIP_PX}
+          clampWithin={row}
+          content={<TreesTooltipContent form={shownForm} trees={shownCount.trees} />}
+        >
+          <span
+            data-no-drag
+            data-testid="where-trees"
+            aria-label={countLabel}
+            className="flex items-center"
+            style={{ gap: COUNT_MARK_GAP_PX, color: PATH_INK }}
+          >
+            <CountReadout
+              text={countMode === 'full' ? count.full : count.compact}
+              compact={countMode === 'compact'}
+            />
+          </span>
+        </Tooltip>
+      </span>
+    ) : null
+
+  if (treesFit) {
+    return (
+      <span
+        ref={setCell}
+        aria-label={label}
+        className="flex min-w-0 flex-1 cursor-default items-center whitespace-nowrap font-mono text-[11px]"
+        style={{ gap: PATH_GAP_PX }}
+      >
+        <span className="min-w-0 overflow-hidden" style={{ color: PATH_INK, ...fade(pathOpacity) }}>
+          {pathText}
+        </span>
+        {countEl}
+      </span>
+    )
+  }
 
   return (
     <span
@@ -292,28 +500,36 @@ export function WhereLine({
       className="flex min-w-0 flex-1 cursor-default items-center whitespace-nowrap font-mono text-[11px]"
       style={{ gap: PATH_GAP_PX }}
     >
-      <span className="min-w-0 overflow-hidden" style={{ color: PATH_INK }}>
-        {fit.path}
+      <span className="min-w-0 overflow-hidden" style={{ color: PATH_INK, ...fade(pathOpacity) }}>
+        {pathText}
       </span>
       {/* Only a cut name needs saying — a branch already on screen in full
           gets no bubble, because the row is a read-out and should stay quiet
           under the pointer (1f). */}
-      {fit.linesMoved && shown && shownLines ? (
+      {(linesMoved || countMoved) && shown && readingEl ? (
         // Step 4 on: the lines left the row for this bubble, under the full
-        // name, so the branch answers the pointer even when it is whole (1e).
+        // name, so the branch answers the pointer even when it is whole (1e);
+        // at step 5 the count follows them as its last line (2e).
         <Tooltip
           variant="panel"
           clampWithin={row}
-          content={<BranchLinesTooltipContent lines={shownLines} branch={shown.ref} detached={shown.detached} />}
+          content={
+            <BranchMovedTooltipContent
+              branch={shown.ref}
+              detached={shown.detached}
+              lines={linesMoved ? shownLines : undefined}
+              count={countMoved && count ? count.full : undefined}
+            />
+          }
         >
-          {reading as ReactElement<{ 'aria-describedby'?: string }>}
+          {readingEl}
         </Tooltip>
-      ) : cut && shown ? (
+      ) : cut && shown && readingEl ? (
         <Tooltip variant="name" title={shown.ref}>
-          {reading as ReactElement<{ 'aria-describedby'?: string }>}
+          {readingEl}
         </Tooltip>
       ) : (
-        reading
+        readingEl
       )}
       {/* The #PR: neutral in every state — state, review and checks are one
           hover away (1f, N1). A real button: the fill, the pointer and the
@@ -355,6 +571,8 @@ export function WhereLine({
           </Tooltip>
         </span>
       )}
+      {/* The count of other trees: the row's last suffix (2e). */}
+      {countEl}
     </span>
   )
 }

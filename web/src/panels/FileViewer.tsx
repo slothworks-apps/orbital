@@ -16,6 +16,7 @@ import type {
   IdeDiagnostic,
   IdeDiagnosticSeverity,
 } from '../lib/types'
+import { workingDirOf } from '../lib/types'
 import { Code, Pre } from './MessageView'
 import { IDE_MODIFIER_LABEL } from './PathButton'
 
@@ -325,6 +326,7 @@ export function FileViewer({ session }: FileViewerProps) {
   const openerRef = useRef<HTMLElement | null>(null)
 
   const openPath = target?.path ?? null
+  const openCwd = target?.cwd
 
   // The snapshot read. Refusals are viewer states delivered as values;
   // only a network-level failure lands in the error surface — and with
@@ -334,7 +336,7 @@ export function FileViewer({ session }: FileViewerProps) {
     let cancelled = false
     setPreview(null)
     api
-      .filePreview(session.id, openPath)
+      .filePreview(session.id, openPath, openCwd)
       .then((result) => {
         if (!cancelled) setPreview(result)
       })
@@ -346,7 +348,7 @@ export function FileViewer({ session }: FileViewerProps) {
     return () => {
       cancelled = true
     }
-  }, [session.id, openPath])
+  }, [session.id, openPath, openCwd])
 
   // What the editor thinks is wrong with this file — inspections no test run
   // reports, which is the whole reason they are worth asking for (spec
@@ -560,7 +562,8 @@ export function FileViewer({ session }: FileViewerProps) {
               sentence={
                 <>
                   Orbital reads inside{' '}
-                  <span className="text-[rgba(220,235,255,.85)]">{session.cwd}</span> and files this session named.
+                  <span className="text-[rgba(220,235,255,.85)]">{shown.cwd ?? workingDirOf(session)}</span> and files this
+                  session named.
                 </>
               }
             />
@@ -615,7 +618,7 @@ export function FileViewer({ session }: FileViewerProps) {
 
           {/* Footer (8b/8c): pad 10 18. The spec's `opened from <source>`
               names the pressed site (tool name / prose); the store's
-              fileViewer deliberately carries only {path, line}, so the
+              fileViewer deliberately carries only {path, line, cwd}, so the
               footer names the session and the opening time — judgement
               call, marked. */}
           <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-[18px] py-2.5 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.55)]">

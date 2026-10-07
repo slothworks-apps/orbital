@@ -5,6 +5,7 @@ import { detachSession, hasDesktopBridge, openInMainWindow } from '../lib/deskto
 import { shortenPath } from '../lib/format'
 import { useCommand } from '../lib/commands'
 import { headerLineChanges, headerPullRequest, useOrbital } from '../store/store'
+import { workingDirOf } from '../lib/types'
 import type { ApiSession, WalkthroughSummary } from '../lib/types'
 import { MENU_SEPARATOR, MenuButton } from '../ui/Menu'
 import type { MenuEntry } from '../ui/Menu'
@@ -425,8 +426,8 @@ export function UtilityStrip({
           watches (23d, TRIGGER). */}
       <WhereLine
         ref={cellRef}
-        path={session ? shortenPath(session.cwd) : ''}
-        fullPath={session?.cwd ?? ''}
+        path={session ? shortenPath(workingDirOf(session)) : ''}
+        fullPath={session ? workingDirOf(session) : ''}
         git={session?.git ?? null}
         sessionId={session?.id ?? null}
         panelWidthPx={pathBudgetPx}
@@ -436,6 +437,7 @@ export function UtilityStrip({
         linesMode={linesMode}
         folded={form === 'folded'}
         onFoldReserve={setFoldReservePx}
+        otherTrees={session?.otherTrees}
       />
       {/* The walkthrough's entry (canvas 21f): the first icon of the
           strip, present only once there is something to walk through. Not

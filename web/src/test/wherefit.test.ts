@@ -7,8 +7,11 @@ import {
   SUFFIX_GAP_PX,
   WHERE_BRANCH_CUT_CH,
   WHERE_PATH_LEAF_CH,
+  countPx,
+  fitTreesRow,
   fitWhereRow,
   lineGroupsPx,
+  treesFoldReservePx,
   whereFoldReservePx,
 } from '../panels/whereFit'
 import type { WhereRowFit, WhereRowInput } from '../panels/whereFit'
@@ -171,5 +174,79 @@ describe('fitWhereRow — both off, or nothing to show', () => {
         expect(fit.lines).toEqual([])
       }
     }
+  })
+})
+
+describe('fitWhereRow — the worktree count (2e)', () => {
+  const COUNT = { full: '+3 worktrees', compact: '+3' }
+  const ORDER = ['full', 'compact', 'moved']
+
+  it('gives up the word before the split, and keeps the compact count until the last resort', () => {
+    for (const row of [
+      { ...FEATURE, lines: SPLIT, count: COUNT },
+      { ...WORST, lines: WORST_SPLIT, count: COUNT },
+    ]) {
+      const steps = sweep(row)
+      const modes = steps.map((s) => ORDER.indexOf(s.fit.count))
+      for (let i = 1; i < modes.length; i++) expect(modes[i]).toBeGreaterThanOrEqual(modes[i - 1])
+      expect(modes[0]).toBe(0)
+      for (const s of steps) {
+        if (s.fit.stage >= 1) expect(s.fit.count).not.toBe('full')
+        expect(s.fit.count === 'moved').toBe(s.fit.stage === 5)
+      }
+    }
+  })
+
+  it('lets the path yield to its leaf before the word goes', () => {
+    const steps = sweep({ ...FEATURE, lines: SPLIT, count: COUNT })
+    const lastFull = steps.filter((s) => s.fit.count === 'full').pop()!
+    expect(lastFull.fit.path.length).toBeLessThanOrEqual(WHERE_PATH_LEAF_CH)
+    expect(lastFull.fit.lines).toEqual(SPLIT)
+  })
+
+  it('never spells the word out on a folded strip', () => {
+    expect(fitWhereRow({ ...FEATURE, lines: SPLIT, count: COUNT, cellPx: 900, folded: true }).count).toBe('compact')
+  })
+
+  it('fits what it draws inside the cell', () => {
+    for (const s of sweep({ ...WORST, lines: WORST_SPLIT, count: COUNT })) {
+      if (s.fit.stage === 5) continue
+      const text = (s.fit.path.length + s.fit.branch.length) * CHAR_PX
+      const pr = SUFFIX_GAP_PX + s.fit.pr.length * CHAR_PX
+      const lines = s.fit.lines.length > 0 ? SUFFIX_GAP_PX + lineGroupsPx(s.fit.lines) : 0
+      const count = SUFFIX_GAP_PX + countPx(COUNT, s.fit.count)
+      expect(text + pr + lines + count).toBeLessThanOrEqual(s.cellPx - WORST.markPx)
+    }
+  })
+
+  it('with the count alone after the branch, takes the same steps and reserves for the fold', () => {
+    const row = { ...FEATURE, pr: '', lines: [], count: COUNT }
+    const steps = sweep(row, 700, 40)
+    expect(steps[0].fit.count).toBe('full')
+    expect(steps[steps.length - 1].fit.count).toBe('moved')
+    expect(whereFoldReservePx(row)).toBeGreaterThan(0)
+  })
+})
+
+describe('fitTreesRow — form B (2e, 2g)', () => {
+  const COUNT = { full: '3 worktrees', compact: '3' }
+  const PATH = '~/work/platform/auth-service'
+
+  it('cuts the path to its leaf, then compacts the count, then the path goes', () => {
+    const fits = []
+    for (let cellPx = 400; cellPx >= 20; cellPx--) fits.push(fitTreesRow({ path: PATH, cellPx, folded: false, count: COUNT }))
+    for (let i = 1; i < fits.length; i++) expect(fits[i].stage).toBeGreaterThanOrEqual(fits[i - 1].stage)
+    expect(fits[0]).toEqual({ path: PATH, count: 'full', stage: 0 })
+    const lastFull = fits.filter((f) => f.count === 'full').pop()!
+    expect(lastFull.path.length).toBeLessThanOrEqual(WHERE_PATH_LEAF_CH)
+    expect(fits[fits.length - 1]).toEqual({ path: '…', count: 'compact', stage: 3 })
+  })
+
+  it('never spells the word out on a folded strip', () => {
+    expect(fitTreesRow({ path: PATH, cellPx: 900, folded: true, count: COUNT }).count).toBe('compact')
+  })
+
+  it('reserves nothing for the fold while the compact row fits inside the fold line', () => {
+    expect(treesFoldReservePx({ path: PATH, count: COUNT })).toBe(0)
   })
 })

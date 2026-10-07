@@ -647,10 +647,15 @@ export const api = {
   //
   // The `:line` suffix never travels to the server — callers strip it and
   // keep it for scrolling.
-  async filePreview(sessionId: string, path: string): Promise<FilePreview> {
+  //
+  // `cwd` is the one the transcript entry the path came from was written in
+  // (spec 2026-10-07-live-working-tree-design § 4); without it the server
+  // tries the session's current tree, then its home.
+  async filePreview(sessionId: string, path: string, cwd?: string): Promise<FilePreview> {
     const url = new URL('/api/files', window.location.origin)
     url.searchParams.set('session', sessionId)
     url.searchParams.set('path', path)
+    if (cwd) url.searchParams.set('cwd', cwd)
     const requestUrl = url.pathname + url.search
 
     const response = await apiFetch(requestUrl, { method: 'GET' })

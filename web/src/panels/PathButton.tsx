@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useOrbital } from '../store/store'
-import { fileOpenHandlers, useFileMessage, useLongPress } from '../lib/fileOpen'
+import { fileOpenHandlers, useFileCwd, useFileMessage, useLongPress } from '../lib/fileOpen'
 import { apiFileImagePath } from '../lib/images'
 import { isImagePath } from '../lib/pathLinks'
 import { Lightbox } from '../ui/Lightbox'
@@ -123,9 +123,13 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
   const openFile = useOrbital((s) => s.openFile)
   const openInIde = useOrbital((s) => s.openInIde)
   const { ideName, workspaceRoot } = useSelectedIde()
+  // The tree the message this path sits in was written in, when it sits in
+  // one (spec 2026-10-07-live-working-tree-design § 4) — read against there.
+  const cwd = useFileCwd()
   // OPEN state (8e): the path whose file is currently open renders dimmed,
-  // no underline emphasis, and pressing it is a no-op.
-  const isOpen = useOrbital((s) => s.ui.fileViewer?.path === path)
+  // no underline emphasis, and pressing it is a no-op. The same path written
+  // in another tree is another file.
+  const isOpen = useOrbital((s) => s.ui.fileViewer?.path === path && s.ui.fileViewer.cwd === cwd)
   const lineSuffix = suffix ?? (line !== null ? `:${line}` : '')
 
   const [hovered, setHovered] = useState(false)
@@ -216,7 +220,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
       onClick={(event) => {
         event.stopPropagation()
         if (routed) {
-          routed.open({ kind: 'path', path, line, messageId: fileMessage?.messageId })
+          routed.open({ kind: 'path', path, line, messageId: fileMessage?.messageId, ...(cwd ? { cwd } : {}) })
           return
         }
         // The modifier wins over everything, the OPEN state included: the
@@ -237,7 +241,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
           return
         }
         if (isOpen) return
-        openFile(path, line)
+        openFile(path, line, cwd)
       }}
       className={[
         'group/path inline rounded-[4px] border-0 bg-transparent underline underline-offset-2',
@@ -301,7 +305,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
       <span onClick={(event) => event.stopPropagation()}>
         <Lightbox
           open={lightboxOpen}
-          src={selectedId ? apiFileImagePath(selectedId, path) : null}
+          src={selectedId ? apiFileImagePath(selectedId, path, cwd) : null}
           caption={path}
           onClose={() => setLightboxOpen(false)}
         />
