@@ -1,7 +1,7 @@
 ---
 id: 2026-10-02-mobile-app-design
 title: Mobile app — the phone client, phase 2a (read) and 2b (write)
-status: active
+status: done
 type: spec
 domain: remote
 related:
@@ -24,7 +24,7 @@ tags:
 ---
 # Mobile app
 
-**Status: active.** Brainstormed 2026-10-02 as phase 2 of the mobile
+**Status: done** — both deliveries and iOS are built. Brainstormed 2026-10-02 as phase 2 of the mobile
 remote. The backend ([[2026-10-01-mobile-remote-backend]]) and the
 desktop's Settings → Mobile ([[2026-10-01-settings-mobile-design]]) are
 merged; this is the phone. [[2026-09-30-mobile-remote-design]] §§ 4, 5

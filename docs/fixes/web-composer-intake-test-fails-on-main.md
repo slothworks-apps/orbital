@@ -1,7 +1,7 @@
 ---
 id: web-composer-intake-test-fails-on-main
 title: web composerintake test raises an unhandled error and fails the root test run
-status: backlog
+status: done
 type: fix
 domain: web
 tags:
@@ -63,3 +63,9 @@ This branch (`2026-10-01-mobile-remote-backend`) does not touch `web/`
 at all — the failure is pre-existing on `main`, just surfaced here
 because the task ran the full root `npm run test` as part of closing out
 the branch.
+
+## Fixed
+
+`e49d4a34` gave the test's fake clipboard data a `getData`, which
+ProseMirror's paste handler calls. The file now passes with no unhandled
+error.

@@ -2,7 +2,7 @@
 id: 2026-10-03-mobile-remote-handoff
 title: "Mobile remote — handoff after phase 2b and the relay secret (next: relay deployment, iOS)"
 type: session
-status: active
+status: done
 domain: remote
 related:
   - 2026-10-02-mobile-app-design
@@ -108,7 +108,11 @@ ORBITAL_DATA_DIR=/tmp/<y> npm run dev -w server`; then `PATCH
 /api/settings` with `remote_enabled`, `remote_relay_url`,
 `remote_relay_secret`, `remote_mac_name`.
 
-## After that
+## After that (both done)
+
+Both followed: iOS shipped to TestFlight in `0015a7d1`, and the relay
+image is published for deployment per [[run-the-relay]].
+
 
 - Phase 3: deploy the relay on Hetzner/Dokploy per [[run-the-relay]]; set
   the relay URL and secret in Settings → Mobile.

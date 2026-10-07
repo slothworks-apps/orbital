@@ -2,7 +2,7 @@
 id: 2026-10-05-mobile-next
 title: Mobile, next — implementation plan
 type: plan
-status: draft
+status: done
 domain: remote
 related:
   - 2026-10-05-mobile-next-design

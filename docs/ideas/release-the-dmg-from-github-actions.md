@@ -16,9 +16,8 @@ tags:
 
 The DMG is built on the maintainer's Mac with `npm run dist`. Signing uses
 the Developer ID identity in the local keychain, and notarization uses the
-keychain profile named by `APPLE_KEYCHAIN_PROFILE`. Releases on GitHub are
-uploaded by hand, so they fall behind: the release marked Latest is older
-than `version` in `desktop/package.json`, and a stale draft sits next to it.
+keychain profile named by `APPLE_KEYCHAIN_PROFILE`. The repository has no GitHub releases (checked 2026-10-07): the stale ones
+were dropped when it went public.
 
 ## Where it stands
 
@@ -51,6 +50,5 @@ different set of variables.
 
 ## Until then
 
-Before the repository goes public, either upload the current DMG by hand and
-drop the stale draft, or remove the old releases, so that Latest does not
-point at a version several releases behind.
+Done: the old releases are gone, so there is no stale Latest to fall behind.
+The first release comes from the workflow's first run.

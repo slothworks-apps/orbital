@@ -33,7 +33,10 @@ and stop, the walkthrough. The `subagent:` and `task-output:` WS topics are
 allowed too. For those features the cost is the phone's UI alone.
 
 Verdicts: **There** (on the phone already; gaps noted), **Add — high**,
-**Add — later**, **Never** (with the reason).
+**Add — later**, **Never** (with the reason). Rows marked
+**There (0.3.0)** were **Add — high** on 2026-10-05 and shipped in phone
+0.3.0 ([[2026-10-05-mobile-next-design]]); their "Phone today" column is
+left as it was read then.
 
 ## The map
 
@@ -45,7 +48,7 @@ Verdicts: **There** (on the phone already; gaps noted), **Add — high**,
 | Tag filter | Tag chips over the sidebar | Tag chips, counts of live sessions | There | — |
 | Origin filter (Orbital / terminal) | Sidebar ACTIVE heading | None; terminal rows carry READ-ONLY | Never | The READ-ONLY mark answers the same question on a short list. |
 | Search sessions | ⌘K-style search field | None | Add — later | Client-side over the store; no route. Matters once the ended list grows. |
-| Pinned sessions | PINNED section, pin button, shortcut | Not shown, cannot pin | Add — high | `PUT /api/sessions/:id/pinned` is allowlisted. Show a pinned group on top; pin from the ⋯ sheet. |
+| Pinned sessions | PINNED section, pin button, shortcut | Not shown, cannot pin | There (0.3.0) | `PUT /api/sessions/:id/pinned` is allowlisted. Show a pinned group on top; pin from the ⋯ sheet. |
 | Subagents per session | Moons on the map, subagent list | Expandable moons row on the list, count in the header | There (read) | Rows are not tappable — see Transcript. |
 | Next session needing input (⌘-chord) | Keyboard command | The NEEDS INPUT group is at the top | There | The group is the phone's equivalent. |
 | Offline / Mac asleep | n/a (the Mac is the host) | Cached list "as of", Retry | There | Phone-only by nature. |
@@ -62,10 +65,10 @@ Verdicts: **There** (on the phone already; gaps noted), **Add — high**,
 | Compaction marks | Shared | Shared | There | — |
 | Jump to bottom | Shared | Shared (`surface: 'phone'`) | There | — |
 | Transcript check against the file | `useTranscriptCheck` in `App`/`SessionWindow` | Not mounted | Add — later | Same stall can hit the phone; the hook needs only `/messages`, which is allowlisted. Confirm first that the phone actually stalls. |
-| Subagent transcript panel | Click a moon / subagent chip | Not reachable | Add — high | Route `GET …/subagents/:toolUseId/messages` and the `subagent:` topic are allowed; `TranscriptView` renders it. UI only: a pushed screen. |
-| Background tasks: output, stop | Task chip → output panel, stop | Chip shows, does not open | Add — high | `GET …/tasks/:taskId/output`, `POST …/stop` and the `task-output:` topic are allowed. UI only. |
-| Harness rows in the transcript | From `GET /api/sessions/:id/harness` | Route denied, so no harness rows (likely) | Add — high | Comes with the gate below. |
-| File viewer (paths in the transcript) | `PathButton` → `FileViewer` | Path opens nothing | Add — high (images first) | `/api/files` is denied on purpose; [[phone-opens-files-the-session-named]] has the bounded design. New route shape + allowlist. |
+| Subagent transcript panel | Click a moon / subagent chip | Not reachable | There (0.3.0) | Route `GET …/subagents/:toolUseId/messages` and the `subagent:` topic are allowed; `TranscriptView` renders it. UI only: a pushed screen. |
+| Background tasks: output, stop | Task chip → output panel, stop | Chip shows, does not open | There (0.3.0) | `GET …/tasks/:taskId/output`, `POST …/stop` and the `task-output:` topic are allowed. UI only. |
+| Harness rows in the transcript | From `GET /api/sessions/:id/harness` | Route denied, so no harness rows (likely) | There (0.3.0) | Comes with the gate below. |
+| File viewer (paths in the transcript) | `PathButton` → `FileViewer` | Path opens nothing | There (0.3.0, images) | `/api/files` is denied on purpose; [[phone-opens-files-the-session-named]] has the bounded design. New route shape + allowlist. |
 | Rewind (pick mode) | Rewind button, `/rewind` | `/rewind` refused with a line | Add — later | `POST/DELETE …/rewind` not allowlisted; pick mode needs a touch design. Interrupt + a new message covers most phone cases. |
 | Walkthrough of what a session changed | Own page, Narrate | None | Add — later | `GET …/walkthrough` and `/summary` are allowlisted; `…/narrate` is not. Reading a finished piece of work on the sofa fits; needs a phone layout of the page. |
 | Session stats (quick dialog, row) | Header button, dialog | None | Add — later | `/api/stats/sessions/:id` denied. Retrospective, not oversight. |
@@ -83,7 +86,7 @@ Verdicts: **There** (on the phone already; gaps noted), **Add — high**,
 | Permission / plan cards | Shared cards | Shared, touch metrics | There | Gap: card stays tappable while the Mac sleeps ([[mobile-follow-ups]]). |
 | Question cards | Shared | Shared | There | — |
 | Composer as escape hatch (refuse with reason) | Yes | Yes | There | — |
-| Harness gate (NEEDS YOUR OK): approve, decide myself, go back | Harness panel | Shown as NEEDS INPUT, cannot be answered | Add — high | The phone lists a session it cannot unblock. Needs allowlist entries for `GET …/harness`, `POST …/harness/steps/:index/approve`, `decide-myself`, `go-back`, and a step-summary sheet; `HarnessTranscriptRow` reuses. |
+| Harness gate (NEEDS YOUR OK): approve, decide myself, go back | Harness panel | Shown as NEEDS INPUT, cannot be answered | There (0.3.0) | The phone lists a session it cannot unblock. Needs allowlist entries for `GET …/harness`, `POST …/harness/steps/:index/approve`, `decide-myself`, `go-back`, and a step-summary sheet; `HarnessTranscriptRow` reuses. |
 | Interrupt / Stop | Button, `StopDialog`, shortcut | Stop in the action row, shared `StopDialog` | There | — |
 
 ### Session control
@@ -93,15 +96,15 @@ Verdicts: **There** (on the phone already; gaps noted), **Add — high**,
 | New session | Dialog: dir, mode, model, prompt, tags | 9d: dir, mode, model, prompt, photos | There | Gaps: no custom "Other…" model, no tag, no harness start. |
 | Switch permission mode | `ModeSwitcher` | Label only | Add — later | Routes allowlisted; `ModeCards touch` exists. UI only — [[switch-model-and-mode-from-the-phone]]. |
 | Switch model | `ModelSwitcher` | Label only | Add — later | Same idea, same cost. |
-| End session | Strip button, `EndDialog` | None | Add — high | `POST …/end` allowlisted. Sessions end only by hand, so ending from the phone keeps that rule. Goes in the ⋯ sheet. |
-| Clear and start over | Strip button, `ClearDialog` | None | Add — high | `POST …/clear` allowlisted; the harness "continue" option has to come along. |
+| End session | Strip button, `EndDialog` | None | There (0.3.0) | `POST …/end` allowlisted. Sessions end only by hand, so ending from the phone keeps that rule. Goes in the ⋯ sheet. |
+| Clear and start over | Strip button, `ClearDialog` | None | There (0.3.0) | `POST …/clear` allowlisted; the harness "continue" option has to come along. |
 | Reopen an ended session | Yes | A send revives it | There (by sending) | `POST …/reopen` allowlisted if an explicit action is wanted. |
-| Rename / regenerate title | Click the title, ⟳ | None | Add — later | `PATCH /api/sessions/:id` allowlisted; `retitle` is not. |
-| Change tag | Tag menu, shortcut | None | Add — high | `PUT …/tags`, `GET /api/tags` allowlisted. |
+| Rename / regenerate title | Click the title, ⟳ | None | There (0.3.0, rename) | `PATCH /api/sessions/:id` allowlisted; `retitle` is not. |
+| Change tag | Tag menu, shortcut | None | There (0.3.0) | `PUT …/tags`, `GET /api/tags` allowlisted. |
 | Start a harness | Strip button, templates | None | Add — later | Needs harness routes and the template list; heavier than the gate. |
 | MCP servers dialog (`/mcp`) | Dialog: enable, reconnect, login, config | `/mcp` refused with a line | Never | Login opens a browser on the Mac, config is the Mac's files. A read-only status line could come later. |
 | Open in a new window | Detached session window | n/a | Never | Desktop window chrome. |
-| Limit wait: "continues at …", cancel, undo | `LimitWaitNotice` in the transcript | Not shown | Add — high | `limitWait` already rides on the session; cancel/undo routes need the allowlist. Showing the wait is the cheap half. |
+| Limit wait: "continues at …", cancel, undo | `LimitWaitNotice` in the transcript | Not shown | There (0.3.0) | `limitWait` already rides on the session; cancel/undo routes need the allowlist. Showing the wait is the cheap half. |
 
 ### Map & overview
 
@@ -111,7 +114,7 @@ Verdicts: **There** (on the phone already; gaps noted), **Add — high**,
 | Tag clusters, planet size, labels | Map | n/a | Never | Map-only. |
 | Map themes (archipelago, desk) | Settings → Appearance | n/a | Never | Map-only. |
 | Black hole / trash, declutter | Map | n/a | Never | Map-only. |
-| Context gauge (header, arc on planets, /compact badge) | Header gauges, planet arc | None | Add — high | `contextUsedTokens` is already on the session the phone holds; a small bar in the 9b header is UI only. |
+| Context gauge (header, arc on planets, /compact badge) | Header gauges, planet arc | None | There (0.3.0) | `contextUsedTokens` is already on the session the phone holds; a small bar in the 9b header is UI only. |
 | Git: branch | Header where-line | `⎇ branch` on rows and header | There | — |
 | Git: worktree, PR, line changes | Header | None | Add — later | Data rides on the session from the store; `POST /api/branch-status/refresh` is not needed for reading. |
 | Fit, deselect, frame rate | Map commands, settings | n/a | Never | Map-only. |
@@ -183,6 +186,9 @@ Next, as one batch:
    allowlist entries.
 
 The screens for these are drawn in Claude Design before they are built.
+
+**Shipped** in phone 0.3.0 (#23), all five. What is left on the phone is
+the **Add — later** rows.
 
 ## Never on the phone
 

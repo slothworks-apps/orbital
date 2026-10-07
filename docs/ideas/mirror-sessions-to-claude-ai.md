@@ -1,7 +1,7 @@
 ---
 id: mirror-sessions-to-claude-ai
 title: Publish Orbital's own sessions to claude.ai so the phone can watch them
-status: backlog
+status: archived
 type: idea
 domain: sessions
 related:
@@ -14,6 +14,12 @@ tags:
   - mobile
 ---
 # Publish Orbital's own sessions to claude.ai so the phone can watch them
+
+**Archived 2026-10-07.** Orbital now has its own phone app over an
+end-to-end encrypted relay ([[2026-09-30-mobile-remote-design]]), which
+ruled this bridge out (alpha API, unsolved device enrolment, a Claude app
+that shows less). It stays here as the fallback that spec names, should
+running a relay turn out to be more than is wanted.
 
 A session Orbital launched is reachable only from the machine it runs on. The
 question is whether it could also appear in the Claude mobile app — watched

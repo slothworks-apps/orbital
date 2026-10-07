@@ -26,7 +26,7 @@ Both routes are already on the phone's allowlist
   "takes effect from the next turn" note (`panels/ModelSwitcher.tsx` holds
   the rules; its popover and keyboard shortcut are desktop-only);
 - the four mode cards (`ui/ModeCards` with `touch`) in a sheet for the mode;
-- deciding what `⋯` holds — the canvas does not say. Candidates: rename,
-  stop, open on the Mac.
+- ~~deciding what `⋯` holds~~ — settled in phone 0.3.0
+  ([[2026-10-05-mobile-next-design]]): rename, tag, pin, clear, end.
 
 Once built, give the header chips back their caret and their buttons.
