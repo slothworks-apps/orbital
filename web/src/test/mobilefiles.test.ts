@@ -190,6 +190,31 @@ describe('the file resolver', () => {
     expect(await readPath(d, req)).toEqual({ kind: 'failed', received: 40_000 })
   })
 
+  it('sends the cwd the link was written in, and keeps the same path from two trees apart', async () => {
+    const getFile = vi
+      .fn()
+      .mockResolvedValueOnce(file(200, { bytes: bytes(3), mediaType: 'text/plain' }))
+      .mockResolvedValueOnce(file(200, { bytes: bytes(5), mediaType: 'text/plain' }))
+      .mockRejectedValue(new TunnelError('offline'))
+    const d = deps({ getFile })
+    const main = { sessionId: 's1', path: 'src/a.ts', as: 'text' as const, cwd: '/w/orbital' }
+    const tree = { ...main, cwd: '/w/orbital/.worktrees/fix' }
+    await readPath(d, main)
+    await readPath(d, tree)
+    expect(getFile.mock.calls[0][3]).toMatchObject({ cwd: '/w/orbital' })
+    expect(getFile.mock.calls[1][3]).toMatchObject({ cwd: '/w/orbital/.worktrees/fix' })
+    // Offline, each tree's copy answers for its own tree only.
+    expect(await readPath(d, main)).toMatchObject({ kind: 'ready', cached: true, bytes: bytes(3) })
+    expect(await readPath(d, tree)).toMatchObject({ kind: 'ready', cached: true, bytes: bytes(5) })
+    expect(await readPath(d, { ...main, cwd: undefined })).toEqual({ kind: 'waits' })
+  })
+
+  it('asks without a cwd when the link had none', async () => {
+    const getFile = vi.fn(async () => file(404))
+    await readPath(deps({ getFile }), req)
+    expect(getFile.mock.calls[0]).not.toHaveProperty([3, 'cwd'])
+  })
+
   it('never asks the Mac again for a ref it has', async () => {
     const getBlob = vi.fn(async () => ({ status: 200, bytes: bytes(3), mediaType: 'image/png' }))
     const d = deps({ getBlob })

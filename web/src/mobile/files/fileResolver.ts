@@ -44,9 +44,16 @@ function isOffline(err: unknown): boolean {
 
 export async function readPath(
   deps: ResolverDeps,
-  req: { sessionId: string; path: string; as: FileAs; onProgress?: (received: number, total: number | null) => void },
+  req: {
+    sessionId: string
+    path: string
+    as: FileAs
+    /** The `cwd` of the transcript entry the link came from; the Mac reads the path against it. */
+    cwd?: string
+    onProgress?: (received: number, total: number | null) => void
+  },
 ): Promise<FileOutcome> {
-  const key = pathKey(req.sessionId, req.path)
+  const key = pathKey(req.sessionId, req.path, req.cwd)
   const cachedCopy = async () => {
     const hit = await deps.cache.get(key).catch(() => null)
     return hit ? fromEntry(hit.bytes, hit.entry, true) : null
@@ -56,6 +63,7 @@ export async function readPath(
   try {
     answer = await deps.client.getFile(req.sessionId, req.path, req.as, {
       idleTimeoutMs: FILE_IDLE_TIMEOUT_MS,
+      ...(req.cwd ? { cwd: req.cwd } : {}),
       onProgress: (bytes, total) => {
         received = bytes
         req.onProgress?.(bytes, total)

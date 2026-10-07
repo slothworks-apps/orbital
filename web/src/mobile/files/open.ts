@@ -24,6 +24,6 @@ export function installFileOpen(): void {
 /** The pushed file screen's item for a press. */
 export function fileItem(sessionId: string, target: FileOpenTarget) {
   return target.kind === 'path'
-    ? { sessionId, path: target.path, line: target.line, messageId: target.messageId }
+    ? { sessionId, path: target.path, line: target.line, messageId: target.messageId, ...(target.cwd ? { cwd: target.cwd } : {}) }
     : { sessionId, path: null, line: null, ref: target.ref, messageId: target.messageId }
 }

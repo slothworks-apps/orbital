@@ -25,8 +25,17 @@ function dirOf(path: string): string {
  * (spec 2026-10-05-mobile-next § 2): line numbers, scrolled to the `:line`
  * the mention carried, Wrap on or off, Copy path. Editing stays on the Mac.
  */
-export function TextPreview({ sessionId, path, line, onBack }: { sessionId: string; path: string; line: number | null; onBack: () => void }) {
-  const source = useMemo(() => ({ kind: 'path' as const, sessionId, path, as: 'text' as const }), [sessionId, path])
+export function TextPreview({
+  sessionId, cwd, path, line, onBack,
+}: {
+  sessionId: string
+  /** The `cwd` the naming message was written in; the path is read against it. */
+  cwd?: string
+  path: string
+  line: number | null
+  onBack: () => void
+}) {
+  const source = useMemo(() => ({ kind: 'path' as const, sessionId, path, as: 'text' as const, cwd }), [sessionId, path, cwd])
   const { view, retry } = useFile(source)
   const mac = useMobile((s) => s.macName) ?? 'the Mac'
   const [wrap, setWrap] = useState(true)
