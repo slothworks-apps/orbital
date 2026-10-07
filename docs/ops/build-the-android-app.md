@@ -314,3 +314,10 @@ internal testing has no such gate.
   again.
 - **"Can't reach the relay in this code" with a local relay**: `adb reverse`
   was not run in this emulator session, or the build was not a dev build.
+- **`INSTALL_FAILED_UPDATE_INCOMPATIBLE: … signatures do not match`** when
+  installing over the app on a phone: the installed app was signed with the
+  upload key, the debug APK with the debug key. Install a release-signed APK
+  instead and keep the pairing: `cd mobile/android && ./gradlew
+  assembleRelease` (env script sourced), then `adb install -r
+  app/build/outputs/apk/release/app-release.apk`. Uninstalling to switch
+  keys loses the pairing.
