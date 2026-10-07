@@ -59,8 +59,6 @@ rolls back in one click and counts which version each device runs.
     binary does not fall far behind what devices run.
 - **Off in dev builds and in forks.** The update URL and the public key
   come from the release build's configuration, not from the repository.
-- **Beam's first consumer goes first.** Beam's app-side integration is
-  still open for Ergaily. Orbital should follow once that runs.
 
 ## What changes in the repository's rules
 
