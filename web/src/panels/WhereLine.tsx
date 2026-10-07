@@ -177,7 +177,7 @@ function TreesTooltipContent({ form, trees }: { form: WhereForm; trees: readonly
             className="grid grid-cols-[13px_minmax(0,1fr)_auto] items-center gap-x-[7px] gap-y-0.5 whitespace-nowrap font-mono text-[11px]"
           >
             <ListMark mark={row.mark} />
-            <span className="min-w-0 overflow-hidden text-text-bright">{row.branch}</span>
+            <span className="min-w-0 overflow-hidden text-ellipsis text-text-bright">{row.branch}</span>
             <span className="text-[rgba(160,190,225,.6)]">{row.dir}</span>
             <span className="col-[2/4] flex flex-col gap-0.5 whitespace-normal">
               {row.agents.map((agent, i) => (
