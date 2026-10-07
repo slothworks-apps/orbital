@@ -224,3 +224,36 @@ everything travels in the relay's own messages and in `hello` / `bye`.
   A restart of the Mac forgets it until that phone says hello again.
 - **The relay reads its version** by importing `relay/package.json`. The
   esbuild bundle inlines it, so the image needs no package.json at runtime.
+
+## As built (UI)
+
+- **`mismatch.needed` may be null.** It is null only for `app` after a
+  `bye app_too_old` that carried no `needed`; the screen then leaves out the
+  "needs" row instead of printing a made-up minimum. `theirs` is always null
+  for `app`: the part too old is the phone itself, and 9i reads its own
+  version from the build.
+- **A `bye protocol` keeps only a Mac version.** After a relay cause, the
+  relay's version is not carried over as the Mac's.
+- **Leaving 9i.** A supported `hello` leaves it for every cause. For `relay`,
+  the relay's `ok` (link `online`) leaves it too, since only a relay new
+  enough answers `ok`, and the Mac may be asleep when the relay is updated.
+- **Mid-pairing, a relay too old is reported on 9e, not 9i.** With no pair
+  stored there is no app behind 9i to block, and 9i's "Try again" has no
+  link to retry. Both at connect and in the redeem's answer, the pairing run
+  goes back to scan with a message naming the relay's host and both
+  versions, as it does for a refused relay secret. `reduce` ignores
+  `relay_too_old` while `pairing` is null.
+- **The store link.** On Android the `app` variant's primary action opens
+  the Google Play listing of the app id from `mobile/capacitor.config.ts`
+  (a top-level navigation the Capacitor bridge hands to the system), with
+  "Try again" as the secondary action. The repo has no App Store id, so iOS
+  gets no link: the screen says "Update Orbital from the App Store", and
+  "Try again" stays the primary action.
+- **The Mac's pairing area with a relay too old** shows a short explanation
+  in place of the generic "The relay didn't answer…" line, keeps "Try
+  again" (it restarts the remote, which checks the relay afresh) and offers
+  no code. The paired-phones list shows "needs an update · app x.y.z, needs
+  ≥ a.b.c" as one more caption line under the phone, in the list's quiet
+  caption style.
+- All copy of the `relay` and `app` variants of 9i, of the 9e message and of
+  the Mac's two states is provisional until Claude Design draws them.
