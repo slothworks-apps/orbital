@@ -2,7 +2,7 @@
 id: 2026-10-07-version-compatibility-design
 title: Version compatibility between the relay, the Mac and the phone
 type: spec
-status: active
+status: done
 domain: remote
 related:
   - 2026-09-30-mobile-remote-design
