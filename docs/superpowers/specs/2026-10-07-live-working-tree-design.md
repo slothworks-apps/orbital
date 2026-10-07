@@ -52,9 +52,17 @@ Two things go wrong because of it:
 - When running subagents work in trees other than the session's own, the
   header shows how many after the branch, e.g. "+3 worktrees". Hovering
   lists them, one row per tree: the branch, the worktree's directory name,
-  and the subagents running in it. The count covers only subagents that are
-  running now. When the last one in a tree ends, that tree leaves the count,
-  and an ended session shows no count.
+  and the subagents running in it, named by their short task description.
+  The count covers only subagents that are running now. When the last one
+  in a tree ends, that tree leaves the count, and an ended session shows no
+  count.
+- When the session itself is not on a branch of its own (it sits in the
+  main checkout on the default branch) and its running subagents work in
+  other trees, the branch is not shown at all: the row reads the path and
+  "3 worktrees", without the plus. The default branch says nothing about
+  that work, and the subagents' trees are where it happens. As soon as the
+  session moves to a branch or a worktree of its own, or the last subagent
+  elsewhere ends, the row goes back to the branch.
 - A file link in the transcript opens the file from the tree in which the
   agent wrote it, whether that was the session's own line or a subagent's.
 
@@ -93,7 +101,8 @@ outside any repository stays as it is and has no git location.
   When it equals the home, nothing looks different from today.
 - A new `otherTrees: Array<{ root: string; git: GitLocation | null; agents: string[] }>`
   lists the trees in which **running** subagents work, minus the session's
-  own current tree. `agents` holds those subagents' names. It is empty for
+  own current tree. `agents` holds those subagents' `name`s, which are the
+  short task descriptions from the `Agent` call. It is empty for
   an ended session and for a session whose subagents all share its tree.
 
 `ide.locate` and the `@` completion follow `workingDir` too, so `@` in the
@@ -137,7 +146,20 @@ composer completes against the tree the agent will read from.
 
 The header's first line (`web/src/panels/WhereLine.tsx`) reads `workingDir`
 for the path, and draws the `otherTrees` count after the branch and its
-suffixes, with a tooltip listing the trees. Its look and its place in the
+suffixes, with a tooltip listing the trees.
+
+Which form the row takes is decided on the client from the shape, in one
+pure function the desktop and the phone share:
+
+- **branch form**: the mark, the branch, its suffixes, then `+N worktrees`
+  when `otherTrees` is not empty;
+- **trees form**: when `git` is the default branch in the main checkout
+  (`defaultBranch && !worktree`) and `otherTrees` is not empty, the row
+  draws no mark, no branch and no suffixes, only `N worktrees` with the same
+  tooltip. A PR or line count on the default branch is not expected; if
+  one is there, it is dropped with the branch.
+
+Its look and its place in the
 row's width split come from Claude Design. The prompt to bring there:
 
 > Detail panel header, first line (`Feature - Git worktree` 1a/1f,
@@ -146,8 +168,18 @@ row's width split come from Claude Design. The prompt to bring there:
 > branch and its suffixes (#PR, line changes) and has to fit the existing
 > fold rules (23c/23d). It is not a button. A hover tooltip lists each tree
 > on one row: worktree mark, branch, the worktree directory name, and the
-> names of the subagents running in it, up to 5 trees then "+N more".
-> N=0 draws nothing. It is ambient orientation, not an alert: no colour of
+> short task descriptions of the subagents running in it, up to 5 trees
+> then "+N more".
+> N=0 draws nothing.
+>
+> Second form: when the session itself sits on the default branch in the
+> main checkout (trunk mark, `main`) and running subagents work in other
+> trees, the branch carries no information, so the row drops the mark and
+> the branch and shows only `3 worktrees` (no plus) after the path, with
+> the same tooltip. Show how the row moves between the two forms when the
+> session enters a worktree or the last subagent elsewhere ends.
+>
+> It is ambient orientation, not an alert: no colour of
 > its own, no motion when N changes beyond the branch's existing fade.
 
 ### 6. Error handling
@@ -175,17 +207,43 @@ row's width split come from Claude Design. The prompt to bring there:
 
 ## The phone
 
-The phone gets the corrected branch without work of its own: its session
-list and session screen read `session.git.ref`, which now follows the
-current tree. File links on the phone send the entry's `cwd` over
-`file_get` the same way the desktop sends it over `/api/files`. The route is
-already on the allowlist and the field is optional.
+The phone matches the desktop. It is built in this change, not left for
+later.
 
-The "+N worktrees" read-out is left out of the phone on purpose. Its content
-lives in a hover, and the phone's header line is a single `· ⎇ ref` that has
-no room for a second read-out. If it turns out to be missed there, it
-belongs in the phone's subagent list (each subagent row naming its branch),
-not in the header. An `idea` records that.
+- **The branch** comes from the same `session.git`, which now follows the
+  current tree, so the session list and the session screen show the right
+  `⎇ ref` without a change of their own.
+- **The two forms** are decided by the same pure function the desktop uses
+  (§ 5). In the branch form the phone shows `⎇ fix/x` followed by the count
+  of other trees. In the trees form it shows `3 worktrees` in place of
+  `⎇ main`. This applies both to the session list row and to the session
+  screen's header line.
+- **The list of trees** opens on a tap on the count in the session screen,
+  because the phone has no hover. It shows the same rows as the desktop
+  tooltip. The list row only shows the count and is not tappable on its
+  own, because the row as a whole opens the session.
+- **File links** send the entry's `cwd` over `file_get`, the same way
+  the desktop sends it over `/api/files`. The route is already on the
+  allowlist and the field is optional.
+
+The look comes from Claude Design. The prompt to bring there:
+
+> Phone: session list row and session screen header (the line that today
+> reads `orbital · ⎇ main`). Bring the desktop's "Subagents working in
+> other trees" (`Feature - Git worktree`, turn 2) to the phone.
+> Two forms, decided exactly as on the desktop:
+> (a) the session is on a branch or worktree of its own and running
+> subagents work in N other trees: `⎇ fix/x` plus the count;
+> (b) the session sits on the default branch in the main checkout and
+> running subagents work elsewhere: `3 worktrees` replaces `⎇ main`.
+> The list row has little width: show how the count and a long branch
+> share it, and what gives way first. In the session screen a tap on the
+> count opens the list of trees (tree mark, branch, worktree directory
+> name, short task descriptions of the subagents in it, up to 5 then
+> "+N more"); pick the phone's existing surface for it (sheet or popover).
+> The list row itself stays one tap target that opens the session.
+> Ambient, not an alert: no colour of its own, no motion beyond the
+> existing fades.
 
 ## Out of scope
 
