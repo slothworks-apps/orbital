@@ -253,6 +253,37 @@ export function resolveForSession(cwd: string, rawPath: string, named: NamedChec
   }
 }
 
+/**
+ * The directories a file request is confined to, tried in order (adr
+ * `a-file-link-resolves-against-the-cwd-it-was-written-in`). A `cwd` the
+ * client sent counts only when the session's transcripts recorded it, and
+ * then it is the only one: the link was written there, and a file of the
+ * same name in another tree is the wrong version. Without one, or with one
+ * the transcripts never named, the tree the session works in now, then its
+ * home. `recorded` is asked only when there is a `cwd` to check.
+ */
+export function fileSandboxes(
+  home: string, workingDir: string, requested: string | undefined, recorded: () => ReadonlySet<string>,
+): string[] {
+  if (requested && recorded().has(requested)) return [requested];
+  return workingDir === home ? [home] : [workingDir, home];
+}
+
+/**
+ * Reads in each sandbox in turn: the first that has the file answers,
+ * refusal or not. When none has it, the last one's answer stands — the
+ * home's, so `outside` and `not_found` keep meaning what they meant before
+ * there was more than one.
+ */
+export function readInSandboxes<R extends { kind: string }>(sandboxes: string[], read: (cwd: string) => R): R {
+  let result: R | undefined;
+  for (const cwd of sandboxes) {
+    result = read(cwd);
+    if (result.kind !== 'not_found' && result.kind !== 'outside') return result;
+  }
+  return result ?? read('');
+}
+
 export type PreviewResult =
   | { kind: 'ok'; content: string; size: number; mtimeMs: number; lines: number }
   | { kind: 'not_found' }

@@ -21,6 +21,7 @@ import { DeviceStore, type RemoteDevice } from './devices.js';
 import { DeviceWatcher } from './deviceWatcher.js';
 import { loadOrCreateIdentity, macDisplayName } from './identity.js';
 import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
+import type { WorkingTrees } from '../git/workingTrees.js';
 import { PhoneSession, type InjectFn, type PhoneTooOld } from './phoneSession.js';
 import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
@@ -86,6 +87,8 @@ export type RemoteServiceOptions = {
    * that never read a file leave it at the configured one.
    */
   projectsDir?: string;
+  /** Where each session works now, for `file_get`'s `cwd`; without it the home alone confines. */
+  trees?: Pick<WorkingTrees, 'sandboxes'>;
   serverVersion: string;
   inject: InjectFn;
   settings: { get(key: string): string };
@@ -120,7 +123,7 @@ export class RemoteService {
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
     this.now = opts.now ?? Date.now;
-    this.files = createPhoneFileReader(opts.db, opts.projectsDir ?? CONFIG.projectsDir);
+    this.files = createPhoneFileReader(opts.db, opts.projectsDir ?? CONFIG.projectsDir, opts.trees);
   }
 
   private get enabled(): boolean {

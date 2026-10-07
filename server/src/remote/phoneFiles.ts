@@ -10,7 +10,8 @@ import { eq } from 'drizzle-orm';
 import type { FileAs } from '@orbital/shared/remote/messages';
 import type { OrbitalDb } from '../db/database.js';
 import { sessions } from '../db/schema.js';
-import { NamedPathCache, readImageFile, readTextFile } from '../files/preview.js';
+import { NamedPathCache, readImageFile, readInSandboxes, readTextFile } from '../files/preview.js';
+import type { WorkingTrees } from '../git/workingTrees.js';
 import { sniffDims } from '../images/store.js';
 
 /** The largest text file the phone previews; past it the phone says the file can't be shown there. */
@@ -36,27 +37,31 @@ export type PhoneFileAnswer = {
   h?: number;
 };
 
-export type PhoneFileReader = (session: string, path: string, as: FileAs) => PhoneFileAnswer;
+export type PhoneFileReader = (session: string, path: string, as: FileAs, cwd?: string) => PhoneFileAnswer;
 
 /**
  * One reader for every phone, built by the remote service: the session row
  * gives the cwd and the transcript, the cache remembers which outside paths
  * those transcripts named. The path is taken verbatim, as `GET /api/files`
- * takes it.
+ * takes it, and so is `cwd`, which `trees` accepts or ignores exactly as the
+ * route does (`fileSandboxes`). Without `trees`, the home alone confines.
  */
-export function createPhoneFileReader(db: OrbitalDb, projectsDir: string): PhoneFileReader {
+export function createPhoneFileReader(
+  db: OrbitalDb, projectsDir: string, trees?: Pick<WorkingTrees, 'sandboxes'>,
+): PhoneFileReader {
   const namedPaths = new NamedPathCache(PHONE_NAMED_PATH_CACHE_ENTRIES);
-  return (session, path, as) => {
+  return (session, path, as, cwd) => {
     const row = db
-      .select({ cwd: sessions.cwd, projectDir: sessions.projectDir })
+      .select({ id: sessions.id, cwd: sessions.cwd, project_dir: sessions.projectDir })
       .from(sessions)
       .where(eq(sessions.id, session))
       .get();
     if (!row) return { status: 404 };
-    const named = namedPaths.forSession(session, join(projectsDir, row.projectDir, `${session}.jsonl`));
+    const named = namedPaths.forSession(session, join(projectsDir, row.project_dir, `${session}.jsonl`));
+    const sandboxes = trees?.sandboxes(row, cwd) ?? [row.cwd];
 
     if (as === 'image') {
-      const read = readImageFile(row.cwd, path, named);
+      const read = readInSandboxes(sandboxes, (dir) => readImageFile(dir, path, named));
       switch (read.kind) {
         case 'ok': {
           const dims = sniffDims(read.bytes);
@@ -78,7 +83,7 @@ export function createPhoneFileReader(db: OrbitalDb, projectsDir: string): Phone
       }
     }
 
-    const read = readTextFile(row.cwd, path, named, PHONE_TEXT_PREVIEW_MAX_BYTES);
+    const read = readInSandboxes(sandboxes, (dir) => readTextFile(dir, path, named, PHONE_TEXT_PREVIEW_MAX_BYTES));
     switch (read.kind) {
       case 'ok':
         return { status: 200, bytes: new Uint8Array(read.bytes), mediaType: TEXT_MEDIA_TYPE, size: read.size };

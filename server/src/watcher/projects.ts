@@ -41,6 +41,20 @@ export function projectsEventTarget(relativePath: string | null): string | typeo
 }
 
 /**
+ * The session a subagent's transcript belongs to, for an event on
+ * `<project>/<session-id>/subagents/agent-<x>.jsonl`; null for anything
+ * else. The index reads none of these, but the tree a running subagent works
+ * in is read from them (spec 2026-10-07-live-working-tree-design § 3).
+ */
+export function subagentEventSession(relativePath: string | null): string | null {
+  if (relativePath === null) return null;
+  const parts = relativePath.split('/');
+  if (parts.length !== 4 || parts.some((p) => p === '' || p.startsWith('.'))) return null;
+  if (parts[2] !== 'subagents' || !/^agent-.+\.jsonl$/.test(parts[3])) return null;
+  return parts[1];
+}
+
+/**
  * Collects targets into one batch: flushed `quietMs` after the last one, and
  * never later than `maxWaitMs` after the first.
  */
@@ -86,23 +100,34 @@ export class TargetBatcher {
  * filtered down to transcripts and batched. A directory that appears only
  * after boot is indexed in full, since nothing announced what was already in
  * it.
+ *
+ * Subagent transcripts are batched apart, by the session they belong to, and
+ * go to `onSubagents`: the index must not read them as transcripts of their
+ * own.
  */
 export function watchProjects(
   projectsDir: string,
   onBatch: (batch: ProjectsBatch) => void,
+  onSubagents?: (sessionIds: string[]) => void,
 ): DirWatch {
   const batcher = new TargetBatcher(onBatch);
+  const agents = new TargetBatcher((batch) => {
+    if (!batch.all) onSubagents?.(batch.paths);
+  });
   const watch = watchDir(projectsDir, {
     recursive: true,
     onEvent: (rel) => {
       const target = projectsEventTarget(rel);
       if (target !== null) batcher.add(target);
+      const session = onSubagents ? subagentEventSession(rel) : null;
+      if (session !== null) agents.add(session);
     },
     onAppear: () => batcher.add(ALL_TRANSCRIPTS),
   });
   return {
     close() {
       batcher.cancel();
+      agents.cancel();
       watch.close();
     },
   };

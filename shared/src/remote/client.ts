@@ -95,6 +95,8 @@ export type GetFileOptions = {
   onProgress?: (received: number, total: number | null) => void;
   /** How long to wait for the answer and then for each next chunk; `REQUEST_TIMEOUT_MS` by default. */
   idleTimeoutMs?: number;
+  /** `getFile` only: the `cwd` of the transcript entry the link came from (`ChatMessage.cwd`). */
+  cwd?: string;
 };
 /** The Mac's two refusals the composer shows are values; every other failure is a `TunnelError`. */
 export type PutBlobResult =
@@ -285,7 +287,8 @@ export class RemoteClient {
    * large file on a slow link is fine while it keeps moving.
    */
   getFile(session: string, path: string, as: FileAs, opts: GetFileOptions = {}): Promise<FileResult> {
-    return this.receiveBlob((id) => ({ t: 'file_get', id, session, path, as }), opts);
+    const cwd = opts.cwd ? { cwd: opts.cwd } : {};
+    return this.receiveBlob((id) => ({ t: 'file_get', id, session, path, as, ...cwd }), opts);
   }
 
   /** What `getBlob` and `getFile` share: ask, then `blob_meta` and the chunks (`onMac`, `onChunk`). */

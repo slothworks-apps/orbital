@@ -116,6 +116,16 @@ export interface ChatMessage {
    */
   uuid?: string;
   /**
+   * The directory the agent was in when it wrote this: the `cwd` of the
+   * transcript entry the message came from, the main transcript's or a
+   * subagent's. A file link in the message is resolved against it — sent back
+   * as `cwd` on `GET /api/files` and the phone's `file_get` (adr
+   * a-file-link-resolves-against-the-cwd-it-was-written-in). A live row
+   * carries the `cwd` its transcript recorded last when the frame arrived,
+   * and none before the transcript recorded one.
+   */
+  cwd?: string;
+  /**
    * `user` rows only: this message can be picked as a rewind target — a human
    * prompt on the live branch with conversation before it and no compaction
    * after it (spec § Which messages can be picked). Only the server knows the

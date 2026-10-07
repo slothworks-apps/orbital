@@ -13,6 +13,7 @@ import type { RecentToolsStore } from '../transcript/recentTools.js';
 import type { GitStore } from '../git/store.js';
 import type { GitLocation } from '../git/gitState.js';
 import type { BranchStatusStore } from '../git/branchStatusStore.js';
+import type { OtherTree, SessionPlaces, WorkingTrees } from '../git/workingTrees.js';
 import type { BranchStatus } from '../git/branchStatus.js';
 import type { IdeStore } from '../ide/store.js';
 import type { IdeContext } from '../ide/protocol.js';
@@ -40,11 +41,37 @@ export interface ShapeContext {
   branchStatus: BranchStatusStore;
   /** Usage-limit waits. Optional so a context built without one shapes every session as not waiting. */
   limits?: Pick<LimitsService, 'waitFor'>;
+  /**
+   * Where each session works now. Optional so a context built without one
+   * shapes every session as working in its home, with no other trees.
+   */
+  trees?: Pick<WorkingTrees, 'places' | 'sessionsAt'>;
 }
+
+/** The working-tree wire type, beside the session shape that carries it. */
+export type { OtherTree } from '../git/workingTrees.js';
 
 export interface ApiSession {
   id: string;
+  /**
+   * The session's home: the first `cwd` its transcript recorded. It decides
+   * the project, the map cluster and the tags, and it does not move (adr
+   * `a-session-has-a-home-and-a-working-tree`).
+   */
   cwd: string;
+  /**
+   * The tree the session works in now: the working-tree root of the last
+   * `cwd` its transcript recorded, or that `cwd` outside a repository. The
+   * home itself while the session has not left the home's tree, and while
+   * nothing is known yet (spec 2026-10-07-live-working-tree-design § 2).
+   */
+  workingDir: string;
+  /**
+   * The trees running subagents work in, other than `workingDir`'s, the
+   * tree with the most recently started agent first. Empty for an ended
+   * session and for one whose agents all work in its own tree.
+   */
+  otherTrees: OtherTree[];
   title: string;
   firstAt: number | null;
   lastAt: number | null;
@@ -140,7 +167,7 @@ export interface ApiSession {
    */
   pendingDecision: PendingDecision | null;
   /**
-   * Where this session's `cwd` sits in git right now, or null when it is not
+   * Where this session's `workingDir` sits in git right now, or null when it is not
    * inside a repository — the live state of a directory rather than a record
    * of the session, which is why nothing about it is stored on the row (adr
    * `git-location-is-ambient-not-recorded`). The browser picks the trunk,
@@ -331,8 +358,10 @@ export function toApiSession(
 ): ApiSession {
   const agents = ctx.subagents.all(row.id);
   const tasks = ctx.backgroundTasks.all(row.id);
+  const resolved = status ?? statusOf(ctx, row);
+  const { workingDir, otherTrees } = placesOf(ctx, row, agents, resolved);
   return {
-    id: row.id, cwd: row.cwd, title: row.title,
+    id: row.id, cwd: row.cwd, workingDir, otherTrees, title: row.title,
     firstAt: row.first_at, lastAt: row.last_at,
     messageCount: row.message_count, source: row.source,
     permissionMode: row.permission_mode,
@@ -342,7 +371,7 @@ export function toApiSession(
     endedAt: row.ended_at,
     interruptedAt: row.interrupted_at,
     tagIds: effectiveTagIds(ctx.db, row.id),
-    status: status ?? statusOf(ctx, row),
+    status: resolved,
     awaitingSubagents: ctx.runner.awaitingSubagents(row.id),
     subagents: opts.history ? agents : listedSubagents(agents),
     subagentCount: agents.length,
@@ -350,9 +379,9 @@ export function toApiSession(
     backgroundTaskCount: tasks.length,
     recentTools: ctx.recentTools.all(row.id),
     pendingDecision: ctx.runner.pendingDecision(row.id),
-    git: ctx.git.locate(row.cwd),
-    ...branchOf(ctx, row.cwd),
-    ide: ctx.ide.locate(row.cwd),
+    git: ctx.git.locate(workingDir),
+    ...branchOf(ctx, workingDir),
+    ide: ctx.ide.locate(workingDir),
     compacting: ctx.runner.compacting(row.id),
     lastCompactionFailed: lastCompactionFailed(ctx.db, row.id),
     lastCompacted: ctx.runner.lastCompacted(row.id),
@@ -362,6 +391,12 @@ export function toApiSession(
     harnessStep: harnessStepOf(ctx.db, row.id),
     limitWait: ctx.limits?.waitFor(row.id) ?? null,
   };
+}
+
+/** Where the session works now: its home and nothing else without a `trees` reader. */
+function placesOf(ctx: ShapeContext, row: SessionRow, agents: SubagentInfo[], status: SessionStatus): SessionPlaces {
+  if (!ctx.trees) return { workingDir: row.cwd, otherTrees: [] };
+  return ctx.trees.places(row, agents, status === 'ended');
 }
 
 /** `{ branch }` when there is one, `{}` otherwise — the key is omitted, not null. */
