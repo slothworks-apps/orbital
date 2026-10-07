@@ -19,12 +19,31 @@ BUILD="$(sed -n 's/^ *versionCode \([0-9][0-9]*\)$/\1/p' "$GRADLE")"
 # the build system did not create.
 OUT=ios/App/output/release
 rm -rf "$OUT"
-xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
+mkdir -p "$OUT"
+
+# xcodebuild prints the error that failed a build far above its closing
+# summary, and an IDE console with a bounded buffer drops it. The full output
+# goes to a log; a failure prints its error lines and where the log is.
+run() {
+  log="$PWD/$OUT/$1.log"
+  echo "$1: log in $log"
+  shift
+  status=0
+  xcodebuild "$@" >"$log" 2>&1 || status=$?
+  if [ "$status" -ne 0 ]; then
+    grep 'error:' "$log" | sort -u >&2 || true
+    tail -n 12 "$log" >&2
+    echo "failed, full log: $log" >&2
+    exit "$status"
+  fi
+}
+
+run archive -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$OUT/Orbital.xcarchive" \
   -allowProvisioningUpdates \
   MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" \
   archive
-xcodebuild -exportArchive -archivePath "$OUT/Orbital.xcarchive" \
+run export -exportArchive -archivePath "$OUT/Orbital.xcarchive" \
   -exportOptionsPlist ios/ExportOptions.plist -exportPath "$OUT" \
   -allowProvisioningUpdates
 echo "uploaded Orbital $VERSION ($BUILD) to App Store Connect"

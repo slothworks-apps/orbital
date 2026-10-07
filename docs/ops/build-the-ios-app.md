@@ -130,6 +130,11 @@ It runs `build:ios` without `ORBITAL_MOBILE_DEV`, then
 destination `upload` sends the build to App Store Connect through the
 account signed in to Xcode.
 
+The output of both goes to `mobile/ios/App/output/release/archive.log` and
+`export.log`, not to the console. When a step fails, the script prints the
+log's `error:` lines, its tail and its path; the error that failed a build
+sits far above xcodebuild's closing summary, so read it there.
+
 The version is the Android app's: the script passes `versionName` and
 `versionCode` from `mobile/android/app/build.gradle` as `MARKETING_VERSION`
 and `CURRENT_PROJECT_VERSION`, so the platforms cannot drift. App Store
