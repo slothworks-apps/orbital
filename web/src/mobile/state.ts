@@ -47,6 +47,15 @@ export function isPushedScreen(screen: Screen): screen is PushedScreen {
 }
 
 /**
+ * Why 9i shows (spec 2026-10-07-version-compatibility-design § 5): the part
+ * that is too old, the version it runs and the oldest the other side works
+ * with. `theirs` is the Mac's or the relay's version, null when the Mac never
+ * said (a `bye protocol` before any hello). For `app` it is always null: the
+ * part too old is this app, and the screen reads its own version.
+ */
+export type Mismatch = { cause: 'mac' | 'relay' | 'app'; theirs: string | null; needed: string | null }
+
+/**
  * Relay `error` codes that mean this phone's pair no longer exists (spec
  * § 4); anything else is not about the pair. `bad_secret` is the client's
  * word for a relay secret the relay refused: the relay was re-keyed, and only
@@ -89,7 +98,8 @@ export interface MobileState {
   endedSummary: EndedSummary | null
   /** The fold has been read (`ended: 'only'`) and merged into the store; every resync reads it again. */
   endedLoaded: boolean
-  mismatch: { macVersion: string | null; needed: string } | null
+  /** What 9i explains; null while every part is new enough. */
+  mismatch: Mismatch | null
   unpaired: boolean
   pairing: Pairing | null
   macName: string | null
@@ -153,6 +163,10 @@ export function reduce(state: MobileState, event: RemoteClientEvent, now: number
   }
   switch (event.type) {
     case 'status':
+      // Only a relay new enough answers `ok`: one 9i called too old has been updated.
+      if (event.status === 'online' && state.mismatch?.cause === 'relay') {
+        return { link: event.status, ...leaveMismatch(state) }
+      }
       return { link: event.status }
     case 'presence':
       return { macOnline: event.macOnline }
@@ -164,19 +178,36 @@ export function reduce(state: MobileState, event: RemoteClientEvent, now: number
       if (!isSupportedServer(event.server)) {
         return {
           screen: 'mismatch', macName: event.macName,
-          mismatch: { macVersion: event.server, needed: MIN_SERVER_VERSION },
+          mismatch: { cause: 'mac', theirs: event.server, needed: MIN_SERVER_VERSION },
         }
       }
-      return { mismatch: null, macName: event.macName, ...(state.screen === 'mismatch' ? { screen: 'list' as const } : {}) }
+      return { macName: event.macName, ...leaveMismatch(state) }
     case 'bye':
+      if (event.reason === 'app_too_old') {
+        // The Mac sends its minimum with this reason; a bye without one (`needed` null) still names the cause.
+        return { screen: 'mismatch', mismatch: { cause: 'app', theirs: null, needed: event.needed ?? null } }
+      }
       // The Mac refused our protocol version; it says no more than that.
       return {
         screen: 'mismatch',
-        mismatch: { macVersion: state.mismatch?.macVersion ?? null, needed: MIN_SERVER_VERSION },
+        mismatch: {
+          cause: 'mac',
+          theirs: state.mismatch?.cause === 'mac' ? state.mismatch.theirs : null,
+          needed: MIN_SERVER_VERSION,
+        },
       }
+    case 'relay_too_old':
+      // Mid-pairing there is no app behind 9i to block: the pairing run reports it on 9e.
+      if (state.pairing === null) return {}
+      return { screen: 'mismatch', mismatch: { cause: 'relay', theirs: event.relayVersion, needed: event.needed } }
     default:
       return {}
   }
+}
+
+/** Off 9i to the list, once what it explained no longer holds. */
+function leaveMismatch(state: MobileState): Partial<MobileState> {
+  return { mismatch: null, ...(state.screen === 'mismatch' ? { screen: 'list' as const } : {}) }
 }
 
 /**

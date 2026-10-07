@@ -18,7 +18,7 @@ vi.mock('../mobile/platform/device', () => ({ thisDevice: io.thisDevice }))
 vi.mock('../mobile/platform/pairing', () => ({ savePairing: io.savePairing, clearUnpaired: io.clearUnpaired }))
 
 import { parseQrText, redeemOutcome } from '../mobile/pairingFlow'
-import { PAIRING_FAILED, RELAY_REFUSED_SECRET, runPairing, type PairingStep } from '../mobile/pairingRun'
+import { PAIRING_FAILED, RELAY_REFUSED_SECRET, relayTooOldMessage, runPairing, type PairingStep } from '../mobile/pairingRun'
 import { initialMobileState, useMobile } from '../mobile/state'
 import { clientRef } from '../mobile/transport/clientRef'
 
@@ -183,6 +183,32 @@ describe('runPairing', () => {
     expect(clientRef.client).toBeNull()
     expect(client.stop).toHaveBeenCalled()
     expect(client.redeem).not.toHaveBeenCalled()
+  })
+
+  it('a relay too old goes back to scan at once, at connect or in the redeem', async () => {
+    const tooOld = { relayVersion: '0.1.0', needed: '0.3.0' }
+    const atConnect = fakeClient({ type: 'relay_too_old', ...tooOld }).client
+    io.newClient.mockReturnValue(atConnect)
+    io.loadOrCreateIdentity.mockResolvedValue(phone)
+    const started = Date.now()
+    await run()
+    // Not after the connect timeout: the refusal itself ends the wait.
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(steps).toEqual([{ kind: 'connecting' }, { kind: 'scan', error: relayTooOldMessage(qr.relay, tooOld) }])
+    expect(atConnect.redeem).not.toHaveBeenCalled()
+    expect(clientRef.client).toBeNull()
+
+    const { client: atRedeem, outcome } = fakeClient()
+    atRedeem.redeem.mockResolvedValueOnce({ status: 200, body: {}, relayTooOld: tooOld } as never)
+    io.newClient.mockReturnValue(atRedeem)
+    steps = []
+    const done = run()
+    // Not waiting for the Mac: the redeem's answer already says the relay cannot carry this pair.
+    await done
+    outcome.resolve('paired')
+    expect(steps.at(-1)).toEqual({ kind: 'scan', error: relayTooOldMessage(qr.relay, tooOld) })
+    expect(io.savePairing).not.toHaveBeenCalled()
+    expect(clientRef.client).toBeNull()
   })
 
   it('a run that throws goes back to scan and drops its client', async () => {

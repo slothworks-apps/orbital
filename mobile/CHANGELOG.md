@@ -3,6 +3,9 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+### Added
+- When the relay or this app is too old for the others, the app says which one and shows both versions; for the app, it opens Google Play to update.
+
 ### Fixed
 - The settings screen shows the app's real version, and the app reports that version to the Mac.
 
