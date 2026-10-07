@@ -7,6 +7,8 @@ import { FLAG_STATE, FLAG_WAKE, WAKE_BYTES, ZERO_WAKE, decodeFrame, encodeFrame 
 import { startHandshake } from '@orbital/shared/remote/handshake';
 import { PAIRING_SECRET_BYTES, QrPayload, pairingProof } from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
+import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
+import { MIN_PHONE_VERSION, MIN_RELAY_VERSION } from '@orbital/shared/remote/version';
 import { Hub } from '../src/api/hub.js';
 import { openDb } from '../src/db/database.js';
 import { createImageStore } from '../src/images/store.js';
@@ -347,6 +349,51 @@ describe('RemoteService relay secret', () => {
     service.settingsChanged();
     expect(service.status()).toMatchObject({ relay: 'online', error: null });
     service.stop();
+  });
+});
+
+describe('RemoteService versions', () => {
+  it('a relay too old is reported with both versions and offers no code, until the user tries again', async () => {
+    const { service, fake } = build();
+    const tooOld = { relayVersion: '0.0.1', needed: MIN_RELAY_VERSION };
+    fake.stop();
+    fake.emit('refused', 'relay_too_old', tooOld);
+    expect(service.status()).toMatchObject({ relay: 'too_old', relayTooOld: tooOld, error: null });
+    expect(await service.startPairing()).toEqual({ error: 'relay_too_old' });
+
+    // "Try again" (POST /api/remote/restart) starts afresh.
+    service.settingsChanged();
+    expect(service.status()).toMatchObject({ relay: 'online', relayTooOld: null });
+    service.stop();
+  });
+
+  it('marks a phone refused for its app version, until it says hello with one that will do', () => {
+    const phone = generateIdentity();
+    const id = deviceId(phone.publicKey);
+    const { fake, service } = build((d) => d.add({
+      id, name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
+    }));
+    const macKey = publicKeyOf(service.status().macId!)!;
+    /** A fresh connection from the phone: handshake, then a hello naming `version`; answers what the Mac sent back. */
+    const connectWith = (version: string): unknown[] => {
+      fake.emit('control', { type: 'presence', peer: id, online: true });
+      const hs = startHandshake(phone, macKey, 'initiator');
+      const from = fake.sent.length;
+      fake.emit('data', encodeFrame({ peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
+      const cipher = hs.complete(decodeFrame(fake.sent[from])!.body)!;
+      const hello = encodeInner({ kind: 'json', value: { t: 'hello', protocol: PROTOCOL_VERSION, app: `orbital-mobile/${version}` } });
+      fake.emit('data', encodeFrame({ peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: cipher.seal(hello) }));
+      return fake.sent.slice(from + 1).map((f) => {
+        const inner = decodeInner(cipher.open(decodeFrame(f)!.body)!);
+        return inner?.kind === 'json' ? inner.value : null;
+      });
+    };
+    const device = () => service.status().devices.find((d) => d.id === id)!;
+
+    expect(connectWith('0.0.1')).toEqual([{ t: 'bye', reason: 'protocol' }]);
+    expect(device().needsUpdate).toEqual({ version: '0.0.1', needed: MIN_PHONE_VERSION });
+    expect(connectWith(MIN_PHONE_VERSION)).toMatchObject([{ t: 'hello' }]);
+    expect(device().needsUpdate).toBeNull();
   });
 });
 

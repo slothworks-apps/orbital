@@ -6,6 +6,7 @@ import { startHandshake, type SessionCipher } from '@orbital/shared/remote/hands
 import {
   BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type MacMessage,
 } from '@orbital/shared/remote/messages';
+import { PHONE_KNOWS_APP_TOO_OLD } from '@orbital/shared/remote/version';
 import { Hub } from '../src/api/hub.js';
 import { sessions } from '../src/db/schema.js';
 import { createImageStore } from '../src/images/store.js';
@@ -44,7 +45,9 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Phon
   return { me, hs, out, blobs, onMacBody, send, sendBlob, rehandshake, hasCipher: () => cipher !== null };
 }
 
-function build(opts: { inject?: PhoneSession['opts']['inject']; handshake?: boolean; files?: PhoneFileReader } = {}) {
+function build(opts: {
+  inject?: PhoneSession['opts']['inject']; handshake?: boolean; files?: PhoneFileReader; minPhoneVersion?: string;
+} = {}) {
   const mac = generateIdentity();
   const hub = new Hub({ heartbeatIntervalMs: 60_000 });
   const dir = makeTmpDir('remote');
@@ -54,15 +57,16 @@ function build(opts: { inject?: PhoneSession['opts']['inject']; handshake?: bool
   const notifications = { current: allOn, get: () => notifications.current, set: (s: typeof allOn) => { notifications.current = s; } };
   const onSeen = vi.fn();
   const onClose = vi.fn();
+  const onAppVersion = vi.fn();
   const session: PhoneSession = new PhoneSession({
     deviceId: deviceId(phone.me.publicKey), identity: mac, phonePublicKey: phone.me.publicKey, hub,
     inject: opts.inject ?? (async () => ({ statusCode: 500, body: '{}' })),
     images, imagesDir: dir, files: opts.files ?? (() => ({ status: 404 })), serverVersion: '0.15.0', macName: 'studio',
-    notifications, send: phone.onMacBody, onSeen, onClose,
+    notifications, send: phone.onMacBody, onSeen, onClose, onAppVersion, minPhoneVersion: opts.minPhoneVersion,
   });
   // The initiator's half exists from the start; only the responder's waits for `complete`.
   if (opts.handshake !== false) session.receive(phone.hs.message!);
-  return { mac, hub, images, session, phone, notifications, onSeen, onClose };
+  return { mac, hub, images, session, phone, notifications, onSeen, onClose, onAppVersion };
 }
 
 describe('PhoneSession', () => {
@@ -77,6 +81,27 @@ describe('PhoneSession', () => {
     phone.send({ t: 'hello', protocol: PROTOCOL_VERSION + 1, app: 'x' });
     expect(phone.out).toEqual([{ t: 'bye', reason: 'protocol' }]);
     expect(onClose).toHaveBeenCalled();
+  });
+  it('refuses an app below the minimum with app_too_old and the minimum, and reports it', () => {
+    const { phone, onClose, onAppVersion } = build({ minPhoneVersion: '9.0.0' });
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: `orbital-mobile/${PHONE_KNOWS_APP_TOO_OLD}` });
+    expect(phone.out).toEqual([{ t: 'bye', reason: 'app_too_old', needed: '9.0.0' }]);
+    expect(onClose).toHaveBeenCalled();
+    expect(onAppVersion).toHaveBeenCalledWith({ version: PHONE_KNOWS_APP_TOO_OLD, needed: '9.0.0' });
+  });
+  it('refuses an app too old to know app_too_old with bye protocol', () => {
+    const { phone, onAppVersion } = build({ minPhoneVersion: '9.0.0' });
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'orbital-mobile/0.3.2' });
+    expect(phone.out).toEqual([{ t: 'bye', reason: 'protocol' }]);
+    expect(onAppVersion).toHaveBeenCalledWith({ version: '0.3.2', needed: '9.0.0' });
+  });
+  it('greets an app at the minimum, and one whose hello names no version, and reports no refusal', () => {
+    for (const app of ['orbital-mobile/9.0.0', 'orbital-mobile/test']) {
+      const { phone, onAppVersion } = build({ minPhoneVersion: '9.0.0' });
+      phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app });
+      expect(phone.out).toMatchObject([{ t: 'hello' }]);
+      expect(onAppVersion).toHaveBeenCalledWith(null);
+    }
   });
   it('subscribes to hub topics and forwards their frames verbatim', () => {
     const { phone, hub } = build();

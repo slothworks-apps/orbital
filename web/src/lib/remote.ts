@@ -39,6 +39,17 @@ function hostOf(url: string): string {
 /** The status line under the switch (canvas 9q). A start error wins over whatever the relay says. */
 export function relayLine(status: RemoteStatus): RelayLine {
   if (status.error !== null) return { kind: 'failed', text: "couldn't start", detail: status.error }
+  // Provisional copy (spec 2026-10-07-version-compatibility-design § 4) until the canvas draws this state.
+  if (status.relay === 'too_old') {
+    const tooOld = status.relayTooOld
+    return {
+      kind: 'failed',
+      text: 'relay too old',
+      ...(tooOld
+        ? { detail: `relay ${tooOld.relayVersion}, Orbital needs ≥ ${tooOld.needed} — update the relay image` }
+        : {}),
+    }
+  }
   if (status.relay === 'online') {
     // Online implies a URL, but the status is the server's word: an empty one
     // must not leave a dangling separator.

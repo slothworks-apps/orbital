@@ -14,6 +14,7 @@ function status(patch: Partial<RemoteStatus> = {}): RemoteStatus {
   return {
     enabled: true,
     relay: 'connecting',
+    relayTooOld: null,
     relayAttempts: 0,
     relayUrl: 'https://relay.example.org:8443/path',
     macId: 'mac',
@@ -54,6 +55,13 @@ describe('relayLine', () => {
 
   it('names no host when the status carries no relay URL', () => {
     expect(relayLine(status({ relay: 'online', relayUrl: '' })).text).toBe('online')
+  })
+
+  it('reads a relay too old as a failure naming both versions', () => {
+    const line = relayLine(status({ relay: 'too_old', relayTooOld: { relayVersion: '0.1.0', needed: '0.3.0' } }))
+    expect(line.kind).toBe('failed')
+    expect(line.detail).toContain('0.1.0')
+    expect(line.detail).toContain('0.3.0')
   })
 
   it('lets a start error win over the relay state, carrying the reason verbatim', () => {

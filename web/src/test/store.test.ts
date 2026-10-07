@@ -2597,7 +2597,7 @@ describe('applySessionEvent: delta', () => {
 
 describe('refreshRemote', () => {
   const remoteStatus = (macName: string) => ({
-    enabled: true, relay: 'online' as const, relayAttempts: 0, relayUrl: 'https://r.example', macId: 'm',
+    enabled: true, relay: 'online' as const, relayTooOld: null, relayAttempts: 0, relayUrl: 'https://r.example', macId: 'm',
     macName, devices: [], pendingPair: null, pairing: null, error: null,
   })
 
