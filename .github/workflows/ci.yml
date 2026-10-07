@@ -146,6 +146,17 @@ jobs:
           push: false
           cache-from: type=gha,scope=relay
 
+  # The phone app's version is copied into package.json and the Xcode
+  # project; a bump that misses a copy fails here.
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/check-versions.mjs
+
   docs:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.filters), 'docs')

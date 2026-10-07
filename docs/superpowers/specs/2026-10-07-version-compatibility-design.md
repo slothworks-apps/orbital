@@ -32,9 +32,10 @@ Today only part of this is checked:
   older than `MIN_SERVER_VERSION`. Both end on the phone's mismatch screen
   (canvas 9i).
 - The phone sends its version as `hello.app`, but the Mac never reads it.
-  That value is also wrong: it comes from `mobile/package.json` (0.1.0),
-  while the version that ships is `versionName` in
-  `mobile/android/app/build.gradle`.
+  That value comes from `mobile/package.json`, which had drifted from
+  `versionName` in `mobile/android/app/build.gradle`, the version that ships.
+  The copies were brought back into line, and `scripts/check-versions.mjs`
+  (the `versions` CI job) now keeps them that way.
 - The relay never says which version it is. It drops a frame whose first
   byte is not `FRAME_VERSION`, and it does so silently. An app that outgrows
   the relay just goes quiet.
@@ -130,10 +131,9 @@ ships, so it goes under the changelog rules in the root `CLAUDE.md`.
 
 ## 5. Phone
 
-- **`hello.app` is the shipped version.** `vite.mobile.config.ts` takes it
-  from `versionName` in `mobile/android/app/build.gradle` instead of
-  `mobile/package.json`. The settings footer (`orbital mobile <version>`)
-  reads the same value.
+- **`hello.app` is the shipped version.** It stays `version` from
+  `mobile/package.json`, which the `versions` CI job holds equal to
+  `versionName` (`mobile/CLAUDE.md`).
 - **The mismatch screen (9i) gets a cause.** `mismatch` becomes
   `{ cause: 'mac' | 'relay' | 'app', theirs: string | null, needed: string }`:
   - `mac`: as today. Triggered by `bye protocol` or by `hello.server` below
@@ -151,8 +151,9 @@ ships, so it goes under the changelog rules in the root `CLAUDE.md`.
 
 ## 6. Release check
 
-A test in `shared/` checks each minimum against the version of the
-component it names, as recorded in the repo:
+`scripts/check-versions.mjs`, which the `versions` CI job runs, also
+checks each minimum against the version of the component it names, as
+recorded in the repo:
 
 - `MIN_RELAY_VERSION ≤ relay/package.json` `version`
 - `MIN_SERVER_VERSION ≤ desktop/package.json` `version`
@@ -189,4 +190,4 @@ everything travels in the relay's own messages and in `hello` / `bye`.
 |---|---|---|
 | relay | announces its version | `relay/CHANGELOG.md` |
 | desktop | refuses a relay or a phone that is too old and says so | `desktop/CHANGELOG.md` |
-| phone | reports its real version and explains a relay or app that is too old | `mobile/CHANGELOG.md` |
+| phone | explains a relay or app that is too old | `mobile/CHANGELOG.md` |

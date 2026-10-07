@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+### Fixed
+- The settings screen shows the app's real version, and the app reports that version to the Mac.
 
 ## [0.3.2] — 2026-10-06
 ### Fixed

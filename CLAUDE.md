@@ -55,6 +55,12 @@ own, before you report the work as done. Do not bump without an answer.
 Each workspace's `CLAUDE.md` says which of these versions its changes
 reach.
 
+A phone bump is not one edit: `versionName` and `versionCode` have copies
+in `mobile/package.json` (and `package-lock.json`) and in the Xcode
+project, and every copy changes with them (`mobile/CLAUDE.md`). Run
+`node scripts/check-versions.mjs` after a bump; the `versions` CI job runs
+it on every PR and fails on a copy left behind.
+
 ### Changelogs
 
 Each of the three has its own changelog next to its version:
