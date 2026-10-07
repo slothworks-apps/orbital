@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+
+## [0.5.0] — 2026-10-07
 ### Added
 - A session shows how many other git worktrees its running subagents work in; in the open session, tap the count to see them with their tasks.
 

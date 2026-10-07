@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.22.0] — 2026-10-07
 ### Added
 - The session header counts the other git worktrees its running subagents work in, and lists them with their tasks when you hover the count; a session on the main branch that only hands work out shows just that count.
 
