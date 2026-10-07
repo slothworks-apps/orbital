@@ -5,7 +5,7 @@ status: backlog
 type: idea
 domain: mobile
 related:
-  - demo-mode-for-store-review
+  - store-review-without-a-mac
   - 2026-10-05-ios-app-design
 tags:
   - mobile
