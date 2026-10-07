@@ -39,3 +39,14 @@ with `enabledMcpjsonServers` / `disabledMcpjsonServers` /
 UI, and record the answer through the CLI rather than by writing
 `~/.claude.json`. Check first whether a CLI option makes the SDK honour
 the approval itself.
+
+## Still reproduces, 2026-10-07
+
+Re-checked with SDK 0.3.287: a temporary project whose `.mcp.json` names a
+server that only writes a marker file, an isolated `CLAUDE_CONFIG_DIR` with
+`hasTrustDialogAccepted: false` and empty `enabledMcpjsonServers`, and
+`query()` with Orbital's `settingSources`. `system/init` listed the server as
+`pending`, `source: 'project'`, and the marker file was written, so the
+command ran without approval. `sdk.d.ts` has no option that makes the SDK
+honour the approval; the settings keys are only typed as settings. The fix
+has to be Orbital's own check before the session starts.

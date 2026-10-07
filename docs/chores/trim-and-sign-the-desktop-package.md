@@ -87,7 +87,6 @@ unsigned bundle could not get notification permission. See ADR
 `desktop-app-is-ad-hoc-signed`. The Developer ID step replaces `"-"` with the
 real identity.
 
-Signing and notarization are now configured (ADR
-`desktop-app-is-developer-id-signed`, setup in runbook `run-the-desktop-app`).
-This section is done once the first notarized DMG has passed
-`spctl -a -vv`. The Homebrew cask is still open.
+Signing and notarization are done (ADR `desktop-app-is-developer-id-signed`,
+setup in runbook `run-the-desktop-app`): releases are notarized. The
+Homebrew cask is still open and waits for a later release.

@@ -2,7 +2,7 @@
 id: tagsrules-close-focus-can-be-lost-under-load
 title: Closing a Tags & rules row can permanently lose the focus handoff under load
 type: fix
-status: backlog
+status: archived
 domain: settings
 related:
   - tags-rules-keyboard-test-is-flaky-under-the-full-suite
@@ -91,3 +91,9 @@ commit if the target was not there yet. Reproduce with the same three
 concurrent `npx vitest run -w web` (or `npx vitest run` inside `web/`)
 processes; the isolated single-file test alone did not reproduce it even
 under that load, so the repro needs the surrounding suite.
+
+## Archived 2026-10-07
+
+Keyboard-only operation is not a requirement (`web/CLAUDE.md`), and the test
+that exposed this race is gone. The race is still in `TagsRules.tsx`; reopen
+this if focus handling becomes a goal.

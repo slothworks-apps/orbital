@@ -151,3 +151,24 @@ log.
    client — open, close, watchdog fired, resync ran and what it fetched —
    into the shared error log at reconnect time, so the next occurrence
    carries its own evidence.
+
+## The error log, read 2026-10-07
+
+Three `transcript_gap` repairs in the desktop app's log:
+
+| when (local) | missing | `heldCount` | window focused | last frame / heartbeat ago |
+|---|---|---|---|---|
+| 2026-09-29 16:59 | `tool_result` | 100 | no | 24.5 s / 11.9 s |
+| 2026-10-03 20:50 | `tool_use` | 100 | yes | 9.1 s / 0.3 s |
+| 2026-10-05 12:22 | `tool_result` | 101 | yes | 7.7 s / 8.9 s |
+
+In all three the session was `working`, the socket was `open`, subscribed
+here and held by the server on the session's topic, and the missing message
+was about 10–25 s old when the check caught it. So the socket was neither
+silent nor unsubscribed: the first two candidates under "Still open" do not
+fit these occurrences.
+
+What they share is `heldCount` at 100–101 every time. A panel that stalls
+right when it holds about a hundred messages points at a cap or a page
+boundary in how live messages are merged into the held transcript, not at
+the transport. That is the next thing to read.

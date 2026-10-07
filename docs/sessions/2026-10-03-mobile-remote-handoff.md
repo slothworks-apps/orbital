@@ -111,7 +111,7 @@ ORBITAL_DATA_DIR=/tmp/<y> npm run dev -w server`; then `PATCH
 ## After that (both done)
 
 Both followed: iOS shipped to TestFlight in `0015a7d1`, and the relay
-image is published for deployment per [[run-the-relay]].
+runs on Dokploy per [[run-the-relay]].
 
 
 - Phase 3: deploy the relay on Hetzner/Dokploy per [[run-the-relay]]; set
