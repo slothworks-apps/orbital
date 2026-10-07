@@ -6,7 +6,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [0.21.1] — 2026-10-07
 ### Changed
-- In the sidebar, a session that is idle shows a hollow ring and only a working one a solid dot, so the collapsed sidebar shows at a glance which sessions are busy.
+- In the sidebar, a working session shows a steady solid dot that no longer blinks and an idle one a hollow ring, so the collapsed sidebar shows at a glance which sessions are busy.
 
 ## [0.21.0] — 2026-10-07
 ### Added

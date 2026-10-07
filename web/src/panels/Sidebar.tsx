@@ -94,10 +94,11 @@ function rowHue(session: ApiSession, tags: Tag[]): number | undefined {
 }
 
 /**
- * Row lead dot: a solid, blinking, glowing tag-hue disc while the session
- * works or waits for input; a hollow hue ring while it sits idle, dimmer
- * once it has ended — so the collapsed rail tells busy from quiet at a
- * glance. The export draws list dots at 7px and the collapsed rail's at 8px.
+ * Row lead dot: a solid, glowing tag-hue disc while the session works or
+ * waits for input; a hollow hue ring while it sits idle, dimmer once it has
+ * ended — so the collapsed rail tells busy from quiet at a glance. Fill alone
+ * carries that: the disc does not blink, a blink beside the map distracts.
+ * The export draws list dots at 7px and the collapsed rail's at 8px.
  */
 function RowDot({
   hue,
@@ -122,7 +123,7 @@ function RowDot({
   return (
     <span
       aria-hidden
-      className="orbital-pulse shrink-0 rounded-full"
+      className="shrink-0 rounded-full"
       style={{ ...box, background: color, boxShadow: `0 0 8px ${color}` }}
     />
   )
