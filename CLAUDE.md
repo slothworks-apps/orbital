@@ -59,7 +59,9 @@ A phone bump is not one edit: `versionName` and `versionCode` have copies
 in `mobile/package.json` (and `package-lock.json`) and in the Xcode
 project, and every copy changes with them (`mobile/CLAUDE.md`). Run
 `node scripts/check-versions.mjs` after a bump; the `versions` CI job runs
-it on every PR and fails on a copy left behind.
+it on every PR and fails on a copy left behind. In a PR it also runs with
+`--base`, which fails on a version lower than on `main`, and on a new
+`versionName` without a higher `versionCode`.
 
 ### Changelogs
 
