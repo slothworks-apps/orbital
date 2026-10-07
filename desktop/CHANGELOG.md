@@ -3,6 +3,12 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- The session header counts the other git worktrees its running subagents work in, and lists them with their tasks when you hover the count; a session on the main branch that only hands work out shows just that count.
+
+### Fixed
+- The session header shows the branch and folder a session works in now, also after it moved into a worktree, instead of the folder it was started in.
+- A file the agent links to opens from the worktree it was working in, not from the main checkout.
 
 ## [0.21.2] — 2026-10-07
 ### Fixed

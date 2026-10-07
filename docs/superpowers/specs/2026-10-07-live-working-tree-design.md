@@ -2,7 +2,7 @@
 id: 2026-10-07-live-working-tree-design
 title: The header and the file viewer follow the tree a session works in now
 type: spec
-status: draft
+status: done
 domain: sessions
 related:
   - git-location-is-ambient-not-recorded
@@ -246,6 +246,12 @@ The look comes from Claude Design. The prompt to bring there:
 > existing fades.
 
 ## Out of scope
+
+- The count for sessions running in a terminal. The server learns about
+  subagents from the SDK's task events, which only the sessions Orbital
+  runs deliver, so a terminal session never has running subagents and
+  never shows the count. Its header still follows the tree it works in,
+  and its file links still open from the right tree.
 
 - A history of which trees a session has worked in. The header says where
   things are now, per [[git-location-is-ambient-not-recorded]].
