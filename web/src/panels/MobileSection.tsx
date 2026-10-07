@@ -235,15 +235,20 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
   }
 
   if (kind === 'unreachable' || kind === 'failed') {
-    // `failed` always carries the status's own reason (the same source as
+    // `failed` carries the status's own reason (the same source as
     // `relayLine`'s `detail`) — the secret's refusal among them — so it reads
-    // better than the generic line, which stays for `unreachable`.
+    // better than the generic line, which stays for `unreachable`. A relay too
+    // old answered fine; the status line names both versions, and Try again
+    // checks it afresh once it is updated. Provisional copy until the canvas
+    // draws it (spec 2026-10-07-version-compatibility-design § 4).
     return (
       <div className={`${BLOCK} flex flex-col items-start gap-2.5`}>
         <span className={`text-[12.5px] leading-[1.5] ${MUTED}`}>
           {kind === 'failed' && remote.error
             ? remote.error
-            : "The relay didn't answer. Check the URL under Advanced, or try again."}
+            : remote.relay === 'too_old'
+              ? 'This relay is too old to pair a phone. Whoever runs it has to update the relay image.'
+              : "The relay didn't answer. Check the URL under Advanced, or try again."}
         </span>
         <Button variant="ghost" size="sm" disabled={busy} onClick={() => void tryAgain()}>
           Try again
@@ -345,6 +350,12 @@ function PairedPhones({ devices, onSaved }: { devices: RemoteDevice[]; onSaved: 
                       ? ` · last seen ${timeAgo(device.lastSeenAt, now)}`
                       : ''}
                 </span>
+                {/* Provisional until the canvas draws it (spec 2026-10-07-version-compatibility-design § 4). */}
+                {device.needsUpdate && (
+                  <span className={CAPTION}>
+                    needs an update · app {device.needsUpdate.version}, needs ≥ {device.needsUpdate.needed}
+                  </span>
+                )}
               </div>
               {confirming !== device.id && (
                 <Button variant="ghost" size="sm" onClick={() => setConfirming(device.id)}>

@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Settings → Mobile says when the relay is too old for this Mac, with both versions, and marks a paired phone whose app is too old to connect, instead of either just going quiet.
 
 ## [0.20.11] — 2026-10-06
 ### Fixed

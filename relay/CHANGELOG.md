@@ -3,6 +3,8 @@
 All notable changes to the relay image. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `relay/package.json`.
 
 ## [Unreleased]
+### Added
+- The relay tells the Mac and the phone which version it runs, so they can say when it needs an update instead of going quiet.
 
 ## [0.2.0] — 2026-10-04
 ### Added
