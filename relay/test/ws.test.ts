@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { generateIdentity, deviceId, publicKeyOf } from '@orbital/shared/remote/keys';
@@ -30,6 +31,15 @@ describe('relay websocket', () => {
     await store.confirmPair(deviceId(mac.publicKey), deviceId(phone.publicKey), Date.now());
     return { store, app, base, mac, phone };
   }
+
+  it('announces its package version in the challenge', async () => {
+    const { base, mac } = await relay();
+    const ws = new WebSocket(`${base.replace(/^http/, 'ws')}/ws?mac=${deviceId(mac.publicKey)}`);
+    const first = await new Promise<unknown>((resolve) => ws.once('message', (raw) => resolve(JSON.parse((raw as Buffer).toString('utf8')))));
+    ws.close();
+    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    expect(first).toMatchObject({ type: 'challenge', version });
+  });
 
   it('tells a phone that expects its pair that the pair is gone, and says nothing to one that is about to pair', async () => {
     const { base, store, mac, phone } = await relay();

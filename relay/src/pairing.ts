@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PAIRING_TOKEN_TTL_MS, verifyRequest, type RelayAction } from '@orbital/shared/remote/relayApi';
+import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { log, short } from './log.js';
 import { secretMatches } from './secret.js';
 import type { WsContext } from './ws.js';
@@ -100,6 +101,8 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
 
   app.post('/pair/redeem', async (req, reply) => {
     void reply.header('access-control-allow-origin', REDEEM_CORS['access-control-allow-origin']);
+    // A WebView reads only the headers CORS names: the phone checks the relay's version in this answer.
+    void reply.header('access-control-expose-headers', RELAY_VERSION_HEADER);
     const s = signed(req.body, 'pair.redeem', RedeemPayload, req.ip, reply);
     if (!s) return;
     const { token, name, platform, proof } = s.payload;
