@@ -2,7 +2,7 @@
 id: a-reply-is-in-the-transcript-file-but-not-in-the-open-panel
 title: A reply reaches the transcript file but not the open panel until View > Reload
 type: fix
-status: active
+status: backlog
 domain: web
 related:
   - 2026-09-22-ws-reconnect-resync-design
@@ -172,3 +172,7 @@ What they share is `heldCount` at 100–101 every time. A panel that stalls
 right when it holds about a hundred messages points at a cap or a page
 boundary in how live messages are merged into the held transcript, not at
 the transport. That is the next thing to read.
+
+Not seen by the user since the transcript check landed: the 5 s repair
+catches each gap before it is noticed. Moved to `backlog`: nothing hurts
+today, and the `heldCount` lead above is where to start if it comes back.
