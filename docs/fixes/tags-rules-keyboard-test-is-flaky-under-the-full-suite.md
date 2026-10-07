@@ -2,7 +2,7 @@
 id: tags-rules-keyboard-test-is-flaky-under-the-full-suite
 title: The Tags & rules keyboard test is flaky under the full suite
 type: fix
-status: blocked
+status: archived
 domain: settings
 related:
   - tagsrules-close-focus-can-be-lost-under-load
@@ -73,3 +73,10 @@ different stages, that do not agree:
 Whether the verification failures were this race or another cause was not
 confirmed; treat the single-process rate as unknown until the component fix
 lands.
+
+## Archived 2026-10-07
+
+The test is gone: `1828c546` dropped the keyboard-only tests from
+`tagsrules.test.tsx`, and `web/CLAUDE.md` now says keyboard-only operation
+is not tested. The component race it exposed is still tracked in
+[[tagsrules-close-focus-can-be-lost-under-load]].

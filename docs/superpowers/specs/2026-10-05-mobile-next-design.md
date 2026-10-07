@@ -2,7 +2,7 @@
 id: 2026-10-05-mobile-next-design
 title: Mobile, next — harness gates, files, subagents and tasks, the ⋯ sheet, limit waits and context on the phone
 type: spec
-status: active
+status: done
 domain: remote
 related:
   - 2026-10-02-mobile-app-design
@@ -26,7 +26,7 @@ tags:
 ---
 # Mobile, next
 
-**Status: active** (open questions decided 2026-10-05, § 8). The second batch of phone features, picked on
+**Status: done** (open questions decided 2026-10-05, § 8; built in #23). The second batch of phone features, picked on
 2026-10-05 in [[desktop-vs-phone-feature-map]] ("Decided next"). The phone
 exists for oversight away from the desk; this batch lets it *see what an
 agent made* and *move a stuck session along*.

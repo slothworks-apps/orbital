@@ -2,7 +2,7 @@
 id: 2026-09-28-context-compaction-design
 title: Context compaction — live state, transcript mark, failure
 type: spec
-status: active
+status: done
 domain: map
 related:
   - context-fill-arc

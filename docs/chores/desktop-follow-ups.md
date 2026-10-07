@@ -41,10 +41,10 @@ when their files are next open.
   beside the field) needs its own decision. The desktop missing-CLI dialog
   already restarts the child after writing the key; the Settings field
   does not.
-- **`routes.test.ts` `claude_code_version` case** compares against the SDK
+- ~~**`routes.test.ts` `claude_code_version` case** compares against the SDK
   manifest and only agrees while the `darwin-arm64` optional dep is
-  installed; on a host with only a PATH `claude` it fails (latent — no CI
-  in this repo today).
+  installed; on a host with only a PATH `claude` it fails.~~ — **fixed in
+  `14775c37`**, the test no longer assumes darwin-arm64.
 - **Boot can serialise the login-shell and `--version` timeouts** (~8 s
   worst case) before `listen()`; the desktop's 15 s health poll absorbs
   it.

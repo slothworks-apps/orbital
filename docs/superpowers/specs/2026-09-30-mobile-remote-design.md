@@ -1,7 +1,7 @@
 ---
 id: 2026-09-30-mobile-remote-design
 title: Mobile remote — a phone client over an end-to-end encrypted relay
-status: active
+status: done
 type: spec
 domain: remote
 related:
@@ -23,12 +23,12 @@ tags:
 ---
 # Mobile remote
 
-**Status: active.** Brainstormed 2026-09-30 as a non-binding idea, then
+**Status: done.** Brainstormed 2026-09-30 as a non-binding idea, then
 built: [[2026-10-01-mobile-remote-backend]] implements everything below
 except the phone itself — `shared/` (the wire protocol), `relay/` and
 `server/src/remote/` are done and reviewed. § 1's key handling is amended
-from what was brainstormed here; see the note at its head. What remains
-is the phone client (§ 4); the Mac-side section has its own spec,
+from what was brainstormed here; see the note at its head. The phone client
+(§ 4) followed in [[2026-10-02-mobile-app-design]]; the Mac-side section has its own spec,
 [[2026-10-01-settings-mobile-design]].
 
 Canvas: `Feature - Mobile.dc.html`. Phone artboards 9a–9i (parts and
