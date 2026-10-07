@@ -1,8 +1,10 @@
 import { CONNECT_TIMEOUT_MS, type RemoteClient, type RemoteClientEvent } from '@orbital/shared/remote/client'
 import { PAIRING_TOKEN_TTL_MS, type QrPayload } from '@orbital/shared/remote/relayApi'
 import type { RelayTooOld } from '@orbital/shared/remote/version'
+import { relayVersionLabel } from '../lib/remote'
 import { newClient } from './connect'
 import { PAIRED_HELLO_WAIT_MS } from './constants'
+import { relayHost } from './format'
 import { fingerprintFor, redeemOutcome } from './pairingFlow'
 import { thisDevice } from './platform/device'
 import { loadOrCreateIdentity } from './platform/identity'
@@ -24,11 +26,12 @@ export const RELAY_BUSY = 'The relay is busy. Try again in a minute.'
 export const RELAY_REFUSED_SECRET = "The relay refused this code's secret. Show a fresh code on the Mac."
 /**
  * A relay below `MIN_RELAY_VERSION`, at connect or in the redeem's answer.
- * Mid-pairing there is no app behind 9i to block, so 9e says it. Provisional
- * copy (spec 2026-10-07-version-compatibility-design § 5).
+ * Mid-pairing there is no app behind 9i to block, so 9e says it, in 11a's
+ * words for the relay. Provisional: the canvas draws no 9e state for it.
  */
 export function relayTooOldMessage(relayUrl: string, tooOld: RelayTooOld): string {
-  return `The relay at ${new URL(relayUrl).host} runs ${tooOld.relayVersion}; this app needs ${tooOld.needed} or newer. Whoever runs the relay has to update it.`
+  const runs = relayVersionLabel(tooOld.relayVersion)
+  return `The relay at ${relayHost(relayUrl)} is older than this app supports: ${runs}, this app needs relay ≥ ${tooOld.needed}. Whoever runs the relay updates its image.`
 }
 /** A run that threw — a Keystore read, a storage write — goes back to scan with this. */
 export const PAIRING_FAILED = "Couldn't pair on this phone. Try again."

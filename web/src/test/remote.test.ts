@@ -5,9 +5,11 @@ import {
   PAIRING_WINDOW_MS,
   RELAY_UNREACHABLE_AFTER_ATTEMPTS,
   codeLeft,
+  relayCheckSettled,
   relayLine,
   relaySecretCommit,
   relayUrlCommit,
+  statusDuringCheck,
 } from '../lib/remote'
 
 function status(patch: Partial<RemoteStatus> = {}): RemoteStatus {
@@ -57,11 +59,16 @@ describe('relayLine', () => {
     expect(relayLine(status({ relay: 'online', relayUrl: '' })).text).toBe('online')
   })
 
-  it('reads a relay too old as a failure naming both versions', () => {
+  it('reads a relay too old as a failure naming the host and both versions', () => {
     const line = relayLine(status({ relay: 'too_old', relayTooOld: { relayVersion: '0.1.0', needed: '0.3.0' } }))
-    expect(line.kind).toBe('failed')
-    expect(line.detail).toContain('0.1.0')
-    expect(line.detail).toContain('0.3.0')
+    expect(line).toEqual({
+      kind: 'failed', text: 'relay too old · relay.example.org', detail: 'relay 0.1.0 · Orbital needs ≥ 0.3.0',
+    })
+  })
+
+  it('names a relay too old that announced no version as an older relay', () => {
+    const line = relayLine(status({ relay: 'too_old', relayTooOld: { relayVersion: null, needed: '0.3.0' } }))
+    expect(line.detail).toBe('an older relay · Orbital needs ≥ 0.3.0')
   })
 
   it('lets a start error win over the relay state, carrying the reason verbatim', () => {
@@ -207,5 +214,38 @@ describe('remote api', () => {
       await expect(api.removeDevice('phone-1')).resolves.toBe(true)
       expect(fetchMock.mock.calls[0][0]).toBe('/api/remote/devices/phone-1')
     })
+  })
+})
+
+describe('statusDuringCheck', () => {
+  const tooOld = status({ relay: 'too_old', relayTooOld: { relayVersion: '0.1.0', needed: '0.3.0' } })
+
+  it('holds the too-old status through the restart, until the relay answers', () => {
+    expect(statusDuringCheck(status({ relay: 'off' }), tooOld)).toBe(tooOld)
+    expect(statusDuringCheck(status({ relay: 'connecting' }), tooOld)).toBe(tooOld)
+    const online = status({ relay: 'online' })
+    expect(statusDuringCheck(online, tooOld)).toBe(online)
+    const again = status({ relay: 'too_old', relayTooOld: { relayVersion: '0.2.0', needed: '0.3.0' } })
+    expect(statusDuringCheck(again, tooOld)).toBe(again)
+  })
+
+  it('shows a failed start, a switch turned off, or any status outside a check as it is', () => {
+    const failed = status({ relay: 'off', error: 'boom' })
+    expect(statusDuringCheck(failed, tooOld)).toBe(failed)
+    const disabled = status({ enabled: false, relay: 'off' })
+    expect(statusDuringCheck(disabled, tooOld)).toBe(disabled)
+    const connecting = status({ relay: 'connecting' })
+    expect(statusDuringCheck(connecting, null)).toBe(connecting)
+  })
+})
+
+describe('relayCheckSettled', () => {
+  it('waits through connecting and ends on an answer or a failure', () => {
+    expect(relayCheckSettled(status({ relay: 'connecting' }))).toBe(false)
+    expect(relayCheckSettled(status({ relay: 'off' }))).toBe(false)
+    expect(relayCheckSettled(status({ relay: 'online' }))).toBe(true)
+    expect(relayCheckSettled(status({ relay: 'too_old' }))).toBe(true)
+    expect(relayCheckSettled(status({ relay: 'off', error: 'boom' }))).toBe(true)
+    expect(relayCheckSettled(status({ enabled: false, relay: 'off' }))).toBe(true)
   })
 })

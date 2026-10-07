@@ -1,6 +1,5 @@
 import { timeAgo } from '../lib/format'
 
-const MINUTE_MS = 60_000
 const TIME: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
 
 /** A moment as the phone's lines date it: "13:22". */
@@ -16,10 +15,8 @@ export function asOfLabel(asOf: number, now: number): string {
   return `as of ${at.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${time}`
 }
 
-/** After a Retry (9a) or a Try again (9i). */
-export function checkedLabel(checkedAt: number, now: number): string {
-  return now - checkedAt < MINUTE_MS ? 'checked just now' : `checked ${timeAgo(checkedAt, now)} ago`
-}
+/** After a Retry (9a) or a Try again (9i); Settings → Mobile's Try again (11b) uses it too. */
+export { checkedLabel } from '../lib/format'
 
 /** "just now", "3h ago": `timeAgo` with the words around it. */
 export function agoLabel(ts: number, now: number): string {

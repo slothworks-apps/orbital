@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import qrcode from 'qrcode-generator'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
-import { timeAgo } from '../lib/format'
-import { codeLeft, relayLine, relaySecretCommit, relayUrlCommit, type RelayLineKind } from '../lib/remote'
+import { checkedLabel, timeAgo } from '../lib/format'
+import {
+  RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relaySecretCommit, relayUrlCommit, relayHostname,
+  statusDuringCheck, type RelayLineKind,
+} from '../lib/remote'
 import { useNow } from '../lib/useNow'
 import type { RemoteDevice, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
@@ -51,6 +54,77 @@ function phoneCount(n: number): string {
   return n === 1 ? '1 phone' : `${n} phones`
 }
 
+/** Settings → Mobile's "Try again" (canvas 11b), shared by the status line and the pairing area. */
+interface RelayCheck {
+  checking: boolean
+  /** When the last check ended, while the relay is still too old; null otherwise. */
+  checkedAt: number | null
+  run: () => Promise<void>
+}
+
+/**
+ * Resolves once a status settles the check (`relayCheckSettled`) or
+ * RELAY_CHECK_WINDOW_MS runs out. Subscribed before the restart is asked
+ * for, so a status published ahead of the restart's own answer is not missed.
+ */
+function relaySettles(): { settled: Promise<void>; cancel: () => void } {
+  let cancel = () => {}
+  const settled = new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer)
+      unsubscribe()
+      resolve()
+    }
+    const timer = setTimeout(finish, RELAY_CHECK_WINDOW_MS)
+    const unsubscribe = useOrbital.subscribe((s, prev) => {
+      if (s.remote !== prev.remote && s.remote && relayCheckSettled(s.remote)) finish()
+    })
+    cancel = finish
+  })
+  return { settled, cancel }
+}
+
+/**
+ * One bounded check of the relay: restart the remote (it checks the relay
+ * afresh) and wait for the relay's answer. While it runs on a relay too old,
+ * `held` keeps that status on screen (`statusDuringCheck`), so the card stays
+ * and only its button says "Checking…".
+ */
+function useRelayCheck(live: RemoteStatus | null): RelayCheck & { shown: RemoteStatus | null } {
+  const [held, setHeld] = useState<RemoteStatus | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [checkedAt, setCheckedAt] = useState<number | null>(null)
+
+  // A relay no longer too old drops the result line: it belongs to that refusal.
+  useEffect(() => {
+    if (!checking && live?.relay !== 'too_old') setCheckedAt(null)
+  }, [checking, live?.relay])
+
+  async function run() {
+    const from = useOrbital.getState().remote
+    if (checking || !from) return
+    setChecking(true)
+    setHeld(from.relay === 'too_old' ? from : null)
+    const wait = relaySettles()
+    try {
+      const answer = await api.restartRemote()
+      // A status the hub delivered first is newer than this answer.
+      if (useOrbital.getState().remote === from) useOrbital.getState().setRemote(answer)
+      if (relayCheckSettled(answer)) wait.cancel()
+      await wait.settled
+      setCheckedAt(Date.now())
+    } catch (err) {
+      wait.cancel()
+      reportError(err, 'Failed to restart the relay connection')
+    } finally {
+      setHeld(null)
+      setChecking(false)
+    }
+  }
+
+  return { checking, checkedAt, run, shown: live ? statusDuringCheck(live, held) : null }
+}
+
 /**
  * Settings → Mobile (spec 2026-10-01-settings-mobile-design § 3; canvas 9m,
  * 9n, 9q, 9r): the switch, the relay's status, the pairing code, the paired
@@ -65,7 +139,8 @@ export function MobileSection({
   onSaved: () => void
 }) {
   const settings = useOrbital(useShallow((s) => s.settings))
-  const remote = useOrbital((s) => s.remote)
+  const liveRemote = useOrbital((s) => s.remote)
+  const { shown: remote, ...check } = useRelayCheck(liveRemote)
   const enabled = settings.remote_enabled === 'true'
   const savedMacName = settings.remote_mac_name ?? ''
   const [macNameDraft, setMacNameDraft] = useState(savedMacName)
@@ -130,7 +205,7 @@ export function MobileSection({
       {enabled && remote && line && (
         <>
           <SectionLabel>PAIRING CODE</SectionLabel>
-          <PairingCode remote={remote} kind={line.kind} />
+          <PairingCode remote={remote} kind={line.kind} check={check} />
         </>
       )}
 
@@ -138,13 +213,15 @@ export function MobileSection({
           guess. While off only with rows (canvas 9m has no list): the phones
           stay paired and Remove still works, but the empty state's hint to
           scan a code means nothing without one. */}
-      {remote && (enabled || remote.devices.length > 0) && <PairedPhones devices={remote.devices} onSaved={onSaved} />}
+      {liveRemote && (enabled || liveRemote.devices.length > 0) && (
+        <PairedPhones devices={liveRemote.devices} onSaved={onSaved} />
+      )}
 
       <Advanced
         patchAndSet={patchAndSet}
         savedUrl={settings.remote_relay_url ?? ''}
         savedSecret={settings.remote_relay_secret ?? ''}
-        remote={remote}
+        remote={liveRemote}
       />
     </div>
   )
@@ -153,9 +230,9 @@ export function MobileSection({
 /**
  * The QR area (canvas 9n, 9q). It follows the status line, and a code is only
  * ever drawn on a click: each one opens a window in which a phone can ask to
- * pair (spec § "Decisions").
+ * pair (spec § "Decisions"). A relay too old gets its own card (canvas 11b).
  */
-function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKind }) {
+function PairingCode({ remote, kind, check }: { remote: RemoteStatus; kind: RelayLineKind; check: RelayCheck }) {
   // The code this window drew, keyed by its `expiresAt`: the status carries
   // only the expiry, never the QR text.
   const [code, setCode] = useState<{ qr: string; expiresAt: number; svg: string } | null>(null)
@@ -186,18 +263,6 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
       }
     } catch (err) {
       reportError(err, 'Failed to make a pairing code')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function tryAgain() {
-    if (busy) return
-    setBusy(true)
-    try {
-      useOrbital.getState().setRemote(await api.restartRemote())
-    } catch (err) {
-      reportError(err, 'Failed to restart the relay connection')
     } finally {
       setBusy(false)
     }
@@ -234,25 +299,28 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
     )
   }
 
+  const tryAgain = (
+    <Button variant="ghost" size="sm" disabled={check.checking} onClick={() => void check.run()}>
+      {check.checking ? 'Checking…' : 'Try again'}
+    </Button>
+  )
+
+  if (remote.relay === 'too_old') {
+    return <RelayTooOldCard remote={remote} checkedAt={check.checkedAt} tryAgain={tryAgain} />
+  }
+
   if (kind === 'unreachable' || kind === 'failed') {
     // `failed` carries the status's own reason (the same source as
     // `relayLine`'s `detail`) — the secret's refusal among them — so it reads
-    // better than the generic line, which stays for `unreachable`. A relay too
-    // old answered fine; the status line names both versions, and Try again
-    // checks it afresh once it is updated. Provisional copy until the canvas
-    // draws it (spec 2026-10-07-version-compatibility-design § 4).
+    // better than the generic line, which stays for `unreachable`.
     return (
       <div className={`${BLOCK} flex flex-col items-start gap-2.5`}>
         <span className={`text-[12.5px] leading-[1.5] ${MUTED}`}>
           {kind === 'failed' && remote.error
             ? remote.error
-            : remote.relay === 'too_old'
-              ? 'This relay is too old to pair a phone. Whoever runs it has to update the relay image.'
-              : "The relay didn't answer. Check the URL under Advanced, or try again."}
+            : "The relay didn't answer. Check the URL under Advanced, or try again."}
         </span>
-        <Button variant="ghost" size="sm" disabled={busy} onClick={() => void tryAgain()}>
-          Try again
-        </Button>
+        {tryAgain}
       </div>
     )
   }
@@ -302,6 +370,63 @@ function PairingCode({ remote, kind }: { remote: RemoteStatus; kind: RelayLineKi
   )
 }
 
+/**
+ * The pairing area while the relay is too old (canvas 11b): the QR's frame
+ * stays empty, since a code would point a phone at a relay that refuses it.
+ * Type follows the QR state beside it (9n); the frame is the canvas's empty one.
+ */
+function RelayTooOldCard({
+  remote,
+  checkedAt,
+  tryAgain,
+}: {
+  remote: RemoteStatus
+  checkedAt: number | null
+  tryAgain: ReactNode
+}) {
+  const now = useNow(checkedAt !== null, LAST_SEEN_TICK_MS)
+  const host = relayHostname(remote.relayUrl)
+  const version = remote.relayTooOld?.relayVersion
+  return (
+    <div className={`${BLOCK} flex items-center gap-7`}>
+      <div
+        aria-hidden
+        className="h-[150px] w-[150px] shrink-0 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] bg-[rgba(6,10,20,.5)]"
+      />
+      <div className="flex min-w-0 flex-1 flex-col items-start gap-3">
+        <div className="text-[13.5px] font-semibold text-text-bright">The relay needs an update</div>
+        <div className="max-w-[460px] text-[12px] leading-[1.6] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+          The relay at <span className="font-mono text-text-bright">{host}</span> refused the connection: it’s older than
+          this Orbital supports. Whoever runs it updates the relay image; Orbital reconnects on its own. Paired phones
+          can’t connect until then.
+        </div>
+        {checkedAt !== null && (
+          <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            still {version ?? 'an older relay'} · {checkedLabel(checkedAt, now)}
+          </span>
+        )}
+        {tryAgain}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A paired phone's seen text (canvas 9n, 11c): when the Mac refused its app
+ * that wins — the relay may still count it online — then connected, then last
+ * seen; null for a phone never seen.
+ */
+function seenText(device: RemoteDevice, now: number): string | null {
+  if (device.needsUpdate) return `refused · ${timeAgo(device.needsUpdate.at, now)}`
+  if (device.online) return 'connected · now'
+  return device.lastSeenAt !== null ? `last seen ${timeAgo(device.lastSeenAt, now)}` : null
+}
+
+function Seen({ device, now }: { device: RemoteDevice; now: number }) {
+  const seen = seenText(device, now)
+  return seen === null ? null : <span>· {seen}</span>
+}
+
 /** PAIRED PHONES (canvas 9n). The phones stay paired while the switch is off; the caller decides when it shows. */
 function PairedPhones({ devices, onSaved }: { devices: RemoteDevice[]; onSaved: () => void }) {
   const [confirming, setConfirming] = useState<string | null>(null)
@@ -342,20 +467,26 @@ function PairedPhones({ devices, onSaved }: { devices: RemoteDevice[]; onSaved: 
             <div className="flex items-center gap-3">
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="truncate text-[13.5px] font-semibold text-text-bright">{device.name}</span>
-                <span className={CAPTION}>
-                  {device.platform} · paired {shortDate(device.pairedAt)}
-                  {device.online
-                    ? ' · connected · now'
-                    : device.lastSeenAt !== null
-                      ? ` · last seen ${timeAgo(device.lastSeenAt, now)}`
-                      : ''}
-                </span>
-                {/* Provisional until the canvas draws it (spec 2026-10-07-version-compatibility-design § 4). */}
-                {device.needsUpdate && (
-                  <span className={CAPTION}>
-                    needs an update · app {device.needsUpdate.version}, needs ≥ {device.needsUpdate.needed}
+                {/* canvas 11c: a phone refused as too old wears a neutral chip
+                    after its paired date, with both versions; its seen text
+                    says when it was refused. Both go once it says hello on a
+                    version that will do — there is nothing to dismiss. */}
+                <span className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${CAPTION}`}>
+                  <span>
+                    {device.platform} · paired {shortDate(device.pairedAt)}
                   </span>
-                )}
+                  {device.needsUpdate && (
+                    <>
+                      <span className="rounded-full border border-[rgba(150,205,255,.14)] px-[7px] py-px text-[10.5px] text-[rgba(200,220,245,.82)]">
+                        needs an update
+                      </span>
+                      <span className="text-[10.5px]">
+                        app {device.needsUpdate.version} · this Mac needs ≥ {device.needsUpdate.needed}
+                      </span>
+                    </>
+                  )}
+                  <Seen device={device} now={now} />
+                </span>
               </div>
               {confirming !== device.id && (
                 <Button variant="ghost" size="sm" onClick={() => setConfirming(device.id)}>

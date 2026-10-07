@@ -31,6 +31,14 @@ export function timeAgo(ts: number, now: number = Date.now()): string {
 }
 
 /**
+ * "checked just now", then "checked 5m ago": after a bounded check (the
+ * phone's Retry and Try again, Settings → Mobile's Try again).
+ */
+export function checkedLabel(checkedAt: number, now: number): string {
+  return now - checkedAt < MINUTE_MS ? 'checked just now' : `checked ${timeAgo(checkedAt, now)} ago`
+}
+
+/**
  * A span of time as a delay reads, not as an age: "30m", "2h", "6d 22h".
  * `units` is how many terms it may spend — one for a setting value ("releases
  * 2h after it ended"), two for a countdown, where the hours left of the last
