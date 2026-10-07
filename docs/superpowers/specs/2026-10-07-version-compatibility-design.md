@@ -246,14 +246,52 @@ everything travels in the relay's own messages and in `hello` / `bye`.
 - **The store link.** On Android the `app` variant's primary action opens
   the Google Play listing of the app id from `mobile/capacitor.config.ts`
   (a top-level navigation the Capacitor bridge hands to the system), with
-  "Try again" as the secondary action. The repo has no App Store id, so iOS
-  gets no link: the screen says "Update Orbital from the App Store", and
-  "Try again" stays the primary action.
-- **The Mac's pairing area with a relay too old** shows a short explanation
-  in place of the generic "The relay didn't answer…" line, keeps "Try
-  again" (it restarts the remote, which checks the relay afresh) and offers
-  no code. The paired-phones list shows "needs an update · app x.y.z, needs
-  ≥ a.b.c" as one more caption line under the phone, in the list's quiet
-  caption style.
-- All copy of the `relay` and `app` variants of 9i, of the 9e message and of
-  the Mac's two states is provisional until Claude Design draws them.
+  "Try again" as the secondary action.
+
+## As built (design)
+
+Claude Design drew the feature in `Feature - Version compatibility.dc.html`:
+11a (9i's three causes on the phone), 11b (Settings → Mobile with a relay
+too old, a new 9q state), 11c (a paired phone that needs an update) and 11d
+(parts and states). The copy of 9i's `relay` and `app` variants and of the
+Mac's two states is now the canvas's; nothing of them is provisional any
+more. Where the build departs from the canvas, or the canvas left a
+decision open:
+
+- **A relay that announces no version reads "an older relay"** (11d). So
+  `RelayTooOld.relayVersion` is null for such a relay instead of
+  `RELAY_VERSION_BEFORE_ANNOUNCING`, which still decides the verdict. Every
+  readout prints "an older relay" for it: 9i's first row, the Mac's status
+  line, both result lines and the 9e message.
+- **The Mac re-checks a relay too old on its own.** 11b's card says
+  "Orbital reconnects on its own". The server's relay client stops on a
+  relay too old, so the service now starts afresh `RELAY_TOO_OLD_RECHECK_MS`
+  after the refusal. Any start or stop in between cancels it.
+- **Try again on the Mac is one bounded check** (11b), as on the phone:
+  "Checking…" while the remote restarts and the relay answers, for
+  `RELAY_CHECK_WINDOW_MS` at most, then "still x.y.z · checked just now".
+  The restart passes through `connecting`, and showing that would swap the
+  card for "Waiting for the relay" in the middle of the check. So the
+  too-old status stays on screen until the relay answers or the window
+  runs out (`statusDuringCheck`).
+- **The Mac's card** keeps the type sizes of the QR state beside it (9n as
+  built, a step smaller than the canvas draws). The empty QR frame is
+  drawn at the canvas's size.
+- **The paired phone's row** keeps the list's built layout: name over one
+  caption line. 11c's separate dot and seen columns are not built. The
+  chip and the versions sit inline after the paired date, and the seen
+  text follows them. That text reads "refused · <age>" with the list's
+  `timeAgo` ("refused · 10m"; the canvas writes "10 min ago"). To carry the
+  age, the server keeps the time of the latest refusal as
+  `needsUpdate.at`, and every refusal publishes the status again.
+- **iOS has no store link.** The canvas makes "Open App Store" the primary
+  action on iOS, but the repo has no App Store id. So on iOS "Try again"
+  stays the primary action, and the hint reads "The update is in the App
+  Store." in place of 11a C's "The update is in Google Play."
+- **The 9e message for a relay too old mid-pairing** is not drawn. It uses
+  11a B's words: "The relay at <host> is older than this app supports:
+  relay x.y.z, this app needs relay ≥ a.b.c. Whoever runs the relay
+  updates its image." It stays provisional.
+- **"opened Google Play · Orbital re-checks when you're back"** shows from
+  the tap until a check lands after it. The check on return to the
+  foreground then replaces it with its own result line.
