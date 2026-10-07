@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.21.2] — 2026-10-07
+### Fixed
+- The harness handle on the session panel's edge shows again when you reopen a session whose harness was already loaded; until now it could stay missing until the app was reloaded.
+
 ## [0.21.1] — 2026-10-07
 ### Changed
 - In the sidebar, a working session shows a steady solid dot that no longer blinks and an idle one a hollow ring, so the collapsed sidebar shows at a glance which sessions are busy.
