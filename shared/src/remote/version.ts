@@ -62,8 +62,13 @@ export function isSupportedServer(version: string): boolean {
   return compareVersions(version, MIN_SERVER_VERSION) >= 0;
 }
 
-/** A relay below `MIN_RELAY_VERSION`: what it announced (or is taken to be) and what is needed. */
-export type RelayTooOld = { relayVersion: string; needed: string };
+/**
+ * A relay below `MIN_RELAY_VERSION`: what it announced and what is needed.
+ * `relayVersion` is null for a relay that announced nothing (judged as
+ * `RELAY_VERSION_BEFORE_ANNOUNCING`): the screens then say "an older relay"
+ * rather than print a version the relay never named.
+ */
+export type RelayTooOld = { relayVersion: string | null; needed: string };
 
 /**
  * Null when the relay is new enough. `announced` is what the relay said —
@@ -71,8 +76,9 @@ export type RelayTooOld = { relayVersion: string; needed: string };
  * empty for a relay that says nothing.
  */
 export function relayTooOld(announced: string | null | undefined): RelayTooOld | null {
-  const relayVersion = announced?.trim() || RELAY_VERSION_BEFORE_ANNOUNCING;
-  return compareVersions(relayVersion, MIN_RELAY_VERSION) < 0 ? { relayVersion, needed: MIN_RELAY_VERSION } : null;
+  const relayVersion = announced?.trim() || null;
+  const judged = relayVersion ?? RELAY_VERSION_BEFORE_ANNOUNCING;
+  return compareVersions(judged, MIN_RELAY_VERSION) < 0 ? { relayVersion, needed: MIN_RELAY_VERSION } : null;
 }
 
 /**

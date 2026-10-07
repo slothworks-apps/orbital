@@ -15,7 +15,9 @@ import { createImageStore } from '../src/images/store.js';
 import { DeviceStore } from '../src/remote/devices.js';
 import { IDENTITY_FILE } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
-import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, RemoteService, type RemoteServiceOptions } from '../src/remote/service.js';
+import {
+  BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, RELAY_TOO_OLD_RECHECK_MS, RemoteService, type RemoteServiceOptions,
+} from '../src/remote/service.js';
 import { makeTmpDir } from './tmp.js';
 
 type Answer = { status: number; body: unknown };
@@ -367,10 +369,32 @@ describe('RemoteService versions', () => {
     service.stop();
   });
 
+  it('knocks on a relay too old again by itself after RELAY_TOO_OLD_RECHECK_MS', () => {
+    vi.useFakeTimers();
+    try {
+      const { service, fake } = build();
+      fake.stop();
+      fake.emit('refused', 'relay_too_old', { relayVersion: null, needed: MIN_RELAY_VERSION });
+      vi.advanceTimersByTime(RELAY_TOO_OLD_RECHECK_MS - 1);
+      expect(service.status()).toMatchObject({ relay: 'too_old', relayTooOld: { relayVersion: null } });
+      vi.advanceTimersByTime(1);
+      expect(service.status()).toMatchObject({ relay: 'online', relayTooOld: null });
+
+      // A stop in between cancels the knock: a remote turned off stays off.
+      fake.stop();
+      fake.emit('refused', 'relay_too_old', { relayVersion: null, needed: MIN_RELAY_VERSION });
+      service.stop();
+      vi.advanceTimersByTime(RELAY_TOO_OLD_RECHECK_MS);
+      expect(service.status()).toMatchObject({ relay: 'off' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('marks a phone refused for its app version, until it says hello with one that will do', () => {
     const phone = generateIdentity();
     const id = deviceId(phone.publicKey);
-    const { fake, service } = build((d) => d.add({
+    const { fake, service, advance } = build((d) => d.add({
       id, name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     const macKey = publicKeyOf(service.status().macId!)!;
@@ -391,7 +415,11 @@ describe('RemoteService versions', () => {
     const device = () => service.status().devices.find((d) => d.id === id)!;
 
     expect(connectWith('0.0.1')).toEqual([{ t: 'bye', reason: 'protocol' }]);
-    expect(device().needsUpdate).toEqual({ version: '0.0.1', needed: MIN_PHONE_VERSION });
+    expect(device().needsUpdate).toEqual({ version: '0.0.1', needed: MIN_PHONE_VERSION, at: NOW });
+    // Each refusal moves the time the list shows.
+    advance(10 * 60_000);
+    connectWith('0.0.1');
+    expect(device().needsUpdate).toEqual({ version: '0.0.1', needed: MIN_PHONE_VERSION, at: NOW + 10 * 60_000 });
     expect(connectWith(MIN_PHONE_VERSION)).toMatchObject([{ t: 'hello' }]);
     expect(device().needsUpdate).toBeNull();
   });

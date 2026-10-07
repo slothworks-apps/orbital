@@ -33,11 +33,11 @@ describe('relayTooOld', () => {
     expect(relayTooOld('0.0.1')).toEqual({ relayVersion: '0.0.1', needed: MIN_RELAY_VERSION });
   });
 
-  it('takes a relay that announces nothing for RELAY_VERSION_BEFORE_ANNOUNCING', () => {
+  it('judges a relay that announces nothing as RELAY_VERSION_BEFORE_ANNOUNCING, naming no version', () => {
     for (const silent of [undefined, null, '', '  ']) {
       const verdict = relayTooOld(silent);
       const expected = compareVersions(RELAY_VERSION_BEFORE_ANNOUNCING, MIN_RELAY_VERSION) < 0
-        ? { relayVersion: RELAY_VERSION_BEFORE_ANNOUNCING, needed: MIN_RELAY_VERSION }
+        ? { relayVersion: null, needed: MIN_RELAY_VERSION }
         : null;
       expect(verdict).toEqual(expected);
     }
