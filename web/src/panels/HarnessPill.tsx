@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent, RefObject } from 'react'
 import { useOrbital } from '../store/store'
 import { harnessEnabled } from '../lib/experimental'
@@ -99,7 +99,11 @@ export function HarnessPill({
   const shown = Boolean(harness)
 
   // Top-aligned with the state row (30a-d), whatever the title above it wraps to.
-  useLayoutEffect(() => {
+  // A passive effect, not a layout one: the row is in a later sibling, whose
+  // ref is not yet attached when this component's layout effects run — a
+  // panel opened on a session whose harness was already read would find no
+  // row and never measure. The pill waits for `top`, so nothing jumps.
+  useEffect(() => {
     const layer = layerRef.current
     const row = stateRowRef.current
     if (!shown || !layer || !row) return
