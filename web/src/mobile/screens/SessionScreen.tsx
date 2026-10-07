@@ -31,7 +31,6 @@ import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useOrbital, type SessionEvent } from '../../store/store'
 import { ModeDot } from '../../ui/ModeDot'
-import { basename } from '../format'
 import { notificationId } from '../notify'
 import { readTranscriptCache } from '../platform/cache'
 import { removeDeliveredNotification } from '../platform/localNotify'
@@ -46,6 +45,7 @@ import { TranscriptTail, useTranscriptTailKey } from '../session/TranscriptTail'
 import { isMacAsleep, keepsSelection, useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
+import { WhereLine } from '../where/WhereLine'
 import { SessionComposer } from './SessionComposer'
 
 const EMPTY: ChatMessage[] = []
@@ -148,10 +148,9 @@ function SessionView({ id }: { id: string }) {
         <div className="min-w-0 flex-1 pr-2">
           <h1 className="truncate text-[16.5px] font-bold tracking-[-0.01em]">{session?.title || 'Untitled session'}</h1>
           {session && (
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
-              <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tagHue }} />
-              <span className="shrink-0">{basename(session.cwd)}</span>
-              {session.git && <span className="truncate">· ⎇ {session.git.ref}</span>}
+            // 9b's cwd · branch line; 2h adds the worktree count, which opens their list.
+            <div className="mt-0.5 min-w-0">
+              <WhereLine session={session} dotColor={tagHue} variant="header" />
             </div>
           )}
         </div>
