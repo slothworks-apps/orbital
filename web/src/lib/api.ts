@@ -1094,10 +1094,10 @@ export const api = {
 
   /** A new code. 409 when the remote is off or the relay is not online right now. */
   async startPairing(): Promise<
-    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' }
+    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' }
   > {
     return remoteCall('POST', '/api/remote/pair', undefined, {
-      409: ['disabled', 'offline', 'relay_error'],
+      409: ['disabled', 'offline', 'relay_error', 'relay_too_old'],
     })
   },
 

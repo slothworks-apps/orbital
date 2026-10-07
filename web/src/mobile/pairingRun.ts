@@ -1,7 +1,10 @@
 import { CONNECT_TIMEOUT_MS, type RemoteClient, type RemoteClientEvent } from '@orbital/shared/remote/client'
 import { PAIRING_TOKEN_TTL_MS, type QrPayload } from '@orbital/shared/remote/relayApi'
+import type { RelayTooOld } from '@orbital/shared/remote/version'
+import { relayVersionLabel } from '../lib/remote'
 import { newClient } from './connect'
 import { PAIRED_HELLO_WAIT_MS } from './constants'
+import { relayHost } from './format'
 import { fingerprintFor, redeemOutcome } from './pairingFlow'
 import { thisDevice } from './platform/device'
 import { loadOrCreateIdentity } from './platform/identity'
@@ -21,6 +24,15 @@ export const RELAY_UNREACHABLE = "Can't reach the relay in this code."
 export const RELAY_BUSY = 'The relay is busy. Try again in a minute.'
 /** A relay with `RELAY_SECRET` that refused the code's (a stale code, a re-keyed relay). Provisional copy. */
 export const RELAY_REFUSED_SECRET = "The relay refused this code's secret. Show a fresh code on the Mac."
+/**
+ * A relay below `MIN_RELAY_VERSION`, at connect or in the redeem's answer.
+ * Mid-pairing there is no app behind 9i to block, so 9e says it, in 11a's
+ * words for the relay. Provisional: the canvas draws no 9e state for it.
+ */
+export function relayTooOldMessage(relayUrl: string, tooOld: RelayTooOld): string {
+  const runs = relayVersionLabel(tooOld.relayVersion)
+  return `The relay at ${relayHost(relayUrl)} is older than this app supports: ${runs}, this app needs relay ≥ ${tooOld.needed}. Whoever runs the relay updates its image.`
+}
 /** A run that threw — a Keystore read, a storage write — goes back to scan with this. */
 export const PAIRING_FAILED = "Couldn't pair on this phone. Try again."
 
@@ -78,22 +90,26 @@ async function pair(
   const client = newClient(qr.relay, qr.mac, identity, { expectPaired: false, relaySecret: qr.relaySecret })
   held.client = client
   clientRef.set(client)
-  // A refused secret ends the wait too: the client has stopped, and waiting out the timeout would say "can't reach".
+  // A refused secret or a relay too old ends the wait too: the client has
+  // stopped, and waiting out the timeout would say "can't reach".
   let refused = false
+  let tooOld: RelayTooOld | null = null
   const online = waitFor(
     client,
     (e) => {
       if (e.type === 'relay_error' && e.code === 'bad_secret') refused = true
-      return refused || (e.type === 'status' && e.status === 'online')
+      if (e.type === 'relay_too_old') tooOld = { relayVersion: e.relayVersion, needed: e.needed }
+      return refused || tooOld !== null || (e.type === 'status' && e.status === 'online')
     },
     CONNECT_TIMEOUT_MS,
   )
   client.start()
   const reached = await online
   if (cancelled()) return
-  if (!reached || refused) {
+  if (!reached || refused || tooOld) {
     clientRef.set(null)
-    report({ kind: 'scan', error: refused ? RELAY_REFUSED_SECRET : RELAY_UNREACHABLE })
+    const error = tooOld ? relayTooOldMessage(qr.relay, tooOld) : refused ? RELAY_REFUSED_SECRET : RELAY_UNREACHABLE
+    report({ kind: 'scan', error })
     return
   }
 
@@ -103,8 +119,14 @@ async function pair(
   const device = await thisDevice()
   // Before the redeem: a cancelled run must not use up the token or ask the Mac.
   if (cancelled()) return
-  const verdict = redeemOutcome((await client.redeem(qr.token, qr.secret, device.name, device.platform)).status)
+  const answer = await client.redeem(qr.token, qr.secret, device.name, device.platform)
   if (cancelled()) return
+  if (answer.relayTooOld) {
+    clientRef.set(null)
+    report({ kind: 'scan', error: relayTooOldMessage(qr.relay, answer.relayTooOld) })
+    return
+  }
+  const verdict = redeemOutcome(answer.status)
   if (verdict !== 'wait') {
     clientRef.set(null)
     report(

@@ -13,6 +13,7 @@ import {
   CLOSE_BAD_SECRET, RelayToDevice, authSignature, relayWsUrl, signRequest, RELAY_PING_INTERVAL_MS,
   type DeviceToRelay, type RelayAction,
 } from '@orbital/shared/remote/relayApi';
+import { RELAY_VERSION_HEADER, relayAnswerTooOld, relayTooOld, type RelayTooOld } from '@orbital/shared/remote/version';
 
 export const RECONNECT_DELAY_MS = 3_000;
 export const RECONNECT_MAX_MS = 30_000;
@@ -22,6 +23,12 @@ export const CONNECT_TIMEOUT_MS = 15_000;
 export const RELAY_SILENCE_TIMEOUT_MS = RELAY_PING_INTERVAL_MS * 3;
 
 export type RelayStatus = 'off' | 'connecting' | 'online';
+
+/**
+ * Why the client stopped for good, as the `refused` event's arguments:
+ * `bad_secret` alone, or `relay_too_old` with the versions.
+ */
+export type RelayRefusal = 'bad_secret' | 'relay_too_old';
 
 export type RelayClientOptions = {
   relayUrl: string;
@@ -101,9 +108,12 @@ export class RelayClient extends EventEmitter {
   /**
    * Never rejects: a relay that cannot be reached answers status 0 with
    * `{ error: 'network' }`, so callers (route handlers among them) branch on
-   * the status alone.
+   * the status alone. `relayTooOld` is set when the answer came from a relay
+   * below `MIN_RELAY_VERSION`; the client has then stopped (`refused`).
    */
-  async post<T>(path: string, action: RelayAction, payload: unknown): Promise<{ status: number; body: T }> {
+  async post<T>(
+    path: string, action: RelayAction, payload: unknown,
+  ): Promise<{ status: number; body: T; relayTooOld?: RelayTooOld }> {
     let res: Response;
     let text: string;
     try {
@@ -121,6 +131,11 @@ export class RelayClient extends EventEmitter {
       body = JSON.parse(text) as T;
     } catch {
       body = { error: text } as T;
+    }
+    const tooOld = relayAnswerTooOld(res.headers.get(RELAY_VERSION_HEADER), res.ok);
+    if (tooOld) {
+      this.refuseTooOld(tooOld);
+      return { status: res.status, body, relayTooOld: tooOld };
     }
     return { status: res.status, body };
   }
@@ -153,6 +168,12 @@ export class RelayClient extends EventEmitter {
       // state before it. Every parsed message reaches them, challenge and ok
       // included — callers that want to observe the handshake need them too.
       if (msg.type === 'challenge') {
+        // An auth would only open a link this relay may not be able to carry.
+        const tooOld = relayTooOld(msg.version);
+        if (tooOld) {
+          this.refuseTooOld(tooOld);
+          return;
+        }
         const auth: DeviceToRelay = { type: 'auth', pub: this.id, sig: authSignature(this.opts.identity, msg.nonce) };
         if (this.opts.relaySecret) auth.secret = this.opts.relaySecret;
         ws.send(JSON.stringify(auth));
@@ -200,6 +221,17 @@ export class RelayClient extends EventEmitter {
       this.setStatus('connecting', true);
       this.timer = setTimeout(() => this.connect(), delay);
     });
+  }
+
+  /**
+   * As `bad_secret`: a relay does not update itself while we knock, so the
+   * client stops until the settings change or the user tries again. Stopped
+   * first, so a `refused` listener reads `off`.
+   */
+  private refuseTooOld(tooOld: RelayTooOld): void {
+    if (this.status === 'off') return;
+    this.stop();
+    this.emit('refused', 'relay_too_old', tooOld);
   }
 
   private armSilenceTimer(ws: WebSocket): void {

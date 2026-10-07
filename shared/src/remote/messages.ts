@@ -131,7 +131,12 @@ export type ImageRefEntry = z.infer<typeof ImageRefEntry>;
 
 export const MacMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('hello'), protocol: z.number().int(), server: z.string(), macName: z.string() }),
-  z.object({ t: z.literal('bye'), reason: z.enum(['protocol', 'revoked']) }),
+  /**
+   * `app_too_old`: the phone app is below the Mac's `MIN_PHONE_VERSION`, sent
+   * with it as `needed`. A phone older than `PHONE_KNOWS_APP_TOO_OLD` cannot
+   * parse it and is sent `protocol` instead (shared/src/remote/version.ts).
+   */
+  z.object({ t: z.literal('bye'), reason: z.enum(['protocol', 'revoked', 'app_too_old']), needed: z.string().optional() }),
   z.object({ t: z.literal('ws'), frame: z.unknown() }),
   z.object({ t: z.literal('http_res'), id: z.number().int(), status: z.number().int(), body: z.unknown() }),
   z.object({

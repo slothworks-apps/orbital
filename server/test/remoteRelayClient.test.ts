@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { generateIdentity, deviceId, publicKeyOf } from '@orbital/shared/remote/keys';
 import { CLOSE_BAD_SECRET, verifyAuthSignature } from '@orbital/shared/remote/relayApi';
+import { MIN_RELAY_VERSION, RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { RelayClient } from '../src/remote/relayClient.js';
 
 /**
@@ -11,7 +12,7 @@ import { RelayClient } from '../src/remote/relayClient.js';
  * returns — so this waits for the `listening` event before handing back a
  * URL with the real port.
  */
-async function fakeRelay(opts: { secret?: string } = {}) {
+async function fakeRelay(opts: { secret?: string; version?: string } = {}) {
   const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await new Promise<void>((resolve) => wss.once('listening', resolve));
   const sockets: WebSocket[] = [];
@@ -19,7 +20,7 @@ async function fakeRelay(opts: { secret?: string } = {}) {
   const auths: Record<string, unknown>[] = [];
   wss.on('connection', (ws) => {
     sockets.push(ws);
-    ws.send(JSON.stringify({ type: 'challenge', nonce: 'n-' + sockets.length }));
+    ws.send(JSON.stringify({ type: 'challenge', nonce: 'n-' + sockets.length, version: opts.version }));
     ws.on('message', (raw, isBinary) => {
       if (isBinary) return ws.send(raw);
       const msg = JSON.parse((raw as Buffer).toString('utf8'));
@@ -185,6 +186,46 @@ describe('RelayClient', () => {
     expect(client.status).toBe('off');
     await new Promise((r) => setTimeout(r, 80));
     expect(relay.connections()).toBe(1);
+    expect(client.status).toBe('off');
+  });
+  it('refuses a relay below MIN_RELAY_VERSION without authenticating, and does not reconnect', async () => {
+    const relay = await fakeRelay({ version: '0.0.1' });
+    closers.push(relay.close);
+    const client = new RelayClient({ relayUrl: relay.url, identity: generateIdentity(), reconnectDelayMs: 20 });
+    closers.push(() => client.stop());
+    const refused: unknown[][] = [];
+    client.on('refused', (...args) => refused.push(args));
+    client.start();
+    await waitFor(() => refused.length > 0);
+    expect(refused).toEqual([['relay_too_old', { relayVersion: '0.0.1', needed: MIN_RELAY_VERSION }]]);
+    expect(client.status).toBe('off');
+    await new Promise((r) => setTimeout(r, 80));
+    expect(relay.auths()).toEqual([]);
+    expect(relay.connections()).toBe(1);
+  });
+  it('connects to a relay at MIN_RELAY_VERSION', async () => {
+    const relay = await fakeRelay({ version: MIN_RELAY_VERSION });
+    closers.push(relay.close);
+    const client = new RelayClient({ relayUrl: relay.url, identity: generateIdentity() });
+    closers.push(() => client.stop());
+    client.start();
+    await waitFor(() => client.status === 'online');
+  });
+  it('post reports an answer from a relay below MIN_RELAY_VERSION and stops the client', async () => {
+    const relay = await fakeRelay();
+    closers.push(relay.close);
+    const fetchImpl = (async () => new Response('{}', {
+      status: 200, headers: { [RELAY_VERSION_HEADER]: '0.0.1' },
+    })) as unknown as typeof fetch;
+    const client = new RelayClient({ relayUrl: relay.url, identity: generateIdentity(), fetchImpl });
+    closers.push(() => client.stop());
+    const refused: unknown[] = [];
+    client.on('refused', (reason) => refused.push(reason));
+    client.start();
+    await waitFor(() => client.status === 'online');
+    const res = await client.post('/pair/token', 'pair.token', { name: 'studio' });
+    expect(res.relayTooOld).toEqual({ relayVersion: '0.0.1', needed: MIN_RELAY_VERSION });
+    expect(refused).toEqual(['relay_too_old']);
     expect(client.status).toBe('off');
   });
   it('post answers status 0 instead of rejecting when the relay is unreachable', async () => {

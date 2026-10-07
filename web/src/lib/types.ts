@@ -1703,6 +1703,8 @@ export interface RemoteDevice {
   pairedAt: number
   lastSeenAt: number | null
   online: boolean
+  /** The Mac refused this phone's app as too old when it last connected: its version, the minimum, and when (epoch ms). */
+  needsUpdate: { version: string; needed: string; at: number } | null
 }
 
 /**
@@ -1711,7 +1713,10 @@ export interface RemoteDevice {
  */
 export interface RemoteStatus {
   enabled: boolean
-  relay: 'off' | 'connecting' | 'online'
+  /** `too_old`: the relay is below the Mac's minimum; the remote stays down until "Try again" or the server's own re-check. */
+  relay: 'off' | 'connecting' | 'online' | 'too_old'
+  /** Both versions while `relay` is `too_old` (`relayVersion` null: the relay announced none); null otherwise. */
+  relayTooOld: { relayVersion: string | null; needed: string } | null
   /** Consecutive failed connection attempts; back to 0 once the relay answers. */
   relayAttempts: number
   relayUrl: string

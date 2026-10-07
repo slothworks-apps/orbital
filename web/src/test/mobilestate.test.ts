@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '../mobile/version'
+import { MIN_SERVER_VERSION } from '../mobile/version'
 import {
   back, dismissTopSheet, initialMobileState, isMacAsleep, isPairGone, keepsSelection, mayOpenFromNotice, pairGoneFor, push, pushedTop, reduce,
-  registerSheet, useMobile, type MobileState, type Pushed,
+  registerSheet, useMobile, type Mismatch, type MobileState, type Pushed,
 } from '../mobile/state'
 
 // `recheck`, `client` and `ready` are all of `clientRef` the module under test reads.
@@ -13,28 +13,10 @@ import type { Pairing } from '../mobile/platform/parse'
 
 const NOW = 1_000
 const state = (patch: Partial<MobileState> = {}): MobileState => ({ ...initialMobileState, ...patch })
-
-describe('compareVersions', () => {
-  it('compares dotted numbers numerically, a missing part as zero', () => {
-    expect(compareVersions('0.17.10', '0.17.9')).toBe(1)
-    expect(compareVersions('0.17', '0.17.0')).toBe(0)
-    expect(compareVersions('0.16.9', '0.17.0')).toBe(-1)
-  })
-
-  it('ignores a pre-release suffix and counts dev as the newest', () => {
-    expect(compareVersions('0.18.0-beta.1', '0.18.0')).toBe(0)
-    expect(compareVersions('dev', '99.0.0')).toBe(1)
-    expect(compareVersions('dev', 'dev')).toBe(0)
-    expect(compareVersions('1.0.0', 'dev')).toBe(-1)
-  })
-
-  it('supports a Mac from MIN_SERVER_VERSION on', () => {
-    expect(isSupportedServer(MIN_SERVER_VERSION)).toBe(true)
-    expect(isSupportedServer('dev')).toBe(true)
-    expect(isSupportedServer('0.0.1')).toBe(false)
-    expect(isSupportedServer('')).toBe(false)
-  })
-})
+const PAIRING: Pairing = { relay: 'https://relay.test', mac: 'm', macName: 'studio', fingerprint: 'ABC123', pairedAt: 1 }
+const MAC_OLD: Mismatch = { cause: 'mac', theirs: '0.16.0', needed: MIN_SERVER_VERSION }
+const RELAY_OLD: Mismatch = { cause: 'relay', theirs: '0.1.0', needed: '0.3.0' }
+const APP_OLD: Mismatch = { cause: 'app', theirs: null, needed: '0.5.0' }
 
 describe('reduce', () => {
   it("tracks the relay link and the Mac's presence", () => {
@@ -50,23 +32,57 @@ describe('reduce', () => {
 
   it('blocks the app behind 9i on a Mac older than MIN_SERVER_VERSION, naming both versions', () => {
     const next = reduce(state({ screen: 'list' }), { type: 'hello', server: '0.16.0', macName: 'studio' }, NOW)
-    expect(next).toMatchObject({ screen: 'mismatch', mismatch: { macVersion: '0.16.0', needed: MIN_SERVER_VERSION } })
+    expect(next).toEqual({
+      screen: 'mismatch', macName: 'studio', mismatch: { cause: 'mac', theirs: '0.16.0', needed: MIN_SERVER_VERSION },
+    })
   })
 
-  it('leaves 9i for the list once a hello is new enough', () => {
-    const blocked = state({ screen: 'mismatch', mismatch: { macVersion: '0.16.0', needed: MIN_SERVER_VERSION } })
-    expect(reduce(blocked, { type: 'hello', server: MIN_SERVER_VERSION, macName: 'studio' }, NOW)).toMatchObject({
-      screen: 'list', mismatch: null, macName: 'studio',
-    })
+  it('leaves 9i for the list once a hello is new enough, whatever the cause was', () => {
+    for (const mismatch of [MAC_OLD, RELAY_OLD, APP_OLD]) {
+      expect(reduce(state({ screen: 'mismatch', mismatch }), { type: 'hello', server: MIN_SERVER_VERSION, macName: 'studio' }, NOW)).toMatchObject({
+        screen: 'list', mismatch: null, macName: 'studio',
+      })
+    }
     expect(reduce(state({ screen: 'session' }), { type: 'hello', server: 'dev', macName: 'studio' }, NOW)).not.toHaveProperty('screen')
   })
 
   it('blocks the app on bye protocol, keeping a Mac version it already knew', () => {
-    const known = state({ mismatch: { macVersion: '0.16.0', needed: MIN_SERVER_VERSION } })
-    expect(reduce(known, { type: 'bye', reason: 'protocol' }, NOW)).toMatchObject({
-      screen: 'mismatch', mismatch: { macVersion: '0.16.0' },
+    expect(reduce(state({ mismatch: MAC_OLD }), { type: 'bye', reason: 'protocol' }, NOW)).toEqual({
+      screen: 'mismatch', mismatch: MAC_OLD,
     })
-    expect(reduce(state(), { type: 'bye', reason: 'protocol' }, NOW)).toMatchObject({ mismatch: { macVersion: null } })
+    expect(reduce(state(), { type: 'bye', reason: 'protocol' }, NOW)).toEqual({
+      screen: 'mismatch', mismatch: { cause: 'mac', theirs: null, needed: MIN_SERVER_VERSION },
+    })
+    // A relay's version is not the Mac's.
+    expect(reduce(state({ pairing: PAIRING, mismatch: RELAY_OLD }), { type: 'bye', reason: 'protocol' }, NOW)).toMatchObject({
+      mismatch: { cause: 'mac', theirs: null },
+    })
+  })
+
+  it('blocks the app on bye app_too_old with the minimum the Mac sent', () => {
+    expect(reduce(state({ screen: 'list' }), { type: 'bye', reason: 'app_too_old', needed: '0.5.0' }, NOW)).toEqual({
+      screen: 'mismatch', mismatch: APP_OLD,
+    })
+    expect(reduce(state(), { type: 'bye', reason: 'app_too_old' }, NOW)).toMatchObject({
+      mismatch: { cause: 'app', needed: null },
+    })
+  })
+
+  it('blocks a paired app on a relay too old, naming both versions', () => {
+    const event = { type: 'relay_too_old', relayVersion: '0.1.0', needed: '0.3.0' } as const
+    expect(reduce(state({ pairing: PAIRING, screen: 'session' }), event, NOW)).toEqual({ screen: 'mismatch', mismatch: RELAY_OLD })
+    // Mid-pairing the pairing run says it on 9e; the app behind it is not blocked.
+    expect(reduce(state({ screen: 'pairing' }), event, NOW)).toEqual({})
+  })
+
+  it("leaves a relay's 9i once the relay answers ok, and no other cause", () => {
+    const online = { type: 'status', status: 'online' } as const
+    expect(reduce(state({ pairing: PAIRING, screen: 'mismatch', mismatch: RELAY_OLD }), online, NOW)).toEqual({
+      link: 'online', mismatch: null, screen: 'list',
+    })
+    for (const mismatch of [MAC_OLD, APP_OLD]) {
+      expect(reduce(state({ pairing: PAIRING, screen: 'mismatch', mismatch }), online, NOW)).toEqual({ link: 'online' })
+    }
   })
 
   it('goes to 9h on bye revoked, on the relay saying unpaired, and on a relay error that says the pair is gone', () => {
@@ -282,14 +298,12 @@ describe('isMacAsleep', () => {
   })
 })
 
-const PAIRING: Pairing = { relay: 'https://relay.test', mac: 'm1', macName: 'studio', fingerprint: 'f', pairedAt: 1 }
-
 describe('mayOpenFromNotice', () => {
   it('lets a notice navigate only with a pair that works', () => {
     expect(mayOpenFromNotice(state({ pairing: PAIRING }))).toBe(true)
     expect(mayOpenFromNotice(state({ pairing: null }))).toBe(false)
     expect(mayOpenFromNotice(state({ pairing: PAIRING, unpaired: true }))).toBe(false)
-    expect(mayOpenFromNotice(state({ pairing: PAIRING, mismatch: { macVersion: '0.1.0', needed: MIN_SERVER_VERSION } }))).toBe(false)
+    expect(mayOpenFromNotice(state({ pairing: PAIRING, mismatch: MAC_OLD }))).toBe(false)
   })
 })
 

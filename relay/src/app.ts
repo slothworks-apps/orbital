@@ -2,11 +2,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import { MAX_FRAME_BYTES } from '@orbital/shared/remote/frame';
 import { RELAY_PING_INTERVAL_MS } from '@orbital/shared/remote/relayApi';
+import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { Connections, OfflineQueue } from './connections.js';
 import { handleSocket, type WakeHook, type WsContext } from './ws.js';
 import { registerPairingRoutes } from './pairing.js';
 import { LogPushSender, WakeTracker, wakeHook, type PushSender } from './push.js';
 import type { RelayStore } from './store.js';
+import { RELAY_VERSION } from './version.js';
 
 export { MAX_BUFFERED_BYTES, OFFLINE_QUEUE_MAX } from './connections.js';
 
@@ -46,6 +48,12 @@ export async function buildRelay(opts: RelayOptions): Promise<FastifyInstance> {
     secret: opts.secret || null,
   };
   app.decorate('relay', ctx);
+  // Every HTTP answer says which relay gave it, errors included: a device
+  // that needs a newer relay learns it from whatever it asked.
+  app.addHook('onSend', async (_req, reply, payload) => {
+    void reply.header(RELAY_VERSION_HEADER, RELAY_VERSION);
+    return payload;
+  });
   await app.register(websocket, { options: { maxPayload: MAX_FRAME_BYTES } });
   app.get('/ws', { websocket: true }, (socket, req) => {
     // `?mac=` names the Mac the device is anchored to; `paired=1` says the

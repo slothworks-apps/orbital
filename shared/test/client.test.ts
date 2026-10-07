@@ -12,6 +12,7 @@ import {
   CONNECT_TIMEOUT_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, REQUEST_TIMEOUT_MS, RemoteClient, TunnelError,
   type RemoteClientEvent, type SocketLike,
 } from '../src/remote/client.js';
+import { MIN_RELAY_VERSION, RELAY_VERSION_HEADER } from '../src/remote/version.js';
 
 /** A WebSocket the test plays the relay through: it records what the client sends and delivers what the test says. */
 class FakeSocket implements SocketLike {
@@ -161,6 +162,39 @@ describe('RemoteClient relay link', () => {
     vi.advanceTimersByTime(RECONNECT_MAX_MS);
     expect(FakeSocket.all).toHaveLength(1);
     expect(s.client.status).toBe('off');
+  });
+
+  it('authenticates with a relay that announces no version, while MIN_RELAY_VERSION lets a silent relay pass', () => {
+    const s = setup();
+    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    expect(s.sock.text[0]).toMatchObject({ type: 'auth' });
+    s.sock.control({ type: 'challenge', nonce: 'n2', version: MIN_RELAY_VERSION });
+    expect(s.sock.text[1]).toMatchObject({ type: 'auth' });
+  });
+
+  it('refuses a relay below MIN_RELAY_VERSION without authenticating, and does not knock again on its own', () => {
+    vi.useFakeTimers();
+    const s = setup();
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: '0.0.1' });
+    expect(s.sock.text).toEqual([]);
+    expect(s.sock.closed).toBe(true);
+    expect(s.events).toContainEqual({ type: 'relay_too_old', relayVersion: '0.0.1', needed: MIN_RELAY_VERSION });
+    expect(s.client.status).toBe('off');
+    vi.advanceTimersByTime(RECONNECT_MAX_MS * 4);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  it('tries a refused relay again when the app asks for a recheck', async () => {
+    const s = setup();
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: '0.0.1' });
+    const answer = s.client.recheck(1_000);
+    const fresh = FakeSocket.all.at(-1)!;
+    expect(fresh).not.toBe(s.sock);
+    fresh.control({ type: 'challenge', nonce: 'n2', version: MIN_RELAY_VERSION });
+    expect(fresh.text[0]).toMatchObject({ type: 'auth' });
+    fresh.control({ type: 'ok', peers: [] });
+    await expect(answer).resolves.toBe(false);
+    expect(s.client.status).toBe('online');
   });
 
   it('asks the relay to confirm the pair only when built from a stored pairing', () => {
@@ -624,6 +658,26 @@ describe('RemoteClient redeem', () => {
     await expect(s.client.redeem('tok', secret, 'phone', 'ios')).resolves.toEqual({
       status: 502, body: { error: 'Bad Gateway' },
     });
+  });
+
+  it('stops at a redeem answered by a relay below MIN_RELAY_VERSION', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200, headers: { [RELAY_VERSION_HEADER]: '0.0.1' },
+    })));
+    const s = setup();
+    const tooOld = { relayVersion: '0.0.1', needed: MIN_RELAY_VERSION };
+    await expect(s.client.redeem('tok', secret, 'phone', 'ios')).resolves.toMatchObject({ status: 200, relayTooOld: tooOld });
+    expect(s.events).toContainEqual({ type: 'relay_too_old', ...tooOld });
+    expect(s.client.status).toBe('off');
+  });
+
+  it('passes a redeem answered by a relay at MIN_RELAY_VERSION', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {
+      status: 200, headers: { [RELAY_VERSION_HEADER]: MIN_RELAY_VERSION },
+    })));
+    const s = setup();
+    await expect(s.client.redeem('tok', secret, 'phone', 'ios')).resolves.toEqual({ status: 200, body: {} });
+    expect(s.events.some((e) => e.type === 'relay_too_old')).toBe(false);
   });
 
   it('answers status 0 when the relay is unreachable', async () => {

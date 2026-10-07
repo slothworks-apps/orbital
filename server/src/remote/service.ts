@@ -12,6 +12,7 @@ import {
   PAIRING_SECRET_BYTES, verifyPairingProof, type QrPayload, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
+import type { RelayTooOld } from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
 import { CONFIG } from '../config.js';
 import type { OrbitalDb } from '../db/database.js';
@@ -20,19 +21,41 @@ import { DeviceStore, type RemoteDevice } from './devices.js';
 import { DeviceWatcher } from './deviceWatcher.js';
 import { loadOrCreateIdentity, macDisplayName } from './identity.js';
 import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
-import { PhoneSession, type InjectFn } from './phoneSession.js';
-import { RelayClient, type RelayClientOptions } from './relayClient.js';
+import { PhoneSession, type InjectFn, type PhoneTooOld } from './phoneSession.js';
+import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
+
+/** A phone refused at `hello` for an app too old: both versions, and when it was last refused. */
+export type PhoneRefusal = PhoneTooOld & { at: number };
+
+/**
+ * How long a relay refused as too old is left alone before the Mac knocks
+ * again by itself. Whoever runs the relay updates it out of the Mac's sight,
+ * so the Mac comes back on its own (canvas 11b); "Try again" checks at once.
+ */
+export const RELAY_TOO_OLD_RECHECK_MS = 5 * 60_000;
 
 export type RemoteStatus = {
   enabled: boolean;
-  relay: 'off' | 'connecting' | 'online';
+  /**
+   * `too_old`: the relay is below `MIN_RELAY_VERSION`; the remote stays down
+   * until the user tries again or `RELAY_TOO_OLD_RECHECK_MS` passes.
+   */
+  relay: 'off' | 'connecting' | 'online' | 'too_old';
+  /** Both versions while `relay` is `too_old` (`relayVersion` null: the relay announced none); null otherwise. */
+  relayTooOld: RelayTooOld | null;
   /** The relay client's consecutive failed connection attempts; 0 with no client. */
   relayAttempts: number;
   relayUrl: string;
   macId: string | null;
   macName: string;
-  devices: (RemoteDevice & { online: boolean })[];
+  /**
+   * `needsUpdate`: this Mac refused the phone's app as below
+   * `MIN_PHONE_VERSION` when it last connected, and when (`at`, epoch ms);
+   * null once it connects with a version that will do (or before it has
+   * said hello since the Mac started).
+   */
+  devices: (RemoteDevice & { online: boolean; needsUpdate: PhoneRefusal | null })[];
   pendingPair: { phone: string; name: string; platform: string; fingerprint: string } | null;
   pairing: { expiresAt: number } | null;
   /** Why the last `start` failed; null while it is fine. */
@@ -81,6 +104,15 @@ export class RemoteService {
   /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
   private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
   private error: string | null = null;
+  /** Set when the relay client stopped on a relay below `MIN_RELAY_VERSION`; cleared by the next start. */
+  private relayRefusal: RelayTooOld | null = null;
+  /** The knock `RELAY_TOO_OLD_RECHECK_MS` after a relay was refused as too old; cleared by any start or stop. */
+  private relayRecheck: NodeJS.Timeout | null = null;
+  /**
+   * Phones refused at `hello` for an app too old, by device id. In memory:
+   * the next hello decides again, and a restart only loses the mark until then.
+   */
+  private readonly phonesTooOld = new Map<string, PhoneRefusal>();
   private readonly now: () => number;
   /** One for every phone, so its named-path cache serves them all. */
   private readonly files: PhoneFileReader;
@@ -111,6 +143,7 @@ export class RemoteService {
 
   start(): void {
     if (!this.enabled || this.client) return;
+    this.relayRefusal = null;
     // Nothing to connect to: a failed start, before the identity is touched.
     if (this.relayUrl === '') {
       this.error = NO_RELAY_URL_ERROR;
@@ -137,9 +170,17 @@ export class RemoteService {
       client.on('data', (frame: Uint8Array) => this.onData(frame));
       // The client has stopped for good; reported like a failed start, and
       // the next settings change or restart starts afresh.
-      client.on('refused', () => {
+      // A relay too old is the exception: it gets updated without the Mac
+      // knowing, so the Mac knocks again by itself after a while.
+      client.on('refused', (reason: RelayRefusal, tooOld?: RelayTooOld) => {
         this.teardown();
-        this.error = BAD_SECRET_ERROR;
+        if (reason === 'relay_too_old' && tooOld) {
+          this.relayRefusal = tooOld;
+          this.relayRecheck = setTimeout(() => this.settingsChanged(), RELAY_TOO_OLD_RECHECK_MS);
+          this.relayRecheck.unref?.();
+        } else {
+          this.error = BAD_SECRET_ERROR;
+        }
         this.publishStatus();
       });
       for (const device of this.devices.list()) this.watch(device.id);
@@ -156,11 +197,14 @@ export class RemoteService {
   stop(): void {
     this.teardown();
     this.error = null;
+    this.relayRefusal = null;
     this.publishStatus();
   }
 
   /** Everything `stop` undoes, without publishing: a failed `start` publishes once, at its end. */
   private teardown(): void {
+    if (this.relayRecheck) clearTimeout(this.relayRecheck);
+    this.relayRecheck = null;
     this.closeSessions();
     for (const w of this.watchers.values()) w.stop();
     this.watchers.clear();
@@ -194,12 +238,15 @@ export class RemoteService {
     const online = this.client?.peersOnline ?? new Set<string>();
     return {
       enabled: this.enabled,
-      relay: this.client?.status ?? 'off',
+      relay: this.relayRefusal ? 'too_old' : this.client?.status ?? 'off',
+      relayTooOld: this.relayRefusal,
       relayAttempts: this.client?.attempts ?? 0,
       relayUrl: this.relayUrl,
       macId: this.identity ? deviceId(this.identity.publicKey) : null,
       macName: this.macName,
-      devices: this.listDevices().map((d) => ({ ...d, online: online.has(d.id) })),
+      devices: this.listDevices().map((d) => ({
+        ...d, online: online.has(d.id), needsUpdate: this.phonesTooOld.get(d.id) ?? null,
+      })),
       pendingPair: this.pendingPair,
       pairing: this.pairing ? { expiresAt: this.pairing.expiresAt } : null,
       error: this.error,
@@ -233,10 +280,14 @@ export class RemoteService {
     return this.pairing !== null;
   }
 
-  async startPairing(): Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' }> {
+  /** No code while the relay is too old: a phone could not pair through it anyway. */
+  async startPairing(
+  ): Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' }> {
+    if (this.relayRefusal) return { error: 'relay_too_old' };
     if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
     if (this.client.status !== 'online') return { error: 'offline' };
     const res = await this.client.post<{ token: string; expiresAt: number }>('/pair/token', 'pair.token', { name: this.macName });
+    if (res.relayTooOld) return { error: 'relay_too_old' };
     if (res.status !== 200) return { error: 'relay_error' };
     const secret = new Uint8Array(randomBytes(PAIRING_SECRET_BYTES));
     this.pairing = { expiresAt: res.body.expiresAt, secret };
@@ -302,6 +353,7 @@ export class RemoteService {
     this.watchers.get(id)?.stop();
     this.watchers.delete(id);
     this.devices.remove(id);
+    this.phonesTooOld.delete(id);
     this.publishStatus();
     const client = this.client;
     if (client && client.status === 'online') {
@@ -382,10 +434,25 @@ export class RemoteService {
         onClose: () => {
           if (this.sessions.get(from) === session) this.sessions.delete(from);
         },
+        onAppVersion: (refusal) => this.markPhoneVersion(from, refusal),
       });
       this.sessions.set(from, session);
     }
     session.receive(frame.body);
+  }
+
+  /**
+   * Every refusal publishes, since it moves the time the list shows ("refused
+   * · …"); a hello that will do publishes only when it clears a mark, or every
+   * hello of a phone that is fine would republish the status.
+   */
+  private markPhoneVersion(id: string, refusal: PhoneTooOld | null): void {
+    if (refusal) {
+      this.phonesTooOld.set(id, { ...refusal, at: this.now() });
+      this.publishStatus();
+    } else if (this.phonesTooOld.delete(id)) {
+      this.publishStatus();
+    }
   }
 
   private watch(id: string): void {

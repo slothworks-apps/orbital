@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-10-07
+### Added
+- Settings → Mobile says when the relay is too old for this Mac, with both versions, and marks a paired phone whose app is too old to connect, instead of either just going quiet.
+
 ## [0.20.11] — 2026-10-06
 ### Fixed
 - The phone shows your sessions also when one of them has run many subagents, and its list of ended sessions loads only when you open it.

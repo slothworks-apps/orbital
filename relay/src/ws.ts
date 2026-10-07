@@ -11,6 +11,7 @@ import {
   CLOSE_BAD_SECRET, DeviceToRelay, RELAY_PING_INTERVAL_MS, verifyAuthSignature, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
 import { secretMatches } from './secret.js';
+import { RELAY_VERSION } from './version.js';
 import { Connections, MAX_BUFFERED_BYTES, OfflineQueue, type Conn } from './connections.js';
 import { log, short } from './log.js';
 import type { WakeTracker } from './push.js';
@@ -36,7 +37,7 @@ export type WsContext = {
 
 export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: string | null): void {
   const nonce = randomBytes(16).toString('base64url');
-  send(socket, { type: 'challenge', nonce });
+  send(socket, { type: 'challenge', nonce, version: RELAY_VERSION });
   const authTimer = setTimeout(() => socket.close(4001, 'auth timeout'), AUTH_TIMEOUT_MS);
 
   socket.once('message', (raw, isBinary) => {

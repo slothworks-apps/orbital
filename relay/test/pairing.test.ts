@@ -1,10 +1,14 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { PAIRING_TOKEN_TTL_MS, signRequest } from '@orbital/shared/remote/relayApi';
+import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { buildRelay } from '../src/app.js';
 import { PAIR_RATE_LIMIT_PER_MIN } from '../src/pairing.js';
 import { openRelayStore } from '../src/store.js';
 import { connectDevice, listen, sleep } from './helpers.js';
+
+const RELAY_PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 describe('pairing', () => {
   const closers: (() => Promise<void>)[] = [];
@@ -52,9 +56,13 @@ describe('pairing', () => {
     const refused = await r.post('/pair/redeem', signRequest(r.phone, 'pair.redeem', { token: 'nope', name: 'P', platform: 'android', proof: 'p' }, r.now()));
     expect(refused.statusCode).toBe(404);
     expect(refused.headers['access-control-allow-origin']).toBe('*');
+    // The phone checks the relay's version in the redeem's answer, which a WebView reads only when CORS exposes it.
+    expect(refused.headers[RELAY_VERSION_HEADER]).toBe(RELAY_PACKAGE_VERSION);
+    expect(refused.headers['access-control-expose-headers']).toBe(RELAY_VERSION_HEADER);
     // The Mac's routes stay closed to browsers.
     const minted = await r.post('/pair/token', signRequest(r.mac, 'pair.token', { name: 'studio' }, r.now()));
     expect(minted.headers['access-control-allow-origin']).toBeUndefined();
+    expect(minted.headers[RELAY_VERSION_HEADER]).toBe(RELAY_PACKAGE_VERSION);
     expect((await r.app.inject({ method: 'OPTIONS', url: '/pair/confirm' })).statusCode).toBe(404);
   });
 

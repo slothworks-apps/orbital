@@ -4,6 +4,10 @@ All notable changes to the relay image. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-07
+### Added
+- The relay tells the Mac and the phone which version it runs, so they can say when it needs an update instead of going quiet.
+
 ## [0.2.0] — 2026-10-04
 ### Added
 - An optional shared secret (`RELAY_SECRET`): when it is set, the relay accepts only devices and pairing requests that present it, and a device with a missing or wrong secret is told so and stops reconnecting.

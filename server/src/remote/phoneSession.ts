@@ -17,6 +17,9 @@ import {
   MacMessage, PROTOCOL_VERSION, PhoneMessage, chunkBlob, decodeInner, encodeInner,
   type NotificationSettings,
 } from '@orbital/shared/remote/messages';
+import {
+  MIN_PHONE_VERSION, PHONE_KNOWS_APP_TOO_OLD, compareVersions, phoneAppVersion,
+} from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
@@ -51,6 +54,11 @@ const IMAGE_CONTENT_TYPES: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
 };
 
+/** A phone app below the Mac's minimum: the version its `hello` named, and the minimum. */
+export type PhoneTooOld = { version: string; needed: string };
+
+type ByeReason = Extract<MacMessage, { t: 'bye' }>['reason'];
+
 export type InjectFn = (req: { method: string; url: string; payload?: unknown }) => Promise<{ statusCode: number; body: string }>;
 
 export type PhoneSessionOptions = {
@@ -70,6 +78,10 @@ export type PhoneSessionOptions = {
   send: (body: Uint8Array) => void;
   onSeen: (sessionId: string) => void;
   onClose: () => void;
+  /** Every `hello`'s verdict on the app's version: the refusal, or null for an app new enough. */
+  onAppVersion?: (refusal: PhoneTooOld | null) => void;
+  /** `MIN_PHONE_VERSION` unless a test moves it. */
+  minPhoneVersion?: string;
 };
 
 type VirtualSocket = EventEmitter & { send(data: string): void };
@@ -190,9 +202,10 @@ export class PhoneSession {
     console.warn(`[remote] phone ${this.opts.deviceId}: ${what} failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  close(reason?: 'protocol' | 'revoked'): void {
+  /** `needed` goes with `app_too_old`: the minimum the phone has to reach. */
+  close(reason?: ByeReason, needed?: string): void {
     if (this.closed) return;
-    if (reason && this.cipher) this.sendJson({ t: 'bye', reason });
+    if (reason && this.cipher) this.sendJson({ t: 'bye', reason, ...(needed !== undefined ? { needed } : {}) });
     this.closed = true;
     this.socket.emit('close');
     this.opts.onClose();
@@ -202,6 +215,15 @@ export class PhoneSession {
     if (!this.greeted) {
       if (msg.t !== 'hello') return;
       if (msg.protocol !== PROTOCOL_VERSION) return this.close('protocol');
+      const refusal = this.appTooOld(msg.app);
+      this.opts.onAppVersion?.(refusal);
+      if (refusal) {
+        // A phone from before `app_too_old` would drop the bye as unreadable;
+        // `protocol` is the closest refusal it understands.
+        return compareVersions(refusal.version, PHONE_KNOWS_APP_TOO_OLD) < 0
+          ? this.close('protocol')
+          : this.close('app_too_old', refusal.needed);
+      }
       this.greeted = true;
       this.opts.hub.handleSocket(this.socket);
       this.sendJson({ t: 'hello', protocol: PROTOCOL_VERSION, server: this.opts.serverVersion, macName: this.opts.macName });
@@ -239,6 +261,13 @@ export class PhoneSession {
         this.opts.onSeen(msg.sessionId);
         return;
     }
+  }
+
+  /** Null for an app at or above the minimum, and for a `hello.app` that names no version to judge. */
+  private appTooOld(app: string): PhoneTooOld | null {
+    const version = phoneAppVersion(app);
+    const needed = this.opts.minPhoneVersion ?? MIN_PHONE_VERSION;
+    return version !== null && compareVersions(version, needed) < 0 ? { version, needed } : null;
   }
 
   private async onHttp(msg: Extract<PhoneMessage, { t: 'http' }>): Promise<void> {

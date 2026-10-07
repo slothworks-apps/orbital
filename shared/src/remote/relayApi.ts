@@ -104,7 +104,8 @@ export function verifyAuthSignature(publicKey: Uint8Array, nonce: string, sig: s
 }
 
 export const RelayToDevice = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('challenge'), nonce: z.string() }),
+  // `version`: the relay's own (`relay/package.json`); a relay from before it announced one sends none.
+  z.object({ type: z.literal('challenge'), nonce: z.string(), version: z.string().optional() }),
   z.object({ type: z.literal('ok'), peers: z.array(z.string()) }),
   z.object({ type: z.literal('presence'), peer: z.string(), online: z.boolean() }),
   z.object({ type: z.literal('pair_request'), phone: z.string(), name: z.string(), platform: z.string(), proof: z.string() }),
