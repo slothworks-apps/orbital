@@ -2,7 +2,7 @@
 id: a-reply-is-in-the-transcript-file-but-not-in-the-open-panel
 title: A reply reaches the transcript file but not the open panel until View > Reload
 type: fix
-status: backlog
+status: done
 domain: web
 related:
   - 2026-09-22-ws-reconnect-resync-design
@@ -174,5 +174,5 @@ boundary in how live messages are merged into the held transcript, not at
 the transport. That is the next thing to read.
 
 Not seen by the user since the transcript check landed: the 5 s repair
-catches each gap before it is noticed. Moved to `backlog`: nothing hurts
-today, and the `heldCount` lead above is where to start if it comes back.
+catches each gap before it is noticed. Closed as `done`: the check is the
+fix. The `heldCount` lead above is where to start if a gap ever outlasts it.
