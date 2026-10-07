@@ -20,6 +20,7 @@ import {
   CLOSE_BAD_SECRET, PAIRING_TOKEN_TTL_MS, RELAY_PING_INTERVAL_MS, RelayToDevice, authSignature, pairingProof, relayWsUrl,
   signRequest, type DeviceToRelay,
 } from './relayApi.js';
+import { RELAY_VERSION_HEADER, relayAnswerTooOld, relayTooOld, type RelayTooOld } from './version.js';
 
 /** First reconnect delay; it doubles per failed attempt up to `RECONNECT_MAX_MS` — the Mac's `RelayClient` shape. */
 export const RECONNECT_DELAY_MS = 3_000;
@@ -54,7 +55,7 @@ export interface SocketLike {
 export type SocketConstructor = new (url: string) => SocketLike;
 
 export type LinkStatus = 'off' | 'connecting' | 'online';
-export type ByeReason = 'protocol' | 'revoked';
+export type ByeReason = 'protocol' | 'revoked' | 'app_too_old';
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export type RemoteClientEvent =
@@ -63,11 +64,18 @@ export type RemoteClientEvent =
   | { type: 'hello'; server: string; macName: string }
   /** True once a cipher exists and the Mac said hello; false when that tunnel is gone. */
   | { type: 'ready'; ready: boolean }
-  | { type: 'bye'; reason: ByeReason }
+  /** `needed`: the Mac's `MIN_PHONE_VERSION`, with `app_too_old`. */
+  | { type: 'bye'; reason: ByeReason; needed?: string }
   | { type: 'paired'; macName: string }
   | { type: 'rejected' }
   | { type: 'unpaired' }
   | { type: 'relay_error'; code: string }
+  /**
+   * The relay is below `MIN_RELAY_VERSION` (at connect, or in a redeem's
+   * answer): the client has stopped, and only `recheck` or `start` tries
+   * that relay again.
+   */
+  | ({ type: 'relay_too_old' } & RelayTooOld)
   /** A hub frame, verbatim — `dropped` ones included (parent § 7). */
   | { type: 'hub'; frame: unknown }
   /** A frame with an empty body: its header flags, and nothing else (parent § 7). */
@@ -164,6 +172,8 @@ export class RemoteClient {
   dropped = 0;
   private ws: SocketLike | null = null;
   private stopped = true;
+  /** Stopped because the relay is too old (`relay_too_old`); `recheck` may knock again, since a relay gets updated. */
+  private relayRefused = false;
   private attempt = 0;
   private reconnectTimer: Timer | null = null;
   private connectTimer: Timer | null = null;
@@ -212,6 +222,7 @@ export class RemoteClient {
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
+    this.relayRefused = false;
     this.connect();
   }
 
@@ -229,7 +240,10 @@ export class RemoteClient {
    * runs out first.
    */
   recheck(windowMs: number): Promise<boolean> {
-    if (this.stopped) return Promise.resolve(false);
+    if (this.stopped && !this.relayRefused) return Promise.resolve(false);
+    // A relay refused as too old may have been updated since: this is the one way back to it.
+    this.stopped = false;
+    this.relayRefused = false;
     return new Promise<boolean>((resolve) => {
       const finish = (): void => {
         clearTimeout(timer);
@@ -238,7 +252,7 @@ export class RemoteClient {
       };
       const timer = setTimeout(finish, windowMs);
       const off = this.on((event) => {
-        if (event.type === 'status' && event.status === 'online') finish();
+        if ((event.type === 'status' && event.status === 'online') || event.type === 'relay_too_old') finish();
       });
       this.reconnectTimer = this.clear(this.reconnectTimer);
       this.attempt = 0;
@@ -347,8 +361,14 @@ export class RemoteClient {
    * rejects: an unreachable relay answers status 0, as the Mac's
    * `RelayClient.post` does. A 200 only means the relay passed it on; call
    * `waitForPairing` first and await it after.
+   *
+   * `relayTooOld` is set when the answer came from a relay below
+   * `MIN_RELAY_VERSION`: the client has then emitted `relay_too_old` and
+   * stopped, and the pairing goes no further.
    */
-  async redeem(token: string, secret: string, name: string, platform: string): Promise<{ status: number; body: unknown }> {
+  async redeem(
+    token: string, secret: string, name: string, platform: string,
+  ): Promise<{ status: number; body: unknown; relayTooOld?: RelayTooOld }> {
     const payload = {
       token,
       name: name.slice(0, PAIR_NAME_MAX_CHARS),
@@ -370,6 +390,11 @@ export class RemoteClient {
       } catch {
         body = { error: text };
       }
+      const tooOld = relayAnswerTooOld(res.headers.get(RELAY_VERSION_HEADER), res.ok);
+      if (tooOld) {
+        this.refuseRelay(tooOld);
+        return { status: res.status, body, relayTooOld: tooOld };
+      }
       return { status: res.status, body };
     } catch {
       return { status: 0, body: { error: 'network' } };
@@ -390,6 +415,13 @@ export class RemoteClient {
         resolve(event.type);
       });
     });
+  }
+
+  /** As `bad_secret`: the relay will not update itself while we knock, so the client stops instead of looping. */
+  private refuseRelay(tooOld: RelayTooOld): void {
+    this.emit({ type: 'relay_too_old', ...tooOld });
+    this.stop();
+    this.relayRefused = true;
   }
 
   private get requestTimeoutMs(): number {
@@ -464,12 +496,19 @@ export class RemoteClient {
       return;
     }
     switch (msg.type) {
-      case 'challenge':
+      case 'challenge': {
+        // An auth would only open a link the relay may not be able to carry.
+        const tooOld = relayTooOld(msg.version);
+        if (tooOld) {
+          this.refuseRelay(tooOld);
+          return;
+        }
         this.sendControl(ws, {
           type: 'auth', pub: this.id, sig: authSignature(this.opts.identity, msg.nonce),
           ...(this.opts.relaySecret ? { secret: this.opts.relaySecret } : {}),
         });
         return;
+      }
       case 'ok':
         this.connectTimer = this.clear(this.connectTimer);
         this.attempt = 0;
@@ -600,7 +639,7 @@ export class RemoteClient {
         return;
       case 'bye':
         this.dropTunnel('bye');
-        this.emit({ type: 'bye', reason: msg.reason });
+        this.emit({ type: 'bye', reason: msg.reason, ...(msg.needed !== undefined ? { needed: msg.needed } : {}) });
         if (msg.reason === 'revoked') this.stop();
         return;
       case 'ws':

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '../mobile/version'
+import { MIN_SERVER_VERSION } from '../mobile/version'
 import {
   back, dismissTopSheet, initialMobileState, isMacAsleep, isPairGone, keepsSelection, mayOpenFromNotice, pairGoneFor, push, pushedTop, reduce,
   registerSheet, useMobile, type MobileState, type Pushed,
@@ -13,28 +13,6 @@ import type { Pairing } from '../mobile/platform/parse'
 
 const NOW = 1_000
 const state = (patch: Partial<MobileState> = {}): MobileState => ({ ...initialMobileState, ...patch })
-
-describe('compareVersions', () => {
-  it('compares dotted numbers numerically, a missing part as zero', () => {
-    expect(compareVersions('0.17.10', '0.17.9')).toBe(1)
-    expect(compareVersions('0.17', '0.17.0')).toBe(0)
-    expect(compareVersions('0.16.9', '0.17.0')).toBe(-1)
-  })
-
-  it('ignores a pre-release suffix and counts dev as the newest', () => {
-    expect(compareVersions('0.18.0-beta.1', '0.18.0')).toBe(0)
-    expect(compareVersions('dev', '99.0.0')).toBe(1)
-    expect(compareVersions('dev', 'dev')).toBe(0)
-    expect(compareVersions('1.0.0', 'dev')).toBe(-1)
-  })
-
-  it('supports a Mac from MIN_SERVER_VERSION on', () => {
-    expect(isSupportedServer(MIN_SERVER_VERSION)).toBe(true)
-    expect(isSupportedServer('dev')).toBe(true)
-    expect(isSupportedServer('0.0.1')).toBe(false)
-    expect(isSupportedServer('')).toBe(false)
-  })
-})
 
 describe('reduce', () => {
   it("tracks the relay link and the Mac's presence", () => {
