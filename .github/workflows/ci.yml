@@ -64,6 +64,7 @@ jobs:
               - 'server/**'
               - 'desktop/**'
             relay-image: *relay
+            mobile-bundle: *web
             docs:
               - .github/workflows/ci.yml
               - 'docs/**'
@@ -146,6 +147,24 @@ jobs:
           push: false
           cache-from: type=gha,scope=relay
 
+  mobile-bundle:
+    # The web bundle the phone app wraps, and the guard that keeps three.js
+    # out of it, which needs the built bundle and so is not in `check (web)`.
+    # The native shells are not built here (ADR ci-runs-what-a-change-reaches).
+    name: build (mobile)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.filters), 'mobile-bundle')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build:mobile -w web
+      - run: npm run test:bundle -w web
+
   # The phone app's version is copied into package.json and the Xcode
   # project; a bump that misses a copy fails here, and so does a minimum
   # version above what the repo has reached. It reads a handful of files,
@@ -212,7 +231,7 @@ jobs:
     # not.
     name: ci passed
     if: always()
-    needs: [changes, check, desktop-app, relay-image, versions, docs, secrets, dependencies]
+    needs: [changes, check, desktop-app, relay-image, mobile-bundle, versions, docs, secrets, dependencies]
     runs-on: ubuntu-latest
     steps:
       - env:
