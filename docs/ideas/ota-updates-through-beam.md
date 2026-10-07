@@ -42,10 +42,21 @@ rolls back in one click and counts which version each device runs.
   built into the native binary, so a compromised server is not enough.
   Beam reserves `publicKey` and `signature` for this, but does not use
   them yet.
-- **OTA carries fixes, not features.** Apple allows pushed code that fixes
-  and adjusts the app, not code that adds features or changes what the app
-  is for. New phone features still go through a store release, so OTA
-  shortens the path for fixes only.
+- **OTA carries everything that is not native.** Fixes and new features
+  ship over the air; only a change that needs a native plugin, a new
+  permission or a manifest / `Info.plist` change waits for a store build.
+  Google Play allows this outright: its rule against downloaded code
+  exempts JavaScript running in a webview. Apple is the risk. Guideline
+  2.5.2 forbids downloaded code that "introduces or changes features",
+  while the developer agreement (§3.3.1(B)) allows interpreted code that
+  does not change the app's primary purpose. In practice Apple enforces
+  the second, which is how Expo Updates and Capgo users ship features. So
+  the limits are:
+  - a feature stays within what the store listing says the app is: a
+    remote for Claude Code sessions on the user's Mac;
+  - nothing is held back during review and switched on after it;
+  - a store build follows every so often, so the bundle built into the
+    binary does not fall far behind what devices run.
 - **Off in dev builds and in forks.** The update URL and the public key
   come from the release build's configuration, not from the repository.
 - **Beam's first consumer goes first.** Beam's app-side integration is
