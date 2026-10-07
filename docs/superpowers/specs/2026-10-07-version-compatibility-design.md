@@ -198,3 +198,29 @@ everything travels in the relay's own messages and in `hello` / `bye`.
 | relay | announces its version | `relay/CHANGELOG.md` |
 | desktop | refuses a relay or a phone that is too old and says so | `desktop/CHANGELOG.md` |
 | phone | explains a relay or app that is too old | `mobile/CHANGELOG.md` |
+
+## As built (backend)
+
+- **The Mac's relay client checks too.** `server/src/remote/relayClient.ts`
+  makes the same check as the phone's client on `challenge` and on every
+  signed post. A refusal emits `refused` with `relay_too_old` and both
+  versions, the way `bad_secret` is emitted. The remote status then reads
+  `relay: 'too_old'` with `relayTooOld: { relayVersion, needed }`, and
+  `POST /api/remote/pair` answers 409 `relay_too_old`. "Try again" (or any
+  settings change) starts the remote afresh.
+- **Retrying a refused relay on the phone.** After `relay_too_old`, the
+  client stays stopped until `start()` or `recheck()`. `recheck` is the only
+  way a stopped client comes back. That is what 9i's "Try again" and the
+  foreground re-check already call.
+- **`redeem`** returns `relayTooOld` beside `status` and `body`, emits
+  `relay_too_old` and stops the client.
+- **A missing version header** counts as `RELAY_VERSION_BEFORE_ANNOUNCING`
+  only on a successful answer. An error page may come from a proxy in front
+  of the relay, so it says nothing about the relay itself.
+- **`hello.app` that names no version** (`phoneAppVersion` returns null) is
+  not refused. A refusal has to name both versions.
+- **The phone refusal is kept in memory**, per device, as
+  `devices[].needsUpdate: { version, needed } | null` in the remote status.
+  A restart of the Mac forgets it until that phone says hello again.
+- **The relay reads its version** by importing `relay/package.json`. The
+  esbuild bundle inlines it, so the image needs no package.json at runtime.
