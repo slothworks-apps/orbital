@@ -93,6 +93,15 @@ Commit messages and PR descriptions carry no attribution: no
 The `commit-msg` hook refuses such a message; the `Attribution` workflow
 checks the same in every PR's commits and description.
 
+Every PR gets a description and labels when it is opened — never
+`--fill` alone, which leaves the body empty. The description says what
+changes for the user and why, the phone decision, and any version bump.
+Labels: `desktop`, `relay`, `mobile` for each app the change reaches (the
+same mapping as Versions above), `ui` when it changes what the user sees,
+`ci` for workflows, hooks and build scripts, plus one of `bug`,
+`enhancement` or `documentation`. If no existing label fits, ask before
+creating one (`gh label list` shows them).
+
 ### Every feature has a phone answer
 
 Orbital also runs on the phone: `mobile/` is the Capacitor shell around

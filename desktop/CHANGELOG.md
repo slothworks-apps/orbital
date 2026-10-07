@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.21.1] — 2026-10-07
+### Changed
+- In the sidebar, a working session shows a steady solid dot that no longer blinks and an idle one a hollow ring, so the collapsed sidebar shows at a glance which sessions are busy.
+
 ## [0.21.0] — 2026-10-07
 ### Added
 - Settings → Mobile says when the relay is too old for this Mac, with both versions, and marks a paired phone whose app is too old to connect, instead of either just going quiet.

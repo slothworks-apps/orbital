@@ -94,8 +94,10 @@ function rowHue(session: ApiSession, tags: Tag[]): number | undefined {
 }
 
 /**
- * Row lead dot per canvas 1a: solid tag-hue disc for active sessions
- * (blinking + glowing while working), hollow hue ring for history rows.
+ * Row lead dot: a solid, glowing tag-hue disc while the session works or
+ * waits for input; a hollow hue ring while it sits idle, dimmer once it has
+ * ended — so the collapsed rail tells busy from quiet at a glance. Fill alone
+ * carries that: the disc does not blink, a blink beside the map distracts.
  * The export draws list dots at 7px and the collapsed rail's at 8px.
  */
 function RowDot({
@@ -109,26 +111,20 @@ function RowDot({
 }) {
   const color = hue !== undefined ? tagColor(hue) : 'rgba(160,190,225,.6)'
   const box = { width: `${size}px`, height: `${size}px` }
-  if (status === 'ended') {
+  if (status === 'idle' || status === 'ended') {
     return (
       <span
         aria-hidden
         className="shrink-0 rounded-full border"
-        style={{ ...box, borderColor: color, opacity: 0.6 }}
+        style={{ ...box, borderColor: color, opacity: status === 'ended' ? 0.6 : 0.9 }}
       />
     )
   }
-  const busy = status === 'working' || status === 'needs_input'
   return (
     <span
       aria-hidden
-      className={['shrink-0 rounded-full', busy ? 'orbital-pulse' : ''].filter(Boolean).join(' ')}
-      style={{
-        ...box,
-        background: color,
-        boxShadow: busy ? `0 0 8px ${color}` : undefined,
-        opacity: busy ? 1 : 0.8,
-      }}
+      className="shrink-0 rounded-full"
+      style={{ ...box, background: color, boxShadow: `0 0 8px ${color}` }}
     />
   )
 }
@@ -662,7 +658,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           no session to take a hue from. */}
       <TopGlint focused={windowFocused} />
       {/* Collapsed rail per canvas 1b: logo, expand toggle, divider, one hue
-          dot per active session (blinking while working). */}
+          dot per active session (solid while busy, hollow while idle). */}
       <div
         inert={!collapsed || undefined}
         className={[
