@@ -2,7 +2,7 @@
 id: 2026-10-07-version-compatibility-design
 title: Version compatibility between the relay, the Mac and the phone
 type: spec
-status: draft
+status: active
 domain: remote
 related:
   - 2026-09-30-mobile-remote-design
@@ -78,9 +78,14 @@ that announces nothing. Every relay released so far is 0.2.0 or older. A
 missing version therefore passes for as long as `MIN_RELAY_VERSION` stays
 at or below that value, and fails once it is raised past it.
 
-The first values are the versions that ship today, so this change refuses
-nobody: `MIN_RELAY_VERSION = '0.2.0'`, `MIN_SERVER_VERSION` unchanged, and
-`MIN_PHONE_VERSION` set to the current `versionName`.
+The first values refuse nobody who runs a release today:
+`MIN_RELAY_VERSION = '0.2.0'`, `MIN_SERVER_VERSION` unchanged, and
+`MIN_PHONE_VERSION = '0.1.0'`. Every phone up to 0.3.2 reports `0.1.0`
+in `hello.app`, because its `mobile/package.json` had drifted, so a higher
+minimum would refuse them all.
+
+`PHONE_KNOWS_APP_TOO_OLD = '0.4.0'` is the first phone release that
+understands `bye app_too_old` (§ 4).
 
 **When to raise one:** in the change that makes the other side depend on
 something new, in the same PR as that change. Raising a minimum alters what
@@ -125,9 +130,11 @@ ships, so it goes under the changelog rules in the root `CLAUDE.md`.
 - `bye` becomes `{ t: 'bye', reason: 'protocol' | 'revoked' | 'app_too_old',
   needed?: string }`. A phone from before this change does not know
   `app_too_old`, and its schema would reject the message. If the refused
-  phone's version is older than the first phone release that knows the
-  reason, the Mac sends `bye protocol` instead, the closest refusal it
-  understands.
+  phone's version is older than `PHONE_KNOWS_APP_TOO_OLD`, the Mac sends
+  `bye protocol` instead, the closest refusal it understands.
+- **The Mac's two new states need Claude Design too**: the "relay too old"
+  status line (9q) and the "needs an update" mark in the paired-phones list.
+  Until the canvas draws them, the copy above is provisional.
 
 ## 5. Phone
 
