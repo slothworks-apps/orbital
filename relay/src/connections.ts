@@ -19,6 +19,21 @@ export type Conn = { socket: WebSocket; id: string; peers: Set<string> };
 
 export class Connections {
   private byId = new Map<string, Conn>();
+  private pairGeneration = 0;
+
+  /**
+   * Called by the pairing routes when a pair is created or removed, in the
+   * same synchronous step that edits the live connections' `peers`. A
+   * connect that read its peers across an await compares `pairs` before and
+   * after to learn whether that read can still be trusted.
+   */
+  pairsChanged(): void {
+    this.pairGeneration++;
+  }
+
+  get pairs(): number {
+    return this.pairGeneration;
+  }
 
   add(conn: Conn): Conn | undefined {
     const previous = this.byId.get(conn.id);

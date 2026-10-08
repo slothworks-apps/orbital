@@ -2,7 +2,7 @@
 id: a-revoke-can-slip-between-the-relays-store-read-and-attach
 title: A revoke can slip between the relay's store read and attach
 type: fix
-status: backlog
+status: done
 domain: remote
 related:
   - 2026-10-02-mobile-app-read
@@ -56,3 +56,14 @@ Re-check the pair after the device becomes reachable, not before: read
 `peers` after `ctx.connections.add(conn)` in `attach` (or re-check
 `expectMac` membership against a fresh `peersOf` call at that point) so a
 revoke that lands during the handshake is observed instead of raced.
+
+## Fixed 2026-10-08
+
+Worse than described above: the stale `peers` also let the revoked phone's
+frames through to the Mac for the whole connection, since `route` checks
+that same set. `Connections` now carries a pair generation that
+`/pair/confirm` and `/pair/revoke` bump in the step that edits the live
+`peers`; the connect handler repeats its `peersOf` read until no pair
+changed across it, and nothing awaits between that check and `attach`
+registering the device. A pair confirmed during the gap is picked up the
+same way. Covered in `relay/test/ws.test.ts`.

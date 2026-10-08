@@ -3,6 +3,8 @@
 All notable changes to the relay image. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `relay/package.json`.
 
 ## [Unreleased]
+### Fixed
+- A phone removed from a Mac at the very moment it reconnects is now told it is unpaired, and can no longer reach that Mac through the connection it opened.
 
 ## [0.3.0] — 2026-10-07
 ### Added
