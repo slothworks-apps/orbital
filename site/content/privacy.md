@@ -53,9 +53,8 @@ else to look for a new version.
 
 The phone app is optional. Nothing connects anywhere until you turn it on in
 the Mac app's Settings → Mobile and enter a relay address. **There is no
-default relay.** You either run your own (the relay is part of the open
-source code and ships as a Docker image), or ask us for the address of the
-relay SlothWorks runs.
+default relay.** The relay is part of the open source code and ships as a
+Docker image; whoever runs the relay you use holds the data described below.
 
 **Pairing.** The Mac shows a QR code; the phone scans it with Google's ML Kit
 barcode scanner and sends a one-time pairing request to the relay. You
@@ -99,15 +98,6 @@ Mac app's Settings → Mobile deletes the pairing; "Pair a different Mac" on
 the phone tells the relay to stop sending it push notifications. The device
 records themselves (names, push token, last seen) stay in the relay's
 database until its operator deletes them.
-
-**Who runs the relay.**
-
-- If you run your own relay, everything above stays with you. SlothWorks
-  receives nothing.
-- If you use a relay SlothWorks runs for you, SlothWorks is responsible for
-  the data listed above. To have your devices removed, write to us (see
-  Contact) with your Mac's name; we delete the records for your Mac and its
-  phones.
 
 **On the phone itself.** The phone keeps its pairing and its device key (in
 the system's secure storage), and a cache of what you last saw — the session
@@ -166,23 +156,21 @@ phone app and the relay are all in that repository.
 
 ## Who is responsible
 
-For the relay SlothWorks runs and for this website, the data controller is:
+For this website, the data controller is:
 
 SlothWorks s.r.o.
 Mostecká 232/4, 412 01 Litoměřice, Czech Republic
 Company ID (IČO): 107 98 838
 Email: orbital@slothworks.io
 
-For everything that stays on your own Mac and phone, or on a relay you run
-yourself, you are in control and we receive nothing. For your Claude
-sessions, Anthropic is responsible for its own processing.
+For everything that stays on your own Mac and phone, you are in control and
+we receive nothing. The relay's data is held by whoever runs it. For your
+Claude sessions, Anthropic is responsible for its own processing.
 
-We process the relay data to provide the relay you asked to use (Article
-6(1)(b) GDPR) and the short-lived IP data to keep it secure (our legitimate
-interest, Article 6(1)(f)). The services that process data for us are
-the relay's hosting, Google (Firebase Cloud Messaging) and Cloudflare (this
-website). Google, Apple and Cloudflare may process data
-outside the EU; their own terms describe the safeguards they use for that.
+Push notifications are delivered by Google (Firebase Cloud Messaging) and,
+on iPhone, Apple; this website is hosted by Cloudflare. Google, Apple and
+Cloudflare may process data outside the EU; their own terms describe the
+safeguards they use for that.
 
 Orbital is a developer tool and is not directed at children.
 
@@ -191,8 +179,6 @@ Orbital is a developer tool and is not directed at children.
 Under the GDPR you can ask us for a copy of the data we hold about you, ask
 us to correct it, delete it, or limit or stop how we use it, and to receive
 it in a portable form. Write to orbital@slothworks.io; we answer within one month.
-For the relay, we can only find your records if you tell us your Mac's name,
-since the relay knows nothing else about you.
 
 You can also complain to the Czech data protection authority, the Úřad pro
 ochranu osobních údajů ([uoou.gov.cz](https://uoou.gov.cz)), or the
