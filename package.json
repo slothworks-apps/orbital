@@ -9,7 +9,8 @@
     "web",
     "desktop",
     "relay",
-    "mobile"
+    "mobile",
+    "site"
   ],
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
