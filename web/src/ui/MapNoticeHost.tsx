@@ -1,48 +1,30 @@
-import { useEffect, useState } from 'react'
 import { useMapInsets } from '../map/shell/MapShell'
-import { useMapNotices, type MapNoticeEntry } from '../store/mapNotices'
+import { useMapNotices } from '../store/mapNotices'
 import { useOrbital } from '../store/store'
-import { EXITING, NOTICE_EXIT_MS, NOTICE_EXIT_TRANSITION } from './motion'
-import { prefersReducedMotion } from './usePresence'
+import { EXITING, NOTICE_FADE_TRANSITION } from './motion'
+import { NoticeDots } from './NoticeDots'
+import { useNoticeSwap } from './useNoticeSwap'
 
-/** 1a: the notice's top edge, 22 px below the top of the map. */
-const NOTICE_TOP_PX = 22
+/** 1a: the column's top edge, 14 px below the top of the map. */
+const NOTICE_TOP_PX = 14
+/** 1a: the toast's width; it narrows with a narrower strip. */
+const NOTICE_WIDTH_PX = 540
 
 /**
- * Where `MapNotice`s appear (canvas `Feature - Notifications off` 1a): the top
+ * Where the Mac's notices show (canvas `Feature - Notice toast` 1a): the top
  * centre of the visible strip of map — between the sidebar and any open
- * right-hand panel, so it never covers a composer — and one at a time, the
- * head of `useMapNotices`' queue. The strip lets clicks through; only the
- * card takes them. Mounted once by `App`, over every map theme.
- *
- * A notice appears with no motion and leaves on a 150 ms fade; the next one
- * waits for the fade.
+ * right-hand panel, so it never covers a composer — one at a time, the head
+ * of `useMapNotices`, with the dots for the rest above it. The strip lets
+ * clicks through; only the card takes them. Mounted once by `App`, over every
+ * map theme: the toast is app chrome, not part of the map.
  */
 export function MapNoticeHost() {
   const head = useMapNotices((s) => s.queue[0] ?? null)
+  const count = useMapNotices((s) => s.queue.length)
   const dismiss = useMapNotices((s) => s.dismiss)
   const { insets } = useMapInsets()
   const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
-  const [shown, setShown] = useState<MapNoticeEntry | null>(head)
-  const [leaving, setLeaving] = useState(false)
-
-  useEffect(() => {
-    if (head?.id === shown?.id) {
-      setLeaving(false)
-      return
-    }
-    if (!shown || prefersReducedMotion()) {
-      setShown(head)
-      setLeaving(false)
-      return
-    }
-    setLeaving(true)
-    const t = setTimeout(() => {
-      setLeaving(false)
-      setShown(head)
-    }, NOTICE_EXIT_MS)
-    return () => clearTimeout(t)
-  }, [head, shown])
+  const { shown, visible } = useNoticeSwap(head)
 
   if (!shown) return null
   const { Body, id } = shown
@@ -58,13 +40,15 @@ export function MapNoticeHost() {
       style={{ left: insets.left, right: insets.right, top: NOTICE_TOP_PX }}
     >
       <div
-        inert={leaving}
+        inert={!visible}
         className={[
-          'orbital-no-drag pointer-events-auto max-w-full',
-          NOTICE_EXIT_TRANSITION,
-          leaving ? `opacity-0 ${EXITING}` : 'opacity-100',
+          'orbital-no-drag pointer-events-auto flex max-w-full flex-col items-center gap-2',
+          NOTICE_FADE_TRANSITION,
+          visible ? 'opacity-100' : `opacity-0 ${EXITING}`,
         ].join(' ')}
+        style={{ width: NOTICE_WIDTH_PX }}
       >
+        <NoticeDots count={count} size="map" />
         <Body key={id} close={() => dismiss(id)} />
       </div>
     </div>

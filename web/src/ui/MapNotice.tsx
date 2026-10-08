@@ -1,68 +1,35 @@
-import { useEffect, useRef, type ReactNode } from 'react'
-import { PausableTimer } from '../lib/pausableTimer'
+import type { ReactNode } from 'react'
 
 /**
- * The shell of a notice at the top centre of the map (canvas `Feature -
- * Notifications off` 1a, 1b, 1d): a mono label, ×, and whatever the notice
- * says and offers underneath. Never a modal and never a system notification;
- * it blocks nothing outside its own box. Where it sits, one at a time, and its
- * fade on the way out are `MapNoticeHost`'s; this is only the card.
- *
- * `autoCloseMs` closes it after that long, the countdown paused while the
- * pointer is over it (1b: "stays 8 s, paused on hover"). Changing it restarts
- * the countdown, so a notice that moves to a confirming state passes the
- * time only then.
+ * The notice toast's card on the desktop (canvas `Feature - Notice toast` 1a,
+ * 1c): a mono label, ×, the message, and its actions on one row at the right
+ * end. Never a modal and never a system notification; it blocks nothing
+ * outside its own box and nothing makes it go by itself. Where it sits, the
+ * dots above it and the fade between messages are `MapNoticeHost`'s.
  */
 export function MapNotice({
   label,
-  closeLabel,
+  closeLabel = "Dismiss. This message won't come back",
   onClose,
-  autoCloseMs,
+  actions,
   children,
 }: {
   /** The mono header, e.g. `NOTIFICATIONS · OFF`. */
   label: string
-  /** What × says to a screen reader and on hover. */
-  closeLabel: string
+  /** What × says to a screen reader. */
+  closeLabel?: string
   onClose: () => void
-  autoCloseMs?: number
+  /** The buttons, secondary first: the row ends with the primary. */
+  actions?: ReactNode
   children: ReactNode
 }) {
-  const close = useRef(onClose)
-  useEffect(() => {
-    close.current = onClose
-  })
-  const timer = useRef<PausableTimer | null>(null)
-  // Turn on is clicked with the pointer on the card, so the countdown it
-  // starts begins paused, and runs once the pointer leaves.
-  const hovered = useRef(false)
-
-  useEffect(() => {
-    if (autoCloseMs === undefined) return
-    const t = new PausableTimer(autoCloseMs, () => close.current())
-    timer.current = t
-    if (!hovered.current) t.resume()
-    return () => {
-      t.cancel()
-      timer.current = null
-    }
-  }, [autoCloseMs])
-
   return (
-    // 1a: 540 wide, 16/14/16/20 padding, 12 radius, the .16 hairline over a
+    // 1a: 540 wide, 14/14/14/20 padding, 12 radius, the .16 hairline over a
     // near-opaque fill, its drop shadow and top glint, a 12 px blur.
     <div
       role="status"
       aria-label={label}
-      onMouseEnter={() => {
-        hovered.current = true
-        timer.current?.pause()
-      }}
-      onMouseLeave={() => {
-        hovered.current = false
-        timer.current?.resume()
-      }}
-      className="flex w-[540px] max-w-full flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] pb-4 pl-5 pr-3.5 pt-4 shadow-[0_18px_50px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-[12px]"
+      className="flex w-full flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] py-3.5 pl-5 pr-3.5 text-left shadow-[0_18px_50px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-[12px]"
     >
       <div className="flex items-center gap-2">
         <span className="flex-1 font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.65)]">{label}</span>
@@ -70,13 +37,19 @@ export function MapNotice({
           type="button"
           onClick={onClose}
           aria-label={closeLabel}
-          title={closeLabel}
+          title="Dismiss · won't show again"
           className="grid h-7 w-7 place-items-center rounded-[7px] text-[16px] text-[rgba(160,190,225,.65)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
         >
           ×
         </button>
       </div>
       {children}
+      {actions && <div className="flex items-center justify-end gap-1.5 pr-1.5 pt-0.5">{actions}</div>}
     </div>
   )
+}
+
+/** A message's sentence (1a): 14 px at 1.5, 10 px clear of the right edge. */
+export function MapNoticeText({ children }: { children: ReactNode }) {
+  return <p className="pr-2.5 text-[14px] leading-[1.5] text-[rgba(214,226,242,.94)] [text-wrap:pretty]">{children}</p>
 }

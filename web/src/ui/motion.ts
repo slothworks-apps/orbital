@@ -78,8 +78,9 @@ export const PANEL_CLOSED = 'opacity-0 translate-x-[calc(100%+16px)]'
 export const PANEL_OPEN = 'opacity-100 translate-x-0'
 
 /**
- * A map notice (`MapNotice`, canvas `Feature - Notifications off` 1a/1b):
- * no entrance motion — it is simply there — and a 150 ms fade on the way out.
+ * The notice toast (canvas `Feature - Notice toast`, `Feature - Notifications
+ * off` 1d): the first one is simply there; one that goes fades out over
+ * 150 ms, and the next fades in over the same in its place. No slide.
  */
-export const NOTICE_EXIT_MS = 150
-export const NOTICE_EXIT_TRANSITION = 'motion-safe:transition-opacity motion-safe:duration-[150ms] motion-safe:ease-[ease]'
+export const NOTICE_FADE_MS = 150
+export const NOTICE_FADE_TRANSITION = 'motion-safe:transition-opacity motion-safe:duration-[150ms] motion-safe:ease-[ease]'
