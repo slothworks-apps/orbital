@@ -11,6 +11,7 @@ related:
   - 2026-09-23-detached-session-windows-design
   - the-main-process-owns-the-detached-windows
   - 2026-09-24-remembered-window-frames-design
+  - the-desktop-app-updates-itself
 tags:
   - desktop
   - settings
@@ -67,7 +68,7 @@ persists through the settings table, but camera zoom and pan do not persist
 anywhere, and [[sidebar-collapsed-state-should-survive-reload]] is the same
 complaint one level down. Doing that one first makes this one small.
 
-~~**Check for updates automatically**~~ — **ruled out** (Tomin, 2026-09-24): it needs a place to publish to and a check on every launch, which is a lot of surface for a tool used by one person and a few colleagues; a new DMG is shared by hand. The original note: it means adopting `electron-updater` and a
+~~**Check for updates automatically**~~ — **ruled out** (Tomin, 2026-09-24; reversed 2026-10-08 by [[the-desktop-app-updates-itself]]): it needs a place to publish to and a check on every launch, which is a lot of surface for a tool used by one person and a few colleagues; a new DMG is shared by hand. The original note: it means adopting `electron-updater` and a
 place to publish to, which is a packaging decision more than a UI one —
 `trim-and-sign-the-desktop-package` is the neighbour it should be settled
 with.
