@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+
+## [0.7.0] — 2026-10-08
 ### Added
 - Orbital asks for Face ID, your fingerprint or your screen lock when you open it, and again after a minute away; you can turn this off in Settings. With it on, the app switcher no longer shows your sessions, and on Android screenshots of the app are blocked.
 - Orbital now needs a screen lock on the phone; without one it asks you to set one, and your pairing stays.

@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.24.0] — 2026-10-08
 ### Changed
 - The sidebar no longer shows a "recent ▾" sort control above History that did nothing; history is listed newest first, as before.
 - Notifications start off on a new install, sound included. Once your first session is on the map, a quiet notice offers to turn on the two that matter most — a session needing your input and a session failing — and asks macOS then; it never comes back after you close it. Existing installs keep their notification settings.

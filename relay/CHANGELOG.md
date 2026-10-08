@@ -3,6 +3,8 @@
 All notable changes to the relay image. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `relay/package.json`.
 
 ## [Unreleased]
+
+## [0.4.0] — 2026-10-08
 ### Changed
 - The relay stores no device names any more: it drops the Mac's and the phones' names and platforms it kept, and passes a phone's name to its Mac sealed, unreadable to the relay.
 - Notifications sent through the relay read "Orbital" without the Mac's name, so Firebase and Apple's push service see no name either.
