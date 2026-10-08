@@ -143,6 +143,16 @@ export function SectionLabel({ children, first = false }: { children: ReactNode;
   )
 }
 
+/** 9d's section label, with the list's hint on its right. */
+export function FieldLabel({ children, hint }: { children: string; hint?: string }) {
+  return (
+    <div className="flex items-baseline font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+      {children}
+      {hint && <span className="ml-auto min-w-0 truncate pl-3 tracking-[0.04em] text-[rgba(160,190,225,.45)]">{hint}</span>}
+    </div>
+  )
+}
+
 /** 9f's grouped card: rows inside, hairlines between them. */
 export const CARD = 'overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)]'
 

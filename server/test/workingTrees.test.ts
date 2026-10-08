@@ -34,8 +34,8 @@ const TREE_B = '/w/repo/.claude/worktrees/b';
 function setup(roots = [REPO, TREE_A, TREE_B]) {
   const projectsDir = makeTmpDir('trees');
   mkdirSync(join(projectsDir, 'proj'));
-  const row: TreeRow = { id: 's1', cwd: REPO, project_dir: 'proj' };
-  const trees = new WorkingTrees({ projectsDir, git: fakeGit(roots) });
+  const row: TreeRow = { id: 's1', cwd: REPO, project_dir: 'proj', claude_dir_id: 1 };
+  const trees = new WorkingTrees({ transcriptPath: (id, projectDir) => join(projectsDir, projectDir, `${id}.jsonl`), git: fakeGit(roots) });
   const transcript = trees.transcriptOf(row);
   const agentsDir = subagentDirOf(transcript);
   mkdirSync(agentsDir, { recursive: true });
@@ -168,8 +168,8 @@ describe('file sandboxes', () => {
     writeFileSync(join(home, 'only-home.md'), 'home only');
     const projectsDir = join(base, 'projects');
     mkdirSync(join(projectsDir, 'proj'), { recursive: true });
-    const row: TreeRow = { id: 's1', cwd: home, project_dir: 'proj' };
-    const trees = new WorkingTrees({ projectsDir, git: fakeGit([home, tree]) });
+    const row: TreeRow = { id: 's1', cwd: home, project_dir: 'proj', claude_dir_id: 1 };
+    const trees = new WorkingTrees({ transcriptPath: (id, projectDir) => join(projectsDir, projectDir, `${id}.jsonl`), git: fakeGit([home, tree]) });
     const read = (cwd: string | undefined, path: string) =>
       readInSandboxes(trees.sandboxes(row, cwd), (dir) => readFilePreview(dir, path));
     return { home, tree, row, trees, read, transcript: trees.transcriptOf(row) };

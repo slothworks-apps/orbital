@@ -272,6 +272,19 @@ export const COMMANDS: readonly Command[] = [
     note: 'new-session dialog',
   },
   {
+    // Canvas 44f "Keyboard": one shortcut that steps through the Claude
+    // directories, never one per directory — the monogram is a label, not a
+    // key. A letter, so it binds by character (adr
+    // cmd-is-orbitals-modifier-and-digits-bind-by-position).
+    id: 'composer.next-claude-dir',
+    label: 'Next Claude directory',
+    scope: 'composer',
+    chords: ['meta+d'],
+    whileTyping: true,
+    local: true,
+    note: 'new-session dialog · two or more directories',
+  },
+  {
     id: 'dialogs.confirm',
     label: 'Confirm',
     scope: 'dialogs',

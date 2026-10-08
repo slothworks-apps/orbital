@@ -35,6 +35,12 @@ export interface DialogProps {
    * (5b: "12 entries · 3 unseen cleared"). */
   headerMeta?: ReactNode
   /**
+   * A control on the ruled header, beside the esc keycap (canvas 44c: New
+   * session's CLAUDE DIR trigger with four or more directories). The pair
+   * then centres on the title block, the way 44c draws it.
+   */
+  headerAction?: ReactNode
+  /**
    * Which hue owns the frame — the accent everywhere except the stop confirm,
    * which the export frames in amber down to its corner brackets (1b).
    */
@@ -174,6 +180,7 @@ export function Dialog({
   tone = 'accent',
   eyebrowPulse = false,
   headerMeta,
+  headerAction,
   footer,
   footerCaption,
   footerLead,
@@ -284,12 +291,13 @@ export function Dialog({
           {/* Only the form dialogs carry a close affordance, and the export
               draws it as an `esc` keycap rather than an ✕. The confirms rely
               on their footer's "esc cancel" hint (1g/1b). */}
+          {headerAction != null && <div className="flex shrink-0 items-center">{headerAction}</div>}
           {ruledHeader && (
             <button
               type="button"
               onClick={onClose}
               aria-label="Close dialog"
-              className="shrink-0 self-start rounded border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] font-mono text-[10px] text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5"
+              className={`shrink-0 ${headerAction != null ? 'self-center' : 'self-start'} rounded border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] font-mono text-[10px] text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5`}
             >
               esc
             </button>

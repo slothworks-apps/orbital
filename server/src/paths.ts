@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 /**
  * Turns a path the user typed into one the operating system can use.
@@ -26,8 +26,8 @@ export function expandHome(path: string, home: string = homedir()): string {
 }
 
 /**
- * Which `~/.claude` tree this server watches (Settings → General → "Claude
- * directory", spec 2026-09-21-settings-sections-design § 4).
+ * The path of the first Claude directory, `claude_dirs` row 1 (spec
+ * 2026-10-04-multiple-claude-directories-design § 1).
  *
  * Four sources, most specific first:
  *
@@ -35,7 +35,8 @@ export function expandHome(path: string, home: string = homedir()): string {
  * 2. `ORBITAL_CLAUDE_DIR` — an operator who exported a variable meant it, and
  *    should not have it quietly overruled by a row someone clicked into the
  *    settings table months ago.
- * 3. `claude_directory` in the settings table — the row the dialog writes.
+ * 3. `stored` — what the row holds, or, when the row is first seeded, the
+ *    retired `claude_directory` setting.
  * 4. `~/.claude`.
  *
  * Empty and whitespace-only count as unset at every level, because that is
@@ -43,6 +44,9 @@ export function expandHome(path: string, home: string = homedir()): string {
  * default" rather than "watch the current working directory". A typed `~`
  * expands here for the same reason it expands for a project directory
  * ([[tilde-expands-at-the-api-boundary]]): nothing downstream is a shell.
+ * An absolute answer is `path.resolve`d, which drops a trailing slash the
+ * way a shell's `CLAUDE_CONFIG_DIR=~/.claude-work/` would not — the CLI keys
+ * its login on the exact string, so one spelling is kept.
  */
 export function resolveClaudeDir(input: {
   override?: string;
@@ -54,7 +58,7 @@ export function resolveClaudeDir(input: {
   for (const candidate of [input.override, input.env, input.stored]) {
     if (typeof candidate !== 'string') continue;
     const expanded = expandHome(candidate, home);
-    if (expanded !== '') return expanded;
+    if (expanded !== '') return isAbsolute(expanded) ? resolve(expanded) : expanded;
   }
   return join(home, '.claude');
 }

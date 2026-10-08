@@ -61,7 +61,7 @@ function makeApp(opts: { cliPath?: string | null; cli?: Array<{ ok: boolean; out
   const registry = { get: vi.fn((_id: string): any => undefined) };
   const app = Fastify();
   registerMcpRoutes(app, {
-    db, registry, runner, mcp, settings: { get: () => 'acceptEdits' },
+    db, registry, runner, mcpFor: () => mcp, settings: { get: () => 'acceptEdits' },
   });
   return { app, runner, registry, cliCalls };
 }
@@ -215,7 +215,7 @@ describe('MCP routes — restart', () => {
     expect(res.json()).toEqual({ servers: ROWS });
     expect(runner.stopAndWait).toHaveBeenCalledWith('run', undefined);
     expect(runner.start).toHaveBeenCalledWith({
-      cwd: '/w/proj', prompt: '', permissionMode: 'plan', resume: 'run', model: 'opus',
+      cwd: '/w/proj', prompt: '', permissionMode: 'plan', resume: 'run', model: 'opus', claudeDirId: 1,
     });
   });
 

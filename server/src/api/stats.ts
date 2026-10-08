@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { and, eq, gte, lt, lte, type SQL } from 'drizzle-orm';
-import { join } from 'node:path';
 import { sessions, sessionStats } from '../db/schema.js';
 import { computeStats, type StatsRollup, type TurnSegment } from '../stats/compute.js';
 import { costOf, costOfSubagentUsage, severityOf, type Severity } from '../stats/pricing.js';
@@ -305,6 +304,7 @@ export function registerStatsRoutes(app: FastifyInstance, ctx: RouteContext): vo
         id: sessions.id,
         title: sessions.title,
         projectDir: sessions.projectDir,
+        claudeDirId: sessions.claudeDirId,
         model: sessions.model,
         resolvedModel: sessions.resolvedModel,
         firstAt: sessions.firstAt,
@@ -338,7 +338,7 @@ export function registerStatsRoutes(app: FastifyInstance, ctx: RouteContext): vo
     let turns: TurnSegment[] = [];
     if (wantTimeline && sessionRow.projectDir) {
       try {
-        const path = join(ctx.projectsDir, sessionRow.projectDir, `${id}.jsonl`);
+        const path = ctx.transcriptPath(id, sessionRow.projectDir, sessionRow.claudeDirId);
         turns = computeStats(readSessionEntries(path), readPermissionWaits(db, id)).turns;
       } catch (err) {
         // Transcript missing or unreadable: the waterfall is empty, the rest

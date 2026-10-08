@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import * as schema from './schema.js';
 import { settings, tags } from './schema.js';
 import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, DEFAULT_CONTINUE_TEXT } from '../limits/logic.js';
+import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
+import { DEFAULT_CLAUDE_DIR_KEY, LAST_CLAUDE_DIR_KEY } from '../claudeDirs/keys.js';
 
 // Resolved relative to this module (not process.cwd()) so `openDb` works
 // regardless of where the process is launched from. Only correct while the
@@ -160,13 +162,16 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   claude_executable_path: '',
   /**
-   * The `~/.claude` tree the watcher and the registry read (Settings →
-   * General, spec 2026-09-21-settings-sections-design § 4). Empty means
-   * `~/.claude`. `ORBITAL_CLAUDE_DIR` still wins over whatever is stored
-   * here — see `resolveClaudeDir` for the full order. Read once at boot,
-   * which is why the row says a change needs a restart.
+   * The Claude directory (`claude_dirs.id`) the New session dialog falls
+   * back to and a launch without a choice runs under (spec
+   * 2026-10-04-multiple-claude-directories-design § 1). An id no longer
+   * configured reads as the first directory. The directories themselves
+   * replaced the single `claude_directory` row, which `seedClaudeDirs`
+   * migrates and drops.
    */
-  claude_directory: '',
+  [DEFAULT_CLAUDE_DIR_KEY]: String(FIRST_CLAUDE_DIR_ID),
+  /** The last launch's directory; empty until one launches (spec § 3). */
+  [LAST_CLAUDE_DIR_KEY]: '',
   /**
    * Settings → Notifications (spec 2026-09-21-settings-sections-design § 5).
    * Seeded 'true' across the board, and that is not a preference: it is what

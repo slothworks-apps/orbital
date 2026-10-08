@@ -34,6 +34,18 @@ export interface SettingsStore {
 }
 
 export const CATALOG_KEY = 'models_catalog';
+
+/**
+ * Where one Claude directory's probed list is stored: the first directory
+ * keeps `CATALOG_KEY`, so an existing install keeps its list, and every
+ * other gets its own — an enterprise account may not offer what a personal
+ * one does (spec 2026-10-04-multiple-claude-directories-design § 2). The
+ * learned context windows stay one map: they describe a model, not an
+ * account.
+ */
+export function catalogKeyFor(claudeDirId: number, firstClaudeDirId: number): string {
+  return claudeDirId === firstClaudeDirId ? CATALOG_KEY : `${CATALOG_KEY}:${claudeDirId}`;
+}
 export const CONTEXT_WINDOWS_KEY = 'model_context_windows';
 
 /**
@@ -180,6 +192,31 @@ export function extractContextWindows(modelUsage: unknown): Record<string, numbe
 }
 
 /**
+ * Merges what a turn reported into the stored model → context-window map.
+ * One map for every Claude directory — a window belongs to the model — so a
+ * turn records into it without knowing whose catalog it would be.
+ */
+export function recordContextWindows(settings: SettingsStore, modelUsage: unknown): void {
+  const learned = extractContextWindows(modelUsage);
+  if (!Object.keys(learned).length) return;
+  let current: Record<string, number> = {};
+  try {
+    const parsed = JSON.parse(settings.get(CONTEXT_WINDOWS_KEY) || '{}') as Record<string, number> | null;
+    current = parsed ?? {};
+  } catch {
+    // An unreadable map is replaced by what this turn learned.
+  }
+  let changed = false;
+  for (const [model, tokens] of Object.entries(learned)) {
+    if (current[model] !== tokens) {
+      current[model] = tokens;
+      changed = true;
+    }
+  }
+  if (changed) settings.set(CONTEXT_WINDOWS_KEY, JSON.stringify(current));
+}
+
+/**
  * Serves the list of models the installed CLI offers.
  *
  * The list is only reachable through a live `Query`, so this spawns one whose
@@ -205,6 +242,8 @@ export class ModelCatalog {
   private validating = new Map<string, Promise<ModelValidation>>();
   /** Successful validations for the life of the process, by id. */
   private validated = new Map<string, ModelValidation>();
+  private catalogKey: string;
+  private env?: Record<string, string>;
 
   constructor(deps: {
     settings: SettingsStore;
@@ -212,11 +251,17 @@ export class ModelCatalog {
     cwd?: string;
     /** Absolute path to the claude CLI to spawn, or null/undefined for the SDK's bundled default. */
     claudeExecutablePath?: string | null;
+    /** The settings key the probed list lives under — `catalogKeyFor`. Defaults to `CATALOG_KEY`. */
+    catalogKey?: string;
+    /** The Claude directory's environment (`claudeDirEnv`); absent, the SDK's default. */
+    env?: Record<string, string>;
   }) {
     this.settings = deps.settings;
     this.queryFn = deps.queryFn;
     this.cwd = deps.cwd ?? process.cwd();
     this.claudeExecutablePath = deps.claudeExecutablePath;
+    this.catalogKey = deps.catalogKey ?? CATALOG_KEY;
+    this.env = deps.env;
   }
 
   async list(): Promise<OrbitalModel[]> {
@@ -243,17 +288,7 @@ export class ModelCatalog {
 
   /** Merges what a turn reported into the stored model → context-window map. */
   recordContextWindows(modelUsage: unknown): void {
-    const learned = extractContextWindows(modelUsage);
-    if (!Object.keys(learned).length) return;
-    const current = this.contextWindows();
-    let changed = false;
-    for (const [model, tokens] of Object.entries(learned)) {
-      if (current[model] !== tokens) {
-        current[model] = tokens;
-        changed = true;
-      }
-    }
-    if (changed) this.settings.set(CONTEXT_WINDOWS_KEY, JSON.stringify(current));
+    recordContextWindows(this.settings, modelUsage);
   }
 
   /**
@@ -271,7 +306,7 @@ export class ModelCatalog {
     }
     this.refreshing = this.probe()
       .then((models) => {
-        if (models.length) this.settings.set(CATALOG_KEY, JSON.stringify(models));
+        if (models.length) this.settings.set(this.catalogKey, JSON.stringify(models));
         this.lastProbeOk = true;
       })
       .catch((err) => {
@@ -345,9 +380,13 @@ export class ModelCatalog {
       strictMcpConfig: true,
       mcpServers: {},
       settingSources: [],
+      // A real turn writes a transcript the indexer would show as a session
+      // (adr ephemeral-title-queries).
+      persistSession: false,
     };
     // Same reason as in `probe()`.
     if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
+    if (this.env) options.env = this.env;
     const q = this.queryFn({ prompt: oneMessage(), options });
 
     let result: Record<string, unknown> | null = null;
@@ -396,7 +435,7 @@ export class ModelCatalog {
   }
 
   private storedRaw(): ModelInfoLike[] {
-    return this.readJson<ModelInfoLike[]>(CATALOG_KEY, []);
+    return this.readJson<ModelInfoLike[]>(this.catalogKey, []);
   }
 
   private contextWindows(): Record<string, number> {
@@ -419,11 +458,12 @@ export class ModelCatalog {
     async function* silent(): AsyncGenerator<never> {
       await new Promise<never>(() => {});
     }
-    const options: Record<string, unknown> = { cwd: this.cwd, permissionMode: 'plan' };
+    const options: Record<string, unknown> = { cwd: this.cwd, permissionMode: 'plan', persistSession: false };
     // Absent, the SDK spawns its own bundled binary — which the packaged app
     // cannot have (spec 2026-09-16-electron-wrapper-design § 2). Mirrors
     // Runner's `start()`.
     if (this.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.claudeExecutablePath;
+    if (this.env) options.env = this.env;
     const q = this.queryFn({
       prompt: silent(),
       options,

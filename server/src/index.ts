@@ -10,7 +10,8 @@ import { homedir } from 'node:os';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
-import { resolveClaudeDir } from './paths.js';
+import { FIRST_CLAUDE_DIR_ID, cliDefaultDir } from './claudeDirs/paths.js';
+import { ClaudeDirsService, seedClaudeDirs, type ClaudeDir } from './claudeDirs/service.js';
 import {
   countSweepable,
   parseRetentionDays,
@@ -20,9 +21,9 @@ import {
 } from './retention.js';
 import { openDb } from './db/database.js';
 import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
-import { indexPaths, indexProjects } from './indexer/indexer.js';
+import { indexPaths, indexProjects, type IndexOwner } from './indexer/indexer.js';
 import { batchSessionIds, watchProjects } from './watcher/projects.js';
-import { SessionRegistry, type LiveSession } from './watcher/registry.js';
+import { LiveRegistries, SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
 import { LiveSessionStats } from './watcher/liveStats.js';
 import { recordPermissionWait } from './stats/store.js';
@@ -37,7 +38,7 @@ import { WorkingTrees } from './git/workingTrees.js';
 import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
-import { registerRoutes } from './api/routes.js';
+import { registerRoutes, type RouteClaudeDirContext } from './api/routes.js';
 import { listedBackgroundTasks, listedSubagents, statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
@@ -54,7 +55,7 @@ import { gateOf } from './harness/logic.js';
 import type { HarnessGate } from './harness/types.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
-import { ModelCatalog } from './models/catalog.js';
+import { ModelCatalog, catalogKeyFor, recordContextWindows } from './models/catalog.js';
 import { LIMITS_TOPIC, LimitsService } from './limits/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
@@ -107,6 +108,7 @@ function rowlessSession(ctx: PublishContext, live: LiveSession) {
     backgroundTasks: listedBackgroundTasks(tasks),
     backgroundTaskCount: tasks.length,
     recentTools: ctx.recentTools.all(live.sessionId),
+    claudeDirId: live.claudeDirId ?? FIRST_CLAUDE_DIR_ID,
   };
 }
 
@@ -222,6 +224,7 @@ export function isAllowedHost(hostHeader: string | undefined | null): boolean {
 
 export async function buildServer(overrides: {
   dbPath?: string;
+  /** The first Claude directory's path, over `ORBITAL_CLAUDE_DIR` and the row. Tests only. */
   claudeDir?: string;
   queryFn?: QueryFn;
   /** The titler's one-shot call. Its own seam: it sends a whole prompt, not a stream. */
@@ -273,8 +276,8 @@ export async function buildServer(overrides: {
 
   // The database comes up FIRST, before anything that might be configured
   // from it. `dbPath` hangs off `dataDir`, which no setting can move, so
-  // there is no cycle here — but `claudeDir` below is now a stored setting,
-  // and it cannot be read before the table it lives in exists.
+  // there is no cycle here — but the Claude directories below are stored
+  // rows, and they cannot be read before the table they live in exists.
   //
   // `ORBITAL_MIGRATIONS_DIR` is how the packaged app points at its unpacked
   // `drizzle/` resources; unset everywhere else, where the default is right.
@@ -293,21 +296,16 @@ export async function buildServer(overrides: {
         .onConflictDoUpdate({ target: settingsTable.key, set: { value } }).run(),
   };
 
-  // Settings → General → "Claude directory". Read once, here, which is why
-  // the row says a change needs a restart: the watcher and the registry are
-  // built on these two paths and never rebuilt.
-  const claudeDir = resolveClaudeDir({
-    override: overrides.claudeDir,
-    env: process.env.ORBITAL_CLAUDE_DIR,
-    stored: settingsStore.get('claude_directory'),
-  });
-  const projectsDir = join(claudeDir, 'projects');
-  const sessionsDir = join(claudeDir, 'sessions');
+  // The Claude directories (spec 2026-10-04-multiple-claude-directories-design
+  // § 1): row 1 is seeded from what the single-directory server watched. Their
+  // contexts start further down, once everything a context feeds exists.
+  seedClaudeDirs(db);
   const hub = new Hub();
   // One log for both sides of the wire; it publishes its own changes on the
   // `errors` topic, so it needs the hub and nothing else.
   const errors = new ErrorLog({ db, hub });
-  const registry = new SessionRegistry(sessionsDir);
+  // Every directory's live CLI registry, read as one; each context adds its own.
+  const registry = new LiveRegistries();
 
   // Which `claude` this server will spawn, decided once at boot: the runner
   // gets the path, `GET /api/health` gets the source so the desktop app can
@@ -341,12 +339,26 @@ export async function buildServer(overrides: {
     db.delete(settingsTable).where(eq(settingsTable.key, 'claude_code_version')).run();
   }
 
-  const models = new ModelCatalog({
-    settings: settingsStore,
-    queryFn: overrides.queryFn ?? (query as unknown as QueryFn),
-    cwd: process.cwd(),
-    claudeExecutablePath: claudeCli.path,
-  });
+  // `claudeDirs` is built below, once everything its contexts start exists;
+  // nothing here calls these before that.
+  /**
+   * The directory a session belongs to: the one the Runner started it under,
+   * else its row's, else the registry's for a terminal session not indexed
+   * yet, else the default.
+   */
+  const dirOfSession = (sessionId: string): number =>
+    runner.claudeDirOf(sessionId) ??
+    db.select({ id: sessions.claudeDirId }).from(sessions).where(eq(sessions.id, sessionId)).get()?.id ??
+    registry.dirOf(sessionId) ??
+    claudeDirs.defaultId();
+  /**
+   * The environment for a CLI under this directory. One no longer configured
+   * runs under the default's: the env is always built, so the server's own
+   * `CLAUDE_CONFIG_DIR` can never reach a spawn.
+   */
+  const envForDir = (claudeDirId: number): Record<string, string> | undefined =>
+    claudeDirs.envFor(claudeDirId) ?? claudeDirs.envFor(claudeDirs.defaultId());
+  const envForSession = (sessionId: string) => envForDir(dirOfSession(sessionId));
 
   // Usage limits (spec 2026-10-03-usage-limits-design): the probe behind the
   // limits view, and the waits that continue a session after a reset. With an
@@ -360,6 +372,12 @@ export async function buildServer(overrides: {
     tracked: billing !== 'api-key',
     cwd: process.cwd(),
     claudeExecutablePath: claudeCli.path,
+    // One plan per directory: each is probed under its own login.
+    claudeDirs: {
+      list: () => claudeDirs.list().map(({ id, name }) => ({ id, name })),
+      envFor: envForDir,
+      dirOf: dirOfSession,
+    },
     republish: (sessionId) => republish(sessionId),
     onError: (err, during, sessionId) =>
       errors.record({
@@ -414,11 +432,12 @@ export async function buildServer(overrides: {
   // 2026-09-22-git-location-indicator-design).
   const git = new GitStore();
   // The editors open on this machine, per workspace, from the locks the
-  // extension writes into `~/.claude/ide` (spec
+  // extension writes into each Claude directory's `ide/` (spec
   // 2026-09-23-ide-bridge-design). Started rather than constructed-and-used:
-  // starting is what reads the directory and opens sockets, and nothing about
-  // it may delay or fail a session (adr `orbital-speaks-to-the-ide-itself`).
-  const ide = new IdeStore({ claudeDir });
+  // starting is what reads the directories and opens sockets, and nothing
+  // about it may delay or fail a session (adr `orbital-speaks-to-the-ide-itself`).
+  // Each directory's context adds its own.
+  const ide = new IdeStore({});
   ide.start();
   // Line changes and the PR per working tree, read only while a window has a
   // session in it open (spec 2026-09-30-branch-pr-and-line-changes-design).
@@ -427,7 +446,10 @@ export async function buildServer(overrides: {
   // Where each session works now — the last `cwd` of its transcript and of
   // its running subagents', in memory only (adr
   // a-session-has-a-home-and-a-working-tree).
-  const trees = new WorkingTrees({ projectsDir, git });
+  const trees = new WorkingTrees({
+    transcriptPath: (id, projectDir, claudeDirId) => transcriptPath(id, projectDir, claudeDirId),
+    git,
+  });
   const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, trees });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
   const rowOf = (sessionId: string): SessionRow | undefined =>
@@ -478,6 +500,7 @@ export async function buildServer(overrides: {
   const titler = new SessionTitler({
     queryFn: overrides.titleQueryFn ?? query,
     claudeExecutablePath: claudeCli.path,
+    envFor: envForSession,
     readSession: (sessionId) =>
       db
         .select({ title: sessions.title })
@@ -508,11 +531,15 @@ export async function buildServer(overrides: {
       subagents.running(sessionId).length > 0 || backgroundTasks.running(sessionId).length > 0,
     isWaiting: (sessionId): boolean => runner.status(sessionId) === 'needs_input',
     send: (sessionId, text): string | null => runner.send(sessionId, text),
-    askWatcher: (prompt) =>
-      askWatcher(overrides.titleQueryFn ?? query, prompt, { claudeExecutablePath: claudeCli.path }),
-    askReviewer: (prompt, cwd, { model, abortController }) =>
+    // Both read the session's work, so both run under its directory (adr
+    // helper-queries-run-under-the-sessions-account).
+    askWatcher: (prompt, sessionId) =>
+      askWatcher(overrides.titleQueryFn ?? query, prompt, {
+        claudeExecutablePath: claudeCli.path, env: envForSession(sessionId),
+      }),
+    askReviewer: (prompt, cwd, { model, abortController, sessionId }) =>
       askReviewer(overrides.titleQueryFn ?? query, prompt, {
-        cwd, model, abortController, claudeExecutablePath: claudeCli.path,
+        cwd, model, abortController, claudeExecutablePath: claudeCli.path, env: envForSession(sessionId),
       }),
     // The reviewer's default: the model the session asked for, else the one that ran.
     modelOf: (sessionId) => {
@@ -521,9 +548,11 @@ export async function buildServer(overrides: {
       return row?.model ?? row?.resolvedModel ?? null;
     },
     // The user picks the model per draft (spec 2026-10-02-harness-redesign-design § Drafting model).
+    // A template is about no session: the default directory's account.
     askDrafter: (prompt, model) =>
       askOnce(overrides.titleQueryFn ?? query, prompt, {
         systemPrompt: DRAFT_SYSTEM_PROMPT, model, claudeExecutablePath: claudeCli.path,
+        env: envForDir(claudeDirs.defaultId()),
       }),
     publish: (sessionId, h) => {
       hub.publish(`session:${sessionId}`, { event: 'harness', harness: h });
@@ -557,6 +586,7 @@ export async function buildServer(overrides: {
     db,
     queryFn: overrides.narrateQueryFn ?? query,
     claudeExecutablePath: claudeCli.path,
+    envFor: envForSession,
     model: () => settingsStore.get('narrate_model'),
     onFinish: (sessionId) => hub.publish(`session:${sessionId}`, { event: 'walkthrough_narration' }),
     onError: (sessionId, err) =>
@@ -637,10 +667,19 @@ export async function buildServer(overrides: {
   // an executable path even when the session CLI is the SDK's bundled one,
   // whose path `claudeCli` leaves null (spec
   // 2026-10-01-mcp-servers-in-the-session-design § Config).
-  const mcpConfig = new McpConfig({
-    cliPath: claudeCli.path ?? (claudeCli.source === 'bundled' ? sdkBundledCliPath() : null),
-    claudeJsonPath: claudeJsonPath(),
-  });
+  //
+  // One per Claude directory, built on use: it holds nothing but the paths,
+  // and reads and writes the directory's own `.claude.json` (spec
+  // 2026-10-04-multiple-claude-directories-design § 4).
+  const mcpCliPath = claudeCli.path ?? (claudeCli.source === 'bundled' ? sdkBundledCliPath() : null);
+  const mcpFor = (claudeDirId: number): McpConfig => {
+    const dir = claudeDirs.get(claudeDirId) ?? claudeDirs.get(claudeDirs.defaultId());
+    return new McpConfig({
+      cliPath: mcpCliPath,
+      claudeJsonPath: claudeJsonPath(dir?.path ?? cliDefaultDir()),
+      env: envForDir(claudeDirId),
+    });
+  };
 
   const runner = new Runner({
     hub,
@@ -654,7 +693,7 @@ export async function buildServer(overrides: {
     ide: ideApprovals(ide),
     subagentTranscripts,
     // Which `/mcp` rows are editable: read per call, the CLI rewrites it.
-    mcpConfig: (cwd) => mcpConfig.read(cwd),
+    mcpConfig: (cwd, sessionId) => mcpFor(dirOfSession(sessionId)).read(cwd),
     // Where a live row was written: the transcript's last `cwd`, the main
     // one's or the subagent's the frame came from.
     cwdOf: (sessionId, agentToolUseId) => {
@@ -664,6 +703,9 @@ export async function buildServer(overrides: {
       const agent = subagents.all(sessionId).find((a) => a.toolUseId === agentToolUseId);
       return agent ? trees.agentCwd(row, agent) : null;
     },
+    // Every start runs under its directory's login (spec
+    // 2026-10-04-multiple-claude-directories-design § 3).
+    envFor: envForDir,
     // Read per start, never captured: every switch and the text hold for a
     // session from its next spawn or revive (spec
     // 2026-09-30-session-instructions-design § 1). Default-on rows read
@@ -703,7 +745,7 @@ export async function buildServer(overrides: {
       if (status !== null) stopTail(topic);
       else if (hub.subscriberCount(topic) > 0) startTail(topic);
     },
-    onTurnUsage: (modelUsage) => models.recordContextWindows(modelUsage),
+    onTurnUsage: (modelUsage) => recordContextWindows(settingsStore, modelUsage),
     // How full the session's context is, stored on the row and republished on
     // the `sessions` topic — the map subscribes to `session:<id>` only for the
     // selected session, so a map-wide indicator has to ride the `ApiSession`
@@ -786,7 +828,7 @@ export async function buildServer(overrides: {
     onDecision: (sessionId) => republish(sessionId),
     // Usage limits: every event reads the limits again, a turn ended on the
     // limit may become a wait, and a waiting session settles to `idle`.
-    onRateLimit: () => limits.rateLimitEvent(),
+    onRateLimit: (sessionId) => limits.rateLimitEvent(sessionId),
     onLimitHit: (sessionId, rejected, turnError) => limits.limitHit(sessionId, rejected, turnError),
     isLimitWaiting: (sessionId) => limits.isWaiting(sessionId),
     // An approved plan left plan mode. Stored on the row, so the panel's mode
@@ -881,13 +923,19 @@ export async function buildServer(overrides: {
 
   // Transcript path for a session, once the indexer knows which project
   // directory it belongs to. Null until then.
+  // It sits under the session's own Claude directory; one no longer
+  // configured reads as the default's, where its file will not be.
+  const transcriptPath = (id: string, projectDir: string, claudeDirId: number): string => {
+    const dir = claudeDirs.get(claudeDirId) ?? claudeDirs.get(claudeDirs.defaultId());
+    return join(dir?.path ?? cliDefaultDir(), 'projects', projectDir, `${id}.jsonl`);
+  };
   const transcriptPathOf = (id: string): string | null => {
     const row = db
-      .select({ project_dir: sessions.projectDir })
+      .select({ project_dir: sessions.projectDir, claude_dir_id: sessions.claudeDirId })
       .from(sessions)
       .where(eq(sessions.id, id))
       .get();
-    return row ? join(projectsDir, row.project_dir, `${id}.jsonl`) : null;
+    return row ? transcriptPath(id, row.project_dir, row.claude_dir_id) : null;
   };
 
   /**
@@ -1071,35 +1119,90 @@ export async function buildServer(overrides: {
   // the scan re-create rows the sweep just removed.
   runRetentionSweep();
   console.log('orbital: backfilling the session-stats index (first pass, may take a while on a large ~/.claude)…');
-  const statsBackfill = setImmediate(() => indexProjects(db, projectsDir, statsWritten));
-  // After boot, an event indexes the transcripts it named, not the tree: the
-  // full pass stats every transcript on the machine, and a working session
-  // writes several times a second.
-  const projectsWatcher = watchProjects(
-    projectsDir,
-    (batch) => {
-      if (batch.all) indexProjects(db, projectsDir, statsWritten);
-      else indexPaths(db, projectsDir, batch.paths, statsWritten);
-      // The same writes are what the line-change count follows: a tool that
-      // edited files, a turn that ended. Hooked here, where transcripts are
-      // read — Orbital's own sessions and the terminal's alike — and not in
-      // `publishSession`, which the store's own change republishes through and
-      // would feed back into a recount.
-      const ids = batchSessionIds(batch);
-      if (ids === null) {
-        branchStatus.transcriptActivityAnywhere();
-        republishMoved(trees.shapedSessions());
-      } else if (ids.length > 0) {
-        const rows = db.select(sessionColumns).from(sessions).where(inArray(sessions.id, ids)).all() as SessionRow[];
-        branchStatus.transcriptActivity(rows.map((row) => trees.workingDir(row)));
-        // A line can also have moved the session to another tree.
-        republishMoved(ids);
-      }
-    },
-    // A subagent's line can move it to another tree while the parent's
-    // transcript sits still.
-    (ids) => republishMoved(ids),
-  );
+
+  /**
+   * A transcript skipped because another Claude directory owns its session
+   * id — recorded once per directory, not per file, and never announced (adr
+   * a-session-belongs-to-the-first-directory-that-indexed-it).
+   */
+  const collisionsRecorded = new Set<number>();
+  const recordCollision = (dir: ClaudeDir, sessionId: string, ownerId: number) => {
+    if (collisionsRecorded.has(dir.id)) return;
+    collisionsRecorded.add(dir.id);
+    errors.record({
+      source: 'server',
+      kind: 'session_id_collision',
+      sessionId: null,
+      message: `Skipped sessions in ${dir.name} that another Claude directory already shows`,
+      context: { claudeDir: dir.path, ownerClaudeDirId: ownerId, firstSessionId: sessionId },
+    });
+  };
+
+  /**
+   * Everything one Claude directory runs (spec
+   * 2026-10-04-multiple-claude-directories-design § 2): its transcripts
+   * indexed and watched, its live CLI registry, its editor locks, and its
+   * model catalog. The limits read every configured directory on their own.
+   */
+  const startClaudeDir = (dir: ClaudeDir): RouteClaudeDirContext => {
+    const projectsDir = join(dir.path, 'projects');
+    const owner: IndexOwner = {
+      id: dir.id,
+      isConfigured: (id) => claudeDirs.has(id),
+      onCollision: (sessionId, ownerId) => recordCollision(dir, sessionId, ownerId),
+    };
+    // Deferred like the boot pass always was; contexts start in order, the
+    // default's first, so its pass runs first and its sessions are its own.
+    const backfill = setImmediate(() => indexProjects(db, projectsDir, statsWritten, owner));
+    // After boot, an event indexes the transcripts it named, not the tree: the
+    // full pass stats every transcript on the machine, and a working session
+    // writes several times a second.
+    const projectsWatcher = watchProjects(
+      projectsDir,
+      (batch) => {
+        if (batch.all) indexProjects(db, projectsDir, statsWritten, owner);
+        else indexPaths(db, projectsDir, batch.paths, statsWritten, owner);
+        // The same writes are what the line-change count follows: a tool that
+        // edited files, a turn that ended. Hooked here, where transcripts are
+        // read — Orbital's own sessions and the terminal's alike — and not in
+        // `publishSession`, which the store's own change republishes through and
+        // would feed back into a recount.
+        const ids = batchSessionIds(batch);
+        if (ids === null) {
+          branchStatus.transcriptActivityAnywhere();
+          republishMoved(trees.shapedSessions());
+        } else if (ids.length > 0) {
+          const rows = db.select(sessionColumns).from(sessions).where(inArray(sessions.id, ids)).all() as SessionRow[];
+          branchStatus.transcriptActivity(rows.map((row) => trees.workingDir(row)));
+          // A line can also have moved the session to another tree.
+          republishMoved(ids);
+        }
+      },
+      // A subagent's line can move it to another tree while the parent's
+      // transcript sits still.
+      (ids) => republishMoved(ids),
+    );
+    registry.add(dir.id, new SessionRegistry(join(dir.path, 'sessions')));
+    ide.addClaudeDir(dir.path);
+    const models = new ModelCatalog({
+      settings: settingsStore,
+      queryFn: overrides.queryFn ?? (query as unknown as QueryFn),
+      cwd: process.cwd(),
+      claudeExecutablePath: claudeCli.path,
+      catalogKey: catalogKeyFor(dir.id, FIRST_CLAUDE_DIR_ID),
+      env: envForDir(dir.id),
+    });
+    return {
+      models,
+      stop: () => {
+        clearImmediate(backfill);
+        projectsWatcher.close();
+        registry.remove(dir.id);
+        ide.removeClaudeDir(dir.path);
+        limits.forgetDir(dir.id);
+      },
+    };
+  };
 
   // Live registry → 'sessions' topic, REST-shaped (final-review ruling).
   registry.on('upsert', (s) => {
@@ -1118,8 +1221,18 @@ export async function buildServer(overrides: {
     liveStats.end(id);
     hub.publish('sessions', { event: 'remove', sessionId: id });
   });
-  registry.scan();
-  registry.watch();
+
+  const claudeDirs: ClaudeDirsService<RouteClaudeDirContext> = new ClaudeDirsService({
+    db,
+    settings: settingsStore,
+    override: overrides.claudeDir ?? process.env.ORBITAL_CLAUDE_DIR,
+    startContext: startClaudeDir,
+    // A removed directory's sessions leave the map; their rows stay.
+    onHidden: (ids) => {
+      for (const id of ids) hub.publish('sessions', { event: 'remove', sessionId: id });
+    },
+  });
+  claudeDirs.start();
 
   // Let go of what the previous server was still running. Nothing is resumed:
   // a session whose process died with the server reads `idle`, and the next
@@ -1231,14 +1344,18 @@ export async function buildServer(overrides: {
     // server was started, not preferences, so they ride the health payload
     // rather than becoming settings rows nothing would ever write.
     billing,
-    paths: { claudeDir, dataDir, dbPath: overrides.dbPath ?? CONFIG.dbPath },
+    paths: {
+      claudeDirs: claudeDirs.list().map(({ id, path }) => ({ id, path })),
+      dataDir,
+      dbPath: overrides.dbPath ?? CONFIG.dbPath,
+    },
   }));
   // The mobile remote (spec 2026-09-30-mobile-remote-design § 3). Built
   // whether or not it is enabled — `start()` is what reads the switch — so the
   // routes always have something to ask. `inject` is how a phone's REST call
   // enters: in-process, same routes, same host guard satisfied by the header.
   const remote = new RemoteService({
-    db, hub, dataDir, images, imagesDir, projectsDir, trees,
+    db, hub, dataDir, images, imagesDir, transcriptPath, trees,
     serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
     inject: async (req) => {
       const res = await app.inject(remoteInjectOptions(req, apiToken));
@@ -1248,10 +1365,10 @@ export async function buildServer(overrides: {
     allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
   });
   registerRoutes(app, {
-    db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, recentTools, errors,
+    db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, trees,
     settings: settingsStore,
-    mcp: mcpConfig,
+    mcpFor,
     limits,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,
@@ -1273,14 +1390,15 @@ export async function buildServer(overrides: {
     } catch (err) {
       console.warn(`[remote] stop failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    clearImmediate(statsBackfill);
     limits.dispose();
     runner.dispose();
     registry.close();
     branchStatus.close();
     git.close();
     ide.close();
-    projectsWatcher.close();
+    // After the registry and the editors are closed, so stopping the
+    // contexts announces nothing on the way out.
+    claudeDirs.close();
     for (const tail of tails.values()) tail.stop();
     for (const follower of followers.values()) follower.stop();
     backgroundTasks.dispose();

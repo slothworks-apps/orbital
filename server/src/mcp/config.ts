@@ -19,15 +19,15 @@ export interface McpCliResult {
   output: string;
 }
 
-/** Runs the CLI with these arguments in `cwd`. Injected so tests never run a real `claude`. */
-export type McpCliRun = (cliPath: string, args: string[], cwd: string) => Promise<McpCliResult>;
+/** Runs the CLI with these arguments in `cwd`, under `env` when given. Injected so tests never run a real `claude`. */
+export type McpCliRun = (cliPath: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv) => Promise<McpCliResult>;
 
 /** The real one: `execFile`, no shell, bounded by `MCP_CLI_TIMEOUT_MS`. */
-export const execMcpCli: McpCliRun = (cliPath, args, cwd) =>
+export const execMcpCli: McpCliRun = (cliPath, args, cwd, env) =>
   new Promise((resolve) => {
     execFile(
       cliPath, args,
-      { cwd, timeout: MCP_CLI_TIMEOUT_MS, encoding: 'utf8' },
+      { cwd, env, timeout: MCP_CLI_TIMEOUT_MS, encoding: 'utf8' },
       (err, stdout, stderr) => {
         const output = [stdout, stderr].map((s) => (s ?? '').trim()).filter(Boolean).join('\n');
         resolve({ ok: !err, output: output || (err ? err.message : '') });
@@ -172,18 +172,25 @@ export class McpConfig {
   private run: McpCliRun;
   private readFile?: (path: string) => string;
   private realpath?: (path: string) => string;
+  private env?: NodeJS.ProcessEnv;
 
   constructor(deps: {
     /** The CLI `resolveClaudeCli` arrived at, as an executable path; null when it is `missing`. */
     cliPath: string | null;
-    /** `claudeJsonPath()` in the server; a fixture in tests. */
+    /** The Claude directory's `claudeJsonPath(dir)` in the server; a fixture in tests. */
     claudeJsonPath: string;
+    /**
+     * The Claude directory's environment (`claudeDirEnv`), so `claude mcp`
+     * writes into the same `.claude.json` this reads. Absent in tests.
+     */
+    env?: NodeJS.ProcessEnv;
     run?: McpCliRun;
     readFile?: (path: string) => string;
     realpath?: (path: string) => string;
   }) {
     this.cliPath = deps.cliPath;
     this.path = deps.claudeJsonPath;
+    this.env = deps.env;
     this.run = deps.run ?? execMcpCli;
     this.readFile = deps.readFile;
     this.realpath = deps.realpath;
@@ -236,7 +243,7 @@ export class McpConfig {
 
   private async exec(cwd: string, args: string[], masked: string[], secrets: string[]): Promise<void> {
     if (this.cliPath === null) throw new McpCliMissingError();
-    const result = await this.run(this.cliPath, args, cwd);
+    const result = await this.run(this.cliPath, args, cwd, this.env);
     if (!result.ok) throw new McpCliRefusedError(commandLine(masked), maskSecrets(result.output, secrets));
   }
 }

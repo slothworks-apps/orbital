@@ -32,6 +32,16 @@ starts from it (`lastLaunch` in `web/src/panels/NewSessionDialog.tsx`):
   tag rules decide, as before. A rule's match is not stored, because the rule
   will give the same answer again next time.
 
+- `new_session_last_claude_dir`: the Claude directory, when two or more are
+  configured and the dialog offered the choice. The server stores it from
+  `POST /api/sessions` itself, not the dialog, because the phone cannot
+  write settings and makes the same choice
+  ([[2026-10-04-multiple-claude-directories-design]] § 3). The order is the
+  selected planet's directory, then this key, then `default_claude_dir`; a
+  removed directory, or one missing on disk, falls through
+  (`claudeDirPrefill` in `web/src/lib/claudeDirs.ts`, shared with the
+  phone). The dialog says which step chose, beside the choice's label.
+
 The model has no key of its own. `remember_model_per_project` already
 preselects the model last used in the directory, and the remembered directory
 brings that model with it.

@@ -16,7 +16,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'strip'
     | 'toggle'
     | 'toggle-on'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon'
+    | 'lit'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -63,6 +64,9 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   toggle:
     'bg-transparent text-[rgba(200,220,245,.75)] border border-[rgba(150,205,255,.18)] hover:border-[rgba(150,205,255,.3)] hover:text-text-bright',
   'toggle-on': 'bg-[rgba(150,205,255,.14)] text-text-bright border border-[rgba(150,205,255,.3)]',
+  // Canvas 44a: the Settings row's confirming Remove and Add directory — the
+  // lit neutral chip, in the row's weight, never a hue.
+  lit: 'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.2)]',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -80,6 +84,8 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   strip: 'px-[9px] py-[3px] text-[10.5px]',
   // 27a's ↶: a 30px square, Send's height at `sm`.
   icon: 'h-[30px] w-[30px] p-0',
+  // 44a's in-row buttons (Done, Browse…, Cancel, Remove): 6px/12px at 12px.
+  row: 'px-3 py-1.5 text-xs',
 }
 
 export function Button({
@@ -100,7 +106,7 @@ export function Button({
         ? 'rounded-[6px]'
         : size === 'field'
           ? 'rounded-[9px]'
-          : size === 'sm' || size === 'icon'
+          : size === 'sm' || size === 'icon' || size === 'row'
             ? 'rounded-[7px]'
             : 'rounded-lg'
   // The same for the family: the strip chip is mono, and two font utilities

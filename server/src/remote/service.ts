@@ -6,6 +6,7 @@
  * (spec 2026-09-30-mobile-remote-design § 3).
  */
 import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { deviceId, fingerprint, publicKeyOf, toBase64Url, type Identity } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import {
@@ -82,11 +83,11 @@ export type RemoteServiceOptions = {
   images: ImageStore;
   imagesDir: string;
   /**
-   * Where the session transcripts live, for `file_get`'s named-path check.
-   * The server passes its own (the Claude directory can be moved); tests
-   * that never read a file leave it at the configured one.
+   * A session's transcript file, under its own Claude directory's
+   * `projects/`, for `file_get`'s named-path check. The server passes its
+   * own; tests that never read a file leave it at the configured directory.
    */
-  projectsDir?: string;
+  transcriptPath?: (sessionId: string, projectDir: string, claudeDirId: number) => string;
   /** Where each session works now, for `file_get`'s `cwd`; without it the home alone confines. */
   trees?: Pick<WorkingTrees, 'sandboxes'>;
   serverVersion: string;
@@ -123,7 +124,11 @@ export class RemoteService {
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
     this.now = opts.now ?? Date.now;
-    this.files = createPhoneFileReader(opts.db, opts.projectsDir ?? CONFIG.projectsDir, opts.trees);
+    this.files = createPhoneFileReader(
+      opts.db,
+      opts.transcriptPath ?? ((id, projectDir) => join(CONFIG.projectsDir, projectDir, `${id}.jsonl`)),
+      opts.trees,
+    );
   }
 
   private get enabled(): boolean {

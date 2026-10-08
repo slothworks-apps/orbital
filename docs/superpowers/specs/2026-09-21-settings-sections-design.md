@@ -122,6 +122,8 @@ sentence that a change needs a restart.
 `~/.claude`. Like the executable, the server reads it at boot, so the row
 carries the same restart sentence. The env var keeps precedence over the
 stored value — an operator who set it meant it.
+`2026-10-04-multiple-claude-directories-design` replaces this row with a
+list of directories.
 
 **Billing** is a read-only status line, not a control: `Subscription` or
 `API key (ORBITAL_USE_API_KEY)`. The server decides this at startup by

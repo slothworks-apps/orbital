@@ -2,6 +2,7 @@ import type {
   ApiSession,
   AttachmentUpload,
   LimitsSnapshot,
+  ClaudeDirInfo,
   ChatMessage,
   CommandContent,
   CompletionKey,
@@ -188,7 +189,10 @@ async function request<T>(
 /** `?session=<id>` or `?cwd=<dir>` — never both (the server reads one). */
 function applyCompletionKey(url: URL, key: CompletionKey): void {
   if ('session' in key) url.searchParams.set('session', key.session)
-  else url.searchParams.set('cwd', key.cwd)
+  else {
+    url.searchParams.set('cwd', key.cwd)
+    if (key.claudeDir !== undefined) url.searchParams.set('claudeDir', String(key.claudeDir))
+  }
 }
 
 // Sessions API
@@ -305,6 +309,9 @@ export const api = {
      * The phone sends true and gets 400 `no_such_directory` back for a path
      * that is not one (spec 2026-10-02-mobile-app-design § 6.4). */
     requireDirectory?: boolean
+    /** The Claude directory to run under (spec 2026-10-04-multiple-claude-directories-design § 3).
+     * Omitted, the server uses its default; it remembers a sent one for the next prefill. */
+    claudeDirId?: number
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -773,10 +780,11 @@ export const api = {
   },
 
   // Models API
-  async listModels(): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+  /** One Claude directory's catalog (each account has its own models); the default directory's without one. */
+  async listModels(claudeDir?: number): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
     const data = await request<{ models: OrbitalModel[]; contextWindows?: Record<string, number> }>(
       'GET',
-      '/api/models'
+      claudeDir === undefined ? '/api/models' : `/api/models?claudeDir=${claudeDir}`
     )
     return { models: data.models, contextWindows: data.contextWindows ?? {} }
   },
@@ -790,8 +798,9 @@ export const api = {
   },
 
   /** Probes a model id the catalog does not list. An id Claude Code rejects is `ok: false`, not a throw. */
-  async validateModel(model: string): Promise<ModelValidation> {
-    return request<ModelValidation>('POST', '/api/models/validate', { model })
+  async validateModel(model: string, claudeDir?: number): Promise<ModelValidation> {
+    // Checked under the account the session would run under; absent, the default directory's.
+    return request<ModelValidation>('POST', '/api/models/validate', claudeDir === undefined ? { model } : { model, claudeDir })
   },
 
   // Errors API — the one shared error log, fed from both sides. See
@@ -870,6 +879,29 @@ export const api = {
   ): Promise<SessionStatsDetail> {
     const query = opts.timeline ? '?timeline=1' : ''
     return request<SessionStatsDetail>('GET', `/api/stats/sessions/${encodeURIComponent(id)}${query}`)
+  },
+
+  // Claude directories (spec 2026-10-04-multiple-claude-directories-design § 6).
+  // Mac only: none of these is on the phone's allowlist. A refused change
+  // comes back as `{ error }`, a state the Settings row words, not a throw.
+  async listClaudeDirs(): Promise<ClaudeDirInfo[]> {
+    const data = await request<{ claudeDirs: ClaudeDirInfo[] }>('GET', '/api/claude-dirs')
+    return data.claudeDirs
+  },
+
+  async addClaudeDir(body: { name: string; path: string }): Promise<{ claudeDir: ClaudeDirInfo } | { error: ClaudeDirRefusal }> {
+    return remoteCall('POST', '/api/claude-dirs', body, CLAUDE_DIR_REFUSALS)
+  },
+
+  async updateClaudeDir(
+    id: number,
+    body: { name?: string; path?: string },
+  ): Promise<{ claudeDir: ClaudeDirInfo } | { error: ClaudeDirRefusal }> {
+    return remoteCall('PATCH', `/api/claude-dirs/${id}`, body, CLAUDE_DIR_REFUSALS)
+  },
+
+  async removeClaudeDir(id: number): Promise<void | { error: ClaudeDirRefusal }> {
+    return remoteCall('DELETE', `/api/claude-dirs/${id}`, undefined, CLAUDE_DIR_REFUSALS)
   },
 
   // Plan limits (spec 2026-10-03-usage-limits-design § 2 "Transport")
@@ -1139,6 +1171,23 @@ export const api = {
   },
 }
 
+/** What `/api/claude-dirs` refuses a change with. Mirrors `server/src/claudeDirs/service.ts`. */
+export type ClaudeDirRefusal =
+  | 'path_required'
+  | 'not_absolute'
+  | 'no_such_directory'
+  | 'not_a_directory'
+  | 'duplicate'
+  | 'name_required'
+  | 'not_found'
+  | 'last_directory'
+
+const CLAUDE_DIR_REFUSALS: Partial<Record<number, readonly ClaudeDirRefusal[]>> = {
+  400: ['path_required', 'not_absolute', 'no_such_directory', 'not_a_directory', 'duplicate', 'name_required'],
+  404: ['not_found'],
+  409: ['last_directory'],
+}
+
 /**
  * A remote route whose listed statuses answer `{ error }` as part of its
  * contract: those come back as values, anything else throws `ApiError`.
@@ -1155,6 +1204,7 @@ async function remoteCall<T, E extends string>(
     init.body = JSON.stringify(body)
   }
   const response = await apiFetch(url, init)
+  if (response.status === 204) return undefined as T
   if (response.ok) return (await response.json()) as T
 
   const text = await response.text()
@@ -1172,7 +1222,7 @@ async function remoteCall<T, E extends string>(
 export type ServerHealth = {
   app?: string
   billing?: 'subscription' | 'api-key'
-  paths?: { claudeDir?: string; dataDir?: string; dbPath?: string }
+  paths?: { claudeDirs?: Array<{ id: number; path: string }>; dataDir?: string; dbPath?: string }
 }
 
 /** One of Orbital's shipped tips, as `GET /api/session-instructions/tips` returns it. */

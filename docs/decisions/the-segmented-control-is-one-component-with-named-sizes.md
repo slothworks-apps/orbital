@@ -95,3 +95,12 @@ case.
 A new segmented control picks a size from the table rather than restating
 the chrome. If a screen genuinely needs a fourth set of measurements, it
 gets a fourth named size here — not a local copy.
+
+**The fourth size, `field` (2026-10-05).** New session's Claude directory
+choice (`Feature - Claude directories` 44c) is a segmented control used as a
+form field: the form's full width, 36px tall, the segments sharing it
+equally and truncating their names. Its selected ink is the bright text,
+not the accent — the tint and the weight still carry the state — because
+an accent label between the project input and the model cards would
+outshout both. Options may be `disabled` (a directory missing on disk is
+shown at half strength and cannot be chosen) and carry a `title`.

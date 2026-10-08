@@ -275,7 +275,8 @@ export function Composer({
   /** Paths already probed, so a path that does not exist is asked about once. */
   const probed = useRef<Set<string>>(new Set())
 
-  const keyId = 'session' in sessionKey ? `s:${sessionKey.session}` : `c:${sessionKey.cwd}`
+  // The Claude directory is part of the key: the dialog's catalog follows its choice.
+  const keyId = 'session' in sessionKey ? `s:${sessionKey.session}` : `c:${sessionKey.claudeDir ?? ''}:${sessionKey.cwd}`
 
   // A different session or directory is a different catalog and a different
   // filesystem; nothing learned about the last one carries over.

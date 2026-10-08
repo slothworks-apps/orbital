@@ -45,6 +45,8 @@ export interface NarratorDeps {
   model(): string;
   /** The `claude` to spawn; absent, the SDK's bundled one (mirrors the titler). */
   claudeExecutablePath?: string | null;
+  /** The session's Claude directory environment, as the titler takes it (adr helper-queries-run-under-the-sessions-account). */
+  envFor?: (sessionId: string) => Record<string, string> | undefined;
   /** A run finished, whatever its outcome: the row changed. */
   onFinish?(sessionId: string): void;
   /** A run failed with `error` — recorded, never thrown at anyone. */
@@ -111,7 +113,7 @@ export class Narrator {
     let intents: NarrationIntent[] | null = null;
     let failure: NarrationFailure | null = null;
     try {
-      const outcome = await this.ask(model, digest);
+      const outcome = await this.ask(model, digest, this.deps.envFor?.(sessionId));
       if (outcome.kind === 'refused') failure = 'refused';
       else if (outcome.kind === 'errored') {
         failure = 'error';
@@ -139,7 +141,7 @@ export class Narrator {
    * `model_refusal_no_fallback` notice, or — from a CLI that says neither —
    * an errored turn whose text says the request was refused.
    */
-  private async ask(model: string, digest: string): Promise<Outcome> {
+  private async ask(model: string, digest: string, env: Record<string, string> | undefined): Promise<Outcome> {
     const parts: string[] = [];
     let refused = false;
     let ended = false;
@@ -155,6 +157,7 @@ export class Narrator {
       persistSession: false,
     };
     if (this.deps.claudeExecutablePath) options.pathToClaudeCodeExecutable = this.deps.claudeExecutablePath;
+    if (env) options.env = env;
     for await (const message of this.deps.queryFn({ prompt: digest, options })) {
       if (message?.type === 'assistant') {
         if (message.message?.stop_reason === 'refusal') refused = true;

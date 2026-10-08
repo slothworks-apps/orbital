@@ -33,6 +33,8 @@ export interface LiveSession {
   kind: string;
   startedAt: number;
   updatedAt: number;
+  /** The Claude directory whose registry lists it — set by `LiveRegistries`, never by a scan. */
+  claudeDirId?: number;
 }
 
 function defaultIsPidAlive(pid: number): boolean {
@@ -125,5 +127,68 @@ export class SessionRegistry extends EventEmitter {
 
   all(): LiveSession[] {
     return [...this.sessions.values()];
+  }
+}
+
+/** What the rest of the server asks of the live CLIs: one session, or all of them. */
+export interface LiveSessions {
+  get(sessionId: string): LiveSession | undefined;
+  all(): LiveSession[];
+}
+
+/**
+ * One `SessionRegistry` per Claude directory, read as one (spec
+ * 2026-10-04-multiple-claude-directories-design § 2). Their `upsert` and
+ * `remove` events come out of here, so a directory added later is heard the
+ * same way as one that was there at boot. Removing a directory announces its
+ * live sessions as gone: they are hidden with it.
+ */
+export class LiveRegistries extends EventEmitter implements LiveSessions {
+  private byDir = new Map<number, SessionRegistry>();
+
+  /** Starts reading `registry` for this directory: scanned now, watched from here on. */
+  add(claudeDirId: number, registry: SessionRegistry): void {
+    this.remove(claudeDirId);
+    this.byDir.set(claudeDirId, registry);
+    // A copy, stamped: the registry compares its own entries scan to scan.
+    registry.on('upsert', (session: LiveSession) => this.emit('upsert', { ...session, claudeDirId }));
+    registry.on('remove', (id: string) => this.emit('remove', id));
+    registry.scan();
+    registry.watch();
+  }
+
+  remove(claudeDirId: number): void {
+    const registry = this.byDir.get(claudeDirId);
+    if (!registry) return;
+    this.byDir.delete(claudeDirId);
+    registry.close();
+    registry.removeAllListeners();
+    for (const session of registry.all()) this.emit('remove', session.sessionId);
+  }
+
+  get(sessionId: string): LiveSession | undefined {
+    for (const [claudeDirId, registry] of this.byDir) {
+      const live = registry.get(sessionId);
+      if (live) return { ...live, claudeDirId };
+    }
+    return undefined;
+  }
+
+  all(): LiveSession[] {
+    return [...this.byDir].flatMap(([claudeDirId, registry]) =>
+      registry.all().map((live) => ({ ...live, claudeDirId })));
+  }
+
+  /** The directory whose registry lists this session, for one not indexed yet. */
+  dirOf(sessionId: string): number | undefined {
+    return this.get(sessionId)?.claudeDirId;
+  }
+
+  close(): void {
+    for (const registry of this.byDir.values()) {
+      registry.close();
+      registry.removeAllListeners();
+    }
+    this.byDir.clear();
   }
 }

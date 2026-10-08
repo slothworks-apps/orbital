@@ -17,6 +17,8 @@ describe('remote allowlist', () => {
       ['GET', '/api/tags'], ['GET', '/api/projects'], ['GET', '/api/models'], ['GET', '/api/commands'],
       ['GET', '/api/sessions/abc/walkthrough'], ['GET', '/api/sessions/abc/walkthrough/summary'],
       ['GET', '/api/health'], ['GET', '/api/sessions/defaults'],
+      // The Claude directory a catalog is read for rides the query string.
+      ['GET', '/api/models?claudeDir=2'], ['GET', '/api/commands?cwd=/w/x&claudeDir=2'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
   it('denies the file system, the editor, settings, errors, rules and dev routes', () => {
@@ -30,6 +32,7 @@ describe('remote allowlist', () => {
       ['POST', '/api/sessions/abc/retitle'],
       ['POST', '/api/sessions/abc/walkthrough/narrate'], ['POST', '/api/models/validate'],
       ['POST', '/api/branch-status/refresh'], ['GET', '/api/sessions/retention-preview'],
+      ['GET', '/api/claude-dirs'], ['POST', '/api/claude-dirs'], ['PATCH', '/api/claude-dirs/2'], ['DELETE', '/api/claude-dirs/2'],
       ['GET', '/api/remote'], ['POST', '/api/remote/pair'], ['DELETE', '/api/remote/devices/x'],
       ['GET', '/ws'], ['GET', '/'], ['GET', '/index.html'],
       // `defaults` is a literal, never an id: no other method or shape reaches it.

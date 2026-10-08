@@ -4,6 +4,12 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-10-08
+### Added
+- Orbital can watch more than one Claude Code folder, such as a personal `~/.claude` and a work `~/.claude-work` with its own login. Add folders in Settings → General. Each session shows which folder it belongs to, and a new session runs under the folder you choose, with that folder's login, models and plan limits.
+### Fixed
+- When the Claude directory was set to a folder other than `~/.claude`, sessions Orbital started never appeared on the map. They now run under the folder you choose and show up.
+
 ## [0.22.0] — 2026-10-07
 ### Added
 - The session header counts the other git worktrees its running subagents work in, and lists them with their tasks when you hover the count; a session on the main branch that only hands work out shows just that count.

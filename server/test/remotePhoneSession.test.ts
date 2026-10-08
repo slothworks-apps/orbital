@@ -302,7 +302,7 @@ function fileWorld() {
     JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: `Saved ${named}` }] } }) + '\n',
   );
   db.insert(sessions).values({ id: 'sf', projectDir: 'p', cwd, title: 'files', lastAt: 1, source: 'web' }).run();
-  const { phone } = build({ files: createPhoneFileReader(db, projectsDir) });
+  const { phone } = build({ files: createPhoneFileReader(db, (id, projectDir) => join(projectsDir, projectDir, `${id}.jsonl`)) });
   phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
   let nextId = 1;
   /** One `file_get`; its `blob_meta`, and its bytes reassembled. */

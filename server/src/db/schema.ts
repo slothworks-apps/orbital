@@ -119,9 +119,42 @@ export const sessions = sqliteTable(
      * same reason as `runnerStatus`.
      */
     purpose: text('purpose').$type<SessionPurpose>(),
+    /**
+     * The Claude directory (`claude_dirs.id`) this session belongs to (spec
+     * 2026-10-04-multiple-claude-directories-design § 1). Written when the
+     * session is first indexed or launched, and not moved to another
+     * configured directory after that (adr
+     * a-session-belongs-to-the-first-directory-that-indexed-it). A row whose
+     * directory is no longer configured is hidden, not deleted, and the
+     * directory that indexes its transcript next takes it over.
+     * `UNOWNED_CLAUDE_DIR_ID` marks a row whose directory changed its path.
+     * Declared last for the same reason as `runnerStatus`.
+     */
+    claudeDirId: integer('claude_dir_id').notNull().default(1),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );
+
+/**
+ * The Claude configuration directories Orbital watches and launches under
+ * (spec 2026-10-04-multiple-claude-directories-design § 1): `~/.claude`, a
+ * work `~/.claude-work`, … Row 1 is seeded at boot, not by the migration,
+ * because only the running server knows the home directory.
+ *
+ * `path` is stored `~`-expanded and `path.resolve`d, never `realpath`ed: the
+ * CLI keys its keychain login on the exact `CLAUDE_CONFIG_DIR` string, so the
+ * spelling the user gave is the one that is passed. Autoincrement, so an id
+ * is never handed out twice and a removed directory's rows can never be
+ * claimed by a later one through a reused id.
+ */
+export const claudeDirs = sqliteTable('claude_dirs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** The user's label — `Personal`, `Work`. */
+  name: text('name').notNull(),
+  path: text('path').notNull().unique(),
+  /** Epoch ms. */
+  createdAt: integer('created_at').notNull(),
+});
 
 /**
  * One rolled-up row per session, written by the indexer and the watcher tail
@@ -640,6 +673,7 @@ export const sessionColumns = snakeColumns(sessions);
 export const tagColumns = snakeColumns(tags);
 export const tagRuleColumns = snakeColumns(tagRules);
 
+export type ClaudeDirRow = typeof claudeDirs.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 export type Tag = typeof tags.$inferSelect;
