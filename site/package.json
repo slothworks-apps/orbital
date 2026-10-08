@@ -7,7 +7,9 @@
     "build": "npm run build:demo && astro build",
     "build:demo": "vite build --config vite.demo.config.ts",
     "preview": "astro preview",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "typecheck:demo": "tsc -p demo/tsconfig.json --noEmit",
+    "test": "vitest run --root demo"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

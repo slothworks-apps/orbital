@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Extension, type Editor } from '@tiptap/core'
@@ -134,6 +134,14 @@ function caretToEnd(editor: Editor) {
   editor.view.dispatch(tr.setSelection(Selection.atEnd(doc)))
 }
 
+/**
+ * Locks every composer below it read-only, with the placeholder that says why.
+ * Nothing in the app provides it; the website's live demos do (`site/demo`),
+ * where the real panels run on demo data and nothing would answer a message.
+ * Null, the default, leaves `locked` and `placeholder` as the caller set them.
+ */
+export const ComposerLockContext = createContext<string | null>(null)
+
 export interface ComposerProps {
   /** Which session (panel) or directory (dialog) completions resolve against. */
   sessionKey: CompletionKey
@@ -233,8 +241,8 @@ export function Composer({
   variant,
   hint,
   answering = false,
-  locked = false,
-  placeholder,
+  locked: lockedProp = false,
+  placeholder: placeholderProp,
   id,
   actions,
   strip,
@@ -248,6 +256,9 @@ export function Composer({
   className,
   ...aria
 }: ComposerProps) {
+  const lockedFor = useContext(ComposerLockContext)
+  const locked = lockedFor !== null || lockedProp
+  const placeholder = lockedFor ?? placeholderProp
   const listboxId = `${useId()}-completions`
   const wellRef = useRef<HTMLDivElement | null>(null)
   const popupRef = useRef<CompletionHandle | null>(null)

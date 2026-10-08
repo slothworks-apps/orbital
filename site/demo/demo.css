@@ -1,0 +1,6 @@
+/* The app's own stylesheet, compiled by the app's Tailwind plugin. The demo's
+   root is `site/demo`, outside `web/`, so the classes the components use have
+   to be pointed at: Tailwind only scans what it is told to from here. */
+@import '../../web/src/theme.css';
+@source '../../web/src';
+@source '.';
