@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { generateIdentity, deviceId, publicKeyOf } from '@orbital/shared/remote/keys';
-import { authSignature } from '@orbital/shared/remote/relayApi';
+import { authSignature, signRequest } from '@orbital/shared/remote/relayApi';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import { buildRelay, OFFLINE_QUEUE_MAX } from '../src/app.js';
 import { openRelayStore } from '../src/store.js';
@@ -57,6 +57,66 @@ describe('relay websocket', () => {
     const back = await connectDevice(base, phone, macId, '&paired=1');
     expect(await back.next('unpaired')).toMatchObject({ type: 'unpaired', mac: macId });
     back.ws.close();
+  });
+
+  it('a revoke that lands while a phone is connecting is not lost', async () => {
+    const { base, app, store, mac, phone } = await relay();
+    const macId = deviceId(mac.publicKey);
+    const phoneId = deviceId(phone.publicKey);
+    const m = await connectDevice(base, mac);
+    // Hold the phone between its peers read and its attach, and revoke there.
+    const touch = store.touch.bind(store);
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let reached!: () => void;
+    const atTouch = new Promise<void>((r) => { reached = r; });
+    store.touch = async (id, now) => {
+      if (id === phoneId) { reached(); await held; }
+      return touch(id, now);
+    };
+    const connecting = connectDevice(base, phone, macId, '&paired=1');
+    await atTouch;
+    const revoked = await app.inject({
+      method: 'POST', url: '/pair/revoke', payload: signRequest(mac, 'pair.revoke', { phone: phoneId }, Date.now()),
+    });
+    expect(revoked.statusCode).toBe(200);
+    release();
+    const p = await connecting;
+    expect(p.peers).toEqual([]);
+    expect(await p.next('unpaired')).toMatchObject({ type: 'unpaired', mac: macId });
+    p.ws.send(frameTo(macId, [1]));
+    await sleep(50);
+    expect(m.data).toHaveLength(0);
+  });
+
+  it('a pair confirmed while a phone is connecting routes at once', async () => {
+    const { base, app, store, mac } = await relay();
+    const macId = deviceId(mac.publicKey);
+    const late = generateIdentity();
+    const lateId = deviceId(late.publicKey);
+    const m = await connectDevice(base, mac);
+    const token = await store.createPairingToken(macId, Date.now() + 10_000);
+    await store.redeemPairingToken(token, lateId, 'Pixel 2', 'android', Date.now());
+    const touch = store.touch.bind(store);
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let reached!: () => void;
+    const atTouch = new Promise<void>((r) => { reached = r; });
+    store.touch = async (id, now) => {
+      if (id === lateId) { reached(); await held; }
+      return touch(id, now);
+    };
+    const connecting = connectDevice(base, late, macId);
+    await atTouch;
+    const confirmed = await app.inject({
+      method: 'POST', url: '/pair/confirm', payload: signRequest(mac, 'pair.confirm', { phone: lateId, accept: true }, Date.now()),
+    });
+    expect(confirmed.statusCode).toBe(200);
+    release();
+    const p = await connecting;
+    expect(p.peers).toEqual([macId]);
+    p.ws.send(frameTo(macId, [2]));
+    expect(decodeFrame(await m.nextData())!.body).toEqual(new Uint8Array([2]));
   });
 
   it('forwards only within a pair, rewriting the peer to the sender', async () => {

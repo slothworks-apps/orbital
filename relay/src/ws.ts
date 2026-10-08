@@ -64,8 +64,18 @@ export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: strin
       // sign a challenge, so only `/pair/redeem` (a phone) and `/pair/token`
       // (a Mac) create one. Until then it has no peers, and `touch` and a
       // push token update nothing.
-      const peers = new Set(await ctx.store.peersOf(pub));
-      await ctx.store.touch(pub, ctx.now());
+      //
+      // A pair created or revoked while this device is not yet in
+      // `connections` cannot edit its `peers`, so the read is repeated until
+      // no pair changed across it. From that check to `attach` registering
+      // the device nothing awaits, so a later change reaches it there.
+      let peers: Set<string>;
+      let seen: number;
+      do {
+        seen = ctx.connections.pairs;
+        peers = new Set(await ctx.store.peersOf(pub));
+        await ctx.store.touch(pub, ctx.now());
+      } while (seen !== ctx.connections.pairs);
       if (socket.readyState !== socket.OPEN) return;
       socket.off('message', hold);
       attach({ socket, id: pub, peers }, ctx, early, expectMac);

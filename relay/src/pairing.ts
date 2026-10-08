@@ -132,6 +132,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       // The live connections learn about the pair now, not at their next attach.
       ctx.connections.get(s.id)?.peers.add(phone);
       ctx.connections.get(phone)?.peers.add(s.id);
+      ctx.connections.pairsChanged();
       ctx.connections.sendControl(phone, { type: 'paired', mac: s.id, name: (await ctx.store.device(s.id))?.name ?? '' });
       // Both are online right now, and neither has heard about the other yet.
       ctx.connections.sendControl(s.id, { type: 'presence', peer: phone, online: ctx.connections.isOnline(phone) });
@@ -155,6 +156,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     }
     ctx.connections.get(s.id)?.peers.delete(s.payload.phone);
     ctx.connections.get(s.payload.phone)?.peers.delete(s.id);
+    ctx.connections.pairsChanged();
     // A revoked phone must not receive queued state frames from the Mac on
     // its next connect.
     ctx.queue.drain(s.payload.phone);
