@@ -215,6 +215,9 @@ describe('openDb', () => {
       notify_session_failed: 'true',
       notify_only_when_background: 'true',
       notify_sound: 'true',
+      // An install from before notifications started off: the migration ended
+      // the tip and kept the old values (spec 2026-10-08-notifications-off-by-default-design § 2).
+      notify_tip: 'ended',
       session_instructions_tips: 'true',
       session_instructions_custom: 'true',
       session_instructions_custom_text: '',
@@ -389,6 +392,75 @@ describe('default tag', () => {
     const defaults = db.select().from(tags).where(eq(tags.isDefault, 1)).all();
     expect(defaults.map((t) => t.id)).toEqual([firstDefault!.id]);
     expect(() => db.update(tags).set({ isDefault: 1 }).where(eq(tags.name, 'atlas')).run()).toThrow();
+    db.$client.close();
+  });
+});
+
+// Spec 2026-10-08-notifications-off-by-default-design § 1–2: a fresh install
+// starts silent and may be offered the tip; an existing one keeps what it had
+// and never sees it.
+describe('notifications off by default', () => {
+  const NOTIFY_KEYS = [
+    'notify_needs_input', 'notify_session_ended', 'notify_session_failed', 'notify_only_when_background', 'notify_sound',
+  ];
+  const read = (db: ReturnType<typeof openDb>) =>
+    Object.fromEntries(db.select().from(settings).all().map((r) => [r.key, r.value]));
+
+  it('seeds a fresh install with every event and the sound off, and the tip pending', () => {
+    const db = openTmpDb('notify-fresh');
+    expect(read(db)).toMatchObject({
+      notify_needs_input: 'false',
+      notify_session_ended: 'false',
+      notify_session_failed: 'false',
+      notify_only_when_background: 'true',
+      notify_sound: 'false',
+      notify_tip: 'pending',
+    });
+    db.$client.close();
+  });
+
+  it('keeps an existing install as it was: stored values stand, absent ones read on as before, the tip ended', () => {
+    const dir = makeTmpDir('notify-existing');
+    const dbPath = join(dir, 'index.db');
+    const old = openDb(dbPath, migrationsBefore(dir, '_notifications_off_by_default'));
+    // What an older build left behind: its seed wrote 'true' for every row,
+    // the user turned the sound off, and the oldest databases have no
+    // needs-input row at all. (This build's own seed ran above; undo it.)
+    old.$client.exec(`DELETE FROM settings WHERE key = 'notify_tip' OR key LIKE 'notify_%'`);
+    old.$client.exec(`
+      INSERT INTO settings (key, value) VALUES
+        ('notify_session_ended', 'true'),
+        ('notify_session_failed', 'true'),
+        ('notify_only_when_background', 'false'),
+        ('notify_sound', 'false');
+    `);
+    old.$client.close();
+
+    const db = openDb(dbPath);
+    expect(read(db)).toMatchObject({
+      notify_needs_input: 'true',
+      notify_session_ended: 'true',
+      notify_session_failed: 'true',
+      notify_only_when_background: 'false',
+      notify_sound: 'false',
+      notify_tip: 'ended',
+    });
+    db.$client.close();
+    // A second boot changes nothing.
+    const again = openDb(dbPath);
+    expect(read(again).notify_tip).toBe('ended');
+    expect(NOTIFY_KEYS.map((k) => read(again)[k])).toEqual(['true', 'true', 'true', 'false', 'false']);
+    again.$client.close();
+  });
+
+  it('never re-offers the tip on a later boot of a fresh install', () => {
+    const dir = makeTmpDir('notify-reboot');
+    const dbPath = join(dir, 'index.db');
+    const first = openDb(dbPath);
+    first.update(settings).set({ value: 'ended' }).where(eq(settings.key, 'notify_tip')).run();
+    first.$client.close();
+    const db = openDb(dbPath);
+    expect(read(db).notify_tip).toBe('ended');
     db.$client.close();
   });
 });

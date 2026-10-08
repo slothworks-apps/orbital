@@ -39,31 +39,72 @@ export type SessionNotification = { title: string; body: string; sessionId: stri
 export type DesktopNotification = SessionNotification;
 
 /**
- * Every flag defaults ON, and that is not a preference — it is what the app
- * did before this section existed: the three events fired unconditionally,
- * the focus check in `main.ts` was unconditional, and `silent` was never set.
- * So an absent key has to mean "as before". Only the literal string 'false'
- * turns one off, matching how the web app reads its own booleans.
+ * Silence by default (spec 2026-10-08-notifications-off-by-default-design § 1,
+ * `docs/why-orbital.md`): every event and the sound start off. "Only when
+ * Orbital is in the background" stays on — it notifies nothing by itself, it
+ * only filters what the rows above it let through.
+ *
+ * An absent key reads as this default, so an event or the sound is on only
+ * for the literal string 'true', and background-only is off only for
+ * 'false'. Installs from before this change had their values written out by
+ * migration `0027_notifications_off_by_default`, so none of them reads
+ * differently for it.
  */
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
-  needsInput: true,
-  sessionEnded: true,
-  sessionFailed: true,
+  needsInput: false,
+  sessionEnded: false,
+  sessionFailed: false,
   onlyWhenBackground: true,
-  sound: true,
+  sound: false,
 };
+
+/** The settings rows behind `NotificationSettings`, by field. */
+export const NOTIFICATION_SETTING_KEYS = {
+  needsInput: 'notify_needs_input',
+  sessionEnded: 'notify_session_ended',
+  sessionFailed: 'notify_session_failed',
+  onlyWhenBackground: 'notify_only_when_background',
+  sound: 'notify_sound',
+} as const satisfies Record<keyof NotificationSettings, string>;
 
 export function parseNotificationSettings(raw: unknown): NotificationSettings {
   if (!isRecord(raw)) return DEFAULT_NOTIFICATION_SETTINGS;
-  const on = (key: string): boolean => raw[key] !== 'false';
+  const on = (key: string): boolean => raw[key] === 'true';
   return {
-    needsInput: on('notify_needs_input'),
-    sessionEnded: on('notify_session_ended'),
-    sessionFailed: on('notify_session_failed'),
-    onlyWhenBackground: on('notify_only_when_background'),
-    sound: on('notify_sound'),
+    needsInput: on(NOTIFICATION_SETTING_KEYS.needsInput),
+    sessionEnded: on(NOTIFICATION_SETTING_KEYS.sessionEnded),
+    sessionFailed: on(NOTIFICATION_SETTING_KEYS.sessionFailed),
+    onlyWhenBackground: raw[NOTIFICATION_SETTING_KEYS.onlyWhenBackground] !== 'false',
+    sound: on(NOTIFICATION_SETTING_KEYS.sound),
   };
 }
+
+/**
+ * Whether nothing would ever notify or make a sound: the condition for the
+ * tip and for the one line at the top of Settings → Notifications (canvas
+ * `Feature - Notifications off` 1c). Background-only does not count, it
+ * filters and never notifies.
+ */
+export function notificationsAllOff(s: NotificationSettings): boolean {
+  return !s.needsInput && !s.sessionEnded && !s.sessionFailed && !s.sound;
+}
+
+/**
+ * What the tip's Turn on switches on (spec § 3, canvas 1b, phone 2c): the two
+ * events that are worth an interruption. Sound and Session ended stay off.
+ */
+export const NOTIFICATIONS_TURN_ON = { needsInput: true, sessionFailed: true } as const satisfies Partial<NotificationSettings>;
+
+/**
+ * The desktop tip's settings row: `pending` while it may still be offered,
+ * `ended` once it has gone for good (spec § 2, § 3). A fresh install seeds
+ * `pending`; the migration writes `ended` for an install that existed before,
+ * and changing any notification row ends it server-side. Anything else reads
+ * as ended, so a tip can never come back by accident.
+ */
+export const NOTIFICATIONS_TIP_KEY = 'notify_tip';
+export const NOTIFICATIONS_TIP_PENDING = 'pending';
+export const NOTIFICATIONS_TIP_ENDED = 'ended';
 
 /** The statuses the registry produces; anything else off the wire is ignored. */
 const STATUSES = new Set(['working', 'needs_input', 'idle', 'ended']);

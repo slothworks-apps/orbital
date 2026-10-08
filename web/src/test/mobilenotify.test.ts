@@ -3,7 +3,7 @@ import { DEFAULT_NOTIFICATION_SETTINGS, type SessionNotification } from '@orbita
 import type { ApiSession, PendingDecision } from '../lib/types'
 import { BANNER_MS } from '../mobile/constants'
 import {
-  BANNER_LINE_MAX, bannerLine, channelFor, decideNotification, notificationId, seedNotifications, useBanner, wireNotifications,
+  BANNER_LINE_MAX, bannerLine, channelFor, decideNotification, notificationId, seedNotifications, setRules, useBanner, wireNotifications,
 } from '../mobile/notify'
 import { initialMobileState, useMobile } from '../mobile/state'
 import { clientRef } from '../mobile/transport/clientRef'
@@ -156,6 +156,8 @@ describe('wireNotifications', () => {
   /** A new tunnel: the notifier is renewed and seeded from what the store holds now. */
   const open = () => client.emit({ type: 'ready', ready: true })
   beforeEach(() => {
+    // Every event on: these tests are about what a notification says, not whether one is due.
+    setRules({ needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true })
     wireNotifications()
     client = new FakeClient()
     clientRef.set(client)

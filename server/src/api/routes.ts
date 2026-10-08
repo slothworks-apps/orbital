@@ -69,6 +69,9 @@ import type { Spine, Walkthrough } from '../walkthrough/types.js';
 import type { LimitsService } from '../limits/service.js';
 import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY } from '../limits/logic.js';
 import {
+  NOTIFICATION_SETTING_KEYS, NOTIFICATIONS_TIP_ENDED, NOTIFICATIONS_TIP_KEY,
+} from '@orbital/shared/notifications';
+import {
   DEFAULT_CLAUDE_DIR_KEY,
   LAST_CLAUDE_DIR_KEY,
   type ClaudeDirContext,
@@ -2378,6 +2381,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   /** One row of the list, as `GET /api/claude-dirs` shapes it. */
   const claudeDirInfo = (id: number) => ctx.claudeDirs.info().find((d) => d.id === id);
 
+  const NOTIFICATION_ROW_KEYS: ReadonlySet<string> = new Set(Object.values(NOTIFICATION_SETTING_KEYS));
+
   app.get('/api/settings', () => {
     const rows = db.select().from(settingsTable).all();
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
@@ -2398,6 +2403,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       if (k.startsWith('remote_') && ctx.settings.get(k) !== String(v)) {
         if (k === 'remote_mac_name') remoteName = true;
         else remoteRestart = true;
+      }
+      // A notification row changed, from Settings or from the tip's Turn on:
+      // the tip is never offered after that (spec
+      // 2026-10-08-notifications-off-by-default-design § 3). Here rather than
+      // in the client so a browser tab or a second window cannot miss it.
+      if (NOTIFICATION_ROW_KEYS.has(k) && ctx.settings.get(k) !== String(v)) {
+        ctx.settings.set(NOTIFICATIONS_TIP_KEY, NOTIFICATIONS_TIP_ENDED);
       }
       ctx.settings.set(k, String(v));
       // Applied now, not at the next boot: the dialog confirms "this will drop

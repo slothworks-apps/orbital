@@ -10,6 +10,7 @@ import { thisDevice } from './platform/device'
 import { loadOrCreateIdentity } from './platform/identity'
 import type { Pairing } from './platform/parse'
 import { clearUnpaired, savePairing } from './platform/pairing'
+import { usePhoneTip } from './phoneTip'
 import { useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 
@@ -147,7 +148,9 @@ async function pair(
   const pairing: Pairing = { relay: qr.relay, mac: qr.mac, macName: qr.name, fingerprint, pairedAt: Date.now() }
   // Only when the code had one: a code from an open relay stores what it always did.
   if (qr.relaySecret !== undefined) pairing.relaySecret = qr.relaySecret
-  await Promise.all([savePairing(pairing), clearUnpaired()])
+  // The notifications tip becomes due with a pairing (spec
+  // 2026-10-08-notifications-off-by-default-design § 5), before the list can show.
+  await Promise.all([savePairing(pairing), clearUnpaired(), usePhoneTip.getState().markPending()])
   useMobile.setState({ pairing, unpaired: false, macName: qr.name })
   // The tunnel follows `paired` within moments; "Paired with" waits for it, bounded, and shows either way.
   if (!client.ready) await waitFor(client, (e) => e.type === 'hello', PAIRED_HELLO_WAIT_MS)

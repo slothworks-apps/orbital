@@ -28,6 +28,7 @@ import {
   parseWindowButtonsVisible,
 } from './lib/mainWindow';
 import { SessionNotifier, parseNotificationSettings } from './lib/notifications';
+import { NOTIFICATION_SETTINGS_URL, probeNotificationPermission } from './lib/notificationPermission';
 import { probeHealth, probeVite } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
 import {
@@ -884,8 +885,8 @@ function createTray(): void {
  * topic for them, they are fetched here — at startup, on every reconnect, and
  * whenever the renderer reports a save (spec
  * 2026-09-21-settings-sections-design § 5). A failed read leaves whatever was
- * loaded last standing, which on a cold start is "everything on", i.e. what
- * the app did before the section existed.
+ * loaded last standing, which on a cold start is the defaults: silent
+ * (spec 2026-10-08-notifications-off-by-default-design).
  */
 async function loadNotificationSettings(): Promise<void> {
   try {
@@ -1195,6 +1196,22 @@ ipcMain.handle('choose-directory', async (event, payload: unknown) => {
     properties: ['openDirectory', 'createDirectory'],
   });
   return picked.canceled ? null : (picked.filePaths[0] ?? null);
+});
+
+// The notifications tip's Turn on (spec
+// 2026-10-08-notifications-off-by-default-design § 3): asks macOS by showing
+// one quiet notification, and answers how it went (`notificationPermission`).
+// Only the main window shows the tip.
+ipcMain.handle('request-notification-permission', (event) => {
+  if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return 'unknown';
+  if (!Notification.isSupported()) return 'denied';
+  return probeNotificationPermission(
+    () => new Notification({ title: 'Orbital', body: 'Notifications are on.', silent: true }),
+  );
+});
+// The refused tip's one way out (canvas 1d): System Settings → Notifications.
+ipcMain.on('open-notification-settings', () => {
+  void shell.openExternal(NOTIFICATION_SETTINGS_URL);
 });
 
 // There is deliberately no `window-all-closed` handler: closing the window no

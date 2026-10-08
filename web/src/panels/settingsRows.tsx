@@ -23,11 +23,25 @@ export function SectionLabel({ children, first = false }: { children: ReactNode;
 }
 
 /** One settings row per canvas 1h: label + description left, 320px control
- * column right, 13px vertical padding over a hairline top rule. */
-export function Row({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
+ * column right, 13px vertical padding over a hairline top rule.
+ *
+ * `dimmed` is a row with nothing to act on yet (canvas `Feature -
+ * Notifications off` 1c, background-only while every event is off): its words
+ * at .45, the same as a disabled control beside them. */
+export function Row({
+  title,
+  desc,
+  dimmed = false,
+  children,
+}: {
+  title: string
+  desc: string
+  dimmed?: boolean
+  children: ReactNode
+}) {
   return (
     <div className="grid grid-cols-[1fr_320px] items-start gap-6 border-t border-[rgba(150,205,255,.08)] py-[13px]">
-      <div>
+      <div className={dimmed ? 'opacity-45' : undefined}>
         <div className="text-[13.5px] font-semibold text-text-bright">{title}</div>
         <div className="mt-1 text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
           {desc}

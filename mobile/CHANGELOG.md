@@ -7,6 +7,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 - Orbital asks for Face ID, your fingerprint or your screen lock when you open it, and again after a minute away; you can turn this off in Settings. With it on, the app switcher no longer shows your sessions, and on Android screenshots of the app are blocked.
 - Orbital now needs a screen lock on the phone; without one it asks you to set one, and your pairing stays.
 ### Changed
+- Notifications start off on a newly paired phone when they are off on your Mac. A one-time notice above the session list offers to turn on the two that matter most, and the phone asks for permission only then — or when you turn one on in Settings — never at launch or while pairing.
 - While pairing, the phone tells you to type its code on your Mac.
 - Notifications no longer show your Mac's name; they read "Orbital".
 - Your phone's name reaches your Mac encrypted while pairing; the relay in between no longer sees or keeps it. Pairing needs relay 0.4.0 or newer.

@@ -26,6 +26,19 @@ export function mayAskForNotifications(state: PermissionState): boolean {
 }
 
 /**
+ * Whether notifications may be shown once the user has asked for them (the
+ * tip's Turn on, a switch in 9f): yes if already allowed, the OS's answer if
+ * it was never asked, and no without asking after a refusal (spec
+ * 2026-10-08-notifications-off-by-default-design § 5, canvas 2d: "It never
+ * asks the OS again").
+ */
+export async function permissionAfterAsking(before: PermissionState, ask: () => Promise<PermissionState>): Promise<boolean> {
+  if (before === 'granted') return true
+  if (!mayAskForNotifications(before)) return false
+  return (await ask()) === 'granted'
+}
+
+/**
  * Posts one system notification now (spec § 6.5); a tap on it opens
  * `sessionId`. The plugin's `schedule` asks for a permission it lacks, so a
  * refused one is checked first and nothing is posted — otherwise every

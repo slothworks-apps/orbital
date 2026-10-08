@@ -2,7 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { FirebaseMessaging } from '@capacitor-firebase/messaging'
 import { clientRef } from '../transport/clientRef'
-import { mayAskForNotifications } from './localNotify'
+import { permissionAfterAsking } from './localNotify'
 
 /**
  * The relay's push and the phone's own notifications (spec 2026-10-02-mobile-app-design
@@ -53,10 +53,12 @@ export async function installNotificationChannels(): Promise<void> {
 }
 
 /**
- * Asks for the permission once (Android 13's prompt, iOS's own) and an FCM
- * token; the token goes to the client, which re-sends it on every relay `ok`
- * and after `paired`. A denial is not an error: the app runs without
- * notifications.
+ * Hands the client an FCM token when the permission is already granted; the
+ * token goes to the relay on every `ok` and after `paired`. Called at launch
+ * and on pairing, and it never asks: the question comes only when the user
+ * turns a notification on (`askForNotifications`; spec
+ * 2026-10-08-notifications-off-by-default-design § 5). A denial is not an
+ * error: the app runs without notifications.
  *
  * Skipped in a build without the platform's Firebase config
  * (`google-services.json`, `GoogleService-Info.plist`; `__MOBILE_PUSH__`):
@@ -66,14 +68,36 @@ export async function installNotificationChannels(): Promise<void> {
 export async function registerPush(): Promise<void> {
   if (!native()) return
   try {
-    const { receive: before } = await FirebaseMessaging.checkPermissions()
-    const receive = mayAskForNotifications(before) ? (await FirebaseMessaging.requestPermissions()).receive : before
-    if (receive !== 'granted' || !pushConfigured()) return
-    const { token } = await FirebaseMessaging.getToken()
-    clientRef.pushToken(token)
+    const { receive } = await FirebaseMessaging.checkPermissions()
+    if (receive === 'granted') await sendToken()
   } catch (err) {
     console.warn('[mobile] could not register for push', err)
   }
+}
+
+/**
+ * The tip's Turn on and a switch turned on in 9f: asks the OS (Android 13's
+ * prompt, iOS's own) if it never was asked, and registers for push once
+ * allowed. Resolves to whether notifications may be shown. A browser, which
+ * has neither plugin, counts as allowed: it is for layout work only.
+ */
+export async function askForNotifications(): Promise<boolean> {
+  if (!native()) return true
+  try {
+    const { receive: before } = await FirebaseMessaging.checkPermissions()
+    const allowed = await permissionAfterAsking(before, async () => (await FirebaseMessaging.requestPermissions()).receive)
+    if (allowed) await sendToken()
+    return allowed
+  } catch (err) {
+    console.warn('[mobile] could not ask for notifications', err)
+    return false
+  }
+}
+
+async function sendToken(): Promise<void> {
+  if (!pushConfigured()) return
+  const { token } = await FirebaseMessaging.getToken()
+  clientRef.pushToken(token)
 }
 
 /**

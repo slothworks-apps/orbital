@@ -6,6 +6,8 @@
 type DesktopBridge = {
   onSelectSession?: (cb: (id: string) => void) => void
   notifySettingsChanged?: () => void
+  requestNotificationPermission?: () => Promise<unknown>
+  openNotificationSettings?: () => void
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
   onDetachedChanged?: (cb: (ids: string[]) => void) => void
@@ -177,4 +179,26 @@ export async function setSubagentPanel(
  */
 export function notifyDesktopSettingsChanged(): void {
   bridge()?.notifySettingsChanged?.()
+}
+
+/** What macOS said to the tip's Turn on (`desktop/src/lib/notificationPermission.ts`). */
+export type NotificationPermissionAnswer = 'granted' | 'denied' | 'unknown'
+
+/**
+ * Asks macOS whether Orbital may notify, at the tip's Turn on (spec
+ * 2026-10-08-notifications-off-by-default-design § 3). `unknown` when no
+ * answer came, and in a browser, which delivers no notifications itself.
+ */
+export async function requestNotificationPermission(): Promise<NotificationPermissionAnswer> {
+  try {
+    const answer = await bridge()?.requestNotificationPermission?.()
+    return answer === 'granted' || answer === 'denied' ? answer : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/** System Settings → Notifications, from the refused tip. A no-op in the browser. */
+export function openNotificationSettings(): void {
+  bridge()?.openNotificationSettings?.()
 }

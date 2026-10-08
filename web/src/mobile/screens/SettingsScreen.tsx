@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { formatFingerprint } from '@orbital/shared/remote/keys'
-import type { NotificationSettings } from '@orbital/shared/remote/messages'
+import { notificationsAllOff, type NotificationSettings } from '@orbital/shared/notifications'
 import { useOrbital } from '../../store/store'
 import { forgetEverything } from '../forget'
 import { confirmIdentity } from '../lockFlow'
 import { relayHost } from '../format'
 import { setRules as setNotifierRules } from '../notify'
+import { usePhoneTip } from '../phoneTip'
+import { askForNotifications } from '../platform/push'
 import { saveAppLock } from '../platform/appLock'
 import { readNotificationsCache, writeNotificationsCache } from '../platform/cache'
 import { useMobile } from '../state'
@@ -60,6 +62,15 @@ export function SettingsScreen() {
   const [confirming, setConfirming] = useState(false)
   const [relayOpen, setRelayOpen] = useState(false)
   const name = macName ?? pairing?.macName ?? 'Your Mac'
+  const notificationsGroup = useRef<HTMLDivElement>(null)
+
+  // Opened from the notifications tip: scrolled to this group, with no
+  // highlight (canvas `Feature - Notifications off` 2e). Once.
+  useEffect(() => {
+    if (usePhoneTip.getState().settingsTarget !== 'notifications') return
+    usePhoneTip.setState({ settingsTarget: null })
+    notificationsGroup.current?.scrollIntoView({ block: 'start' })
+  }, [])
 
   // Read on open: from the Mac when the tunnel is up, as last read when it is not.
   useEffect(() => {
@@ -85,7 +96,13 @@ export function SettingsScreen() {
   const toggle = async (key: keyof NotificationSettings, value: boolean) => {
     if (!rules) return
     setSaving(true)
+    // Any switch changed ends the tip for good (spec
+    // 2026-10-08-notifications-off-by-default-design § 5).
+    usePhoneTip.getState().end()
     try {
+      // 2e: one that notifies asks the phone the first time, as the tip's Turn
+      // on does. Saved either way: a refusal is the OS's to undo, not the rule's.
+      if (value && key !== 'onlyWhenBackground') await askForNotifications()
       const saved = await clientRef.setNotifications({ ...rules, [key]: value })
       setRules(saved)
       setNotifierRules(saved)
@@ -147,6 +164,7 @@ export function SettingsScreen() {
         </div>
         <p className="px-1 pt-2 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">one Mac per phone · the name is set on the Mac</p>
 
+        <div ref={notificationsGroup} />
         <SectionLabel>NOTIFICATIONS</SectionLabel>
         <div className={CARD}>
           {NOTIFICATION_ROWS.map((row, i) => (
@@ -167,7 +185,12 @@ export function SettingsScreen() {
             </div>
           ))}
         </div>
-        <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">Just for this phone. Copied from your Mac when you paired.</p>
+        {/* 2e: replaces "Copied from your Mac when you paired." */}
+        <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">
+          {rules && !notificationsAllOff(rules)
+            ? 'Just for this phone.'
+            : 'Just for this phone. All off until you turn one on. The first one asks the phone for permission.'}
+        </p>
 
         <SecuritySection />
 

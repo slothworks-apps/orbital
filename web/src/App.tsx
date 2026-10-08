@@ -29,6 +29,8 @@ import { CompactDialog } from './panels/CompactDialog'
 import { McpDialog } from './panels/McpDialog'
 import { PairConfirmDialog } from './panels/PairConfirmDialog'
 import { Toasts } from './ui/Toasts'
+import { MapNoticeHost } from './ui/MapNoticeHost'
+import { useNotificationsTip } from './panels/NotificationsTip'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import {
@@ -87,6 +89,9 @@ export default function App() {
   // sidebar. Nothing in a browser or in full screen.
   const windowBand = useWindowBand()
   useSidebarWindowButtons(sidebarCollapsed)
+  // The one-time notifications tip, the first of the map's notices (spec
+  // 2026-10-08-notifications-off-by-default-design § 3).
+  useNotificationsTip()
 
   // The desktop menu is built from the keymap, and the main window is the
   // one that sends it (spec: 2026-09-23-shortcuts-design § 5); `App` never
@@ -324,6 +329,10 @@ export default function App() {
           <HarnessPanel widthPx={subagentWidthPx} />
         </ErrorBoundary>
       </div>
+
+      {/* One notice at a time at the top centre of the map, over every map
+          theme (canvas `Feature - Notifications off` 1a). */}
+      <MapNoticeHost />
 
       {wsStatus !== 'open' && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center pt-3">
