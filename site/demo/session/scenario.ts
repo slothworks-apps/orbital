@@ -96,6 +96,8 @@ function tail(beat: number, round: number): ChatMessage[] {
   }
   if (beat >= 2) {
     rows.push(
+      // Also what keeps the edit a row of its own: calls in a row fold into one run.
+      row(`next-${round}`, 1, { role: 'assistant', model: OPUS, text: 'The edit is in. Running the webhook tests.' }),
       row(`tests-${round}`, 1, {
         role: 'tool_use',
         toolName: 'Bash',

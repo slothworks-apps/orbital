@@ -4,3 +4,12 @@
 @import '../../web/src/theme.css';
 @source '../../web/src';
 @source '.';
+
+/* The app stops overscroll at its document so a pan never rubber-bands the
+   window. In a demo that same rule keeps a scroll from leaving the iframe:
+   a wheel over the map (which hands every wheel on, `map/main.tsx`) or past
+   the end of a transcript has to go on to scroll the website. */
+html,
+body {
+  overscroll-behavior: auto;
+}

@@ -18,7 +18,9 @@ const server = installFakeServer({
   sessions: [opening.session],
   tags: TAGS,
   models: MODELS,
-  settings: SETTINGS,
+  // The app's own "edit diffs: expanded" setting: the approved edit lands
+  // open, as its diff, which is the point of this demo.
+  settings: { ...SETTINGS, transcript_edit_diffs: 'expanded' },
   messages: { [id]: opening.messages },
 })
 

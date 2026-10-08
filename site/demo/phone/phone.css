@@ -5,3 +5,11 @@
 @import '../../../web/src/mobile/mobile.css';
 @source '../../../web/src';
 @source '.';
+
+/* As in `../demo.css`: a scroll that reaches the end of the phone's
+   transcript goes on to scroll the website rather than stopping here. The
+   selectors match the ones they override. */
+html,
+:root[data-platform='mobile'] body {
+  overscroll-behavior: auto;
+}
