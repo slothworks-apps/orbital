@@ -5,9 +5,12 @@
  * (spec 2026-09-30-mobile-remote-design § 2).
  */
 import { z } from 'zod';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
+import { randomBytes } from '@noble/ciphers/utils.js';
+import { hkdf } from '@noble/hashes/hkdf.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { deviceId, fromBase64Url, publicKeyOf, sign, toBase64Url, verify, type Identity } from './keys.js';
+import { concat, deviceId, fromBase64Url, publicKeyOf, sign, toBase64Url, verify, type Identity } from './keys.js';
 
 /** How far a signed request's timestamp may sit from the relay's clock. */
 export const SIGNED_REQUEST_SKEW_MS = 60_000;
@@ -108,8 +111,14 @@ export const RelayToDevice = z.discriminatedUnion('type', [
   z.object({ type: z.literal('challenge'), nonce: z.string(), version: z.string().optional() }),
   z.object({ type: z.literal('ok'), peers: z.array(z.string()) }),
   z.object({ type: z.literal('presence'), peer: z.string(), online: z.boolean() }),
-  z.object({ type: z.literal('pair_request'), phone: z.string(), name: z.string(), platform: z.string(), proof: z.string() }),
-  z.object({ type: z.literal('paired'), mac: z.string(), name: z.string() }),
+  // `device`: the phone's name and platform, sealed (`sealPairingDevice`); absent from a phone that predates it.
+  // `name` and `platform` are always empty from a relay that knows no names, and kept only for a Mac that requires them.
+  z.object({
+    type: z.literal('pair_request'), phone: z.string(), proof: z.string(), device: z.string().optional(),
+    name: z.string().optional(), platform: z.string().optional(),
+  }),
+  // `name`: as `pair_request`'s, empty and kept only for a phone that requires it; the QR names the Mac.
+  z.object({ type: z.literal('paired'), mac: z.string(), name: z.string().optional() }),
   z.object({ type: z.literal('rejected'), mac: z.string() }),
   z.object({ type: z.literal('unpaired'), mac: z.string() }),
   z.object({ type: z.literal('error'), code: z.string() }),
@@ -156,6 +165,61 @@ export function verifyPairingProof(secret: Uint8Array, phonePublicKey: Uint8Arra
   let diff = 0;
   for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ proof.charCodeAt(i);
   return diff === 0;
+}
+
+/** The longest phone name and platform a pairing carries; longer ones are cut, not refused. */
+export const PAIR_NAME_MAX_CHARS = 80;
+export const PAIR_PLATFORM_MAX_CHARS = 20;
+/**
+ * The longest sealed device (`sealPairingDevice`) the relay takes, in
+ * base64url characters: room for the longest name and platform even when
+ * JSON escapes every character, with the nonce and the tag.
+ */
+export const SEALED_DEVICE_MAX_CHARS = 1024;
+/** HKDF info for the key that seals the phone's name to the Mac; nothing else is keyed with it. */
+export const PAIRING_DEVICE_INFO = new TextEncoder().encode('orbital-pairing-device-v1');
+const SEALED_DEVICE_NONCE_BYTES = 24;
+const SEALED_DEVICE_TAG_BYTES = 16;
+
+/** What the phone tells the Mac about itself at pairing, for the confirmation (9o) and the paired list. */
+export type PairingDevice = { name: string; platform: string };
+const PairingDeviceSchema = z.object({
+  name: z.string().max(PAIR_NAME_MAX_CHARS), platform: z.string().max(PAIR_PLATFORM_MAX_CHARS),
+});
+
+function pairingDeviceKey(secret: Uint8Array): Uint8Array {
+  return hkdf(sha256, secret, undefined, PAIRING_DEVICE_INFO, 32);
+}
+
+/**
+ * The phone's name and platform, sealed so only the Mac that showed the QR
+ * reads them: XChaCha20-Poly1305 under a key from the QR's `secret`, with
+ * the phone's public key as associated data so the relay cannot pass the
+ * blob off beside another key (spec 2026-10-08-relay-knows-no-names-design).
+ * Wire form: base64url of nonce ‖ ciphertext.
+ */
+export function sealPairingDevice(secret: Uint8Array, phonePublicKey: Uint8Array, device: PairingDevice): string {
+  const plain = new TextEncoder().encode(JSON.stringify({
+    name: device.name.slice(0, PAIR_NAME_MAX_CHARS), platform: device.platform.slice(0, PAIR_PLATFORM_MAX_CHARS),
+  }));
+  const nonce = randomBytes(SEALED_DEVICE_NONCE_BYTES);
+  const sealed = xchacha20poly1305(pairingDeviceKey(secret), nonce, phonePublicKey).encrypt(plain);
+  return toBase64Url(concat(nonce, sealed));
+}
+
+/** Null for anything that does not open as a device sealed for this secret and phone key. Never throws. */
+export function openPairingDevice(secret: Uint8Array, phonePublicKey: Uint8Array, sealed: string): PairingDevice | null {
+  if (sealed.length > SEALED_DEVICE_MAX_CHARS) return null;
+  const bytes = fromBase64Url(sealed);
+  if (bytes.length < SEALED_DEVICE_NONCE_BYTES + SEALED_DEVICE_TAG_BYTES) return null;
+  try {
+    const plain = xchacha20poly1305(pairingDeviceKey(secret), bytes.subarray(0, SEALED_DEVICE_NONCE_BYTES), phonePublicKey)
+      .decrypt(bytes.subarray(SEALED_DEVICE_NONCE_BYTES));
+    const parsed = PairingDeviceSchema.safeParse(JSON.parse(new TextDecoder().decode(plain)));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
