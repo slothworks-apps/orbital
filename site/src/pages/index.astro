@@ -7,6 +7,7 @@ import Base from '../layouts/Base.astro'
 import Background from '../components/Background.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
+import DemoCaption from '../components/DemoCaption.astro'
 import DemoFrame from '../components/DemoFrame.astro'
 import {
   APP_STORE_URL,
@@ -63,25 +64,23 @@ const phoneRows = [
   { label: 'NOTIFICATIONS', text: 'Off until you turn them on.' },
 ]
 
-// Not in the canvas yet: written from the copy brief sent to Claude Design,
-// in the row style of 02 and 03, until the designed section replaces it.
 const moreRows = [
   {
     label: 'STATS',
-    text: 'How your sessions spent their time: busy hours per day, the tools that ran most, where each turn went.',
+    text: 'Where your sessions spent their time: busy hours per day, the tools that ran most, where each turn went.',
   },
   {
     label: 'CHECKLISTS',
-    text: 'Run a task as a checklist. Each step is ticked off as it is done, with a stop for your OK where you want one.',
+    text: 'Run a task as a checklist. Steps are ticked off as they finish, with a stop for your OK wherever you want one.',
   },
   {
     label: 'TAGS & SEARCH',
-    text: 'Tag sessions by project, or let rules tag them for you. Search dims what doesn’t match instead of hiding it.',
+    text: 'Tag sessions by project, or let rules do it. Search dims what doesn’t match instead of hiding it.',
   },
   { label: 'GIT', text: 'Each session shows its branch and its pull request, worktrees included.' },
   {
     label: 'USAGE LIMITS',
-    text: 'When you hit a usage limit, the session waits and carries on by itself once the limit resets.',
+    text: 'Hit a usage limit and the session waits, then carries on by itself once the limit resets.',
   },
 ]
 
@@ -152,7 +151,7 @@ const phones = [
       <div class="hero-actions">
         <a href={RELEASES_URL} class="hero-btn primary" target="_blank" rel="noopener">
           <span class="hero-btn-name">Orbital for Mac</span>
-          <span class="mono hero-btn-note">DMG · APPLE SILICON</span>
+          <span class="mono hero-btn-note">DMG · APPLE SILICON · GITHUB ↗</span>
         </a>
         <a href="#get" class="hero-btn">
           <span class="hero-btn-name">iPhone</span>
@@ -163,7 +162,10 @@ const phones = [
           <span class="mono hero-btn-note">{testers ? 'GOOGLE PLAY · INVITE ONLY' : 'GOOGLE PLAY'}</span>
         </a>
       </div>
-      <DemoFrame id="map-hero" glow eager style="margin:clamp(56px,7cqw,88px) auto 0" />
+      <div class="hero-demo">
+        <DemoFrame id="map-hero" eager />
+        <DemoCaption text="Live demo · click a planet to open it" center />
+      </div>
     </section>
 
     <section id="map" class="section tour">
@@ -172,10 +174,13 @@ const phones = [
         <h2 class="h2"><span class="grad">Every session, at a glance.</span></h2>
         <p class="lede">
           <span class="em">Working, needing your input or done</span>: you can tell without reading a word, and without
-          switching terminals. Planets is the default view; the Desk theme is there if you prefer it.
+          switching terminals. Planets is the default theme; Desk is there if you prefer something plainer.
         </p>
       </div>
-      <DemoFrame id="map-states" style="margin-top:48px" />
+      <div class="states-demo">
+        <DemoFrame id="map-states" />
+        <DemoCaption text="Live demo · click a planet to open it" />
+      </div>
       <div class="states">
         {
           states.map((state) => (
@@ -217,15 +222,21 @@ const phones = [
             }
           </div>
         </div>
-        <DemoFrame id="session" style="flex:1.3 1 460px;min-width:0" />
+        <div class="session-demo">
+          <DemoFrame id="session" />
+          <DemoCaption text="Live demo · scroll the chat, open the diff" />
+        </div>
       </div>
     </section>
 
     <section id="phone" class="section tour">
       <div class="phone-layout">
-        <div class="phones">
-          <DemoFrame id="phone-answer" style="flex:0 1 250px" />
-          <DemoFrame id="phone-new" style="flex:0 1 250px;margin-top:clamp(28px,5cqw,64px)" />
+        <div class="phones-demo">
+          <div class="phones">
+            <DemoFrame id="phone-answer" style="flex:0 1 250px;min-width:0" />
+            <DemoFrame id="phone-new" style="flex:0 1 250px;min-width:0;margin-top:clamp(28px,5cqw,64px)" />
+          </div>
+          <DemoCaption text="Live demo · tap through both screens" center />
         </div>
         <div class="column">
           <div class="mono eyebrow">03 · THE PHONE</div>
@@ -295,7 +306,7 @@ const phones = [
 
     <section id="more" class="section far">
       <div class="mono eyebrow">06 · MORE IN THE BOX</div>
-      <h2 class="h2 spaced"><span class="grad">And the rest of the day’s work.</span></h2>
+      <h2 class="more-title"><span class="grad">There’s more to it.</span></h2>
       <div class="rows more-rows">
         {
           moreRows.map((row) => (
@@ -310,7 +321,7 @@ const phones = [
 
     <section id="get" class="section far">
       <div class="mono eyebrow">07 · GET ORBITAL</div>
-      <h2 class="h2 spaced get-title"><span class="grad">Three apps, one map.</span></h2>
+      <h2 class="h2 spaced get-title"><span class="grad">One Orbital, on your Mac and your phone.</span></h2>
       {
         testers ? (
           <p class="lede get-lede">
@@ -684,9 +695,22 @@ const phones = [
     flex: 1 1 340px;
     min-width: 0;
   }
-  .phones {
+  .hero-demo {
+    position: relative;
+    margin: clamp(56px, 7cqw, 88px) auto 0;
+  }
+  .states-demo {
+    margin-top: 48px;
+  }
+  .session-demo {
+    flex: 1.3 1 460px;
+    min-width: 0;
+  }
+  .phones-demo {
     flex: 1.1 1 420px;
     min-width: 0;
+  }
+  .phones {
     display: flex;
     justify-content: center;
     gap: clamp(14px, 3cqw, 32px);
@@ -718,15 +742,31 @@ const phones = [
     color: #e8eef8;
   }
 
-  /* 06 · More in the box: the 02/03 rows, two columns on a wide page */
+  /* 06 · More in the box: the 02/03 rows, smaller, two columns on a wide page */
+  .more-title {
+    margin: 18px 0 0;
+    font-size: clamp(28px, 3.4cqw, 42px);
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
   .more-rows {
-    margin-top: clamp(36px, 5cqw, 56px);
+    margin-top: clamp(32px, 4cqw, 48px);
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
     column-gap: clamp(32px, 5cqw, 72px);
+  }
+  .more-rows .row {
+    padding: 18px 0;
   }
   .more-rows .row:last-child {
     border-bottom: none;
+  }
+  .more-rows .row-label {
+    flex-basis: 128px;
+  }
+  .more-rows .row-text {
+    text-wrap: pretty;
   }
 
   /* 04 · Calm by design */

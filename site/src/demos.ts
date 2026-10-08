@@ -42,7 +42,6 @@ interface DemoFrameSpec {
   title: string
   /** The poster's alt text: what the scene shows. */
   alt: string
-  caption: string
 }
 
 export const DEMO_FRAMES = {
@@ -51,35 +50,30 @@ export const DEMO_FRAMES = {
     src: '/demo/map/?scene=hero',
     title: 'Live demo of the Orbital map',
     alt: 'The Orbital map: Claude Code sessions drawn as planets, one working, one waiting for your input, one done, and one with its subagents circling it as moons.',
-    caption: 'Live demo · click a planet',
   },
   'map-states': {
     demo: 'map',
     src: '/demo/map/?scene=states',
     title: 'Live demo of the Orbital map and its session states',
     alt: 'The Orbital map with a session in each state: needs input, done, working, and waiting for its subagents.',
-    caption: 'Live demo · click a planet',
   },
   session: {
     demo: 'session',
     src: '/demo/session/',
     title: 'Live demo of an Orbital session panel',
     alt: 'An Orbital session panel: the chat with Claude, a permission request with the full command, and the diff of an edit.',
-    caption: 'Live demo',
   },
   'phone-answer': {
     demo: 'phone',
     src: '/demo/phone/?screen=answer',
     title: 'Live demo of the Orbital phone app answering a session',
     alt: 'The Orbital phone app answering a session that needs input.',
-    caption: 'Live demo',
   },
   'phone-new': {
     demo: 'phone',
     src: '/demo/phone/?screen=new',
     title: 'Live demo of the Orbital phone app starting a session',
     alt: 'The Orbital phone app starting a new session.',
-    caption: 'Live demo',
   },
 } satisfies Record<string, DemoFrameSpec>
 
