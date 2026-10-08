@@ -114,6 +114,13 @@ export const PhoneMessage = z.discriminatedUnion('t', [
     session: z.string().max(FILE_SESSION_MAX_CHARS).regex(NO_CONTROL_CHARS),
     path: z.string().max(FILE_PATH_MAX_CHARS).regex(NO_CONTROL_CHARS),
     as: FileAs,
+    /**
+     * The `cwd` of the transcript entry the link came from (spec
+     * 2026-10-07-live-working-tree-design § 4). The Mac uses it only when
+     * the session's transcripts recorded it. Optional: an older phone sends
+     * none, and an older Mac ignores it.
+     */
+    cwd: z.string().max(FILE_PATH_MAX_CHARS).regex(NO_CONTROL_CHARS).optional(),
   }),
   z.object({
     t: z.literal('blob_put'), id: z.number().int(), mediaType: z.string(), bytes: z.number().int().nonnegative(),

@@ -28,6 +28,8 @@ export type Pushed =
       ref?: string
       /** The message the press came from, whose images the viewer pages through. */
       messageId?: string
+      /** The `cwd` that message was written in, which the path is read against (`FileCwdContext`). */
+      cwd?: string
     }
 
 /**

@@ -203,8 +203,12 @@ export interface OrbitalUiState {
    * `lib/sessionUrl.ts` is what survives a reload. The viewer always
    * belongs to the selected session, so `select()`ing a different session
    * closes it.
+   *
+   * `cwd` is the one the transcript entry the path came from was written in,
+   * read against on the server (spec 2026-10-07-live-working-tree-design § 4);
+   * absent for a path from anywhere else. The URL does not carry it.
    */
-  fileViewer: { path: string; line: number | null } | null
+  fileViewer: { path: string; line: number | null; cwd?: string } | null
   /** Sidebar collapsed to its narrow rail (Panel's `collapsed` prop). See Sidebar.tsx (task 10). */
   sidebarCollapsed: boolean
   /**
@@ -632,8 +636,9 @@ export interface OrbitalActions {
    */
   setDetached(ids: string[]): void
   /** Opens the file viewer over the selected session. `line` is the `:line`
-   * scroll target a path button carried, absent for a bare path. */
-  openFile(path: string, line?: number | null): void
+   * scroll target a path button carried, absent for a bare path; `cwd` the
+   * transcript entry's, when the path came from one. */
+  openFile(path: string, line?: number | null, cwd?: string): void
   closeFile(): void
   /**
    * Opens a path in the editor covering the selected session's workspace —
@@ -2277,8 +2282,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     })
   },
 
-  openFile(path, line) {
-    set((state) => ({ ui: { ...state.ui, fileViewer: { path, line: line ?? null } } }))
+  openFile(path, line, cwd) {
+    set((state) => ({ ui: { ...state.ui, fileViewer: { path, line: line ?? null, ...(cwd ? { cwd } : {}) } } }))
   },
 
   closeFile() {

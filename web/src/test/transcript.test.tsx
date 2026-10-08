@@ -499,6 +499,15 @@ describe('ToolRow: pressable path', () => {
     expect(container.querySelector('[data-role="tool"]')).toHaveAttribute('data-expanded', 'false')
   })
 
+  it('opens the path from the tree the call was made in', () => {
+    const cwd = '/r/orbital/.claude/worktrees/x'
+    const { container } = render(
+      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: 'web/a.ts' }, cwd })} />
+    )
+    fireEvent.click(container.querySelector('[data-path-button]')!)
+    expect(useOrbital.getState().ui.fileViewer).toStrictEqual({ path: 'web/a.ts', line: null, cwd })
+  })
+
   it('pressing an image path opens the lightbox, not the viewer, and closing it leaves the row alone', () => {
     useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 'img' } }))
     const { container } = render(
@@ -688,6 +697,15 @@ describe('MessageView: pressable prose paths', () => {
 
     fireEvent.click(button)
     expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'web/src/App.tsx', line: 42 })
+  })
+
+  it('opens a path from the tree its message was written in', () => {
+    const cwd = '/r/orbital/.claude/worktrees/x'
+    const { container } = render(
+      <MessageView message={makeMessage({ id: '1', text: 'see web/src/App.tsx', cwd })} />
+    )
+    fireEvent.click(container.querySelector('[data-path-button]')!)
+    expect(useOrbital.getState().ui.fileViewer).toStrictEqual({ path: 'web/src/App.tsx', line: null, cwd })
   })
 
   it('turns a code span that is exactly a path into a path button inside the chip', () => {

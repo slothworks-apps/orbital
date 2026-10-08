@@ -310,7 +310,7 @@ export class PhoneSession {
    * frames a stored image, so the phone reassembles both alike.
    */
   private onFileGet(msg: Extract<PhoneMessage, { t: 'file_get' }>): void {
-    const answer = this.opts.files(msg.session, msg.path, msg.as);
+    const answer = this.opts.files(msg.session, msg.path, msg.as, msg.cwd);
     const meta = {
       ...(answer.mediaType !== undefined ? { mediaType: answer.mediaType } : {}),
       ...(answer.size !== undefined ? { size: answer.size } : {}),

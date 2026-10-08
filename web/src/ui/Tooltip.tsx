@@ -81,6 +81,11 @@ export type TooltipProps =
        * past this box's.
        */
       clampWithin?: () => HTMLElement | null
+      /**
+       * The shell's width, when the rows need another than the Branch status
+       * bubble's (`Feature - Git worktree` 2e: the worktree list is wider).
+       */
+      widthPx?: number
       title?: never
       description?: never
     })
@@ -158,14 +163,15 @@ export function Tooltip(props: TooltipProps) {
   const wrapper = useRef<HTMLSpanElement | null>(null)
   const [panelLeft, setPanelLeft] = useState(-PANEL_INSET_PX)
   const clampWithin = props.variant === 'panel' ? props.clampWithin : undefined
+  const panelWidth = (props.variant === 'panel' ? props.widthPx : undefined) ?? PANEL_WIDTH_PX
   useLayoutEffect(() => {
     if (!open || !clampWithin || !wrapper.current) return
     const bounds = clampWithin()?.getBoundingClientRect()
     if (!bounds) return
     const trigger = wrapper.current.getBoundingClientRect().left
-    const left = Math.max(bounds.left - PANEL_INSET_PX, Math.min(trigger - PANEL_INSET_PX, bounds.right - PANEL_WIDTH_PX))
+    const left = Math.max(bounds.left - PANEL_INSET_PX, Math.min(trigger - PANEL_INSET_PX, bounds.right - panelWidth))
     setPanelLeft(left - trigger)
-  }, [open, clampWithin])
+  }, [open, clampWithin, panelWidth])
 
   if (props.variant === 'panel') {
     return (
@@ -179,7 +185,7 @@ export function Tooltip(props: TooltipProps) {
           <span
             role="tooltip"
             id={id}
-            style={{ left: panelLeft }}
+            style={{ left: panelLeft, width: panelWidth }}
             className={['orbital-tooltip-in orbital-no-drag absolute top-full z-20 mt-2', PANEL_CLASS].join(' ')}
           >
             {props.content}

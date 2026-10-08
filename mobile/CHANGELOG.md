@@ -4,6 +4,14 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-07
+### Added
+- A session shows how many other git worktrees its running subagents work in; in the open session, tap the count to see them with their tasks.
+
+### Fixed
+- A session shows the branch it works on now, also after it moved into a worktree.
+- A file the agent links to opens from the worktree it was working in.
+
 ## [0.4.0] — 2026-10-07
 ### Added
 - When the relay or this app is too old for the others, the app says which one and shows both versions; for the app, it opens Google Play to update.

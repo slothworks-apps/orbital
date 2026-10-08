@@ -12,7 +12,7 @@ import { ChangeView, changeSectionLabel } from './DiffView'
 import { formatBytes, formatToolDuration } from '../lib/format'
 import { ImageThumb } from './ImageThumb'
 import { PathButton, PlainPath } from './PathButton'
-import { FileMessageContext, fileOpenHandlers, messageImages, useLongPress } from '../lib/fileOpen'
+import { FileCwdContext, FileMessageContext, fileOpenHandlers, messageImages, useLongPress } from '../lib/fileOpen'
 
 /** Tools whose salient input lives in a `file_path` field. */
 const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
@@ -336,6 +336,8 @@ export function ToolRow({
   const wideImages = phone && toolResult?.images?.length ? toolResult.images : null
 
   return (
+    // A path in this call opens from the tree the call was made in.
+    <FileCwdContext.Provider value={toolUse.cwd}>
     <div
       data-role="tool"
       data-running={running}
@@ -547,5 +549,6 @@ export function ToolRow({
         </div>
       )}
     </div>
+    </FileCwdContext.Provider>
   )
 }

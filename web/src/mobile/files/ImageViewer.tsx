@@ -23,9 +23,11 @@ const TAP_SLOP_PX = 10
  * back. The image area's other states are 10e's.
  */
 export function ImageViewer({
-  sessionId, items, start, caption, onBack,
+  sessionId, cwd, items, start, caption, onBack,
 }: {
   sessionId: string
+  /** The `cwd` the message was written in; its named paths are read against it. */
+  cwd?: string
   /** The images of the message the press came from, in order; never empty. */
   items: MessageImage[]
   start: number
@@ -43,6 +45,7 @@ export function ImageViewer({
     <ImagePage
       key={item.kind === 'ref' ? `ref:${item.ref}` : `path:${item.path}`}
       sessionId={sessionId}
+      cwd={cwd}
       item={item}
       index={index}
       count={items.length}
@@ -53,10 +56,10 @@ export function ImageViewer({
   )
 }
 
-function sourceOf(sessionId: string, item: MessageImage): FileSource {
+function sourceOf(sessionId: string, cwd: string | undefined, item: MessageImage): FileSource {
   return item.kind === 'ref'
     ? { kind: 'ref', ref: item.ref, w: item.image.w, h: item.image.h }
-    : { kind: 'path', sessionId, path: item.path, as: 'image' }
+    : { kind: 'path', sessionId, path: item.path, as: 'image', cwd }
 }
 
 function distance(a: Touch, b: Touch): number {
@@ -64,9 +67,10 @@ function distance(a: Touch, b: Touch): number {
 }
 
 function ImagePage({
-  sessionId, item, index, count, caption, onBack, onPage,
+  sessionId, cwd, item, index, count, caption, onBack, onPage,
 }: {
   sessionId: string
+  cwd?: string
   item: MessageImage
   index: number
   count: number
@@ -74,7 +78,7 @@ function ImagePage({
   onBack: () => void
   onPage: (delta: number) => void
 }) {
-  const source = useMemo(() => sourceOf(sessionId, item), [sessionId, item])
+  const source = useMemo(() => sourceOf(sessionId, cwd, item), [sessionId, cwd, item])
   const { view, retry, known } = useFile(source)
   const mac = useMobile((s) => s.macName) ?? 'the Mac'
   const path = item.kind === 'path' ? item.path : null

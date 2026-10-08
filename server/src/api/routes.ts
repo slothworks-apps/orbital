@@ -8,7 +8,8 @@ import { presentBranch, readTranscriptBranch, type BranchRead } from '../transcr
 import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { expandHome } from '../paths.js';
-import { NamedPathCache, readFilePreview, readImageFile } from '../files/preview.js';
+import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
+import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
@@ -148,6 +149,12 @@ export interface RouteContext {
    * registered and no message is ever held for a reset.
    */
   limits?: LimitsService;
+  /**
+   * Where each session works now (spec 2026-10-07-live-working-tree-design).
+   * Absent, every session works in its home, and a file request's `cwd` is
+   * never accepted.
+   */
+  trees?: WorkingTrees;
 }
 
 const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);
@@ -394,6 +401,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   /** The file viewer's named-path check for one session row. */
   const namedBy = (id: string, row: SessionRow) =>
     namedPaths.forSession(id, join(ctx.projectsDir, row.project_dir, `${id}.jsonl`));
+  /** Where a file request for this session is confined, in order; the home alone without a reader. */
+  const sandboxesOf = (row: SessionRow, cwd: string | undefined): string[] =>
+    ctx.trees?.sandboxes(row, cwd) ?? [row.cwd];
+  /** The tree the session works in now; its home without a reader. */
+  const workingDirOf = (row: SessionRow): string => ctx.trees?.workingDir(row) ?? row.cwd;
   /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
   let carry: CarryHarness | null = null;
 
@@ -701,6 +713,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // session's transcripts name (spec 2026-10-03-api-token-and-named-files-design
   // § 2). The path is taken verbatim: a `:line` suffix never travels here,
   // the client keeps it for scrolling.
+  //
+  // `cwd` is the transcript entry's the link came from. It replaces the
+  // sandbox only when the session's transcripts recorded it; otherwise the
+  // tree the session works in now is tried, then the home (spec
+  // 2026-10-07-live-working-tree-design § 4, `fileSandboxes`).
   app.get('/api/files', (req, reply) => {
     const q = req.query as Record<string, string>;
     if (!q.session || !q.path) return reply.code(400).send({ error: 'missing_params' });
@@ -708,7 +725,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    const result = readFilePreview(row.cwd, q.path, namedBy(q.session, row));
+    const named = namedBy(q.session, row);
+    const result = readInSandboxes(sandboxesOf(row, q.cwd), (cwd) => readFilePreview(cwd, q.path, named));
     switch (result.kind) {
       case 'ok':
         return {
@@ -729,7 +747,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   // An image a prose path names, for the lightbox — the same sandbox as the
-  // read above (`readImageFile` confines through `resolveForSession`). Not
+  // read above, `cwd` included (`readImageFile` confines through `resolveForSession`). Not
   // cached: unlike `/api/images/:ref` the file on disk can change under the
   // same path. An SVG is served sandboxed, so opening this URL directly
   // cannot run a script it carries on Orbital's origin.
@@ -740,7 +758,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    const result = readImageFile(row.cwd, q.path, namedBy(q.session, row));
+    const named = namedBy(q.session, row);
+    const result = readInSandboxes(sandboxesOf(row, q.cwd), (cwd) => readImageFile(cwd, q.path, named));
     switch (result.kind) {
       case 'ok':
         reply.header('content-type', result.contentType);
@@ -849,7 +868,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   /**
-   * The composer's `@` completion. Confined to the session's cwd by the same
+   * The composer's `@` completion. Confined to the tree the session works in
+   * now (`workingDir` on its shape) by the same
    * helper the file viewer uses, and deliberately incapable of an error:
    * a popup fed by keystrokes asks about half-typed paths constantly, and
    * `{ entries: [] }` is the right answer to every one that names nothing.
@@ -866,7 +886,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         | SessionRow
         | undefined;
       if (!row) return reply.code(404).send({ error: 'not_found' });
-      cwd = row.cwd;
+      // The tree the agent will read an `@` path from.
+      cwd = workingDirOf(row);
     } else if (q.cwd) {
       cwd = expandHome(q.cwd);
     } else {
@@ -889,13 +910,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   app.get('/api/sessions/:id/ide/open-files', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = db
-      .select({ cwd: sessions.cwd })
-      .from(sessions)
-      .where(eq(sessions.id, id))
-      .get();
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+      | SessionRow
+      | undefined;
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    const files = await ctx.ide.openFiles(row.cwd);
+    // The same workspace `ide` on the session shape names.
+    const files = await ctx.ide.openFiles(workingDirOf(row));
     if (!files) return reply.code(404).send({ error: 'no_ide' });
     return { files };
   });

@@ -813,6 +813,8 @@ export class Runner {
   private appendix?: () => string | null;
   /** See the `mcpConfig` dep. */
   private mcpConfig?: (cwd: string) => McpConfigSnapshot;
+  /** See the `cwdOf` dep. */
+  private cwdOf?: (sessionId: string, agentToolUseId: string | null) => string | null | undefined;
   /**
    * Starts a session on behalf of a running one — the `spawn_session` tool's
    * back end (spec 2026-09-30-a-session-spawns-sessions-design). Assigned by
@@ -1045,6 +1047,14 @@ export class Runner {
      * Unwired (most tests), no row is.
      */
     mcpConfig?: (cwd: string) => McpConfigSnapshot;
+    /**
+     * The `cwd` the session's transcript — or, with an `Agent` call's id,
+     * that subagent's — recorded last. The SDK's frames do not carry one, so
+     * a live row takes this as the directory it was written in
+     * (`ChatMessage.cwd`). Unwired, or nothing recorded yet, a live row
+     * carries none.
+     */
+    cwdOf?: (sessionId: string, agentToolUseId: string | null) => string | null | undefined;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -1078,6 +1088,14 @@ export class Runner {
     this.readContextUsed = deps.readContextUsed;
     this.appendix = deps.appendix;
     this.mcpConfig = deps.mcpConfig;
+    this.cwdOf = deps.cwdOf;
+  }
+
+  /** Stamps one frame's rows with the `cwd` they were written in, when it is known (`cwdOf`). */
+  private withCwd(sessionId: string, agentToolUseId: string | null, chats: ChatMessage[]): ChatMessage[] {
+    if (chats.length === 0 || !this.cwdOf) return chats;
+    const cwd = this.cwdOf(sessionId, agentToolUseId);
+    return cwd ? chats.map((chat) => ({ ...chat, cwd })) : chats;
   }
 
   /**
@@ -1706,7 +1724,8 @@ export class Runner {
           }
         }
         const idFor = this.streamedIdFor(state.stream, msg);
-        for (const chat of sdkToChatMessages(msg, () => ++this.seq, this.images, idFor)) {
+        const chats = this.withCwd(sessionId, null, sdkToChatMessages(msg, () => ++this.seq, this.images, idFor));
+        for (const chat of chats) {
           this.hub.publish(topic, { event: 'message', message: chat });
         }
       } else {
@@ -1717,7 +1736,9 @@ export class Runner {
         // buffer below only ever holds complete messages.
         this.flushStream(sessionId, state, agent);
         const agentStream = state.agentStreams.get(agent);
-        const chats = sdkToChatMessages(msg, () => ++this.seq, this.images, this.streamedIdFor(agentStream, msg));
+        const chats = this.withCwd(
+          sessionId, agent, sdkToChatMessages(msg, () => ++this.seq, this.images, this.streamedIdFor(agentStream, msg)),
+        );
         if (agentStream?.stopped && agentStream.rows.size === 0) state.agentStreams.delete(agent);
         this.subagentTranscripts?.append(sessionId, msg.parent_tool_use_id, chats);
         const subagentTopic = `subagent:${sessionId}:${msg.parent_tool_use_id}`;

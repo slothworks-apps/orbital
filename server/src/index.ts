@@ -33,6 +33,7 @@ import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledC
 import { McpConfig } from './mcp/config.js';
 import { claudeJsonPath } from './mcp/claudeJson.js';
 import { GitStore } from './git/store.js';
+import { WorkingTrees } from './git/workingTrees.js';
 import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
@@ -98,7 +99,7 @@ function rowlessSession(ctx: PublishContext, live: LiveSession) {
   const agents = ctx.subagents.all(live.sessionId);
   const tasks = ctx.backgroundTasks.all(live.sessionId);
   return {
-    id: live.sessionId, cwd: live.cwd, title: live.name, firstAt: null,
+    id: live.sessionId, cwd: live.cwd, workingDir: live.cwd, otherTrees: [], title: live.name, firstAt: null,
     lastAt: live.updatedAt, messageCount: 0, source: 'terminal' as const,
     permissionMode: null, tagIds: [], status: live.status,
     subagents: listedSubagents(agents),
@@ -171,8 +172,11 @@ export function republishCwds(ctx: PublishContext, cwds: string[]): void {
     .from(sessions)
     .where(inArray(sessions.cwd, cwds))
     .all();
-  for (const row of rows) {
-    if (wantsAmbientUpdates(ctx, row.id)) publishSession(ctx, row.id);
+  // Those whose home it is, and those working there now — in their own tree
+  // or a running subagent's (spec 2026-10-07-live-working-tree-design § 3).
+  const ids = new Set([...rows.map((row) => row.id), ...(ctx.trees?.sessionsAt(cwds) ?? [])]);
+  for (const id of ids) {
+    if (wantsAmbientUpdates(ctx, id)) publishSession(ctx, id);
   }
 }
 
@@ -420,12 +424,42 @@ export async function buildServer(overrides: {
   // session in it open (spec 2026-09-30-branch-pr-and-line-changes-design).
   // The settings are read per call, so a switch applies without a restart.
   const branchStatus = new BranchStatusStore({ git, settings: settingsStore });
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits });
+  // Where each session works now — the last `cwd` of its transcript and of
+  // its running subagents', in memory only (adr
+  // a-session-has-a-home-and-a-working-tree).
+  const trees = new WorkingTrees({ projectsDir, git });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, trees });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
-  /** A session's directory: its row, or the registry for one not indexed yet. */
-  const cwdOf = (sessionId: string): string | undefined =>
-    db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, sessionId)).get()?.cwd ??
-    registry.get(sessionId)?.cwd;
+  const rowOf = (sessionId: string): SessionRow | undefined =>
+    db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get();
+  /**
+   * The tree a session works in now: from its row, or the registry's `cwd`
+   * for one not indexed yet. What its branch status is read for.
+   */
+  const workingDirOf = (sessionId: string): string | undefined => {
+    const row = rowOf(sessionId);
+    return row ? trees.workingDir(row) : registry.get(sessionId)?.cwd;
+  };
+  /**
+   * Republishes the sessions among these whose tree, or a running subagent's,
+   * moved since they were last shaped — the ones someone is looking at
+   * (`wantsAmbientUpdates`); the rest catch up when a window opens them. A
+   * window's branch status follows the session to its new tree.
+   */
+  const republishMoved = (ids: string[]): void => {
+    const ctx = publishCtx();
+    const watched = ids.filter((id) => wantsAmbientUpdates(ctx, id));
+    if (watched.length === 0) return;
+    const rows = db.select(sessionColumns).from(sessions).where(inArray(sessions.id, watched)).all() as SessionRow[];
+    for (const row of rows) {
+      if (!trees.moved(row, subagents.all(row.id), statusOf(ctx, row) === 'ended')) continue;
+      if (hub.subscriberCount(`session:${row.id}`) > 0) {
+        branchStatus.unwatchSession(row.id);
+        branchStatus.watchSession(row.id, trees.workingDir(row));
+      }
+      republish(row.id);
+    }
+  };
 
   git.on('change', (_root: string, cwds: string[]) => republishCwds(publishCtx(), cwds));
   ide.on('change', (_root: string, cwds: string[]) => republishCwds(publishCtx(), cwds));
@@ -621,6 +655,15 @@ export async function buildServer(overrides: {
     subagentTranscripts,
     // Which `/mcp` rows are editable: read per call, the CLI rewrites it.
     mcpConfig: (cwd) => mcpConfig.read(cwd),
+    // Where a live row was written: the transcript's last `cwd`, the main
+    // one's or the subagent's the frame came from.
+    cwdOf: (sessionId, agentToolUseId) => {
+      const row = rowOf(sessionId);
+      if (!row) return null;
+      if (agentToolUseId === null) return trees.currentCwd(row);
+      const agent = subagents.all(sessionId).find((a) => a.toolUseId === agentToolUseId);
+      return agent ? trees.agentCwd(row, agent) : null;
+    },
     // Read per start, never captured: every switch and the text hold for a
     // session from its next spawn or revive (spec
     // 2026-09-30-session-instructions-design § 1). Default-on rows read
@@ -996,7 +1039,7 @@ export async function buildServer(overrides: {
       // Someone is looking at this working tree now; its branch status is
       // read and kept fresh until nobody is. A browser-minted id has no row
       // yet — `POST /api/sessions` starts the watch for that one.
-      const cwd = cwdOf(id);
+      const cwd = workingDirOf(id);
       if (cwd !== undefined) branchStatus.watchSession(id, cwd);
       republish(id);
     }
@@ -1032,21 +1075,31 @@ export async function buildServer(overrides: {
   // After boot, an event indexes the transcripts it named, not the tree: the
   // full pass stats every transcript on the machine, and a working session
   // writes several times a second.
-  const projectsWatcher = watchProjects(projectsDir, (batch) => {
-    if (batch.all) indexProjects(db, projectsDir, statsWritten);
-    else indexPaths(db, projectsDir, batch.paths, statsWritten);
-    // The same writes are what the line-change count follows: a tool that
-    // edited files, a turn that ended. Hooked here, where transcripts are
-    // read — Orbital's own sessions and the terminal's alike — and not in
-    // `publishSession`, which the store's own change republishes through and
-    // would feed back into a recount.
-    const ids = batchSessionIds(batch);
-    if (ids === null) branchStatus.transcriptActivityAnywhere();
-    else if (ids.length > 0) {
-      const rows = db.select({ cwd: sessions.cwd }).from(sessions).where(inArray(sessions.id, ids)).all();
-      branchStatus.transcriptActivity(rows.map((row) => row.cwd));
-    }
-  });
+  const projectsWatcher = watchProjects(
+    projectsDir,
+    (batch) => {
+      if (batch.all) indexProjects(db, projectsDir, statsWritten);
+      else indexPaths(db, projectsDir, batch.paths, statsWritten);
+      // The same writes are what the line-change count follows: a tool that
+      // edited files, a turn that ended. Hooked here, where transcripts are
+      // read — Orbital's own sessions and the terminal's alike — and not in
+      // `publishSession`, which the store's own change republishes through and
+      // would feed back into a recount.
+      const ids = batchSessionIds(batch);
+      if (ids === null) {
+        branchStatus.transcriptActivityAnywhere();
+        republishMoved(trees.shapedSessions());
+      } else if (ids.length > 0) {
+        const rows = db.select(sessionColumns).from(sessions).where(inArray(sessions.id, ids)).all() as SessionRow[];
+        branchStatus.transcriptActivity(rows.map((row) => trees.workingDir(row)));
+        // A line can also have moved the session to another tree.
+        republishMoved(ids);
+      }
+    },
+    // A subagent's line can move it to another tree while the parent's
+    // transcript sits still.
+    (ids) => republishMoved(ids),
+  );
 
   // Live registry → 'sessions' topic, REST-shaped (final-review ruling).
   registry.on('upsert', (s) => {
@@ -1185,7 +1238,7 @@ export async function buildServer(overrides: {
   // routes always have something to ask. `inject` is how a phone's REST call
   // enters: in-process, same routes, same host guard satisfied by the header.
   const remote = new RemoteService({
-    db, hub, dataDir, images, imagesDir, projectsDir,
+    db, hub, dataDir, images, imagesDir, projectsDir, trees,
     serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
     inject: async (req) => {
       const res = await app.inject(remoteInjectOptions(req, apiToken));
@@ -1196,7 +1249,7 @@ export async function buildServer(overrides: {
   });
   registerRoutes(app, {
     db, registry, runner, projectsDir, claudeDir, hub, models, subagents, subagentTranscripts, backgroundTasks, recentTools, errors,
-    images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote,
+    images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, trees,
     settings: settingsStore,
     mcp: mcpConfig,
     limits,

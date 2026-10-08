@@ -21,7 +21,14 @@ import { findPathMatches, isImagePath } from './pathLinks'
  * the components read it at render time instead of subscribing.
  */
 export type FileOpenTarget =
-  | { kind: 'path'; path: string; line: number | null; messageId?: string }
+  | {
+      kind: 'path'
+      path: string
+      line: number | null
+      messageId?: string
+      /** The `cwd` the message was written in, when it came from a transcript (`FileCwdContext`). */
+      cwd?: string
+    }
   | { kind: 'ref'; ref: string; messageId?: string }
 
 export interface FileOpenHandlers {
@@ -150,4 +157,18 @@ export const FileMessageContext = createContext<FileMessage | null>(null)
 
 export function useFileMessage(): FileMessage | null {
   return useContext(FileMessageContext)
+}
+
+/**
+ * The `cwd` the transcript entry a path sits in was written in (spec
+ * 2026-10-07-live-working-tree-design § 4): a press sends it along, so the
+ * file opens from the tree the agent wrote the path in — the session's own
+ * line or a subagent's. Provided by the transcript's message and tool rows on
+ * the desktop and the phone alike; a path anywhere else (the composer, the
+ * header) has none, and the server falls back to the session's trees.
+ */
+export const FileCwdContext = createContext<string | undefined>(undefined)
+
+export function useFileCwd(): string | undefined {
+  return useContext(FileCwdContext)
 }

@@ -15,6 +15,7 @@ import { countedBySummary, loadEndedFold } from '../endedFold'
 import { isMacAsleep, useMobile } from '../state'
 import { opensTask } from '../subagents/model'
 import { MobileScreen, PrimaryButton } from '../ui'
+import { WhereLine } from '../where/WhereLine'
 import { PlanetGlyph } from './Glyph'
 
 /** 9a, updated by 10a (spec 2026-10-05-mobile-next-design): the sessions, grouped by what they need from you. */
@@ -298,29 +299,6 @@ function Chip({
   )
 }
 
-/** The cwd · branch line under a title (9a), mono, with the tag's dot. */
-function WhereLine({ session, tag, dim = false }: { session: ApiSession; tag: Tag | undefined; dim?: boolean }) {
-  return (
-    <span
-      className={[
-        'flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono text-[11px]',
-        dim ? 'text-[rgba(160,190,225,.65)]' : 'text-[rgba(160,190,225,.7)]',
-      ].join(' ')}
-    >
-      <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
-      <span className="shrink-0">{basename(session.cwd)}</span>
-      {session.git && (
-        <>
-          <span aria-hidden className="text-[rgba(150,205,255,.3)]">
-            ·
-          </span>
-          <span className="truncate">⎇ {session.git.ref}</span>
-        </>
-      )}
-    </span>
-  )
-}
-
 /** Canvas 10a's pin mark after a title: a ring on a stem. */
 function PinMark({ ink, dim = false }: { ink: string; dim?: boolean }) {
   return (
@@ -420,7 +398,8 @@ function SessionRow({
               </span>
             )}
           </span>
-          {showWhere && <WhereLine session={session} tag={tag} dim={offline} />}
+          {/* 9a's cwd · branch line; 2h adds the worktree count. */}
+          {showWhere && <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} />}
           {asleepCounts !== null && <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">{asleepCounts}</span>}
           {reason && (
             <span className={['text-[12.5px] leading-[1.35]', offline ? 'text-[rgba(255,214,173,.75)]' : 'text-[#ffd6ad]'].join(' ')}>

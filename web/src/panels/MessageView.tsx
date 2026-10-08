@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../lib/types'
 import { formatBytes } from '../lib/format'
 import { highlightCode } from '../lib/highlight'
-import { FileMessageContext, fileOpenHandlers, messageImages } from '../lib/fileOpen'
+import { FileCwdContext, FileMessageContext, fileOpenHandlers, messageImages } from '../lib/fileOpen'
 import { rehypePathLinks } from '../lib/pathLinks'
 import { rehypeSentTokens } from '../lib/sentTokens'
 import { ImageThumb } from './ImageThumb'
@@ -372,6 +372,8 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
 
   return (
     <FileMessageContext.Provider value={fileMessage}>
+    {/* A path in this message opens from the tree it was written in. */}
+    <FileCwdContext.Provider value={message.cwd}>
     <div
       data-role={message.role}
       className={['flex flex-col gap-1', isUser && authored ? 'items-end' : 'items-start'].join(' ')}
@@ -559,6 +561,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
         </span>
       )}
     </div>
+    </FileCwdContext.Provider>
     </FileMessageContext.Provider>
   )
 }

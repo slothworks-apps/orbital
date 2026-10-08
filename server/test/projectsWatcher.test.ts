@@ -7,6 +7,7 @@ import {
   PROJECTS_QUIET_MS,
   TargetBatcher,
   projectsEventTarget,
+  subagentEventSession,
   type ProjectsBatch,
 } from '../src/watcher/projects.js';
 import { watchDir } from '../src/watcher/watchDir.js';
@@ -32,6 +33,24 @@ describe('projectsEventTarget', () => {
       '-Users-x-proj/',
     ]) {
       expect(projectsEventTarget(rel), rel).toBeNull();
+    }
+  });
+});
+
+describe('subagentEventSession', () => {
+  it('names the session a subagent transcript belongs to', () => {
+    expect(subagentEventSession('-Users-x-proj/abc-123/subagents/agent-a1f.jsonl')).toBe('abc-123');
+  });
+  it('is null for everything else', () => {
+    for (const rel of [
+      null,
+      '-Users-x-proj/abc-123.jsonl',
+      '-Users-x-proj/abc-123/subagents/agent-a1f.meta.json',
+      '-Users-x-proj/abc-123/tool-results/agent-a1f.jsonl',
+      '-Users-x-proj/abc-123/subagents/.agent-a1f.jsonl',
+      '-Users-x-proj/abc-123/subagents/nested/agent-a1f.jsonl',
+    ]) {
+      expect(subagentEventSession(rel), String(rel)).toBeNull();
     }
   });
 });

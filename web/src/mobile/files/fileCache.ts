@@ -47,8 +47,14 @@ export function refKey(ref: string): string {
   return `ref:${ref}`
 }
 
-export function pathKey(sessionId: string, path: string): string {
-  return `path:${sessionId}:${path}`
+/**
+ * A path entry's key. With the `cwd` the link was written in (spec
+ * 2026-10-07-live-working-tree-design § 4) the same relative path from two
+ * trees is two files, so the cwd is part of the key; without one the key is
+ * the one entries were stored under before there was a cwd to send.
+ */
+export function pathKey(sessionId: string, path: string, cwd?: string): string {
+  return cwd ? `path+cwd:${JSON.stringify([sessionId, cwd, path])}` : `path:${sessionId}:${path}`
 }
 
 /**

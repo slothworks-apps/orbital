@@ -47,12 +47,12 @@ export function FileScreen() {
   const kind = item.ref ? 'image' : item.path ? fileKindOf(item.path) : null
 
   if (kind === 'text' && item.path) {
-    return <TextPreview sessionId={item.sessionId} path={item.path} line={item.line} onBack={back} />
+    return <TextPreview sessionId={item.sessionId} cwd={item.cwd} path={item.path} line={item.line} onBack={back} />
   }
   if (kind === 'image') {
     const { items, start } = pagesFor(item, message)
     const caption = [title, clock(message?.timestamp)].filter(Boolean).join(' ')
-    return <ImageViewer sessionId={item.sessionId} items={items} start={start} caption={caption} onBack={back} />
+    return <ImageViewer sessionId={item.sessionId} cwd={item.cwd} items={items} start={start} caption={caption} onBack={back} />
   }
   // Reached only by a path that did not come from a link (Decision 8).
   return (

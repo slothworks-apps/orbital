@@ -11,9 +11,11 @@ export type ImageResolver = (ref: string) => string | Promise<string>
 export const apiImagePath = (ref: string): string => `/api/images/${ref}`
 
 /** An image on disk that a session's text names by path, read inside that
- * session's cwd. The `:line` suffix never travels, as with the file viewer. */
-export const apiFileImagePath = (sessionId: string, path: string): string =>
-  `/api/files/image?${new URLSearchParams({ session: sessionId, path })}`
+ * session's trees — inside `cwd` when the path came from a transcript entry
+ * that recorded one (spec 2026-10-07-live-working-tree-design § 4). The
+ * `:line` suffix never travels, as with the file viewer. */
+export const apiFileImagePath = (sessionId: string, path: string, cwd?: string): string =>
+  `/api/files/image?${new URLSearchParams({ session: sessionId, path, ...(cwd ? { cwd } : {}) })}`
 
 let resolver: ImageResolver = apiImagePath
 

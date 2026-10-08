@@ -156,6 +156,22 @@ export interface ApiSession {
    */
   git?: GitLocation | null
   /**
+   * The working-tree root the session works in now — the last `cwd` its
+   * transcript recorded, resolved to its tree's root (spec
+   * 2026-10-07-live-working-tree-design § 2). `cwd` stays the session's home
+   * and keeps every other use; the header shows this as its path. `git` and
+   * `branch` describe this tree. Optional because an older server does not
+   * send it; read it through `workingDirOf`. Mirrors `server/src/api/shape.ts`.
+   */
+  workingDir?: string
+  /**
+   * The trees running subagents work in, other than `workingDir`, most
+   * recently started first (spec § 2). Empty for an ended session. Optional
+   * because an older server does not send it; absent reads as empty.
+   * Mirrors `server/src/api/shape.ts`.
+   */
+  otherTrees?: OtherTree[]
+  /**
    * How far this session's working tree has got: line changes against the
    * parent branch and the branch's pull request (spec
    * 2026-09-30-branch-pr-and-line-changes-design § The wire). Each half is
@@ -364,6 +380,24 @@ export interface GitLocation {
   defaultBranch: boolean
 }
 
+/**
+ * A tree running subagents work in, other than the session's own (spec
+ * 2026-10-07-live-working-tree-design § 2). Mirrors `server/src/api/shape.ts`.
+ */
+export interface OtherTree {
+  /** The working-tree root. */
+  root: string
+  /** Where that root sits in git, read the same way as the session's own. */
+  git: GitLocation | null
+  /** The running subagents' short task descriptions — the `Agent` call's `description`. */
+  agents: string[]
+}
+
+/** Where a session works now: `workingDir`, or its home when the server did not say. */
+export function workingDirOf(session: Pick<ApiSession, 'cwd' | 'workingDir'>): string {
+  return session.workingDir ?? session.cwd
+}
+
 /** Mirrors `server/src/git/branchStatus.ts`. */
 export interface LineCounts {
   added: number
@@ -540,6 +574,13 @@ export interface ChatMessage {
    * 2026-10-02-harness-redesign-design § 3).
    */
   harnessMessage?: { kind: HarnessMessageKind; step: number }
+  /**
+   * The `cwd` of the transcript entry this message came from — what a
+   * relative path in it is resolved against when pressed (spec
+   * 2026-10-07-live-working-tree-design § 4). Absent from an older server and
+   * on messages Orbital makes itself. Mirrors `server/src/types.ts`.
+   */
+  cwd?: string
   text?: string
   toolName?: string
   toolInput?: unknown

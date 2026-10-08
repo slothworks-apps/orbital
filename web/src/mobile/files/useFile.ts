@@ -6,7 +6,8 @@ import { readPath, readRef, type FileOutcome } from './fileResolver'
 
 /** One file the file screen shows: a path the transcript named, or an image known by its ref. */
 export type FileSource =
-  | { kind: 'path'; sessionId: string; path: string; as: 'image' | 'text' }
+  /** `cwd`: the one the transcript entry naming the path was written in, when there was one. */
+  | { kind: 'path'; sessionId: string; path: string; as: 'image' | 'text'; cwd?: string }
   | { kind: 'ref'; ref: string; w: number | null; h: number | null }
 
 export type FileView =
@@ -15,7 +16,7 @@ export type FileView =
   | { phase: 'done'; outcome: FileOutcome }
 
 function sourceKey(source: FileSource): string {
-  return source.kind === 'ref' ? `ref:${source.ref}` : `path:${source.sessionId}:${source.as}:${source.path}`
+  return source.kind === 'ref' ? `ref:${source.ref}` : `${source.as}:${pathKey(source.sessionId, source.path, source.cwd)}`
 }
 
 /**
@@ -39,7 +40,7 @@ export function useFile(source: FileSource): { view: FileView; retry: () => void
     const deps = { client: clientRef, cache: fileCache }
     // What the phone last knew of the file's size, for the reserved box (10e).
     if (source.kind === 'path') {
-      void fileCache.peek(pathKey(source.sessionId, source.path)).then((entry) => {
+      void fileCache.peek(pathKey(source.sessionId, source.path, source.cwd)).then((entry) => {
         if (live && entry?.w && entry.h) setKnown({ key, w: entry.w, h: entry.h })
       })
     }
@@ -50,6 +51,7 @@ export function useFile(source: FileSource): { view: FileView; retry: () => void
             sessionId: source.sessionId,
             path: source.path,
             as: source.as,
+            cwd: source.cwd,
             onProgress: (received, total) => {
               if (live) setState({ key, attempt, view: { phase: 'loading', received, total } })
             },
