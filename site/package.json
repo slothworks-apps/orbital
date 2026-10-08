@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "npm run build:demo && astro build",
+    "build:demo": "vite build --config vite.demo.config.ts",
     "preview": "astro preview",
     "typecheck": "astro check"
   },
