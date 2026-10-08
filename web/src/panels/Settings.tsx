@@ -37,6 +37,8 @@ import { api, type ServerHealth, type SessionTip } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { SCOPES, bindingCount, chordLabel, command } from '../lib/keymap'
 import { notifyDesktopSettingsChanged } from '../lib/desktop'
+import { notificationsAllOff, parseNotificationSettings, type NotificationSettings } from '@orbital/shared/notifications'
+import { notificationRowPatch } from '../lib/notificationsTip'
 import {
   EXPERIMENTAL_UNLOCKED_KEY,
   NARRATE_COMMENTARY_KEY,
@@ -819,17 +821,17 @@ export function Settings({ open, onClose }: SettingsProps) {
   const mapShowContext = showContext(settings)
   const mapShowCompactBadge = showCompactBadge(settings)
   /**
-   * Notifications (spec 2026-09-21-settings-sections-design § 5). Every one
-   * of these reads default-on, because that is what the desktop app does
-   * today with no settings at all: the three events fire unconditionally,
-   * the focus check in `main.ts` is unconditional, and `silent` is never
-   * set. An absent key must therefore mean "as before", not "off".
+   * Notifications (spec 2026-09-21-settings-sections-design § 5), read the way
+   * the desktop's notifier reads them: silent by default (spec
+   * 2026-10-08-notifications-off-by-default-design § 1).
    */
-  const notifyNeedsInput = settings.notify_needs_input !== 'false'
-  const notifySessionEnded = settings.notify_session_ended !== 'false'
-  const notifySessionFailed = settings.notify_session_failed !== 'false'
-  const notifyOnlyWhenBackground = settings.notify_only_when_background !== 'false'
-  const notifySound = settings.notify_sound !== 'false'
+  const notify = parseNotificationSettings(settings)
+  // 1c: the one line saying the silence is on purpose, while nothing notifies.
+  const notifyAllOff = notificationsAllOff(notify)
+  // 1c: background-only filters the events above it; with none on, it has nothing to filter.
+  const notifyAnyEvent = notify.needsInput || notify.sessionEnded || notify.sessionFailed
+  const saveNotifyRow = (key: keyof NotificationSettings) => (checked: boolean) =>
+    void patchAndSet(notificationRowPatch(key, checked))
   // Appearance (canvas 5a).
   const headerStats = headerSessionStats(settings)
   // 1g: gh unusable draws the switch off and disabled — the stored choice is
@@ -1164,8 +1166,15 @@ export function Settings({ open, onClose }: SettingsProps) {
                       {/* Spec 2026-09-21-settings-sections-design § 5. The three
                     WHEN rows are the three transitions `SessionNotifier`
                     already folds for; HOW is what `main.ts` does with what it
-                    gets back. All five default on, which is today's
-                    behaviour — see the derived flags above. */}
+                    gets back. Everything but background-only starts off
+                    (spec 2026-10-08-notifications-off-by-default-design). */}
+                      {notifyAllOff && (
+                        // Canvas `Feature - Notifications off` 1c: a page of
+                        // switches all off looks broken without it.
+                        <p className="pb-2.5 pt-3.5 text-[13px] leading-[1.5] text-[rgba(160,190,225,.8)]">
+                          Everything here starts off. Orbital stays silent until you turn something on.
+                        </p>
+                      )}
                       <SectionLabel first>WHEN</SectionLabel>
                       <Row
                         title="A session needs your input"
@@ -1173,10 +1182,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                       >
                         <Toggle
                           aria-label="A session needs your input"
-                          checked={notifyNeedsInput}
-                          onChange={(checked) =>
-                            void patchAndSet({ notify_needs_input: checked ? 'true' : 'false' })
-                          }
+                          checked={notify.needsInput}
+                          onChange={saveNotifyRow('needsInput')}
                         />
                       </Row>
                       <Row
@@ -1185,10 +1192,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                       >
                         <Toggle
                           aria-label="A session ends"
-                          checked={notifySessionEnded}
-                          onChange={(checked) =>
-                            void patchAndSet({ notify_session_ended: checked ? 'true' : 'false' })
-                          }
+                          checked={notify.sessionEnded}
+                          onChange={saveNotifyRow('sessionEnded')}
                         />
                       </Row>
                       <Row
@@ -1197,39 +1202,33 @@ export function Settings({ open, onClose }: SettingsProps) {
                       >
                         <Toggle
                           aria-label="A session fails"
-                          checked={notifySessionFailed}
-                          onChange={(checked) =>
-                            void patchAndSet({ notify_session_failed: checked ? 'true' : 'false' })
-                          }
+                          checked={notify.sessionFailed}
+                          onChange={saveNotifyRow('sessionFailed')}
                         />
                       </Row>
 
                       <SectionLabel>HOW</SectionLabel>
                       <Row
                         title="Only when Orbital is in the background"
-                        desc="A focused map already shows every one of these states, so interrupting over it is noise. Turn this off to be notified even with the window in front of you."
+                        desc={
+                          notifyAnyEvent
+                            ? 'A focused map already shows every one of these states, so interrupting over it is noise. Turn this off to be notified even with the window in front of you.'
+                            : 'Keeps its default. Applies once a notification above is on.'
+                        }
+                        dimmed={!notifyAnyEvent}
                       >
                         <Toggle
                           aria-label="Only when Orbital is in the background"
-                          checked={notifyOnlyWhenBackground}
-                          onChange={(checked) =>
-                            void patchAndSet({
-                              notify_only_when_background: checked ? 'true' : 'false',
-                            })
-                          }
+                          checked={notify.onlyWhenBackground}
+                          disabled={!notifyAnyEvent}
+                          onChange={saveNotifyRow('onlyWhenBackground')}
                         />
                       </Row>
                       <Row
                         title="Play a sound"
                         desc="Off delivers them silently — they still appear in Notification Centre."
                       >
-                        <Toggle
-                          aria-label="Play a sound"
-                          checked={notifySound}
-                          onChange={(checked) =>
-                            void patchAndSet({ notify_sound: checked ? 'true' : 'false' })
-                          }
-                        />
+                        <Toggle aria-label="Play a sound" checked={notify.sound} onChange={saveNotifyRow('sound')} />
                       </Row>
                       {/* The toggles are stored settings either way, so a browser
                     visit can set them and the desktop app honours them the
