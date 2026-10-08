@@ -63,6 +63,19 @@ export interface DialogProps {
    */
   aboveFooter?: ReactNode
   /**
+   * A block between the ruled header and the scrolling body that stays put
+   * while the body scrolls — the `.mcp.json` question's intro over its list
+   * of servers (canvas `Feature - MCP approval` 47a/47b). Its text is the
+   * caller's; the dialog only places it.
+   */
+  lead?: ReactNode
+  /**
+   * The scrolling body's vertical inset: `form`, the field groups' 20px
+   * (1d), or `list`, rows that carry their own padding and run up under a
+   * `lead` (47a/47b: 4px over the first row, 12px under the last).
+   */
+  bodyInset?: 'form' | 'list'
+  /**
    * Attaches to the dialog's own surface. The New Session dialog's image intake
    * needs it because 9d-D's drop target is the DIALOG, not the composer's well
    * — the same reason the detail panel arms its whole shell (canvas 9c-1) — and
@@ -185,6 +198,8 @@ export function Dialog({
   footerCaption,
   footerLead,
   aboveFooter,
+  lead,
+  bodyInset = 'form',
   surfaceRef,
   dropArmed = false,
   onClose,
@@ -303,10 +318,14 @@ export function Dialog({
             </button>
           )}
         </header>
+        {lead != null && (
+          // 47a/47b: 18px under the header rule, 6px over the list.
+          <div className={['shrink-0 pb-1.5 pt-[18px]', gutter[size]].join(' ')}>{lead}</div>
+        )}
         <div
           className={[
             'min-h-0 flex-1 overflow-y-auto',
-            ruledHeader ? 'py-5' : 'pb-[18px] pt-2.5',
+            bodyInset === 'list' ? 'pb-3 pt-1' : ruledHeader ? 'py-5' : 'pb-[18px] pt-2.5',
             gutter[size],
           ].join(' ')}
         >

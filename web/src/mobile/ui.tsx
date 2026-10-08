@@ -59,15 +59,27 @@ type ButtonProps = {
   variant?: 'screen' | 'sheet'
 }
 
-export function PrimaryButton({ children, onClick, disabled, type = 'button', variant = 'screen' }: ButtonProps) {
+/**
+ * `ready={false}` is the primary that cannot be pressed yet because the
+ * user still has something to choose (canvas `Feature - MCP approval`
+ * 47c/47d): an outline in the muted ink rather than the faded fill
+ * `disabled` gives, announced as `aria-disabled`. A press does nothing.
+ */
+export function PrimaryButton({
+  children, onClick, disabled, type = 'button', variant = 'screen', ready = true,
+}: ButtonProps & { ready?: boolean }) {
   return (
     <button
       type={type}
-      onClick={onClick}
+      onClick={ready ? onClick : undefined}
       disabled={disabled}
+      aria-disabled={ready ? undefined : true}
       className={[
-        'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] bg-[oklch(85%_.12_205)] px-4 text-[15px] font-bold text-[#03111a] disabled:opacity-35 disabled:shadow-none',
-        variant === 'sheet' ? 'shadow-[0_0_18px_oklch(85%_.12_205/.3)]' : 'shadow-[0_0_22px_oklch(85%_.12_205/.3)]',
+        'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 text-[15px] font-bold',
+        ready
+          ? 'bg-[oklch(85%_.12_205)] text-[#03111a] disabled:opacity-35 disabled:shadow-none'
+          : 'cursor-default border border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(160,190,225,.5)]',
+        !ready ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_oklch(85%_.12_205/.3)]' : 'shadow-[0_0_22px_oklch(85%_.12_205/.3)]',
       ].join(' ')}
     >
       {children}
@@ -188,34 +200,90 @@ export function NoticeScreen({ children, actions }: { children: ReactNode; actio
  * and can be swapped in place — 10i's End and Clear replace the menu with
  * their confirm in the same sheet, no second layer.
  */
+/** How far down a touch on a `swipeToDismiss` sheet must travel before it goes. */
+const SHEET_SWIPE_DISMISS_PX = 60
+
+/**
+ * Per variant: the backdrop, the panel and the grab handle's row.
+ * `menu` is canvas 10i (the shell; 10b and 10g use the same values).
+ * `question` is `Feature - MCP approval` 47c/47d: a step on top of a filled-in
+ * form, so the form shows through a lighter dim with a slight blur, and the
+ * panel is a column whose middle scrolls between a fixed head and foot, up
+ * to 752 of 844 px — 92 px of the form always shows above it.
+ */
+const SHEET_VARIANTS = {
+  menu: {
+    backdrop: 'bg-[rgba(2,3,8,.62)]',
+    panel:
+      'rounded-t-[22px] border border-b-0 border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.6)]',
+    handle: 'h-[22px]',
+  },
+  question: {
+    backdrop: 'bg-[rgba(2,4,9,.6)] backdrop-blur-[2px]',
+    panel:
+      'flex max-h-[calc(100%-92px)] flex-col rounded-t-[24px] border-t border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.97),rgba(8,12,22,.99))] shadow-[0_-20px_60px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.07)]',
+    handle: 'h-5 shrink-0',
+  },
+} as const
+
 export function BottomSheet({
   label,
   onDismiss,
+  variant = 'menu',
+  swipeToDismiss = false,
   children,
 }: {
   /** The sheet's accessible name: its title, or what its menu is for. */
   label: string
-  /** Backdrop tap and the hardware back button. */
+  /** Backdrop tap and the hardware back button — and a swipe down, with `swipeToDismiss`. */
   onDismiss: () => void
+  variant?: keyof typeof SHEET_VARIANTS
+  /**
+   * A downward swipe on the sheet dismisses it too (47c "WHY A SHEET"). A
+   * swipe that starts inside a list scrolled away from its top scrolls the
+   * list instead; mark such a list `data-sheet-scroll`.
+   */
+  swipeToDismiss?: boolean
   children: ReactNode
 }) {
   const entry = useRef({ dismiss: onDismiss })
   entry.current.dismiss = onDismiss
   useEffect(() => registerSheet(entry.current), [])
+  const touchY = useRef<number | null>(null)
+  const look = SHEET_VARIANTS[variant]
 
-  // canvas 10i (the shell), 10b and 10g (the same values): backdrop, panel,
-  // grab handle. The canvas's bottom row is the phone's home indicator, so it
-  // becomes the safe-area inset, and never less than that row.
+  // The canvas's bottom row is the phone's home indicator, so it becomes the
+  // safe-area inset, and never less than that row.
   return (
     <div className="fixed inset-0 z-20 flex flex-col justify-end">
-      <div aria-hidden onClick={onDismiss} className="absolute inset-0 bg-[rgba(2,3,8,.62)]" />
+      <div aria-hidden onClick={onDismiss} className={['absolute inset-0', look.backdrop].join(' ')} />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        className="relative rounded-t-[22px] border border-b-0 border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-2.5 pb-[max(22px,env(safe-area-inset-bottom))] shadow-[0_-20px_60px_rgba(0,0,0,.6)]"
+        onTouchStart={
+          swipeToDismiss
+            ? (event) => {
+                const scroller = (event.target as Element).closest('[data-sheet-scroll]')
+                touchY.current = scroller && scroller.scrollTop > 0 ? null : event.touches[0].clientY
+              }
+            : undefined
+        }
+        onTouchMove={
+          swipeToDismiss
+            ? (event) => {
+                if (touchY.current === null) return
+                if (event.touches[0].clientY - touchY.current > SHEET_SWIPE_DISMISS_PX) {
+                  touchY.current = null
+                  onDismiss()
+                }
+              }
+            : undefined
+        }
+        onTouchEnd={swipeToDismiss ? () => (touchY.current = null) : undefined}
+        className={['relative pb-[max(22px,env(safe-area-inset-bottom))]', look.panel].join(' ')}
       >
-        <div aria-hidden className="grid h-[22px] place-items-center">
+        <div aria-hidden className={['grid place-items-center', look.handle].join(' ')}>
           <span className="block h-1 w-9 rounded-[2px] bg-[rgba(200,220,245,.3)]" />
         </div>
         {children}

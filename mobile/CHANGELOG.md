@@ -5,6 +5,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [Unreleased]
 ### Fixed
 - A session that asks for input right after it starts on the Mac in a terminal, or just after the phone reconnects, now notifies instead of staying silent.
+- Starting a session asks before the Mac runs the MCP servers a project's `.mcp.json` names; a server you have not allowed does not start.
 
 ## [0.6.0] — 2026-10-08
 ### Added

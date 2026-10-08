@@ -59,6 +59,9 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/projects'],
   ['GET', '/api/models'],
   ['GET', '/api/commands'],
+  // The New Session question about a project's `.mcp.json` servers; its
+  // answers ride `POST /api/sessions` (spec 2026-10-08-mcpjson-approval-design).
+  ['GET', '/api/mcpjson'],
 ];
 
 /**

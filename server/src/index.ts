@@ -33,6 +33,7 @@ import { resolveClaudeCodeVersion } from './runner/version.js';
 import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledCliPath } from './runner/claudeCli.js';
 import { McpConfig } from './mcp/config.js';
 import { claudeJsonPath } from './mcp/claudeJson.js';
+import { dbFingerprints } from './mcp/approvals.js';
 import { GitStore } from './git/store.js';
 import { WorkingTrees } from './git/workingTrees.js';
 import { BranchStatusStore } from './git/branchStatusStore.js';
@@ -706,6 +707,10 @@ export async function buildServer(overrides: {
     // Every start runs under its directory's login (spec
     // 2026-10-04-multiple-claude-directories-design § 3).
     envFor: envForDir,
+    // And under its directory's `.mcp.json` decisions, with the same
+    // fallback to the default directory `envForDir` makes.
+    claudeDirPath: (claudeDirId) => (claudeDirs.get(claudeDirId) ?? claudeDirs.get(claudeDirs.defaultId()))?.path,
+    mcpjsonFingerprints: dbFingerprints(db),
     // Read per start, never captured: every switch and the text hold for a
     // session from its next spawn or revive (spec
     // 2026-09-30-session-instructions-design § 1). Default-on rows read

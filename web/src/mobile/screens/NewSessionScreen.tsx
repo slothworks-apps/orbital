@@ -20,6 +20,8 @@ import {
 import { isMacAsleep, useMobile } from '../state'
 import { FieldLabel, MobileScreen, PrimaryButton } from '../ui'
 import { ClaudeDirPicker } from './ClaudeDirPicker'
+import { McpjsonSheet } from './McpjsonSheet'
+import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 
 /** 9d: past this many rows the directory list folds to a window, "Show all N" under it. */
 const COLLAPSED_ROWS = 3
@@ -56,6 +58,12 @@ export function NewSessionScreen() {
   const [failure, setFailure] = useState<string | null>(null)
   const attachments = useAttachments(null)
   const [listOpen, setListOpen] = useState(false)
+  /**
+   * The `.mcp.json` question (spec 2026-10-08-mcpjson-approval-design; canvas
+   * 47c/47d): the servers Start found undecided and the answers so far. Set,
+   * it is a sheet over this form, which stays as it was underneath.
+   */
+  const [question, setQuestion] = useState<{ servers: McpjsonServer[]; answers: McpjsonAnswers } | null>(null)
 
   useEffect(() => {
     let current = true
@@ -106,10 +114,25 @@ export function NewSessionScreen() {
   // An upload still in flight holds Start back: the launch sends only what has landed.
   const canStart = Boolean(cwd.trim() && prompt.trim()) && !pending && !asleep && !attachments.uploading
 
+  /**
+   * Start: asks about the project's undecided `.mcp.json` servers first, when
+   * it has any (47e "Trigger"); a project without starts as it always did.
+   */
   const start = async () => {
     if (!canStart) return
     setPending(true)
     setFailure(null)
+    const servers = await undecidedBeforeLaunch(cwd.trim(), claudeDirId ?? undefined)
+    if (servers.length > 0) {
+      setPending(false)
+      setQuestion({ servers, answers: {} })
+      return
+    }
+    await launch()
+  }
+
+  const launch = async (mcpjson?: McpjsonDecisions) => {
+    setPending(true)
     // Read off the chips, not taken out of the well: a refused directory
     // leaves them where they are, and the next Start sends them again.
     const images: SentAttachment[] = []
@@ -131,12 +154,15 @@ export function NewSessionScreen() {
           // Only when the choice was offered; the Mac remembers it for the next prefill.
           ...(claudeDirId !== null ? { claudeDirId } : {}),
           ...(refs.length > 0 ? { attachments: refs } : {}),
+          ...(mcpjson ? { mcpjson } : {}),
         },
         images,
       )
       attachments.reset()
       openSession(sessionId)
     } catch (err) {
+      // The refusal is said on the form, under its field or its Start.
+      setQuestion(null)
       // Said here, never through `reportError`: its `/api/errors` POST is not the phone's to make.
       if (noSuchDirectory(err)) setNotFound(true)
       else setFailure(startFailureLine(err, macName))
@@ -356,6 +382,18 @@ export function NewSessionScreen() {
         />
         </div>
       </div>
+      {question && (
+        <McpjsonSheet
+          servers={question.servers}
+          answers={question.answers}
+          project={basename(cwd.trim())}
+          macName={macName ?? 'your Mac'}
+          pending={pending}
+          onAnswer={(name, answer) => setQuestion((q) => (q ? { ...q, answers: { ...q.answers, [name]: answer } } : q))}
+          onStart={(decisions) => void launch(decisions)}
+          onBack={() => setQuestion(null)}
+        />
+      )}
     </MobileScreen>
   )
 }

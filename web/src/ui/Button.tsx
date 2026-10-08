@@ -17,7 +17,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'toggle'
     | 'toggle-on'
     | 'lit'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row'
+    | 'primary-unready'
+    | 'choice'
+    | 'choice-on'
+    | 'pill-quiet'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -67,6 +71,20 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // Canvas 44a: the Settings row's confirming Remove and Add directory — the
   // lit neutral chip, in the row's weight, never a hue.
   lit: 'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.2)]',
+  // `Feature - MCP approval` 47e "START SESSION · DISABLED → READY": the
+  // primary before it can be pressed, an outline in the muted ink rather than
+  // a dimmed fill. Pair it with `aria-disabled`, not `disabled`, which
+  // would fade it a second time.
+  'primary-unready':
+    'bg-transparent text-[rgba(160,190,225,.5)] font-bold border border-[rgba(150,205,255,.14)] cursor-default',
+  // 47e CHOICE: one of two equal answers, resting and active. No hue for yes
+  // or no — the active state is the lit neutral chip.
+  choice:
+    'bg-transparent text-[rgba(200,220,245,.75)] font-semibold border border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.3)]',
+  'choice-on': 'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)]',
+  // 47a/47b View file: a hairline chip in regular weight, quieter than `pill`.
+  'pill-quiet':
+    'bg-transparent text-[rgba(200,220,245,.85)] border border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.3)]',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -86,6 +104,10 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   icon: 'h-[30px] w-[30px] p-0',
   // 44a's in-row buttons (Done, Browse…, Cancel, Remove): 6px/12px at 12px.
   row: 'px-3 py-1.5 text-xs',
+  // 47a/47b's Allow / Don't allow: 34px tall at 12.5px, the width the grid gives.
+  choice: 'h-[34px] px-2 text-[12.5px]',
+  // 47c/47d's: the phone's 44px row at 14px.
+  'choice-touch': 'h-11 px-2 text-[14px]',
 }
 
 export function Button({
@@ -108,7 +130,9 @@ export function Button({
           ? 'rounded-[9px]'
           : size === 'sm' || size === 'icon' || size === 'row'
             ? 'rounded-[7px]'
-            : 'rounded-lg'
+            : size === 'choice-touch'
+              ? 'rounded-[12px]'
+              : 'rounded-lg'
   // The same for the family: the strip chip is mono, and two font utilities
   // on one element would be settled by stylesheet order.
   const family = size === 'strip' ? 'font-mono' : 'font-sans'

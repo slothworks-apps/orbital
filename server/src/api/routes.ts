@@ -54,6 +54,8 @@ import type { HarnessService } from '../harness/service.js';
 import { registerHarnessRoutes, type CarryHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
+import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
+import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
 import type { RemoteService } from '../remote/service.js';
@@ -388,11 +390,29 @@ function invalidAttachments(raw: unknown): boolean {
   return raw.some((ref) => typeof ref !== 'string' || !IMAGE_REF_RE.test(ref));
 }
 
+/**
+ * The New Session question's answers (spec 2026-10-08-mcpjson-approval-design
+ * § Server), or null when they are malformed: two arrays of non-empty names,
+ * no name in both. `undefined` and `null` are absent — a client from before
+ * the question — and read as no answers.
+ */
+function parseMcpjsonDecisions(raw: unknown): McpjsonDecisions | undefined | null {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const { allow, deny } = raw as { allow?: unknown; deny?: unknown };
+  const names = (v: unknown): v is string[] =>
+    Array.isArray(v) && v.every((n) => typeof n === 'string' && n.trim() !== '');
+  if (!names(allow) || !names(deny)) return null;
+  if (allow.some((n) => deny.includes(n))) return null;
+  return { allow, deny };
+}
+
 /** A rewind could not stop the process holding its session; the route answers 504. */
 class RewindStopError extends Error {}
 
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
+  const mcpjsonFingerprints = dbFingerprints(db);
   if (ctx.devTools) registerDevRoutes(app, ctx);
   registerRemoteRoutes(app, ctx.remote);
   /**
@@ -1093,10 +1113,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       requireDirectory?: boolean;
       /** The Claude directory to run under; absent, `default_claude_dir`. */
       claudeDirId?: number;
+      /**
+       * The user's answer to the `.mcp.json` question, recorded before the
+       * launch. Absent, nothing is recorded and the runner keeps every
+       * undecided server out (spec 2026-10-08-mcpjson-approval-design).
+       */
+      mcpjson?: unknown;
     };
     if (invalidAttachments(body.attachments)) {
       return reply.code(400).send({ error: 'invalid_attachment' });
     }
+    const { mcpjson: rawMcpjson, ...launch } = body;
+    const mcpjson = parseMcpjsonDecisions(rawMcpjson);
+    if (mcpjson === null) return reply.code(400).send({ error: 'invalid_mcpjson' });
     // A resume runs under the session's own directory, whatever was sent: its
     // transcript and its login are there (spec § 3).
     const resumed = body.resume
@@ -1124,13 +1153,65 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const clientId = body.sessionId ?? undefined;
     const refused = clientIdRefusal(clientId);
     if (refused) return reply.code(refused.status).send({ error: refused.error });
-    const sessionId = await launchSession({ ...body, cwd, sessionId: clientId, claudeDirId });
+    if (mcpjson) {
+      // A settings file that cannot be parsed is left alone rather than
+      // overwritten, and the launch waits: the user's answer would be lost.
+      try {
+        recordDecisions(cwd, mcpjson, { fingerprints: mcpjsonFingerprints });
+      } catch (err) {
+        console.warn('orbital: could not record .mcp.json decisions:', err);
+        return reply.code(500).send({ error: 'mcpjson_not_recorded' });
+      }
+    }
+    const sessionId = await launchSession({ ...launch, cwd, sessionId: clientId, claudeDirId });
     // The dialog's choice, remembered for the next one (spec § 3) — stored
     // here rather than by the client, because the phone cannot write settings.
     if (body.claudeDirId !== undefined && body.claudeDirId !== null) {
       ctx.settings.set(LAST_CLAUDE_DIR_KEY, String(claudeDirId));
     }
     return reply.code(201).send({ sessionId });
+  });
+
+  /**
+   * The servers of a project's `.mcp.json` nobody has decided, for the New
+   * Session question (spec 2026-10-08-mcpjson-approval-design § Server). The
+   * cwd is hand-typed, so it is expanded like `POST /api/sessions` does.
+   */
+  app.get('/api/mcpjson', (req, reply) => {
+    const q = req.query as { cwd?: string; claudeDirId?: string };
+    const cwd = q.cwd ? expandHome(q.cwd) : '';
+    if (!cwd || !isAbsolute(cwd)) return reply.code(400).send({ error: 'cwd_required' });
+    const dirId = ctx.claudeDirs.resolveId(q.claudeDirId);
+    if (dirId === null) return reply.code(400).send({ error: 'unknown_claude_dir' });
+    return { undecided: undecidedServers(cwd, claudeDirPathOf(dirId), { fingerprints: mcpjsonFingerprints }) };
+  });
+
+  /**
+   * The project file a `.mcp.json` server runs, for the question's *View
+   * file* (spec 2026-10-08-mcpjson-approval-design § Clients). There is no
+   * session yet, so the read is not by path: it is the one file `.mcp.json`
+   * names for `server`, confined to the project by `readFilePreview` like
+   * every other read. Answers as `GET /api/files` does.
+   */
+  app.get('/api/mcpjson/file', (req, reply) => {
+    const q = req.query as { cwd?: string; server?: string };
+    const cwd = q.cwd ? expandHome(q.cwd) : '';
+    if (!cwd || !isAbsolute(cwd) || !q.server) return reply.code(400).send({ error: 'missing_params' });
+    const file = serverFile(cwd, q.server);
+    if (file === null) return reply.code(404).send({ error: 'not_found' });
+    const result = readFilePreview(cwd, file);
+    switch (result.kind) {
+      case 'ok':
+        return { content: result.content, size: result.size, mtimeMs: result.mtimeMs, lines: result.lines };
+      case 'not_found':
+        return reply.code(404).send({ error: 'not_found' });
+      case 'outside':
+        return reply.code(403).send({ error: 'outside_cwd' });
+      case 'too_large':
+        return reply.code(413).send({ error: 'too_large', size: result.size });
+      case 'binary':
+        return reply.code(415).send({ error: 'binary', size: result.size, mediaType: result.mediaType });
+    }
   });
 
   /** Why a browser-minted session id cannot be used, or null when it can (or none was sent). */
