@@ -18,6 +18,8 @@ import { opensTask } from '../subagents/model'
 import { MobileScreen, PrimaryButton } from '../ui'
 import { WhereLine } from '../where/WhereLine'
 import { PlanetGlyph } from './Glyph'
+import { usePhoneNotificationsTip } from '../NotificationsTip'
+import { PinnedNoticeHost } from '../PinnedNotice'
 
 /** 9a, updated by 10a (spec 2026-10-05-mobile-next-design): the sessions, grouped by what they need from you. */
 export function SessionListScreen() {
@@ -36,6 +38,9 @@ export function SessionListScreen() {
   const [endedOpen, setEndedOpen] = useState(false)
   const [checking, setChecking] = useState(false)
   const now = useNow(true, CLOCK_TICK_MS)
+  // The notifications tip, queued once after pairing (spec
+  // 2026-10-08-notifications-off-by-default-design § 5).
+  usePhoneNotificationsTip()
 
   const endedFold = useMobile(useShallow((s) => ({ summary: s.endedSummary, loaded: s.endedLoaded })))
 
@@ -109,6 +114,8 @@ export function SessionListScreen() {
           </button>
         </section>
       )}
+      {/* Pinned above the list, not scrolling with it (canvas `Feature - Notice toast` 2a). */}
+      <PinnedNoticeHost />
     </>
   )
 

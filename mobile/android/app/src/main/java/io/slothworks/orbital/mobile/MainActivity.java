@@ -24,6 +24,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SecuritySettingsPlugin.class);
+        registerPlugin(NotificationSettingsPlugin.class);
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFERENCES, MODE_PRIVATE);
         preferences.registerOnSharedPreferenceChangeListener(onPreference);
