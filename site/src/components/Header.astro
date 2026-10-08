@@ -1,0 +1,50 @@
+---
+/** The top bar: the wordmark, and whatever the page puts on the right. */
+interface Props {
+  /** Where the wordmark goes: the top of the landing, or the landing itself. */
+  home: string
+}
+const { home } = Astro.props
+---
+
+<header class="header">
+  <a href={home} class="brand">
+    <img src="/favicon.svg" alt="" width="24" height="24" />
+    <span>Orbital</span>
+  </a>
+  <slot />
+</header>
+
+<style>
+  .header {
+    position: relative;
+    z-index: 2;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 22px clamp(20px, 5cqw, 48px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #e8eef8;
+  }
+  .brand:hover {
+    color: #e8eef8;
+  }
+  .brand img {
+    width: 24px;
+    height: 24px;
+    display: block;
+  }
+  .brand span {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+</style>

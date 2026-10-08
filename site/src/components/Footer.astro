@@ -1,0 +1,86 @@
+---
+import { REPO_URL } from '../site'
+
+interface Props {
+  /** The page this footer sits on; its own link is drawn as current. */
+  current: 'landing' | 'privacy'
+}
+const { current } = Astro.props
+---
+
+<footer class:list={['footer', current]}>
+  <div class="about">
+    <div class="brand">
+      <img src="/favicon.svg" alt="" width="18" height="18" />
+      <span>Orbital by SlothWorks</span>
+    </div>
+    <p>Orbital is an independent project. It is not made by or affiliated with Anthropic.</p>
+  </div>
+  <nav aria-label="Footer">
+    <a href={REPO_URL}>GitHub</a>
+    <a
+      href="/privacy/"
+      class:list={{ current: current === 'privacy' }}
+      aria-current={current === 'privacy' ? 'page' : undefined}>Privacy policy</a
+    >
+  </nav>
+</footer>
+
+<style>
+  .footer {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    margin: clamp(120px, 15cqw, 200px) auto 0;
+    padding: 32px clamp(20px, 5cqw, 48px) 48px;
+    border-top: 1px solid rgba(150, 205, 255, 0.1);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px 40px;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .footer.privacy {
+    margin-top: clamp(96px, 12cqw, 160px);
+  }
+  .about {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 34em;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand img {
+    width: 18px;
+    height: 18px;
+    display: block;
+  }
+  .brand span {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: rgba(160, 190, 225, 0.6);
+  }
+  nav {
+    display: flex;
+    gap: 24px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+  nav a {
+    color: rgba(160, 190, 225, 0.8);
+  }
+  nav a:hover,
+  nav a.current {
+    color: #e8eef8;
+  }
+</style>

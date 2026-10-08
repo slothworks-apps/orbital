@@ -1,0 +1,12 @@
+{
+  // The demos compile `web/src` as part of themselves, so they take
+  // `web/tsconfig.app.json`'s options: the components are checked here under
+  // the same rules as in the app. `env.d.ts` declares the phone build's
+  // globals for the phone demo.
+  "extends": "../../web/tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": null,
+    "types": ["vite/client"]
+  },
+  "include": [".", "../../web/src/mobile/env.d.ts"]
+}
