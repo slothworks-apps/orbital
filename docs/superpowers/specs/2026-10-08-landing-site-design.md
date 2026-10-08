@@ -25,18 +25,15 @@ The page is English only and lives at `orbital.slothworks.io`.
 
 ## The design
 
-The design lives in Claude Design, project Orbital:
-
-- `Website.dc.html`: the overview, artboards 1a (landing, 1440), 1b (landing,
-  390), 1c (privacy, 1440), 1d (privacy, 390).
-- `Landing.dc.html` and `Privacy.dc.html`: the two pages themselves.
+The design is a canvas maintained outside this repository: the landing page
+and the privacy page, each at 1440 and 390 wide.
 
 The canvas owns layout, ink, type and copy. This spec does not restate them.
 Where the canvas and this spec disagree on behaviour, this spec wins and the
 canvas is corrected.
 
 Copy is taken from the canvas word for word. It was fact-checked against the
-app on 2026-10-08 and the corrections were sent back to Claude Design; until
+app on 2026-10-08 and the corrections were made in the canvas; until
 they land, the build uses the corrected canvas, not an older copy.
 
 The privacy page's text is a placeholder in the canvas; the real text is in
@@ -224,7 +221,7 @@ look changes; the build does not take screenshots.
   from `main`.
 - A `site` label for pull requests that change the website (created after the
   maintainer agrees, as `CLAUDE.md` asks).
-- `site/CLAUDE.md` says that the copy comes from Claude Design, that the demos
+- `site/CLAUDE.md` says that the copy comes from the design canvas, that the demos
   render components from `web/`, so a change there can change the website,
   and that the privacy text is the maintainer's.
 - A runbook in `docs/ops/` for deploying the site and regenerating the images.

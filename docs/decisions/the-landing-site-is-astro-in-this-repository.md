@@ -21,7 +21,7 @@ questions had to be settled first: where its code lives, and what builds it.
 
 ## Where it lives
 
-**A separate repository** (as `slothworks-io` is) keeps the website's
+**A separate repository** (as the company website is) keeps the website's
 dependencies and deploys apart from the app. But the site's demos render the
 app's real components, from `web/src`, on demo data. From another repository
 that means publishing those components as a package, or copying them, and
@@ -58,4 +58,4 @@ Chosen: Astro. Components stay React; only the page shell is Astro.
   deployed from `main`.
 - A change in `web/src` can change the website. CI builds the site for such
   changes, and `site/CLAUDE.md` says so.
-- Hosting is Cloudflare Workers static assets, as for `slothworks-io`.
+- Hosting is Cloudflare Workers static assets, as for the company website.

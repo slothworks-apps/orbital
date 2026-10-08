@@ -7,10 +7,10 @@ download. It is Astro, with React used only inside the demos. See
 does and `docs/decisions/the-landing-site-is-astro-in-this-repository.md`
 for why it is a workspace here rather than its own repository.
 
-## Copy and layout come from Claude Design
+## Copy and layout come from the design canvas
 
-The page's layout, ink, type and copy live in Claude Design, project
-Orbital (`Landing.dc.html`, `Privacy.dc.html`). This workspace does not
+The page's layout, ink, type and copy live in the design canvas, which is
+maintained outside this repository. This workspace does not
 restate them, and nothing here checks them: fidelity against the canvas
 is verified by the main session during the work, by eye, not by a test.
 A test that pins a pixel size or a copy string only breaks the next time
