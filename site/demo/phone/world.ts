@@ -84,7 +84,20 @@ const waiting: ApiSession = {
   subagentCount: 2,
 }
 
-/** The phone shows one more model than the desktop demos, so its picker reads as a choice. */
+/**
+ * The phone shows more models than the desktop demos: its picker is a row of
+ * four segments (`ModelSegments`), and a short catalog leaves an empty one.
+ */
+const FABLE: OrbitalModel = {
+  value: 'fable',
+  resolvedModel: 'claude-fable-5-1',
+  family: 'Fable',
+  version: 'Fable 5.1',
+  shortVersion: 'Fable 5.1',
+  variant: null,
+  blurb: '',
+  contextWindow: 200_000,
+}
 const HAIKU: OrbitalModel = {
   value: 'haiku',
   resolvedModel: 'claude-haiku-5',
@@ -99,7 +112,7 @@ const HAIKU: OrbitalModel = {
 export const PHONE_WORLD: DemoWorld = {
   sessions: [asking, DOCS, waiting, INFRA, ...QUIET],
   tags: TAGS,
-  models: [...MODELS, HAIKU],
+  models: [FABLE, ...MODELS, HAIKU],
   settings: SETTINGS,
   messages: { ...MESSAGES, [BILLING.id]: BILLING_TRANSCRIPT },
   approvedOutputs: {

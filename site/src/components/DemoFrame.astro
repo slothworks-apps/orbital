@@ -148,9 +148,15 @@ const phone = frame.demo === 'phone'
   markLive()
   narrow.addEventListener('change', markLive)
 
+  // The width is fixed and sets the scale; the height follows the frame, so a
+  // frame whose shape is not exactly the viewport's (the phone's screen inside
+  // its bezel) is filled by the app rather than left with an empty strip.
   const fit = (frame: Element) => {
     const iframe = frame.querySelector('iframe')
-    if (iframe) iframe.style.transform = `scale(${frame.clientWidth / Number(iframe.width)})`
+    if (!iframe) return
+    const scale = frame.clientWidth / Number(iframe.width)
+    iframe.style.transform = `scale(${scale})`
+    iframe.style.height = `${frame.clientHeight / scale}px`
   }
   const resizes = new ResizeObserver((entries) => entries.forEach((entry) => fit(entry.target)))
 

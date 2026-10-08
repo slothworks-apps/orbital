@@ -22,7 +22,9 @@ interface Viewport {
 export const DEMO_VIEWPORTS: Record<DemoName, Viewport> = {
   map: { width: 1440, height: 900, aspect: '16 / 10' },
   session: { width: 960, height: 600, aspect: '16 / 10' },
-  phone: { width: 390, height: 844, aspect: '9 / 19.5' },
+  // The aspect is the device's, bezel included; the height is the screen's
+  // inside that bezel (DemoFrame), so the posters fill it without cropping.
+  phone: { width: 390, height: 872, aspect: '9 / 19.5' },
 }
 
 /**
