@@ -1,0 +1,201 @@
+---
+/**
+ * A frame around one live demo, in place of the canvas's dashed DEMO:<name>
+ * placeholders.
+ *
+ * Contract with the demo pages (site/demo, built into public/demo):
+ * - Each demo is a page at the `src` in DEMO_FRAMES (demos.ts), laid out at
+ *   its DEMO_VIEWPORTS size. The landing gives the iframe exactly that size
+ *   and scales it with transform: scale(frame width / virtual width), from
+ *   the top left, recomputed by a ResizeObserver. The frame keeps the
+ *   canvas's aspect ratio and crops what does not fit.
+ * - The demo posts { type: DEMO_READY_MESSAGE } to its parent once it has
+ *   rendered. Until then the poster covers it; then the poster fades out
+ *   (no fade under prefers-reduced-motion).
+ * - The poster is posterSrc(id), a still taken from the demo itself by the
+ *   image script. It is all a visitor sees with JavaScript off, or at or
+ *   below NARROW_MAX_WIDTH, where no iframe is ever created.
+ *
+ * The iframe is created by the script below, never by the markup: only then
+ * can a narrow screen be sure not to load the demo (and three.js) at all.
+ */
+import { DEMO_FRAMES, DEMO_VIEWPORTS, posterSrc, type DemoId } from '../demos'
+
+interface Props {
+  id: DemoId
+  /** Layout from the canvas: flex, margins. Size comes from the aspect ratio. */
+  style?: string
+  /** The hero frame's glow. */
+  glow?: boolean
+  /** The hero poster is in the first screen; the others can wait. */
+  eager?: boolean
+}
+
+const { id, style, glow = false, eager = false } = Astro.props
+const frame = DEMO_FRAMES[id]
+const viewport = DEMO_VIEWPORTS[frame.demo]
+---
+
+<div
+  class:list={['demo', { phone: frame.demo === 'phone', glow }]}
+  style={`aspect-ratio:${viewport.aspect};${style ?? ''}`}
+  data-demo-frame
+  data-src={frame.src}
+  data-title={frame.title}
+  data-width={viewport.width}
+  data-height={viewport.height}
+>
+  <div class="frame">
+    <img
+      class="poster"
+      src={posterSrc(id)}
+      alt={frame.alt}
+      width={viewport.width}
+      height={viewport.height}
+      loading={eager ? 'eager' : 'lazy'}
+      decoding="async"
+    />
+  </div>
+  <span class="caption" aria-hidden="true">{frame.caption}</span>
+</div>
+
+<style>
+  .demo {
+    position: relative;
+  }
+  .frame {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid rgba(150, 205, 255, 0.14);
+    /* A poster not generated yet leaves this, which reads as an empty screen. */
+    background: rgba(8, 12, 22, 0.72);
+  }
+  .phone .frame {
+    border-radius: 34px;
+  }
+  .glow .frame {
+    box-shadow: 0 40px 120px -40px rgba(40, 170, 220, 0.25);
+  }
+  .frame :global(iframe) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    border: 0;
+    transform-origin: 0 0;
+  }
+  .poster {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top left;
+    transition: opacity 0.6s ease;
+  }
+  [data-ready] .poster {
+    opacity: 0;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .poster {
+      transition: none;
+    }
+  }
+  /* Sits under the frame, not over the demo, and only once there is a live
+     demo to talk about: on a still image it would be untrue. */
+  .caption {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 4px;
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: rgba(160, 190, 225, 0.6);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .phone .caption {
+    right: 0;
+    left: 0;
+    text-align: center;
+  }
+  [data-live] .caption {
+    display: block;
+  }
+</style>
+
+<script>
+  import { DEMO_READY_MESSAGE, NARROW_MAX_WIDTH } from '../demos'
+
+  /** Start loading a demo this far before it scrolls into view. */
+  const NEAR_VIEWPORT = '600px 0px'
+
+  const narrow = window.matchMedia(`(max-width: ${NARROW_MAX_WIDTH}px)`)
+  const demos = [...document.querySelectorAll<HTMLElement>('[data-demo-frame]')]
+
+  const fit = (frame: Element) => {
+    const iframe = frame.querySelector('iframe')
+    if (iframe) iframe.style.transform = `scale(${frame.clientWidth / Number(iframe.width)})`
+  }
+  const resizes = new ResizeObserver((entries) => entries.forEach((entry) => fit(entry.target)))
+
+  const mount = (demo: HTMLElement) => {
+    const frame = demo.querySelector('.frame')
+    if (!frame || demo.dataset.live !== undefined) return
+    const iframe = document.createElement('iframe')
+    iframe.title = demo.dataset.title ?? ''
+    iframe.width = demo.dataset.width ?? ''
+    iframe.height = demo.dataset.height ?? ''
+    iframe.loading = 'lazy'
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin')
+    iframe.src = demo.dataset.src ?? ''
+    frame.prepend(iframe)
+    demo.dataset.live = ''
+    fit(frame)
+    resizes.observe(frame)
+  }
+
+  const nearby = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting || narrow.matches) continue
+        nearby.unobserve(entry.target)
+        mount(entry.target as HTMLElement)
+      }
+    },
+    { rootMargin: NEAR_VIEWPORT },
+  )
+  demos.forEach((demo) => nearby.observe(demo))
+
+  // A window widened past NARROW_MAX_WIDTH: observing again reports the
+  // frames already in view, which a running observer would not.
+  narrow.addEventListener('change', () => {
+    if (narrow.matches) return
+    for (const demo of demos) {
+      if (demo.dataset.live !== undefined) continue
+      nearby.unobserve(demo)
+      nearby.observe(demo)
+    }
+  })
+
+  window.addEventListener('message', (event: MessageEvent<unknown>) => {
+    if (event.origin !== window.location.origin) return
+    const data = event.data as { type?: unknown } | null
+    if (data?.type !== DEMO_READY_MESSAGE) return
+    const demo = demos.find((d) => d.querySelector('iframe')?.contentWindow === event.source)
+    if (demo) demo.dataset.ready = ''
+  })
+
+  // A poster not generated yet would show the browser's broken-image icon;
+  // the frame's own background is the better placeholder.
+  for (const poster of document.querySelectorAll<HTMLImageElement>('[data-demo-frame] .poster')) {
+    const hide = () => (poster.style.visibility = 'hidden')
+    if (poster.complete && poster.naturalWidth === 0) hide()
+    else poster.addEventListener('error', hide)
+  }
+</script>
