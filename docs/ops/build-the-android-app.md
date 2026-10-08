@@ -229,7 +229,28 @@ file reaches the app only through `cap sync`, so rebuild with
 `npm run build -w @orbital/mobile`, not only `apk`. A launcher may cache
 the old icon until the app is reinstalled.
 
-The splash screen (`drawable*/splash.png`) is still Capacitor's template.
+### Splash
+
+The launch screen (Claude Design, "Feature - Splash screen", 1a) is the
+mark alone on `--color-space`, 144 dp/pt square, centred on the screen and
+never scaled. `make-icons.mjs` also renders `mobile/scripts/splash-mark.svg`,
+the canvas's mark, onto Android 12's 288 dp splash-icon canvas: PNGs, since
+the mark's glow is a blur a vector drawable cannot draw, and it stops if
+anything would reach the Ø192 dp mask. They become
+`drawable-*dpi/splash_mark.png` and the iOS `Splash.imageset`.
+
+- Android 12+ shows them through `windowSplashScreenAnimatedIcon` of
+  `AppTheme.NoActionBarLaunch` (`values/styles.xml`; core-splashscreen maps
+  it); older versions draw `drawable/splash.xml`, a layer list with the same
+  mark centred, as the window background.
+- iOS shows `LaunchScreen.storyboard`: the image centred on the view's
+  centre by constraints, at its own size.
+- `@capacitor/splash-screen` holds the screen (`launchAutoHide: false` in
+  `mobile/capacitor.config.ts`) until `web/src/mobile/main.tsx` hides it two
+  frames after the first commit, and fades it over
+  `launchFadeOutDuration`. The WebView's `backgroundColor` and the inline
+  style in `web/index.mobile.html` are the same colour, so nothing else shows
+  between the two.
 
 ## Release to Google Play
 

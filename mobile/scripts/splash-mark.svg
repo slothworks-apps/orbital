@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="64 64 384 384" width="144" height="144">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#1d2f4e"></stop><stop offset="0.55" stop-color="#0a1120"></stop><stop offset="1" stop-color="#04070e"></stop>
+    </linearGradient>
+    <linearGradient id="ring" x1="0.85" y1="0.1" x2="0.15" y2="0.95">
+      <stop offset="0" stop-color="#d7f4ff"></stop><stop offset="0.45" stop-color="#6ed3ef"></stop><stop offset="1" stop-color="#1f6f92"></stop>
+    </linearGradient>
+    <radialGradient id="body" cx="0.34" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#ffffff"></stop><stop offset="0.4" stop-color="#b7ecff"></stop><stop offset="1" stop-color="#45bcda"></stop>
+    </radialGradient>
+    <radialGradient id="sheen" cx="0.5" cy="0" r="0.75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"></stop><stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop>
+    </radialGradient>
+    <radialGradient id="flare" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.35" stop-color="#96e1ff" stop-opacity="0.42"></stop><stop offset="0.62" stop-color="#78c8f0" stop-opacity="0.13"></stop><stop offset="1" stop-color="#78c8f0" stop-opacity="0"></stop>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="16" result="b"></feGaussianBlur>
+      <feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="b"></feMergeNode></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#glow)" opacity="0.75">
+    <circle cx="256" cy="256" r="150" fill="none" stroke="#4fc3e0" stroke-width="22"></circle>
+    <circle cx="370" cy="158" r="40" fill="#6ed3ef"></circle>
+  </g>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="url(#ring)" stroke-width="25"></circle>
+  <circle cx="370" cy="158" r="96" fill="url(#flare)"></circle>
+  <circle cx="370" cy="158" r="42" fill="url(#body)"></circle>
+  </svg>

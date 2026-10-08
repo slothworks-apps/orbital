@@ -9,6 +9,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ### Changed
 - While pairing, the phone tells you to type its code on your Mac.
 - The app has Orbital's own icon on iOS and Android, and Android notifications show Orbital's mark instead of a placeholder.
+- Opening the app shows Orbital's mark on the app's dark background until the first screen is ready, instead of a placeholder, with no white flash in between.
 - A session that left a dev server or a watcher running on the Mac shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's tasks.
 ### Fixed
 - A session that asks for input right after it starts on the Mac in a terminal, or just after the phone reconnects, now notifies instead of staying silent.

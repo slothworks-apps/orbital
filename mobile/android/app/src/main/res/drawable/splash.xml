@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launch screen's window background on Android 11 and older (Claude
+  Design, "Feature - Splash screen", 1a): the space colour with the mark
+  centred at its own size, never scaled. Android 12+ draws the same from
+  windowSplashScreenBackground and windowSplashScreenAnimatedIcon instead.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/orbitalSpace" />
+    <item>
+        <bitmap android:gravity="center" android:src="@drawable/splash_mark" />
+    </item>
+</layer-list>
