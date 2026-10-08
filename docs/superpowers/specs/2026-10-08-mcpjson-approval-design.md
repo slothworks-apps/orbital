@@ -72,7 +72,20 @@ project entry of that directory's `.claude.json`, and
    `enabledMcpjsonServers` or `disabledMcpjsonServers` (and removed from
    the other). The terminal and Orbital then agree, and the CLI does not
    ask again. Every other key in the file is kept as it was.
-4. **Revives and the other paths never ask.** A server added to
+4. **A changed command is a new question.** The CLI keys its decisions by
+   name only, so a `git pull` that changes the command of an allowed server
+   would run the new command unasked. Orbital keeps its own fingerprint of
+   each entry it allowed (decided 2026-10-08, canvas 47e "a changed command
+   counts as a new server"): a hash of the server's whole `.mcp.json` entry
+   — `type`, `command`, `args`, `url`, `env`, `headers` — keyed by the
+   project's real path and the server's name, in Orbital's database. A
+   server that is allowed but whose entry no longer matches the fingerprint
+   counts as undecided again: kept out at start and asked about on the next
+   new session. A server allowed in a terminal has no fingerprint, and the
+   CLI's decision stands. A server turned down stays turned down whatever
+   its command. The terminal keeps running a changed command unasked; that
+   is the CLI's behaviour, not Orbital's.
+5. **Revives and the other paths never ask.** A server added to
    `.mcp.json` after a session started stays out of it until the user
    decides, which happens on the next new session in that project. A
    question in the middle of sending a message would interrupt the one
@@ -97,6 +110,20 @@ project entry of that directory's `.claude.json`, and
   When absent, the launch behaves as rule 1: undecided servers are kept
   out. So a client that predates this change (a phone already in testers'
   hands) still launches, safely, without being asked.
+- Each undecided server also carries what the canvas labels it with
+  (47e "Source label"), read from the command, not from `.mcp.json`:
+  `source` is `npm` / `pypi` (a package runner: `npx`, `bunx`, `pnpm dlx`,
+  `uvx`, `pipx run`), `docker`, `file` (a path inside the project:
+  `./…`, `../…` that resolves inside it, or an absolute path under it,
+  including as the first argument of an interpreter such as `node`,
+  `python`, `bash`, `sh`, `deno run`, `bun`), `url` (an `http`/`sse`
+  server) or `program` (anything else). For `file`, `file` is the path
+  relative to the project, for *View file*.
+- Fingerprints (rule 4) live in Orbital's database, table
+  `mcpjson_approvals` (project real path, server name, entry hash).
+  `recordDecisions` writes a fingerprint for every allowed server and
+  deletes it for every denied one; `undecidedServers` counts an allowed
+  server whose entry hash differs from its fingerprint as undecided.
 - Both routes go on the phone allowlist (`server/src/remote/allowlist.ts`).
 - ADR [[mcp-config-is-written-by-the-cli-in-private-scopes]] is amended:
   Orbital writes these two keys of `.claude/settings.local.json` itself,
@@ -110,12 +137,15 @@ project entry of that directory's `.claude.json`, and
   with undecided servers, show the question; launch with the answers.
 - **Phone** (`web/src/mobile/NewSessionScreen.tsx`): the same, through the
   relay.
-- What the question looks like, and where it sits, comes from Claude
-  Design. The brief: a question inside the new-session flow, not a
-  separate alarm; per server its name and the full command it would run,
-  in mono; two choices per server; one confirm for all; calm in the sense
-  of `docs/why-orbital.md` — no red, no warning icon, the wording says what
-  will run and lets the user decide. Desktop and phone variants.
+- The canvas is `Feature - MCP approval.dc.html` in Claude Design:
+  47a/47b desktop (the New session dialog's content swapped in the same
+  shell), 47c/47d phone (a sheet over the dimmed form), 47e parts and
+  states; the project-file treatment is variant 2d. Where the canvas and
+  this spec disagree, the spec's rules 1–5 win; the canvas's "can be
+  switched on later in the MCP dialog" is not built now
+  ([[mcpjson-decisions-in-the-mcp-dialog]]).
+- *View file* opens the file in the read-only file viewer, on the desktop
+  and on the phone.
 
 ## Phone
 
