@@ -6,6 +6,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Changed
 - The Archipelago map theme moved to Settings → Experimental; Planets and Desk are the themes kept up to date. If you used Archipelago, the map shows Planets until you turn it back on there.
 - Pairing a phone now asks you to type the code shown on the phone, so someone who saw your QR code cannot pair in your place; three wrong codes reject the request.
+- Your Mac no longer gives the relay its name, and a phone's name reaches it encrypted; a phone that sends its name the old way shows as "Unknown phone". Orbital needs relay 0.4.0 or newer.
 - A session that left a dev server or a watcher running shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's background tasks, and Orbital no longer puts that session to sleep while it runs.
 ### Fixed
 - A terminal session that asks for input right after it starts, or a session that asks just after Orbital reconnects to its server, now notifies instead of staying silent.

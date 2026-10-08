@@ -8,6 +8,8 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 - Orbital now needs a screen lock on the phone; without one it asks you to set one, and your pairing stays.
 ### Changed
 - While pairing, the phone tells you to type its code on your Mac.
+- Notifications no longer show your Mac's name; they read "Orbital".
+- Your phone's name reaches your Mac encrypted while pairing; the relay in between no longer sees or keeps it. Pairing needs relay 0.4.0 or newer.
 - The app has Orbital's own icon on iOS and Android, and Android notifications show Orbital's mark instead of a placeholder.
 - Opening the app shows Orbital's mark on the app's dark background until the first screen is ready, instead of a placeholder, with no white flash in between.
 - A session that left a dev server or a watcher running on the Mac shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's tasks.

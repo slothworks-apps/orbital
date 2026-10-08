@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-relay-knows-no-names-design
 title: The relay and the push services see no device names
-status: active
+status: done
 type: spec
 domain: remote
 related:
@@ -108,3 +108,25 @@ reading names from the relay.
   (or no names) behind; `pushText` has no name in it.
 - Mac: `pair_request` with a sealed device shows its name; one that does
   not open shows "Unknown phone".
+
+## Built 2026-10-08
+
+As specified, relay 0.4.0, with these differences:
+
+- **The relay never stores the sealed device.** It passes `device` from
+  the redeem straight into `pair_request` and writes it nowhere, so there
+  is nothing to delete on confirm, reject or expiry. Migration
+  `0002_no_names` only drops the four name columns.
+- **Empty names stay on the wire.** `pair_request` carries `name: ''` and
+  `platform: ''`, and `paired` carries `name: ''`, because the schemas of a
+  Mac and a phone from before require the fields. The shared schemas make
+  them optional; nothing reads them. The redeem answer is `{ mac }`.
+- **Seal and open live in `shared/src/remote/relayApi.ts`** beside
+  `pairingProof`: `sealPairingDevice`, `openPairingDevice`,
+  `PAIRING_DEVICE_INFO`, `SEALED_DEVICE_MAX_CHARS` (which the relay
+  enforces), and the name and platform caps, moved there from the client.
+- **The Mac's unknown phone** is `UNKNOWN_PHONE_NAME` with an empty
+  platform; the 9o chip and the paired list leave the platform out when it
+  is empty. A plain `name` in a `pair_request` is never shown.
+- **`MIN_RELAY_VERSION` is 0.4.0**, above `RELAY_VERSION_BEFORE_ANNOUNCING`,
+  so a relay that announces no version is now refused as too old.

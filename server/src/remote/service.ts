@@ -12,7 +12,7 @@ import {
 } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import {
-  PAIRING_SECRET_BYTES, verifyPairingProof, type QrPayload, type RelayToDevice,
+  PAIRING_SECRET_BYTES, openPairingDevice, verifyPairingProof, type QrPayload, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
@@ -45,6 +45,14 @@ export const RELAY_TOO_OLD_RECHECK_MS = 5 * 60_000;
  * (spec 2026-10-06-pairing-code-and-app-lock-design § 1).
  */
 export const PAIR_CODE_ATTEMPTS = 3;
+
+/**
+ * What a phone is called whose name did not come sealed with its request:
+ * a phone from before sealed devices, or a blob that does not open. It never
+ * blocks the pairing — the code typed here is what authenticates (spec
+ * 2026-10-08-relay-knows-no-names-design § 3).
+ */
+export const UNKNOWN_PHONE_NAME = 'Unknown phone';
 
 /**
  * The answer to a pairing request. `no_pending`: nothing to answer, or a
@@ -328,7 +336,8 @@ export class RemoteService {
     if (this.relayRefusal) return { error: 'relay_too_old' };
     if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
     if (this.client.status !== 'online') return { error: 'offline' };
-    const res = await this.client.post<{ token: string; expiresAt: number }>('/pair/token', 'pair.token', { name: this.macName });
+    // No name: the relay knows none. The phone reads it from the QR.
+    const res = await this.client.post<{ token: string; expiresAt: number }>('/pair/token', 'pair.token', {});
     if (res.relayTooOld) return { error: 'relay_too_old' };
     if (res.status !== 200) return { error: 'relay_error' };
     const secret = new Uint8Array(randomBytes(PAIRING_SECRET_BYTES));
@@ -451,8 +460,10 @@ export class RemoteService {
         console.warn(`[remote] ignored a pairing request from ${msg.phone.slice(0, 8)}: its proof does not match this code`);
         return;
       }
+      // Only what the phone sealed with this code's secret: a plain name came from the relay.
+      const device = msg.device === undefined ? null : openPairingDevice(this.pairing.secret, phoneKey, msg.device);
       this.pendingPair = {
-        phone: msg.phone, name: msg.name, platform: msg.platform,
+        phone: msg.phone, name: device?.name || UNKNOWN_PHONE_NAME, platform: device?.platform ?? '',
         code: fingerprint(this.identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
       };
       this.opts.hub.publish('remote', { event: 'pair_request', ...this.publicPendingPair() });

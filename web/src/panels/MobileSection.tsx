@@ -473,7 +473,7 @@ function PairedPhones({ devices, onSaved }: { devices: RemoteDevice[]; onSaved: 
                     version that will do — there is nothing to dismiss. */}
                 <span className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${CAPTION}`}>
                   <span>
-                    {device.platform} · paired {shortDate(device.pairedAt)}
+                    {device.platform && `${device.platform} · `}paired {shortDate(device.pairedAt)}
                   </span>
                   {device.needsUpdate && (
                     <>

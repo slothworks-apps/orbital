@@ -6,7 +6,7 @@ import {
   PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type Inner, type MacMessage, type PhoneMessage,
 } from '../src/remote/messages.js';
 import {
-  CLOSE_BAD_SECRET, verifyAuthSignature, verifyPairingProof, verifyRequest, type RelayToDevice,
+  CLOSE_BAD_SECRET, openPairingDevice, verifyAuthSignature, verifyPairingProof, verifyRequest, type RelayToDevice,
 } from '../src/remote/relayApi.js';
 import {
   CONNECT_TIMEOUT_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, REQUEST_TIMEOUT_MS, RemoteClient, TunnelError,
@@ -119,7 +119,7 @@ function setup(relaySecret?: string) {
 
 /** Up to a live tunnel: challenge, `ok` naming the Mac, both handshake halves, both hellos. */
 function connect(s: ReturnType<typeof setup>): void {
-  s.sock.control({ type: 'challenge', nonce: 'n1' });
+  s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
   s.sock.control({ type: 'ok', peers: [s.mac.id] });
   s.mac.answer(s.sock, s.phone.publicKey);
   expect(s.mac.read(s.sock)).toMatchObject({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'orbital-mobile/test' });
@@ -137,7 +137,7 @@ describe('RemoteClient relay link', () => {
     const s = setup();
     expect(s.sock.url).toBe(`wss://relay.test/ws?mac=${s.mac.id}`);
     expect(s.sock.binaryType).toBe('arraybuffer');
-    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
     const auth = s.sock.text[0];
     expect(auth).toMatchObject({ type: 'auth', pub: deviceId(s.phone.publicKey) });
     expect(verifyAuthSignature(s.phone.publicKey, 'n1', auth.sig)).toBe(true);
@@ -145,18 +145,18 @@ describe('RemoteClient relay link', () => {
 
   it('sends the relay secret in auth when it has one, and no secret field when not', () => {
     const open = setup();
-    open.sock.control({ type: 'challenge', nonce: 'n1' });
+    open.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
     expect(open.sock.text[0]).not.toHaveProperty('secret');
     open.client.stop();
     const locked = setup('abcd1234');
-    locked.sock.control({ type: 'challenge', nonce: 'n1' });
+    locked.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
     expect(locked.sock.text[0]).toMatchObject({ type: 'auth', secret: 'abcd1234' });
   });
 
   it('stops for good when the relay refuses its secret', () => {
     vi.useFakeTimers();
     const s = setup('wrong');
-    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
     s.sock.serverClose(CLOSE_BAD_SECRET);
     expect(s.events).toContainEqual({ type: 'relay_error', code: 'bad_secret' });
     vi.advanceTimersByTime(RECONNECT_MAX_MS);
@@ -164,12 +164,15 @@ describe('RemoteClient relay link', () => {
     expect(s.client.status).toBe('off');
   });
 
-  it('authenticates with a relay that announces no version, while MIN_RELAY_VERSION lets a silent relay pass', () => {
+  it('authenticates with a relay at MIN_RELAY_VERSION, and refuses one that announces none as too old', () => {
     const s = setup();
-    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
     expect(s.sock.text[0]).toMatchObject({ type: 'auth' });
-    s.sock.control({ type: 'challenge', nonce: 'n2', version: MIN_RELAY_VERSION });
-    expect(s.sock.text[1]).toMatchObject({ type: 'auth' });
+    // Every relay that announces nothing predates the sealed pairing device.
+    const silent = setup();
+    silent.sock.control({ type: 'challenge', nonce: 'n1' });
+    expect(silent.sock.text).toEqual([]);
+    expect(silent.events).toContainEqual({ type: 'relay_too_old', relayVersion: null, needed: MIN_RELAY_VERSION });
   });
 
   it('refuses a relay below MIN_RELAY_VERSION without authenticating, and does not knock again on its own', () => {
@@ -213,9 +216,9 @@ describe('RemoteClient relay link', () => {
   it('asks the relay to confirm the pair on every connect after it hears paired', async () => {
     const s = setup();
     expect(s.sock.url).not.toContain('paired=');
-    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
     s.sock.control({ type: 'ok', peers: [] });
-    s.sock.control({ type: 'paired', mac: s.mac.id, name: 'studio' });
+    s.sock.control({ type: 'paired', mac: s.mac.id });
     const answer = s.client.recheck(1_000);
     const fresh = FakeSocket.all.at(-1)!;
     expect(fresh).not.toBe(s.sock);
@@ -251,7 +254,7 @@ describe('RemoteClient relay link', () => {
     const s = setup();
     s.client.pushToken('fcm-1');
     expect(s.sock.text.filter((m) => m.type === 'push_token')).toEqual([]);
-    s.sock.control({ type: 'challenge', nonce: 'n1' });
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
     s.sock.control({ type: 'ok', peers: [] });
     s.client.pushToken('');
     expect(s.sock.text.filter((m) => m.type === 'push_token')).toEqual([
@@ -291,10 +294,10 @@ describe('RemoteClient handshake triggers', () => {
   it('handshakes once on paired, even when presence follows it', () => {
     const s = setup();
     s.sock.control({ type: 'ok', peers: [] });
-    s.sock.control({ type: 'paired', mac: s.mac.id, name: 'studio' });
+    s.sock.control({ type: 'paired', mac: s.mac.id });
     s.sock.control({ type: 'presence', peer: s.mac.id, online: true });
     expect(s.sock.frames).toHaveLength(1);
-    expect(s.events).toContainEqual({ type: 'paired', macName: 'studio' });
+    expect(s.events).toContainEqual({ type: 'paired' });
   });
 
   it('ignores presence of a peer that is not its Mac', () => {
@@ -631,15 +634,21 @@ describe('RemoteClient redeem', () => {
   const secret = toBase64Url(new Uint8Array(16).fill(7));
 
   it('posts a signed redeem carrying the proof and answers the relay JSON', async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200, headers: { [RELAY_VERSION_HEADER]: MIN_RELAY_VERSION },
+    }));
     vi.stubGlobal('fetch', fetch);
     const s = setup();
     await expect(s.client.redeem('tok', secret, 'phone', 'ios')).resolves.toEqual({ status: 200, body: { ok: true } });
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://relay.test/pair/redeem');
     const sent = JSON.parse(init.body as string);
-    expect(sent.payload).toMatchObject({ token: 'tok', name: 'phone', platform: 'ios' });
+    expect(sent.payload).toMatchObject({ token: 'tok' });
     expect(verifyPairingProof(fromBase64Url(secret), s.phone.publicKey, sent.payload.proof)).toBe(true);
+    // The name travels sealed for the Mac, never in the clear for the relay.
+    expect(sent.payload).not.toHaveProperty('name');
+    expect(sent.payload).not.toHaveProperty('platform');
+    expect(openPairingDevice(fromBase64Url(secret), s.phone.publicKey, sent.payload.device)).toEqual({ name: 'phone', platform: 'ios' });
   });
 
   it('signs the redeem with the relay secret when it has one', async () => {

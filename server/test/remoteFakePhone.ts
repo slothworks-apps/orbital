@@ -6,7 +6,7 @@ import {
   MacMessage, PROTOCOL_VERSION, decodeInner, encodeInner, type Inner, type PhoneMessage,
 } from '@orbital/shared/remote/messages';
 import {
-  QrPayload, RelayToDevice, authSignature, pairingProof, relayWsUrl, signRequest,
+  QrPayload, RelayToDevice, authSignature, pairingProof, relayWsUrl, sealPairingDevice, signRequest,
 } from '@orbital/shared/remote/relayApi';
 
 type Waiter = { match: (x: unknown) => boolean; resolve: (x: any) => void; timer: ReturnType<typeof setTimeout> };
@@ -60,7 +60,9 @@ export class FakePhone {
     const proof = pairingProof(this.secret, this.identity.publicKey);
     const res = await fetch(new URL('/pair/redeem', this.relayUrl), {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(signRequest(this.identity, 'pair.redeem', { token: this.token, name, platform, proof })),
+      body: JSON.stringify(signRequest(this.identity, 'pair.redeem', {
+        token: this.token, proof, device: sealPairingDevice(this.secret, this.identity.publicKey, { name, platform }),
+      })),
     });
     return { status: res.status, body: await res.json() };
   }

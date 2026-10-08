@@ -116,7 +116,8 @@ export function PairConfirmDialog() {
           {/* Canvas 9o: the device in a hairline chip, name bright, the rest muted. */}
           <div className="flex items-center gap-2 rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] px-3 py-2 font-mono text-xs text-text-bright">
             {request.name}
-            <span className="text-[rgba(160,190,225,.55)]">· {request.platform} · via relay</span>
+            {/* No platform for a phone whose name did not come sealed (the server's UNKNOWN_PHONE_NAME). */}
+            <span className="text-[rgba(160,190,225,.55)]">{request.platform && `· ${request.platform} `}· via relay</span>
           </div>
           <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.88)]">Type the code shown on the phone.</p>
           {/* Never disabled while an answer is in flight: that would drop the
