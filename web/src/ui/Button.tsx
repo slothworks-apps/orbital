@@ -21,7 +21,9 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'choice'
     | 'choice-on'
     | 'pill-quiet'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide'
+    | 'quiet'
+    | 'hairline'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -85,6 +87,11 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // 47a/47b View file: a hairline chip in regular weight, quieter than `pill`.
   'pill-quiet':
     'bg-transparent text-[rgba(200,220,245,.85)] border border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.3)]',
+  // Canvas `Feature - Notifications off` 1a: the tip's Settings →, text only
+  // until hovered, then the faint wash.
+  quiet: 'bg-transparent text-[rgba(200,220,245,.8)] font-medium hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright',
+  // 1d's Open System Settings: the quiet hairline, bright ink, no fill.
+  hairline: 'bg-transparent text-text-bright font-semibold border border-[rgba(150,205,255,.14)] hover:bg-[rgba(150,205,255,.08)]',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -110,6 +117,9 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   'choice-touch': 'h-11 px-2 text-[14px]',
   // 9o's Reject / Accept: 40px tall at 13.5px, sharing the card's width.
   wide: 'h-10 flex-1 px-3.5 text-[13.5px]',
+  // 1a's tip actions: 7px/14px at 13px, and 7px/11px for the text-only Settings →.
+  notice: 'px-3.5 py-[7px] text-[13px]',
+  'notice-link': 'px-[11px] py-[7px] text-[13px]',
 }
 
 export function Button({

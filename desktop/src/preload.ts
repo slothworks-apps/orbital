@@ -28,6 +28,16 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   notifySettingsChanged() {
     ipcRenderer.send('settings-changed');
   },
+  // The notifications tip's Turn on asks macOS here, and its refusal's one
+  // way out opens System Settings (spec
+  // 2026-10-08-notifications-off-by-default-design § 3). The answer is
+  // 'granted', 'denied' or 'unknown' (`lib/notificationPermission`).
+  requestNotificationPermission(): Promise<unknown> {
+    return ipcRenderer.invoke('request-notification-permission');
+  },
+  openNotificationSettings() {
+    ipcRenderer.send('open-notification-settings');
+  },
   // Detached session windows: main owns the list and is the only thing that
   // can bring a window forward, so the renderer asks rather than acts
   // (spec: 2026-09-23-detached-session-windows-design). Only the main window
