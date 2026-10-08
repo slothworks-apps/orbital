@@ -11,10 +11,6 @@ import { log, short } from './log.js';
 import { secretMatches } from './secret.js';
 import type { WsContext } from './ws.js';
 
-export const PAIR_RATE_LIMIT_PER_MIN = 20;
-/** Past this many tracked IPs, the idle ones are forgotten. */
-export const RATE_LIMIT_MAX_IPS = 4096;
-const RATE_WINDOW_MS = 60_000;
 /**
  * The phone redeems from a WebView whose page is https://localhost (and from
  * a desktop browser while its layout is worked on), so `/pair/redeem` is a
@@ -40,20 +36,6 @@ const ConfirmPayload = z.object({ phone: z.string(), accept: z.boolean() });
 const RevokePayload = z.object({ phone: z.string() });
 
 export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): void {
-  const hits = new Map<string, number[]>();
-  const limited = (ip: string): boolean => {
-    const now = ctx.now();
-    const recent = (hits.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
-    recent.push(now);
-    hits.set(ip, recent);
-    if (hits.size > RATE_LIMIT_MAX_IPS) {
-      for (const [key, times] of hits) {
-        if (now - times[times.length - 1] >= RATE_WINDOW_MS) hits.delete(key);
-      }
-    }
-    return recent.length > PAIR_RATE_LIMIT_PER_MIN;
-  };
-
   /**
    * Verifies, rate-limits, checks the relay secret, parses, and answers the error itself; returns
    * null then. The signature comes first so unsigned junk never counts
@@ -67,7 +49,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       void reply.code(401).send({ error: v.reason });
       return null;
     }
-    if (limited(ip)) {
+    if (ctx.limiter.hit(ip)) {
       void reply.code(429).send({ error: 'rate_limited' });
       return null;
     }

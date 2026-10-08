@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { promptWithFiles } from '../../lib/attachedFiles'
 import { COMPACTING_PLACEHOLDER } from '../../lib/compaction'
 import { isReadOnly } from '../../lib/types'
@@ -54,6 +54,12 @@ export function SessionComposer({ id }: { id: string }) {
   return <LiveComposer id={id} />
 }
 
+/**
+ * A photo pick under way. Module-wide, not per composer: the system picker is
+ * one, and a composer remounted while it is open must not start another.
+ */
+let photoInFlight = false
+
 function LiveComposer({ id }: { id: string }) {
   const status = useOrbital((s) => s.sessions[id]?.status)
   // 26c: an Orbital session compacting its context takes no message (as `DetailPanel`).
@@ -81,6 +87,13 @@ function LiveComposer({ id }: { id: string }) {
   // a line under the well. The Mac's error records (`source: 'log'`) are not.
   const [error, setError] = useState<string | null>(null)
   const raised = useOrbital((s) => phoneError(s.toast))
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   // Taken off the store as it lands, so the next failure — even with the same words — lands again.
   useEffect(() => {
@@ -137,9 +150,15 @@ function LiveComposer({ id }: { id: string }) {
   }
 
   function attachPhoto(source: PhotoSource) {
+    // One picker at a time: the plugin keeps one saved call, and a second tap
+    // while it is open would be a second pick racing the first.
+    if (photoInFlight) return
+    photoInFlight = true
     setError(null)
     pickPhoto(source)
       .then((picked) => {
+        // Left the session, or the well, while the picker was open: the photo goes nowhere.
+        if (!mounted.current || useMobile.getState().sessionId !== id) return
         if (picked === 'cancelled') return
         if (picked === 'denied') {
           setError(CAMERA_DENIED)
@@ -149,7 +168,10 @@ function LiveComposer({ id }: { id: string }) {
       })
       .catch((err: unknown) => {
         console.warn('[mobile] could not take the photo', err)
-        setError(PHOTO_FAILED_LINE)
+        if (mounted.current) setError(PHOTO_FAILED_LINE)
+      })
+      .finally(() => {
+        photoInFlight = false
       })
   }
 

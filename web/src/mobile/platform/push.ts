@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { FirebaseMessaging } from '@capacitor-firebase/messaging'
 import { clientRef } from '../transport/clientRef'
+import { mayAskForNotifications } from './localNotify'
 
 /**
  * The relay's push and the phone's own notifications (spec 2026-10-02-mobile-app-design
@@ -52,9 +53,9 @@ export async function installNotificationChannels(): Promise<void> {
 }
 
 /**
- * Asks for the permission (Android 13's prompt, iOS's own) and an FCM token;
- * the token goes to the client, which re-sends it on every relay `ok` and
- * after `paired`. A denial is not an error: the app runs without
+ * Asks for the permission once (Android 13's prompt, iOS's own) and an FCM
+ * token; the token goes to the client, which re-sends it on every relay `ok`
+ * and after `paired`. A denial is not an error: the app runs without
  * notifications.
  *
  * Skipped in a build without the platform's Firebase config
@@ -65,7 +66,8 @@ export async function installNotificationChannels(): Promise<void> {
 export async function registerPush(): Promise<void> {
   if (!native()) return
   try {
-    const { receive } = await FirebaseMessaging.requestPermissions()
+    const { receive: before } = await FirebaseMessaging.checkPermissions()
+    const receive = mayAskForNotifications(before) ? (await FirebaseMessaging.requestPermissions()).receive : before
     if (receive !== 'granted' || !pushConfigured()) return
     const { token } = await FirebaseMessaging.getToken()
     clientRef.pushToken(token)

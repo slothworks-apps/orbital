@@ -84,8 +84,12 @@ export async function boot(): Promise<void> {
   if (!pairing || unpaired) return
   // Only a paired phone has sessions to open.
   open?.()
-  await connect(pairing)
-  void registerPush()
+  try {
+    await connect(pairing)
+  } finally {
+    // Whatever connect met: the client keeps the token for the link the next connect builds.
+    void registerPush()
+  }
 }
 
 function onClientEvent(event: RemoteClientEvent): void {

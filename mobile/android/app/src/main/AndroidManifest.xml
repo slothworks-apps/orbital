@@ -40,6 +40,14 @@
         </provider>
 
         <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />
+
+        <!-- A push shown while the app is not running: Orbital's silhouette, not the launcher icon. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_orbital" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/orbitalAccent" />
     </application>
 
     <!-- Permissions -->

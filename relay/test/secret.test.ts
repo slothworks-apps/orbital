@@ -4,6 +4,8 @@ import { deviceId, generateIdentity, type Identity } from '@orbital/shared/remot
 import { CLOSE_BAD_SECRET, authSignature, signRequest } from '@orbital/shared/remote/relayApi';
 import { buildRelay } from '../src/app.js';
 import { readSecret } from '../src/config.js';
+import { PAIR_RATE_LIMIT_PER_MIN } from '../src/rateLimit.js';
+import { CLOSE_RATE_LIMITED } from '../src/ws.js';
 import { secretMatches } from '../src/secret.js';
 import { openRelayStore } from '../src/store.js';
 import { connectDevice, listen } from './helpers.js';
@@ -49,6 +51,25 @@ describe('relay secret', () => {
     expect(await authenticate(r.base, r.mac)).toBe(CLOSE_BAD_SECRET);
     expect(await authenticate(r.base, r.mac, 'wrong')).toBe(CLOSE_BAD_SECRET);
     expect(await authenticate(r.base, r.mac, SECRET)).toBe('ok');
+  });
+
+  it('stops checking the secret from an IP whose refused ones used up the pairing budget', async () => {
+    let clock = Date.now();
+    const store = await openRelayStore(':memory:');
+    const app = await buildRelay({ store, secret: SECRET, now: () => clock });
+    const base = await listen(app);
+    closers.push(() => app.close());
+    const mac = generateIdentity();
+    for (let i = 0; i < PAIR_RATE_LIMIT_PER_MIN; i++) expect(await authenticate(base, mac, `guess${i}`)).toBe(CLOSE_BAD_SECRET);
+    // The right secret now learns nothing, and a device keeps its pairing: not the bad-secret code.
+    expect(await authenticate(base, mac, SECRET)).toBe(CLOSE_RATE_LIMITED);
+    // One budget: pairing from the same IP is refused too.
+    const token = await app.inject({
+      method: 'POST', url: '/pair/token', payload: signRequest(mac, 'pair.token', { name: 'studio' }, clock, SECRET),
+    });
+    expect(token.statusCode).toBe(429);
+    clock += 60_000;
+    expect(await authenticate(base, mac, SECRET)).toBe('ok');
   });
 
   it('answers a pairing token request without the secret with 401 bad_secret', async () => {

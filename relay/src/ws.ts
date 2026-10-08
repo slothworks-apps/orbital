@@ -10,6 +10,7 @@ import { FLAG_STATE, FLAG_WAKE, decodeFrame, rewritePeer } from '@orbital/shared
 import {
   CLOSE_BAD_SECRET, DeviceToRelay, RELAY_PING_INTERVAL_MS, verifyAuthSignature, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
+import type { RateLimiter } from './rateLimit.js';
 import { secretMatches } from './secret.js';
 import { RELAY_VERSION } from './version.js';
 import { Connections, MAX_BUFFERED_BYTES, OfflineQueue, type Conn } from './connections.js';
@@ -33,9 +34,19 @@ export type WsContext = {
   pingIntervalMs: number;
   /** The relay's shared secret; null when the relay is open. Never logged. */
   secret: string | null;
+  /** The per-IP budget pairing and a refused secret share. */
+  limiter: RateLimiter;
 };
 
-export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: string | null): void {
+/**
+ * Closes a socket from an IP whose refused secrets used its budget up. Not
+ * `CLOSE_BAD_SECRET`: a device hears that as its pair being gone, and one
+ * with the right secret behind the same address would forget its pairing. A
+ * shipped device takes any other code as a lost link and retries later.
+ */
+export const CLOSE_RATE_LIMITED = 1013;
+
+export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: string | null, ip: string): void {
   const nonce = randomBytes(16).toString('base64url');
   send(socket, { type: 'challenge', nonce, version: RELAY_VERSION });
   const authTimer = setTimeout(() => socket.close(4001, 'auth timeout'), AUTH_TIMEOUT_MS);
@@ -47,9 +58,17 @@ export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: strin
     const { pub, sig } = parsed.data;
     const publicKey = publicKeyOf(pub);
     if (!publicKey || !verifyAuthSignature(publicKey, nonce, sig)) return socket.close(4001, 'bad auth');
-    if (ctx.secret !== null && !secretMatches(ctx.secret, parsed.data.secret)) {
-      log(`device ${short(pub)} refused: bad secret`);
-      return socket.close(CLOSE_BAD_SECRET, 'bad secret');
+    if (ctx.secret !== null) {
+      // Asked before the secret is looked at: past the budget a guess learns nothing, right or wrong.
+      if (ctx.limiter.spent(ip)) {
+        log(`device ${short(pub)} refused: rate limited`);
+        return socket.close(CLOSE_RATE_LIMITED, 'rate limited');
+      }
+      if (!secretMatches(ctx.secret, parsed.data.secret)) {
+        ctx.limiter.hit(ip);
+        log(`device ${short(pub)} refused: bad secret`);
+        return socket.close(CLOSE_BAD_SECRET, 'bad secret');
+      }
     }
     // Pausing stops further reads while the store answers, but ws still emits
     // messages it already parsed from the read that carried `auth`; those are
