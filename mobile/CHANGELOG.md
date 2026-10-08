@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-08
+### Added
+- When the Mac watches more than one Claude Code folder, each session shows which folder it belongs to, and a new session can be started under the folder you choose.
+
 ## [0.5.0] — 2026-10-07
 ### Added
 - A session shows how many other git worktrees its running subagents work in; in the open session, tap the count to see them with their tasks.

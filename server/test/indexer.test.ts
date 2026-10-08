@@ -516,3 +516,44 @@ describe('indexPaths', () => {
     ).toEqual([{ sessionId: 'one', tagId: 10, origin: 'rule' }]);
   });
 });
+
+describe('indexer — Claude directories', () => {
+  const dirOf = (db: ReturnType<typeof openDb>, id: string) =>
+    db.select({ dir: sessions.claudeDirId }).from(sessions).where(eq(sessions.id, id)).get()?.dir;
+
+  /** A second directory holding a copy of the first one's transcripts — how a collision happens. */
+  function copied() {
+    const { db, projects, transcriptPath } = setup();
+    const copy = join(makeTmpDir('idx-copy'), 'projects');
+    cpSync(projects, copy, { recursive: true });
+    return { db, projects, copy, transcriptPath };
+  }
+
+  it('writes the directory on insert and never rewrites it', () => {
+    const { db, projects, transcriptPath } = setup();
+    indexProjects(db, projects, undefined, { id: 2 });
+    expect(dirOf(db, 'aaaa-bbbb')).toBe(2);
+    appendFileSync(transcriptPath, readFileSync(transcriptPath, 'utf8'));
+    expect(indexProjects(db, projects, undefined, { id: 2 }).indexed).toBe(1);
+    expect(dirOf(db, 'aaaa-bbbb')).toBe(2);
+  });
+
+  it('skips a transcript another configured directory owns, and says so', () => {
+    const { db, projects, copy } = copied();
+    indexProjects(db, projects, undefined, { id: 1 });
+    const onCollision = vi.fn();
+    const result = indexProjects(db, copy, undefined, { id: 2, isConfigured: () => true, onCollision });
+    expect(result.indexed).toBe(0);
+    expect(onCollision).toHaveBeenCalledWith('aaaa-bbbb', 1);
+    expect(dirOf(db, 'aaaa-bbbb')).toBe(1);
+  });
+
+  it('takes over a session whose directory is no longer configured', () => {
+    const { db, projects, copy } = copied();
+    indexProjects(db, projects, undefined, { id: 1 });
+    const onCollision = vi.fn();
+    indexProjects(db, copy, undefined, { id: 2, isConfigured: (id) => id === 2, onCollision });
+    expect(onCollision).not.toHaveBeenCalled();
+    expect(dirOf(db, 'aaaa-bbbb')).toBe(2);
+  });
+});

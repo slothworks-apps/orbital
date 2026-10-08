@@ -174,7 +174,7 @@ export interface SessionPlaces {
 }
 
 /** The row fields the readings need. */
-export type TreeRow = Pick<SessionRow, 'id' | 'cwd' | 'project_dir'>;
+export type TreeRow = Pick<SessionRow, 'id' | 'cwd' | 'project_dir' | 'claude_dir_id'>;
 
 /**
  * Where each session works now, read from its transcripts (adr
@@ -195,11 +195,15 @@ export class WorkingTrees {
   /** What each session was last shaped with, so `moved` can tell a change from a repeat. */
   private shaped = new Map<string, { key: string; dirs: string[] }>();
 
-  constructor(private readonly opts: { projectsDir: string; git: Pick<GitStore, 'rootOf' | 'locate'> }) {}
+  constructor(private readonly opts: {
+    /** A session's transcript file, under its own Claude directory's `projects/`. */
+    transcriptPath: (sessionId: string, projectDir: string, claudeDirId: number) => string;
+    git: Pick<GitStore, 'rootOf' | 'locate'>;
+  }) {}
 
   /** The session's main transcript. */
   transcriptOf(row: TreeRow): string {
-    return join(this.opts.projectsDir, row.project_dir, `${row.id}.jsonl`);
+    return this.opts.transcriptPath(row.id, row.project_dir, row.claude_dir_id);
   }
 
   /** The last `cwd` a transcript file recorded, or null. */

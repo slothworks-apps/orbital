@@ -56,6 +56,8 @@ export interface SessionRow {
   spawned_by: string | null;
   /** Why Orbital started this session, or null. See db/schema.ts. */
   purpose: SessionPurpose | null;
+  /** The Claude directory the session belongs to. See db/schema.ts. */
+  claude_dir_id: number;
 }
 
 /**
@@ -270,7 +272,9 @@ export type ErrorKind =
   | 'transcript_gap'
   | 'compaction_failed'
   | 'rewind_refused'
-  | 'rewind_failed';
+  | 'rewind_failed'
+  /** A transcript whose session id another Claude directory already owns. */
+  | 'session_id_collision';
 
 export interface ErrorRecord {
   id: number;

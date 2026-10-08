@@ -33,7 +33,7 @@ import {
 } from '../runner/runner.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
 import { RETENTION_KEY } from '../retention.js';
-import type { SessionRegistry } from '../watcher/registry.js';
+import type { LiveSessions } from '../watcher/registry.js';
 import type { Hub } from './hub.js';
 import { statusOf, toApiSession, type ApiSession } from './shape.js';
 import type { GitStore } from '../git/store.js';
@@ -66,15 +66,27 @@ import type { Narrator } from '../walkthrough/narrator.js';
 import type { Spine, Walkthrough } from '../walkthrough/types.js';
 import type { LimitsService } from '../limits/service.js';
 import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY } from '../limits/logic.js';
+import {
+  DEFAULT_CLAUDE_DIR_KEY,
+  LAST_CLAUDE_DIR_KEY,
+  type ClaudeDirContext,
+  type ClaudeDirsService,
+} from '../claudeDirs/service.js';
 
 export interface RouteContext {
   db: OrbitalDb;
-  registry: SessionRegistry;
+  registry: LiveSessions;
   runner: Runner;
-  projectsDir: string;
-  /** `~/.claude` — where the command catalog's user and plugin halves live
-   * (spec: 2026-09-20-composer-design § Command catalog). */
-  claudeDir: string;
+  /**
+   * The configured Claude directories and each one's running context (spec
+   * 2026-10-04-multiple-claude-directories-design). A directory's path is
+   * where the command catalog's user and plugin halves live (spec
+   * 2026-09-20-composer-design § Command catalog); its context holds its
+   * model catalog.
+   */
+  claudeDirs: ClaudeDirsService<RouteClaudeDirContext>;
+  /** A session's transcript file, under its own Claude directory's `projects/`. */
+  transcriptPath(sessionId: string, projectDir: string, claudeDirId: number): string;
   hub: Hub;
   /** Content-addressed transcript image store + the directory it serves
    * from (spec: 2026-09-18-transcript-images-design). */
@@ -83,7 +95,6 @@ export interface RouteContext {
   /** Composer attachments that are not images, read by the agent by path
    * (spec: 2026-10-01-file-attachments-design). */
   files: FileStore;
-  models: ModelCatalog;
   subagents: SubagentStore;
   /** Git readings per working tree, cached and watched (spec
    * 2026-09-22-git-location-indicator-design). Read through `toApiSession`. */
@@ -117,9 +128,9 @@ export interface RouteContext {
   /** The mobile remote (spec 2026-09-30-mobile-remote-design § 3): its routes, and the settings hook. */
   remote: RemoteService;
   settings: { get(key: string): string; set(key: string, value: string): void };
-  /** MCP config through `claude mcp`, and the read of `~/.claude.json` the edit form needs
-   * (spec 2026-10-01-mcp-servers-in-the-session-design § Config). */
-  mcp: McpConfig;
+  /** MCP config through `claude mcp`, and the read of `.claude.json` the edit form needs, for
+   * one Claude directory (spec 2026-10-01-mcp-servers-in-the-session-design § Config). */
+  mcpFor(claudeDirId: number): McpConfig;
   /**
    * The retention sweep (spec 2026-09-21-settings-sections-design § 4).
    * Injected rather than called directly because the sweep has to publish a
@@ -155,6 +166,11 @@ export interface RouteContext {
    * never accepted.
    */
   trees?: WorkingTrees;
+}
+
+/** What the routes use of one Claude directory's running context. */
+export interface RouteClaudeDirContext extends ClaudeDirContext {
+  models: Pick<ModelCatalog, 'list' | 'learnedContextWindows' | 'validate'>;
 }
 
 const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);
@@ -400,12 +416,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const namedPaths = new NamedPathCache(NAMED_PATH_CACHE_ENTRIES);
   /** The file viewer's named-path check for one session row. */
   const namedBy = (id: string, row: SessionRow) =>
-    namedPaths.forSession(id, join(ctx.projectsDir, row.project_dir, `${id}.jsonl`));
+    namedPaths.forSession(id, ctx.transcriptPath(id, row.project_dir, row.claude_dir_id));
   /** Where a file request for this session is confined, in order; the home alone without a reader. */
   const sandboxesOf = (row: SessionRow, cwd: string | undefined): string[] =>
     ctx.trees?.sandboxes(row, cwd) ?? [row.cwd];
   /** The tree the session works in now; its home without a reader. */
   const workingDirOf = (row: SessionRow): string => ctx.trees?.workingDir(row) ?? row.cwd;
+  /** The ids of the Claude directories configured now; a session of any other is hidden. */
+  const configuredDirIds = () => ctx.claudeDirs.list().map((d) => d.id);
+  /** A directory's path; one no longer configured reads as the default's. */
+  const claudeDirPathOf = (id: number): string =>
+    (ctx.claudeDirs.get(id) ?? ctx.claudeDirs.get(ctx.claudeDirs.defaultId()))?.path ?? '';
+  /** A session's own directory while it is configured, else the default — what a launch runs under. */
+  const launchDirOf = (id: number): number => (ctx.claudeDirs.has(id) ? id : ctx.claudeDirs.defaultId());
   /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
   let carry: CarryHarness | null = null;
 
@@ -416,6 +439,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     let rows = db
       .select(sessionColumns)
       .from(sessions)
+      // A removed directory's sessions are hidden, not deleted (spec
+      // 2026-10-04-multiple-claude-directories-design § 1).
+      .where(inArray(sessions.claudeDirId, configuredDirIds()))
       // Pinned rows first, in pin order, then the rest by recency. In the SQL
       // rather than a re-sort afterwards because this route over-fetches and
       // then slices a page out: a pinned row that sorted below the fetch
@@ -455,7 +481,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // than a reshaping of the list response every consumer already parses
   // (spec 2026-09-18-tag-clusters-design § 4).
   app.get('/api/sessions/count', () => {
-    const row = db.select({ total: sql<number>`COUNT(*)` }).from(sessions).get() as {
+    const row = db.select({ total: sql<number>`COUNT(*)` }).from(sessions)
+      .where(inArray(sessions.claudeDirId, configuredDirIds())).get() as {
       total: number;
     };
     return { total: row.total };
@@ -487,12 +514,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   function readBranchOf(id: string): BranchRead | null {
     const row = db
-      .select({ project_dir: sessions.projectDir })
+      .select({ project_dir: sessions.projectDir, claude_dir_id: sessions.claudeDirId })
       .from(sessions)
       .where(eq(sessions.id, id))
       .get();
     if (!row) return null;
-    const path = join(ctx.projectsDir, row.project_dir, `${id}.jsonl`);
+    const path = ctx.transcriptPath(id, row.project_dir, row.claude_dir_id);
     const stamp = fileStamp(path);
     // Cached as finished wire messages rather than raw entries, so a page
     // also skips `entriesToMessages` and the image decoding inside it. Only
@@ -795,27 +822,35 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * The cwd both catalog routes scan: the session's, or the New Session
    * dialog's hand-typed one. A string is the error to answer with.
    */
-  function catalogCwd(q: Record<string, string>): { cwd: string; sessionId: string | null } | 'not_found' | 'missing_params' {
+  /**
+   * The Claude directory whose user and plugin commands are listed: a
+   * session's own, else `?claudeDir=<id>` — the New Session dialog's choice —
+   * else the default. Its path, or the error to answer with.
+   */
+  function catalogCwd(q: Record<string, string>):
+    { cwd: string; sessionId: string | null; claudeDir: string } | 'not_found' | 'missing_params' | 'unknown_claude_dir' {
     if (q.session) {
       const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, q.session)).get() as
         | SessionRow
         | undefined;
       if (!row) return 'not_found';
-      return { cwd: row.cwd, sessionId: q.session };
+      return { cwd: row.cwd, sessionId: q.session, claudeDir: claudeDirPathOf(row.claude_dir_id) };
     }
+    const dirId = ctx.claudeDirs.resolveId(q.claudeDir);
+    if (dirId === null) return 'unknown_claude_dir';
     // The one door an unexpanded path comes through here, same as
     // `POST /api/sessions`: the dialog's directory field is hand-typed.
-    if (q.cwd) return { cwd: expandHome(q.cwd), sessionId: null };
+    if (q.cwd) return { cwd: expandHome(q.cwd), sessionId: null, claudeDir: claudeDirPathOf(dirId) };
     return 'missing_params';
   }
 
   app.get('/api/commands', async (req, reply) => {
     const where = catalogCwd(req.query as Record<string, string>);
     if (where === 'not_found') return reply.code(404).send({ error: 'not_found' });
-    if (where === 'missing_params') return reply.code(400).send({ error: 'missing_params' });
-    const { cwd, sessionId } = where;
+    if (where === 'missing_params' || where === 'unknown_claude_dir') return reply.code(400).send({ error: where });
+    const { cwd, sessionId, claudeDir } = where;
 
-    const scanned = collectCommands({ claudeDir: ctx.claudeDir, cwd });
+    const scanned = collectCommands({ claudeDir, cwd });
     const live = sessionId ? await ctx.runner.commands(sessionId) : null;
     if (!live) {
       const known = new Set(scanned.map((c) => c.name));
@@ -855,8 +890,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const q = req.query as Record<string, string>;
     const where = catalogCwd(q);
     if (where === 'not_found') return reply.code(404).send({ error: 'not_found' });
+    if (where === 'unknown_claude_dir') return reply.code(400).send({ error: where });
     if (where === 'missing_params' || !q.name) return reply.code(400).send({ error: 'missing_params' });
-    const found = findCommandFile({ claudeDir: ctx.claudeDir, cwd: where.cwd }, q.name.replace(/^\//, ''));
+    const found = findCommandFile({ claudeDir: where.claudeDir, cwd: where.cwd }, q.name.replace(/^\//, ''));
     if (!found) return reply.code(404).send({ error: 'not_found' });
     return {
       name: found.name,
@@ -1055,10 +1091,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
        * that do not exist against a stubbed runner.
        */
       requireDirectory?: boolean;
+      /** The Claude directory to run under; absent, `default_claude_dir`. */
+      claudeDirId?: number;
     };
     if (invalidAttachments(body.attachments)) {
       return reply.code(400).send({ error: 'invalid_attachment' });
     }
+    // A resume runs under the session's own directory, whatever was sent: its
+    // transcript and its login are there (spec § 3).
+    const resumed = body.resume
+      ? db.select({ claudeDirId: sessions.claudeDirId }).from(sessions).where(eq(sessions.id, body.resume)).get()
+      : undefined;
+    const claudeDirId = resumed ? launchDirOf(resumed.claudeDirId) : ctx.claudeDirs.resolveId(body.claudeDirId);
+    if (claudeDirId === null) return reply.code(400).send({ error: 'unknown_claude_dir' });
     // The one door an unexpanded path comes through: every other cwd in this
     // file is read back from a row this line already wrote. Expanding before
     // both the runner and the insert keeps the spawn working *and* keeps one
@@ -1079,7 +1124,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const clientId = body.sessionId ?? undefined;
     const refused = clientIdRefusal(clientId);
     if (refused) return reply.code(refused.status).send({ error: refused.error });
-    const sessionId = await launchSession({ ...body, cwd, sessionId: clientId });
+    const sessionId = await launchSession({ ...body, cwd, sessionId: clientId, claudeDirId });
+    // The dialog's choice, remembered for the next one (spec § 3) — stored
+    // here rather than by the client, because the phone cannot write settings.
+    if (body.claudeDirId !== undefined && body.claudeDirId !== null) {
+      ctx.settings.set(LAST_CLAUDE_DIR_KEY, String(claudeDirId));
+    }
     return reply.code(201).send({ sessionId });
   });
 
@@ -1130,6 +1180,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .get();
     const sessionId = await launchSession({
       cwd, prompt: input.prompt, permissionMode, model, spawnedBy: parentId, tagId: parentTag?.tagId,
+      // The child runs under the parent's account (spec
+      // 2026-10-04-multiple-claude-directories-design § 3): its work belongs
+      // to the same employer, plan and transcripts.
+      claudeDirId: launchDirOf(parent.claude_dir_id),
     });
     return { sessionId, cwd };
   };
@@ -1143,12 +1197,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     cwd: string; prompt: string; permissionMode: PermissionMode;
     tagId?: number; model?: string; resume?: string;
     sessionId?: string; attachments?: string[]; spawnedBy?: string; purpose?: SessionPurpose;
+    /** Absent: `default_claude_dir`. */
+    claudeDirId?: number;
   }): Promise<string> {
     const { cwd, spawnedBy, tagId, purpose, ...start } = opts;
-    const sessionId = await ctx.runner.start({ ...start, cwd });
+    const claudeDirId = opts.claudeDirId ?? ctx.claudeDirs.defaultId();
+    const sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId });
     db.insert(sessions)
       .values({
-        id: sessionId, projectDir: '', cwd, source: 'web',
+        id: sessionId, projectDir: '', cwd, source: 'web', claudeDirId,
         permissionMode: opts.permissionMode, model: opts.model ?? null,
         spawnedBy: spawnedBy ?? null,
         purpose: purpose ?? null,
@@ -1290,6 +1347,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     try {
       await ctx.runner.start({
         cwd: row.cwd, prompt: text, permissionMode, resume: id,
+        // Its own directory, never a choice: the transcript and the login are there.
+        claudeDirId: launchDirOf(row.claude_dir_id),
         // Without this, reviving silently moved the session onto the CLI's
         // default model.
         model: row.model ?? undefined,
@@ -1568,7 +1627,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   function spineFor(id: string): { row: SessionRow; spine: Spine; transcriptPath: string } | null {
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
     if (!row) return null;
-    const transcriptPath = join(ctx.projectsDir, row.project_dir, `${id}.jsonl`);
+    const transcriptPath = ctx.transcriptPath(id, row.project_dir, row.claude_dir_id);
     // The subagents' files feed the walkthrough too, so they are part of the
     // stamp: an agent that writes on changes it while the parent file sits
     // still.
@@ -1848,13 +1907,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // session would.
     const permissionMode = (row.permission_mode ?? ctx.settings.get('default_permission_mode')) as any;
     const model = row.model ?? undefined;
+    // The fresh session stays under the cleared one's directory.
+    const claudeDirId = launchDirOf(row.claude_dir_id);
     const newId = await ctx.runner.start({
       cwd: row.cwd, prompt: '',
-      permissionMode, model,
+      permissionMode, model, claudeDirId,
     });
     db.insert(sessions)
       .values({
-        id: newId, projectDir: '', cwd: row.cwd, source: 'web',
+        id: newId, projectDir: '', cwd: row.cwd, source: 'web', claudeDirId,
         permissionMode, model: model ?? null, lastAt: Date.now(),
       })
       .onConflictDoNothing()
@@ -2104,28 +2165,52 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // allowlist), and these three are all 9d needs from the settings table.
   // Readings mirror the web's `NewSessionDialog`; `DEFAULT_SETTINGS` seeds
   // every key, so the fallbacks only answer a table someone emptied.
-  app.get('/api/sessions/defaults', () => ({
-    permissionMode: (ctx.settings.get('default_permission_mode') || 'acceptEdits') as PermissionMode,
-    model: ctx.settings.get('default_model') || null,
-    rememberModelPerProject: ctx.settings.get('remember_model_per_project') !== 'false',
-  }));
+  //
+  // The Claude directories ride here too — the session mark and the New
+  // session choice on both the Mac and the phone (spec
+  // 2026-10-04-multiple-claude-directories-design § 7): the name, and for
+  // the mark's tooltip and the pickers' sub line the path, the account and
+  // whether it is on disk (a missing one is shown but cannot be chosen).
+  // `lastClaudeDir` is null when nothing launched yet or the directory it
+  // named is gone, so the prefill falls through to `defaultClaudeDir`.
+  app.get('/api/sessions/defaults', () => {
+    const last = Number(ctx.settings.get(LAST_CLAUDE_DIR_KEY) || NaN);
+    return {
+      permissionMode: (ctx.settings.get('default_permission_mode') || 'acceptEdits') as PermissionMode,
+      model: ctx.settings.get('default_model') || null,
+      rememberModelPerProject: ctx.settings.get('remember_model_per_project') !== 'false',
+      claudeDirs: ctx.claudeDirs.info().map(({ id, name, path, account, exists }) => ({ id, name, path, account, exists })),
+      defaultClaudeDir: ctx.claudeDirs.defaultId(),
+      lastClaudeDir: Number.isInteger(last) && ctx.claudeDirs.has(last) ? last : null,
+    };
+  });
 
-  app.get('/api/models', async () => ({
-    models: await ctx.models.list(),
-    contextWindows: ctx.models.learnedContextWindows(),
-  }));
+  /** The model catalog of `?claudeDir=<id>`, the default directory's without one; null for an unknown id. */
+  function modelsOf(raw: unknown): RouteClaudeDirContext['models'] | null {
+    const id = ctx.claudeDirs.resolveId(raw);
+    return id === null ? null : (ctx.claudeDirs.context(id)?.models ?? null);
+  }
+
+  app.get('/api/models', async (req, reply) => {
+    const models = modelsOf((req.query as Record<string, string>).claudeDir);
+    if (!models) return reply.code(400).send({ error: 'unknown_claude_dir' });
+    return { models: await models.list(), contextWindows: models.learnedContextWindows() };
+  });
 
   // The "Other…" model card: checks an id `GET /api/models` does not list by
   // running a minimal turn on it (see `ModelCatalog.validate`). Always 200
   // once the body is well-formed — an unusable model is an answer, not a
   // failed request.
   app.post('/api/models/validate', async (req, reply) => {
-    const { model } = (req.body ?? {}) as { model?: unknown };
+    const { model, claudeDir } = (req.body ?? {}) as { model?: unknown; claudeDir?: unknown };
     const id = typeof model === 'string' ? model.trim() : '';
     if (!id || /\s/.test(id) || id.length > MODEL_ID_MAX_LENGTH) {
       return reply.code(400).send({ error: 'model is required' });
     }
-    return ctx.models.validate(id);
+    // Checked under the account the session would run under.
+    const models = modelsOf(claudeDir);
+    if (!models) return reply.code(400).send({ error: 'unknown_claude_dir' });
+    return models.validate(id);
   });
 
   // The error log. One table, fed from both sides — see
@@ -2175,11 +2260,53 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true, ...ctx.errors.markSeen(body.ids as number[]) };
   });
 
+  // ---- Claude directories (spec: 2026-10-04-multiple-claude-directories-design § 6)
+  //
+  // Mac only: managing them means typing paths on the Mac's disk, so none of
+  // these is on the phone's allowlist. The default goes through
+  // `PATCH /api/settings` `default_claude_dir`.
+
+  /** A refused change as its status: an unknown id is a 404, everything else the request's fault. */
+  const claudeDirFailure = (reply: FastifyReply, error: string) =>
+    reply.code(error === 'not_found' ? 404 : error === 'last_directory' ? 409 : 400).send({ error });
+
+  app.get('/api/claude-dirs', () => ({ claudeDirs: ctx.claudeDirs.info() }));
+
+  app.post('/api/claude-dirs', (req, reply) => {
+    const body = (req.body ?? {}) as { name?: unknown; path?: unknown };
+    const result = ctx.claudeDirs.add(body);
+    if (!result.ok) return claudeDirFailure(reply, result.error);
+    return reply.code(201).send({ claudeDir: claudeDirInfo(result.dir.id) });
+  });
+
+  app.patch('/api/claude-dirs/:id', (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const body = (req.body ?? {}) as { name?: unknown; path?: unknown };
+    const result = ctx.claudeDirs.update(id, { name: body.name, path: body.path });
+    if (!result.ok) return claudeDirFailure(reply, result.error);
+    return { claudeDir: claudeDirInfo(id) };
+  });
+
+  app.delete('/api/claude-dirs/:id', (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const result = ctx.claudeDirs.remove(id);
+    if (!result.ok) return claudeDirFailure(reply, result.error);
+    return reply.code(204).send();
+  });
+
+  /** One row of the list, as `GET /api/claude-dirs` shapes it. */
+  const claudeDirInfo = (id: number) => ctx.claudeDirs.info().find((d) => d.id === id);
+
   app.get('/api/settings', () => {
     const rows = db.select().from(settingsTable).all();
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   });
-  app.patch('/api/settings', (req) => {
+  app.patch('/api/settings', (req, reply) => {
+    // The default must name a configured directory; nothing is saved when it does not.
+    const patch = req.body as Record<string, string>;
+    if (DEFAULT_CLAUDE_DIR_KEY in patch && ctx.claudeDirs.resolveId(patch[DEFAULT_CLAUDE_DIR_KEY]) === null) {
+      return reply.code(400).send({ error: 'unknown_claude_dir' });
+    }
     let branchSettings = false;
     let remoteRestart = false;
     let remoteName = false;

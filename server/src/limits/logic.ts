@@ -64,8 +64,25 @@ export interface LimitWait {
   continueText: string;
 }
 
+/**
+ * What `GET /api/limits` answers: one reading per configured Claude
+ * directory, in the directories' order (spec
+ * 2026-10-04-multiple-claude-directories-design § 5). Each account has its
+ * own plan and its own windows.
+ */
 export interface LimitsSnapshot {
-  /** False with an API key, or when the server says plan limits do not apply. */
+  dirs: ClaudeDirLimits[];
+}
+
+/** One Claude directory's plan limits, and the sessions of it that wait for a reset. */
+export interface ClaudeDirLimits {
+  /** `claude_dirs.id`. */
+  id: number;
+  name: string;
+  /**
+   * False with an API key, or when the server says plan limits do not apply
+   * — an enterprise account billed by usage has no windows at all.
+   */
   tracked: boolean;
   /** ISO of the last good read; null when never read. */
   readAt: string | null;

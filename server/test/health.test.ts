@@ -64,7 +64,7 @@ describe('GET /api/health', () => {
       const { paths } = (await app.inject({ method: 'GET', url: '/api/health' })).json();
       // The override this server was actually built with, so the row cannot
       // show `~/.claude` while the watcher reads somewhere else.
-      expect(paths.claudeDir).toBe(claudeDir);
+      expect(paths.claudeDirs).toEqual([{ id: 1, path: claudeDir }]);
       expect(paths.dbPath).toBe(dbPath);
       expect(paths).toHaveProperty('dataDir');
     } finally {
@@ -102,11 +102,12 @@ describe('GET /api/health', () => {
   });
 
   /**
-   * The reason `openDb` moved above the path resolution in `buildServer`:
-   * `claude_directory` lives in the table, so the table has to exist before
-   * the question can be asked. Without the reorder this reads `~/.claude`.
+   * An install from before more than one directory keeps watching what it
+   * watched: row 1 is seeded from the old `claude_directory` row at the first
+   * boot (spec 2026-10-04-multiple-claude-directories-design § 1). Without it
+   * this reads `~/.claude`.
    */
-  it('watches the directory stored in the settings table', async () => {
+  it('seeds the first directory from the retired claude_directory setting', async () => {
     const stored = tempClaudeDir();
     const { dbPath } = tempClaudeDir();
     const seed = openDb(dbPath);
@@ -122,7 +123,9 @@ describe('GET /api/health', () => {
     const app = await buildServer({ dbPath, queryFn: (() => {}) as any });
     try {
       const { paths } = (await app.inject({ method: 'GET', url: '/api/health' })).json();
-      expect(paths.claudeDir).toBe(stored.claudeDir);
+      expect(paths.claudeDirs).toEqual([{ id: 1, path: stored.claudeDir }]);
+      // Migrated into row 1, then dropped: nothing reads it any more.
+      expect((await app.inject({ method: 'GET', url: '/api/settings' })).json()).not.toHaveProperty('claude_directory');
     } finally {
       await app.close();
       if (before === undefined) delete process.env.ORBITAL_CLAUDE_DIR;

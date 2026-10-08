@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
+import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
 import { useOrbital } from '../../store/store'
 import { recheckMac } from '../connect'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
@@ -337,6 +338,7 @@ function SessionRow({
   const [moonsOpen, setMoonsOpen] = useState(false)
   const input = group === 'input'
   const reason = input ? inputReason(session) : null
+  const dirMark = useClaudeDirMark(session.claudeDirId)
   const waitLine = group === 'limit' ? limitLine(session, offline, mac, now) : null
   const idle = group === 'idle'
   // A gate carries no elapsed time (10a); asleep, NEEDS INPUT shows none either (9a). The limit
@@ -398,8 +400,18 @@ function SessionRow({
               </span>
             )}
           </span>
-          {/* 9a's cwd · branch line; 2h adds the worktree count. */}
-          {showWhere && <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} />}
+          {/* 9a's cwd · branch line; 2h adds the worktree count. Canvas 44d:
+              the Claude directory's mark opens it, before the tag dot, at the
+              same x on every row. */}
+          {showWhere &&
+            (dirMark ? (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <ClaudeDirMark mono={dirMark.mono} size="phone" />
+                <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} />
+              </span>
+            ) : (
+              <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} />
+            ))}
           {asleepCounts !== null && <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">{asleepCounts}</span>}
           {reason && (
             <span className={['text-[12.5px] leading-[1.35]', offline ? 'text-[rgba(255,214,173,.75)]' : 'text-[#ffd6ad]'].join(' ')}>

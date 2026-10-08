@@ -78,6 +78,8 @@ import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
 import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { limitWaitStatus } from '../lib/limits'
+import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
+import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import type { ApiSession, BackgroundTask, Tag, WalkthroughSummary } from '../lib/types'
 
 /**
@@ -185,6 +187,9 @@ export function DetailPanel({
     movedToWindow ? 0 : PANEL_EXIT_MS
   )
   const session = useOrbital((s) => (id ? s.sessions[id] : undefined))
+  const claudeDirMark = useClaudeDirMark(session?.claudeDirId)
+  // What the switcher offers is the session's own account's catalog.
+  const switcherModels = useClaudeDirModels(session?.claudeDirId)
   const tags = useOrbital(useShallow((s) => s.tags))
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
@@ -974,11 +979,14 @@ export function DetailPanel({
                   footer="ONE TAG PER SESSION · SETS PLANET HUE"
                 />
               )}
+              {/* Canvas 44b: the session's Claude directory, after the tag chip,
+                  with two or more configured. Read-only. */}
+              {claudeDirMark && <ClaudeDirChip mark={claudeDirMark} />}
               <span aria-hidden className="flex-1" />
               {(session.model || session.resolvedModel || models.length > 0) && (
                 <ModelSwitcher
                   session={session}
-                  models={models}
+                  models={switcherModels}
                   defaultValue={settings.default_model ?? null}
                   hidden={hidden}
                   disabledReason={

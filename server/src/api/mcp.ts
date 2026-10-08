@@ -13,18 +13,19 @@ import {
 } from '../mcp/config.js';
 import { McpLoginUnsupportedError } from '../mcp/login.js';
 import type { PermissionMode, SessionRow } from '../types.js';
-import type { SessionRegistry } from '../watcher/registry.js';
+import type { LiveSessions } from '../watcher/registry.js';
 
 /** What the `/mcp` routes need of the route context. */
 export interface McpRouteContext {
   db: OrbitalDb;
-  registry: Pick<SessionRegistry, 'get'>;
+  registry: Pick<LiveSessions, 'get'>;
   runner: Pick<
     Runner,
     | 'status' | 'pendingDecision' | 'stopAndWait' | 'start'
     | 'mcpServers' | 'reconnectMcpServer' | 'toggleMcpServer' | 'reloadMcpConfig' | 'mcpLogin'
   >;
-  mcp: McpConfig;
+  /** MCP config of one Claude directory: its `.claude.json`, written by `claude mcp` under its environment. */
+  mcpFor(claudeDirId: number): McpConfig;
   settings: { get(key: string): string };
   rewindStopTimeoutMs?: number;
 }
@@ -78,8 +79,8 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
    * project, plugin or managed server — or one removed and still
    * connected), 404 when nobody has heard of it.
    */
-  async function configured(id: string, cwd: string, name: string, reply: FastifyReply) {
-    const found = ctx.mcp.read(cwd).find(name);
+  async function configured(id: string, row: SessionRow, name: string, reply: FastifyReply) {
+    const found = ctx.mcpFor(row.claude_dir_id).read(row.cwd).find(name);
     if (found) return found;
     const live = await runner.mcpServers(id);
     if (live.some((s) => s.name === name)) {
@@ -158,7 +159,7 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
     const row = runningRow(id, reply);
     if (!row) return reply;
     try {
-      const found = await configured(id, row.cwd, name, reply);
+      const found = await configured(id, row, name, reply);
       if (!found) return reply;
       if (!found.definition) {
         return reply.code(400).send({ error: 'not_editable', message: `${name} cannot be edited here` });
@@ -175,7 +176,7 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
     if (!row) return reply;
     try {
       const definition = parseDefinition(req.body);
-      await ctx.mcp.add(row.cwd, definition);
+      await ctx.mcpFor(row.claude_dir_id).add(row.cwd, definition);
       // A reload connects the new server in place (spec § Verify first, 2);
       // a CLI that cannot do it gets it at the next start instead.
       let restartNeeded = false;
@@ -196,12 +197,12 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
     if (!row) return reply;
     try {
       const next = parseDefinition(req.body);
-      const found = await configured(id, row.cwd, name, reply);
+      const found = await configured(id, row, name, reply);
       if (!found) return reply;
       if (!found.definition) {
         return reply.code(400).send({ error: 'not_editable', message: `${name} cannot be edited here` });
       }
-      await ctx.mcp.edit(row.cwd, found.definition, next);
+      await ctx.mcpFor(row.claude_dir_id).edit(row.cwd, found.definition, next);
       // Neither a changed nor a removed definition reaches the running
       // session on its own (spec § Verify first, 2).
       return { servers: await runner.mcpServers(id), restartNeeded: true };
@@ -215,9 +216,9 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
     const row = runningRow(id, reply);
     if (!row) return reply;
     try {
-      const found = await configured(id, row.cwd, name, reply);
+      const found = await configured(id, row, name, reply);
       if (!found) return reply;
-      await ctx.mcp.remove(row.cwd, name, found.scope);
+      await ctx.mcpFor(row.claude_dir_id).remove(row.cwd, name, found.scope);
       return { servers: await runner.mcpServers(id), restartNeeded: true };
     } catch (err) {
       return failure(reply, err);
@@ -245,7 +246,10 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
     }
     const permissionMode = (row.permission_mode ?? ctx.settings.get('default_permission_mode')) as PermissionMode;
     try {
-      await runner.start({ cwd: row.cwd, prompt: '', permissionMode, resume: id, model: row.model ?? undefined });
+      await runner.start({
+        cwd: row.cwd, prompt: '', permissionMode, resume: id, model: row.model ?? undefined,
+        claudeDirId: row.claude_dir_id,
+      });
       return { servers: await runner.mcpServers(id) };
     } catch (err) {
       return failure(reply, err);

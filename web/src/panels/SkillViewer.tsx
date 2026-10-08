@@ -42,11 +42,15 @@ export function SkillViewer({
 
   const sessionKey = 'session' in commandKey ? commandKey.session : null
   const cwdKey = 'cwd' in commandKey ? commandKey.cwd : null
+  const dirKey = 'cwd' in commandKey ? commandKey.claudeDir : undefined
   useEffect(() => {
     if (name === null) return
     let cancelled = false
     setContent(undefined)
-    const key: CompletionKey = sessionKey !== null ? { session: sessionKey } : { cwd: cwdKey ?? '' }
+    const key: CompletionKey =
+      sessionKey !== null
+        ? { session: sessionKey }
+        : { cwd: cwdKey ?? '', ...(dirKey !== undefined ? { claudeDir: dirKey } : {}) }
     api
       .commandContent(key, name)
       .then((found) => {
@@ -62,7 +66,7 @@ export function SkillViewer({
     }
     // `onClose` is the caller's setter; a fresh closure is not a new skill.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, sessionKey, cwdKey])
+  }, [name, sessionKey, cwdKey, dirKey])
 
   if (!mounted || shown === null) return null
   const entered = state === 'entered'

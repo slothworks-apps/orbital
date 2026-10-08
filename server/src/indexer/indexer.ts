@@ -10,12 +10,32 @@ import { computeStats } from '../stats/compute.js';
 import { STATS_VERSION } from '../stats/constants.js';
 import { readPermissionWaits, upsertSessionStats, type SessionStatsWritten } from '../stats/store.js';
 import { readSubagentEntries } from '../stats/transcript.js';
+import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
 
 /** One transcript to consider: the project directory it sits in, and its file name. */
 interface TranscriptFile {
   projectDir: string;
   file: string;
 }
+
+/**
+ * Which Claude directory a pass indexes for (spec
+ * 2026-10-04-multiple-claude-directories-design § 1 Id collisions). A new
+ * row is written with `id`. A row another configured directory already owns
+ * is left alone and reported through `onCollision`; a row whose directory is
+ * no longer configured is taken over, which is how adding a removed
+ * directory back brings its sessions back.
+ */
+export interface IndexOwner {
+  id: number;
+  /** Whether a directory id is configured now. Absent: every id is. */
+  isConfigured?: (id: number) => boolean;
+  /** A transcript skipped because `ownerId` owns its session. */
+  onCollision?: (sessionId: string, ownerId: number) => void;
+}
+
+/** The owner a pass has when the caller names none — the first directory. */
+const FIRST_DIRECTORY: IndexOwner = { id: FIRST_CLAUDE_DIR_ID };
 
 /**
  * The full pass: every transcript under `projectsDir`. Run at boot, and
@@ -26,6 +46,7 @@ export function indexProjects(
   projectsDir: string,
   /** Told for each session whose rollup this pass rewrote — see `SessionStatsWritten`. */
   onStats?: SessionStatsWritten,
+  owner: IndexOwner = FIRST_DIRECTORY,
 ): { scanned: number; indexed: number } {
   let projectDirs: string[];
   try {
@@ -36,7 +57,7 @@ export function indexProjects(
     return { scanned: 0, indexed: 0 };
   }
   const files = projectDirs.flatMap((d) => transcriptsIn(projectsDir, d));
-  return indexFiles(db, projectsDir, files, onStats);
+  return indexFiles(db, projectsDir, files, onStats, owner);
 }
 
 /**
@@ -52,6 +73,7 @@ export function indexPaths(
   projectsDir: string,
   relativePaths: Iterable<string>,
   onStats?: SessionStatsWritten,
+  owner: IndexOwner = FIRST_DIRECTORY,
 ): { scanned: number; indexed: number } {
   const files: TranscriptFile[] = [];
   for (const rel of relativePaths) {
@@ -60,7 +82,7 @@ export function indexPaths(
     if (file === undefined) files.push(...transcriptsIn(projectsDir, projectDir));
     else if (file.endsWith('.jsonl')) files.push({ projectDir, file });
   }
-  return indexFiles(db, projectsDir, files, onStats);
+  return indexFiles(db, projectsDir, files, onStats, owner);
 }
 
 function transcriptsIn(projectsDir: string, projectDir: string): TranscriptFile[] {
@@ -77,7 +99,8 @@ function indexFiles(
   db: OrbitalDb,
   projectsDir: string,
   files: TranscriptFile[],
-  onStats?: SessionStatsWritten,
+  onStats: SessionStatsWritten | undefined,
+  owner: IndexOwner,
 ): { scanned: number; indexed: number } {
   let scanned = 0;
   let indexed = 0;
@@ -138,15 +161,31 @@ function indexFiles(
             indexedMtime: sessions.indexedMtime,
             indexedSize: sessions.indexedSize,
             statsVersion: sessionStats.statsVersion,
+            claudeDirId: sessions.claudeDirId,
           })
           .from(sessions)
           .leftJoin(sessionStats, eq(sessionStats.sessionId, sessions.id))
           .where(eq(sessions.id, id))
           .get();
+        // The id is the only key, so a transcript another directory already
+        // owns is a copy and is skipped (adr
+        // a-session-belongs-to-the-first-directory-that-indexed-it). An owner
+        // that is no longer configured has no say: this directory takes the
+        // row over, and the pass below rewrites it from this transcript.
+        let adopted = false;
+        if (existing && existing.claudeDirId !== owner.id) {
+          if (owner.isConfigured?.(existing.claudeDirId) ?? true) {
+            owner.onCollision?.(id, existing.claudeDirId);
+            continue;
+          }
+          db.update(sessions).set({ claudeDirId: owner.id }).where(eq(sessions.id, id)).run();
+          adopted = true;
+        }
         // A stale (or missing) statsVersion re-indexes a file that has not
         // otherwise changed: that is how a definition change reaches history.
         if (
           existing &&
+          !adopted &&
           existing.indexedMtime === Math.floor(stat.mtimeMs) &&
           existing.indexedSize === stat.size &&
           existing.statsVersion === STATS_VERSION
@@ -179,6 +218,8 @@ function indexFiles(
             resolvedModel: meta.model,
             indexedMtime: Math.floor(stat.mtimeMs),
             indexedSize: stat.size,
+            // Only on insert: the update below never names it.
+            claudeDirId: owner.id,
           })
           .onConflictDoUpdate({
             target: sessions.id,

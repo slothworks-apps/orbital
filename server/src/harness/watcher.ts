@@ -54,7 +54,8 @@ export function parseWatcherReply(raw: string): WatcherVerdict {
 }
 
 export function askWatcher(
-  queryFn: TitleQueryFn, prompt: string, opts: { model?: string; claudeExecutablePath?: string | null },
+  queryFn: TitleQueryFn, prompt: string,
+  opts: { model?: string; claudeExecutablePath?: string | null; env?: Record<string, string> },
 ): Promise<string> {
   return askOnce(queryFn, prompt, { ...opts, systemPrompt: WATCHER_SYSTEM_PROMPT, model: opts.model ?? 'haiku' });
 }

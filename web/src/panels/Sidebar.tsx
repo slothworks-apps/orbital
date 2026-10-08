@@ -33,6 +33,7 @@ import { DetachGlyph, StatsGlyph } from '../ui/UtilityButton'
 import { STATS_PATH } from '../stats/route'
 import { LIMITS_PATH } from '../limits/route'
 import { limitWaitShort } from '../lib/limits'
+import { ClaudeDirMark, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 
@@ -326,6 +327,7 @@ function SessionRow({
 }) {
   const hue = rowHue(session, tags)
   const pinned = session.pinnedAt != null
+  const dirMark = useClaudeDirMark(session.claudeDirId)
   return (
     // Two sibling interactive elements — the pin is a button, and a button
     // inside the row button would be invalid HTML. Same shape `ToolRow` uses:
@@ -384,9 +386,22 @@ function SessionRow({
             )}
             {!history && isReadOnly(session) && <ReadOnlyBadge />}
           </span>
-          <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
-            {shortenPath(session.cwd)}
-          </span>
+          {dirMark ? (
+            // Canvas 44b: the directory's mark opens the meta line, before the
+            // path, at the same x on every row so a column of them can be
+            // scanned. It takes the pointer for its tooltip and passes the
+            // press on to the row.
+            <span className="mt-[3px] flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+              <span className="pointer-events-auto flex" onClick={() => onSelect(session.id)}>
+                <ClaudeDirMark mono={dirMark.mono} title={dirMark.title} />
+              </span>
+              <span className="min-w-0 truncate">{shortenPath(session.cwd)}</span>
+            </span>
+          ) : (
+            <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+              {shortenPath(session.cwd)}
+            </span>
+          )}
         </span>
         {/* The slot is in every row of every section, at the same size and in
             the same gap — 4c's whole point is that revealing it moves

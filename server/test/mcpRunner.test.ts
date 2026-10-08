@@ -46,7 +46,7 @@ describe('Runner — MCP servers', () => {
     expect(await runner.mcpServers('web-1')).toEqual([
       { name: 'gh', status: 'connected', origin: 'local', toolCount: 0, toggleable: true, editable: true },
     ]);
-    expect(mcpConfig).toHaveBeenCalledWith('/w/proj');
+    expect(mcpConfig).toHaveBeenCalledWith('/w/proj', 'web-1');
   });
 
   it('a live call that throws or hangs is an error, not the snapshot', async () => {

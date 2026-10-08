@@ -23,6 +23,11 @@ export interface UseCustomModelOptions {
   onValidated: (id: string, info: CustomModelInfo) => void
   /** The current text is no longer a validated id (typed over, or rejected). */
   onCleared: () => void
+  /**
+   * The Claude directory the session would run under — the id is checked under
+   * its account. Absent, the server's default directory. Read at probe time.
+   */
+  claudeDir?: number
 }
 
 /** The server's `{ error }` for a 400, or the raw message for anything else. */
@@ -45,7 +50,7 @@ function describeFailure(err: unknown): string {
  * edit returns the status to `idle` and drops a result still in flight — the
  * answer would be about text that is no longer there.
  */
-export function useCustomModel({ initial, onValidated, onCleared }: UseCustomModelOptions) {
+export function useCustomModel({ initial, onValidated, onCleared, claudeDir }: UseCustomModelOptions) {
   const [state, setState] = useState<CustomModelState>(() => ({
     text: initial?.id ?? '',
     status: initial ? 'valid' : 'idle',
@@ -59,8 +64,8 @@ export function useCustomModel({ initial, onValidated, onCleared }: UseCustomMod
   const textRef = useRef(state.text)
   // Callbacks through refs, so `validate` stays stable while the parent
   // passes fresh closures on every render.
-  const callbacksRef = useRef({ onValidated, onCleared })
-  callbacksRef.current = { onValidated, onCleared }
+  const callbacksRef = useRef({ onValidated, onCleared, claudeDir })
+  callbacksRef.current = { onValidated, onCleared, claudeDir }
 
   const setText = useCallback((text: string) => {
     seqRef.current += 1
@@ -76,7 +81,8 @@ export function useCustomModel({ initial, onValidated, onCleared }: UseCustomMod
     const seq = ++seqRef.current
     setState((s) => ({ ...s, status: 'checking', reason: null }))
     try {
-      const result = await api.validateModel(id)
+      const dir = callbacksRef.current.claudeDir
+      const result = await (dir === undefined ? api.validateModel(id) : api.validateModel(id, dir))
       if (seq !== seqRef.current) return
       if (result.ok) {
         const info = { resolvedModel: result.resolvedModel, contextWindow: result.contextWindow }

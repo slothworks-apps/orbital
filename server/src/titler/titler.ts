@@ -148,6 +148,12 @@ export interface SessionTitlerDeps {
    * `ModelCatalog.probe()`.
    */
   claudeExecutablePath?: string | null;
+  /**
+   * The environment of the session's own Claude directory (`claudeDirEnv`):
+   * a work session is not summarised through the personal account (adr
+   * helper-queries-run-under-the-sessions-account). Absent, the SDK's default.
+   */
+  envFor?: (sessionId: string) => Record<string, string> | undefined;
 }
 
 /**
@@ -178,14 +184,14 @@ export class SessionTitler {
     const session = this.deps.readSession(sessionId);
     if (!session) throw new Error(`unknown session ${sessionId}`);
 
-    const reply = await this.ask(buildTitlePrompt(session.title, messages));
+    const reply = await this.ask(buildTitlePrompt(session.title, messages), this.deps.envFor?.(sessionId));
 
     const title = parseTitleReply(reply) ?? session.title;
     this.deps.applyTitle(sessionId, title);
     return { title, changed: title !== session.title };
   }
 
-  private async ask(prompt: string): Promise<string> {
+  private async ask(prompt: string, env: Record<string, string> | undefined): Promise<string> {
     const parts: string[] = [];
     const options: Record<string, unknown> = {
       model: this.deps.model ?? 'haiku',
@@ -202,6 +208,7 @@ export class SessionTitler {
     };
     if (this.deps.claudeExecutablePath)
       options.pathToClaudeCodeExecutable = this.deps.claudeExecutablePath;
+    if (env) options.env = env;
     for await (const message of this.deps.queryFn({ prompt, options })) {
       if (message?.type === 'assistant') {
         const content = message.message?.content;

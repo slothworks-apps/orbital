@@ -5,7 +5,7 @@ import { activeIndex, gateOf } from '../harness/logic.js';
 import type { HarnessGate } from '../harness/types.js';
 import type { OrbitalDb } from '../db/database.js';
 import type { CompactingState, LastCompacted, PendingDecision, Runner } from '../runner/runner.js';
-import type { SessionRegistry } from '../watcher/registry.js';
+import type { LiveSessions } from '../watcher/registry.js';
 import type { PermissionMode, SessionPurpose, SessionRow, SessionSource, SessionStatus } from '../types.js';
 import type { SubagentInfo, SubagentStore } from '../transcript/subagents.js';
 import type { BackgroundTaskInfo, BackgroundTaskStore } from '../transcript/backgroundTasks.js';
@@ -31,7 +31,7 @@ export type { LimitWait, LimitWindow, LimitsSnapshot, ExtraUsage } from '../limi
  */
 export interface ShapeContext {
   db: OrbitalDb;
-  registry: SessionRegistry;
+  registry: LiveSessions;
   runner: Runner;
   subagents: SubagentStore;
   backgroundTasks: BackgroundTaskStore;
@@ -253,6 +253,14 @@ export interface ApiSession {
    * sessions ever wait.
    */
   limitWait: LimitWait | null;
+  /**
+   * The Claude directory (`claude_dirs.id`) the session belongs to — its
+   * login, its transcripts, its limits (spec
+   * 2026-10-04-multiple-claude-directories-design § 6). The names come from
+   * `GET /api/sessions/defaults`; a client marks it only when two or more
+   * directories are configured.
+   */
+  claudeDirId: number;
 }
 
 /** The gate the session's live harness stands at, or null. */
@@ -390,6 +398,7 @@ export function toApiSession(
     harnessGate: harnessGateOf(ctx.db, row.id),
     harnessStep: harnessStepOf(ctx.db, row.id),
     limitWait: ctx.limits?.waitFor(row.id) ?? null,
+    claudeDirId: row.claude_dir_id,
   };
 }
 

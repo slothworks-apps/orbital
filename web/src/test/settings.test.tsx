@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import type { OrbitalModel } from '../lib/types'
@@ -373,7 +373,7 @@ describe('Settings — General', () => {
   const HEALTH = {
     app: 'orbital',
     billing: 'subscription' as const,
-    paths: { claudeDir: '/Users/x/.claude', dataDir: '/data', dbPath: '/data/index.db' },
+    paths: { claudeDirs: [{ id: 1, path: '/Users/x/.claude' }], dataDir: '/data', dbPath: '/data/index.db' },
   }
 
   it('reports the paths and billing the server actually started with', async () => {
@@ -382,7 +382,6 @@ describe('Settings — General', () => {
     render(<Settings open onClose={vi.fn()} />)
 
     expect(await screen.findByTestId('billing-mode')).toHaveTextContent('Claude subscription')
-    expect(screen.getByTestId('claude-dir-effective')).toHaveTextContent('/Users/x/.claude')
     expect(screen.getByText('/data/index.db')).toBeInTheDocument()
   })
 
@@ -405,12 +404,67 @@ describe('Settings — General', () => {
     render(<Settings open onClose={vi.fn()} />)
 
     // The section itself is there and still usable...
-    expect(screen.getByLabelText(/claude directory/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('Claude Code executable')).toBeInTheDocument()
     // ...but nothing claims to know a path or a billing mode.
     await waitFor(() => expect(api.getHealth).toHaveBeenCalled())
     expect(screen.queryByTestId('billing-mode')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('claude-dir-effective')).not.toBeInTheDocument()
     expect(screen.queryByText(/index\.db/)).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Claude directories (spec 2026-10-04-multiple-claude-directories-design § 1)
+// ---------------------------------------------------------------------------
+
+describe('Settings — Claude directories', () => {
+  // The tests swap the store's `loadSessions` for a spy; the rest of the file needs the real one.
+  const realLoadSessions = useOrbital.getState().loadSessions
+  afterEach(() => useOrbital.setState({ loadSessions: realLoadSessions }))
+
+  const PERSONAL = {
+    id: 1, name: 'Personal', path: '/Users/x/.claude', overriddenByEnv: false,
+    isDefault: true, exists: true, account: null,
+  }
+
+  async function addDirectory(name: string, path: string) {
+    fireEvent.click(await screen.findByRole('button', { name: 'Add directory' }))
+    fireEvent.change(screen.getByLabelText('Directory name'), { target: { value: name } })
+    fireEvent.change(screen.getByLabelText('Directory path'), { target: { value: path } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add directory' }))
+  }
+
+  /**
+   * The server indexes a new directory's sessions without pushing them, so
+   * the list has to be read again or they stay off the map until a reload.
+   */
+  it('reads the sessions again once a directory is added', async () => {
+    const loadSessions = vi.fn(async () => null)
+    resetStore()
+    useOrbital.setState({ loadSessions })
+    vi.mocked(api.listClaudeDirs).mockResolvedValue([PERSONAL])
+    vi.mocked(api.addClaudeDir).mockResolvedValue({
+      claudeDir: { ...PERSONAL, id: 2, name: 'Work', path: '/Users/x/.claude-work', isDefault: false },
+    })
+    render(<Settings open onClose={vi.fn()} />)
+
+    await addDirectory('Work', '~/.claude-work')
+
+    await waitFor(() => expect(loadSessions).toHaveBeenCalled())
+    expect(api.addClaudeDir).toHaveBeenCalledWith({ name: 'Work', path: '~/.claude-work' })
+  })
+
+  it('says why a path was refused, and reads nothing again', async () => {
+    const loadSessions = vi.fn(async () => null)
+    resetStore()
+    useOrbital.setState({ loadSessions })
+    vi.mocked(api.listClaudeDirs).mockResolvedValue([PERSONAL])
+    vi.mocked(api.addClaudeDir).mockResolvedValue({ error: 'no_such_directory' })
+    render(<Settings open onClose={vi.fn()} />)
+
+    await addDirectory('Work', '/nowhere')
+
+    expect(await screen.findByText('There is no directory at that path.')).toBeInTheDocument()
+    expect(loadSessions).not.toHaveBeenCalled()
   })
 })
 
