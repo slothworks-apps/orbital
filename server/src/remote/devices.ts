@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { DEFAULT_NOTIFICATION_SETTINGS } from '@orbital/shared/notifications';
 import { NotificationSettingsSchema, type NotificationSettings } from '@orbital/shared/remote/messages';
 import { remoteDevices } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
@@ -6,10 +7,6 @@ import type { OrbitalDb } from '../db/database.js';
 export type RemoteDevice = {
   id: string; name: string; platform: string; pairedAt: number; lastSeenAt: number | null;
   notifications: NotificationSettings;
-};
-
-const ALL_ON: NotificationSettings = {
-  needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true,
 };
 
 /** The phones paired with this Mac (spec 2026-09-30-mobile-remote-design § 3). */
@@ -53,12 +50,12 @@ export class DeviceStore {
 }
 
 function fromRow(row: typeof remoteDevices.$inferSelect): RemoteDevice {
-  let notifications = ALL_ON;
+  let notifications = DEFAULT_NOTIFICATION_SETTINGS;
   try {
     const parsed = NotificationSettingsSchema.safeParse(JSON.parse(row.notifications));
     if (parsed.success) notifications = parsed.data;
   } catch {
-    // Unreadable JSON reads as "every flag on", the same default a fresh pairing gets.
+    // Unreadable JSON reads as the defaults: silent, as a fresh install is.
   }
   return {
     id: row.id, name: row.name, platform: row.platform, pairedAt: row.pairedAt,

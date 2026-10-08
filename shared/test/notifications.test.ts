@@ -1,9 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
+  NOTIFICATIONS_TURN_ON,
+  notificationsAllOff,
   parseNotificationSettings,
   SessionNotifier,
+  type NotificationSettings,
 } from '../src/notifications.js';
+
+/** Every event on: what the fold is judged against unless a test mutes one. */
+const ALL_ON: NotificationSettings = {
+  needsInput: true,
+  sessionEnded: true,
+  sessionFailed: true,
+  onlyWhenBackground: true,
+  sound: true,
+};
 
 /** An `upsert` frame as the hub publishes it (the full ApiSession, trimmed). */
 function upsert(session: Record<string, unknown>) {
@@ -19,6 +31,7 @@ describe('SessionNotifier', () => {
 
   beforeEach(() => {
     notifier = new SessionNotifier();
+    notifier.setSettings(ALL_ON);
   });
 
   describe('first sighting', () => {
@@ -48,6 +61,7 @@ describe('SessionNotifier', () => {
       beforeEach(() => {
         now = 1_000_000;
         notifier = new SessionNotifier(() => now);
+        notifier.setSettings(ALL_ON);
       });
 
       it('is news when the session was active after the notifier started', () => {
@@ -70,7 +84,7 @@ describe('SessionNotifier', () => {
       });
 
       it('respects the needs-input switch', () => {
-        notifier.setSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, needsInput: false });
+        notifier.setSettings({ ...ALL_ON, needsInput: false });
         expect(notifier.onEvent(upsert({ id: 's1', status: 'needs_input', lastAt: now + 500 }))).toBeNull();
         expect(notifier.onEvent(status('s2', 'needs_input'))).toBeNull();
       });
@@ -271,24 +285,33 @@ describe('notification settings', () => {
   });
 
   describe('parseNotificationSettings', () => {
-    // The defaults are not a preference — they are what the app did before
-    // this section existed, so an absent key must read as "as before".
-    it('reads every flag as on when the key is absent', () => {
+    // Spec 2026-10-08-notifications-off-by-default-design § 1: silence by
+    // default. An absent key reads as the new default, which is what a fresh
+    // install seeds; an existing install had its values written out by the
+    // migration, so nothing it relied on reads differently.
+    it('reads an absent key as the default: every event and sound off, background-only on', () => {
       expect(parseNotificationSettings({})).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
       expect(DEFAULT_NOTIFICATION_SETTINGS).toEqual({
-        needsInput: true,
-        sessionEnded: true,
-        sessionFailed: true,
+        needsInput: false,
+        sessionEnded: false,
+        sessionFailed: false,
         onlyWhenBackground: true,
-        sound: true,
+        sound: false,
       });
     });
 
-    it('turns a flag off only for the literal string "false"', () => {
-      expect(parseNotificationSettings({ notify_sound: 'false' }).sound).toBe(false);
-      // Anything else the table could hold is not an off switch.
-      for (const value of ['true', '0', '', 'FALSE', 'no']) {
-        expect(parseNotificationSettings({ notify_sound: value }).sound).toBe(true);
+    it('turns an event on only for the literal string "true"', () => {
+      expect(parseNotificationSettings({ notify_sound: 'true' }).sound).toBe(true);
+      expect(parseNotificationSettings({ notify_needs_input: 'true' }).needsInput).toBe(true);
+      for (const value of ['false', '1', '', 'TRUE', 'yes']) {
+        expect(parseNotificationSettings({ notify_sound: value }).sound).toBe(false);
+      }
+    });
+
+    it('turns background-only off only for the literal string "false"', () => {
+      expect(parseNotificationSettings({ notify_only_when_background: 'false' }).onlyWhenBackground).toBe(false);
+      for (const value of ['true', '0', '', 'FALSE']) {
+        expect(parseNotificationSettings({ notify_only_when_background: value }).onlyWhenBackground).toBe(true);
       }
     });
 
@@ -299,6 +322,30 @@ describe('notification settings', () => {
     });
   });
 
+  describe('the tip', () => {
+    it('calls the defaults all off', () => {
+      expect(notificationsAllOff(DEFAULT_NOTIFICATION_SETTINGS)).toBe(true);
+      // Background-only filters, it notifies nothing, so turning it off is still all off.
+      expect(notificationsAllOff({ ...DEFAULT_NOTIFICATION_SETTINGS, onlyWhenBackground: false })).toBe(true);
+    });
+
+    it('calls any event or sound on not all off', () => {
+      for (const key of ['needsInput', 'sessionEnded', 'sessionFailed', 'sound'] as const) {
+        expect(notificationsAllOff({ ...DEFAULT_NOTIFICATION_SETTINGS, [key]: true })).toBe(false);
+      }
+    });
+
+    it('turns on exactly needs input and session failed, sound and session ended staying off', () => {
+      expect({ ...DEFAULT_NOTIFICATION_SETTINGS, ...NOTIFICATIONS_TURN_ON }).toEqual({
+        needsInput: true,
+        sessionEnded: false,
+        sessionFailed: true,
+        onlyWhenBackground: true,
+        sound: false,
+      });
+    });
+  });
+
   describe('muting', () => {
     let notifier: SessionNotifier;
 
@@ -306,8 +353,8 @@ describe('notification settings', () => {
       notifier = new SessionNotifier();
     });
 
-    function mute(patch: Partial<typeof DEFAULT_NOTIFICATION_SETTINGS>) {
-      notifier.setSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, ...patch });
+    function mute(patch: Partial<NotificationSettings>) {
+      notifier.setSettings({ ...ALL_ON, ...patch });
     }
 
     it('silences each event independently', () => {
@@ -351,9 +398,9 @@ describe('notification settings', () => {
       expect(notifier.current.sound).toBe(false);
     });
 
-    it('starts as today\'s behaviour before any settings arrive', () => {
+    it('stays silent before any settings arrive', () => {
       notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working' }));
-      expect(notifier.onEvent(status('s1', 'needs_input'))).not.toBeNull();
+      expect(notifier.onEvent(status('s1', 'needs_input'))).toBeNull();
       expect(notifier.current).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
     });
   });

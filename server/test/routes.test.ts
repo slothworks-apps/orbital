@@ -1076,6 +1076,21 @@ describe('REST routes', () => {
     expect(after.json().confirm_before_clear).toBe('false');
   });
 
+  // Spec 2026-10-08-notifications-off-by-default-design § 3: any notification
+  // setting changed ends the tip for good; anything else leaves it offered.
+  it('PATCH /api/settings ends the notifications tip when a notification row changes', async () => {
+    const tip = async () => (await app.inject({ method: 'GET', url: '/api/settings' })).json().notify_tip;
+    expect(await tip()).toBe('pending');
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { confirm_before_clear: 'false' } });
+    // Saving a row at the value it already holds is not a change either.
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { notify_sound: 'false' } });
+    expect(await tip()).toBe('pending');
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { notify_only_when_background: 'false' } });
+    expect(await tip()).toBe('ended');
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { notify_only_when_background: 'true' } });
+    expect(await tip()).toBe('ended');
+  });
+
   describe('GET /api/session-instructions/tips', () => {
     // Spec 2026-09-30-session-instructions-design § 4: the preview shows what
     // the running server sends, so the route and the composer share one list.

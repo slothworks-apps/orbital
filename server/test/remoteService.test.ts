@@ -61,7 +61,7 @@ function build(
   const hub = new Hub({ heartbeatIntervalMs: 60_000 });
   const fake = new FakeClient();
   fake.answers['/pair/token'] = { status: 200, body: { token: 'tok', expiresAt: NOW + 60_000 } };
-  const desktop = { notify_needs_input: 'false' };
+  const desktop = { notify_needs_input: 'true' };
   const settings: Record<string, string> = {
     remote_enabled: 'true', remote_relay_url: opts.relayUrl ?? 'https://relay.test', ...desktop,
   };
@@ -381,7 +381,7 @@ describe('RemoteService data', () => {
   it('a needs_input transition sends one empty wake frame, flagged and tokened', async () => {
     const phone = generateIdentity();
     const { fake, hub } = build((d) => d.add({
-      id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
+      id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({ notify_needs_input: 'true' }),
     }));
     await tick(); // the watcher starts once its seed fetch answers
     hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'working' } });

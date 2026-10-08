@@ -70,13 +70,13 @@ describe('DeviceStore', () => {
     expect(store.get('p1')).toBeNull();
     expect(store.list()).toEqual([]);
   });
-  it('a row with unreadable notifications falls back to every flag on', () => {
+  it('a row with unreadable notifications falls back to the silent defaults', () => {
     const dir = makeTmpDir('remote');
     const db = openDb(join(dir, 'index.db'));
     const store = new DeviceStore(db);
     store.add({ id: 'p1', name: 'Pixel', platform: 'android', pairedAt: 10, notifications: settings });
     db.run(`UPDATE remote_devices SET notifications = 'junk' WHERE id = 'p1'`);
-    expect(store.get('p1')?.notifications).toEqual({ needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true });
+    expect(store.get('p1')?.notifications).toEqual({ needsInput: false, sessionEnded: false, sessionFailed: false, onlyWhenBackground: true, sound: false });
   });
   it('re-adding a device keeps its own notifications and lastSeenAt; only name, platform and pairedAt change', () => {
     const dir = makeTmpDir('remote');

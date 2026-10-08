@@ -10,6 +10,9 @@ import { settings, tags } from './schema.js';
 import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, DEFAULT_CONTINUE_TEXT } from '../limits/logic.js';
 import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
 import { DEFAULT_CLAUDE_DIR_KEY, LAST_CLAUDE_DIR_KEY } from '../claudeDirs/keys.js';
+import {
+  NOTIFICATION_SETTING_KEYS, NOTIFICATIONS_TIP_KEY, NOTIFICATIONS_TIP_PENDING,
+} from '@orbital/shared/notifications';
 
 // Resolved relative to this module (not process.cwd()) so `openDb` works
 // regardless of where the process is launched from. Only correct while the
@@ -174,17 +177,25 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   [LAST_CLAUDE_DIR_KEY]: '',
   /**
    * Settings → Notifications (spec 2026-09-21-settings-sections-design § 5).
-   * Seeded 'true' across the board, and that is not a preference: it is what
-   * the desktop app did before the section existed — all three events fired,
-   * the focus check was unconditional, and `silent` was never set. The
-   * desktop side reads them the same way (`!== 'false'`), so a database that
-   * predates these rows behaves identically to one that has them.
+   * Silence by default (spec 2026-10-08-notifications-off-by-default-design
+   * § 1): the events and the sound start off, background-only on. Read the
+   * same way on every side (`parseNotificationSettings`): an event or the
+   * sound only for 'true', background-only off only for 'false'. Migration
+   * 0027 wrote the old values out for installs that predate this, so they keep
+   * what they had.
    */
-  notify_needs_input: 'true',
-  notify_session_ended: 'true',
-  notify_session_failed: 'true',
-  notify_only_when_background: 'true',
-  notify_sound: 'true',
+  [NOTIFICATION_SETTING_KEYS.needsInput]: 'false',
+  [NOTIFICATION_SETTING_KEYS.sessionEnded]: 'false',
+  [NOTIFICATION_SETTING_KEYS.sessionFailed]: 'false',
+  [NOTIFICATION_SETTING_KEYS.onlyWhenBackground]: 'true',
+  [NOTIFICATION_SETTING_KEYS.sound]: 'false',
+  /**
+   * The desktop's one-time tip (same spec § 3): offered while `pending`.
+   * Seeded only on a fresh install; the migration wrote `ended` for every
+   * install that existed before, and `PATCH /api/settings` ends it when a
+   * notification row changes.
+   */
+  [NOTIFICATIONS_TIP_KEY]: NOTIFICATIONS_TIP_PENDING,
   /**
    * Settings › Sessions › INSTRUCTIONS (spec
    * 2026-09-30-session-instructions-design § 4). The two switches are
