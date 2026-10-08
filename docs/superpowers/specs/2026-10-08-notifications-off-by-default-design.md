@@ -149,7 +149,7 @@ As specified, with these deviations and details:
   no row and never sees it) and while the rules the Mac copied are all off.
   "Open phone settings" is a small Android plugin
   (`NotificationSettingsPlugin`, this app's notification page) and
-  `app-settings:` on iOS. The Android plugin was not compiled here: this Mac
-  has no JDK 21 for the Capacitor modules.
+  `app-settings:` on iOS. The Android debug build compiles with it
+  (`assembleDebug`, JDK 21 via `mobile/scripts/android-env.sh`).
 - The desktop's Settings → opens Settings on Notifications for that visit
   only, the way the harness templates' way in does.

@@ -1164,8 +1164,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                   {section === 'notifications' && (
                     <>
                       {/* Spec 2026-09-21-settings-sections-design § 5. The three
-                    WHEN rows are the three transitions `SessionNotifier`
-                    already folds for; HOW is what `main.ts` does with what it
+                    NOTIFY ME WHEN rows are the three transitions `SessionNotifier`
+                    already folds for; DELIVERY is what `main.ts` does with what it
                     gets back. Everything but background-only starts off
                     (spec 2026-10-08-notifications-off-by-default-design). */}
                       {notifyAllOff && (
@@ -1175,39 +1175,43 @@ export function Settings({ open, onClose }: SettingsProps) {
                           Everything here starts off. Orbital stays silent until you turn something on.
                         </p>
                       )}
-                      <SectionLabel first>WHEN</SectionLabel>
+                      <SectionLabel first>NOTIFY ME WHEN</SectionLabel>
                       <Row
-                        title="A session needs your input"
-                        desc="A turn finished, a permission prompt is waiting, or the session asked a question."
+                        title="Needs input"
+                        desc="A session is waiting on a permission or a question."
                       >
                         <Toggle
-                          aria-label="A session needs your input"
+                          aria-label="Needs input"
                           checked={notify.needsInput}
                           onChange={saveNotifyRow('needsInput')}
                         />
                       </Row>
                       <Row
-                        title="A session ends"
-                        desc="Only when it was working — a terminal session ageing out on the idle timer is the clock talking, not the session, and never notifies."
+                        title="Session ended"
+                        desc="A session finished its turn with nothing pending."
                       >
                         <Toggle
-                          aria-label="A session ends"
+                          aria-label="Session ended"
                           checked={notify.sessionEnded}
                           onChange={saveNotifyRow('sessionEnded')}
                         />
                       </Row>
                       <Row
-                        title="A session fails"
-                        desc="The process died or never started. The body stays on the map and the error is kept in the log either way."
+                        title="Session failed"
+                        desc="A session stopped on an error."
                       >
                         <Toggle
-                          aria-label="A session fails"
+                          aria-label="Session failed"
                           checked={notify.sessionFailed}
                           onChange={saveNotifyRow('sessionFailed')}
                         />
                       </Row>
 
-                      <SectionLabel>HOW</SectionLabel>
+                      {/* Canvas 1c DELIVERY: Sound first, then the background-only row. */}
+                      <SectionLabel>DELIVERY</SectionLabel>
+                      <Row title="Sound" desc="A soft tone with each notification.">
+                        <Toggle aria-label="Sound" checked={notify.sound} onChange={saveNotifyRow('sound')} />
+                      </Row>
                       <Row
                         title="Only when Orbital is in the background"
                         desc={
@@ -1223,12 +1227,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                           disabled={!notifyAnyEvent}
                           onChange={saveNotifyRow('onlyWhenBackground')}
                         />
-                      </Row>
-                      <Row
-                        title="Play a sound"
-                        desc="Off delivers them silently — they still appear in Notification Centre."
-                      >
-                        <Toggle aria-label="Play a sound" checked={notify.sound} onChange={saveNotifyRow('sound')} />
                       </Row>
                       {/* The toggles are stored settings either way, so a browser
                     visit can set them and the desktop app honours them the
