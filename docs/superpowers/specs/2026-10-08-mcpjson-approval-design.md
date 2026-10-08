@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-mcpjson-approval-design
 title: A project's .mcp.json servers run only once the user has approved them
-status: draft
+status: active
 type: spec
 domain: sessions
 related:
