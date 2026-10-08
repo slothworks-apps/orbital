@@ -11,11 +11,11 @@ import { identityIsDevOnly } from '../platform/identity'
 import { scanQr } from '../platform/scanner'
 import { useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
-import { MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
+import { LitMark, MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
 
 export const NOT_A_CODE = "That isn't an Orbital pairing code."
 
-/** 9e (spec § 5): scan, confirm the fingerprint on the Mac, paired. */
+/** 9e (spec § 5): scan, type the code on the Mac, paired. */
 export function PairingScreen() {
   const [step, setStep] = useState<PairingStep>({ kind: 'scan', error: null })
   // `installing`: Scan stays, with a note; `unsupported`: the paste field is the way in.
@@ -246,9 +246,9 @@ function ConfirmStep({
       <div className="mt-[22px]">
         <FingerprintBoxes value={step.fingerprint} />
       </div>
+      {/* canvas 9e step 2: the Mac asks for the code (spec 2026-10-06-pairing-code-and-app-lock-design § 1). */}
       <p className="max-w-[300px] text-center text-[14px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-        Check the Mac shows the same six characters, then click <span className="font-semibold text-text-bright">Confirm</span> there. Nothing
-        to do on the phone.
+        Type this code on your Mac
       </p>
       <div className="mt-3.5 flex w-60 flex-col items-center gap-2">
         {/* Drains over PAIRING_TOKEN_TTL_MS, the code's whole life. */}
@@ -273,7 +273,7 @@ function PairedStep({ step }: { step: Extract<PairingStep, { kind: 'paired' }> }
     <Step
       title={`Paired with ${step.macName}`}
       body={waiting}
-      mark={<PairedMark />}
+      mark={<LitMark variant="paired" />}
       glow="paired"
       footer={<PrimaryButton onClick={() => useMobile.getState().go('list')}>Open sessions</PrimaryButton>}
     >
@@ -290,18 +290,5 @@ function PairedStep({ step }: { step: Extract<PairingStep, { kind: 'paired' }> }
         ))}
       </dl>
     </Step>
-  )
-}
-
-/** 9e paired: the mark's ring, lit, with the check inside and its moon on the rim. */
-function PairedMark() {
-  return (
-    <span
-      aria-hidden
-      className="relative grid h-[72px] w-[72px] place-items-center rounded-full border-2 border-[oklch(85%_.12_205)] text-[26px] text-[oklch(85%_.12_205)] shadow-[0_0_30px_oklch(85%_.12_205/.4)]"
-    >
-      ✓
-      <span className="absolute right-0.5 top-0.5 block h-3.5 w-3.5 rounded-full bg-[oklch(85%_.12_205)] shadow-[0_0_12px_oklch(85%_.12_205)]" />
-    </span>
   )
 }
