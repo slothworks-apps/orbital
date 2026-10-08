@@ -9,6 +9,9 @@
  * - desktop/build/tray.svg, the tileless silhouette, becomes the adaptive
  *   icon's monochrome layer (Android 13 themed icons) and the notification
  *   small icon, both as vector drawables.
+ * - mobile/scripts/splash-mark.svg, the launch screen's mark (Claude Design,
+ *   "Feature - Splash screen", 1a), becomes the Android splash icon PNGs and
+ *   the iOS launch image set.
  *
  * What it writes are checked-in source assets, not build outputs: run it by
  * hand after the artwork changes and commit what it wrote.
@@ -21,7 +24,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +36,8 @@ const TRAY = join(REPO, 'desktop/build/tray.svg');
 const UNFLATTEN = join(REPO, 'desktop/build/unflatten.mjs');
 const RES = join(REPO, 'mobile/android/app/src/main/res');
 const IOS_ICON = join(REPO, 'mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png');
+const SPLASH = join(HERE, 'splash-mark.svg');
+const IOS_SPLASH = join(REPO, 'mobile/ios/App/App/Assets.xcassets/Splash.imageset');
 
 /** The favicon's own coordinate space: its tile is ARTWORK units square. */
 const ARTWORK = 512;
@@ -64,6 +69,20 @@ const IOS_PX = 1024;
 
 /** The notification small icon's size; the silhouette fills tray.svg's viewBox. */
 const STAT_DP = 24;
+
+/**
+ * Launch screen: splash-mark.svg's viewBox is the mark's box, drawn
+ * SPLASH_MARK_DP square and centred on a SPLASH_CANVAS_DP canvas, the size
+ * Android 12 gives a splash icon without an icon background; Android masks
+ * that canvas to a SPLASH_MASK_DP circle. iOS gets the same canvas in points:
+ * the glow reaches past the mark's box and would be cut off at its edge.
+ */
+const SPLASH_MARK_DP = 144;
+const SPLASH_CANVAS_DP = 288;
+const SPLASH_MASK_DP = 192;
+
+/** The iOS launch image's scales. */
+const IOS_SCALES = [1, 2, 3];
 
 const WHITE = '#FFFFFF';
 
@@ -116,13 +135,13 @@ function qlmanage(px, files) {
 }
 
 /** Renders `svg` at MASTER_PX with its transparency, as make-icon.sh does. */
-function renderTransparent(name, svg, { min, size }) {
+function renderTransparent(name, svg, { min, size }, px = MASTER_PX) {
   const white = join(work, `${name}-white.svg`);
   const black = join(work, `${name}-black.svg`);
   const framed = withViewBox(svg, min, size);
   writeFileSync(white, framed);
   writeFileSync(black, overBlack(framed, min, size));
-  qlmanage(MASTER_PX, [white, black]);
+  qlmanage(px, [white, black]);
   const out = join(work, `${name}.png`);
   execFileSync('node', [UNFLATTEN, `${white}.png`, `${black}.png`, out], { stdio: 'ignore' });
   return out;
@@ -169,6 +188,45 @@ for (const [bucket, scale] of Object.entries(DENSITIES)) {
   const jpeg = join(work, 'ios.jpg');
   execFileSync('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '100', `${square}.png`, '--out', jpeg], { stdio: 'ignore' });
   execFileSync('sips', ['-z', String(IOS_PX), String(IOS_PX), '-s', 'format', 'png', jpeg, '--out', IOS_ICON], { stdio: 'ignore' });
+}
+
+// ---- launch screen --------------------------------------------------------
+
+// PNGs, not a vector drawable: the mark's glow is a blur, which a vector
+// drawable cannot draw. Android 12+ shows splash_mark as the system splash
+// icon and drawable/splash.xml centres it on older versions; iOS centres the
+// same canvas in LaunchScreen.storyboard.
+{
+  // qlmanage draws an SVG at its own width and height in the corner of the
+  // thumbnail; without them it fills the thumbnail.
+  const mark = readFileSync(SPLASH, 'utf8').replace(/(<svg[^>]*?)\s+width="[^"]*"\s+height="[^"]*"/, '$1');
+  const box = /viewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"/.exec(mark);
+  if (!box || box[1] !== box[2] || box[3] !== box[4]) throw new Error(`${SPLASH}: expected a square viewBox`);
+  const [boxMin, boxSize] = [Number(box[1]), Number(box[3])];
+  const unitsPerDp = boxSize / SPLASH_MARK_DP;
+  const canvas = { size: SPLASH_CANVAS_DP * unitsPerDp, min: boxMin - ((SPLASH_CANVAS_DP - SPLASH_MARK_DP) * unitsPerDp) / 2 };
+
+  // Nothing the mark draws may reach the circle Android 12 masks the icon to.
+  const centre = boxMin + boxSize / 2;
+  const reach = Math.max(...[...mark.matchAll(/<circle([^>]*)>/g)].map(([, a]) => {
+    const num = (k) => Number(new RegExp(`\\b${k}="([\\d.]+)"`).exec(a)?.[1] ?? 0);
+    return Math.hypot(num('cx') - centre, num('cy') - centre) + num('r') + num('stroke-width') / 2;
+  }));
+  if (reach / unitsPerDp > SPLASH_MASK_DP / 2) throw new Error("the splash mark reaches past Android's splash icon mask");
+
+  const maxScale = Math.max(...Object.values(DENSITIES), ...IOS_SCALES);
+  const splash = renderTransparent('splash', mark, canvas, SPLASH_CANVAS_DP * maxScale);
+  for (const [bucket, scale] of Object.entries(DENSITIES)) {
+    const dir = join(RES, `drawable-${bucket}`);
+    mkdirSync(dir, { recursive: true });
+    resize(splash, Math.round(SPLASH_CANVAS_DP * scale), join(dir, 'splash_mark.png'));
+  }
+  const images = IOS_SCALES.map((scale) => {
+    const filename = scale === 1 ? 'splash.png' : `splash@${scale}x.png`;
+    resize(splash, SPLASH_CANVAS_DP * scale, join(IOS_SPLASH, filename));
+    return { idiom: 'universal', filename, scale: `${scale}x` };
+  });
+  writeFileSync(join(IOS_SPLASH, 'Contents.json'), `${JSON.stringify({ images, info: { version: 1, author: 'xcode' } }, null, 2)}\n`);
 }
 
 // ---- vector drawables -----------------------------------------------------
@@ -280,3 +338,4 @@ if (existsSync(stale)) unlinkSync(stale);
 
 console.log(`wrote the launcher icons, ic_launcher_monochrome.xml and ic_stat_orbital.xml under ${RES}`);
 console.log(`wrote ${IOS_ICON}`);
+console.log(`wrote the splash marks: drawable-*/splash_mark.png and ${IOS_SPLASH}`);

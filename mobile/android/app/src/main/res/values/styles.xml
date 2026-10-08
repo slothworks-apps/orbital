@@ -20,7 +20,19 @@
     </style>
 
 
+    <!--
+      The launch screen (Claude Design, "Feature - Splash screen", 1a): the mark
+      held still on the space colour until the web app's first screen has
+      painted (@capacitor/splash-screen, launchAutoHide off). core-splashscreen
+      maps the two windowSplashScreen* items onto Android 12+'s own splash;
+      older versions draw the window background, @drawable/splash, instead.
+      No icon background: the mark is not the launcher's tile.
+    -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/orbitalSpace</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_mark</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+        <item name="android:windowBackground">@drawable/splash</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

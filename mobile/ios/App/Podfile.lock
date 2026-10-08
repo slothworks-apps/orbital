@@ -27,6 +27,8 @@ PODS:
     - GoogleMLKit/BarcodeScanning (~> 8.0.0)
   - CapacitorPreferences (8.0.1):
     - Capacitor
+  - CapacitorSplashScreen (8.0.2):
+    - Capacitor
   - FirebaseCore (12.19.0):
     - FirebaseCoreInternal (~> 12.19.0)
     - GoogleUtilities/Environment (~> 8.1)
@@ -125,6 +127,7 @@ DEPENDENCIES:
   - "CapacitorLocalNotifications (from `../../../node_modules/@capacitor/local-notifications`)"
   - "CapacitorMlkitBarcodeScanning (from `../../../node_modules/@capacitor-mlkit/barcode-scanning`)"
   - "CapacitorPreferences (from `../../../node_modules/@capacitor/preferences`)"
+  - "CapacitorSplashScreen (from `../../../node_modules/@capacitor/splash-screen`)"
 
 SPEC REPOS:
   trunk:
@@ -172,6 +175,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/@capacitor-mlkit/barcode-scanning"
   CapacitorPreferences:
     :path: "../../../node_modules/@capacitor/preferences"
+  CapacitorSplashScreen:
+    :path: "../../../node_modules/@capacitor/splash-screen"
 
 SPEC CHECKSUMS:
   AparajitaCapacitorBiometricAuth: 1ae24ba90d7977dffb4bc9040f374a807a510c98
@@ -186,6 +191,7 @@ SPEC CHECKSUMS:
   CapacitorLocalNotifications: e0747a329ddde3074d52dc74a003688af90e42be
   CapacitorMlkitBarcodeScanning: 1070a9d56dd84c08a7354d12354293daeee28100
   CapacitorPreferences: cca2021f386efb75947c850334447d9ff22b14f1
+  CapacitorSplashScreen: 7bf61c2001557ff9e195e601c6b87344480d3c65
   FirebaseCore: c990214798d7c568ad436a15ba7da25c7a278c9a
   FirebaseCoreInternal: 656b1c2fd5a1c5976183dc54b73deda78fb26ee3
   FirebaseInstallations: f70a49eed611f5602f373e40974b3b01556ac217
@@ -205,6 +211,6 @@ SPEC CHECKSUMS:
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
 
-PODFILE CHECKSUM: d882d03dccd088e69ffdee1fa9d079bb8852aa52
+PODFILE CHECKSUM: f1249d9e8b0828d6d061011d87fc4f1cae7ded9a
 
 COCOAPODS: 1.17.0
