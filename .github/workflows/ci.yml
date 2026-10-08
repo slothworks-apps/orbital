@@ -65,6 +65,10 @@ jobs:
               - 'desktop/**'
             relay-image: *relay
             mobile-bundle: *web
+            site:
+              - *shared
+              - 'site/**'
+              - 'web/src/**'
             docs:
               - .github/workflows/ci.yml
               - 'docs/**'
@@ -165,6 +169,25 @@ jobs:
       - run: npm run build:mobile -w web
       - run: npm run test:bundle -w web
 
+  site:
+    # The site is not in the check matrix: it has no `test` script, and its
+    # typecheck is two programs (the Astro pages and the demo pages' own
+    # tsconfig), not the matrix's single `npm run typecheck -w <workspace>`.
+    name: build (site)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.filters), 'site')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @orbital/site
+      - run: npm run typecheck -w @orbital/site
+      - run: npx tsc -p site/demo/tsconfig.json --noEmit
+
   # The phone app's version is copied into package.json and the Xcode
   # project; a bump that misses a copy fails here, and so does a minimum
   # version above what the repo has reached. In a pull request, so does a
@@ -243,7 +266,7 @@ jobs:
     # not.
     name: ci passed
     if: always()
-    needs: [changes, check, desktop-app, relay-image, mobile-bundle, versions, docs, secrets, dependencies]
+    needs: [changes, check, desktop-app, relay-image, mobile-bundle, site, versions, docs, secrets, dependencies]
     runs-on: ubuntu-latest
     steps:
       - env:
