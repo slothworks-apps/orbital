@@ -16,6 +16,7 @@ import { isListable } from '../lib/harnessSession'
 import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
+import { archipelagoEnabled } from '../lib/experimental'
 import type {
   ApiSession,
   AttachmentSource,
@@ -3414,11 +3415,13 @@ export type MapTheme = 'planets' | 'archipelago' | 'desk'
 /**
  * Which map renderer to use. Defaults to Planets. The theme changes only
  * the map surface; the sidebar, detail panel, subagent panel and every
- * dialog stay the same.
+ * dialog stay the same. Archipelago counts only while its Experimental
+ * switch is on; a stored `archipelago` without it draws Planets.
  */
 export function mapTheme(settings: Record<string, string>): MapTheme {
   const value = settings.map_theme
-  if (value === 'archipelago' || value === 'desk') return value
+  if (value === 'desk') return value
+  if (value === 'archipelago' && archipelagoEnabled(settings)) return value
   return 'planets'
 }
 
