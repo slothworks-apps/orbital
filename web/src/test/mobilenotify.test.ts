@@ -221,9 +221,16 @@ describe('wireNotifications', () => {
     expect(useBanner.getState().current?.sessionId).toBe('s1')
   })
 
-  it('reports nothing for an unseeded session — its first frame only seeds', async () => {
+  it('reports a question about an unseeded session — a status frame is never a replay', async () => {
     open()
     client.emit({ type: 'hub', frame: status('needs_input') })
+    await settled()
+    expect(useBanner.getState().current).toMatchObject({ sessionId: 's1', needsInput: true })
+  })
+
+  it('reports nothing for an unseeded session whose first upsert is old news', async () => {
+    open()
+    client.emit({ type: 'hub', frame: upsert('needs_input') })
     await settled()
     expect(useBanner.getState().current).toBeNull()
   })

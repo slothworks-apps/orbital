@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+### Fixed
+- A session that asks for input right after it starts on the Mac in a terminal, or just after the phone reconnects, now notifies instead of staying silent.
 
 ## [0.6.0] — 2026-10-08
 ### Added
