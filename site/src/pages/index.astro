@@ -63,6 +63,28 @@ const phoneRows = [
   { label: 'NOTIFICATIONS', text: 'Off until you turn them on.' },
 ]
 
+// Not in the canvas yet: written from the copy brief sent to Claude Design,
+// in the row style of 02 and 03, until the designed section replaces it.
+const moreRows = [
+  {
+    label: 'STATS',
+    text: 'How your sessions spent their time: busy hours per day, the tools that ran most, where each turn went.',
+  },
+  {
+    label: 'CHECKLISTS',
+    text: 'Run a task as a checklist. Each step is ticked off as it is done, with a stop for your OK where you want one.',
+  },
+  {
+    label: 'TAGS & SEARCH',
+    text: 'Tag sessions by project, or let rules tag them for you. Search dims what doesn’t match instead of hiding it.',
+  },
+  { label: 'GIT', text: 'Each session shows its branch and its pull request, worktrees included.' },
+  {
+    label: 'USAGE LIMITS',
+    text: 'When you hit a usage limit, the session waits and carries on by itself once the limit resets.',
+  },
+]
+
 const calm = [
   {
     title: 'Slow, steady motion.',
@@ -271,8 +293,23 @@ const phones = [
       </div>
     </section>
 
+    <section id="more" class="section far">
+      <div class="mono eyebrow">06 · MORE IN THE BOX</div>
+      <h2 class="h2 spaced"><span class="grad">And the rest of the day’s work.</span></h2>
+      <div class="rows more-rows">
+        {
+          moreRows.map((row) => (
+            <div class="row">
+              <span class="mono row-label">{row.label}</span>
+              <span class="row-text">{row.text}</span>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
     <section id="get" class="section far">
-      <div class="mono eyebrow">06 · GET ORBITAL</div>
+      <div class="mono eyebrow">07 · GET ORBITAL</div>
       <h2 class="h2 spaced get-title"><span class="grad">Three apps, one map.</span></h2>
       {
         testers ? (
@@ -679,6 +716,17 @@ const phones = [
     font-size: 15px;
     line-height: 1.55;
     color: #e8eef8;
+  }
+
+  /* 06 · More in the box: the 02/03 rows, two columns on a wide page */
+  .more-rows {
+    margin-top: clamp(36px, 5cqw, 56px);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    column-gap: clamp(32px, 5cqw, 72px);
+  }
+  .more-rows .row:last-child {
+    border-bottom: none;
   }
 
   /* 04 · Calm by design */
