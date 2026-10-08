@@ -2,7 +2,7 @@
 id: 2026-10-06-pairing-code-and-app-lock
 title: Pairing code and app lock — implementation plan
 type: plan
-status: draft
+status: done
 domain: remote
 related:
   - 2026-10-06-pairing-code-and-app-lock-design
