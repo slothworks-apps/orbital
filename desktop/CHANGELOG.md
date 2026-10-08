@@ -7,6 +7,11 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - A terminal session that asks for input right after it starts, or a session that asks just after Orbital reconnects to its server, now notifies instead of staying silent.
 - Text typed into a Settings field just before closing the dialog is now saved instead of lost.
 - New session asks before it starts the MCP servers a project's `.mcp.json` names, and asks again when one's command changes; a server you have not allowed does not start.
+- When Orbital cannot start, it now says why and quits, instead of sitting in the menu bar with no window.
+- Orbital's server now stops when the app crashes or is force-quit, and the next launch starts a fresh one instead of reusing the leftover, which may have been an older version.
+- A paired phone now learns which version of Orbital it is connected to, instead of "dev".
+- Pointing Orbital at a folder or a file that cannot be run as the Claude Code CLI now shows the CLI as not found right away, instead of failing when a session starts.
+- Clicking a notification brings the map back also when its window was minimized or had closed.
 
 ## [0.23.0] — 2026-10-08
 ### Added

@@ -12,7 +12,59 @@ export type HealthInfo = {
   /** True when that server has a built web app to serve; false on a dev server. */
   static?: boolean;
   claudeCli?: { source?: string; path?: string | null; version?: string | null };
+  /** The build the server runs, from its `ORBITAL_VERSION`; null on one started by hand. Token-only. */
+  version?: unknown;
+  /** Set only on a server a desktop app forked: its own pid and the app's. Token-only. */
+  desktop?: unknown;
 };
+
+/** Who forked a server, read off its health; null when no desktop app did (or it did not say). */
+export function desktopOwner(health: HealthInfo): { pid: number; parentPid: number } | null {
+  const d = health.desktop;
+  if (typeof d !== 'object' || d === null) return null;
+  const { pid, parentPid } = d as { pid?: unknown; parentPid?: unknown };
+  const isPid = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0;
+  return isPid(pid) && isPid(parentPid) ? { pid, parentPid } : null;
+}
+
+export type AttachDecision =
+  | 'attach' // use the server that answered, as before
+  | 'replace' // an orphan of a desktop app that is gone: stop it and fork our own
+  | 'refuse'; // another running Orbital app's server, of another version: say so and quit
+
+/**
+ * What to do with an Orbital server that already answers on the port.
+ *
+ * The rule:
+ * - The dev shell (`ORBITAL_DESKTOP_DEV`) always attaches: it never forks, and
+ *   the server is the user's `npm run dev`.
+ * - A server no desktop app forked is the user's own — `npm run dev`, or a
+ *   server they started by hand — and is attached to whatever its version, as
+ *   it always was; we did not start it, so we may not stop it. A server forked
+ *   before servers named their parent reads the same way, so a stray one of
+ *   those is still adopted.
+ * - A server a desktop app forked whose app is gone is an orphan of a crash or
+ *   a force-quit. It is replaced whatever its version: it would stop itself
+ *   within seconds anyway, as soon as it notices its parent is gone, and
+ *   nobody would be there to restart it.
+ * - One whose app is still running belongs to another copy of Orbital. The
+ *   same version is attached to, as a second window onto the same server; a
+ *   different one is refused, since its server is not ours to stop and this
+ *   build must not run against it.
+ *
+ * `parentAlive` is asked of the owner's `parentPid` by the caller.
+ */
+export function decideAttach(input: {
+  dev: boolean;
+  appVersion: string;
+  health: HealthInfo;
+  parentAlive: boolean;
+}): AttachDecision {
+  if (input.dev) return 'attach';
+  if (!desktopOwner(input.health)) return 'attach';
+  if (!input.parentAlive) return 'replace';
+  return input.health.version === input.appVersion ? 'attach' : 'refuse';
+}
 
 export type ProbeOutcome =
   | { kind: 'orbital'; health: HealthInfo } // port answered and it is us

@@ -1,17 +1,20 @@
 import { describe, it, expect } from 'vitest';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import {
   findClaudeOnDisk,
+  isExecutableFile,
   parseClaudeVersionOutput,
   resolveClaudeCli,
 } from '../src/runner/claudeCli.js';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * The packaged app does not ship the SDK's 201 MB CLI binary and must spawn
  * the user's own `claude` (spec 2026-09-16-electron-wrapper-design § 3). Which
  * one it picks, and what it calls that choice, is what the missing-CLI dialog
  * and the Settings panel both read — so the decision is pure and injectable,
- * and the filesystem never enters these tests.
+ * and the filesystem enters only the `isExecutableFile` tests at the end.
  */
 const HOME = '/Users/someone';
 
@@ -25,7 +28,7 @@ describe('findClaudeOnDisk', () => {
     const found = findClaudeOnDisk({
       pathVar: ['/usr/bin', '/opt/homebrew/bin', '/usr/local/bin'].join(delimiter),
       home: HOME,
-      exists: existsIn('/opt/homebrew/bin/claude', '/usr/local/bin/claude'),
+      isExecutable: existsIn('/opt/homebrew/bin/claude', '/usr/local/bin/claude'),
     });
     expect(found).toBe('/opt/homebrew/bin/claude');
   });
@@ -34,7 +37,7 @@ describe('findClaudeOnDisk', () => {
     const found = findClaudeOnDisk({
       pathVar: `${delimiter}/usr/bin${delimiter}${delimiter}/usr/local/bin${delimiter}`,
       home: HOME,
-      exists: existsIn('/usr/local/bin/claude', 'claude'),
+      isExecutable: existsIn('/usr/local/bin/claude', 'claude'),
     });
     expect(found).toBe('/usr/local/bin/claude');
   });
@@ -43,24 +46,24 @@ describe('findClaudeOnDisk', () => {
     const found = findClaudeOnDisk({
       pathVar: '/usr/bin:/bin',
       home: HOME,
-      exists: existsIn(join(HOME, '.local', 'bin', 'claude')),
+      isExecutable: existsIn(join(HOME, '.local', 'bin', 'claude')),
     });
     expect(found).toBe(join(HOME, '.local', 'bin', 'claude'));
   });
 
   it('copes with no PATH at all', () => {
     expect(
-      findClaudeOnDisk({ pathVar: undefined, home: HOME, exists: () => false }),
+      findClaudeOnDisk({ pathVar: undefined, home: HOME, isExecutable: () => false }),
     ).toBeNull();
   });
 });
 
 describe('resolveClaudeCli', () => {
-  const base = { pathVar: '/usr/bin', home: HOME, exists: existsIn('/opt/homebrew/bin/claude') };
+  const base = { pathVar: '/usr/bin', home: HOME, isExecutable: existsIn('/opt/homebrew/bin/claude') };
 
   it('lets a settings override win', () => {
     expect(
-      resolveClaudeCli({ ...base, override: '/custom/claude', bundled: true, exists: existsIn('/custom/claude') }),
+      resolveClaudeCli({ ...base, override: '/custom/claude', bundled: true, isExecutable: existsIn('/custom/claude') }),
     ).toEqual({ path: '/custom/claude', source: 'settings' });
   });
 
@@ -84,7 +87,7 @@ describe('resolveClaudeCli', () => {
         bundled: false,
         pathVar: ['/usr/bin', '/opt/homebrew/bin'].join(delimiter),
         home: HOME,
-        exists: existsIn('/opt/homebrew/bin/claude'),
+        isExecutable: existsIn('/opt/homebrew/bin/claude'),
       }),
     ).toEqual({ path: '/opt/homebrew/bin/claude', source: 'path' });
   });
@@ -96,7 +99,7 @@ describe('resolveClaudeCli', () => {
         bundled: false,
         pathVar: '/usr/bin:/bin',
         home: HOME,
-        exists: existsIn(join(HOME, '.claude', 'local', 'claude')),
+        isExecutable: existsIn(join(HOME, '.claude', 'local', 'claude')),
       }),
     ).toEqual({ path: join(HOME, '.claude', 'local', 'claude'), source: 'path' });
   });
@@ -108,7 +111,7 @@ describe('resolveClaudeCli', () => {
         bundled: false,
         pathVar: '/usr/bin',
         home: HOME,
-        exists: () => false,
+        isExecutable: () => false,
       }),
     ).toEqual({ path: null, source: 'missing' });
   });
@@ -126,5 +129,38 @@ describe('parseClaudeVersionOutput', () => {
   it('returns null when there is no version to read', () => {
     expect(parseClaudeVersionOutput('command not found')).toBeNull();
     expect(parseClaudeVersionOutput('')).toBeNull();
+  });
+});
+
+/**
+ * The one check here that touches the disk: what passes as a runnable CLI.
+ * A directory or a file without the executable bit used to pass, and failed
+ * only when the first session spawned it.
+ */
+describe('isExecutableFile', () => {
+  const dir = makeTmpDir('claude-cli');
+
+  it('accepts an executable regular file', () => {
+    const path = join(dir, 'claude');
+    writeFileSync(path, '#!/bin/sh\n');
+    chmodSync(path, 0o755);
+    expect(isExecutableFile(path)).toBe(true);
+  });
+
+  it('rejects a file without the executable bit', () => {
+    const path = join(dir, 'claude-plain');
+    writeFileSync(path, '#!/bin/sh\n');
+    chmodSync(path, 0o644);
+    expect(isExecutableFile(path)).toBe(false);
+  });
+
+  it('rejects a directory, even though directories carry the x bit', () => {
+    const path = join(dir, 'claude-dir');
+    mkdirSync(path);
+    expect(isExecutableFile(path)).toBe(false);
+  });
+
+  it('rejects a path that does not exist', () => {
+    expect(isExecutableFile(join(dir, 'nothing-here'))).toBe(false);
   });
 });

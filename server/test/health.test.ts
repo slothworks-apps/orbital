@@ -145,4 +145,45 @@ describe('GET /api/health', () => {
       await app.close();
     }
   });
+
+  /**
+   * The desktop app reads these two before it attaches: a server some desktop
+   * app forked, whose parent is gone, is an orphan it replaces; one of another
+   * version it refuses (desktop `decideAttach`).
+   */
+  it('names its version and the desktop app that forked it, and neither when started by hand', async () => {
+    const { claudeDir, dbPath } = tempClaudeDir();
+    const before = { version: process.env.ORBITAL_VERSION, parent: process.env.ORBITAL_PARENT_PID };
+    const restore = () => {
+      for (const [key, value] of [['ORBITAL_VERSION', before.version], ['ORBITAL_PARENT_PID', before.parent]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    };
+
+    delete process.env.ORBITAL_VERSION;
+    delete process.env.ORBITAL_PARENT_PID;
+    const byHand = await buildServer({ claudeDir, dbPath, queryFn: (() => {}) as any });
+    try {
+      const body = (await byHand.inject({ method: 'GET', url: '/api/health' })).json();
+      expect(body.version).toBeNull();
+      expect(body.desktop).toBeNull();
+    } finally {
+      await byHand.close();
+    }
+
+    process.env.ORBITAL_VERSION = '9.8.7';
+    process.env.ORBITAL_PARENT_PID = '4242';
+    const forked = await buildServer({
+      claudeDir, dbPath: join(claudeDir, 'index-2.db'), queryFn: (() => {}) as any,
+    });
+    try {
+      const body = (await forked.inject({ method: 'GET', url: '/api/health' })).json();
+      expect(body.version).toBe('9.8.7');
+      expect(body.desktop).toEqual({ pid: process.pid, parentPid: 4242 });
+    } finally {
+      await forked.close();
+      restore();
+    }
+  });
 });

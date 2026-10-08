@@ -5,7 +5,7 @@ import fastifyStatic from '@fastify/static';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { CONFIG } from './config.js';
@@ -30,7 +30,7 @@ import { recordPermissionWait } from './stats/store.js';
 import { Hub } from './api/hub.js';
 import { Runner, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
-import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledCliPath } from './runner/claudeCli.js';
+import { claudeCliVersion, isExecutableFile, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledCliPath } from './runner/claudeCli.js';
 import { McpConfig } from './mcp/config.js';
 import { claudeJsonPath } from './mcp/claudeJson.js';
 import { dbFingerprints } from './mcp/approvals.js';
@@ -316,7 +316,7 @@ export async function buildServer(overrides: {
     bundled: sdkBundledCliAvailable(),
     pathVar: process.env.PATH,
     home: homedir(),
-    exists: existsSync,
+    isExecutable: isExecutableFile,
   });
 
   // Resolve the Claude Code version once, at boot, into the settings table —
@@ -1345,6 +1345,12 @@ export async function buildServer(overrides: {
     app: 'orbital',
     static: Boolean(staticDir),
     claudeCli: { source: claudeCli.source, path: claudeCli.path, version: claudeCodeVersion },
+    // Which build this is, and whether a desktop app forked it: the desktop
+    // reads both before it attaches, so it never adopts an orphan of a crashed
+    // app or a server of another version (desktop `decideAttach`). Null on a
+    // server started by hand, such as `npm run dev`.
+    version: process.env.ORBITAL_VERSION ?? null,
+    desktop: desktopParentPid() === null ? null : { pid: process.pid, parentPid: desktopParentPid() },
     // Settings → General reads these two: they are facts about how this
     // server was started, not preferences, so they ride the health payload
     // rather than becoming settings rows nothing would ever write.
@@ -1414,9 +1420,54 @@ export async function buildServer(overrides: {
   return app;
 }
 
+/** The desktop app that forked this server, from `ORBITAL_PARENT_PID`; null when none did. */
+function desktopParentPid(): number | null {
+  const pid = Number(process.env.ORBITAL_PARENT_PID);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+/** How often a forked server checks that the desktop app that forked it is still there. */
+const PARENT_POLL_MS = 2_000;
+/** How long a server whose parent died gets to close cleanly before it just exits. */
+const ORPHAN_CLOSE_TIMEOUT_MS = 5_000;
+
+/**
+ * A server the desktop app forked dies with it. The app kills it on a normal
+ * quit; a crash or a force-quit kills nothing, and the orphan would keep the
+ * port and the database for a next launch that may be another version. So the
+ * child polls: reparented (to launchd) or the parent's pid gone means it is on
+ * its own, and it closes.
+ */
+function exitWithParent(app: FastifyInstance, parentPid: number): void {
+  const startPpid = process.ppid;
+  const timer = setInterval(() => {
+    let alive = process.ppid === startPpid;
+    if (alive) {
+      try {
+        process.kill(parentPid, 0);
+      } catch (err) {
+        // EPERM means something is there that we may not signal: not ours,
+        // but not gone either — only ESRCH says the parent is gone.
+        alive = (err as NodeJS.ErrnoException).code !== 'ESRCH';
+      }
+    }
+    if (alive) return;
+    clearInterval(timer);
+    console.log('orbital: the desktop app that started this server is gone; stopping');
+    setTimeout(() => process.exit(0), ORPHAN_CLOSE_TIMEOUT_MS).unref();
+    app.close().then(
+      () => process.exit(0),
+      () => process.exit(1),
+    );
+  }, PARENT_POLL_MS);
+  timer.unref();
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const apiToken = loadOrCreateApiToken(CONFIG.dataDir);
   const app = await buildServer({ apiToken });
+  const parentPid = desktopParentPid();
+  if (parentPid !== null) exitWithParent(app, parentPid);
   await app.listen({ host: '127.0.0.1', port: CONFIG.port });
   console.log(`orbital server on http://127.0.0.1:${CONFIG.port}`);
   // The link that sets the cookie: on this server when it serves the web app,
