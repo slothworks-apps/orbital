@@ -5,6 +5,7 @@ All notable changes to the relay image. Format: [Keep a Changelog](https://keepa
 ## [Unreleased]
 ### Fixed
 - A phone removed from a Mac at the very moment it reconnects is now told it is unpaired, and can no longer reach that Mac through the connection it opened.
+- A relay with a shared secret limits how many wrong secrets one address may try on a connection, as it already did for pairing, so the secret cannot be guessed by connecting over and over.
 
 ## [0.3.0] — 2026-10-07
 ### Added

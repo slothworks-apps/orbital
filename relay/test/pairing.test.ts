@@ -4,7 +4,7 @@ import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { PAIRING_TOKEN_TTL_MS, signRequest } from '@orbital/shared/remote/relayApi';
 import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { buildRelay } from '../src/app.js';
-import { PAIR_RATE_LIMIT_PER_MIN } from '../src/pairing.js';
+import { PAIR_RATE_LIMIT_PER_MIN } from '../src/rateLimit.js';
 import { openRelayStore } from '../src/store.js';
 import { connectDevice, listen, sleep } from './helpers.js';
 
