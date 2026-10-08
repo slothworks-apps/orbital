@@ -1,11 +1,12 @@
 ---
 id: notifications-start-off-with-a-tip
 title: Notifications start off, and a dismissible tip says where to turn them on
-status: backlog
+status: done
 type: idea
 domain: desktop
 related:
   - why-orbital
+  - 2026-10-08-notifications-off-by-default-design
 tags:
   - notifications
   - settings
@@ -34,3 +35,10 @@ That breaks "Silence by default" in [why-orbital](../why-orbital.md).
   touched the section have the old defaults stored or implied. Decide whether
   they keep what they have or are moved to the new defaults once.
 - Where the tip lives, and how it looks, is a Claude Design question.
+
+## Done
+
+Built 2026-10-08 as
+[[2026-10-08-notifications-off-by-default-design]]: existing installs keep
+what they have and never see the tip; the tip is a message in the notice
+toast.
