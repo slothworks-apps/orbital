@@ -39,8 +39,8 @@ Copy is taken from the canvas word for word. It was fact-checked against the
 app on 2026-10-08 and the corrections were sent back to Claude Design; until
 they land, the build uses the corrected canvas, not an older copy.
 
-The privacy page's text is a placeholder in the canvas. The page ships with
-whatever text the maintainer supplies; the site does not invent policy text.
+The privacy page's text is a placeholder in the canvas; the real text is in
+`site/content/privacy.md` (see The privacy text).
 
 ## Pages
 
@@ -239,8 +239,18 @@ of the design, and on narrow screens the demos are images.
 - The Archipelago and Desk themes in the demos.
 - Analytics of any kind.
 
-## Open questions
+## Asking for an invite
 
-- Where "Ask for an invite" leads (an e-mail address, a form, a GitHub
-  issue template).
-- The final privacy policy text.
+"Ask for an invite" is a `mailto:orbital@slothworks.io` link with the subject
+"Orbital invite" and a body that asks for the platform (iPhone or Android),
+the e-mail of the Apple ID or Google account to invite, and whether the
+tester runs their own relay or wants ours. Both stores invite testers by
+e-mail, which must not be public, so a GitHub issue is ruled out; a form
+would need a backend the static site does not have.
+
+## The privacy text
+
+The policy is `site/content/privacy.md`, drafted from the code on 2026-10-08
+and checked claim by claim. The relay's hosting provider, its location and
+the proxy's log retention are still placeholders; the page does not ship
+until they are filled in.
