@@ -7,6 +7,8 @@
  * `composeAppendix`, and nothing here reads a database.
  */
 
+import { SHELL_INTENT_INSTRUCTION } from './shellIntentHook.js';
+
 export interface SessionTip {
   /** Stable once shipped: a later per-tip switch stores it (spec § 6). */
   id: string;
@@ -55,10 +57,18 @@ export const SESSION_TIPS: readonly SessionTip[] = [
     text:
       'When the work is finished — typically after the final commit or after merging the branch — ' +
       'stop the background tasks you started: dev servers, watchers, anything still running. ' +
-      'Orbital shows a session with a live background task as still working, so a forgotten ' +
-      'server keeps a finished session looking busy. Leave one running only if the user asked for it.',
+      'Orbital lists every running background task under its session, so a forgotten server ' +
+      'stays there long after the work is done. Leave one running only if the user asked for it.',
   },
 ];
+
+/**
+ * What every session is told whatever the switches say: rules Orbital
+ * enforces anyway, stated up front so that breaking one is the exception.
+ * Not tips — the user cannot turn them off, and the Settings preview does
+ * not list them.
+ */
+export const SESSION_RULES: readonly string[] = [SHELL_INTENT_INSTRUCTION];
 
 /**
  * Appended while Settings › Experimental › "Comment for Narrate" is on
@@ -87,12 +97,14 @@ export interface AppendixInput {
 }
 
 /**
- * Tips, then the commentary, then the user's text, a blank line between
- * blocks; the user's text goes last so that where it contradicts a tip it
- * wins. `null` when no block survives, so the runner sends the bare preset.
+ * Orbital's rules, then the tips, then the commentary, then the user's text,
+ * a blank line between blocks; the user's text goes last so that where it
+ * contradicts a tip it wins. The rules are on whatever the switches say:
+ * Orbital enforces them either way, so they only spare the agent a refusal.
+ * `null` when no block survives, so the runner sends the bare preset.
  */
 export function composeAppendix(input: AppendixInput): string | null {
-  const blocks: string[] = [];
+  const blocks: string[] = [...SESSION_RULES];
   if (input.tipsOn) {
     const off = new Set(input.tipsOff ?? []);
     for (const tip of SESSION_TIPS) if (!off.has(tip.id)) blocks.push(tip.text);

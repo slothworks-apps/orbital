@@ -16,7 +16,7 @@ import {
   type SubagentTranscripts,
 } from '../transcript/subagents.js';
 import type { PermissionWait } from '../stats/compute.js';
-import { TASK_LAUNCHING_TOOLS, type LaunchingCall } from '../transcript/backgroundTasks.js';
+import { TASK_LAUNCHING_TOOLS, withoutIntentMarker, type LaunchingCall } from '../transcript/backgroundTasks.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import { noticeFromSdkMessage } from '../transcript/notices.js';
 import { readRateLimitInfo, type RejectedLimit } from '../limits/logic.js';
@@ -29,6 +29,7 @@ import {
 import type { ImageStore, ImageWriter } from '../images/store.js';
 import type { IdeApprovals, IdeReviewVerdict } from '../ide/approvals.js';
 import { ORBITAL_MCP_SERVER, orbitalMcpServer, type Spawner } from './spawnTool.js';
+import { shellIntentHooks } from './shellIntentHook.js';
 
 /**
  * How long a turn's end waits for the CLI to say how full the window is
@@ -794,6 +795,7 @@ export class Runner {
   private onTaskEvent?: (sessionId: string, msg: TaskEvent) => void;
   private onToolUse?: (sessionId: string, toolName: string, toolInput: unknown, at: number) => void;
   private hasLiveBackgroundWork?: (sessionId: string) => boolean;
+  private keepsAwake?: (sessionId: string) => boolean;
   private sessionTools?: (sessionId: string) => SessionTools | undefined;
   private autoAllow?: (sessionId: string, toolName: string, input: Record<string, unknown>) => boolean;
   private onTaskOutputPath?: (sessionId: string, toolUseId: string, path: string) => void;
@@ -927,13 +929,19 @@ export class Runner {
      * The Runner asks because a finished turn is not the same thing as a
      * session that wants you: `Agent` runs in the background, so the CLI ends
      * its turn (and emits `result`) with subagents still working, and wakes
-     * itself up when they report back. A background shell counts too,
-     * deliberately: a dev server left running keeps the session `working`
-     * for as long as it runs (spec 2026-09-28-background-tasks-design § 2
-     * "Working while a task runs"). Unwired, every session behaves as it
-     * always did — `result` means `needs_input`.
+     * itself up when they report back. A background shell counts too, unless
+     * the agent marked it `[keep]` — a dev server left running on purpose is
+     * not something the session waits for (spec 2026-10-08-kept-shells-design
+     * § 4). Unwired, every session behaves as it always did — `result` means
+     * `needs_input`.
      */
     hasLiveBackgroundWork?: (sessionId: string) => boolean;
+    /**
+     * Whether the session has background work running that does not hold it
+     * `working` — a kept shell. Such a session waits on the user but is not
+     * put to sleep: sleeping stops its process, and the shell with it.
+     */
+    keepsAwake?: (sessionId: string) => boolean;
     /**
      * Extra tools for the session's `orbital` MCP server, and the ones among
      * them that need no permission card — the harness's checklist tools (spec
@@ -1101,6 +1109,7 @@ export class Runner {
     this.onTaskEvent = deps.onTaskEvent;
     this.onToolUse = deps.onToolUse;
     this.hasLiveBackgroundWork = deps.hasLiveBackgroundWork;
+    this.keepsAwake = deps.keepsAwake;
     this.sessionTools = deps.sessionTools;
     this.autoAllow = deps.autoAllow;
     this.onTaskOutputPath = deps.onTaskOutputPath;
@@ -1196,7 +1205,12 @@ export class Runner {
     // A session waiting for a usage limit to reset is `idle`: nothing will
     // move before the reset, and nobody is being asked anything.
     const want: SessionStatus = busy ? 'working' : this.isLimitWaiting?.(sessionId) ? 'idle' : 'needs_input';
-    if (s.status === want) return;
+    if (s.status === want) {
+      // A kept shell ending moves no status, but its end is what lets the
+      // waiting session sleep after all.
+      if (!busy && !s.sleepTimer) this.armSleepTimer(sessionId);
+      return;
+    }
     this.setStatus(sessionId, want);
     if (busy) {
       // Null the handle, not just clear it — same reasoning as `send()`.
@@ -1248,12 +1262,15 @@ export class Runner {
   /**
    * Puts a session that is waiting on the user to sleep after
    * `SLEEP_AFTER_IDLE_MINUTES`: its process stops, and nothing else about it
-   * changes (spec 2026-09-24-sessions-end-only-by-hand-design § 2).
+   * changes (spec 2026-09-24-sessions-end-only-by-hand-design § 2). Not
+   * while `keepsAwake` says a kept shell runs: the stop would end it too.
    */
   private armSleepTimer(sessionId: string): void {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     if (s.sleepTimer) clearTimeout(s.sleepTimer);
+    s.sleepTimer = null;
+    if (this.keepsAwake?.(sessionId) === true) return;
     const timer = setTimeout(() => void this.stop(sessionId), this.sleepAfterMs);
     // Don't let the sleep timer keep the process alive (e.g. during tests).
     (timer as unknown as { unref?: () => void }).unref?.();
@@ -1432,6 +1449,10 @@ export class Runner {
       // plain prose (spec 2026-09-20-interactive-decisions-design).
       canUseTool: ((toolName, input, canUseOpts) =>
         this.decide(sessionId, toolName, input, canUseOpts)) satisfies CanUseTool,
+      // A background shell without its `[wait]`/`[keep]` marker is refused
+      // before `canUseTool` is asked; everything else passes the hook with no
+      // decision of its own (spec 2026-10-08-kept-shells-design § 2).
+      hooks: shellIntentHooks(),
     };
     // `sessionId` and `resume` are mutually exclusive in the SDK; resuming
     // already fixes the id, so it is only pinned for a fresh session.
@@ -2307,7 +2328,8 @@ export class Runner {
             toolName,
             ...(typeof opts.title === 'string' ? { title: opts.title } : {}),
             ...(typeof opts.displayName === 'string' ? { displayName: opts.displayName } : {}),
-            ...(typeof opts.description === 'string' ? { description: opts.description } : {}),
+            // A background shell's `[wait]`/`[keep]` is said to Orbital, not to the user.
+            ...(typeof opts.description === 'string' ? { description: withoutIntentMarker(opts.description) } : {}),
             ...(opts.defaultToNo === true ? { defaultToNo: true } : {}),
           }),
     };
