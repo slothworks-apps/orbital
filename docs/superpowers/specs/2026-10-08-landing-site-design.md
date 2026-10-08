@@ -2,7 +2,7 @@
 id: 2026-10-08-landing-site-design
 title: The Orbital website at orbital.slothworks.io
 type: spec
-status: draft
+status: active
 domain: site
 related:
   - the-landing-site-is-astro-in-this-repository
