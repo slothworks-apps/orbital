@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-kept-shells-design
 title: A shell left running does not keep a session working
-status: active
+status: done
 type: spec
 domain: sessions
 related:
@@ -84,3 +84,26 @@ desktop's labels agree.
   leaves the session `needs_input` after the turn; a `[wait]` shell keeps
   it `working`; an unknown intent keeps it `working`.
 - `awaitedWork` ignores `[keep]` shells.
+
+## Built
+
+Built 2026-10-08. Where the code differs from the text above:
+
+- A kept shell does not hold `working`, but it keeps its session awake: the
+  Runner does not arm the sleep timer while one runs (`keepsAwake`), since
+  sleeping stops the CLI process and the shell with it. The spec did not
+  say; before this change a dev server could never be slept on, as it held
+  `working`.
+- The marker is cut on the server, from the task's `label` and from a
+  permission card's `description`, so every surface on the desktop and the
+  phone shows the description without it. The `intent` rides
+  `ApiSession.backgroundTasks`; it is not stored, as a task read back from
+  the database is ended and its intent no longer matters.
+- The harness's turn-end reads the same answer as the Runner: a kept shell
+  does not hold the next step back.
+- The `stop-background-tasks-when-done` tip no longer says a running task
+  keeps a session looking busy.
+- Checked once against the real SDK (haiku): an unmarked background `Bash`
+  was refused and repeated with `[keep]`; with the session rule in the
+  appendix, the first call came marked. The CLI reports the refusal to the
+  agent as a `PreToolUse:Bash hook error:` followed by the reason.

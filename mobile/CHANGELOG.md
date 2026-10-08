@@ -5,6 +5,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [Unreleased]
 ### Changed
 - The app has Orbital's own icon on iOS and Android, and Android notifications show Orbital's mark instead of a placeholder.
+- A session that left a dev server or a watcher running on the Mac shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's tasks.
 ### Fixed
 - A session that asks for input right after it starts on the Mac in a terminal, or just after the phone reconnects, now notifies instead of staying silent.
 - Starting a session asks before the Mac runs the MCP servers a project's `.mcp.json` names; a server you have not allowed does not start.

@@ -17,6 +17,12 @@ export interface BackgroundTaskInfo {
   label: string;
   /** Shells and `Monitor` only: the launching call's `command` input. */
   command?: string;
+  /**
+   * Shells only, and only when the launching call's `description` opened
+   * with a marker (`ShellIntent`). Absent is read as `wait`. Not stored: it
+   * matters only while the task runs, and a task read back is ended.
+   */
+  intent?: ShellIntent;
   state: 'running' | 'ended';
   /** How it ended, from `task_notification` or a terminal `task_updated`; absent when it was retired without one. */
   status?: 'completed' | 'failed' | 'stopped';
@@ -43,6 +49,28 @@ export interface LaunchingCall {
 
 /** The tool names whose calls the Runner keeps for the tracker. */
 export const TASK_LAUNCHING_TOOLS: ReadonlySet<string> = new Set(['Bash', 'Monitor']);
+
+/**
+ * What the agent said a background shell is for, by the marker that opens its
+ * `Bash` call's `description` (spec 2026-10-08-kept-shells-design § 1):
+ * `wait` when it waits for the shell to end, `keep` when it leaves it running.
+ */
+export type ShellIntent = 'wait' | 'keep';
+
+/** The marker, only at the start: the same text further in is the description's own. */
+const INTENT_MARKER = /^\s*\[(wait|keep)\]\s*/i;
+
+/** The intent a description opens with, or undefined when it opens with neither marker. */
+export function shellIntentOf(description: unknown): ShellIntent | undefined {
+  if (typeof description !== 'string') return undefined;
+  const marker = INTENT_MARKER.exec(description)?.[1]?.toLowerCase();
+  return marker === 'wait' || marker === 'keep' ? marker : undefined;
+}
+
+/** The description as it is shown: the leading marker cut, and the space after it. */
+export function withoutIntentMarker(description: string): string {
+  return description.replace(INTENT_MARKER, '');
+}
 
 /**
  * The tracked `task_type`s and what each is on the wire (spec § 1). `local_bash`
@@ -81,6 +109,7 @@ function toInfo(r: TaskRecord): BackgroundTaskInfo {
     hasOutput: r.outputPath !== undefined,
   };
   if (r.command !== undefined) info.command = r.command;
+  if (r.intent !== undefined) info.intent = r.intent;
   if (r.status !== undefined) info.status = r.status;
   if (r.exitCode !== undefined) info.exitCode = r.exitCode;
   if (r.endedAt !== undefined) info.endedAt = r.endedAt;
@@ -216,6 +245,16 @@ export class BackgroundTaskTracker {
     return this.all().filter((t) => t.state === 'running');
   }
 
+  /** The running tasks the session waits on: all of them but the kept shells. */
+  awaited(): BackgroundTaskInfo[] {
+    return this.running().filter((t) => t.intent !== 'keep');
+  }
+
+  /** The running shells the agent left running on purpose. */
+  kept(): BackgroundTaskInfo[] {
+    return this.running().filter((t) => t.intent === 'keep');
+  }
+
   private started(
     msg: TaskStartedEvent,
     launchingCall: (toolUseId: string) => LaunchingCall | undefined,
@@ -231,8 +270,12 @@ export class BackgroundTaskTracker {
     if (msg.task_type === 'local_bash' && call?.name === 'Monitor') kind = 'monitor';
     const command =
       msg.task_type === 'local_bash' && typeof call?.input.command === 'string' ? call.input.command : undefined;
+    // The call's own description first: it is what the hook checked. The
+    // marker is the agent talking to Orbital, so the label goes without it.
+    const intent = kind === 'shell' ? shellIntentOf(call?.input.description) ?? shellIntentOf(msg.description) : undefined;
+    const description = msg.description ? withoutIntentMarker(msg.description) : undefined;
     const label =
-      (kind === 'workflow' && msg.workflow_name) || msg.description || command || kind;
+      (kind === 'workflow' && msg.workflow_name) || description || command || kind;
     const existing = this.tasks.get(msg.task_id);
     // A second `task_started` for a known task is a resume: the same task
     // back at work, so its clock and output carry over and how it last ended
@@ -246,6 +289,7 @@ export class BackgroundTaskTracker {
       hidden: msg.task_type === 'local_bash' && msg.is_backgrounded === false,
     };
     if (command !== undefined) task.command = command;
+    if (intent !== undefined) task.intent = intent;
     if (msg.tool_use_id) task.toolUseId = msg.tool_use_id;
     const path = outputPathOf(call?.outputPath) ?? existing?.outputPath;
     if (path) task.outputPath = path;
@@ -287,8 +331,9 @@ export interface BackgroundTaskStoreDeps {
  * these are kept in SQLite (`background_tasks`): the list keeps ended tasks,
  * their exit codes and their output across a restart of Orbital.
  *
- * Two reads, as with subagents: `running()` is what keeps a session
- * `working` once its turn is over, and must never hold an ended task;
+ * Two reads, as with subagents: `running()` never holds an ended task, and
+ * its `awaited()` part is what keeps a session `working` once its turn is
+ * over — a kept shell does not (spec 2026-10-08-kept-shells-design § 4);
  * `all()` is the wire list, ended included, in start order.
  *
  * The feeders answer whether `all()` changed, so the caller republishes only
@@ -375,6 +420,16 @@ export class BackgroundTaskStore {
 
   running(sessionId: string): BackgroundTaskInfo[] {
     return this.trackers.get(sessionId)?.running() ?? [];
+  }
+
+  /** What keeps the session `working` once its turn is over: every running task but a kept shell. */
+  awaited(sessionId: string): BackgroundTaskInfo[] {
+    return this.trackers.get(sessionId)?.awaited() ?? [];
+  }
+
+  /** The kept shells still running: they hold no `working`, but sleeping the session would stop them. */
+  kept(sessionId: string): BackgroundTaskInfo[] {
+    return this.trackers.get(sessionId)?.kept() ?? [];
   }
 
   get(sessionId: string, taskId: string): BackgroundTaskInfo | undefined {

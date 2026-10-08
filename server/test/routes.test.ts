@@ -44,7 +44,7 @@ import { RemoteService } from '../src/remote/service.js';
 import { createFileStore } from '../src/files/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
-import { SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
+import { SESSION_RULES, SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
 import { makeTmpDir, openTmpDb, makeHomeDir } from './tmp.js';
 
 /**
@@ -1086,7 +1086,7 @@ describe('REST routes', () => {
       const { tips } = res.json<{ tips: { id: string; title: string; text: string }[] }>();
       expect(tips.map((t) => t.id)).toEqual(SESSION_TIPS.map((t) => t.id));
       const appendix = composeAppendix({ tipsOn: true, commentary: false, customOn: false, customText: '' });
-      expect(appendix).toBe(tips.map((t) => t.text).join('\n\n'));
+      expect(appendix).toBe([...SESSION_RULES, ...tips.map((t) => t.text)].join('\n\n'));
       for (const tip of tips) {
         expect(tip.title.length).toBeGreaterThan(0);
         expect(tip.text.length).toBeGreaterThan(0);

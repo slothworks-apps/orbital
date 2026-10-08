@@ -1224,6 +1224,31 @@ describe('Runner sleep timer', () => {
     expect(runner.active()).toEqual([id]);
   });
 
+  it('does not put a session to sleep while a kept shell runs, and does once it ends', async () => {
+    // Spec 2026-10-08-kept-shells-design: a kept shell holds no `working`,
+    // but sleeping stops the process, and the shell with it.
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    let kept = true;
+    const runner = new Runner({
+      hub, queryFn: script.fn as any, sleepAfterMs: SLEEP_MS, newSessionId: () => 'web-1',
+      hasLiveBackgroundWork: () => false,
+      keepsAwake: () => kept,
+    });
+    const id = await runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(runner.status(id)).toBe('needs_input'));
+    vi.advanceTimersByTime(SLEEP_MS * 2);
+    expect(runner.status(id)).toBe('needs_input');
+
+    kept = false;
+    script.push({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+    await vi.waitFor(() => {
+      vi.advanceTimersByTime(SLEEP_MS);
+      expect(runner.status(id)).toBeUndefined();
+    });
+  });
+
   it('does not arm a timer on a session that is mid-turn', async () => {
     const hub = new Hub();
     const { fn, releaseGate, finishedPromise } = fakeQueryFnMidTurnStall();

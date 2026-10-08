@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- A session that left a dev server or a watcher running shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's background tasks, and Orbital no longer puts that session to sleep while it runs.
 ### Fixed
 - A terminal session that asks for input right after it starts, or a session that asks just after Orbital reconnects to its server, now notifies instead of staying silent.
 - Text typed into a Settings field just before closing the dialog is now saved instead of lost.

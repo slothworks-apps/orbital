@@ -1,13 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
+  SESSION_RULES,
   SESSION_TIPS,
   NARRATE_COMMENTARY_PROMPT,
   composeAppendix,
 } from '../src/runner/sessionInstructions.js';
 
-// Spec 2026-09-30-session-instructions-design § 1, § 2, § 5.
+// Spec 2026-09-30-session-instructions-design § 1, § 2, § 5; the rules,
+// spec 2026-10-08-kept-shells-design § 3.
 const allOff = { tipsOn: false, commentary: false, customOn: false, customText: '' };
 const tipsText = SESSION_TIPS.map((t) => t.text).join('\n\n');
+const rules = SESSION_RULES.join('\n\n');
+/** What follows the rules, which every appendix opens with. */
+const afterRules = (text: string) => `${rules}\n\n${text}`;
 
 describe('SESSION_TIPS', () => {
   it('has unique ids', () => {
@@ -26,45 +31,41 @@ describe('SESSION_TIPS', () => {
 });
 
 describe('composeAppendix', () => {
-  it('returns null when nothing survives', () => {
-    expect(composeAppendix(allOff)).toBeNull();
-    expect(composeAppendix({ ...allOff, customOn: true, customText: '' })).toBeNull();
-    expect(composeAppendix({ ...allOff, customOn: true, customText: '  \n\r\n\t ' })).toBeNull();
+  it('keeps the rules when every switch is off', () => {
+    expect(composeAppendix(allOff)).toBe(rules);
+    expect(composeAppendix({ ...allOff, customOn: true, customText: '' })).toBe(rules);
+    expect(composeAppendix({ ...allOff, customOn: true, customText: '  \n\r\n\t ' })).toBe(rules);
+    expect(composeAppendix({ ...allOff, tipsOn: true, tipsOff: SESSION_TIPS.map((t) => t.id) })).toBe(rules);
   });
 
-  it('emits the tips alone, in array order', () => {
-    expect(composeAppendix({ ...allOff, tipsOn: true })).toBe(tipsText);
+  it('emits the tips after the rules, in array order', () => {
+    expect(composeAppendix({ ...allOff, tipsOn: true })).toBe(afterRules(tipsText));
   });
 
-  it('emits the commentary alone', () => {
-    expect(composeAppendix({ ...allOff, commentary: true })).toBe(NARRATE_COMMENTARY_PROMPT);
+  it('emits the commentary after the rules', () => {
+    expect(composeAppendix({ ...allOff, commentary: true })).toBe(afterRules(NARRATE_COMMENTARY_PROMPT));
   });
 
-  it('emits the custom text alone, trimmed', () => {
+  it('emits the custom text after the rules, trimmed', () => {
     expect(composeAppendix({ ...allOff, customOn: true, customText: '\n Answer in Czech. \n' }))
-      .toBe('Answer in Czech.');
+      .toBe(afterRules('Answer in Czech.'));
   });
 
   it('drops the custom text while its switch is off even if it has content', () => {
-    expect(composeAppendix({ ...allOff, customOn: false, customText: 'Answer in Czech.' })).toBeNull();
+    expect(composeAppendix({ ...allOff, customOn: false, customText: 'Answer in Czech.' })).toBe(rules);
   });
 
-  it('orders tips, commentary, custom text with a blank line between blocks', () => {
+  it('orders rules, tips, commentary, custom text with a blank line between blocks', () => {
     const out = composeAppendix({
       tipsOn: true, commentary: true, customOn: true, customText: 'Answer in Czech.',
     });
-    expect(out).toBe(`${tipsText}\n\n${NARRATE_COMMENTARY_PROMPT}\n\nAnswer in Czech.`);
+    expect(out).toBe(afterRules(`${tipsText}\n\n${NARRATE_COMMENTARY_PROMPT}\n\nAnswer in Czech.`));
   });
 
   it('honours tipsOff for a known id and ignores an unknown one', () => {
     const [first, ...rest] = SESSION_TIPS;
     expect(composeAppendix({ ...allOff, tipsOn: true, tipsOff: [first.id, 'no-such-tip'] }))
-      .toBe(rest.map((t) => t.text).join('\n\n'));
-    expect(composeAppendix({ ...allOff, tipsOn: true, tipsOff: ['no-such-tip'] })).toBe(tipsText);
-  });
-
-  it('returns null when every tip is off and nothing else is on', () => {
-    expect(composeAppendix({ ...allOff, tipsOn: true, tipsOff: SESSION_TIPS.map((t) => t.id) }))
-      .toBeNull();
+      .toBe(afterRules(rest.map((t) => t.text).join('\n\n')));
+    expect(composeAppendix({ ...allOff, tipsOn: true, tipsOff: ['no-such-tip'] })).toBe(afterRules(tipsText));
   });
 });

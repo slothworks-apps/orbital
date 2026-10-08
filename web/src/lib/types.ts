@@ -971,6 +971,13 @@ export interface BackgroundTask {
   label: string
   /** Shells and monitors only: the launching call's `command`. */
   command?: string
+  /**
+   * Shells only: what the agent said the shell is for — `wait` when it waits
+   * for it to end, `keep` when it left it running (a dev server). Absent
+   * reads as `wait`. A kept shell does not hold its session `working` (spec
+   * 2026-10-08-kept-shells-design § 4).
+   */
+  intent?: 'wait' | 'keep'
   state: 'running' | 'ended'
   /** Once ended; absent when it ended without the SDK saying how — the list's "unknown". */
   status?: 'completed' | 'failed' | 'stopped'
@@ -1054,7 +1061,10 @@ export function awaitedWork(
   if (session.status !== 'working' || !session.awaitingSubagents) return { agents: 0, tasks: [] }
   return {
     agents: session.subagents.filter((agent) => agent.state !== 'ended').length,
-    tasks: (session.backgroundTasks ?? []).filter((task) => task.state === 'running').map((task) => task.kind),
+    // A kept shell is still running, but nothing waits for it.
+    tasks: (session.backgroundTasks ?? [])
+      .filter((task) => task.state === 'running' && task.intent !== 'keep')
+      .map((task) => task.kind),
   }
 }
 

@@ -70,6 +70,19 @@ describe('awaitedWork', () => {
     expect(work).toEqual({ agents: 1, tasks: ['shell', 'mcp'] })
   })
 
+  it('leaves out a kept shell, and counts one with no intent as waited on', () => {
+    // Spec 2026-10-08-kept-shells-design § 5.
+    const work = awaitedWork({
+      ...session({ subagents: [] }),
+      backgroundTasks: [
+        { ...task('shell'), intent: 'keep' },
+        { ...task('shell'), intent: 'wait' },
+        task('shell'),
+      ],
+    })
+    expect(work).toEqual({ agents: 0, tasks: ['shell', 'shell'] })
+  })
+
   it('is empty while the session is doing something of its own', () => {
     const work = awaitedWork({ ...session({ awaitingSubagents: false }), backgroundTasks: [task('shell')] })
     expect(work).toEqual({ agents: 0, tasks: [] })

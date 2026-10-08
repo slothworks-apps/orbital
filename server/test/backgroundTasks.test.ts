@@ -8,6 +8,8 @@ import {
   BackgroundTaskTracker,
   EXIT_CODE_RETRIES,
   EXIT_CODE_RETRY_MS,
+  shellIntentOf,
+  withoutIntentMarker,
   type LaunchingCall,
 } from '../src/transcript/backgroundTasks.js';
 import { SubagentTracker, type TaskEvent } from '../src/transcript/subagents.js';
@@ -187,6 +189,64 @@ describe('BackgroundTaskTracker', () => {
     t.feedTask(notified('n', 'completed', { output_file: '/tmp/x/n.output' }), launched);
     expect(t.all().map((x) => x.hasOutput)).toEqual([true, true, true]);
     expect(t.record('n')?.outputPath).toBe('/tmp/x/n.output');
+  });
+});
+
+describe('shellIntentOf', () => {
+  it('reads a marker at the start, in any case, past leading whitespace', () => {
+    expect(shellIntentOf('[wait] Run the tests')).toBe('wait');
+    expect(shellIntentOf('[keep] Start the dev server')).toBe('keep');
+    expect(shellIntentOf('  [KEEP]Start the dev server')).toBe('keep');
+    expect(shellIntentOf('\n[Wait] build')).toBe('wait');
+  });
+
+  it('counts no marker elsewhere in the text, and nothing that is not a string', () => {
+    expect(shellIntentOf('Run the tests [wait]')).toBeUndefined();
+    expect(shellIntentOf('Start [keep] server')).toBeUndefined();
+    expect(shellIntentOf('[waiting] build')).toBeUndefined();
+    expect(shellIntentOf('[ keep ] server')).toBeUndefined();
+    expect(shellIntentOf('')).toBeUndefined();
+    expect(shellIntentOf(undefined)).toBeUndefined();
+    expect(shellIntentOf(42)).toBeUndefined();
+  });
+
+  it('cuts only a leading marker and the space after it', () => {
+    expect(withoutIntentMarker(' [keep]  Start the dev server')).toBe('Start the dev server');
+    expect(withoutIntentMarker('Run the tests [wait]')).toBe('Run the tests [wait]');
+    expect(withoutIntentMarker('[wait]')).toBe('');
+  });
+});
+
+describe('BackgroundTaskTracker and shell intents', () => {
+  const launched = calls({
+    tw: { name: 'Bash', input: { command: 'npm test', description: '[wait] Run the tests', run_in_background: true } },
+    tk: { name: 'Bash', input: { command: 'npm run dev', description: '[keep] Start the dev server', run_in_background: true } },
+    tn: { name: 'Bash', input: { command: 'make', run_in_background: true } },
+  });
+
+  it("records each shell's intent from its launching call and cuts the marker from the label", () => {
+    const t = new BackgroundTaskTracker();
+    t.feedTask(started({ task_id: 'w', tool_use_id: 'tw', task_type: 'local_bash', description: '[wait] Run the tests' }), launched);
+    t.feedTask(started({ task_id: 'k', tool_use_id: 'tk', task_type: 'local_bash', description: '[keep] Start the dev server' }), launched);
+    t.feedTask(started({ task_id: 'n', tool_use_id: 'tn', task_type: 'local_bash', description: 'make' }), launched);
+    expect(t.all().map((x) => [x.id, x.intent, x.label])).toEqual([
+      ['w', 'wait', 'Run the tests'],
+      ['k', 'keep', 'Start the dev server'],
+      ['n', undefined, 'make'],
+    ]);
+  });
+
+  it('holds working with every running task but a kept shell; one with no known intent counts as waited on', () => {
+    const t = new BackgroundTaskTracker();
+    t.feedTask(started({ task_id: 'k', tool_use_id: 'tk', task_type: 'local_bash' }), launched);
+    expect(t.awaited()).toEqual([]);
+    expect(t.kept().map((x) => x.id)).toEqual(['k']);
+    t.feedTask(started({ task_id: 'n', tool_use_id: 'tn', task_type: 'local_bash' }), launched);
+    t.feedTask(started({ task_id: 'u', tool_use_id: 'gone', task_type: 'local_bash' }), launched);
+    t.feedTask(started({ task_id: 'm', task_type: 'monitor_mcp' }), launched);
+    expect(t.awaited().map((x) => x.id)).toEqual(['n', 'u', 'm']);
+    t.feedTask(notified('k', 'stopped'), launched);
+    expect(t.kept()).toEqual([]);
   });
 });
 

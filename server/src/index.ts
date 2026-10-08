@@ -422,6 +422,12 @@ export async function buildServer(overrides: {
   // `republish` is only called once the runner below exists.
   const backgroundTasks = new BackgroundTaskStore({ db, onChange: (sessionId) => republish(sessionId) });
   backgroundTasks.load();
+  // What a session whose turn is over still waits for: its subagents and its
+  // background tasks, a shell the agent marked `[keep]` aside (spec
+  // 2026-10-08-kept-shells-design § 4). The Runner's busy rule and the
+  // harness's turn-end read the same answer.
+  const holdsWorking = (sessionId: string): boolean =>
+    subagents.running(sessionId).length > 0 || backgroundTasks.awaited(sessionId).length > 0;
   // Every session's recent tool calls — the last 30 per session, in-memory
   // only, fed from tool_use blocks in both the runner stream and transcript
   // tails. Dropped when a session ends (spec 2026-10-01-map-themes-design § 5).
@@ -528,8 +534,7 @@ export async function buildServer(overrides: {
     cwdOf: (sessionId) =>
       db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, sessionId)).get()?.cwd,
     decisionPending: (sessionId): boolean => runner.pendingDecision(sessionId) !== null,
-    backgroundWork: (sessionId) =>
-      subagents.running(sessionId).length > 0 || backgroundTasks.running(sessionId).length > 0,
+    backgroundWork: (sessionId) => holdsWorking(sessionId),
     isWaiting: (sessionId): boolean => runner.status(sessionId) === 'needs_input',
     send: (sessionId, text): string | null => runner.send(sessionId, text),
     // Both read the session's work, so both run under its directory (adr
@@ -807,8 +812,8 @@ export async function buildServer(overrides: {
     sessionTools: (sessionId) => harness.tools(sessionId),
     // The step commits the harness asks for, while commit-per-step is on.
     autoAllow: (sessionId, toolName, input) => harness.allowsWithoutAsking(sessionId, toolName, input),
-    hasLiveBackgroundWork: (sessionId) =>
-      subagents.running(sessionId).length > 0 || backgroundTasks.running(sessionId).length > 0,
+    hasLiveBackgroundWork: (sessionId) => holdsWorking(sessionId),
+    keepsAwake: (sessionId) => backgroundTasks.kept(sessionId).length > 0,
     // A launch's tool_result named the output file after its task started:
     // the task gains `hasOutput`, and a view already open on it can follow.
     onTaskOutputPath: (sessionId, toolUseId, path) => {

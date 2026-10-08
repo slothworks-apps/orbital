@@ -21,7 +21,7 @@ import { makeTmpDir } from './tmp.js';
  * notification; `exit()` ends the generator instead, the way a CLI process
  * exiting does.
  */
-function fakeSdkWithShell(outputPath: string) {
+function fakeSdkWithShell(outputPath: string, description?: string) {
   let finish!: () => void;
   let exit!: () => void;
   const finished = new Promise<'finish'>((resolve) => { finish = () => resolve('finish'); });
@@ -38,12 +38,15 @@ function fakeSdkWithShell(outputPath: string) {
           type: 'assistant', session_id: sid, parent_tool_use_id: null,
           message: {
             role: 'assistant',
-            content: [{ type: 'tool_use', id: 'tb1', name: 'Bash', input: { command: 'npm run dev', run_in_background: true } }],
+            content: [{
+              type: 'tool_use', id: 'tb1', name: 'Bash',
+              input: { command: 'npm run dev', run_in_background: true, ...(description ? { description } : {}) },
+            }],
           },
         };
         yield {
           type: 'system', subtype: 'task_started', session_id: sid,
-          task_id: 'sh1', tool_use_id: 'tb1', description: 'dev server', task_type: 'local_bash', is_backgrounded: true,
+          task_id: 'sh1', tool_use_id: 'tb1', description: description ?? 'dev server', task_type: 'local_bash', is_backgrounded: true,
         };
         yield {
           type: 'user', session_id: sid, parent_tool_use_id: null,
@@ -160,6 +163,50 @@ describe("a background shell in one of Orbital's own sessions, end to end", () =
       expect((await app.inject({ url: `/api/sessions/${sessionId}/tasks/sh1/output` })).statusCode).toBe(410);
     } finally {
       ws?.close();
+      await app.close();
+    }
+  });
+
+  // Spec 2026-10-08-kept-shells-design §§ 2, 4, 5.
+  it('hands the session to the user while only a [keep] shell runs, still listing it, and passes the intent hook', async () => {
+    const { claudeDir, dbPath, outputPath } = tempDirs();
+    writeFileSync(outputPath, 'serving\n');
+    const sdk = fakeSdkWithShell(outputPath, '[keep] Start the dev server');
+    const app = await buildServer({ claudeDir, dbPath, queryFn: sdk.fn as any });
+    try {
+      const sessionId = await launch(app);
+      expect(sdk.options[0].hooks?.PreToolUse?.[0]?.matcher).toBe('Bash');
+      await vi.waitFor(async () => {
+        const s = await sessionOf(app, sessionId);
+        expect(s?.status).toBe('needs_input');
+        expect(s?.backgroundTasks[0]?.hasOutput).toBe(true);
+      }, { timeout: 3000 });
+      const s = await sessionOf(app, sessionId);
+      expect(s.awaitingSubagents).toBe(false);
+      expect(s.backgroundTasks).toEqual([expect.objectContaining({
+        id: 'sh1', state: 'running', intent: 'keep', label: 'Start the dev server',
+      })]);
+    } finally {
+      sdk.finish();
+      await app.close();
+    }
+  });
+
+  it('keeps the session working while a [wait] shell runs', async () => {
+    const { claudeDir, dbPath, outputPath } = tempDirs();
+    writeFileSync(outputPath, 'testing\n');
+    const sdk = fakeSdkWithShell(outputPath, '[wait] Run the tests');
+    const app = await buildServer({ claudeDir, dbPath, queryFn: sdk.fn as any });
+    try {
+      const sessionId = await launch(app);
+      await vi.waitFor(async () => {
+        const s = await sessionOf(app, sessionId);
+        expect(s?.awaitingSubagents).toBe(true);
+        expect(s?.backgroundTasks[0]).toEqual(expect.objectContaining({ intent: 'wait', label: 'Run the tests' }));
+      }, { timeout: 3000 });
+      expect((await sessionOf(app, sessionId)).status).toBe('working');
+    } finally {
+      sdk.finish();
       await app.close();
     }
   });

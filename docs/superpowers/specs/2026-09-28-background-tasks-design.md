@@ -146,6 +146,10 @@ monitors too, deliberately: a dev server left running keeps the planet
 `working` for as long as it runs. That is the point — it is visible, the
 label says what is waited for, and it is one click from being stopped.
 
+Since [[2026-10-08-kept-shells-design]], a shell the agent marks `[keep]`
+(a dev server, a watcher) no longer holds `working`; only a `[wait]` shell,
+or one with no marker, does.
+
 `hasLiveSubagents` widens to "anything the session launched is still
 running" (`hasLiveBackgroundWork`). The label needs no field of its own:
 the web counts the running tasks by `kind` off `backgroundTasks`, gated
