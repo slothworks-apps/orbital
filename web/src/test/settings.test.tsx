@@ -36,6 +36,9 @@ function openSection(
   vi.mocked(api.patchSettings).mockClear()
 }
 import { Settings, initialSection } from '../panels/Settings'
+import { DEBOUNCE_MS } from '../panels/settingsRows'
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const defaultUi: OrbitalUiState = {
   selectedId: null,
@@ -122,6 +125,36 @@ describe('Settings', () => {
     )
     expect(api.patchSettings).toHaveBeenCalledTimes(1)
     expect(useOrbital.getState().settings.default_project_dir).toBe('/home/tomin/work')
+  })
+
+  it('saves a draft still waiting on its debounce when the dialog closes', async () => {
+    resetStore()
+    const onClose = vi.fn()
+    const { rerender } = render(<Settings open onClose={onClose} />)
+    openSection('Sessions')
+
+    fireEvent.change(screen.getByLabelText(/default project directory/i), { target: { value: '/home/tomin/work' } })
+    expect(api.patchSettings).not.toHaveBeenCalled()
+    rerender(<Settings open={false} onClose={onClose} />)
+
+    expect(api.patchSettings).toHaveBeenCalledWith({ default_project_dir: '/home/tomin/work' })
+    await sleep(DEBOUNCE_MS + 100)
+    expect(api.patchSettings).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves nothing on close for a draft typed back to the saved value', async () => {
+    resetStore()
+    const onClose = vi.fn()
+    const { rerender } = render(<Settings open onClose={onClose} />)
+    openSection('Sessions')
+
+    const field = screen.getByLabelText(/default project directory/i)
+    fireEvent.change(field, { target: { value: '/home/tomin/work' } })
+    fireEvent.change(field, { target: { value: '' } })
+    rerender(<Settings open={false} onClose={onClose} />)
+
+    await sleep(DEBOUNCE_MS + 100)
+    expect(api.patchSettings).not.toHaveBeenCalled()
   })
 
   // Spec 2026-09-16-electron-wrapper-design § 3: empty means autodetect, so an
