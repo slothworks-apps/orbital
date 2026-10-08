@@ -38,19 +38,19 @@ describe('WakeTracker', () => {
 });
 
 describe('pushText', () => {
-  it('names the Mac and pluralises', () => {
-    expect(pushText('studio', 1)).toEqual({ title: 'Orbital · studio', body: 'A session needs your input' });
-    expect(pushText('studio', 3)).toEqual({ title: 'Orbital · studio', body: '3 sessions need your input' });
+  it('names no device and pluralises', () => {
+    expect(pushText(1)).toEqual({ title: 'Orbital', body: 'A session needs your input' });
+    expect(pushText(3)).toEqual({ title: 'Orbital', body: '3 sessions need your input' });
   });
 });
 
 describe('wakeHook', () => {
   it('sends to the phone token with the running count, and skips a phone without a token', async () => {
     const store = await openRelayStore(':memory:');
-    await store.upsertDevice({ id: 'mac', kind: 'mac', name: 'studio' });
-    await store.upsertDevice({ id: 'phone', kind: 'phone', name: 'Pixel' });
+    await store.upsertDevice({ id: 'mac', kind: 'mac' });
+    await store.upsertDevice({ id: 'phone', kind: 'phone' });
     await store.setPushToken('phone', 'fcm-1');
-    await store.upsertDevice({ id: 'mute', kind: 'phone', name: 'NoToken' });
+    await store.upsertDevice({ id: 'mute', kind: 'phone' });
     const sender = { send: vi.fn(async () => {}) };
     const hook = wakeHook(store, new WakeTracker(), sender);
     await hook('mac', 'phone', new Uint8Array(16).fill(1));
@@ -58,8 +58,8 @@ describe('wakeHook', () => {
     await hook('mac', 'mute', new Uint8Array(16).fill(1));
     await new Promise((r) => setTimeout(r, 0));
     expect(sender.send.mock.calls).toEqual([
-      ['fcm-1', { macName: 'studio', count: 1 }],
-      ['fcm-1', { macName: 'studio', count: 2 }],
+      ['fcm-1', { count: 1 }],
+      ['fcm-1', { count: 2 }],
     ]);
   });
 });
@@ -80,8 +80,8 @@ describe('FcmPushSender', () => {
       fetchImpl as any,
       () => 1_700_000_000_000,
     );
-    await sender.send('fcm-1', { macName: 'studio', count: 1 });
-    await sender.send('fcm-1', { macName: 'studio', count: 2 });
+    await sender.send('fcm-1', { count: 1 });
+    await sender.send('fcm-1', { count: 2 });
     expect(calls.map((c) => c.url)).toEqual([
       'https://oauth2.googleapis.com/token',
       'https://fcm.googleapis.com/v1/projects/proj/messages:send',
@@ -89,7 +89,7 @@ describe('FcmPushSender', () => {
     ]);
     const sent = JSON.parse(calls[1].init.body as string);
     expect(sent.message.token).toBe('fcm-1');
-    expect(sent.message.notification).toEqual({ title: 'Orbital · studio', body: 'A session needs your input' });
+    expect(sent.message.notification).toEqual({ title: 'Orbital', body: 'A session needs your input' });
     expect(sent.message.android.collapse_key).toBe('needs-input');
     expect((calls[1].init.headers as Record<string, string>).authorization).toBe('Bearer tok');
   });
@@ -115,7 +115,7 @@ describe('FcmPushSender', () => {
       fetchImpl as any,
       () => 1_700_000_000_000,
     );
-    await sender.send('fcm-1', { macName: 'studio', count: 1 });
+    await sender.send('fcm-1', { count: 1 });
     expect(calls.map((c) => c.url)).toEqual([
       'https://oauth2.googleapis.com/token',
       'https://fcm.googleapis.com/v1/projects/proj/messages:send',
@@ -138,6 +138,6 @@ describe('FcmPushSender', () => {
       fetchImpl as any,
       () => 1_700_000_000_000,
     );
-    await expect(sender.send('fcm-1', { macName: 'studio', count: 1 })).rejects.toThrow('fcm 401');
+    await expect(sender.send('fcm-1', { count: 1 })).rejects.toThrow('fcm 401');
   });
 });

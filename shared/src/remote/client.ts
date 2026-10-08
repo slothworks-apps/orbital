@@ -18,7 +18,7 @@ import {
 } from './messages.js';
 import {
   CLOSE_BAD_SECRET, PAIRING_TOKEN_TTL_MS, RELAY_PING_INTERVAL_MS, RelayToDevice, authSignature, pairingProof, relayWsUrl,
-  signRequest, type DeviceToRelay,
+  sealPairingDevice, signRequest, type DeviceToRelay,
 } from './relayApi.js';
 import { RELAY_VERSION_HEADER, relayAnswerTooOld, relayTooOld, type RelayTooOld } from './version.js';
 
@@ -38,9 +38,6 @@ export const TUNNEL_SILENCE_TIMEOUT_MS = RELAY_PING_INTERVAL_MS * 3;
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
 /** How long a `request`, a `getBlob` or `getFile` (per chunk, unless told otherwise) or a notifications call waits for its answer. */
 export const REQUEST_TIMEOUT_MS = 20_000;
-/** The relay's `RedeemPayload` caps (relay/src/pairing.ts). */
-export const PAIR_NAME_MAX_CHARS = 80;
-export const PAIR_PLATFORM_MAX_CHARS = 20;
 
 /** What the client needs of a WebSocket: the browser's surface, which `ws` offers too. */
 export interface SocketLike {
@@ -66,7 +63,8 @@ export type RemoteClientEvent =
   | { type: 'ready'; ready: boolean }
   /** `needed`: the Mac's `MIN_PHONE_VERSION`, with `app_too_old`. */
   | { type: 'bye'; reason: ByeReason; needed?: string }
-  | { type: 'paired'; macName: string }
+  /** The Mac confirmed; its name is the QR's, the relay knows none. */
+  | { type: 'paired' }
   | { type: 'rejected' }
   | { type: 'unpaired' }
   | { type: 'relay_error'; code: string }
@@ -360,7 +358,8 @@ export class RemoteClient {
   }
 
   /**
-   * Posts `/pair/redeem` with the proof that this key scanned the QR. Never
+   * Posts `/pair/redeem` with the proof that this key scanned the QR, and
+   * this phone's `name` and `platform` sealed for the Mac alone. Never
    * rejects: an unreachable relay answers status 0, as the Mac's
    * `RelayClient.post` does. A 200 only means the relay passed it on; call
    * `waitForPairing` first and await it after.
@@ -372,11 +371,11 @@ export class RemoteClient {
   async redeem(
     token: string, secret: string, name: string, platform: string,
   ): Promise<{ status: number; body: unknown; relayTooOld?: RelayTooOld }> {
+    const key = fromBase64Url(secret);
     const payload = {
       token,
-      name: name.slice(0, PAIR_NAME_MAX_CHARS),
-      platform: platform.slice(0, PAIR_PLATFORM_MAX_CHARS),
-      proof: pairingProof(fromBase64Url(secret), this.opts.identity.publicKey),
+      proof: pairingProof(key, this.opts.identity.publicKey),
+      device: sealPairingDevice(key, this.opts.identity.publicKey, { name, platform }),
     };
     const fetchImpl = this.opts.fetchImpl ?? ((input: string, init: RequestInit) => globalThis.fetch(input, init));
     const now = this.opts.now ?? Date.now;
@@ -530,7 +529,7 @@ export class RemoteClient {
         if (msg.mac !== this.opts.mac) return;
         // A pair exists from here on: a revoke while this client is away must reach it on its next connect.
         this.expectPaired = true;
-        this.emit({ type: 'paired', macName: msg.name });
+        this.emit({ type: 'paired' });
         this.sendPushToken();
         this.setMacOnline(true);
         this.beginHandshake();

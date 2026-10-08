@@ -20,7 +20,8 @@ async function fakeRelay(opts: { secret?: string; version?: string } = {}) {
   const auths: Record<string, unknown>[] = [];
   wss.on('connection', (ws) => {
     sockets.push(ws);
-    ws.send(JSON.stringify({ type: 'challenge', nonce: 'n-' + sockets.length, version: opts.version }));
+    // A relay at the minimum unless told otherwise: one that announces nothing is too old.
+    ws.send(JSON.stringify({ type: 'challenge', nonce: 'n-' + sockets.length, version: opts.version ?? MIN_RELAY_VERSION }));
     ws.on('message', (raw, isBinary) => {
       if (isBinary) return ws.send(raw);
       const msg = JSON.parse((raw as Buffer).toString('utf8'));
@@ -139,7 +140,9 @@ describe('RelayClient', () => {
     const seen: unknown[] = [];
     const fetchImpl = (async (url: string, init: RequestInit) => {
       seen.push({ url, body: JSON.parse(init.body as string) });
-      return new Response(JSON.stringify({ token: 't', expiresAt: 1 }), { status: 200 });
+      return new Response(JSON.stringify({ token: 't', expiresAt: 1 }), {
+        status: 200, headers: { [RELAY_VERSION_HEADER]: MIN_RELAY_VERSION },
+      });
     }) as unknown as typeof fetch;
     const me = generateIdentity();
     const client = new RelayClient({ relayUrl: 'http://relay.test', identity: me, fetchImpl });

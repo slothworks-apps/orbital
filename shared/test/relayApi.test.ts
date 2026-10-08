@@ -1,9 +1,55 @@
 import { describe, it, expect } from 'vitest';
-import { generateIdentity, deviceId } from '../src/remote/keys.js';
+import { generateIdentity, deviceId, fromBase64Url, toBase64Url } from '../src/remote/keys.js';
 import {
-  DeviceToRelay, PAIRING_SECRET_BYTES, QrPayload, RelayToDevice, SIGNED_REQUEST_SKEW_MS, authSignature,
-  canonicalJson, pairingProof, relayWsUrl, signRequest, verifyAuthSignature, verifyPairingProof, verifyRequest,
+  DeviceToRelay, PAIRING_SECRET_BYTES, PAIR_NAME_MAX_CHARS, PAIR_PLATFORM_MAX_CHARS, QrPayload, RelayToDevice,
+  SEALED_DEVICE_MAX_CHARS, SIGNED_REQUEST_SKEW_MS, authSignature, canonicalJson, openPairingDevice, pairingProof,
+  relayWsUrl, sealPairingDevice, signRequest, verifyAuthSignature, verifyPairingProof, verifyRequest,
 } from '../src/remote/relayApi.js';
+
+describe('sealed pairing device', () => {
+  const secret = () => crypto.getRandomValues(new Uint8Array(PAIRING_SECRET_BYTES));
+  const device = { name: 'Pixel 8', platform: 'Android 15' };
+
+  it('opens with the secret and phone key it was sealed for', () => {
+    const s = secret();
+    const phone = generateIdentity().publicKey;
+    const sealed = sealPairingDevice(s, phone, device);
+    expect(sealed).not.toContain('Pixel');
+    expect(openPairingDevice(s, phone, sealed)).toEqual(device);
+  });
+
+  it('opens with no other secret and for no other phone key', () => {
+    const s = secret();
+    const phone = generateIdentity().publicKey;
+    const sealed = sealPairingDevice(s, phone, device);
+    expect(openPairingDevice(secret(), phone, sealed)).toBeNull();
+    // A relay replaying the blob beside a key of its own gets nothing.
+    expect(openPairingDevice(s, generateIdentity().publicKey, sealed)).toBeNull();
+  });
+
+  it('refuses a tampered, truncated or oversize blob', () => {
+    const s = secret();
+    const phone = generateIdentity().publicKey;
+    const bytes = fromBase64Url(sealPairingDevice(s, phone, device));
+    bytes[bytes.length - 1] ^= 1;
+    expect(openPairingDevice(s, phone, toBase64Url(bytes))).toBeNull();
+    expect(openPairingDevice(s, phone, toBase64Url(bytes.slice(0, 30)))).toBeNull();
+    expect(openPairingDevice(s, phone, '')).toBeNull();
+    expect(openPairingDevice(s, phone, 'A'.repeat(SEALED_DEVICE_MAX_CHARS + 1))).toBeNull();
+  });
+
+  it('stays within the size the relay accepts at the longest name and platform', () => {
+    const s = secret();
+    const phone = generateIdentity().publicKey;
+    // Control characters are what JSON spells longest.
+    const worst = { name: '\u0001'.repeat(PAIR_NAME_MAX_CHARS + 10), platform: '\u0001'.repeat(PAIR_PLATFORM_MAX_CHARS + 10) };
+    const sealed = sealPairingDevice(s, phone, worst);
+    expect(sealed.length).toBeLessThanOrEqual(SEALED_DEVICE_MAX_CHARS);
+    expect(openPairingDevice(s, phone, sealed)).toEqual({
+      name: worst.name.slice(0, PAIR_NAME_MAX_CHARS), platform: worst.platform.slice(0, PAIR_PLATFORM_MAX_CHARS),
+    });
+  });
+});
 
 describe('pairing proof', () => {
   it('verifies for the secret and key it was made from, and for nothing else', () => {

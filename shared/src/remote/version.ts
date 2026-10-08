@@ -8,8 +8,13 @@
  * has not reached.
  */
 
-/** The oldest relay the Mac and the phone connect through; compared with what the relay announces. */
-export const MIN_RELAY_VERSION = '0.2.0';
+/**
+ * The oldest relay the Mac and the phone connect through; compared with what
+ * the relay announces. The release that knows no device names: it takes a
+ * `/pair/token` without one and passes the phone's sealed device on (spec
+ * 2026-10-08-relay-knows-no-names-design), which no earlier relay does.
+ */
+export const MIN_RELAY_VERSION = '0.4.0';
 
 /**
  * The oldest Orbital on the Mac this phone works with (spec § 5, 9i): the

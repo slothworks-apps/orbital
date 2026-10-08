@@ -5,7 +5,9 @@
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { PAIRING_TOKEN_TTL_MS, verifyRequest, type RelayAction } from '@orbital/shared/remote/relayApi';
+import {
+  PAIRING_TOKEN_TTL_MS, SEALED_DEVICE_MAX_CHARS, verifyRequest, type RelayAction,
+} from '@orbital/shared/remote/relayApi';
 import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { log, short } from './log.js';
 import { secretMatches } from './secret.js';
@@ -27,10 +29,15 @@ const REDEEM_CORS = {
   'access-control-max-age': '600',
 };
 
-const TokenPayload = z.object({ name: z.string().max(80) });
-// `proof` is opaque here: only the Mac holds the QR secret it is checked against.
+/**
+ * The relay knows no device names (spec 2026-10-08-relay-knows-no-names-design).
+ * A Mac or a phone from before that still sends them — `name` here, `name`
+ * and `platform` with a redeem — and zod's default strip drops them unread.
+ */
+const TokenPayload = z.object({});
+// `proof` and `device` are opaque here: only the Mac holds the QR secret they are made with.
 const RedeemPayload = z.object({
-  token: z.string(), name: z.string().max(80), platform: z.string().max(20), proof: z.string().max(64),
+  token: z.string(), proof: z.string().max(64), device: z.string().max(SEALED_DEVICE_MAX_CHARS).optional(),
 });
 const ConfirmPayload = z.object({ phone: z.string(), accept: z.boolean() });
 const RevokePayload = z.object({ phone: z.string() });
@@ -69,7 +76,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
   app.post('/pair/token', async (req, reply) => {
     const s = signed(req.body, 'pair.token', TokenPayload, req.ip, reply);
     if (!s) return;
-    await ctx.store.upsertDevice({ id: s.id, kind: 'mac', name: s.payload.name });
+    await ctx.store.upsertDevice({ id: s.id, kind: 'mac' });
     await ctx.store.pruneExpiredTokens(ctx.now());
     const expiresAt = ctx.now() + PAIRING_TOKEN_TTL_MS;
     const token = await ctx.store.createPairingToken(s.id, expiresAt);
@@ -87,8 +94,8 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     void reply.header('access-control-expose-headers', RELAY_VERSION_HEADER);
     const s = signed(req.body, 'pair.redeem', RedeemPayload, req.ip, reply);
     if (!s) return;
-    const { token, name, platform, proof } = s.payload;
-    const peek = await ctx.store.redeemPairingToken(token, s.id, name, platform, ctx.now());
+    const { token, proof, device } = s.payload;
+    const peek = await ctx.store.redeemPairingToken(token, s.id, ctx.now());
     if (!peek) return reply.code(404).send({ error: 'token_invalid' });
     // The Mac has to be online to show its confirmation (9o). The token is
     // consumed either way: the 409 tells the phone to wake the Mac and scan a
@@ -98,10 +105,14 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       log(`pairing rejected: mac ${short(peek.mac)} offline for phone ${short(s.id)}`);
       return reply.code(409).send({ error: 'mac_offline' });
     }
-    await ctx.store.upsertDevice({ id: s.id, kind: 'phone', name, platform });
-    ctx.connections.sendControl(peek.mac, { type: 'pair_request', phone: s.id, name, platform, proof });
+    await ctx.store.upsertDevice({ id: s.id, kind: 'phone' });
+    // The sealed device passes straight through and is never stored. The
+    // empty `name` and `platform` are for a Mac whose schema requires them.
+    ctx.connections.sendControl(peek.mac, {
+      type: 'pair_request', phone: s.id, proof, name: '', platform: '', ...(device === undefined ? {} : { device }),
+    });
     log(`pairing token redeemed: mac ${short(peek.mac)}, phone ${short(s.id)}`);
-    return { mac: peek.mac, name: (await ctx.store.device(peek.mac))?.name ?? '' };
+    return { mac: peek.mac };
   });
 
   app.post('/pair/confirm', async (req, reply) => {
@@ -115,7 +126,8 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       ctx.connections.get(s.id)?.peers.add(phone);
       ctx.connections.get(phone)?.peers.add(s.id);
       ctx.connections.pairsChanged();
-      ctx.connections.sendControl(phone, { type: 'paired', mac: s.id, name: (await ctx.store.device(s.id))?.name ?? '' });
+      // `name` stays empty, for a phone whose schema requires one: the phone has the Mac's name from the QR.
+      ctx.connections.sendControl(phone, { type: 'paired', mac: s.id, name: '' });
       // Both are online right now, and neither has heard about the other yet.
       ctx.connections.sendControl(s.id, { type: 'presence', peer: phone, online: ctx.connections.isOnline(phone) });
       ctx.connections.sendControl(phone, { type: 'presence', peer: s.id, online: true });

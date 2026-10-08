@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { generateIdentity, deviceId, fromBase64Url, publicKeyOf } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, WAKE_BYTES, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import { startHandshake } from '@orbital/shared/remote/handshake';
-import { PAIRING_SECRET_BYTES, QrPayload, pairingProof } from '@orbital/shared/remote/relayApi';
+import { PAIRING_SECRET_BYTES, QrPayload, pairingProof, sealPairingDevice } from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
 import { MIN_PHONE_VERSION, MIN_RELAY_VERSION } from '@orbital/shared/remote/version';
@@ -16,7 +16,8 @@ import { DeviceStore } from '../src/remote/devices.js';
 import { IDENTITY_FILE } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
 import {
-  BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, PAIR_CODE_ATTEMPTS, RELAY_TOO_OLD_RECHECK_MS, RemoteService, type RemoteServiceOptions,
+  BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, PAIR_CODE_ATTEMPTS, RELAY_TOO_OLD_RECHECK_MS, RemoteService, UNKNOWN_PHONE_NAME,
+  type RemoteServiceOptions,
 } from '../src/remote/service.js';
 import { pairingCode, wrongCode } from './remoteHarness.js';
 import { makeTmpDir } from './tmp.js';
@@ -84,14 +85,33 @@ function build(
 }
 
 const phoneId = () => deviceId(generateIdentity().publicKey);
-const request = (phone: string, proof = pairingProof(qrSecret, publicKeyOf(phone)!)) =>
-  ({ type: 'pair_request', phone, name: 'iPhone', platform: 'ios', proof });
+/** As the relay forwards it: the device sealed by the phone, and empty plain names. */
+const request = (phone: string, proof = pairingProof(qrSecret, publicKeyOf(phone)!)) => ({
+  type: 'pair_request', phone, proof, name: '', platform: '',
+  device: sealPairingDevice(qrSecret, publicKeyOf(phone)!, { name: 'iPhone', platform: 'ios' }),
+});
 const tick = () => new Promise((r) => setTimeout(r, 0));
 /** The code the phone shows for this request: what the user reads off it and types on the Mac. */
 const codeFor = (service: RemoteService, phone: string) =>
   pairingCode(service.status().macId!, publicKeyOf(phone)!);
 
 describe('RemoteService pairing', () => {
+  it('gives the relay no name with a pairing code; the QR alone carries it', async () => {
+    const { service, fake } = build();
+    const res = await service.startPairing();
+    expect(fake.posts.find((p) => p.path === '/pair/token')?.payload).toEqual({});
+    expect('qr' in res && QrPayload.parse(JSON.parse(res.qr)).name).toBeTruthy();
+  });
+  it('shows a phone whose sealed device does not open, or that sent none, as an unknown phone', async () => {
+    for (const device of [undefined, sealPairingDevice(new Uint8Array(PAIRING_SECRET_BYTES), new Uint8Array(32), { name: 'x', platform: 'y' })]) {
+      const { service, fake } = build();
+      await service.startPairing();
+      const phone = phoneId();
+      // A relay that put a name in the clear is not believed either.
+      fake.emit('control', { ...request(phone), name: 'Relay says', platform: 'android', device });
+      expect(service.status().pendingPair).toMatchObject({ phone, name: UNKNOWN_PHONE_NAME, platform: '' });
+    }
+  });
   it('ignores a pair request outside a pairing window', () => {
     const { service, fake } = build();
     fake.emit('control', request(phoneId()));

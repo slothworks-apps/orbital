@@ -3,6 +3,10 @@
 All notable changes to the relay image. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `relay/package.json`.
 
 ## [Unreleased]
+### Changed
+- The relay stores no device names any more: it drops the Mac's and the phones' names and platforms it kept, and passes a phone's name to its Mac sealed, unreadable to the relay.
+- Notifications sent through the relay read "Orbital" without the Mac's name, so Firebase and Apple's push service see no name either.
+- The Mac and the phone now need this relay: update the relay before them.
 ### Fixed
 - A phone removed from a Mac at the very moment it reconnects is now told it is unpaired, and can no longer reach that Mac through the connection it opened.
 - A relay with a shared secret limits how many wrong secrets one address may try on a connection, as it already did for pairing, so the secret cannot be guessed by connecting over and over.

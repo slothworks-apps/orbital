@@ -17,7 +17,9 @@ describe('mobile remote, end to end', () => {
     closers.push(() => phone.close());
     await phone.connect(pair.json().qr);
     const redeemed = await phone.redeem();
-    expect(redeemed).toMatchObject({ status: 200, body: { name: 'studio' } });
+    expect(redeemed.status).toBe(200);
+    // The relay knows no names: the phone has the Mac's from the QR.
+    expect(redeemed.body).not.toHaveProperty('name');
     await until(async () => (await api('GET', '/api/remote')).json().pendingPair !== null);
     const status = (await api('GET', '/api/remote')).json();
     // The code is the phone's to show and the user's to type; the status never carries it.
@@ -30,7 +32,7 @@ describe('mobile remote, end to end', () => {
     // A real phone handshakes the moment it hears `paired`, which the relay
     // sends before it answers the Mac's confirm — so the confirm is not awaited first.
     const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code: code.toLowerCase() });
-    expect(await phone.nextControl('paired')).toMatchObject({ type: 'paired', name: 'studio' });
+    expect(await phone.nextControl('paired')).toMatchObject({ type: 'paired', name: '' });
     await phone.handshake();
     expect((await confirm).statusCode).toBe(200);
     await until(async () => (await api('GET', '/api/remote')).json().devices.some((d: any) => d.id === phone.id && d.online));

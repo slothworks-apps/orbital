@@ -19,8 +19,10 @@ tags:
 ## What it is
 
 `relay/` is the blind relay a phone and a Mac meet through. It stores
-devices (public key, kind, display name, platform, push token, last seen),
-pairs (which phone may talk to which Mac) and pairing tokens. It never
+devices (public key, kind, push token, last seen), pairs (which phone may
+talk to which Mac) and pairing tokens. It keeps no device names: the
+phone's name reaches the Mac sealed, and a push reads only "Orbital"
+(spec 2026-10-08-relay-knows-no-names-design). It never
 sees a session, a transcript, a path or a frame's body — every frame it
 routes is end-to-end encrypted, and it forwards bytes without opening
 them. The one exception is a `wake` token: an opaque per-session hash the
@@ -187,5 +189,5 @@ Logged, exactly:
 - warnings from a failing store write or wake hook (`relay: <what>:
   <error message>`)
 
-Never logged: a frame's body, a device's or Mac's display name, a full
-id or token. The relay cannot log what it never decrypts.
+Never logged: a frame's body, a full id or token. Device names the relay
+never has. The relay cannot log what it never decrypts.

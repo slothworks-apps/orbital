@@ -68,8 +68,10 @@ async function pairPhone(api: Api, closers: (() => unknown)[]) {
   await until(() => client.status === 'online');
   const outcome = client.waitForPairing();
   const redeemed = await client.redeem(qr.token, qr.secret, 'Pixel 8', 'android');
-  expect(redeemed).toMatchObject({ status: 200, body: { name: 'studio' } });
+  expect(redeemed).toEqual({ status: 200, body: { mac: qr.mac } });
   await until(async () => (await api('GET', '/api/remote')).json().pendingPair !== null);
+  // Sealed by the phone, opened by the Mac: the relay between them saw neither.
+  expect((await api('GET', '/api/remote')).json().pendingPair).toMatchObject({ name: 'Pixel 8', platform: 'android' });
   const hello = nextEvent(client, 'hello');
   // The relay says `paired` before it answers the Mac's confirm, so the confirm is not awaited first.
   const code = pairingCode(qr.mac, identity.publicKey);
