@@ -55,6 +55,9 @@ export const TAGS: Tag[] = [
 export const SETTINGS: Record<string, string> = {
   map_theme: 'planets',
   sidebar_collapsed: 'true',
+  // Pills rather than the default dots: the visitor has not learned what a
+  // dot's colour means yet, and the landing's legend names the pills' words.
+  map_state_pills: 'label',
 }
 
 interface SessionSpec {

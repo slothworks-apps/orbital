@@ -31,7 +31,7 @@ const OUT = join(PUBLIC, 'demo-images')
 const SHOTS = [
   { id: 'map-hero', path: '/demo/map/?scene=hero', viewport: { width: 1440, height: 900 }, scale: 2, outWidth: 1440 },
   { id: 'map-states', path: '/demo/map/?scene=states', viewport: { width: 1440, height: 900 }, scale: 2, outWidth: 1440 },
-  { id: 'session', path: '/demo/session/', viewport: { width: 1280, height: 800 }, scale: 2, outWidth: 1440 },
+  { id: 'session', path: '/demo/session/', viewport: { width: 960, height: 600 }, scale: 2, outWidth: 1440 },
   // A phone frame is narrow on the page but drawn on dense screens: twice its width.
   { id: 'phone-answer', path: '/demo/phone/?screen=answer', viewport: { width: 390, height: 844 }, scale: 2, outWidth: 780 },
   { id: 'phone-new', path: '/demo/phone/?screen=new', viewport: { width: 390, height: 844 }, scale: 2, outWidth: 780 },
