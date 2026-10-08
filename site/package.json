@@ -1,0 +1,30 @@
+{
+  "name": "@orbital/site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "npm run build:demo && astro build",
+    "build:demo": "vite build --config vite.demo.config.ts",
+    "preview": "astro preview",
+    "typecheck": "astro check",
+    "typecheck:demo": "tsc -p demo/tsconfig.json --noEmit",
+    "test": "vitest run --root demo",
+    "images": "node scripts/demo-images.mjs"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "playwright": "^1.64.0",
+    "typescript": "~6.0.2"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@astrojs/react": "^7.0.1",
+    "@astrojs/sitemap": "^3.7.4",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/manrope": "^5.3.0",
+    "astro": "^7.3.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

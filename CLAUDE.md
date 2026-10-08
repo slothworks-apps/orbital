@@ -12,7 +12,7 @@ to your subscription the same way the CLI is).
 it before you design anything the user sees or hears — states, motion,
 notifications, sound — and do not build what it rules out.
 
-Six npm workspaces:
+Seven npm workspaces:
 
 - `shared/` — what the Mac, the relay and the phone agree on: keys,
   frames, the handshake, message shapes, and the notification rules.
@@ -33,6 +33,8 @@ Six npm workspaces:
   encrypted frames.
 - `mobile/` — the Capacitor shells (Android and iOS) around `web/src/mobile`; no
   application logic of its own.
+- `site/` — the public website at orbital.slothworks.io — Astro, static; its
+  demos render components from `web/src` on demo data.
 
 ### Versions
 
@@ -54,6 +56,9 @@ own, before you report the work as done. Do not bump without an answer.
 
 Each workspace's `CLAUDE.md` says which of these versions its changes
 reach.
+
+The website has no version and no changelog. It is deployed straight from
+`main` by `.github/workflows/site-deploy.yml`.
 
 A phone bump is not one edit: `versionName` and `versionCode` have copies
 in `mobile/package.json` (and `package-lock.json`) and in the Xcode
@@ -99,10 +104,11 @@ Every PR gets a description and labels when it is opened — never
 `--fill` alone, which leaves the body empty. The description says what
 changes for the user and why, the phone decision, and any version bump.
 Labels: `desktop`, `relay`, `mobile` for each app the change reaches (the
-same mapping as Versions above), `ui` when it changes what the user sees,
-`ci` for workflows, hooks and build scripts, plus one of `bug`,
-`enhancement` or `documentation`. If no existing label fits, ask before
-creating one (`gh label list` shows them).
+same mapping as Versions above), `site` for a change that reaches the
+website (a change under `web/src` can reach it too, through its demos),
+`ui` when it changes what the user sees, `ci` for workflows, hooks and
+build scripts, plus one of `bug`, `enhancement` or `documentation`. If no
+existing label fits, ask before creating one (`gh label list` shows them).
 
 ### Every feature has a phone answer
 

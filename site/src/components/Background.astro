@@ -1,0 +1,84 @@
+---
+/** The glow and the star fields behind a page. The privacy page is quieter. */
+interface Props {
+  variant: 'landing' | 'privacy'
+}
+const { variant } = Astro.props
+---
+
+{
+  variant === 'landing' ? (
+    <>
+      <div class="layer glow-landing" aria-hidden="true" />
+      <div class="layer stars stars-landing" aria-hidden="true" />
+      <div class="layer stars-bright" aria-hidden="true" />
+    </>
+  ) : (
+    <>
+      <div class="layer glow-privacy" aria-hidden="true" />
+      <div class="layer stars stars-privacy" aria-hidden="true" />
+    </>
+  )
+}
+
+<style>
+  .layer {
+    position: absolute;
+    pointer-events: none;
+  }
+  .glow-landing {
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 1600px;
+    background:
+      radial-gradient(ellipse 720px 480px at 30% 20%, rgba(110, 80, 220, 0.13), transparent),
+      radial-gradient(ellipse 820px 560px at 76% 42%, rgba(40, 170, 220, 0.08), transparent);
+  }
+  .glow-privacy {
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 900px;
+    background: radial-gradient(ellipse 680px 420px at 30% 0%, rgba(110, 80, 220, 0.1), transparent);
+  }
+  .stars {
+    inset: 0;
+    background-size: 480px 480px;
+  }
+  .stars-landing {
+    background-image:
+      radial-gradient(circle at 6% 9%, rgba(255, 255, 255, 0.85) 0 0.7px, transparent 1.4px),
+      radial-gradient(circle at 21% 30%, rgba(255, 255, 255, 0.5) 0 0.6px, transparent 1.2px),
+      radial-gradient(circle at 37% 7%, rgba(255, 255, 255, 0.7) 0 0.9px, transparent 1.6px),
+      radial-gradient(circle at 52% 50%, rgba(255, 255, 255, 0.6) 0 0.6px, transparent 1.2px),
+      radial-gradient(circle at 75% 22%, rgba(255, 255, 255, 0.45) 0 0.5px, transparent 1px),
+      radial-gradient(circle at 85% 65%, rgba(255, 255, 255, 0.8) 0 0.8px, transparent 1.5px),
+      radial-gradient(circle at 15% 75%, rgba(255, 255, 255, 0.55) 0 0.6px, transparent 1.2px),
+      radial-gradient(circle at 32% 88%, rgba(255, 255, 255, 0.4) 0 0.5px, transparent 1px),
+      radial-gradient(circle at 62% 82%, rgba(255, 255, 255, 0.7) 0 0.7px, transparent 1.4px),
+      radial-gradient(circle at 95% 42%, rgba(255, 255, 255, 0.5) 0 0.6px, transparent 1.2px),
+      radial-gradient(circle at 70% 40%, rgba(180, 210, 255, 0.6) 0 0.8px, transparent 1.6px);
+    opacity: 0.7;
+  }
+  .stars-privacy {
+    background-image:
+      radial-gradient(circle at 6% 9%, rgba(255, 255, 255, 0.85) 0 0.7px, transparent 1.4px),
+      radial-gradient(circle at 37% 7%, rgba(255, 255, 255, 0.7) 0 0.9px, transparent 1.6px),
+      radial-gradient(circle at 75% 22%, rgba(255, 255, 255, 0.45) 0 0.5px, transparent 1px),
+      radial-gradient(circle at 85% 65%, rgba(255, 255, 255, 0.8) 0 0.8px, transparent 1.5px),
+      radial-gradient(circle at 15% 75%, rgba(255, 255, 255, 0.55) 0 0.6px, transparent 1.2px),
+      radial-gradient(circle at 62% 82%, rgba(255, 255, 255, 0.7) 0 0.7px, transparent 1.4px);
+    opacity: 0.4;
+  }
+  .stars-bright {
+    inset: 0;
+    background-image:
+      radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.9) 0 1px, transparent 2px),
+      radial-gradient(circle at 68% 12%, rgba(200, 225, 255, 0.85) 0 1.1px, transparent 2.2px),
+      radial-gradient(circle at 40% 60%, rgba(255, 255, 255, 0.8) 0 0.9px, transparent 1.9px),
+      radial-gradient(circle at 88% 78%, rgba(255, 240, 220, 0.85) 0 1px, transparent 2px);
+    background-size: 900px 900px;
+    opacity: 0.6;
+  }
+</style>

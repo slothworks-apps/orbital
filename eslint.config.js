@@ -25,6 +25,8 @@ export default tseslint.config(
       'server/drizzle/',
       'desktop/release/',
       'design/',
+      'site/.astro/',
+      'site/public/demo/',
       // Worktrees hold a second copy of the repo; linting it doubles everything.
       '.worktrees/',
       '.claude/',

@@ -1,0 +1,44 @@
+---
+/**
+ * The line under a demo frame that says it is live and what to try. It takes
+ * its space from the start, so the page does not shift when it shows, and
+ * stays invisible until DemoFrame's script marks the page as one whose demos
+ * load: with JavaScript off or on a narrow screen there are only posters.
+ */
+interface Props {
+  text: string
+  center?: boolean
+}
+
+const { text, center = false } = Astro.props
+---
+
+<div class:list={['caption', { center }]}>
+  <span class="dot" aria-hidden="true"></span>{text}
+</div>
+
+<style>
+  .caption {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: rgba(160, 190, 225, 0.6);
+    visibility: hidden;
+  }
+  :global(:root[data-demos-live]) .caption {
+    visibility: visible;
+  }
+  .center {
+    justify-content: center;
+  }
+  .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    border: 1px solid rgba(160, 190, 225, 0.7);
+  }
+</style>

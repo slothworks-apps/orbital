@@ -1,0 +1,945 @@
+---
+/**
+ * The landing page. Layout, ink and copy are the design canvas's landing page,
+ * maintained outside this repository; values here are read from it, not tuned by eye.
+ */
+import Base from '../layouts/Base.astro'
+import Background from '../components/Background.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+import DemoCaption from '../components/DemoCaption.astro'
+import DemoFrame from '../components/DemoFrame.astro'
+import {
+  APP_STORE_URL,
+  INVITE_MAILTO,
+  PHONE_RELEASE,
+  PLAY_URL,
+  RELEASES_URL,
+  REPO_URL,
+  SITE_URL,
+} from '../site'
+
+const testers = PHONE_RELEASE === 'testers'
+
+const title = 'Orbital - your Claude Code sessions as a map'
+const description =
+  'See all your Claude Code sessions at once: what is working, what needs your input and what is done. Open any session and keep going, from your Mac or your phone.'
+
+const softwareApplication = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Orbital',
+  description,
+  url: `${SITE_URL}/`,
+  operatingSystem: 'macOS',
+  applicationCategory: 'DeveloperApplication',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  downloadUrl: RELEASES_URL,
+  publisher: { '@type': 'Organization', name: 'SlothWorks s.r.o.' },
+}
+
+const states = [
+  { name: 'NEEDS INPUT', dot: 'needs-input', text: 'It has asked you something and won’t go on without you.' },
+  { name: 'DONE', dot: 'done', text: 'The work is finished. Pick it up whenever you’re ready.' },
+  { name: 'WORKING', dot: 'working', text: 'It is running. Nothing for you to do.' },
+]
+
+const sessionRows = [
+  { label: 'CHAT', text: 'Talk to the session the way you would in the terminal.' },
+  {
+    label: 'TERMINAL',
+    text: 'Sessions you started in the terminal show up too, read-only. Once one ends, pick it up in Orbital and keep going.',
+  },
+  { label: 'PERMISSIONS', text: 'Approve or deny each request, with the full command in front of you.' },
+  { label: 'DIFFS', text: 'Every edit shown as a diff, next to the message that made it.' },
+  { label: 'THE RECORD', text: 'Everything the agent did, in order: messages, tool calls, files.' },
+]
+
+const phoneRows = [
+  { label: 'PAIRING', text: 'Scan a QR code on your Mac.' },
+  {
+    label: 'RELAY',
+    text: 'The phone reaches your Mac through a relay you run yourself from a Docker image. Testers can ask to use ours instead.',
+  },
+  { label: 'NOTIFICATIONS', text: 'Off until you turn them on.' },
+]
+
+const moreRows = [
+  {
+    label: 'STATS',
+    text: 'Where your sessions spent their time: busy hours per day, the tools that ran most, where each turn went.',
+  },
+  {
+    label: 'CHECKLISTS',
+    text: 'Run a task as a checklist. Steps are ticked off as they finish, with a stop for your OK wherever you want one.',
+  },
+  {
+    label: 'TAGS & SEARCH',
+    text: 'Tag sessions by project, or let rules do it. Search dims what doesn’t match instead of hiding it.',
+  },
+  { label: 'GIT', text: 'Each session shows its branch and its pull request, worktrees included.' },
+  {
+    label: 'TWO LOGINS',
+    text: 'A personal and a work Claude Code on one map. Each session runs under its own folder’s login and plan limits.',
+  },
+  {
+    label: 'USAGE LIMITS',
+    text: 'Hit a usage limit and the session waits, then carries on by itself once the limit resets.',
+  },
+]
+
+const calm = [
+  {
+    title: 'Slow, steady motion.',
+    text: 'Planets drift and pulse at an even pace. Nothing flashes or shakes.',
+  },
+  {
+    title: 'Waiting is not an alarm.',
+    text: 'A session that needs you pulses and sends out a soft ring until you get to it. It waits as long as you need.',
+  },
+  {
+    title: 'Silent unless you ask.',
+    text: 'No sound until you turn it on. The same goes for the phone.',
+  },
+  {
+    title: 'Nothing ends behind your back.',
+    text: 'Orbital never closes a session for you. You decide when it is done.',
+  },
+]
+
+const phoneNeeds = 'Orbital on your Mac, and a relay: your own, or ours by arrangement.'
+const phones = [
+  {
+    name: 'iPhone',
+    channel: testers ? 'TestFlight' : 'App Store',
+    href: testers ? INVITE_MAILTO : APP_STORE_URL,
+    action: testers ? 'Ask for an invite' : 'Get it on the App Store',
+  },
+  {
+    name: 'Android',
+    channel: testers ? 'Google Play · testing' : 'Google Play',
+    href: testers ? INVITE_MAILTO : PLAY_URL,
+    action: testers ? 'Ask for an invite' : 'Get it on Google Play',
+  },
+]
+---
+
+<Base title={title} description={description} label="Landing">
+  <script slot="head" type="application/ld+json" set:html={JSON.stringify(softwareApplication)} />
+
+  <Background variant="landing" />
+
+  <Header home="#top">
+    <nav class="mono top-nav" aria-label="Main">
+      <a href="#map" class="quiet">Tour</a>
+      <a href={REPO_URL} class="quiet">GitHub</a>
+      <a href="#get" class="pill">Get Orbital</a>
+    </nav>
+  </Header>
+
+  <main>
+    <section id="top" class="section hero">
+      <div class="orbits" aria-hidden="true">
+        <div class="orbit-outer"></div>
+        <div class="orbit-outer-track"><span></span></div>
+        <div class="orbit-inner"></div>
+        <div class="orbit-inner-track"><span></span></div>
+      </div>
+      <div class="mono eyebrow hero-eyebrow">FOR CLAUDE CODE · MAC + PHONE</div>
+      <h1><span>Orbital</span></h1>
+      <p class="tagline">See <span class="em">all your Claude Code sessions</span> at once.</p>
+      <p class="hero-lede">
+        What is working, what needs your input and what is done, in one place. Open any session and keep going, from
+        your Mac or your phone.
+      </p>
+      <div class="hero-actions">
+        <a href={RELEASES_URL} class="hero-btn primary" target="_blank" rel="noopener">
+          <span class="hero-btn-name">Orbital for Mac</span>
+          <span class="mono hero-btn-note">DMG · APPLE SILICON · GITHUB ↗</span>
+        </a>
+        <a href="#get" class="hero-btn">
+          <span class="hero-btn-name">iPhone</span>
+          <span class="mono hero-btn-note">{testers ? 'TESTFLIGHT · INVITE ONLY' : 'APP STORE'}</span>
+        </a>
+        <a href="#get" class="hero-btn">
+          <span class="hero-btn-name">Android</span>
+          <span class="mono hero-btn-note">{testers ? 'GOOGLE PLAY · INVITE ONLY' : 'GOOGLE PLAY'}</span>
+        </a>
+      </div>
+      <div class="hero-demo">
+        <DemoFrame id="map-hero" eager />
+        <DemoCaption text="Live demo · click a planet to open it" center />
+      </div>
+    </section>
+
+    <section id="map" class="section tour">
+      <div class="mono eyebrow">01 · THE MAP</div>
+      <div class="map-intro">
+        <h2 class="h2"><span class="grad">Every session, at a glance.</span></h2>
+        <p class="lede">
+          <span class="em">Working, needing your input or done</span>: you can tell without reading a word, and without
+          switching terminals. Planets is the default theme; Desk is there if you prefer something plainer.
+        </p>
+      </div>
+      <div class="states-demo">
+        <DemoFrame id="map-states" />
+        <DemoCaption text="Live demo · click a planet to open it" />
+      </div>
+      <div class="states">
+        {
+          states.map((state) => (
+            <div class="state">
+              <div class="mono state-name">
+                <span class:list={['dot', state.dot]} />
+                {state.name}
+              </div>
+              <p>{state.text}</p>
+            </div>
+          ))
+        }
+        <div class="state">
+          <div class="mono state-name">
+            <span class="dot waiting"></span><span class="waiting-name">WAITING FOR AGENTS</span>
+          </div>
+          <p>It is waiting on its subagents, which circle it until they are done.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="session" class="section tour">
+      <div class="session-layout">
+        <div class="column">
+          <div class="mono eyebrow">02 · DRIVING A SESSION</div>
+          <h2 class="h2 spaced"><span class="grad">Open a session and keep going.</span></h2>
+          <p class="lede narrow">
+            <span class="em">A full chat with Claude</span>, right where you see it. Continue a session or start a new
+            one. It is billed to your own Claude subscription, the same way the CLI is.
+          </p>
+          <div class="rows">
+            {
+              sessionRows.map((row) => (
+                <div class="row">
+                  <span class="mono row-label">{row.label}</span>
+                  <span class="row-text">{row.text}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+        <div class="session-demo">
+          <DemoFrame id="session" />
+          <DemoCaption text="Live demo · scroll the chat, open the diff" />
+        </div>
+      </div>
+    </section>
+
+    <section id="phone" class="section tour">
+      <div class="phone-layout">
+        <div class="phones-demo">
+          <div class="phones">
+            <DemoFrame id="phone-answer" style="flex:0 1 250px;min-width:0" />
+            <DemoFrame id="phone-new" style="flex:0 1 250px;min-width:0;margin-top:clamp(28px,5cqw,64px)" />
+          </div>
+          <DemoCaption text="Live demo · tap through both screens" center />
+        </div>
+        <div class="column">
+          <div class="mono eyebrow">03 · THE PHONE</div>
+          <h2 class="h2 spaced"><span class="grad">Answer from anywhere.</span></h2>
+          <p class="lede narrow">
+            The iPhone and Android app pairs with your Mac. When a session needs your input, <span class="em"
+              >answer it from wherever you are</span
+            >, or start a new one away from the desk.
+          </p>
+          <div class="rows">
+            {
+              phoneRows.map((row) => (
+                <div class="row">
+                  <span class="mono row-label">{row.label}</span>
+                  <span class="row-text">{row.text}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="calm" class="section far">
+      <div class="mono eyebrow">04 · CALM BY DESIGN</div>
+      <h2 class="h2 spaced calm-title"><span class="grad">Built to be looked at all day.</span></h2>
+      <div class="calm">
+        {
+          calm.map((point, i) => (
+            <div class="calm-point">
+              <div class="mono calm-number">{String(i + 1).padStart(2, '0')}</div>
+              <div class="calm-title-text">{point.title}</div>
+              <p>{point.text}</p>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <section id="private" class="section far">
+      <div class="private">
+        <div class="mono eyebrow">05 · PRIVATE BY CONSTRUCTION</div>
+        <h2 class="private-title"><span class="grad">Your sessions stay yours.</span></h2>
+        <div class="private-points">
+          <div class="private-point">
+            <div class="mono private-label">ON YOUR MAC</div>
+            <p>Orbital runs only on your Mac and listens only locally.</p>
+          </div>
+          <div class="private-point">
+            <div class="mono private-label">ENCRYPTED RELAY</div>
+            <p>
+              The phone reaches your Mac through a relay that cannot read your sessions: they are end-to-end
+              encrypted. It ships as a Docker image, so you can run your own.
+            </p>
+          </div>
+          <div class="private-point">
+            <div class="mono private-label">NO ACCOUNT</div>
+            <p>Nothing to sign up for. No analytics, in the app or on this site.</p>
+          </div>
+          <div class="private-point">
+            <div class="mono private-label">OPEN SOURCE</div>
+            <p>MIT licensed. <a href={REPO_URL}>Read the code on GitHub</a>.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="more" class="section far">
+      <div class="mono eyebrow">06 · MORE IN THE BOX</div>
+      <h2 class="more-title"><span class="grad">There’s more to it.</span></h2>
+      <div class="rows more-rows">
+        {
+          moreRows.map((row) => (
+            <div class="row">
+              <span class="mono row-label">{row.label}</span>
+              <span class="row-text">{row.text}</span>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <section id="get" class="section far">
+      <div class="mono eyebrow">07 · GET ORBITAL</div>
+      <h2 class="h2 spaced get-title"><span class="grad">One Orbital, on your Mac and your phone.</span></h2>
+      {
+        testers ? (
+          <p class="lede get-lede">
+            <span class="em">The Mac app is a free download.</span> The phone apps are invite-only for now.
+          </p>
+        ) : (
+          <p class="lede get-lede">Start with the Mac app. The phone app is optional and pairs with it.</p>
+        )
+      }
+      <div class="cards">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-name">Mac</div>
+            <span class="mono badge">AVAILABLE</span>
+          </div>
+          <div class="mono card-channel">DMG · Apple silicon · notarized by Apple</div>
+          <div class="mono card-needs">NEEDS</div>
+          <p class="card-text">The Claude Code CLI, installed and logged in.</p>
+          <a href={RELEASES_URL} class="card-action primary" target="_blank" rel="noopener">Download from GitHub</a>
+        </div>
+        {
+          phones.map((phone) => (
+            <div class="card">
+              <div class="card-head">
+                <div class="card-name">{phone.name}</div>
+                <span class="mono badge">{testers ? 'INVITE ONLY' : 'AVAILABLE'}</span>
+              </div>
+              <div class="mono card-channel">{phone.channel}</div>
+              <div class="mono card-needs">NEEDS</div>
+              <p class="card-text">{phoneNeeds}</p>
+              <a href={phone.href} class="card-action">
+                {phone.action}
+              </a>
+            </div>
+          ))
+        }
+      </div>
+      {
+        testers && (
+          <p class="relay-note">
+            The relay is a Docker image you can run on your own server. During testing we can't promise compatibility
+            or uptime for self-hosted relays; if you'd rather use ours, say so when you ask for an invite.
+          </p>
+        )
+      }
+    </section>
+  </main>
+
+  <Footer current="landing" />
+</Base>
+
+<style>
+  .mono {
+    font-family: var(--mono);
+  }
+  .em {
+    color: #ffffff;
+    font-weight: 600;
+  }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    color: rgba(160, 190, 225, 0.6);
+  }
+  .grad {
+    background: linear-gradient(105deg, #ffffff 0%, #dcecff 45%, oklch(66% 0.06 230) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+  .h2 {
+    margin: 0;
+    font-size: clamp(34px, 4.6cqw, 58px);
+    line-height: 1.05;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+  .h2.spaced {
+    margin-top: 18px;
+  }
+  .lede {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.6;
+    color: rgba(160, 190, 225, 0.78);
+    text-wrap: pretty;
+  }
+  .lede.narrow {
+    margin-top: 20px;
+    max-width: 28em;
+  }
+
+  /* Header nav */
+  .top-nav {
+    display: flex;
+    align-items: center;
+    gap: clamp(14px, 3cqw, 28px);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+  .quiet {
+    color: rgba(160, 190, 225, 0.75);
+  }
+  .quiet:hover {
+    color: #e8eef8;
+  }
+  .pill {
+    color: #e8eef8;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(150, 205, 255, 0.22);
+  }
+  .pill:hover {
+    color: #e8eef8;
+    border-color: rgba(150, 205, 255, 0.45);
+  }
+
+  /* Sections */
+  .section {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 clamp(20px, 5cqw, 48px);
+  }
+  .section.tour {
+    padding-top: clamp(96px, 13cqw, 180px);
+  }
+  .section.far {
+    padding-top: clamp(120px, 15cqw, 220px);
+  }
+
+  /* Hero */
+  .hero {
+    padding-top: clamp(56px, 9cqw, 120px);
+    text-align: center;
+  }
+  .orbits {
+    position: absolute;
+    left: 50%;
+    top: clamp(160px, 18cqw, 250px);
+    width: min(820px, 170cqw);
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .orbit-outer {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px dashed rgba(150, 205, 255, 0.1);
+  }
+  .orbit-outer-track {
+    position: absolute;
+    inset: 0;
+    animation: orb-spin 220s linear infinite;
+  }
+  .orbit-outer-track span {
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    margin-left: -5px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: oklch(30% 0.05 220);
+    border: 1px solid oklch(85% 0.12 205 / 0.8);
+    box-shadow: 0 0 10px oklch(85% 0.12 205 / 0.4);
+  }
+  .orbit-inner {
+    position: absolute;
+    inset: 22%;
+    border-radius: 50%;
+    border: 1px solid rgba(150, 205, 255, 0.06);
+  }
+  .orbit-inner-track {
+    position: absolute;
+    inset: 22%;
+    animation: orb-spin 140s linear infinite reverse;
+    transform: rotate(120deg);
+  }
+  .orbit-inner-track span {
+    position: absolute;
+    top: -3px;
+    left: 50%;
+    margin-left: -3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(200, 225, 255, 0.7);
+  }
+  .hero-eyebrow {
+    position: relative;
+    color: rgba(160, 190, 225, 0.7);
+  }
+  h1 {
+    position: relative;
+    margin: 18px 0 0;
+    font-size: clamp(68px, 12cqw, 156px);
+    line-height: 0.95;
+    font-weight: 600;
+    letter-spacing: -0.045em;
+  }
+  h1 span {
+    display: inline-block;
+    padding: 0 0.04em 0.08em;
+    background: linear-gradient(105deg, #ffffff 0%, #dcecff 38%, oklch(58% 0.06 232) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    filter: drop-shadow(0 0 48px oklch(85% 0.12 205 / 0.22));
+  }
+  .tagline {
+    position: relative;
+    margin: 26px auto 0;
+    max-width: 30em;
+    font-size: clamp(19px, 2cqw, 24px);
+    line-height: 1.45;
+    text-wrap: balance;
+    color: rgba(160, 190, 225, 0.8);
+  }
+  .hero-lede {
+    position: relative;
+    margin: 12px auto 0;
+    max-width: 34em;
+    font-size: 16px;
+    line-height: 1.6;
+    color: rgba(160, 190, 225, 0.75);
+    text-wrap: pretty;
+  }
+  .hero-actions {
+    position: relative;
+    margin-top: 36px;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .hero-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 12px 20px;
+    border-radius: 12px;
+    border: 1px solid rgba(150, 205, 255, 0.22);
+    background: rgba(150, 205, 255, 0.04);
+    color: #e8eef8;
+    width: 220px;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .hero-btn:hover {
+    color: #e8eef8;
+    border-color: rgba(150, 205, 255, 0.45);
+  }
+  .hero-btn.primary {
+    border: 0;
+    background: #e8eef8;
+    color: #05070d;
+  }
+  .hero-btn.primary:hover {
+    background: #ffffff;
+    color: #05070d;
+  }
+  .hero-btn-name {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .hero-btn-note {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: rgba(160, 190, 225, 0.7);
+  }
+  .primary .hero-btn-note {
+    color: rgba(5, 7, 13, 0.62);
+  }
+
+  /* 01 · The map */
+  .map-intro {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 64px;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+  .map-intro .h2 {
+    flex: 1 1 420px;
+  }
+  .map-intro .lede {
+    flex: 1 1 340px;
+    max-width: 30em;
+  }
+  .states {
+    margin-top: 40px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px 40px;
+  }
+  .state {
+    flex: 1 1 220px;
+    border-top: 1px solid rgba(150, 205, 255, 0.12);
+    padding-top: 20px;
+  }
+  .state-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: #e8eef8;
+  }
+  .state p {
+    margin: 12px 0 0;
+    font-size: 15px;
+    line-height: 1.6;
+    color: rgba(160, 190, 225, 0.75);
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .dot.needs-input {
+    background: #ffbb7b;
+    box-shadow: 0 0 8px rgba(255, 187, 123, 0.45);
+  }
+  .dot.done {
+    background: #7fe3b0;
+    box-shadow: 0 0 8px rgba(127, 227, 176, 0.4);
+  }
+  .dot.working {
+    background: #59e4f3;
+    box-shadow: 0 0 8px rgba(89, 228, 243, 0.45);
+  }
+  /* A planet with a moon beside it. */
+  .dot.waiting {
+    width: 5px;
+    height: 5px;
+    background: #59e4f3;
+    box-shadow: 10px 0 0 -1px rgba(89, 228, 243, 0.55);
+  }
+  .waiting-name {
+    margin-left: 8px;
+  }
+
+  /* 02 · Driving a session, 03 · The phone */
+  .session-layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 48px clamp(40px, 6cqw, 88px);
+    align-items: center;
+  }
+  .session-layout .column {
+    flex: 1 1 340px;
+    min-width: 0;
+  }
+  .phone-layout {
+    display: flex;
+    flex-wrap: wrap-reverse;
+    gap: 56px clamp(40px, 6cqw, 88px);
+    align-items: center;
+  }
+  .phone-layout .column {
+    flex: 1 1 340px;
+    min-width: 0;
+  }
+  .hero-demo {
+    position: relative;
+    margin: clamp(56px, 7cqw, 88px) auto 0;
+  }
+  .states-demo {
+    margin-top: 48px;
+  }
+  .session-demo {
+    flex: 1.3 1 460px;
+    min-width: 0;
+  }
+  .phones-demo {
+    flex: 1.1 1 420px;
+    min-width: 0;
+  }
+  .phones {
+    display: flex;
+    /* Not stretch: the right phone's top margin would make the left one taller. */
+    align-items: flex-start;
+    justify-content: center;
+    gap: clamp(14px, 3cqw, 32px);
+  }
+  .rows {
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+  }
+  .row {
+    display: flex;
+    gap: 20px;
+    padding: 16px 0;
+    border-top: 1px solid rgba(150, 205, 255, 0.1);
+  }
+  .row:last-child {
+    border-bottom: 1px solid rgba(150, 205, 255, 0.1);
+  }
+  .row-label {
+    flex: 0 0 108px;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: rgba(160, 190, 225, 0.6);
+    padding-top: 3px;
+  }
+  .row-text {
+    font-size: 15px;
+    line-height: 1.55;
+    color: #e8eef8;
+  }
+
+  /* 06 · More in the box: the 02/03 rows, smaller, two columns on a wide page */
+  .more-title {
+    margin: 18px 0 0;
+    font-size: clamp(28px, 3.4cqw, 42px);
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .more-rows {
+    margin-top: clamp(32px, 4cqw, 48px);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
+    column-gap: clamp(32px, 5cqw, 72px);
+  }
+  .more-rows .row {
+    padding: 18px 0;
+  }
+  .more-rows .row:last-child {
+    border-bottom: none;
+  }
+  .more-rows .row-label {
+    flex-basis: 128px;
+  }
+  .more-rows .row-text {
+    text-wrap: pretty;
+  }
+
+  /* 04 · Calm by design */
+  .calm-title {
+    max-width: 14em;
+  }
+  .calm {
+    margin-top: clamp(48px, 6cqw, 80px);
+    display: flex;
+    flex-wrap: wrap;
+    gap: clamp(40px, 5cqw, 64px) clamp(32px, 5cqw, 72px);
+  }
+  .calm-point {
+    flex: 1 1 400px;
+    min-width: 0;
+  }
+  .calm-number {
+    font-size: 12px;
+    color: rgba(160, 190, 225, 0.5);
+  }
+  .calm-title-text {
+    margin-top: 12px;
+    font-size: clamp(24px, 2.6cqw, 32px);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+  }
+  .calm-point p {
+    margin: 10px 0 0;
+    max-width: 26em;
+    font-size: 16px;
+    line-height: 1.6;
+    color: rgba(160, 190, 225, 0.75);
+  }
+
+  /* 05 · Private by construction */
+  .private {
+    border-radius: 22px;
+    border: 1px solid rgba(150, 205, 255, 0.12);
+    background: linear-gradient(180deg, rgba(14, 20, 34, 0.72), rgba(8, 12, 22, 0.78));
+    padding: clamp(28px, 5cqw, 64px);
+  }
+  .private-title {
+    margin: 18px 0 0;
+    max-width: 16em;
+    font-size: clamp(30px, 3.8cqw, 48px);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+  .private-points {
+    margin-top: clamp(36px, 5cqw, 56px);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px 40px;
+  }
+  .private-point {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+  .private-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: #e8eef8;
+  }
+  .private-point p {
+    margin: 10px 0 0;
+    font-size: 15px;
+    line-height: 1.6;
+    color: rgba(160, 190, 225, 0.78);
+  }
+
+  /* 06 · Get Orbital */
+  .get-title {
+    text-wrap: wrap;
+  }
+  .get-lede {
+    margin-top: 20px;
+    max-width: 32em;
+  }
+  .cards {
+    margin-top: 48px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .card {
+    flex: 1 1 300px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border-radius: 18px;
+    border: 1px solid rgba(150, 205, 255, 0.14);
+    background: linear-gradient(180deg, rgba(14, 20, 34, 0.72), rgba(8, 12, 22, 0.78));
+    padding: 28px;
+  }
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .card-name {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .badge {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: rgba(200, 225, 255, 0.8);
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(150, 205, 255, 0.22);
+  }
+  .card-channel {
+    margin-top: 6px;
+    font-size: 12px;
+    color: rgba(160, 190, 225, 0.7);
+  }
+  .card-needs {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(150, 205, 255, 0.1);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    color: rgba(160, 190, 225, 0.55);
+  }
+  .card-text {
+    margin: 8px 0 0;
+    flex: 1;
+    font-size: 15px;
+    line-height: 1.6;
+    color: #e8eef8;
+  }
+  .card-action {
+    margin-top: 28px;
+    display: block;
+    text-align: center;
+    padding: 13px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(150, 205, 255, 0.24);
+    background: rgba(150, 205, 255, 0.04);
+    color: #e8eef8;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .card-action:hover {
+    color: #e8eef8;
+    border-color: rgba(150, 205, 255, 0.45);
+  }
+  .card-action.primary {
+    border: 0;
+    background: #e8eef8;
+    color: #05070d;
+  }
+  .card-action.primary:hover {
+    background: #ffffff;
+    color: #05070d;
+  }
+  .relay-note {
+    margin: 28px 0 0;
+    max-width: 46em;
+    font-size: 14px;
+    line-height: 1.6;
+    color: rgba(160, 190, 225, 0.7);
+    text-wrap: pretty;
+  }
+</style>

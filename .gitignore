@@ -7,6 +7,9 @@ desktop/dist/
 desktop/release/
 relay/dist/
 relay/data/
+site/dist/
+site/.astro/
+site/public/demo/
 .claude/worktrees/
 mobile/android/app/google-services.json
 mobile/ios/App/App/GoogleService-Info.plist
