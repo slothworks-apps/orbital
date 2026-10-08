@@ -164,6 +164,54 @@ describe('a second directory copied from the first', () => {
   });
 });
 
+describe('a session in a second directory', () => {
+  const nextTick = () => new Promise((resolve) => setImmediate(resolve));
+  const line = (entry: Record<string, unknown>) => JSON.stringify(entry) + '\n';
+
+  /**
+   * Every reader of a session's transcript finds it under the session's own
+   * directory: the file viewer's named paths, and the working tree it moved
+   * to, which decides the `cwd` a file request may read from (adr
+   * a-session-has-a-home-and-a-working-tree). Read from the first
+   * directory, the tree would be refused and the home read instead.
+   */
+  it('reads its files from the tree its transcript moved to, and the paths it named', async () => {
+    const personal = makeTmpDir('personal');
+    mkdirSync(join(personal, 'projects'), { recursive: true });
+    const base = makeTmpDir('second-dir-files');
+    const home = join(base, 'repo');
+    const tree = join(home, '.claude', 'worktrees', 'a');
+    mkdirSync(tree, { recursive: true });
+    writeFileSync(join(home, 'notes.md'), 'home');
+    writeFileSync(join(tree, 'notes.md'), 'tree');
+    const outside = join(base, 'outside.md');
+    writeFileSync(outside, 'named');
+    const work = join(base, '.claude-work');
+    mkdirSync(join(work, 'projects', 'proj'), { recursive: true });
+    writeFileSync(
+      join(work, 'projects', 'proj', 'w1.jsonl'),
+      line({ type: 'user', uuid: 'u1', timestamp: '2026-10-08T10:00:00.000Z', cwd: home, message: { role: 'user', content: 'go' } }) +
+        line({
+          type: 'assistant', uuid: 'a1', timestamp: '2026-10-08T10:00:05.000Z', cwd: tree,
+          message: { role: 'assistant', content: [{ type: 'text', text: `Wrote ${outside}` }] },
+        }),
+    );
+    const app = await buildServer({ dbPath: join(personal, 'index.db'), claudeDir: personal, queryFn: (() => {}) as any });
+    try {
+      await nextTick();
+      const added = await app.inject({ method: 'POST', url: '/api/claude-dirs', payload: { name: 'Work', path: work } });
+      expect(added.statusCode).toBe(201);
+      await nextTick();
+      const read = (query: Record<string, string>) =>
+        app.inject({ method: 'GET', url: '/api/files', query: { session: 'w1', ...query } });
+      expect((await read({ path: 'notes.md', cwd: tree })).json().content).toBe('tree');
+      expect((await read({ path: outside })).json().content).toBe('named');
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 describe('the directories service', () => {
   it('lets the environment override the first directory, and says so', () => {
     const { dirs } = service(openTmpDb('dirs'), '~/.claude-env');
