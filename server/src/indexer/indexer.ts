@@ -1,6 +1,7 @@
 import { eq, inArray, sql } from 'drizzle-orm';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import type { OrbitalDb } from '../db/database.js';
 import { sessions, sweptSessions, sessionStats } from '../db/schema.js';
 import { parseTranscript, extractMeta } from '../transcript/parser.js';
@@ -48,16 +49,64 @@ export function indexProjects(
   onStats?: SessionStatsWritten,
   owner: IndexOwner = FIRST_DIRECTORY,
 ): { scanned: number; indexed: number } {
+  return indexFiles(db, projectsDir, transcriptsUnder(projectsDir), onStats, owner);
+}
+
+/**
+ * How long the sliced pass holds the event loop before it yields. Short
+ * enough that a request waits no longer than one slice, long enough that the
+ * per-slice transaction stays a small share of the cost.
+ */
+export const BACKFILL_SLICE_MS = 50;
+
+/**
+ * The full pass in slices, yielding to the event loop before each one, so
+ * the server keeps answering while it reparses a large `~/.claude`. Each
+ * slice commits on its own and announces its rollups after that commit; the
+ * rule tags are regenerated once, at the end. Once `signal` aborts it stops
+ * before it touches the database again, and resolves to null.
+ */
+export async function indexProjectsSliced(
+  db: OrbitalDb,
+  projectsDir: string,
+  onStats?: SessionStatsWritten,
+  owner: IndexOwner = FIRST_DIRECTORY,
+  signal?: AbortSignal,
+  sliceMs: number = BACKFILL_SLICE_MS,
+): Promise<{ scanned: number; indexed: number } | null> {
+  await yieldToEventLoop();
+  if (signal?.aborted) return null;
+  const files = transcriptsUnder(projectsDir);
+  let scanned = 0;
+  let indexed = 0;
+  let ruleInputsChanged = false;
+  let from = 0;
+  while (from < files.length) {
+    if (from > 0) {
+      await yieldToEventLoop();
+      if (signal?.aborted) return null;
+    }
+    const slice = writePass(db, projectsDir, files, from, performance.now() + sliceMs, onStats, owner, false);
+    scanned += slice.scanned;
+    indexed += slice.indexed;
+    ruleInputsChanged ||= slice.ruleInputsChanged;
+    from = slice.next;
+  }
+  if (ruleInputsChanged) regenerateRuleTags(db);
+  return { scanned, indexed };
+}
+
+/** Every transcript under `projectsDir`, project by project. */
+function transcriptsUnder(projectsDir: string): TranscriptFile[] {
   let projectDirs: string[];
   try {
     projectDirs = readdirSync(projectsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name);
   } catch {
-    return { scanned: 0, indexed: 0 };
+    return [];
   }
-  const files = projectDirs.flatMap((d) => transcriptsIn(projectsDir, d));
-  return indexFiles(db, projectsDir, files, onStats, owner);
+  return projectDirs.flatMap((d) => transcriptsIn(projectsDir, d));
 }
 
 /**
@@ -102,6 +151,28 @@ function indexFiles(
   onStats: SessionStatsWritten | undefined,
   owner: IndexOwner,
 ): { scanned: number; indexed: number } {
+  const { scanned, indexed } = writePass(db, projectsDir, files, 0, Infinity, onStats, owner, true);
+  return { scanned, indexed };
+}
+
+/**
+ * Indexes `files` from `from` on, in one transaction, until the list ends or
+ * `performance.now()` passes `deadline` — at least one file either way.
+ * `next` is where the following slice starts. With `rulesNow` the rule tags
+ * are regenerated inside the transaction when the pass changed what they
+ * read; without it the caller does that once every slice has run.
+ */
+function writePass(
+  db: OrbitalDb,
+  projectsDir: string,
+  files: TranscriptFile[],
+  from: number,
+  deadline: number,
+  onStats: SessionStatsWritten | undefined,
+  owner: IndexOwner,
+  rulesNow: boolean,
+): { scanned: number; indexed: number; ruleInputsChanged: boolean; next: number } {
+  let next = from;
   let scanned = 0;
   let indexed = 0;
   /**
@@ -129,7 +200,9 @@ function indexFiles(
     );
     /** Tombstones this pass invalidated, dropped together at the end. */
     const revived: string[] = [];
-    for (const { projectDir, file } of files) {
+    while (next < files.length) {
+      if (next > from && performance.now() > deadline) break;
+      const { projectDir, file } = files[next++];
       scanned++;
       const path = join(projectsDir, projectDir, file);
       try {
@@ -253,7 +326,7 @@ function indexFiles(
     if (revived.length > 0) {
       db.delete(sweptSessions).where(inArray(sweptSessions.id, revived)).run();
     }
-    if (ruleInputsChanged) regenerateRuleTags(db);
+    if (rulesNow && ruleInputsChanged) regenerateRuleTags(db);
   });
   // One transaction per pass: a full pass writes hundreds of rows, and one
   // commit instead of one per statement is most of what it costs to write
@@ -262,5 +335,5 @@ function indexFiles(
   // becomes a savepoint inside this one.
   pass();
   if (onStats) for (const id of statsWritten) onStats(id);
-  return { scanned, indexed };
+  return { scanned, indexed, ruleInputsChanged, next };
 }

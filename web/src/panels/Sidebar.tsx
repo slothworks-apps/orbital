@@ -851,12 +851,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           ))}
         </ul>
 
-        <SectionHeading label="HISTORY" headingRef={historyHeadingRef}>
-          <span className="flex-1" />
-          <span className="tracking-[0.04em]" title="sorted by most recent">
-            recent ▾
-          </span>
-        </SectionHeading>
+        <SectionHeading label="HISTORY" headingRef={historyHeadingRef} />
         <ul className="flex flex-col gap-0.5 px-2" aria-label="Session history">
           {history.map((s) => (
             <SessionRow

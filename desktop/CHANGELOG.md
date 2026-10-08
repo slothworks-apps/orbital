@@ -4,6 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Changed
+- The sidebar no longer shows a "recent ▾" sort control above History that did nothing; history is listed newest first, as before.
 - Notifications start off on a new install, sound included. Once your first session is on the map, a quiet notice offers to turn on the two that matter most — a session needing your input and a session failing — and asks macOS then; it never comes back after you close it. Existing installs keep their notification settings.
 - Settings → Notifications says when everything is off on purpose, and dims "Only when Orbital is in the background" until a notification above it is on.
 - The Archipelago map theme moved to Settings → Experimental; Planets and Desk are the themes kept up to date. If you used Archipelago, the map shows Planets until you turn it back on there.
@@ -11,6 +12,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Your Mac no longer gives the relay its name, and a phone's name reaches it encrypted; a phone that sends its name the old way shows as "Unknown phone". Orbital needs relay 0.4.0 or newer.
 - A session that left a dev server or a watcher running shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's background tasks, and Orbital no longer puts that session to sleep while it runs.
 ### Fixed
+- The first launch on a Mac with a long Claude Code history no longer fails to start; Orbital opens right away and fills in older sessions' stats while you use it.
 - A terminal session that asks for input right after it starts, or a session that asks just after Orbital reconnects to its server, now notifies instead of staying silent.
 - Text typed into a Settings field just before closing the dialog is now saved instead of lost.
 - New session asks before it starts the MCP servers a project's `.mcp.json` names, and asks again when one's command changes; a server you have not allowed does not start.
