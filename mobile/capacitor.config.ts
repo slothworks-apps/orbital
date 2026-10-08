@@ -24,6 +24,9 @@ const config: CapacitorConfig = {
     // iOS: a push that arrives while the app is open is not shown, as on Android. The relay pushes
     // only to a phone it sees offline; an open app posts its own local notification instead.
     FirebaseMessaging: { presentationOptions: [] },
+    // Android: the status-bar silhouette and its tint, the same as a push's (AndroidManifest.xml
+    // meta-data). The tint is --color-accent of web/src/theme.css.
+    LocalNotifications: { smallIcon: 'ic_stat_orbital', iconColor: '#59e4f3' },
   },
 };
 

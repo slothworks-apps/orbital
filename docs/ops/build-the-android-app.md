@@ -198,6 +198,39 @@ created it: a change to a channel reaches only a fresh install (uninstall
 first), and `adb shell dumpsys notification | grep needs_input` shows what a
 device holds.
 
+## Icons
+
+The launcher icon, the notification icon and the iOS App Store icon are
+generated, checked-in assets, made from the same two drawings the desktop
+uses ([[one-svg-feeds-icon-favicon-and-mark]]):
+
+- `web/public/favicon.svg` becomes the legacy and round launcher PNGs in
+  every `mipmap-*` density, the adaptive icon's foreground PNGs and its
+  gradient background (`drawable/ic_launcher_background.xml`), and
+  `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`.
+- `desktop/build/tray.svg`, the silhouette without the tile, becomes the
+  themed-icon layer (`drawable/ic_launcher_monochrome.xml`) and the
+  notification small icon (`drawable/ic_stat_orbital.xml`), both vectors.
+
+After the artwork changes, on a Mac:
+
+```bash
+node mobile/scripts/make-icons.mjs
+```
+
+and commit what it wrote. It renders with `qlmanage` and `sips`, like
+`desktop/build/make-icon.sh`, and stops if the planet would leave the
+adaptive icon's safe zone.
+
+Pushes pick the small icon and its tint up from the `default_notification_*`
+meta-data in `AndroidManifest.xml`, and the notifications the open app posts
+pick them up from `LocalNotifications` in `mobile/capacitor.config.ts`. That
+file reaches the app only through `cap sync`, so rebuild with
+`npm run build -w @orbital/mobile`, not only `apk`. A launcher may cache
+the old icon until the app is reinstalled.
+
+The splash screen (`drawable*/splash.png`) is still Capacitor's template.
+
 ## Release to Google Play
 
 The app ships through the owner's Play Console developer account, today on
