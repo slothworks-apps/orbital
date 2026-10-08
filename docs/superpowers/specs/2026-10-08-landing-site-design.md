@@ -251,6 +251,6 @@ would need a backend the static site does not have.
 ## The privacy text
 
 The policy is `site/content/privacy.md`, drafted from the code on 2026-10-08
-and checked claim by claim. The relay's hosting provider, its location and
-the proxy's log retention are still placeholders; the page does not ship
-until they are filled in.
+and checked claim by claim. It does not describe where the relay SlothWorks
+runs is hosted: that relay is not public, and testers who use it learn its
+setup when they ask for it.

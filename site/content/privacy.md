@@ -104,12 +104,10 @@ database until its operator deletes them.
 
 - If you run your own relay, everything above stays with you. SlothWorks
   receives nothing.
-- If you use the relay SlothWorks runs, SlothWorks is responsible for the
-  data listed above. It is hosted by [RELAY HOSTING PROVIDER] in [RELAY
-  HOSTING LOCATION]. The server in front of the relay may record IP addresses
-  in its access logs for [PROXY LOG RETENTION]. To have your devices removed,
-  write to us (see Contact) with your Mac's name; we delete the records for
-  your Mac and its phones.
+- If you use a relay SlothWorks runs for you, SlothWorks is responsible for
+  the data listed above. To have your devices removed, write to us (see
+  Contact) with your Mac's name; we delete the records for your Mac and its
+  phones.
 
 **On the phone itself.** The phone keeps its pairing and its device key (in
 the system's secure storage), and a cache of what you last saw — the session
@@ -182,8 +180,8 @@ sessions, Anthropic is responsible for its own processing.
 We process the relay data to provide the relay you asked to use (Article
 6(1)(b) GDPR) and the short-lived IP data to keep it secure (our legitimate
 interest, Article 6(1)(f)). The services that process data for us are
-[RELAY HOSTING PROVIDER] (hosting), Google (Firebase Cloud Messaging) and
-Cloudflare (this website). Google, Apple and Cloudflare may process data
+the relay's hosting, Google (Firebase Cloud Messaging) and Cloudflare (this
+website). Google, Apple and Cloudflare may process data
 outside the EU; their own terms describe the safeguards they use for that.
 
 Orbital is a developer tool and is not directed at children.
