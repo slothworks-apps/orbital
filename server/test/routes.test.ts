@@ -1481,6 +1481,87 @@ describe('Claude directories', () => {
   });
 });
 
+describe('.mcp.json approval', () => {
+  /** A project whose `.mcp.json` names `alpha` and `beta`, neither decided. */
+  function project() {
+    const cwd = makeTmpDir('mcpjson-route');
+    writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({
+      mcpServers: { alpha: { command: 'node', args: ['a.js'] }, beta: { type: 'http', url: 'https://b.example' } },
+    }));
+    return cwd;
+  }
+  const localSettings = (cwd: string) => JSON.parse(readFileSync(join(cwd, '.claude', 'settings.local.json'), 'utf8'));
+
+  it('answers the undecided servers of a cwd, read against the chosen directory', async () => {
+    const { app, claudeDir } = makeApp();
+    const cwd = project();
+    writeFileSync(join(claudeDir, 'settings.json'), JSON.stringify({ enabledMcpjsonServers: ['beta'] }));
+    const url = `/api/mcpjson?cwd=${encodeURIComponent(cwd)}&claudeDirId=1`;
+    expect(res200(await app.inject({ method: 'GET', url }))).toEqual({
+      undecided: [{ name: 'alpha', command: 'node', args: ['a.js'] }],
+    });
+  });
+
+  it('expands ~ in the cwd, and refuses a missing or relative one and an unknown directory', async () => {
+    const { app } = makeApp();
+    const cwd = makeHomeDir('mcpjson-route');
+    writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({ mcpServers: { alpha: { command: 'x' } } }));
+    const tilde = `~/${basename(cwd)}`;
+    expect(res200(await app.inject({ method: 'GET', url: `/api/mcpjson?cwd=${encodeURIComponent(tilde)}` })).undecided)
+      .toEqual([{ name: 'alpha', command: 'x', args: [] }]);
+    for (const [url, error] of [
+      ['/api/mcpjson', 'cwd_required'],
+      ['/api/mcpjson?cwd=relative/dir', 'cwd_required'],
+      [`/api/mcpjson?cwd=${encodeURIComponent(cwd)}&claudeDirId=99`, 'unknown_claude_dir'],
+    ]) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.json(), url).toEqual({ error });
+    }
+  });
+
+  it('records the answers before the launch, where the CLI keeps them', async () => {
+    const { app, startCalls } = makeApp();
+    const cwd = project();
+    const res = await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd, prompt: 'go', permissionMode: 'acceptEdits', mcpjson: { allow: ['alpha'], deny: ['beta'] } },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(localSettings(cwd)).toEqual({ enabledMcpjsonServers: ['alpha'], disabledMcpjsonServers: ['beta'] });
+    expect(startCalls).toHaveLength(1);
+    expect(startCalls[0]).not.toHaveProperty('mcpjson');
+    expect(res200(await app.inject({ method: 'GET', url: `/api/mcpjson?cwd=${encodeURIComponent(cwd)}` })).undecided)
+      .toEqual([]);
+  });
+
+  it('launches without answers and writes nothing — the runner keeps undecided servers out', async () => {
+    const { app, startCalls } = makeApp();
+    const cwd = project();
+    const res = await app.inject({ method: 'POST', url: '/api/sessions', payload: { cwd, prompt: 'go', permissionMode: 'acceptEdits' } });
+    expect(res.statusCode).toBe(201);
+    expect(startCalls).toHaveLength(1);
+    expect(() => readFileSync(join(cwd, '.claude', 'settings.local.json'))).toThrow();
+  });
+
+  it('refuses malformed answers and starts nothing', async () => {
+    const { app, startCalls } = makeApp();
+    const cwd = project();
+    for (const mcpjson of [
+      [], 'alpha', { allow: ['alpha'] }, { allow: 'alpha', deny: [] }, { allow: [''], deny: [] },
+      { allow: [1], deny: [] }, { allow: ['alpha'], deny: ['alpha'] },
+    ]) {
+      const res = await app.inject({
+        method: 'POST', url: '/api/sessions', payload: { cwd, prompt: 'go', permissionMode: 'acceptEdits', mcpjson },
+      });
+      expect(res.statusCode, JSON.stringify(mcpjson)).toBe(400);
+      expect(res.json()).toEqual({ error: 'invalid_mcpjson' });
+    }
+    expect(startCalls).toEqual([]);
+    expect(() => readFileSync(join(cwd, '.claude', 'settings.local.json'))).toThrow();
+  });
+});
+
 describe('buildServer smoke', () => {
   it('boots, serves /api/sessions and /ws upgrade route exists', async () => {
     const dir = makeTmpDir('boot');

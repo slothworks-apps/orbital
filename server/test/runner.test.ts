@@ -14,6 +14,9 @@ import type { PermissionWait } from '../src/stats/compute.js';
 import { statusOf, type ShapeContext } from '../src/api/shape.js';
 import { entriesToMessages } from '../src/transcript/parser.js';
 import { MAX_SUBAGENT_MESSAGES, SubagentTranscripts } from '../src/transcript/subagents.js';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { makeTmpDir } from './tmp.js';
 
 /**
  * The id the real CLI runs the session under: the one the caller pinned via
@@ -711,6 +714,40 @@ describe('Runner', () => {
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       settingSources: ['user', 'project', 'local'],
     });
+  });
+
+  // Every start path goes through `start`, so this is the one place an
+  // unapproved `.mcp.json` server is kept out (spec
+  // 2026-10-08-mcpjson-approval-design § Behaviour 1).
+  it('keeps the project`s undecided .mcp.json servers out of every start, and sends no settings without any', async () => {
+    const capture = () => {
+      let captured: any;
+      const fn = (args: any) => {
+        captured = args.options;
+        return fakeQueryFn().fn(args);
+      };
+      return { fn, options: () => captured };
+    };
+    const cwd = makeTmpDir('runner-mcpjson');
+    const claudeDir = makeTmpDir('runner-mcpjson-claude');
+    writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({ mcpServers: { alpha: { command: 'a' }, beta: { command: 'b' } } }));
+    writeFileSync(join(claudeDir, 'settings.json'), JSON.stringify({ enabledMcpjsonServers: ['beta'] }));
+
+    const blocked = capture();
+    const runner = new Runner({
+      hub: new Hub(), queryFn: blocked.fn as any, newSessionId: () => 'web-1',
+      claudeDirPath: (id) => (id === 2 ? claudeDir : undefined),
+    });
+    await runner.start({ cwd, prompt: 'x', permissionMode: 'acceptEdits', claudeDirId: 2 });
+    expect(blocked.options().settings).toEqual({ disabledMcpjsonServers: ['alpha'] });
+
+    const none = capture();
+    const plain = new Runner({
+      hub: new Hub(), queryFn: none.fn as any, newSessionId: () => 'web-2',
+      claudeDirPath: () => claudeDir,
+    });
+    await plain.start({ cwd: makeTmpDir('runner-no-mcpjson'), prompt: 'x', permissionMode: 'acceptEdits', claudeDirId: 2 });
+    expect(none.options()).not.toHaveProperty('settings');
   });
 
   // The packaged app spawns the user's own CLI rather than the SDK's bundled

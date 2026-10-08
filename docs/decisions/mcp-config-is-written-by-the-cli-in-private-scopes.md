@@ -8,6 +8,7 @@ related:
   - 2026-10-01-mcp-servers-in-the-session-design
   - the-mcp-toggle-is-project-wide
   - mcp-server-templates
+  - 2026-10-08-mcpjson-approval-design
 tags:
   - mcp
   - config
@@ -48,3 +49,16 @@ constantly with its own state, and its format is undocumented.
 Config editing needs a resolvable `claude`; when it is missing, only
 viewing and toggling work. An edit is remove-then-add, so a failed add
 restores the old definition.
+
+## Amended 2026-10-08: `.mcp.json` approvals
+
+Orbital writes two keys of `<project>/.claude/settings.local.json` itself:
+`enabledMcpjsonServers` and `disabledMcpjsonServers`, when the user
+answers the New Session question about a project's `.mcp.json` servers
+([[2026-10-08-mcpjson-approval-design]]). No CLI command records an
+approval — only the CLI's interactive prompt does (spike, 2026-10-08) — so
+rule 1 cannot hold for these two keys. It still holds for everything else:
+Orbital writes nothing else in that file, keeps every other key as it was,
+and writes atomically so the CLI never reads it half-written. That file is
+also where the CLI itself now keeps these decisions, so the terminal and
+Orbital agree.

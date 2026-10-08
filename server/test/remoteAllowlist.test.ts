@@ -19,6 +19,7 @@ describe('remote allowlist', () => {
       ['GET', '/api/health'], ['GET', '/api/sessions/defaults'],
       // The Claude directory a catalog is read for rides the query string.
       ['GET', '/api/models?claudeDir=2'], ['GET', '/api/commands?cwd=/w/x&claudeDir=2'],
+      ['GET', '/api/mcpjson?cwd=/w/x&claudeDirId=2'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
   it('denies the file system, the editor, settings, errors, rules and dev routes', () => {

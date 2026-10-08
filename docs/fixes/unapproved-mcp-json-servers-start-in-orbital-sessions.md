@@ -1,12 +1,13 @@
 ---
 id: unapproved-mcp-json-servers-start-in-orbital-sessions
 title: An Orbital session starts a project's .mcp.json servers without the CLI's approval
-status: backlog
+status: active
 type: fix
 domain: sessions
 related:
   - 2026-10-01-mcp-servers-in-the-session-design
   - mcp-config-is-written-by-the-cli-in-private-scopes
+  - 2026-10-08-mcpjson-approval-design
 tags:
   - mcp
   - security
@@ -50,3 +51,15 @@ server that only writes a marker file, an isolated `CLAUDE_CONFIG_DIR` with
 command ran without approval. `sdk.d.ts` has no option that makes the SDK
 honour the approval; the settings keys are only typed as settings. The fix
 has to be Orbital's own check before the session starts.
+
+## 2026-10-08: the server keeps undecided servers out
+
+Correcting the note above: the SDK does honour a decision passed to it.
+`query()` with `settings: { disabledMcpjsonServers: [...] }` keeps those
+servers from starting, in memory, with nothing written (spike with SDK
+0.3.287). `Runner.start`, which every start path goes through, now passes
+every server of the project's `.mcp.json` that no settings source has
+decided, so none of them runs until the user approves it
+([[2026-10-08-mcpjson-approval-design]]). The server side of recording an
+answer is in place too. Still pending: the question itself in the desktop
+and phone New Session flow, whose look comes from Claude Design.
