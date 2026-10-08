@@ -69,3 +69,9 @@ export const PHONE_OUTPUT_TAIL_BYTES = 32 * 1024
  * relay frame.
  */
 export const PHONE_SUBAGENT_PAGE = TRANSCRIPT_PAGE_SIZE
+/**
+ * How long the app may sit in the background before the app lock asks again
+ * on its return (spec 2026-10-06-pairing-code-and-app-lock-design § 3): a
+ * quick switch to another app and back does not ask.
+ */
+export const APP_LOCK_GRACE_MS = 60_000
