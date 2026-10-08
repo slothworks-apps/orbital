@@ -1,7 +1,7 @@
 ---
 id: settings-drafts-lose-the-last-keystrokes-on-a-quick-close
 title: Settings draft fields lose the last keystrokes when the dialog closes within the debounce
-status: backlog
+status: done
 type: fix
 domain: web
 related:
@@ -45,3 +45,12 @@ Flush every pending draft when the dialog closes, for all four fields at
 once — a single effect keyed on `open` going false that fires any
 outstanding `patchAndSet` immediately — rather than a special case bolted
 onto one field.
+
+## Fixed 2026-10-08
+
+The five debounced fields (project directory, CLI path, your instructions,
+the limit-wait continue text and the context thresholds) schedule through
+`useDraftSave` in `Settings.tsx`. A save still waiting when the dialog
+closes or unmounts runs at once; one cancelled by the next keystroke, or by
+the field going back to the saved value, does not. Covered in
+`web/src/test/settings.test.tsx`.

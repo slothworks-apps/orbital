@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
@@ -363,6 +363,38 @@ function FpsSlider({
 }
 
 /**
+ * The debounce of the free-text fields. `schedule(save)` runs `save` after
+ * `DEBOUNCE_MS` and returns the effect's cleanup. A cleanup that runs because
+ * the draft changed again cancels the save; one that runs because the dialog
+ * closed or unmounted runs it at once, so the last keystrokes before a quick
+ * close are kept. `open` is read from the render the cleanup belongs to, so
+ * the order the effects are declared in does not matter.
+ */
+function useDraftSave(open: boolean): (save: () => void) => () => void {
+  const openRef = useRef(open)
+  openRef.current = open
+  const unmounted = useRef(false)
+  // A layout cleanup runs before the passive ones on unmount.
+  useLayoutEffect(() => {
+    unmounted.current = false
+    return () => {
+      unmounted.current = true
+    }
+  }, [])
+  return useCallback((save: () => void) => {
+    let pending = true
+    const timer = setTimeout(() => {
+      pending = false
+      save()
+    }, DEBOUNCE_MS)
+    return () => {
+      clearTimeout(timer)
+      if (pending && (!openRef.current || unmounted.current)) save()
+    }
+  }, [])
+}
+
+/**
  * Sessions section of Settings (artboard 1h) — the only section v1
  * implements; General/Permissions/Appearance/Shortcuts are nav placeholders
  * per the spec's deferral. Every control PATCHes `/api/settings` then
@@ -586,14 +618,13 @@ export function Settings({ open, onClose }: SettingsProps) {
     }
   }
 
+  const scheduleSave = useDraftSave(open)
+
   // Debounced PATCH for the free-text project-dir field.
   useEffect(() => {
     if (!open) return
     if (projectDirDraft === (settings.default_project_dir ?? '')) return
-    const timer = setTimeout(() => {
-      void patchAndSet({ default_project_dir: projectDirDraft })
-    }, DEBOUNCE_MS)
-    return () => clearTimeout(timer)
+    return scheduleSave(() => void patchAndSet({ default_project_dir: projectDirDraft }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectDirDraft, open])
 
@@ -602,10 +633,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   useEffect(() => {
     if (!open) return
     if (cliPathDraft === (settings.claude_executable_path ?? '')) return
-    const timer = setTimeout(() => {
-      void patchAndSet({ claude_executable_path: cliPathDraft })
-    }, DEBOUNCE_MS)
-    return () => clearTimeout(timer)
+    return scheduleSave(() => void patchAndSet({ claude_executable_path: cliPathDraft }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliPathDraft, open])
 
@@ -615,10 +643,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   useEffect(() => {
     if (!open) return
     if (instructionsDraft === (settings.session_instructions_custom_text ?? '')) return
-    const timer = setTimeout(() => {
-      void patchAndSet({ session_instructions_custom_text: instructionsDraft })
-    }, DEBOUNCE_MS)
-    return () => clearTimeout(timer)
+    return scheduleSave(() => void patchAndSet({ session_instructions_custom_text: instructionsDraft }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instructionsDraft, open])
 
@@ -628,10 +653,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   useEffect(() => {
     if (!open) return
     if (!continueDraft.trim() || continueDraft === limitSettings(settings).text) return
-    const timer = setTimeout(() => {
-      void patchAndSet({ [CONTINUE_TEXT_KEY]: continueDraft })
-    }, DEBOUNCE_MS)
-    return () => clearTimeout(timer)
+    return scheduleSave(() => void patchAndSet({ [CONTINUE_TEXT_KEY]: continueDraft }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [continueDraft, open])
 
@@ -742,13 +764,13 @@ export function Settings({ open, onClose }: SettingsProps) {
     // same 50/80 the drafts start at, and must not read as "changed".
     const current = parseContextThresholds(settings)
     if (warn === current.warn && critical === current.critical) return
-    const timer = setTimeout(() => {
-      void patchAndSet({
-        context_threshold_warn: String(warn),
-        context_threshold_critical: String(critical),
-      })
-    }, DEBOUNCE_MS)
-    return () => clearTimeout(timer)
+    return scheduleSave(
+      () =>
+        void patchAndSet({
+          context_threshold_warn: String(warn),
+          context_threshold_critical: String(critical),
+        }),
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [warnDraft, criticalDraft, open])
 

@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- Text typed into a Settings field just before closing the dialog is now saved instead of lost.
 
 ## [0.23.0] — 2026-10-08
 ### Added
