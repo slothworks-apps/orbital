@@ -16,6 +16,11 @@ export const NARRATE_COMMENTARY_KEY = 'narrate_commentary'
 /** What the server asks when `NARRATE_MODEL_KEY` is unset — mirrors `DEFAULT_NARRATE_MODEL` there. */
 export const DEFAULT_NARRATE_MODEL = 'sonnet'
 export const HARNESS_ENABLED_KEY = 'harness_enabled'
+/**
+ * Lets the Archipelago map theme be picked. Only Planets and Desk are kept
+ * working as the app changes (adr: archipelago-sits-behind-an-experimental-switch).
+ */
+export const ARCHIPELAGO_ENABLED_KEY = 'archipelago_enabled'
 
 type Settings = Record<string, string | undefined>
 
@@ -37,6 +42,10 @@ export function narrateCommentary(settings: Settings): boolean {
 
 export function harnessEnabled(settings: Settings): boolean {
   return settings[HARNESS_ENABLED_KEY] === 'true'
+}
+
+export function archipelagoEnabled(settings: Settings): boolean {
+  return settings[ARCHIPELAGO_ENABLED_KEY] === 'true'
 }
 
 /**

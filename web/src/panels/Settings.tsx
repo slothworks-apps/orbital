@@ -43,6 +43,8 @@ import {
   NARRATE_MODEL_KEY,
   WALKTHROUGH_ENABLED_KEY,
   HARNESS_ENABLED_KEY,
+  ARCHIPELAGO_ENABLED_KEY,
+  archipelagoEnabled,
   experimentalUnlocked,
   isRevealChord,
   narrateCommentary,
@@ -149,12 +151,17 @@ const STATE_PILL_OPTIONS: Array<{ value: MapStatePills; label: string }> = [
   { value: 'label', label: 'Label' },
 ]
 
-/** Settings → Appearance → MAP → "Theme" — three map renderers. Planets first: it is the default. */
-const MAP_THEME_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'planets', label: 'Planets' },
-  { value: 'archipelago', label: 'Archipelago' },
-  { value: 'desk', label: 'Desk' },
-]
+/**
+ * Settings → Appearance → MAP → "Theme". Planets first: it is the default.
+ * Archipelago is offered only while its Experimental switch is on.
+ */
+function mapThemeOptions(settings: Record<string, string | undefined>): Array<{ value: string; label: string }> {
+  return [
+    { value: 'planets', label: 'Planets' },
+    ...(archipelagoEnabled(settings) ? [{ value: 'archipelago', label: 'Archipelago' }] : []),
+    { value: 'desk', label: 'Desk' },
+  ]
+}
 
 /**
  * The nav, in canvas order plus "Notifications", which the canvas does not
@@ -1276,6 +1283,20 @@ export function Settings({ open, onClose }: SettingsProps) {
                     <>
                       <SectionLabel first>FEATURES</SectionLabel>
                       <Row
+                        title="Archipelago map"
+                        desc="Offers Archipelago as a map theme in Appearance. It is not maintained: newer features may be missing from it, and it may break."
+                      >
+                        <Toggle
+                          aria-label="Archipelago map"
+                          checked={archipelagoEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({
+                              [ARCHIPELAGO_ENABLED_KEY]: checked ? 'true' : 'false',
+                            })
+                          }
+                        />
+                      </Row>
+                      <Row
                         title="Walkthrough"
                         desc="The step-by-step review of what a session changed. Narrate reads the session's record separately and groups the steps under titles; the session itself is never touched."
                       >
@@ -1415,11 +1436,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                       <SectionLabel>MAP</SectionLabel>
                       <Row
                         title="Theme"
-                        desc="How the map is drawn. Planets is the familiar space view; Archipelago and Desk are alternative renderers with the same functionality."
+                        desc="How the map is drawn. Planets is the familiar space view; Desk is an alternative renderer with the same functionality."
                       >
                         <Segmented
                           label="Map theme"
-                          options={MAP_THEME_OPTIONS}
+                          options={mapThemeOptions(settings)}
                           value={theme}
                           onChange={(next) => void patchAndSet({ map_theme: next })}
                         />

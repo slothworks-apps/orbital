@@ -4,6 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Changed
+- The Archipelago map theme moved to Settings → Experimental; Planets and Desk are the themes kept up to date. If you used Archipelago, the map shows Planets until you turn it back on there.
 - Pairing a phone now asks you to type the code shown on the phone, so someone who saw your QR code cannot pair in your place; three wrong codes reject the request.
 - A session that left a dev server or a watcher running shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's background tasks, and Orbital no longer puts that session to sleep while it runs.
 ### Fixed
