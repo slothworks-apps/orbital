@@ -9,6 +9,7 @@ import type { ApiSession } from '../../../web/src/lib/types'
 import { runDirector } from '../fake/director'
 import { MESSAGES, MODELS, SETTINGS, TAGS } from '../fake/fixtures'
 import { announceReady, capDevicePixelRatio, installFakeServer } from '../fake/install'
+import { isPosterRun } from '../page'
 import { MapDemo } from './MapDemo'
 import { MAP_DURATIONS, TICK_MS, parseScene, sessionsFor } from './scenario'
 
@@ -49,20 +50,32 @@ useOrbital.setState((state) => ({
   ui: { ...state.ui, selectedId: null, sidebarCollapsed: true, urlRestored: true },
 }))
 
+/**
+ * The wheel belongs to the website, not to the map: on the landing page a
+ * wheel over the hero is someone scrolling the page, and a map that zoomed
+ * instead would trap them. Stopped here, at the first listener on the way
+ * down, no handler of the map's ever sees it; not prevented, so the browser
+ * still scrolls — a panel's transcript under the pointer, or, with nothing
+ * here to scroll, the page around the iframe.
+ */
+window.addEventListener('wheel', (event) => event.stopPropagation(), { capture: true, passive: true })
+
 // A beat publishes only the sessions it changed: the beats share their
 // unchanged session objects, so a changed one is a different object.
 let shown = new Map(opening.map((s) => [s.id, s]))
-runDirector({
-  durations: MAP_DURATIONS,
-  tickMs: TICK_MS,
-  onBeat: (beat) => {
-    const next = sessionsFor(scene, beat)
-    for (const s of next) {
-      if (shown.get(s.id) !== s) server.upsert({ ...s, lastAt: Date.now() })
-    }
-    shown = new Map(next.map((s) => [s.id, s]))
-  },
-})
+if (!isPosterRun()) {
+  runDirector({
+    durations: MAP_DURATIONS,
+    tickMs: TICK_MS,
+    onBeat: (beat) => {
+      const next = sessionsFor(scene, beat)
+      for (const s of next) {
+        if (shown.get(s.id) !== s) server.upsert({ ...s, lastAt: Date.now() })
+      }
+      shown = new Map(next.map((s) => [s.id, s]))
+    },
+  })
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

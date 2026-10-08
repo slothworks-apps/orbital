@@ -9,6 +9,12 @@ export interface DemoWorld {
   models: OrbitalModel[]
   settings: Record<string, string>
   messages: Record<string, ChatMessage[]>
+  /**
+   * What the call a permission holds prints once approved, by decision id.
+   * Without one, an edit's result — what most permissions in the demos ask
+   * about.
+   */
+  approvedOutputs?: Record<string, string>
 }
 
 export interface RouteContext {
@@ -229,7 +235,9 @@ export class FakeServer {
       id: `${decisionId}-result`,
       role: 'tool_result',
       toolUseId: decisionId,
-      text: approved ? 'The file has been updated.' : 'The user declined this edit.',
+      text: approved
+        ? (this.world.approvedOutputs?.[decisionId] ?? 'The file has been updated.')
+        : "The user doesn't want to proceed with this tool use.",
       ...(approved ? {} : { isError: true }),
       timestamp: new Date().toISOString(),
     }

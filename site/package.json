@@ -9,10 +9,12 @@
     "preview": "astro preview",
     "typecheck": "astro check",
     "typecheck:demo": "tsc -p demo/tsconfig.json --noEmit",
-    "test": "vitest run --root demo"
+    "test": "vitest run --root demo",
+    "images": "node scripts/demo-images.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
+    "playwright": "^1.64.0",
     "typescript": "~6.0.2",
     "wrangler": "^4.148.0"
   },

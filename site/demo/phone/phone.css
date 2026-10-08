@@ -1,0 +1,7 @@
+/* The phone's stylesheets, as `web/src/mobile/main.tsx` loads them: the app's
+   theme, then the phone's own rules over it. Tailwind scans only what it is
+   pointed at from here, as in `../demo.css`. */
+@import '../../../web/src/theme.css';
+@import '../../../web/src/mobile/mobile.css';
+@source '../../../web/src';
+@source '.';

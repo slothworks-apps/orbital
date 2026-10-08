@@ -18,9 +18,7 @@ import {
 import { ErrorBoundary } from '../../../web/src/ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from '../../../web/src/ui/escapeLayer'
 import { Toasts } from '../../../web/src/ui/Toasts'
-
-/** What the composer says in every demo instead of taking a message. */
-export const COMPOSER_LOCKED = "In the app, you'd type here"
+import { COMPOSER_LOCKED } from '../page'
 
 /**
  * The map demo's shell: the parts of `web/src/App.tsx` the map needs — the

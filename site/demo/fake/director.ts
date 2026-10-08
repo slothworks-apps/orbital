@@ -43,8 +43,12 @@ export function stepDirector(
   return { beat: (state.beat + 1) % durations.length, elapsed: 0, stopped: false }
 }
 
-/** The events that count as the visitor taking over. */
-export const INTERACTION_EVENTS = ['pointerdown', 'keydown', 'wheel'] as const
+/**
+ * The events that count as the visitor taking over. Not `wheel`: a wheel
+ * over a demo is most often the visitor scrolling the website past it, and
+ * the map demo hands every wheel on to the page (`map/main.tsx`).
+ */
+export const INTERACTION_EVENTS = ['pointerdown', 'keydown'] as const
 
 /**
  * Runs a script on `window`'s clock. `onBeat` is called with each new beat
