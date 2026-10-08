@@ -16,22 +16,29 @@ tags:
 
 ## Context
 
-Phase 1 of the release roadmap ships an app when a pull request that bumps
-its version is merged ([[2026-10-08-builds-for-testers-design]]). Three apps
-ship from one repository, each with its own version, and the Mac app reads
-its updates from the repository's GitHub Releases
+Phase 1 of the release roadmap ships an app or the relay when a pull
+request that bumps its version is merged, and only then
+([[2026-10-08-builds-for-testers-design]]). Three apps and the relay ship
+from one repository, each with its own version, and the Mac app reads its
+updates from the repository's GitHub Releases
 ([[the-desktop-app-updates-itself]]).
+
+Until this decision the relay image was rebuilt on every change under
+`relay/` or `shared/`, and each rebuild moved its version tag and `latest`
+to code that no version described.
 
 ## Decision
 
 - One workflow, `release.yml`, runs on every push to `main`. A small script
   decides what to ship; one job per platform ships it.
 - What has shipped is recorded as a git tag: `v<version>` for the desktop
-  app, `mobile-v<versionName>` for the phone. A version without its tag has
-  not shipped and is shipped by the next run. The tag is written only after
-  the upload succeeded.
-- Only the desktop app makes GitHub Releases. The phone gets a tag and
-  nothing else.
+  app, `mobile-v<versionName>` for the phone, `relay-v<version>` for the
+  relay image. A version without its tag has not shipped and is shipped by
+  the next run. The tag is written only after the upload succeeded.
+- A merge without a version bump publishes nothing: no build, no image, no
+  moved tag.
+- Only the desktop app makes GitHub Releases. The phone and the relay get
+  a tag and nothing else.
 
 ## Why
 

@@ -36,8 +36,10 @@ app reaches testers without anyone touching a Mac:
 - **iOS** — a build in TestFlight's internal group.
 - **Android** — a build on Play's Internal testing track.
 
-Only the app whose version went up is built. The relay is unchanged: its
-image is already published on every change (`relay-image.yml`).
+- **Relay** — a new image in GHCR, tagged with its version and `latest`.
+
+Only the app whose version went up is built. A merge without a bump
+publishes nothing new anywhere: no build, no image, no moved tag.
 
 ## Decisions taken while designing
 
@@ -49,7 +51,10 @@ image is already published on every change (`relay-image.yml`).
   section of `desktop/CHANGELOG.md`. TestFlight and Play get none.
 - Restarting into an update offers **"Restart now"** and **"Restart when
   sessions finish"**.
-- **One workflow**, `release.yml`, decides and ships all three; the
+- The relay image is built **only on a relay version bump**, like the
+  apps. Until now `relay-image.yml` rebuilt it on every change under
+  `relay/` or `shared/` and moved its version tag and `latest` with it.
+- **One workflow**, `release.yml`, decides and ships all four; the
   record of what has shipped is a git tag
   ([[a-release-is-a-tag-written-by-one-workflow]]).
 - iOS signs with **automatic signing through the App Store Connect API
@@ -62,7 +67,7 @@ image is already published on every change (`relay-image.yml`).
 `workflow_dispatch` (a retry after a failure outside our control, an
 Apple outage say). `concurrency: release`, `cancel-in-progress: false`:
 two releases never run over each other, and a queued one runs after.
-It replaces `release-mac.yml`, which is deleted.
+It replaces `release-mac.yml` and `relay-image.yml`, which are deleted.
 
 ### `plan`
 
@@ -71,9 +76,10 @@ Runs `scripts/release-plan.mjs` and exposes its answer as job outputs:
 - the desktop version from `desktop/package.json` → tag `v<version>`;
 - the phone version from `versionName` in `mobile/android/app/build.gradle`
   → tag `mobile-v<versionName>`;
+- the relay version from `relay/package.json` → tag `relay-v<version>`;
 - for each tag, whether it exists on the remote (`git ls-remote --tags`).
-  A missing tag means the version has not shipped: `mac=true` or
-  `mobile=true`.
+  A missing tag means the version has not shipped: `mac=true`,
+  `mobile=true` or `relay=true`.
 
 The tag, not the diff of the push, is the test. A run that failed half way
 leaves no tag, so the next push or a manual run ships it again; a push that
@@ -137,6 +143,19 @@ Needs `ios` and `android`. When both succeeded, pushes the tag
 again. Apple and Play both refuse a build number they have seen, so the
 platform that had already uploaded fails its retry; the retry is then run
 with only the failed job (`Re-run failed jobs`), not by a new push.
+
+### `relay` (Ubuntu runner, when `relay`)
+
+The two jobs of today's `relay-image.yml`, moved: typecheck and test the
+relay on Linux, then build `relay/Dockerfile` and push it to
+`ghcr.io/<owner>/orbital-relay` tagged `<version>`, `latest` and the
+commit's sha. Then push the tag `relay-v<version>`. Because it runs only
+for a new version, the version tag never moves once written, and `latest`
+moves only to a new version. Nothing is deployed from here, as before; the
+runbook `run-the-relay` covers pulling the image.
+
+`ci.yml` keeps building the image without pushing it, so a broken
+Dockerfile still fails the pull request.
 
 ### Secrets on the runner
 
@@ -239,7 +258,16 @@ bundle to the phone without a store build is a separate idea
 - `desktop/src/lib/updates.ts`: the restart states — now, waiting, a
   session starting while waiting, cancelling, nothing working.
 - The workflow itself is proven by its first real run; nothing replaces
-  that. The first run is whichever version bump merges after this lands.
+  that.
+
+## The first run
+
+The first push after `release.yml` lands finds no tags at all, so it would
+ship every current version. A version that already went out by hand — the
+relay image built from `relay-image.yml`, a phone build uploaded with
+`npm run ios:release` or `android:release` — gets its tag pushed by hand
+before this merges, so the first run ships only what has not gone out. The
+runbooks say which tags those are at the time.
 
 ## Out of scope
 
