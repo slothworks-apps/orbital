@@ -34,6 +34,11 @@ be at least as careful as the CLI.
 - A decision in `disabledMcpjsonServers` is honoured from any source; an
   allowlist (`enabledMcpjsonServers`) does not keep other servers out, and
   `enableAllProjectMcpServers: false` is treated as "undecided".
+- The flag-tier `disabledMcpjsonServers` wins over an approval of the same
+  name in `.claude/settings.local.json`, in the user `settings.json`, in
+  the project entry of `.claude.json`, and over
+  `enableAllProjectMcpServers: true` (marker-file check, 2026-10-08). So
+  rule 4 can keep out a server the CLI still counts as approved.
 - The CLI now keeps a project's decisions in
   `<project>/.claude/settings.local.json` (it moves them there from the
   project entry of `~/.claude.json` on start).

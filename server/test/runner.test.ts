@@ -748,6 +748,16 @@ describe('Runner', () => {
     });
     await plain.start({ cwd: makeTmpDir('runner-no-mcpjson'), prompt: 'x', permissionMode: 'acceptEdits', claudeDirId: 2 });
     expect(none.options()).not.toHaveProperty('settings');
+
+    // `beta` is allowed, but not with the entry Orbital fingerprinted.
+    const changed = capture();
+    const printed = new Runner({
+      hub: new Hub(), queryFn: changed.fn as any, newSessionId: () => 'web-3',
+      claudeDirPath: () => claudeDir,
+      mcpjsonFingerprints: { forProject: () => new Map([['beta', 'stale']]), update: () => {} },
+    });
+    await printed.start({ cwd, prompt: 'x', permissionMode: 'acceptEdits', claudeDirId: 2 });
+    expect(changed.options().settings).toEqual({ disabledMcpjsonServers: ['alpha', 'beta'] });
   });
 
   // The packaged app spawns the user's own CLI rather than the SDK's bundled

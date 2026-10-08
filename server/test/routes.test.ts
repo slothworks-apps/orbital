@@ -1498,7 +1498,7 @@ describe('.mcp.json approval', () => {
     writeFileSync(join(claudeDir, 'settings.json'), JSON.stringify({ enabledMcpjsonServers: ['beta'] }));
     const url = `/api/mcpjson?cwd=${encodeURIComponent(cwd)}&claudeDirId=1`;
     expect(res200(await app.inject({ method: 'GET', url }))).toEqual({
-      undecided: [{ name: 'alpha', command: 'node', args: ['a.js'] }],
+      undecided: [{ name: 'alpha', command: 'node', args: ['a.js'], source: 'file', file: 'a.js' }],
     });
   });
 
@@ -1508,7 +1508,7 @@ describe('.mcp.json approval', () => {
     writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({ mcpServers: { alpha: { command: 'x' } } }));
     const tilde = `~/${basename(cwd)}`;
     expect(res200(await app.inject({ method: 'GET', url: `/api/mcpjson?cwd=${encodeURIComponent(tilde)}` })).undecided)
-      .toEqual([{ name: 'alpha', command: 'x', args: [] }]);
+      .toEqual([{ name: 'alpha', command: 'x', args: [], source: 'program' }]);
     for (const [url, error] of [
       ['/api/mcpjson', 'cwd_required'],
       ['/api/mcpjson?cwd=relative/dir', 'cwd_required'],
@@ -1533,6 +1533,23 @@ describe('.mcp.json approval', () => {
     expect(startCalls[0]).not.toHaveProperty('mcpjson');
     expect(res200(await app.inject({ method: 'GET', url: `/api/mcpjson?cwd=${encodeURIComponent(cwd)}` })).undecided)
       .toEqual([]);
+  });
+
+  it('asks again about a server allowed through Orbital once its command changes', async () => {
+    const { app } = makeApp();
+    const cwd = project();
+    const get = async () =>
+      res200(await app.inject({ method: 'GET', url: `/api/mcpjson?cwd=${encodeURIComponent(cwd)}` })).undecided
+        .map((s: { name: string }) => s.name);
+    await app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd, prompt: 'go', permissionMode: 'acceptEdits', mcpjson: { allow: ['alpha', 'beta'], deny: [] } },
+    });
+    expect(await get()).toEqual([]);
+    writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({
+      mcpServers: { alpha: { command: 'node', args: ['other.js'] }, beta: { type: 'http', url: 'https://b.example' } },
+    }));
+    expect(await get()).toEqual(['alpha']);
   });
 
   it('launches without answers and writes nothing — the runner keeps undecided servers out', async () => {

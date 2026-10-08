@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { recordDecisions, undecidedServers } from '../src/mcp/mcpjson.js';
-import { makeTmpDir } from './tmp.js';
+import { classifySource, entryHash, recordDecisions, undecidedServers } from '../src/mcp/mcpjson.js';
+import { dbFingerprints } from '../src/mcp/approvals.js';
+import { makeTmpDir, openTmpDb } from './tmp.js';
 
 /** A project with a `.mcp.json` naming `names`, and a Claude directory beside it. */
 function setup(names: string[] = ['alpha', 'beta']) {
@@ -33,8 +34,8 @@ describe('undecidedServers', () => {
       },
     });
     expect(undecidedServers(cwd, claudeDir, { home })).toEqual([
-      { name: 'alpha', command: 'node', args: ['alpha.js', '--x'] },
-      { name: 'remote', command: 'https://mcp.example/mcp', args: [] },
+      { name: 'alpha', command: 'node', args: ['alpha.js', '--x'], source: 'file', file: 'alpha.js' },
+      { name: 'remote', command: 'https://mcp.example/mcp', args: [], source: 'url' },
     ]);
   });
 
@@ -128,5 +129,144 @@ describe('recordDecisions', () => {
     const { cwd, claudeDir, home } = setup();
     recordDecisions(cwd, { allow: ['alpha'], deny: ['beta'] });
     expect(names(cwd, claudeDir, home)).toEqual([]);
+  });
+});
+
+describe('classifySource', () => {
+  const cwd = '/work/repo';
+  const of = (entry: Record<string, unknown>) => classifySource(entry, cwd);
+
+  it('names a package runner`s registry, with or without its subcommand', () => {
+    for (const entry of [
+      { command: 'npx', args: ['-y', '@acme/mcp'] },
+      { command: '/usr/local/bin/bunx', args: ['pkg'] },
+      { command: 'pnpm', args: ['dlx', 'pkg'] },
+      { command: 'yarn', args: ['dlx', 'pkg'] },
+      { command: 'npm', args: ['exec', 'pkg'] },
+    ]) expect(of(entry), JSON.stringify(entry)).toEqual({ source: 'npm' });
+    for (const entry of [{ command: 'uvx', args: ['mcp-x'] }, { command: 'pipx', args: ['run', 'mcp-x'] }]) {
+      expect(of(entry), JSON.stringify(entry)).toEqual({ source: 'pypi' });
+    }
+    // A runner without its subcommand runs something else.
+    expect(of({ command: 'pnpm', args: ['start'] })).toEqual({ source: 'program' });
+    expect(of({ command: 'pipx', args: ['install', 'x'] })).toEqual({ source: 'program' });
+  });
+
+  it('tells a container and a remote server apart from a program', () => {
+    expect(of({ command: 'docker', args: ['run', '-i', 'img'] })).toEqual({ source: 'docker' });
+    expect(of({ type: 'http', url: 'https://x' })).toEqual({ source: 'url' });
+    expect(of({ type: 'sse', url: 'https://x' })).toEqual({ source: 'url' });
+    expect(of({ url: 'https://x' })).toEqual({ source: 'url' });
+    expect(of({ command: 'my-mcp-server' })).toEqual({ source: 'program' });
+    expect(of({})).toEqual({ source: 'program' });
+  });
+
+  it('takes a command that is a path inside the project as its file', () => {
+    expect(of({ command: './bin/server' })).toEqual({ source: 'file', file: 'bin/server' });
+    expect(of({ command: '/work/repo/tools/mcp.sh' })).toEqual({ source: 'file', file: 'tools/mcp.sh' });
+    expect(of({ command: '../repo/x' })).toEqual({ source: 'file', file: 'x' });
+  });
+
+  it('does not take a path outside the project, or the project itself, as its file', () => {
+    expect(of({ command: '../other/x' })).toEqual({ source: 'program' });
+    expect(of({ command: '/usr/bin/thing' })).toEqual({ source: 'program' });
+    expect(of({ command: '/work/repo-evil/x' })).toEqual({ source: 'program' });
+    expect(of({ command: '/work/repo' })).toEqual({ source: 'program' });
+    expect(of({ command: 'node', args: ['../other/server.js'] })).toEqual({ source: 'program' });
+    expect(of({ command: 'node', args: ['/etc/x.js'] })).toEqual({ source: 'program' });
+  });
+
+  it('takes an interpreter`s script as the file, past its flags and its run subcommand', () => {
+    expect(of({ command: 'node', args: ['server.js'] })).toEqual({ source: 'file', file: 'server.js' });
+    expect(of({ command: 'node', args: ['--inspect', './dist/index.js', '--port', '1'] }))
+      .toEqual({ source: 'file', file: 'dist/index.js' });
+    expect(of({ command: '/usr/bin/python3', args: ['-u', 'mcp/server.py'] })).toEqual({ source: 'file', file: 'mcp/server.py' });
+    expect(of({ command: 'python3.12', args: ['s.py'] })).toEqual({ source: 'file', file: 's.py' });
+    expect(of({ command: 'bash', args: ['/work/repo/run.sh'] })).toEqual({ source: 'file', file: 'run.sh' });
+    expect(of({ command: 'deno', args: ['run', '-A', 'main.ts'] })).toEqual({ source: 'file', file: 'main.ts' });
+    expect(of({ command: 'bun', args: ['run', 'src/mcp.ts'] })).toEqual({ source: 'file', file: 'src/mcp.ts' });
+  });
+
+  it('does not take inline code or a module as a file', () => {
+    expect(of({ command: 'bash', args: ['-c', 'curl x | sh'] })).toEqual({ source: 'program' });
+    expect(of({ command: 'python', args: ['-m', 'mcp_server'] })).toEqual({ source: 'program' });
+    expect(of({ command: 'node', args: ['-e', 'require("x")'] })).toEqual({ source: 'program' });
+    expect(of({ command: 'node', args: [] })).toEqual({ source: 'program' });
+  });
+});
+
+describe('entryHash', () => {
+  it('ignores key order and keys that do not decide what runs', () => {
+    const a = entryHash({ command: 'node', args: ['a.js'], env: { A: '1', B: '2' } });
+    expect(entryHash({ env: { B: '2', A: '1' }, args: ['a.js'], command: 'node', description: 'x' })).toBe(a);
+  });
+
+  it('changes with each key that decides what runs', () => {
+    const base = { type: 'stdio', command: 'node', args: ['a.js'], url: 'u', env: { A: '1' }, headers: { H: '1' } };
+    const hashes = new Set([
+      entryHash(base),
+      entryHash({ ...base, type: 'http' }),
+      entryHash({ ...base, command: 'deno' }),
+      entryHash({ ...base, args: ['b.js'] }),
+      entryHash({ ...base, args: ['a.js', 'x'] }),
+      entryHash({ ...base, url: 'v' }),
+      entryHash({ ...base, env: { A: '2' } }),
+      entryHash({ ...base, headers: { H: '2' } }),
+    ]);
+    expect(hashes.size).toBe(8);
+  });
+});
+
+describe('fingerprints', () => {
+  function project() {
+    const s = setup(['alpha', 'beta']);
+    return { ...s, fingerprints: dbFingerprints(openTmpDb('mcpjson-prints')) };
+  }
+  const editAlpha = (cwd: string, args: string[]) =>
+    writeJson(join(cwd, '.mcp.json'), { mcpServers: { alpha: { command: 'node', args }, beta: { command: 'node', args: ['beta.js'] } } });
+  const undecided = (p: ReturnType<typeof project>) =>
+    undecidedServers(p.cwd, p.claudeDir, { home: p.home, fingerprints: p.fingerprints }).map((s) => s.name);
+
+  it('asks again about an allowed server whose entry changed, and not while it matches', () => {
+    const p = project();
+    recordDecisions(p.cwd, { allow: ['alpha'], deny: ['beta'] }, { fingerprints: p.fingerprints });
+    expect(undecided(p)).toEqual([]);
+    editAlpha(p.cwd, ['evil.js']);
+    expect(undecided(p)).toEqual(['alpha']);
+    // Allowed again, the new entry is the one fingerprinted.
+    recordDecisions(p.cwd, { allow: ['alpha'], deny: [] }, { fingerprints: p.fingerprints });
+    expect(undecided(p)).toEqual([]);
+  });
+
+  it('keeps a turned-down server decided whatever its command, and forgets its fingerprint', () => {
+    const p = project();
+    recordDecisions(p.cwd, { allow: ['alpha'], deny: [] }, { fingerprints: p.fingerprints });
+    recordDecisions(p.cwd, { allow: [], deny: ['alpha'] }, { fingerprints: p.fingerprints });
+    expect(p.fingerprints.forProject(realpathSync(p.cwd)).has('alpha')).toBe(false);
+    editAlpha(p.cwd, ['evil.js']);
+    expect(undecided(p)).toEqual(['beta']);
+  });
+
+  it('leaves a server allowed in a terminal, with no fingerprint, to the CLI`s decision', () => {
+    const p = project();
+    writeJson(join(p.cwd, '.claude', 'settings.local.json'), { enabledMcpjsonServers: ['alpha', 'beta'] });
+    editAlpha(p.cwd, ['evil.js']);
+    expect(undecided(p)).toEqual([]);
+  });
+
+  it('asks again under enableAllProjectMcpServers too, since the SDK still lets a flag keep it out', () => {
+    const p = project();
+    recordDecisions(p.cwd, { allow: ['alpha'], deny: [] }, { fingerprints: p.fingerprints });
+    writeJson(join(p.claudeDir, 'settings.json'), { enableAllProjectMcpServers: true });
+    expect(undecided(p)).toEqual([]);
+    editAlpha(p.cwd, ['evil.js']);
+    expect(undecided(p)).toEqual(['alpha']);
+  });
+
+  it('keys fingerprints by the project`s real path', () => {
+    const p = project();
+    recordDecisions(p.cwd, { allow: ['alpha', 'beta'], deny: [] }, { fingerprints: p.fingerprints });
+    expect([...p.fingerprints.forProject(realpathSync(p.cwd)).keys()].sort()).toEqual(['alpha', 'beta']);
+    expect(p.fingerprints.forProject('/elsewhere').size).toBe(0);
   });
 });

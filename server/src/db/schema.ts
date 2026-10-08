@@ -157,6 +157,27 @@ export const claudeDirs = sqliteTable('claude_dirs', {
 });
 
 /**
+ * Orbital's fingerprint of each `.mcp.json` server the user allowed through
+ * it (spec 2026-10-08-mcpjson-approval-design § Behaviour 4). The CLI keys an
+ * approval by name alone; a server whose entry no longer hashes to its row
+ * here counts as undecided again. Denied servers have no row.
+ */
+export const mcpjsonApprovals = sqliteTable(
+  'mcpjson_approvals',
+  {
+    /** The project's real path, as the CLI keys its project entries. */
+    project: text('project').notNull(),
+    /** The server's name as `.mcp.json` writes it. */
+    name: text('name').notNull(),
+    /** `entryHash` of the server's `.mcp.json` entry when it was allowed. */
+    hash: text('hash').notNull(),
+    /** Epoch ms. */
+    approvedAt: integer('approved_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.project, table.name] })],
+);
+
+/**
  * One rolled-up row per session, written by the indexer and the watcher tail
  * from `computeStats` (spec `2026-09-20-session-stats-design` § Data model).
  *

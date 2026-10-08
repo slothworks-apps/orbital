@@ -5,7 +5,7 @@ import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow } from '../types.js';
 import type { McpConfigSnapshot } from '../mcp/claudeJson.js';
 import { shapeMcpServers } from '../mcp/rows.js';
-import { undecidedServers } from '../mcp/mcpjson.js';
+import { undecidedServers, type McpjsonFingerprints } from '../mcp/mcpjson.js';
 import { CLAUDE_CONFIG_DIR, cliDefaultDir } from '../claudeDirs/paths.js';
 import { mcpLoginUrl } from '../mcp/login.js';
 import type { TranscriptEntry } from '../transcript/parser.js';
@@ -821,6 +821,8 @@ export class Runner {
   private envFor?: (claudeDirId: number) => Record<string, string> | undefined;
   /** See the `claudeDirPath` dep. */
   private claudeDirPath?: (claudeDirId: number) => string | undefined;
+  /** See the `mcpjsonFingerprints` dep. */
+  private mcpjsonFingerprints?: McpjsonFingerprints;
   /** The Claude directory each session this process started runs under. */
   private claudeDirs = new Map<string, number>();
   /**
@@ -1078,6 +1080,13 @@ export class Runner {
      * the CLI would use under the server's own environment.
      */
     claudeDirPath?: (claudeDirId: number) => string | undefined;
+    /**
+     * What each `.mcp.json` server allowed through Orbital ran when it was
+     * allowed; a server whose entry changed since is kept out again (spec
+     * 2026-10-08-mcpjson-approval-design § Behaviour 4). Unwired, names alone
+     * decide, as in the CLI.
+     */
+    mcpjsonFingerprints?: McpjsonFingerprints;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -1114,6 +1123,7 @@ export class Runner {
     this.cwdOf = deps.cwdOf;
     this.envFor = deps.envFor;
     this.claudeDirPath = deps.claudeDirPath;
+    this.mcpjsonFingerprints = deps.mcpjsonFingerprints;
   }
 
   /** Stamps one frame's rows with the `cwd` they were written in, when it is known (`cwdOf`). */
@@ -1456,7 +1466,7 @@ export class Runner {
     // nothing written (spec 2026-10-08-mcpjson-approval-design § Behaviour 1).
     const claudeDir = (opts.claudeDirId !== undefined ? this.claudeDirPath?.(opts.claudeDirId) : undefined)
       ?? process.env[CLAUDE_CONFIG_DIR] ?? cliDefaultDir();
-    const undecided = undecidedServers(opts.cwd, claudeDir).map((s) => s.name);
+    const undecided = undecidedServers(opts.cwd, claudeDir, { fingerprints: this.mcpjsonFingerprints }).map((s) => s.name);
     if (undecided.length > 0) options.settings = { disabledMcpjsonServers: undecided };
 
     const generator = this.queryFn({ prompt: input(), options });

@@ -55,6 +55,7 @@ import { registerHarnessRoutes, type CarryHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import { recordDecisions, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
+import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
 import type { RemoteService } from '../remote/service.js';
@@ -411,6 +412,7 @@ class RewindStopError extends Error {}
 
 export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
+  const mcpjsonFingerprints = dbFingerprints(db);
   if (ctx.devTools) registerDevRoutes(app, ctx);
   registerRemoteRoutes(app, ctx.remote);
   /**
@@ -1155,7 +1157,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // A settings file that cannot be parsed is left alone rather than
       // overwritten, and the launch waits: the user's answer would be lost.
       try {
-        recordDecisions(cwd, mcpjson);
+        recordDecisions(cwd, mcpjson, { fingerprints: mcpjsonFingerprints });
       } catch (err) {
         console.warn('orbital: could not record .mcp.json decisions:', err);
         return reply.code(500).send({ error: 'mcpjson_not_recorded' });
@@ -1181,7 +1183,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!cwd || !isAbsolute(cwd)) return reply.code(400).send({ error: 'cwd_required' });
     const dirId = ctx.claudeDirs.resolveId(q.claudeDirId);
     if (dirId === null) return reply.code(400).send({ error: 'unknown_claude_dir' });
-    return { undecided: undecidedServers(cwd, claudeDirPathOf(dirId)) };
+    return { undecided: undecidedServers(cwd, claudeDirPathOf(dirId), { fingerprints: mcpjsonFingerprints }) };
   });
 
   /** Why a browser-minted session id cannot be used, or null when it can (or none was sent). */
