@@ -1,6 +1,7 @@
 import type { FetchLike, SessionListPage, api } from '../../../web/src/lib/api'
-import type { ApiSession, ChatMessage, OrbitalModel, Tag } from '../../../web/src/lib/types'
+import type { ApiSession, ChatMessage, OrbitalModel, PermissionMode, Tag } from '../../../web/src/lib/types'
 import { FakeHub } from './fakeSocket'
+import { SESSION_DEFAULTS, launchedSession, projects } from './fixtures'
 
 /** Everything a demo's fake server answers from. */
 export interface DemoWorld {
@@ -55,14 +56,133 @@ export const ROUTES: Route[] = [
   {
     method: 'GET',
     path: '/api/sessions',
-    calledBy: 'store.loadInitial, the sidebar',
-    answer: ({ server }) => ({ sessions: server.sessions() }) satisfies SessionListPage,
+    calledBy: 'store.loadInitial, the sidebar (its next page, its tag and search filters)',
+    answer: ({ server, url }) => {
+      const q = url.searchParams
+      const tag = q.get('tag')
+      const search = q.get('q')?.toLowerCase()
+      const offset = Number(q.get('offset') ?? 0)
+      const limit = q.has('limit') ? Number(q.get('limit')) : Infinity
+      const sessions = server
+        .sessions()
+        .filter((s) => tag === null || s.tagIds.includes(Number(tag)))
+        .filter((s) => !search || (s.title ?? '').toLowerCase().includes(search) || s.cwd.toLowerCase().includes(search))
+        .slice(offset, offset + limit)
+      return { sessions } satisfies SessionListPage
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/sessions',
+    calledBy: 'store.launchSession (the new-session dialog, the phone’s new-session screen)',
+    answer: ({ server, body }) => {
+      const launch = body as Parameters<typeof api.createSession>[0] | undefined
+      if (!launch?.cwd) return undefined
+      return { sessionId: server.launch(launch) }
+    },
   },
   {
     method: 'GET',
     path: '/api/sessions/count',
     calledBy: 'store.loadInitial (the hole label)',
     answer: ({ server }) => ({ total: server.sessions().length }),
+  },
+  {
+    method: 'GET',
+    path: '/api/sessions/defaults',
+    calledBy: 'the phone’s new-session screen (mode and model preselection)',
+    answer: () => SESSION_DEFAULTS satisfies Answer<'sessionDefaults'>,
+  },
+  {
+    method: 'GET',
+    path: '/api/projects',
+    calledBy: 'the new-session dialog and screen (recent directories, last model per directory)',
+    answer: ({ server }) => ({ projects: projects(server.sessions()) satisfies Answer<'listProjects'> }),
+  },
+  {
+    method: 'POST',
+    path: '/api/sessions/:id/end',
+    calledBy: 'a planet dropped on the map’s trash',
+    answer: ({ server, params, body }) => {
+      const s = server.session(params.id)
+      if (!s) return undefined
+      const unpin = (body as { unpin?: boolean } | undefined)?.unpin === true
+      server.upsert({ ...s, status: 'ended', endedAt: Date.now(), ...(unpin ? { pinnedAt: null } : {}) })
+      return { ok: true } satisfies Answer<'endSession'>
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/sessions/:id/reopen',
+    calledBy: 'the trash toast’s Undo',
+    answer: ({ server, params }) => {
+      const s = server.session(params.id)
+      if (!s) return undefined
+      server.upsert({ ...s, status: 'idle', endedAt: null })
+      return { ok: true } satisfies Answer<'reopenSession'>
+    },
+  },
+  {
+    method: 'PATCH',
+    path: '/api/sessions/:id',
+    calledBy: 'the detail panel (rename)',
+    answer: ({ server, params, body }) =>
+      server.patch(params.id, { title: String((body as { title?: string } | undefined)?.title ?? '') }) satisfies
+        | Answer<'renameSession'>
+        | undefined,
+  },
+  {
+    method: 'POST',
+    path: '/api/sessions/:id/retitle',
+    calledBy: 'the detail panel (regenerate name)',
+    // Claude is not asked: the answer is the one it gives when the name the
+    // session has still fits.
+    answer: ({ server, params }) => {
+      const s = server.session(params.id)
+      return s && ({ title: s.title ?? '', changed: false } satisfies Answer<'retitleSession'>)
+    },
+  },
+  {
+    method: 'PUT',
+    path: '/api/sessions/:id/tags',
+    calledBy: 'the detail panel (the tag pill)',
+    answer: ({ server, params, body }) =>
+      server.patch(params.id, { tagIds: (body as { tagIds?: number[] } | undefined)?.tagIds ?? [] }) satisfies
+        | Answer<'setSessionTags'>
+        | undefined,
+  },
+  {
+    method: 'POST',
+    path: '/api/sessions/:id/model',
+    calledBy: 'the detail panel (the model chip)',
+    answer: ({ server, params, body }) => {
+      const value = (body as { model?: string } | undefined)?.model ?? null
+      const row = server.world.models.find((m) => m.value === value)
+      return server.patch(params.id, { model: value, resolvedModel: row?.resolvedModel ?? value }) satisfies
+        | Answer<'setSessionModel'>
+        | undefined
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/sessions/:id/permission-mode',
+    calledBy: 'the detail panel (the mode chip)',
+    answer: ({ server, params, body }) => {
+      const mode = (body as { mode?: PermissionMode } | undefined)?.mode
+      return mode && (server.patch(params.id, { permissionMode: mode }) satisfies Answer<'setSessionPermissionMode'> | undefined)
+    },
+  },
+  {
+    method: 'PUT',
+    path: '/api/sessions/:id/pinned',
+    calledBy: 'the sidebar’s and the detail panel’s pin',
+    answer: ({ server, params, body }) => {
+      const s = server.session(params.id)
+      if (!s) return undefined
+      const pinned = (body as { pinned?: boolean } | undefined)?.pinned === true
+      server.upsert({ ...s, pinnedAt: pinned ? Date.now() : null })
+      return { ok: true } satisfies Answer<'setSessionPinned'>
+    },
   },
   {
     method: 'GET',
@@ -130,10 +250,56 @@ export const ROUTES: Route[] = [
     answer: () => ({ rules: [] satisfies Answer<'listTagRules'> }),
   },
   {
+    method: 'PATCH',
+    path: '/api/tags/:id',
+    calledBy: 'a tag cluster dragged to a new home on the map',
+    answer: ({ server, params, body }) => {
+      const id = Number(params.id)
+      if (!server.world.tags.some((t) => t.id === id)) return undefined
+      server.world.tags = server.world.tags.map((t) => (t.id === id ? { ...t, ...(body as Partial<Tag>) } : t))
+      return { ok: true } satisfies Answer<'patchTag'>
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/tag-rules/preview',
+    calledBy: 'the new-session dialog (the tag a rule would pick)',
+    // The demo has no rules: the dialog keeps the tag it opened with.
+    answer: () => ({ tagId: null, ruleId: null }) satisfies Answer<'previewRule'>,
+  },
+  {
     method: 'GET',
     path: '/api/settings',
     calledBy: 'store.loadInitial',
     answer: ({ server }) => server.world.settings satisfies Answer<'getSettings'>,
+  },
+  {
+    method: 'PATCH',
+    path: '/api/settings',
+    calledBy: 'the sidebar (collapse, width), the new-session dialog (the last launch)',
+    answer: ({ server, body }) => {
+      server.world.settings = { ...server.world.settings, ...(body as Record<string, string>) }
+      return { ok: true } satisfies Answer<'patchSettings'>
+    },
+  },
+  {
+    method: 'GET',
+    path: '/api/health',
+    calledBy: 'Settings → General (billing, the watched directory)',
+    // No paths: the demo has no Mac whose directories it could name.
+    answer: () => ({ billing: 'subscription' }) satisfies Answer<'getHealth'>,
+  },
+  {
+    method: 'GET',
+    path: '/api/session-instructions/tips',
+    calledBy: 'Settings → Sessions (the instruction tips)',
+    answer: () => ({ tips: [] }) satisfies Answer<'getSessionInstructionTips'>,
+  },
+  {
+    method: 'GET',
+    path: '/api/gh-status',
+    calledBy: 'Settings → Appearance (the pull-request line)',
+    answer: () => ({ status: 'ready' }) satisfies Answer<'ghStatus'>,
   },
   {
     method: 'GET',
@@ -146,6 +312,12 @@ export const ROUTES: Route[] = [
     path: '/api/errors',
     calledBy: 'store.loadInitial (the error log)',
     answer: () => ({ errors: [], unseen: 0 }) satisfies Answer<'listErrors'>,
+  },
+  {
+    method: 'POST',
+    path: '/api/errors/seen',
+    calledBy: 'the error log (mark all read)',
+    answer: () => ({ ok: true, unseen: 0 }) satisfies Answer<'markErrorsSeen'>,
   },
 ]
 
@@ -184,6 +356,7 @@ export class FakeServer {
   private routes: CompiledRoute[] = []
   /** Set when a request found no route — what the tests look for. */
   unanswered: string[] = []
+  private launched = 0
 
   constructor(world: DemoWorld) {
     // Its own copy of the transcripts, which a settled decision appends to.
@@ -244,6 +417,42 @@ export class FakeServer {
     this.world.messages[sessionId] = [...(this.world.messages[sessionId] ?? []), result]
     this.hub.publish(`session:${sessionId}`, { event: 'message', message: result })
     this.upsert({ ...s, pendingDecision: null, status: 'working', lastAt: Date.now() })
+  }
+
+  /**
+   * Changes a session's fields and tells the subscribers. Answers as a write
+   * route does: `{ ok: true }`, or undefined (a 404) for no such session.
+   */
+  patch(id: string, fields: Partial<ApiSession>): { ok: true } | undefined {
+    const s = this.byId.get(id)
+    if (!s) return undefined
+    this.upsert({ ...s, ...fields })
+    return { ok: true }
+  }
+
+  /**
+   * A session started from a new-session dialog or screen, as `POST
+   * /api/sessions` starts one: under the id the client minted (it subscribed
+   * to that id's topic before asking), at work in the chosen directory.
+   * Without a tag picked, it takes the tag of a session already in that
+   * directory — where the real server's rules would most likely put it.
+   * Returns the id, which the client then selects.
+   */
+  launch(body: Parameters<typeof api.createSession>[0]): string {
+    this.launched += 1
+    const id = body.sessionId ?? `launched-${this.launched}`
+    const neighbour = this.sessions().find((s) => s.cwd === body.cwd)
+    const model = this.world.models.find((m) => m.value === body.model) ?? this.world.models[0] ?? null
+    this.upsert(
+      launchedSession({
+        id,
+        cwd: body.cwd,
+        permissionMode: body.permissionMode,
+        model,
+        tagIds: body.tagId != null ? [body.tagId] : (neighbour?.tagIds ?? []),
+      }),
+    )
+    return id
   }
 
   /** What `configureApi({ fetch })` takes. */

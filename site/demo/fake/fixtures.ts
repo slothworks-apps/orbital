@@ -3,6 +3,8 @@ import type {
   ChatMessage,
   OrbitalModel,
   PendingVerdictDecision,
+  PermissionMode,
+  SessionDefaults,
   SessionStatus,
   Subagent,
   Tag,
@@ -58,6 +60,9 @@ export const SETTINGS: Record<string, string> = {
   // Pills rather than the default dots: the visitor has not learned what a
   // dot's colour means yet, and the landing's legend names the pills' words.
   map_state_pills: 'label',
+  // The new-session dialog opens on a directory, so Launch works at once
+  // rather than waiting on a path the visitor has no reason to know.
+  default_project_dir: `${HOME}/billing-api`,
 }
 
 interface SessionSpec {
@@ -274,4 +279,59 @@ export const MESSAGES: Record<string, ChatMessage[]> = {
     ...toolCall('infra', 'Glob', { pattern: '**/Dockerfile' }, 'api/Dockerfile\nworker/Dockerfile'),
     ...toolCall('infra', 'Bash', { command: 'grep -rn "node-version" .github/workflows' }, '.github/workflows/ci.yml:18:          node-version: 22'),
   ],
+}
+
+/** What `GET /api/sessions/defaults` answers: the Mac's own new-session defaults. */
+export const SESSION_DEFAULTS: SessionDefaults = {
+  permissionMode: 'acceptEdits',
+  model: 'opus[1m]',
+  rememberModelPerProject: true,
+}
+
+export interface DemoProject {
+  cwd: string
+  lastModel: string | null
+  lastAt: number | null
+}
+
+/**
+ * What `GET /api/projects` answers — the new-session directory list, newest
+ * first: the world's own projects and a few the Mac worked in before.
+ */
+export function projects(sessions: ApiSession[]): DemoProject[] {
+  const byCwd = new Map<string, DemoProject>()
+  for (const s of sessions) {
+    const seen = byCwd.get(s.cwd)
+    if (!seen || (s.lastAt ?? 0) > (seen.lastAt ?? 0)) byCwd.set(s.cwd, { cwd: s.cwd, lastModel: s.model, lastAt: s.lastAt })
+  }
+  const older = [
+    { cwd: `${HOME}/design-tokens`, lastModel: 'sonnet', lastAt: DEMO_EPOCH - 2 * 24 * 60 * MINUTE },
+    { cwd: `${HOME}/status-page`, lastModel: 'opus[1m]', lastAt: DEMO_EPOCH - 4 * 24 * 60 * MINUTE },
+  ]
+  return [...byCwd.values(), ...older].sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
+}
+
+/**
+ * A session the visitor started from a new-session dialog or screen: at work
+ * in the directory they chose, under a generic title — the real one comes
+ * with Claude's reply, which the demos do not simulate.
+ */
+export function launchedSession(fields: {
+  id: string
+  cwd: string
+  permissionMode: PermissionMode
+  model: OrbitalModel | null
+  tagIds: number[]
+}): ApiSession {
+  const now = Date.now()
+  return {
+    ...session({ id: fields.id, project: '', tag: 0, title: 'New session', status: 'working', startedMinutesAgo: 0, messageCount: 0 }),
+    cwd: fields.cwd,
+    firstAt: now,
+    lastAt: now,
+    permissionMode: fields.permissionMode,
+    model: fields.model?.value ?? null,
+    resolvedModel: fields.model?.resolvedModel ?? null,
+    tagIds: fields.tagIds,
+  }
 }

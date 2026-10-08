@@ -4,6 +4,8 @@ import '@fontsource/jetbrains-mono/latin-400.css'
 import '../demo.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { LIMITS_PATH } from '../../../web/src/limits/route'
+import { STATS_PATH } from '../../../web/src/stats/route'
 import { useOrbital } from '../../../web/src/store/store'
 import type { ApiSession } from '../../../web/src/lib/types'
 import { runDirector } from '../fake/director'
@@ -59,6 +61,28 @@ useOrbital.setState((state) => ({
  * here to scroll, the page around the iframe.
  */
 window.addEventListener('wheel', (event) => event.stopPropagation(), { capture: true, passive: true })
+
+/**
+ * The app's pages (stats, plan limits) are not part of the website: inside
+ * `/demo/map/` their paths are a 404. The sidebar's two links to them are
+ * hidden, and any other link that would take the frame off the demo — to a
+ * path of this site outside `/demo/` — does nothing.
+ */
+const hideAppPages = document.createElement('style')
+hideAppPages.textContent = [STATS_PATH, LIMITS_PATH].map((path) => `a[href="${path}"] { display: none !important; }`).join('\n')
+document.head.append(hideAppPages)
+for (const type of ['click', 'auxclick'] as const) {
+  document.addEventListener(
+    type,
+    (event) => {
+      const link = event.target instanceof Element ? event.target.closest('a[href]') : null
+      if (!(link instanceof HTMLAnchorElement)) return
+      const to = new URL(link.href, window.location.href)
+      if (to.origin === window.location.origin && !to.pathname.startsWith('/demo/')) event.preventDefault()
+    },
+    { capture: true },
+  )
+}
 
 // A beat publishes only the sessions it changed: the beats share their
 // unchanged session objects, so a changed one is a different object.

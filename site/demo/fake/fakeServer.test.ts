@@ -80,6 +80,34 @@ describe('FakeServer', () => {
     socket.close()
   })
 
+  it('a launch adds a working session under the id the client minted and tells the sessions topic', async () => {
+    const server = new FakeServer(world())
+    const frames: unknown[] = []
+    const socket = server.hub.WebSocket('ws://demo/ws')
+    socket.onmessage = (e) => frames.push(JSON.parse(e.data as string))
+    await new Promise((r) => setTimeout(r, 0))
+    socket.send(JSON.stringify({ type: 'subscribe', topic: 'sessions' }))
+
+    const res = await server.fetch('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ cwd: DOCS.cwd, prompt: '', permissionMode: 'plan', model: 'sonnet', sessionId: 'minted' }),
+    })
+
+    expect(await res.json()).toEqual({ sessionId: 'minted' })
+    expect(server.session('minted')).toMatchObject({
+      cwd: DOCS.cwd,
+      status: 'working',
+      permissionMode: 'plan',
+      model: 'sonnet',
+      // No tag picked: the tag of the session already in that directory.
+      tagIds: DOCS.tagIds,
+    })
+    expect(frames).toEqual([
+      { topic: 'sessions', event: 'upsert', session: expect.objectContaining({ id: 'minted' }) },
+    ])
+    socket.close()
+  })
+
   it('a route a demo adds is matched ahead of the defaults', async () => {
     const server = new FakeServer(world())
     server.route({ method: 'GET', path: '/api/tags', calledBy: 'test', answer: () => ({ tags: [] }) })

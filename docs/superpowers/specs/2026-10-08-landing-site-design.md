@@ -165,9 +165,18 @@ advance on its own.
 - Click a planet: its real panel opens.
 - Approve or Deny on a permission card: the session's state changes.
 - Expand a diff or a tool call.
+- On the map, start a session from New session: a working planet titled "New
+  session" appears in the chosen directory's cluster and its panel opens.
+  Settings and the error log open as in the app; pinning, ending a session on
+  the trash (with its Undo), renaming, retagging and changing model or mode
+  change the fake server's session.
 
-The composer is disabled with the placeholder "In the app, you'd type here".
-Claude's replies are not simulated.
+The composer is disabled with the placeholder "In the app, you'd type here",
+the new-session dialog's first prompt included. Claude's replies are not
+simulated. The app's other pages (stats, plan limits) are not part of the
+website: the map demo hides the sidebar's links to them and lets no link take
+the frame off `/demo/`. The keymap is not installed, so shortcuts such as ⌘N do
+nothing (a browser keeps ⌘N for a new window anyway).
 
 ### Scaling
 

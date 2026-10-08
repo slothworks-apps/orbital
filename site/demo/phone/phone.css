@@ -13,3 +13,18 @@ html,
 :root[data-platform='mobile'] body {
   overscroll-behavior: auto;
 }
+
+/* The website draws the phone's bezel, notch included, over the top of this
+   page and a home indicator along its bottom. The phone app takes its insets
+   from the device's safe area, which a web page does not have, so the demo
+   gives them as constants: about what an iPhone reports, at this page's
+   virtual width. Same selector as the rule they override. */
+:root {
+  --demo-status-bar: 50px;
+  --demo-home-indicator: 20px;
+}
+
+:root[data-platform='mobile'] #root {
+  padding-top: var(--demo-status-bar);
+  padding-bottom: var(--demo-home-indicator);
+}

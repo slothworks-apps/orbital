@@ -14,7 +14,7 @@ import { ErrorBoundary } from '../../../web/src/ui/ErrorBoundary'
 import { BILLING } from '../fake/fixtures'
 import { announceReady, installFakeServer } from '../fake/install'
 import { COMPOSER_LOCKED, afterTwoFrames } from '../page'
-import { PHONE_WORLD, SESSION_DEFAULTS, projects } from './world'
+import { PHONE_WORLD } from './world'
 
 /**
  * The phone demo: `web/src/mobile`'s screens as the phone app runs them, on
@@ -34,19 +34,7 @@ import { PHONE_WORLD, SESSION_DEFAULTS, projects } from './world'
 type PhoneScreen = 'answer' | 'new'
 const screen: PhoneScreen = new URLSearchParams(window.location.search).get('screen') === 'new' ? 'new' : 'answer'
 
-const server = installFakeServer(PHONE_WORLD)
-server.route({
-  method: 'GET',
-  path: '/api/sessions/defaults',
-  calledBy: 'NewSessionScreen (mode and model preselection)',
-  answer: () => SESSION_DEFAULTS,
-})
-server.route({
-  method: 'GET',
-  path: '/api/projects',
-  calledBy: 'NewSessionScreen (the directory list)',
-  answer: (ctx) => ({ projects: projects(ctx.server.sessions()) }),
-})
+installFakeServer(PHONE_WORLD)
 
 configureTranscriptPages(TRANSCRIPT_PAGE_SIZE)
 getSocket().subscribe('sessions', (msg: SessionsEvent) => useOrbital.getState().queueSessionsEvent(msg))

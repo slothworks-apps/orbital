@@ -1,4 +1,4 @@
-import type { ApiSession, ChatMessage, OrbitalModel, PendingVerdictDecision, SessionDefaults } from '../../../web/src/lib/types'
+import type { ApiSession, ChatMessage, OrbitalModel, PendingVerdictDecision } from '../../../web/src/lib/types'
 import type { DemoWorld } from '../fake/fakeServer'
 import { BILLING, DEMO_EPOCH, DOCS, INFRA, MESSAGES, MOBILE, MODELS, QUIET, SETTINGS, TAGS, subagent } from '../fake/fixtures'
 
@@ -105,29 +105,4 @@ export const PHONE_WORLD: DemoWorld = {
   approvedOutputs: {
     [PUSH_DECISION.id]: "branch 'webhook-retry' set up to track 'origin/webhook-retry'.\nTo github.com:demo/billing-api.git\n * [new branch]      webhook-retry -> webhook-retry",
   },
-}
-
-/** What `GET /api/sessions/defaults` answers: the Mac's own new-session defaults. */
-export const SESSION_DEFAULTS: SessionDefaults = {
-  permissionMode: 'acceptEdits',
-  model: 'opus[1m]',
-  rememberModelPerProject: true,
-}
-
-/**
- * What `GET /api/projects` answers — 9d's directory list, newest first: the
- * world's own projects and a few the Mac worked in before.
- */
-export function projects(sessions: ApiSession[]): Array<{ cwd: string; lastModel: string | null; lastAt: number | null }> {
-  const byCwd = new Map<string, { cwd: string; lastModel: string | null; lastAt: number | null }>()
-  for (const s of sessions) {
-    const seen = byCwd.get(s.cwd)
-    if (!seen || (s.lastAt ?? 0) > (seen.lastAt ?? 0)) byCwd.set(s.cwd, { cwd: s.cwd, lastModel: s.model, lastAt: s.lastAt })
-  }
-  const home = BILLING.cwd.slice(0, BILLING.cwd.lastIndexOf('/'))
-  const older = [
-    { cwd: `${home}/design-tokens`, lastModel: 'sonnet', lastAt: DEMO_EPOCH - 2 * 24 * 60 * MINUTE },
-    { cwd: `${home}/status-page`, lastModel: 'opus[1m]', lastAt: DEMO_EPOCH - 4 * 24 * 60 * MINUTE },
-  ]
-  return [...byCwd.values(), ...older].sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
 }

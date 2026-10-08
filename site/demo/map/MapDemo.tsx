@@ -4,6 +4,9 @@ import { useViewportWidth } from '../../../web/src/lib/useViewportWidth'
 import { SpaceMap } from '../../../web/src/map/SpaceMap'
 import { ComposerLockContext } from '../../../web/src/panels/Composer'
 import { DetailPanel } from '../../../web/src/panels/DetailPanel'
+import { ErrorLog } from '../../../web/src/panels/ErrorLog'
+import { NewSessionDialog } from '../../../web/src/panels/NewSessionDialog'
+import { Settings } from '../../../web/src/panels/Settings'
 import { Sidebar } from '../../../web/src/panels/Sidebar'
 import { SubagentPanel } from '../../../web/src/panels/SubagentPanel'
 import {
@@ -23,12 +26,16 @@ import { COMPOSER_LOCKED } from '../page'
 /**
  * The map demo's shell: the parts of `web/src/App.tsx` the map needs — the
  * Planets map, the collapsed sidebar, the detail and subagent panels docked
- * as the app docks them, and the same socket subscriptions — without the
- * app's dialogs, desktop bridge or URL sync. The map is `SpaceMap` directly,
- * never `MapView`: Planets is the only theme the website shows.
+ * as the app docks them, the same socket subscriptions, and the three
+ * dialogs the map and the sidebar open (New session, Settings, the error
+ * log) — without the desktop bridge, the keymap, URL sync or the pages the
+ * app links to (`main.tsx` keeps a visitor on this page). The map is
+ * `SpaceMap` directly, never `MapView`: Planets is the only theme the
+ * website shows.
  */
 export function MapDemo() {
   const selectedId = useOrbital((s) => s.ui.selectedId)
+  const dialog = useOrbital((s) => s.ui.dialog)
 
   useEffect(
     () => getSocket().subscribe('sessions', (msg: SessionsEvent) => useOrbital.getState().queueSessionsEvent(msg)),
@@ -85,9 +92,18 @@ export function MapDemo() {
               <SubagentPanel widthPx={subagentWidthPx} />
             </ErrorBoundary>
           </div>
+          {/* As `App` renders them. The first prompt is the composer, so the
+              lock above reaches it too. */}
+          <NewSessionDialog open={dialog === 'new'} onClose={closeDialog} />
+          <Settings open={dialog === 'settings'} onClose={closeDialog} />
+          <ErrorLog open={dialog === 'errors'} onClose={closeDialog} />
           <Toasts />
         </div>
       </EscapeBoundary>
     </ComposerLockContext.Provider>
   )
+}
+
+function closeDialog() {
+  useOrbital.getState().setDialog(null)
 }
