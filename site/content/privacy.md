@@ -171,9 +171,9 @@ phone app and the relay are all in that repository.
 For the relay SlothWorks runs and for this website, the data controller is:
 
 SlothWorks s.r.o.
-[COMPANY ADDRESS]
-Company ID: [COMPANY ID]
-Email: [CONTACT EMAIL]
+Mostecká 232/4, 412 01 Litoměřice, Czech Republic
+Company ID (IČO): 107 98 838
+Email: orbital@slothworks.io
 
 For everything that stays on your own Mac and phone, or on a relay you run
 yourself, you are in control and we receive nothing. For your Claude
@@ -192,7 +192,7 @@ Orbital is a developer tool and is not directed at children.
 
 Under the GDPR you can ask us for a copy of the data we hold about you, ask
 us to correct it, delete it, or limit or stop how we use it, and to receive
-it in a portable form. Write to [CONTACT EMAIL]; we answer within one month.
+it in a portable form. Write to orbital@slothworks.io; we answer within one month.
 For the relay, we can only find your records if you tell us your Mac's name,
 since the relay knows nothing else about you.
 
@@ -205,4 +205,4 @@ authority in your own EU country.
 When Orbital changes what it does with data, we update this page and the
 date at the top. The full history of this page is in the public repository.
 
-Questions about privacy: [CONTACT EMAIL].
+Questions about privacy: orbital@slothworks.io.
