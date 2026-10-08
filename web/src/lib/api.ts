@@ -1,3 +1,4 @@
+import type { McpjsonDecisions, McpjsonServer } from './mcpjson'
 import type {
   ApiSession,
   AttachmentUpload,
@@ -186,6 +187,43 @@ async function request<T>(
   return data as T
 }
 
+/**
+ * One file viewer read: the bytes, or the refusal the server answered with
+ * as a value. Only a refusal it does not name throws.
+ */
+async function readPreview(requestUrl: string): Promise<FilePreview> {
+  const response = await apiFetch(requestUrl, { method: 'GET' })
+
+  if (response.ok) {
+    const data = (await response.json()) as {
+      content: string
+      size: number
+      mtimeMs: number
+      lines: number
+    }
+    return { kind: 'ok', ...data }
+  }
+
+  const text = await response.text()
+  let body: { error?: string; size?: number; mediaType?: string } = {}
+  try {
+    body = JSON.parse(text) as typeof body
+  } catch {
+    // A refusal without a JSON body falls through to the ApiError below.
+  }
+
+  if (response.status === 403 && body.error === 'outside_cwd') return { kind: 'outside' }
+  if (response.status === 404) return { kind: 'not_found' }
+  if (response.status === 413 && body.error === 'too_large') {
+    return { kind: 'too_large', size: body.size ?? 0 }
+  }
+  if (response.status === 415 && body.error === 'binary') {
+    return { kind: 'binary', size: body.size ?? 0, mediaType: body.mediaType ?? 'binary' }
+  }
+
+  throw new ApiError(text || response.statusText, response.status, requestUrl)
+}
+
 /** `?session=<id>` or `?cwd=<dir>` — never both (the server reads one). */
 function applyCompletionKey(url: URL, key: CompletionKey): void {
   if ('session' in key) url.searchParams.set('session', key.session)
@@ -312,6 +350,9 @@ export const api = {
     /** The Claude directory to run under (spec 2026-10-04-multiple-claude-directories-design § 3).
      * Omitted, the server uses its default; it remembers a sent one for the next prefill. */
     claudeDirId?: number
+    /** The answer to the `.mcp.json` question, recorded before the launch. Omitted, the
+     * Mac keeps every undecided server out (spec 2026-10-08-mcpjson-approval-design). */
+    mcpjson?: McpjsonDecisions
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -663,38 +704,28 @@ export const api = {
     url.searchParams.set('session', sessionId)
     url.searchParams.set('path', path)
     if (cwd) url.searchParams.set('cwd', cwd)
-    const requestUrl = url.pathname + url.search
+    return readPreview(url.pathname + url.search)
+  },
 
-    const response = await apiFetch(requestUrl, { method: 'GET' })
+  /**
+   * The undecided servers of a project's `.mcp.json`, for the New session
+   * question (spec 2026-10-08-mcpjson-approval-design). Through the relay on
+   * the phone.
+   */
+  async mcpjson(cwd: string, claudeDirId?: number): Promise<McpjsonServer[]> {
+    const params = new URLSearchParams({ cwd })
+    if (claudeDirId !== undefined) params.set('claudeDirId', String(claudeDirId))
+    const data = await request<{ undecided: McpjsonServer[] }>('GET', `/api/mcpjson?${params}`)
+    return data.undecided
+  },
 
-    if (response.ok) {
-      const data = (await response.json()) as {
-        content: string
-        size: number
-        mtimeMs: number
-        lines: number
-      }
-      return { kind: 'ok', ...data }
-    }
-
-    const text = await response.text()
-    let body: { error?: string; size?: number; mediaType?: string } = {}
-    try {
-      body = JSON.parse(text) as typeof body
-    } catch {
-      // A refusal without a JSON body falls through to the ApiError below.
-    }
-
-    if (response.status === 403 && body.error === 'outside_cwd') return { kind: 'outside' }
-    if (response.status === 404) return { kind: 'not_found' }
-    if (response.status === 413 && body.error === 'too_large') {
-      return { kind: 'too_large', size: body.size ?? 0 }
-    }
-    if (response.status === 415 && body.error === 'binary') {
-      return { kind: 'binary', size: body.size ?? 0, mediaType: body.mediaType ?? 'binary' }
-    }
-
-    throw new ApiError(text || response.statusText, response.status, requestUrl)
+  /**
+   * The project file an undecided `.mcp.json` server runs, for the
+   * question's *View file*: there is no session to read it through yet, so
+   * the Mac reads the one file `.mcp.json` names for `server`.
+   */
+  async mcpjsonFile(cwd: string, server: string): Promise<FilePreview> {
+    return readPreview(`/api/mcpjson/file?${new URLSearchParams({ cwd, server })}`)
   },
 
   // IDE bridge — the two calls that talk back to the editor (spec:

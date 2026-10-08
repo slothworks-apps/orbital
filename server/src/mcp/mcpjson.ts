@@ -198,6 +198,15 @@ function mcpjsonServers(cwd: string): { server: McpjsonServer; hash: string }[] 
 }
 
 /**
+ * The project file a `.mcp.json` server runs (`source: 'file'`), relative to
+ * the project, for the question's *View file*; null for a server that names
+ * none or is not there.
+ */
+export function serverFile(cwd: string, name: string): string | null {
+  return mcpjsonServers(cwd).find(({ server }) => server.name === name)?.server.file ?? null;
+}
+
+/**
  * The servers of `<cwd>/.mcp.json` that no decision source names. The four
  * sources: `settings.json` in `claudeDir`, the project's
  * `.claude/settings.json` and `.claude/settings.local.json`, and the

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api, ApiError, type EndedSummary } from '../lib/api'
+import type { McpjsonDecisions } from '../lib/mcpjson'
 import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
 import { isAttachable, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
@@ -589,6 +590,8 @@ export interface OrbitalActions {
     requireDirectory?: boolean
     /** The Claude directory to run under; omitted, the server's default (`api.createSession`). */
     claudeDirId?: number
+    /** The `.mcp.json` question's answers (`api.createSession`); omitted, undecided servers stay out. */
+    mcpjson?: McpjsonDecisions
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>

@@ -150,7 +150,18 @@ project entry of that directory's `.claude.json`, and
   switched on later in the MCP dialog" is not built now
   ([[mcpjson-decisions-in-the-mcp-dialog]]).
 - *View file* opens the file in the read-only file viewer, on the desktop
-  and on the phone.
+  and on the phone. There is no session to read it through yet, so it
+  reads through `GET /api/mcpjson/file?cwd=<path>&server=<name>`: the one
+  file `.mcp.json` names for that server, confined to the project like
+  every other read, never an arbitrary path. The viewer is opened by the
+  dialog rather than through `ui.fileViewer`, which belongs to the
+  selected session and is mirrored into the URL.
+- A `GET /api/mcpjson` that fails asks about nothing and launches without
+  answers (decided 2026-10-08). Rule 1 keeps every undecided server out of
+  such a launch, so nothing runs unasked and the next launch asks again;
+  refusing the launch instead would block a session over a question whose
+  safe answer is already given. It is also what a newer phone gets from a
+  Mac too old to have the route.
 
 ## Phone
 

@@ -6,7 +6,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Fixed
 - A terminal session that asks for input right after it starts, or a session that asks just after Orbital reconnects to its server, now notifies instead of staying silent.
 - Text typed into a Settings field just before closing the dialog is now saved instead of lost.
-- MCP servers named in a project's `.mcp.json` no longer start in Orbital sessions until you have approved them.
+- New session asks before it starts the MCP servers a project's `.mcp.json` names, and asks again when one's command changes; a server you have not allowed does not start.
 
 ## [0.23.0] — 2026-10-08
 ### Added

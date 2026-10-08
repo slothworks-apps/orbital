@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -308,6 +308,82 @@ export interface FileViewerProps {
 export function FileViewer({ session }: FileViewerProps) {
   const target = useOrbital((s) => s.ui.fileViewer)
   const closeFile = useOrbital((s) => s.closeFile)
+  const read = useCallback(
+    (path: string, cwd?: string) => api.filePreview(session.id, path, cwd),
+    [session.id],
+  )
+  return (
+    <FileViewerSurface
+      target={target}
+      onClose={closeFile}
+      read={read}
+      ideSessionId={session.id}
+      ideName={session.ide?.ideName ?? null}
+      outside={(cwd) => (
+        <>
+          Orbital reads inside{' '}
+          <span className="text-[rgba(220,235,255,.85)]">{cwd ?? workingDirOf(session)}</span> and files this
+          session named.
+        </>
+      )}
+      openedFrom={session.title || 'session'}
+    />
+  )
+}
+
+export interface ProjectFileViewerProps {
+  /** The project the New session dialog is about to launch in. */
+  cwd: string
+  /** The undecided `.mcp.json` server whose file is shown, or null while closed. */
+  server: { name: string; file: string } | null
+  onClose: () => void
+}
+
+/**
+ * The same viewer over the one project file a `.mcp.json` server runs, for
+ * the New session question's *View file* (spec
+ * 2026-10-08-mcpjson-approval-design § Clients; canvas `Feature - MCP
+ * approval` 2d). There is no session yet, so it is opened by its caller
+ * rather than through `ui.fileViewer`, which belongs to the selected
+ * session, and it has no editor to talk to.
+ */
+export function ProjectFileViewer({ cwd, server, onClose }: ProjectFileViewerProps) {
+  const name = server?.name ?? null
+  // Only called while open, so `name` is set.
+  const read = useCallback(() => api.mcpjsonFile(cwd, name ?? ''), [cwd, name])
+  return (
+    <FileViewerSurface
+      target={server ? { path: server.file, line: null } : null}
+      onClose={onClose}
+      read={read}
+      ideSessionId={null}
+      ideName={null}
+      outside={() => (
+        <>
+          Orbital reads inside <span className="text-[rgba(220,235,255,.85)]">{cwd}</span>.
+        </>
+      )}
+      openedFrom="New session"
+    />
+  )
+}
+
+interface FileViewerSurfaceProps {
+  target: { path: string; line: number | null; cwd?: string } | null
+  onClose: () => void
+  /** The snapshot read; a new function is a new read. */
+  read: (path: string, cwd?: string) => Promise<FilePreview>
+  /** The session whose editor is asked, or null where there is none. */
+  ideSessionId: string | null
+  ideName: string | null
+  /** The OUTSIDE refusal's sentence, given the cwd the target was read against. */
+  outside: (cwd: string | undefined) => ReactNode
+  /** The footer's `opened from …`. */
+  openedFrom: string
+}
+
+function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNameProp, outside, openedFrom }: FileViewerSurfaceProps) {
+  const closeFile = onClose
   const openInIde = useOrbital((s) => s.openInIde)
   const open = target !== null
 
@@ -335,20 +411,22 @@ export function FileViewer({ session }: FileViewerProps) {
     if (openPath === null) return
     let cancelled = false
     setPreview(null)
-    api
-      .filePreview(session.id, openPath, openCwd)
+    read(openPath, openCwd)
       .then((result) => {
         if (!cancelled) setPreview(result)
       })
       .catch((err) => {
         if (cancelled) return
         reportError(err, 'Failed to read the file')
-        useOrbital.getState().closeFile()
+        closeFile()
       })
     return () => {
       cancelled = true
     }
-  }, [session.id, openPath, openCwd])
+    // `closeFile` is the caller's and may be a fresh closure each render; the
+    // read is keyed by what is read, not by who closes it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [read, openPath, openCwd])
 
   // What the editor thinks is wrong with this file — inspections no test run
   // reports, which is the whole reason they are worth asking for (spec
@@ -361,19 +439,19 @@ export function FileViewer({ session }: FileViewerProps) {
   // `ideName` rather than the whole `ide` object in the dependency list: the
   // session republishes on every selection change, and re-fetching a file's
   // diagnostics because a caret moved is a call per keystroke.
-  const ideName = session.ide?.ideName ?? null
+  const ideName = ideSessionId === null ? null : ideNameProp
   const [diagnostics, setDiagnostics] = useState<IdeDiagnostic[] | null>(null)
   useEffect(() => {
     setDiagnostics(null)
-    if (openPath === null || ideName === null) return
+    if (openPath === null || ideName === null || ideSessionId === null) return
     let cancelled = false
-    void api.ideDiagnostics(session.id, openPath).then((found) => {
+    void api.ideDiagnostics(ideSessionId, openPath).then((found) => {
       if (!cancelled) setDiagnostics(found)
     })
     return () => {
       cancelled = true
     }
-  }, [session.id, openPath, ideName])
+  }, [ideSessionId, openPath, ideName])
 
   const byLine = useMemo(() => {
     const map = new Map<number, IdeDiagnostic[]>()
@@ -559,13 +637,7 @@ export function FileViewer({ session }: FileViewerProps) {
           ) : preview.kind === 'outside' ? (
             <RefusalBody
               label="OUTSIDE SESSION FOLDER"
-              sentence={
-                <>
-                  Orbital reads inside{' '}
-                  <span className="text-[rgba(220,235,255,.85)]">{shown.cwd ?? workingDirOf(session)}</span> and files this
-                  session named.
-                </>
-              }
+              sentence={outside(shown.cwd)}
             />
           ) : preview.kind === 'not_found' ? (
             // The canvas adds "The agent read it at 14:02." — that needs the
@@ -628,7 +700,7 @@ export function FileViewer({ session }: FileViewerProps) {
             closes · read-only snapshot
             <span aria-hidden className="flex-1" />
             <span className="truncate">
-              opened from {session.title || 'session'}
+              opened from {openedFrom}
               {openedAt ? ` · ${openedAt}` : ''}
             </span>
           </div>

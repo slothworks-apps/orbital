@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
@@ -977,5 +977,96 @@ describe('NewSessionDialog — ⌘D and four or more directories (canvas 44c, 44
     await waitFor(() =>
       expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ claudeDirId: 4 })),
     )
+  })
+})
+
+// Spec 2026-10-08-mcpjson-approval-design § Clients: Launch asks about the
+// project's undecided `.mcp.json` servers before anything spawns.
+describe('NewSessionDialog — the .mcp.json question', () => {
+  const SERVERS = [
+    { name: 'playwright', command: 'npx', args: ['-y', '@playwright/mcp@latest'], source: 'npm' as const },
+    { name: 'db-tools', command: './scripts/mcp-db.sh', args: ['--port', '5433'], source: 'file' as const, file: 'scripts/mcp-db.sh' },
+  ]
+
+  async function openAndLaunch() {
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    resetStore({ settings: { default_project_dir: '/w/indexer' } })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    replaceField(screen.getByRole('textbox', { name: /first prompt/i }), 'profile it')
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+  }
+
+  const choice = (server: string, label: string) =>
+    within(screen.getByRole('radiogroup', { name: server })).getByRole('radio', { name: label })
+
+  it('launches straight away when nothing is undecided, sending no answers', async () => {
+    vi.mocked(api.mcpjson).mockResolvedValue([])
+    await openAndLaunch()
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    expect(vi.mocked(api.mcpjson).mock.calls[0][0]).toBe('/w/indexer')
+    expect(api.createSession).toHaveBeenCalledWith(expect.not.objectContaining({ mcpjson: expect.anything() }))
+  })
+
+  it('asks first, and launches with every answer once all are given', async () => {
+    vi.mocked(api.mcpjson).mockResolvedValue(SERVERS)
+    await openAndLaunch()
+    await screen.findByRole('dialog', { name: 'This project wants to run MCP servers' })
+    expect(api.createSession).not.toHaveBeenCalled()
+
+    const start = screen.getByRole('button', { name: /start session/i })
+    fireEvent.click(choice('playwright', 'Allow'))
+    expect(screen.getByText('1 of 2 answered')).toBeInTheDocument()
+    // Not ready: neither the button nor ⌘⏎ launches.
+    fireEvent.click(start)
+    fireEvent.keyDown(document, { key: 'Enter', metaKey: true })
+    expect(api.createSession).not.toHaveBeenCalled()
+
+    fireEvent.click(choice('db-tools', "Don't allow"))
+    expect(choice('db-tools', "Don't allow")).toHaveAttribute('aria-checked', 'true')
+    fireEvent.keyDown(document, { key: 'Enter', metaKey: true })
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: '/w/indexer', prompt: 'profile it', mcpjson: { allow: ['playwright'], deny: ['db-tools'] } }),
+      ),
+    )
+  })
+
+  it('goes back to the form with every field kept, and launches nothing', async () => {
+    vi.mocked(api.mcpjson).mockResolvedValue(SERVERS.slice(0, 1))
+    await openAndLaunch()
+    await screen.findByRole('dialog', { name: 'This project wants to run an MCP server' })
+    fireEvent.click(choice('playwright', 'Allow'))
+    fireEvent.click(screen.getByRole('button', { name: '← Back' }))
+
+    expect(screen.getByRole('dialog', { name: 'New session' })).toBeInTheDocument()
+    expect(screen.getByLabelText(/project directory/i)).toHaveValue('/w/indexer')
+    expect(fieldValue(screen.getByRole('textbox', { name: /first prompt/i }))).toBe('profile it')
+    expect(api.createSession).not.toHaveBeenCalled()
+
+    // Launching again asks again, from no answers.
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await screen.findByRole('dialog', { name: 'This project wants to run an MCP server' })
+    expect(choice('playwright', 'Allow')).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('treats esc on the question as Back, not as closing the dialog', async () => {
+    vi.mocked(api.mcpjson).mockResolvedValue(SERVERS.slice(0, 1))
+    const onClose = vi.fn()
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    resetStore({ settings: { default_project_dir: '/w/indexer' } })
+    render(<NewSessionDialog open onClose={onClose} />)
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await screen.findByRole('dialog', { name: 'This project wants to run an MCP server' })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(await screen.findByRole('dialog', { name: 'New session' })).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('launches without answers when the servers cannot be read — the Mac keeps them out', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.mocked(api.mcpjson).mockRejectedValue(new Error('relay down'))
+    await openAndLaunch()
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    expect(api.createSession).toHaveBeenCalledWith(expect.not.objectContaining({ mcpjson: expect.anything() }))
   })
 })

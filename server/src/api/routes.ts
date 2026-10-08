@@ -54,7 +54,7 @@ import type { HarnessService } from '../harness/service.js';
 import { registerHarnessRoutes, type CarryHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
-import { recordDecisions, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
+import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
 import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
@@ -1184,6 +1184,34 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const dirId = ctx.claudeDirs.resolveId(q.claudeDirId);
     if (dirId === null) return reply.code(400).send({ error: 'unknown_claude_dir' });
     return { undecided: undecidedServers(cwd, claudeDirPathOf(dirId), { fingerprints: mcpjsonFingerprints }) };
+  });
+
+  /**
+   * The project file a `.mcp.json` server runs, for the question's *View
+   * file* (spec 2026-10-08-mcpjson-approval-design § Clients). There is no
+   * session yet, so the read is not by path: it is the one file `.mcp.json`
+   * names for `server`, confined to the project by `readFilePreview` like
+   * every other read. Answers as `GET /api/files` does.
+   */
+  app.get('/api/mcpjson/file', (req, reply) => {
+    const q = req.query as { cwd?: string; server?: string };
+    const cwd = q.cwd ? expandHome(q.cwd) : '';
+    if (!cwd || !isAbsolute(cwd) || !q.server) return reply.code(400).send({ error: 'missing_params' });
+    const file = serverFile(cwd, q.server);
+    if (file === null) return reply.code(404).send({ error: 'not_found' });
+    const result = readFilePreview(cwd, file);
+    switch (result.kind) {
+      case 'ok':
+        return { content: result.content, size: result.size, mtimeMs: result.mtimeMs, lines: result.lines };
+      case 'not_found':
+        return reply.code(404).send({ error: 'not_found' });
+      case 'outside':
+        return reply.code(403).send({ error: 'outside_cwd' });
+      case 'too_large':
+        return reply.code(413).send({ error: 'too_large', size: result.size });
+      case 'binary':
+        return reply.code(415).send({ error: 'binary', size: result.size, mediaType: result.mediaType });
+    }
   });
 
   /** Why a browser-minted session id cannot be used, or null when it can (or none was sent). */

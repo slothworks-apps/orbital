@@ -1552,6 +1552,32 @@ describe('.mcp.json approval', () => {
     expect(await get()).toEqual(['alpha']);
   });
 
+  it('reads the one project file a server runs, and nothing else', async () => {
+    const { app } = makeApp();
+    const cwd = project();
+    writeFileSync(join(cwd, 'a.js'), 'console.log(1)\n');
+    const get = (query: string) => app.inject({ method: 'GET', url: `/api/mcpjson/file?${query}` });
+    const ok = await get(`cwd=${encodeURIComponent(cwd)}&server=alpha`);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ content: 'console.log(1)\n', lines: 2 });
+    // `beta` is a URL, and `gamma` is not in `.mcp.json`: neither names a file.
+    for (const server of ['beta', 'gamma']) {
+      expect((await get(`cwd=${encodeURIComponent(cwd)}&server=${server}`)).statusCode, server).toBe(404);
+    }
+    expect((await get(`cwd=${encodeURIComponent(cwd)}`)).statusCode).toBe(400);
+    expect((await get('cwd=relative&server=alpha')).statusCode).toBe(400);
+  });
+
+  it('refuses a server file that leaves the project through a symlink', async () => {
+    const { app } = makeApp();
+    const cwd = project();
+    const outside = makeTmpDir('mcpjson-outside');
+    writeFileSync(join(outside, 'secret.js'), 'x');
+    symlinkSync(join(outside, 'secret.js'), join(cwd, 'a.js'));
+    const res = await app.inject({ method: 'GET', url: `/api/mcpjson/file?cwd=${encodeURIComponent(cwd)}&server=alpha` });
+    expect(res.statusCode).toBe(403);
+  });
+
   it('launches without answers and writes nothing — the runner keeps undecided servers out', async () => {
     const { app, startCalls } = makeApp();
     const cwd = project();

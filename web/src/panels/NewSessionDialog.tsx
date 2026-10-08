@@ -31,6 +31,17 @@ import {
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import { permissionMode as permissionModeDescriptor } from '../lib/permissionModes'
 import type { PermissionMode } from '../lib/types'
+import {
+  answerSummary,
+  decisionsOf,
+  questionTitle,
+  undecidedBeforeLaunch,
+  type McpjsonAnswers,
+  type McpjsonDecisions,
+  type McpjsonServer,
+} from '../lib/mcpjson'
+import { McpjsonIntro, McpjsonRows } from './McpjsonQuestion'
+import { ProjectFileViewer } from './FileViewer'
 
 export interface NewSessionDialogProps {
   open: boolean
@@ -185,6 +196,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [claudeDirPrefilled, setClaudeDirPrefilled] = useState<Omit<ClaudeDirOrigin, 'changed'> & { id: number | null }>(
     { id: null, from: 'default' },
   )
+  /**
+   * The `.mcp.json` question (spec 2026-10-08-mcpjson-approval-design; canvas
+   * 47a/47b): the servers Launch found undecided and the answers so far. Set,
+   * it takes the dialog's place; the form stays mounted underneath, so Back
+   * finds every field as it was.
+   */
+  const [question, setQuestion] = useState<{ servers: McpjsonServer[]; answers: McpjsonAnswers } | null>(null)
+  /** The project file a question row's *View file* opened (canvas 2d). */
+  const [viewing, setViewing] = useState<{ name: string; file: string } | null>(null)
   const choosesDir = claudeDirs.length >= 2
   const claudeDirMonograms = useClaudeDirMonograms()
   const claudeDirName = claudeDirs.find((d) => d.id === claudeDirId)?.name ?? null
@@ -238,6 +258,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setOtherActive(false)
       setCustomInitial(null)
       setPending(false)
+      setQuestion(null)
+      setViewing(null)
       const prefill = claudeDirPrefill({
         dirs: claudeDirs,
         planet: selectedSession?.claudeDirId,
@@ -350,8 +372,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** Other is selected but no id has validated yet. */
   const awaitingCustomModel = otherActive && model === null
 
-  const handleLaunch = useCallback(async () => {
-    if (!cwd.trim() || pending || awaitingCustomModel) return
+  /** The launch itself, with the question's answers when it was asked. */
+  const launch = useCallback(async (mcpjson?: McpjsonDecisions) => {
     setPending(true)
     try {
       // The queued launch — the dialog's version of the panel's queued send
@@ -379,6 +401,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         // Omitted rather than sent empty: absent and `[]` mean the same thing to
         // the server, and every existing body assertion stays true.
         ...(refs.length > 0 ? { attachments: refs } : {}),
+        ...(mcpjson ? { mcpjson } : {}),
       }, images)
       // A tag is remembered only when it was the user's pick — this launch's,
       // or the previous one's left standing — never a rule's match or the
@@ -402,7 +425,38 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, pending, awaitingCustomModel, onClose, select, launchSession, attachments])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments])
+
+  /**
+   * Launch: asks about the project's undecided `.mcp.json` servers first,
+   * when it has any; a project without launches as it always did. Nothing
+   * spawns until the question is answered (47e "Trigger").
+   */
+  const handleLaunch = useCallback(async () => {
+    if (!cwd.trim() || pending || awaitingCustomModel) return
+    setPending(true)
+    const servers = await undecidedBeforeLaunch(cwd.trim(), choosesDir && claudeDirId !== null ? claudeDirId : undefined)
+    if (servers.length > 0) {
+      setPending(false)
+      setQuestion({ servers, answers: {} })
+      return
+    }
+    await launch()
+  }, [cwd, pending, awaitingCustomModel, choosesDir, claudeDirId, launch])
+
+  const decisions = question ? decisionsOf(question.servers, question.answers) : null
+
+  /** Start session: only once every server has an answer (47e). */
+  const handleStart = useCallback(async () => {
+    if (!decisions || pending) return
+    await launch(decisions)
+  }, [decisions, pending, launch])
+
+  /** ← Back and esc: the launch is cancelled, the form is where it was (47e "Back / dismiss"). */
+  const backToForm = useCallback(() => {
+    setQuestion(null)
+    setViewing(null)
+  }, [])
 
   // `composer.start` launches from anywhere in the dialog, and
   // `composer.next-claude-dir` steps to the next Claude directory in Settings
@@ -412,15 +466,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (matches(command('composer.start').chords[0], e)) {
         e.preventDefault()
-        void handleLaunch()
-      } else if (choosesDir && matches(command('composer.next-claude-dir').chords[0], e)) {
+        void (question ? handleStart() : handleLaunch())
+      } else if (!question && choosesDir && matches(command('composer.next-claude-dir').chords[0], e)) {
         e.preventDefault()
         setClaudeDirId((current) => nextClaudeDir(claudeDirs, current))
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, handleLaunch, choosesDir, claudeDirs])
+  }, [open, question, handleLaunch, handleStart, choosesDir, claudeDirs])
 
   const matchedRule = matchedRuleId != null ? rules.find((r) => r.id === matchedRuleId) : undefined
   const showAutoCaption = !manualOverride && matchedTagId != null && tagId === matchedTagId
@@ -432,246 +486,307 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // mid-exit is already gone as far as the summary is concerned.
   const chipCount = attachments.items.filter((c) => c.state !== 'failed' && !c.exiting).length
 
-  return (
-    <Dialog
-      open={open}
-      title="New session"
-      eyebrow="LAUNCH"
-      size="lg"
-      onClose={onClose}
-      surfaceRef={dropTargetRef}
-      dropArmed={dropArmed}
-      headerAction={
-        choosesDir && claudeDirs.length > CLAUDE_DIR_SEGMENTS_MAX ? (
-          <ClaudeDirHeaderControl
-            dirs={claudeDirs}
-            monograms={claudeDirMonograms}
-            value={claudeDirId}
-            defaultId={defaultClaudeDir}
-            origin={claudeDirOrigin}
-            onChange={setClaudeDirId}
-          />
-        ) : undefined
-      }
-      footerCaption={
-        // canvas 4b: unconditional summary line — `Sonnet 4.5 · acceptEdits · search-indexer`.
-        // 9d-D puts the attachment count in front of it (`1 image · spawns a new
-        // planet in WORK`): the footer is where the session's shape is
-        // summarised, and what it is carrying is part of that shape. The count
-        // leads because it is the part that just changed.
-        <>
-          {/* One template string, not JSX text: a trailing space before a
-              newline is stripped by JSX, which would run the count straight
-              into the model name. */}
-          {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
-          {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
-          {choosesDir && claudeDirName ? ` · under ${claudeDirName}` : null}
-          {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
-        </>
-      }
-      footer={
-        <>
-          <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
-            Cancel
+  const projectName = cwd.trim().replace(/\/+$/, '').split('/').pop() ?? ''
+
+  const ready = decisions !== null
+  // The question swaps the dialog's content in the same shell (47a): the
+  // header, the footer and the body change; the frame does not move.
+  const questionShell = question
+    ? {
+        title: questionTitle(question.servers.length),
+        // 47a: the launch's eyebrow, naming the project.
+        eyebrow: `LAUNCH · ${projectName.toUpperCase()}`,
+        onClose: backToForm,
+        headerAction: undefined,
+        headerMeta: question.servers.length > 1 ? `${question.servers.length} servers` : undefined,
+        lead: <McpjsonIntro count={question.servers.length} />,
+        bodyInset: 'list' as const,
+        footerLead: (
+          <Button variant="ghost" size="lg" onClick={backToForm}>
+            ← Back
           </Button>
+        ),
+        footerCaption: answerSummary(question.servers, question.answers),
+        footer: (
           <Button
-            variant="primary"
+            variant={ready ? 'primary' : 'primary-unready'}
             size="lg"
-            onClick={() => void handleLaunch()}
-            disabled={pending || !cwd.trim() || awaitingCustomModel}
+            aria-disabled={!ready || undefined}
+            disabled={pending}
+            onClick={() => void handleStart()}
           >
-            Launch session <span className="font-mono text-[10px] opacity-70">⌘⏎</span>
+            Start session
+            {/* 47a/47e: the keycap inside the button — a dark wash on the
+                accent fill, a hairline on the outline. */}
+            <span
+              className={[
+                'rounded-[5px] font-mono text-[13px] font-medium tracking-[0.04em]',
+                ready ? 'bg-[rgba(3,17,26,.14)] px-1.5 py-0.5' : 'border border-[rgba(150,205,255,.12)] px-[5px] py-px',
+              ].join(' ')}
+            >
+              {shortcutLabel('composer.start')}
+            </span>
           </Button>
-        </>
+        ),
       }
-    >
-      {/* 20px between field groups, 8px inside one (canvas 1d). */}
-      <div className="flex flex-col gap-5">
-        {/* Everything but FIRST PROMPT steps back to .35 while a drop is armed —
-            9c-1's "the transcript drops to 35 % so nothing competes", read into
-            this mount: the marker is the only lit thing, and the field it
-            replaces is the only group that keeps its brightness. The groups are
-            wrapped rather than dimmed one by one so the 20px rhythm survives. */}
-        <div
-          data-content-dim
-          className={['flex flex-col gap-5', dropArmed ? 'opacity-35' : ''].join(' ')}
-        >
-          <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor="new-session-cwd">PROJECT DIRECTORY</FieldLabel>
-            <div className="flex gap-2">
-              <Input
-                id="new-session-cwd"
-                font="mono"
-                size="lg"
-                value={cwd}
-                onChange={(e) => setCwd(e.target.value)}
-                placeholder="/path/to/project"
-                className="min-w-0 flex-1"
-              />
-              {canBrowse && (
-                <Button variant="ghost" size="field" onClick={browse}>
-                  Browse…
-                </Button>
-              )}
-            </div>
-            {projects.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
-                <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
-                  RECENT
-                </span>
-                {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
-                    sans tag chips the TAG row uses — kept as plain buttons. */}
-                {projects.slice(0, 4).map(({ cwd: dir }) => (
-                  <button
-                    key={dir}
-                    type="button"
-                    title={dir}
-                    data-active={dir === cwd}
-                    onClick={() => setCwd(dir)}
-                    className="rounded-full border border-panel-border px-[9px] py-[3px] font-mono text-[10.5px] text-[rgba(200,220,245,.75)] transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-text-bright"
-                  >
-                    {shortenPath(dir)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+    : null
 
-          {/* Canvas 44c: two or three directories sit in the form, between the
-              project and the model, because the directory decides which models
-              are offered. Four or more move to the header control. */}
-          {choosesDir && claudeDirs.length <= CLAUDE_DIR_SEGMENTS_MAX && (
-            <div className="flex flex-col gap-2">
-              <FieldLabel>
-                <span className="shrink-0 whitespace-nowrap">CLAUDE DIRECTORY</span>
-                <span className="min-w-0 truncate tracking-[0.04em] text-[rgba(160,190,225,.45)]">
-                  · {claudeDirOriginHint(claudeDirOrigin)}
-                </span>
-                <span aria-hidden className="flex-1" />
-                {/* Plain text, never a keycap box: a box would read as a second mark (44f). */}
-                <span
-                  title="Next Claude directory — skips missing ones"
-                  className="shrink-0 whitespace-nowrap tracking-[0.04em] text-[rgba(160,190,225,.5)]"
-                >
-                  {shortcutLabel('composer.next-claude-dir')} next
-                </span>
-              </FieldLabel>
-              <ClaudeDirSegments dirs={claudeDirs} value={claudeDirId} onChange={setClaudeDirId} />
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2">
-            <FieldLabel>
-              MODEL
-              {choosesDir && claudeDirName && (
-                <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">· offered by {claudeDirName}’s account</span>
-              )}
-              <span aria-hidden className="flex-1" />
-              {rememberPerProject && lastModelRow && (
-                // canvas 4b: right-hand note, .06em tracking. Renders the
-                // matched row's shortVersion (never a raw id) and only when
-                // something actually matched — F1.
-                <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">
-                  last used here: {lastModelRow.shortVersion}
-                </span>
-              )}
-            </FieldLabel>
-            <ModelCards
-              models={models}
-              value={model}
-              defaultValue={settings.default_model ?? null}
-              onChange={(next) => {
-                setModelOverridden(true)
-                setOtherActive(false)
-                setModel(next)
-              }}
-              other={{
-                active: otherActive,
-                onSelect: () => {
-                  if (otherActive) return
-                  setModelOverridden(true)
-                  setOtherActive(true)
-                  setCustomInitial(null)
-                  setModel(null)
-                },
-              }}
+  return (
+    <>
+      <Dialog
+        open={open}
+        title="New session"
+        eyebrow="LAUNCH"
+        size="lg"
+        onClose={onClose}
+        surfaceRef={dropTargetRef}
+        dropArmed={dropArmed && !question}
+        headerAction={
+          choosesDir && claudeDirs.length > CLAUDE_DIR_SEGMENTS_MAX ? (
+            <ClaudeDirHeaderControl
+              dirs={claudeDirs}
+              monograms={claudeDirMonograms}
+              value={claudeDirId}
+              defaultId={defaultClaudeDir}
+              origin={claudeDirOrigin}
+              onChange={setClaudeDirId}
             />
-            {otherActive && (
-              <CustomModelField
-                // Remounts when preselection swaps in another remembered id, or the
-                // directory changes: the same id is checked again under the new account.
-                key={`${claudeDirId ?? ''}:${customInitial ?? ''}`}
-                size="lg"
-                initial={customInitial ? { id: customInitial, trusted: true } : undefined}
-                onValidated={(id) => setModel(id)}
-                onCleared={() => setModel(null)}
-                claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
-              />
-            )}
-          </div>
+          ) : undefined
+        }
+        footerCaption={
+          // canvas 4b: unconditional summary line — `Sonnet 4.5 · acceptEdits · search-indexer`.
+          // 9d-D puts the attachment count in front of it (`1 image · spawns a new
+          // planet in WORK`): the footer is where the session's shape is
+          // summarised, and what it is carrying is part of that shape. The count
+          // leads because it is the part that just changed.
+          <>
+            {/* One template string, not JSX text: a trailing space before a
+                newline is stripped by JSX, which would run the count straight
+                into the model name. */}
+            {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
+            {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
+            {choosesDir && claudeDirName ? ` · under ${claudeDirName}` : null}
+            {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
+          </>
+        }
+        footer={
+          <>
+            <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => void handleLaunch()}
+              disabled={pending || !cwd.trim() || awaitingCustomModel}
+            >
+              Launch session <span className="font-mono text-[10px] opacity-70">⌘⏎</span>
+            </Button>
+          </>
+        }
+        {...questionShell}
+      >
+        {/* Hidden rather than unmounted while the question is up, so Back
+            finds every field — the custom model's text included — as it was. */}
+        <div hidden={question !== null}>
+          {/* 20px between field groups, 8px inside one (canvas 1d). */}
+          <div className="flex flex-col gap-5">
+            {/* Everything but FIRST PROMPT steps back to .35 while a drop is armed —
+                9c-1's "the transcript drops to 35 % so nothing competes", read into
+                this mount: the marker is the only lit thing, and the field it
+                replaces is the only group that keeps its brightness. The groups are
+                wrapped rather than dimmed one by one so the 20px rhythm survives. */}
+            <div
+              data-content-dim
+              className={['flex flex-col gap-5', dropArmed ? 'opacity-35' : ''].join(' ')}
+            >
+              <div className="flex flex-col gap-2">
+                <FieldLabel htmlFor="new-session-cwd">PROJECT DIRECTORY</FieldLabel>
+                <div className="flex gap-2">
+                  <Input
+                    id="new-session-cwd"
+                    font="mono"
+                    size="lg"
+                    value={cwd}
+                    onChange={(e) => setCwd(e.target.value)}
+                    placeholder="/path/to/project"
+                    className="min-w-0 flex-1"
+                  />
+                  {canBrowse && (
+                    <Button variant="ghost" size="field" onClick={browse}>
+                      Browse…
+                    </Button>
+                  )}
+                </div>
+                {projects.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
+                    <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
+                      RECENT
+                    </span>
+                    {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
+                        sans tag chips the TAG row uses — kept as plain buttons. */}
+                    {projects.slice(0, 4).map(({ cwd: dir }) => (
+                      <button
+                        key={dir}
+                        type="button"
+                        title={dir}
+                        data-active={dir === cwd}
+                        onClick={() => setCwd(dir)}
+                        className="rounded-full border border-panel-border px-[9px] py-[3px] font-mono text-[10.5px] text-[rgba(200,220,245,.75)] transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-text-bright"
+                      >
+                        {shortenPath(dir)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-          <div className="flex flex-col gap-2">
-            <FieldLabel>PERMISSION MODE</FieldLabel>
-            <ModeCards value={permissionMode} onChange={setPermissionMode} />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <FieldLabel>
-              TAG
-              {showAutoCaption && (
-                <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">
-                  · auto-matched by rule{matchedRule ? ` ${matchedRule.pattern}` : ''}
-                </span>
+              {/* Canvas 44c: two or three directories sit in the form, between the
+                  project and the model, because the directory decides which models
+                  are offered. Four or more move to the header control. */}
+              {choosesDir && claudeDirs.length <= CLAUDE_DIR_SEGMENTS_MAX && (
+                <div className="flex flex-col gap-2">
+                  <FieldLabel>
+                    <span className="shrink-0 whitespace-nowrap">CLAUDE DIRECTORY</span>
+                    <span className="min-w-0 truncate tracking-[0.04em] text-[rgba(160,190,225,.45)]">
+                      · {claudeDirOriginHint(claudeDirOrigin)}
+                    </span>
+                    <span aria-hidden className="flex-1" />
+                    {/* Plain text, never a keycap box: a box would read as a second mark (44f). */}
+                    <span
+                      title="Next Claude directory — skips missing ones"
+                      className="shrink-0 whitespace-nowrap tracking-[0.04em] text-[rgba(160,190,225,.5)]"
+                    >
+                      {shortcutLabel('composer.next-claude-dir')} next
+                    </span>
+                  </FieldLabel>
+                  <ClaudeDirSegments dirs={claudeDirs} value={claudeDirId} onChange={setClaudeDirId} />
+                </div>
               )}
-            </FieldLabel>
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
-              {tags.map((tag) => (
-                <Chip
-                  key={tag.id}
-                  label={tag.name}
-                  hue={tag.hue}
-                  active={tagId === tag.id}
-                  onClick={() => handleSelectTag(tag.id)}
+
+              <div className="flex flex-col gap-2">
+                <FieldLabel>
+                  MODEL
+                  {choosesDir && claudeDirName && (
+                    <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">· offered by {claudeDirName}’s account</span>
+                  )}
+                  <span aria-hidden className="flex-1" />
+                  {rememberPerProject && lastModelRow && (
+                    // canvas 4b: right-hand note, .06em tracking. Renders the
+                    // matched row's shortVersion (never a raw id) and only when
+                    // something actually matched — F1.
+                    <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+                      last used here: {lastModelRow.shortVersion}
+                    </span>
+                  )}
+                </FieldLabel>
+                <ModelCards
+                  models={models}
+                  value={model}
+                  defaultValue={settings.default_model ?? null}
+                  onChange={(next) => {
+                    setModelOverridden(true)
+                    setOtherActive(false)
+                    setModel(next)
+                  }}
+                  other={{
+                    active: otherActive,
+                    onSelect: () => {
+                      if (otherActive) return
+                      setModelOverridden(true)
+                      setOtherActive(true)
+                      setCustomInitial(null)
+                      setModel(null)
+                    },
+                  }}
                 />
-              ))}
+                {otherActive && (
+                  <CustomModelField
+                    // Remounts when preselection swaps in another remembered id, or the
+                    // directory changes: the same id is checked again under the new account.
+                    key={`${claudeDirId ?? ''}:${customInitial ?? ''}`}
+                    size="lg"
+                    initial={customInitial ? { id: customInitial, trusted: true } : undefined}
+                    onValidated={(id) => setModel(id)}
+                    onCleared={() => setModel(null)}
+                    claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
+                  />
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <FieldLabel>PERMISSION MODE</FieldLabel>
+                <ModeCards value={permissionMode} onChange={setPermissionMode} />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <FieldLabel>
+                  TAG
+                  {showAutoCaption && (
+                    <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">
+                      · auto-matched by rule{matchedRule ? ` ${matchedRule.pattern}` : ''}
+                    </span>
+                  )}
+                </FieldLabel>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
+                  {tags.map((tag) => (
+                    <Chip
+                      key={tag.id}
+                      label={tag.name}
+                      hue={tag.hue}
+                      active={tagId === tag.id}
+                      onClick={() => handleSelectTag(tag.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <FieldLabel htmlFor="new-session-prompt">FIRST PROMPT</FieldLabel>
+              {/* The same control the detail panel mounts (canvas 9d), image intake
+                  included (9d-D shows a chip in this very field). Four differences,
+                  all props: ⏎ newlines here because a first prompt is written in
+                  paragraphs and Start is two inches away; the popup opens BELOW,
+                  since this field has room under it; completions resolve against the
+                  chosen directory, which is the only thing the dialog has to teach
+                  it; and the drop target is the dialog surface, which is why
+                  `dropArmed` arrives from a hook mounted up there rather than here.
+                  ⌘⏎ still launches from anywhere — the document listener above
+                  handles it, and neither the composer nor its popup touches an
+                  Enter carrying a modifier.
+
+                  The uploads go through `POST /api/attachments`, the sessionless
+                  door: this dialog's session does not exist until Launch, and the
+                  refs travel in that same launch request. */}
+              <Composer
+                id="new-session-prompt"
+                aria-label="First prompt"
+                sessionKey={choosesDir && claudeDirId !== null ? { cwd: cwd.trim(), claudeDir: claudeDirId } : { cwd: cwd.trim() }}
+                value={prompt}
+                onChange={setPrompt}
+                enter="newline"
+                placement="below"
+                variant="dialog"
+                hint="⏎ newline · ⌘⏎ start session · ⌘V paste image"
+                placeholder="What should this session do?"
+                attachments={attachments}
+                dropArmed={dropArmed}
+              />
             </div>
           </div>
-
         </div>
-
-        <div className="flex flex-col gap-2">
-          <FieldLabel htmlFor="new-session-prompt">FIRST PROMPT</FieldLabel>
-          {/* The same control the detail panel mounts (canvas 9d), image intake
-              included (9d-D shows a chip in this very field). Four differences,
-              all props: ⏎ newlines here because a first prompt is written in
-              paragraphs and Start is two inches away; the popup opens BELOW,
-              since this field has room under it; completions resolve against the
-              chosen directory, which is the only thing the dialog has to teach
-              it; and the drop target is the dialog surface, which is why
-              `dropArmed` arrives from a hook mounted up there rather than here.
-              ⌘⏎ still launches from anywhere — the document listener above
-              handles it, and neither the composer nor its popup touches an
-              Enter carrying a modifier.
-
-              The uploads go through `POST /api/attachments`, the sessionless
-              door: this dialog's session does not exist until Launch, and the
-              refs travel in that same launch request. */}
-          <Composer
-            id="new-session-prompt"
-            aria-label="First prompt"
-            sessionKey={choosesDir && claudeDirId !== null ? { cwd: cwd.trim(), claudeDir: claudeDirId } : { cwd: cwd.trim() }}
-            value={prompt}
-            onChange={setPrompt}
-            enter="newline"
-            placement="below"
-            variant="dialog"
-            hint="⏎ newline · ⌘⏎ start session · ⌘V paste image"
-            placeholder="What should this session do?"
-            attachments={attachments}
-            dropArmed={dropArmed}
+        {question && (
+          <McpjsonRows
+            servers={question.servers}
+            answers={question.answers}
+            onAnswer={(name, answer) => setQuestion((q) => (q ? { ...q, answers: { ...q.answers, [name]: answer } } : q))}
+            onViewFile={(server) => setViewing({ name: server.name, file: server.file })}
           />
-        </div>
-      </div>
-    </Dialog>
+        )}
+      </Dialog>
+      <ProjectFileViewer cwd={cwd.trim()} server={viewing} onClose={() => setViewing(null)} />
+    </>
   )
 }
