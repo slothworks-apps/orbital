@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Orbital uses the camera to scan the pairing code shown on your Mac, and to take photos you send to a session.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Orbital uses Face ID to unlock the app.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Orbital lets you pick photos to send to a session.</string>
 	<key>UIApplicationSceneManifest</key>
