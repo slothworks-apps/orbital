@@ -158,9 +158,9 @@ phone app and the relay are all in that repository.
 
 For this website, the data controller is:
 
-SlothWorks s.r.o.
-Mostecká 232/4, 412 01 Litoměřice, Czech Republic
-Company ID (IČO): 107 98 838
+SlothWorks s.r.o.\
+Mostecká 232/4, 412 01 Litoměřice, Czech Republic\
+Company ID (IČO): 107 98 838\
 Email: orbital@slothworks.io
 
 For everything that stays on your own Mac and phone, you are in control and
