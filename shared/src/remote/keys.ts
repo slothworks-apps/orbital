@@ -133,6 +133,16 @@ export function fingerprint(a: Uint8Array, b: Uint8Array): string {
   return out;
 }
 
+/**
+ * A code the user typed, read the way `fingerprint` draws its characters
+ * (spec 2026-10-06-pairing-code-and-app-lock-design § 1): any case, `O` as
+ * `0`, `I` and `L` as `1`, spaces and the dash dropped so a pasted `ABC-DEF`
+ * works. Anything else outside the alphabet is kept and so never matches.
+ */
+export function normalizePairingCode(input: string): string {
+  return input.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+}
+
 export function formatFingerprint(fp: string): string {
   return `${fp.slice(0, 3)}-${fp.slice(3)}`;
 }

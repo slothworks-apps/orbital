@@ -11,6 +11,7 @@ import { openRelayStore } from '@orbital/relay/store';
 import { buildServer } from '../src/index.js';
 import { openDb } from '../src/db/database.js';
 import { settings as settingsTable } from '../src/db/schema.js';
+import { fingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
 import { makeTmpDir } from './tmp.js';
 
 export async function listen(app: FastifyInstance): Promise<string> {
@@ -69,4 +70,14 @@ export async function startMacAndRelay(
 
   await until(async () => (await api('GET', '/api/remote')).json().relay === 'online');
   return { relayUrl, app, dir, api };
+}
+
+/** The code a phone shows for its pairing request: what the user types on the Mac. */
+export function pairingCode(macId: string, phoneKey: Uint8Array): string {
+  return fingerprint(publicKeyOf(macId)!, phoneKey);
+}
+
+/** A six-character code that is not `code`. */
+export function wrongCode(code: string): string {
+  return (code[0] === 'A' ? 'B' : 'A') + code.slice(1);
 }

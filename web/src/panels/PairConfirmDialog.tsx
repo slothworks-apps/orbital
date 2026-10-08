@@ -7,7 +7,7 @@ import { useNow } from '../lib/useNow'
 import type { RemoteStatus } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
-import { FingerprintBoxes } from '../ui/FingerprintBoxes'
+import { PAIRING_CODE_LENGTH, PairingCodeInput } from '../ui/PairingCodeInput'
 
 type PendingPair = NonNullable<RemoteStatus['pendingPair']>
 
@@ -17,6 +17,10 @@ type PendingPair = NonNullable<RemoteStatus['pendingPair']>
  * `pendingPair`, wherever the user is. It closes when the status stops
  * carrying the request, never on its own clock, and nothing in it accepts on
  * its own.
+ *
+ * The user types the code the phone shows and the server compares it (spec
+ * 2026-10-06-pairing-code-and-app-lock-design § 1): only the phone that sent
+ * this request shows the code it expects.
  */
 export function PairConfirmDialog() {
   const remote = useOrbital((s) => s.remote)
@@ -30,9 +34,17 @@ export function PairConfirmDialog() {
   const now = useNow(pending !== null)
   const [busy, setBusy] = useState(false)
   const [relayFailed, setRelayFailed] = useState(false)
+  const [code, setCode] = useState('')
+  /** Set by a wrong code: how many more the server takes before it rejects. */
+  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null)
+  const complete = code.length === PAIRING_CODE_LENGTH
 
-  // A different request (or none) starts without the last one's failure.
-  useEffect(() => setRelayFailed(false), [pending?.phone])
+  // A different request (or none) starts empty, without the last one's failure.
+  useEffect(() => {
+    setRelayFailed(false)
+    setCode('')
+    setAttemptsLeft(null)
+  }, [pending?.phone])
 
   // The server publishes nothing when the code runs out; it clears the request
   // inside its next `status()`. So at zero the dialog asks, and closes from the
@@ -56,16 +68,23 @@ export function PairConfirmDialog() {
   }, [timedOut, remote, superseded])
 
   async function answer(accept: boolean) {
-    if (!pending || busy) return
+    if (!pending || busy || (accept && !complete)) return
     const { phone, name } = pending
     setBusy(true)
     setRelayFailed(false)
     try {
-      const res = await api.confirmPairing(accept, phone)
+      const res = accept ? await api.confirmPairing(true, phone, code) : await api.confirmPairing(false, phone)
       if ('ok' in res) {
         useOrbital.setState({ toast: { kind: 'info', message: accept ? `Paired with ${name}` : 'Request rejected' } })
       } else if (res.error === 'relay_error') {
         setRelayFailed(true)
+      } else if (res.error === 'code_mismatch') {
+        // Canvas 9o C: the boxes clear and one quiet line counts what is left.
+        setCode('')
+        setAttemptsLeft(res.attemptsLeft)
+      } else if (res.error === 'code_rejected') {
+        // The server rejected the request and publishes it gone, which closes the dialog.
+        useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected · three codes didn’t match' } })
       } else {
         // `no_pending` / `mismatch`: what the dialog shows is stale. No publish
         // may follow (an expired request is cleared silently), so the status
@@ -97,8 +116,8 @@ export function PairConfirmDialog() {
             <Button variant="ghost" size="lg" disabled={busy} onClick={() => void answer(false)}>
               Reject
             </Button>
-            <Button variant="primary" size="lg" disabled={busy} onClick={() => void answer(true)}>
-              Confirm
+            <Button variant="primary" size="lg" disabled={busy || !complete} onClick={() => void answer(true)}>
+              Accept
             </Button>
           </div>
           {relayFailed && (
@@ -108,14 +127,19 @@ export function PairConfirmDialog() {
       }
     >
       {request && (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col items-center gap-4 text-center">
           <div className="font-mono text-[11.5px] text-[rgba(160,190,225,.7)]">
             {request.name} · {request.platform} · via relay
           </div>
-          <FingerprintBoxes value={request.fingerprint} />
-          <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)]">
-            Confirm only if your phone shows the same code.
-          </p>
+          {/* Canvas 9o: the instruction over the boxes, one quiet line under them. */}
+          <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.88)]">Type the code shown on the phone.</p>
+          {/* Never disabled while an answer is in flight: that would drop the
+              focus, and after a wrong code the user types straight on. */}
+          <PairingCodeInput value={code} onChange={setCode} onSubmit={() => void answer(true)} autoFocus />
+          <div className="min-h-[18px] font-mono text-[11px] text-[rgba(160,190,225,.7)]">
+            {attemptsLeft !== null &&
+              `That code didn’t match · ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left`}
+          </div>
         </div>
       )}
     </Dialog>

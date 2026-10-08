@@ -44,7 +44,7 @@ describe('/api/remote', () => {
     const pair = await app.inject({ method: 'POST', url: '/api/remote/pair' });
     expect(pair.statusCode).toBe(409);
     expect(pair.json()).toEqual({ error: 'offline' });
-    expect((await app.inject({ method: 'POST', url: '/api/remote/pair/confirm', payload: { accept: true, phone: 'p' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/remote/pair/confirm', payload: { accept: true, phone: 'p', code: 'ABCDEF' } })).statusCode).toBe(404);
     expect((await app.inject({ method: 'DELETE', url: '/api/remote/devices/nope' })).statusCode).toBe(404);
     await app.close();
   });
@@ -114,7 +114,12 @@ describe('/api/remote', () => {
     const app = await server(false);
     const noPhone = await app.inject({ method: 'POST', url: '/api/remote/pair/confirm', payload: { accept: true } });
     expect(noPhone.statusCode).toBe(400);
-    const none = await app.inject({ method: 'POST', url: '/api/remote/pair/confirm', payload: { accept: true, phone: 'p' } });
+    // An accept without the code typed from the phone is malformed; a reject needs none.
+    const noCode = await app.inject({ method: 'POST', url: '/api/remote/pair/confirm', payload: { accept: true, phone: 'p' } });
+    expect(noCode.statusCode).toBe(400);
+    const reject = await app.inject({ method: 'POST', url: '/api/remote/pair/confirm', payload: { accept: false, phone: 'p' } });
+    expect(reject.statusCode).toBe(404);
+    const none = await app.inject({ method: 'POST', url: '/api/remote/pair/confirm', payload: { accept: true, phone: 'p', code: 'ABCDEF' } });
     expect(none.statusCode).toBe(404);
     await app.close();
   });

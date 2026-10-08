@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   deviceId, fingerprint, formatFingerprint, fromBase64Url, generateIdentity, identityFromSecret,
-  publicKeyOf, sign, toBase64Url, verify,
+  normalizePairingCode, publicKeyOf, sign, toBase64Url, verify,
 } from '../src/remote/keys.js';
 
 describe('identity keys', () => {
@@ -60,5 +60,12 @@ describe('identity keys', () => {
     expect(fingerprint(b, a)).toBe(fp);
     expect(fingerprint(a, c)).not.toBe(fp);
     expect(formatFingerprint(fp)).toBe(`${fp.slice(0, 3)}-${fp.slice(3)}`);
+  });
+  it('a typed pairing code reads the way the code was drawn: case, look-alikes, spaces and the dash', () => {
+    expect(normalizePairingCode('abc-def')).toBe('ABCDEF');
+    expect(normalizePairingCode(' 0o1 IlL ')).toBe('001111');
+    expect(normalizePairingCode('ab c\t-de')).toBe('ABCDE');
+    // Characters outside the alphabet stay, so a code with one never matches.
+    expect(normalizePairingCode('uuu')).toBe('UUU');
   });
 });

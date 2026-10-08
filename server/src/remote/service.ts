@@ -7,7 +7,9 @@
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { deviceId, fingerprint, publicKeyOf, toBase64Url, type Identity } from '@orbital/shared/remote/keys';
+import {
+  deviceId, fingerprint, normalizePairingCode, publicKeyOf, toBase64Url, type Identity,
+} from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import {
   PAIRING_SECRET_BYTES, verifyPairingProof, type QrPayload, type RelayToDevice,
@@ -37,6 +39,24 @@ export type PhoneRefusal = PhoneTooOld & { at: number };
  */
 export const RELAY_TOO_OLD_RECHECK_MS = 5 * 60_000;
 
+/**
+ * Wrong pairing codes a request may be sent before it is rejected as if the
+ * user had pressed Reject: enough for a typo, too few to guess 30 bits
+ * (spec 2026-10-06-pairing-code-and-app-lock-design § 1).
+ */
+export const PAIR_CODE_ATTEMPTS = 3;
+
+/**
+ * The answer to a pairing request. `no_pending`: nothing to answer, or a
+ * different phone than the one asked about. `code_mismatch`: a wrong code,
+ * the request still waits. `code_rejected`: the last wrong code, the request
+ * was rejected. `relay_error`: the relay did not take the answer.
+ */
+export type PairConfirmResult =
+  | { ok: true }
+  | { error: 'no_pending' | 'code_rejected' | 'relay_error' }
+  | { error: 'code_mismatch'; attemptsLeft: number };
+
 export type RemoteStatus = {
   enabled: boolean;
   /**
@@ -58,7 +78,13 @@ export type RemoteStatus = {
    * said hello since the Mac started).
    */
   devices: (RemoteDevice & { online: boolean; needsUpdate: PhoneRefusal | null })[];
-  pendingPair: { phone: string; name: string; platform: string; fingerprint: string } | null;
+  /**
+   * A phone asking to pair, and how many wrong codes it may still be sent
+   * before it is rejected. The code itself never leaves the server: the
+   * user types it from the phone and the server compares (spec
+   * 2026-10-06-pairing-code-and-app-lock-design § 1).
+   */
+  pendingPair: { phone: string; name: string; platform: string; attemptsLeft: number } | null;
   pairing: { expiresAt: number } | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
@@ -104,7 +130,8 @@ export class RemoteService {
   private readonly devices: DeviceStore;
   private readonly watchers = new Map<string, DeviceWatcher>();
   private readonly sessions = new Map<string, PhoneSession>();
-  private pendingPair: RemoteStatus['pendingPair'] = null;
+  /** `code` is the fingerprint the phone shows; `attemptsLeft` counts down in place, so the object stays the one a confirm in flight compares against. */
+  private pendingPair: (NonNullable<RemoteStatus['pendingPair']> & { code: string }) | null = null;
   /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
   private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
   private error: string | null = null;
@@ -255,10 +282,17 @@ export class RemoteService {
       devices: this.listDevices().map((d) => ({
         ...d, online: online.has(d.id), needsUpdate: this.phonesTooOld.get(d.id) ?? null,
       })),
-      pendingPair: this.pendingPair,
+      pendingPair: this.publicPendingPair(),
       pairing: this.pairing ? { expiresAt: this.pairing.expiresAt } : null,
       error: this.error,
     };
+  }
+
+  /** The request as the status shows it: everything but the code. */
+  private publicPendingPair(): RemoteStatus['pendingPair'] {
+    if (!this.pendingPair) return null;
+    const { code: _code, ...shown } = this.pendingPair;
+    return shown;
   }
 
   /**
@@ -310,12 +344,31 @@ export class RemoteService {
   }
 
   /**
-   * `phone` is the request the user actually looked at: the fingerprint on
-   * screen belongs to it, so a confirm never applies to any other phone.
+   * `phone` is the request the user actually looked at, so a confirm never
+   * applies to any other phone. An accept carries the `code` the user typed
+   * from the phone; only that phone can show the code this request expects.
+   * A wrong one tells the relay nothing until it is the last
+   * (`PAIR_CODE_ATTEMPTS`): then the request is rejected, as Reject would.
    */
-  async confirmPairing(accept: boolean, phone: string): Promise<boolean> {
+  async confirmPairing(accept: boolean, phone: string, code?: string): Promise<PairConfirmResult> {
     const pending = this.pairingOpen() ? this.pendingPair : null;
-    if (!pending || pending.phone !== phone || !this.client) return false;
+    if (!pending || pending.phone !== phone || !this.client) return { error: 'no_pending' };
+    if (accept && normalizePairingCode(code ?? '') !== pending.code) {
+      pending.attemptsLeft -= 1;
+      if (pending.attemptsLeft > 0) {
+        this.publishStatus();
+        return { error: 'code_mismatch', attemptsLeft: pending.attemptsLeft };
+      }
+      // The request is over here whatever the relay answers: the device was
+      // never added, and a phone the relay still holds as pending is dropped
+      // there when the code expires.
+      this.pendingPair = null;
+      this.pairing = null;
+      this.publishStatus();
+      const res = await this.client.post('/pair/confirm', 'pair.confirm', { phone: pending.phone, accept: false });
+      if (res.status !== 200) console.warn(`[remote] relay reject of ${pending.phone.slice(0, 8)} after wrong codes failed: ${res.status}`);
+      return { error: 'code_rejected' };
+    }
     // The relay tells the phone `paired` before it answers this post, and a
     // phone handshakes the moment it hears that — so the device must exist
     // here first, or its handshake frame is dropped as from a stranger.
@@ -338,7 +391,7 @@ export class RemoteService {
         this.watchers.delete(pending.phone);
         this.devices.remove(pending.phone);
       }
-      return false;
+      return { error: 'relay_error' };
     }
     // A stop/start during the post replaced the state; leave the new one be.
     if (this.pendingPair === pending) {
@@ -346,7 +399,7 @@ export class RemoteService {
       this.pairing = null;
     }
     this.publishStatus();
-    return true;
+    return { ok: true };
   }
 
   /**
@@ -386,8 +439,8 @@ export class RemoteService {
   private onControl(msg: RelayToDevice): void {
     if (msg.type === 'pair_request' && this.identity) {
       // Only while the user has a code on screen, and only the first phone
-      // to redeem it: a second request must not swap the fingerprint the
-      // user is comparing.
+      // to redeem it: a second request must not swap the code the
+      // user is typing from their phone.
       if (!this.pairingOpen() || !this.pairing || this.pendingPair) return;
       const phoneKey = publicKeyOf(msg.phone);
       if (!phoneKey) return;
@@ -400,9 +453,9 @@ export class RemoteService {
       }
       this.pendingPair = {
         phone: msg.phone, name: msg.name, platform: msg.platform,
-        fingerprint: fingerprint(this.identity.publicKey, phoneKey),
+        code: fingerprint(this.identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
       };
-      this.opts.hub.publish('remote', { event: 'pair_request', ...this.pendingPair });
+      this.opts.hub.publish('remote', { event: 'pair_request', ...this.publicPendingPair() });
       this.publishStatus();
       return;
     }

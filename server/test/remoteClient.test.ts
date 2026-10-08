@@ -13,7 +13,7 @@ import { QrPayload } from '@orbital/shared/remote/relayApi';
 import { RemoteClient, type RemoteClientEvent } from '@orbital/shared/remote/client';
 import { createImageStore } from '../src/images/store.js';
 import { RETENTION_KEY, RETENTION_NEVER } from '../src/retention.js';
-import { startMacAndRelay, until } from './remoteHarness.js';
+import { pairingCode, startMacAndRelay, until } from './remoteHarness.js';
 import { makeTmpDir } from './tmp.js';
 
 const SESSION_ID = 's-e2e';
@@ -72,7 +72,8 @@ async function pairPhone(api: Api, closers: (() => unknown)[]) {
   await until(async () => (await api('GET', '/api/remote')).json().pendingPair !== null);
   const hello = nextEvent(client, 'hello');
   // The relay says `paired` before it answers the Mac's confirm, so the confirm is not awaited first.
-  const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: client.id });
+  const code = pairingCode(qr.mac, identity.publicKey);
+  const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: client.id, code });
   expect(await outcome).toBe('paired');
   expect(await hello).toMatchObject({ macName: 'studio' });
   expect((await confirm).statusCode).toBe(200);

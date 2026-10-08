@@ -1,8 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { fingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
 import { chunkBlob } from '@orbital/shared/remote/messages';
 import { FakePhone } from './remoteFakePhone.js';
-import { startMacAndRelay, until } from './remoteHarness.js';
+import { pairingCode, startMacAndRelay, until, wrongCode } from './remoteHarness.js';
 
 describe('mobile remote, end to end', () => {
   const closers: (() => unknown)[] = [];
@@ -11,7 +10,7 @@ describe('mobile remote, end to end', () => {
   it('pairs, tunnels the api and hub, moves an image both ways, and revokes', async () => {
     const { relayUrl, app, api } = await startMacAndRelay(closers);
 
-    // Pair: QR on the Mac, redeem from the phone, fingerprint matches, confirm on the Mac.
+    // Pair: QR on the Mac, redeem from the phone, the phone's code typed on the Mac.
     const pair = await api('POST', '/api/remote/pair');
     expect(pair.statusCode).toBe(200);
     const phone = new FakePhone();
@@ -21,11 +20,16 @@ describe('mobile remote, end to end', () => {
     expect(redeemed).toMatchObject({ status: 200, body: { name: 'studio' } });
     await until(async () => (await api('GET', '/api/remote')).json().pendingPair !== null);
     const status = (await api('GET', '/api/remote')).json();
-    expect(status.pendingPair).toMatchObject({ phone: phone.id, name: 'Pixel', platform: 'android' });
-    expect(status.pendingPair.fingerprint).toBe(fingerprint(publicKeyOf(status.macId)!, phone.identity.publicKey));
+    // The code is the phone's to show and the user's to type; the status never carries it.
+    const code = pairingCode(status.macId, phone.identity.publicKey);
+    expect(status.pendingPair).toEqual({ phone: phone.id, name: 'Pixel', platform: 'android', attemptsLeft: 3 });
+    expect((await api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id })).statusCode).toBe(400);
+    const wrong = await api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code: wrongCode(code) });
+    expect(wrong.statusCode).toBe(422);
+    expect(wrong.json()).toEqual({ error: 'code_mismatch', attemptsLeft: 2 });
     // A real phone handshakes the moment it hears `paired`, which the relay
     // sends before it answers the Mac's confirm — so the confirm is not awaited first.
-    const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id });
+    const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code: code.toLowerCase() });
     expect(await phone.nextControl('paired')).toMatchObject({ type: 'paired', name: 'studio' });
     await phone.handshake();
     expect((await confirm).statusCode).toBe(200);
@@ -87,5 +91,24 @@ describe('mobile remote, end to end', () => {
     expect(await again.next('bye')).toEqual({ t: 'bye', reason: 'revoked' });
     expect(await again.nextControl('unpaired')).toMatchObject({ type: 'unpaired' });
     expect((await api('GET', '/api/remote')).json().devices).toEqual([]);
+  }, 20_000);
+
+  it('rejects the phone after the last wrong code, as Reject would', async () => {
+    const { api } = await startMacAndRelay(closers);
+    const phone = new FakePhone();
+    closers.push(() => phone.close());
+    await phone.connect((await api('POST', '/api/remote/pair')).json().qr);
+    await phone.redeem();
+    await until(async () => (await api('GET', '/api/remote')).json().pendingPair !== null);
+    const macId = (await api('GET', '/api/remote')).json().macId;
+    const wrong = wrongCode(pairingCode(macId, phone.identity.publicKey));
+    const send = () => api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code: wrong });
+    expect((await send()).statusCode).toBe(422);
+    expect((await send()).statusCode).toBe(422);
+    const last = await send();
+    expect(last.statusCode).toBe(409);
+    expect(last.json()).toEqual({ error: 'code_rejected' });
+    expect(await phone.nextControl('rejected')).toMatchObject({ type: 'rejected' });
+    expect((await api('GET', '/api/remote')).json()).toMatchObject({ pendingPair: null, pairing: null, devices: [] });
   }, 20_000);
 });
