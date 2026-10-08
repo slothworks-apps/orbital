@@ -64,6 +64,15 @@ release. Pull requests of this roadmap carry the `pre-public` label.
 
 **Exit:** every item above is done or consciously moved out.
 
+**Done 2026-10-08** as the stack #45–#59 plus the version bump (desktop
+0.24.0, phone 0.7.0, relay 0.4.0). Added on the way: a shell left running
+no longer keeps a session working, the phone's icon and splash screen, the
+Archipelago theme behind an Experimental switch, the relay knowing no
+device names, a shared notice toast, and a first-launch crash on a large
+`~/.claude`. The notification for a new session that asks at once turned
+out not to be a bug; two real gaps found on the way were fixed instead.
+The relay must be deployed at 0.4.0 before the apps: they require it.
+
 ## Phase 1 — Builds for testers
 
 A merge to `main` that bumps an app's version builds and ships that app,
