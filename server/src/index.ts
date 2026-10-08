@@ -21,7 +21,7 @@ import {
 } from './retention.js';
 import { openDb } from './db/database.js';
 import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
-import { indexPaths, indexProjects, type IndexOwner } from './indexer/indexer.js';
+import { indexPaths, indexProjectsSliced, type IndexOwner } from './indexer/indexer.js';
 import { batchSessionIds, watchProjects } from './watcher/projects.js';
 import { LiveRegistries, SessionRegistry, type LiveSession } from './watcher/registry.js';
 import { TranscriptTail } from './watcher/tail.js';
@@ -253,6 +253,8 @@ export async function buildServer(overrides: {
    * loads one, and anything else without it refuses to start.
    */
   apiToken?: string;
+  /** The full index pass, in slices. Tests wrap it to hold the boot pass back. */
+  indexProjectsSliced?: typeof indexProjectsSliced;
 } = {}): Promise<FastifyInstance> {
   const apiToken = overrides.apiToken;
   if (apiToken === undefined && !process.env.VITEST) {
@@ -1116,12 +1118,21 @@ export async function buildServer(overrides: {
   // Initial index + re-index on transcript changes (debounced).
   //
   // The first pass reparses every transcript (+ its subagent files) to backfill
-  // the stats index, which on a large ~/.claude blocks the event loop for tens
-  // of seconds. Deferred to a `setImmediate` so `buildServer` returns and
-  // `app.listen` binds before it starts — otherwise a fresh boot sits silent
-  // and looks hung — and announced so `npm run dev` says what the pause is.
-  // `clearImmediate` on close keeps it from running against a torn-down db when
-  // a test builds the server and closes it before the pass fires.
+  // the stats index, which on a large ~/.claude takes tens of seconds. It waits
+  // until the server is ready — every plugin loaded, so `app.listen` binds
+  // right after — and then runs in slices that yield to the event loop, so the
+  // server answers while it works. Run any earlier and synchronously, it held
+  // the event loop while `@fastify/static` was still loading, and Fastify
+  // failed the boot on its plugin timeout (fix
+  // the-first-index-pass-timed-out-the-static-plugin). Announced
+  // so `npm run dev` says what the busy start is.
+  //
+  // Every index write goes through one queue, in order: the boot passes, the
+  // default directory's first, then each watcher batch. A batch that arrives
+  // during the backfill therefore runs after it, as it did when the pass held
+  // the loop, and a session is still owned by the first directory that
+  // indexed it. Stopping a directory aborts its pass at the next slice and
+  // drops its queued batches, so nothing runs against a torn-down db.
   //
   // The retention sweep still runs synchronously first: it writes the
   // tombstones the deferred index pass obeys (spec
@@ -1129,6 +1140,15 @@ export async function buildServer(overrides: {
   // the scan re-create rows the sweep just removed.
   runRetentionSweep();
   console.log('orbital: backfilling the session-stats index (first pass, may take a while on a large ~/.claude)…');
+  const indexFullPass = overrides.indexProjectsSliced ?? indexProjectsSliced;
+  let serverReady!: () => void;
+  let indexQueue: Promise<void> = new Promise<void>((resolve) => (serverReady = resolve));
+  const enqueueIndex = (job: () => unknown) => {
+    indexQueue = indexQueue.then(job).then(
+      () => undefined,
+      (err) => console.warn('orbital: indexing failed:', err),
+    );
+  };
 
   /**
    * A transcript skipped because another Claude directory owns its session
@@ -1161,17 +1181,20 @@ export async function buildServer(overrides: {
       isConfigured: (id) => claudeDirs.has(id),
       onCollision: (sessionId, ownerId) => recordCollision(dir, sessionId, ownerId),
     };
-    // Deferred like the boot pass always was; contexts start in order, the
-    // default's first, so its pass runs first and its sessions are its own.
-    const backfill = setImmediate(() => indexProjects(db, projectsDir, statsWritten, owner));
+    // Queued like the boot pass; contexts start in order, the default's
+    // first, so its pass runs first and its sessions are its own.
+    const stopped = new AbortController();
+    enqueueIndex(() => indexFullPass(db, projectsDir, statsWritten, owner, stopped.signal));
     // After boot, an event indexes the transcripts it named, not the tree: the
     // full pass stats every transcript on the machine, and a working session
     // writes several times a second.
     const projectsWatcher = watchProjects(
       projectsDir,
-      (batch) => {
-        if (batch.all) indexProjects(db, projectsDir, statsWritten, owner);
-        else indexPaths(db, projectsDir, batch.paths, statsWritten, owner);
+      (batch) => enqueueIndex(async () => {
+        if (stopped.signal.aborted) return;
+        if (batch.all) {
+          if (await indexFullPass(db, projectsDir, statsWritten, owner, stopped.signal) === null) return;
+        } else indexPaths(db, projectsDir, batch.paths, statsWritten, owner);
         // The same writes are what the line-change count follows: a tool that
         // edited files, a turn that ended. Hooked here, where transcripts are
         // read — Orbital's own sessions and the terminal's alike — and not in
@@ -1187,7 +1210,7 @@ export async function buildServer(overrides: {
           // A line can also have moved the session to another tree.
           republishMoved(ids);
         }
-      },
+      }),
       // A subagent's line can move it to another tree while the parent's
       // transcript sits still.
       (ids) => republishMoved(ids),
@@ -1205,7 +1228,7 @@ export async function buildServer(overrides: {
     return {
       models,
       stop: () => {
-        clearImmediate(backfill);
+        stopped.abort();
         projectsWatcher.close();
         registry.remove(dir.id);
         ide.removeClaudeDir(dir.path);
@@ -1265,6 +1288,12 @@ export async function buildServer(overrides: {
   harness.recover();
 
   const app = Fastify();
+  // Every plugin has loaded: the queued index passes may start (see
+  // `indexQueue` above). Not awaited, so readiness does not wait for them.
+  app.addHook('onReady', (done) => {
+    serverReady();
+    done();
+  });
   // Either carrier will do: the cookie `GET /api/auth` sets for the web app,
   // or a bearer for the desktop main process and the phone's `inject`.
   const authenticated = (req: FastifyRequest): boolean =>

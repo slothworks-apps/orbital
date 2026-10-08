@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, statSyn
 import { join } from 'node:path';
 import { DEFAULT_MIGRATIONS_FOLDER, openDb } from '../src/db/database.js';
 import { sessions, sessionColumns, sessionTags, sweptSessions, sessionStats, tagRules, tags } from '../src/db/schema.js';
-import { indexPaths, indexProjects } from '../src/indexer/indexer.js';
+import { indexPaths, indexProjects, indexProjectsSliced } from '../src/indexer/indexer.js';
 import { retentionCutoff, sweepSessions } from '../src/retention.js';
 import { STATS_VERSION, CHARS_PER_TOKEN, OBESE_RESULT_TOKENS } from '../src/stats/constants.js';
 import type { SessionRow } from '../src/types.js';
@@ -555,5 +555,53 @@ describe('indexer — Claude directories', () => {
     indexProjects(db, copy, undefined, { id: 2, isConfigured: (id) => id === 2, onCollision });
     expect(onCollision).not.toHaveBeenCalled();
     expect(dirOf(db, 'aaaa-bbbb')).toBe(2);
+  });
+});
+
+describe('the sliced full pass', () => {
+  function manyTranscripts(count: number) {
+    const { db, projects } = setupEmpty();
+    const fixture = readFileSync(join(import.meta.dirname, 'fixtures/transcript-basic.jsonl'), 'utf8');
+    for (let i = 0; i < count; i++) {
+      const pdir = join(projects, `proj-${i % 2}`);
+      mkdirSync(pdir, { recursive: true });
+      writeFileSync(join(pdir, `s-${i}.jsonl`), fixture);
+    }
+    return { db, projects };
+  }
+
+  it('yields to the event loop between slices and indexes every transcript', async () => {
+    const { db, projects } = manyTranscripts(6);
+    let ticks = 0;
+    const ticker = setInterval(() => ticks++, 0);
+    const announced: string[] = [];
+    try {
+      const result = await indexProjectsSliced(db, projects, (id) => announced.push(id), undefined, undefined, 0);
+      expect(result).toEqual({ scanned: 6, indexed: 6 });
+    } finally {
+      clearInterval(ticker);
+    }
+    expect(ticks).toBeGreaterThan(0);
+    expect(db.select().from(sessions).all()).toHaveLength(6);
+    expect(announced.sort()).toEqual(['s-0', 's-1', 's-2', 's-3', 's-4', 's-5']);
+  });
+
+  it('stops at the next slice once aborted, and writes nothing after', async () => {
+    const { db, projects } = manyTranscripts(6);
+    const stop = new AbortController();
+    const pass = indexProjectsSliced(db, projects, () => stop.abort(), undefined, stop.signal, 0);
+    expect(await pass).toBeNull();
+    // The slice that announced its rollup committed; nothing ran after it.
+    expect(db.select().from(sessions).all()).toHaveLength(1);
+  });
+
+  it('applies the tag rules once the pass is through', async () => {
+    const { db, projects } = manyTranscripts(4);
+    db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
+    db.insert(tagRules)
+      .values({ tagId: 10, position: 0, enabled: 1, condition: 'path_matches', pattern: 'ergaily' })
+      .run();
+    await indexProjectsSliced(db, projects, undefined, undefined, undefined, 0);
+    expect(db.select().from(sessionTags).all()).toHaveLength(4);
   });
 });

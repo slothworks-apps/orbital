@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, vi } from 'vitest';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
+import { indexProjectsSliced } from '../src/indexer/indexer.js';
 import { makeTmpDir } from './tmp.js';
 
 /**
@@ -66,6 +68,57 @@ describe('serving the built frontend', () => {
     try {
       expect((await app.inject({ method: 'GET', url: '/' })).statusCode).toBe(404);
     } finally {
+      await app.close();
+    }
+  });
+});
+
+/**
+ * The first index pass on a long history takes tens of seconds. Run while
+ * the plugins were still loading, it held the event loop past Fastify's
+ * plugin timeout and the boot failed on `@fastify/static` (fix
+ * the-first-index-pass-timed-out-the-static-plugin). The pass now
+ * waits for the server to be ready and must not keep it from answering.
+ */
+describe('the first index pass with the built frontend', () => {
+  it('starts after the server is ready, lets it answer, and still indexes everything', async () => {
+    const { claudeDir, dbPath } = tempClaudeDir();
+    const fixture = readFileSync(join(import.meta.dirname, 'fixtures/transcript-basic.jsonl'), 'utf8');
+    for (let p = 0; p < 3; p++) {
+      const project = join(claudeDir, 'projects', `proj-${p}`);
+      mkdirSync(project, { recursive: true });
+      for (let s = 0; s < 4; s++) writeFileSync(join(project, `s-${p}-${s}.jsonl`), fixture);
+    }
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    const app = await buildServer({
+      claudeDir, dbPath, queryFn: (() => {}) as any, staticDir: tempWebDist(),
+      // One transcript per slice, behind a gate the test opens.
+      indexProjectsSliced: async (db, projectsDir, onStats, owner, signal) => {
+        calls++;
+        await held;
+        return indexProjectsSliced(db, projectsDir, onStats, owner, signal, 0);
+      },
+    });
+    try {
+      expect(calls).toBe(0);
+      await app.listen({ host: '127.0.0.1', port: 0 });
+      const { port } = app.server.address() as AddressInfo;
+      const get = (path: string) => fetch(`http://127.0.0.1:${port}${path}`);
+
+      const health = await get('/api/health');
+      expect(health.status).toBe(200);
+      expect(await health.json()).toMatchObject({ app: 'orbital', static: true });
+      expect(calls).toBe(1);
+      expect((await (await get('/api/sessions')).json()).sessions).toHaveLength(0);
+
+      release();
+      await vi.waitFor(async () => {
+        expect((await (await get('/api/sessions')).json()).sessions).toHaveLength(12);
+      });
+    } finally {
+      release();
       await app.close();
     }
   });
