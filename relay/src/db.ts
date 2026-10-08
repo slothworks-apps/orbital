@@ -12,12 +12,11 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import pg from 'pg';
 import { migration as m0001 } from '../migrations/0001_initial.js';
+import { migration as m0002 } from '../migrations/0002_no_names.js';
 
 export interface DevicesTable {
   id: string;
   kind: 'mac' | 'phone';
-  name: string;
-  platform: string | null;
   push_token: string | null;
   last_seen_at: number | string | null;
 }
@@ -31,8 +30,6 @@ export interface PairingTokensTable {
   mac: string;
   expires_at: number | string;
   phone: string | null;
-  phone_name: string | null;
-  phone_platform: string | null;
   state: 'open' | 'pending' | 'confirmed' | 'rejected';
 }
 export interface RelayDatabase {
@@ -46,6 +43,7 @@ export type RelayDb = Kysely<RelayDatabase>;
 /** Every migration, in order, by name. Add a line here for each new file. */
 const MIGRATIONS: Record<string, Migration> = {
   '0001_initial': m0001,
+  '0002_no_names': m0002,
 };
 
 const provider: MigrationProvider = { getMigrations: () => Promise.resolve(MIGRATIONS) };

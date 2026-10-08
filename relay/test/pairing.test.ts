@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
-import { PAIRING_TOKEN_TTL_MS, signRequest } from '@orbital/shared/remote/relayApi';
+import { PAIRING_TOKEN_TTL_MS, SEALED_DEVICE_MAX_CHARS, signRequest } from '@orbital/shared/remote/relayApi';
 import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { buildRelay } from '../src/app.js';
 import { PAIR_RATE_LIMIT_PER_MIN } from '../src/rateLimit.js';
@@ -27,19 +27,45 @@ describe('pairing', () => {
     return { store, app, base, mac, phone, post, tick: (ms: number) => { now += ms; }, now: () => now };
   }
 
-  it('mints a token for a signed Mac, and redeeming it reaches the online Mac', async () => {
+  it('mints a token for a signed Mac, and redeeming it hands the online Mac the sealed device', async () => {
     const r = await relay();
     const m = await connectDevice(r.base, r.mac);
-    const minted = await r.post('/pair/token', signRequest(r.mac, 'pair.token', { name: 'studio' }, r.now()));
+    const minted = await r.post('/pair/token', signRequest(r.mac, 'pair.token', {}, r.now()));
     expect(minted.statusCode).toBe(200);
     const { token, expiresAt } = minted.json();
     expect(expiresAt).toBe(r.now() + PAIRING_TOKEN_TTL_MS);
+    const redeemed = await r.post('/pair/redeem', signRequest(r.phone, 'pair.redeem', { token, proof: 'p', device: 'sealed' }, r.now()));
+    expect(redeemed.statusCode).toBe(200);
+    expect(redeemed.json()).toEqual({ mac: m.id });
+    const req = await m.next('pair_request');
+    // Empty name and platform: a Mac from before sealed devices requires both.
+    expect(req).toEqual({
+      type: 'pair_request', phone: deviceId(r.phone.publicKey), proof: 'p', device: 'sealed', name: '', platform: '',
+    });
+  });
+
+  it('takes the names a Mac and a phone from before send, and passes none of them on', async () => {
+    const r = await relay();
+    const m = await connectDevice(r.base, r.mac);
+    const p = await connectDevice(r.base, r.phone);
+    const minted = await r.post('/pair/token', signRequest(r.mac, 'pair.token', { name: 'studio' }, r.now()));
+    expect(minted.statusCode).toBe(200);
+    const { token } = minted.json();
     const redeemed = await r.post('/pair/redeem', signRequest(r.phone, 'pair.redeem', { token, name: 'Pixel', platform: 'android', proof: 'p' }, r.now()));
     expect(redeemed.statusCode).toBe(200);
-    expect(redeemed.json()).toEqual({ mac: m.id, name: 'studio' });
-    const req = await m.next('pair_request');
-    expect(req).toEqual({ type: 'pair_request', phone: deviceId(r.phone.publicKey), name: 'Pixel', platform: 'android', proof: 'p' });
-    expect((await r.store.device(m.id))?.name).toBe('studio');
+    expect(JSON.stringify(redeemed.json())).not.toContain('studio');
+    expect(await m.next('pair_request')).toEqual({ type: 'pair_request', phone: p.id, proof: 'p', name: '', platform: '' });
+    await r.post('/pair/confirm', signRequest(r.mac, 'pair.confirm', { phone: p.id, accept: true }, r.now()));
+    expect(await p.next('paired')).toEqual({ type: 'paired', mac: m.id, name: '' });
+  });
+
+  it('refuses a sealed device over the size it holds', async () => {
+    const r = await relay();
+    await connectDevice(r.base, r.mac);
+    const { token } = (await r.post('/pair/token', signRequest(r.mac, 'pair.token', {}, r.now()))).json();
+    const device = 'A'.repeat(SEALED_DEVICE_MAX_CHARS + 1);
+    const res = await r.post('/pair/redeem', signRequest(r.phone, 'pair.redeem', { token, proof: 'p', device }, r.now()));
+    expect(res.statusCode).toBe(400);
   });
 
   it('lets a WebView redeem across origins, and only redeem', async () => {
@@ -96,7 +122,7 @@ describe('pairing', () => {
     await m.next('pair_request');
     const confirmed = await r.post('/pair/confirm', signRequest(r.mac, 'pair.confirm', { phone: p.id, accept: true }, r.now()));
     expect(confirmed.statusCode).toBe(200);
-    expect(await p.next('paired')).toEqual({ type: 'paired', mac: m.id, name: 'studio' });
+    expect(await p.next('paired')).toEqual({ type: 'paired', mac: m.id, name: '' });
     expect(await r.store.isPaired(m.id, p.id)).toBe(true);
     expect((await r.post('/pair/confirm', signRequest(r.mac, 'pair.confirm', { phone: p.id, accept: true }, r.now()))).statusCode).toBe(404);
 

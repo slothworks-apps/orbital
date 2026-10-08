@@ -187,7 +187,7 @@ Then make a session the Mac already knows ask for input: start one in mode
 answered, send it a message that needs Write. A brand-new session that asks
 at once is not news: the Mac's first sighting of it is already
 `needs_input`, and a first sighting never notifies. The relay logs `push sent to <token>, count 1` and the
-emulator shows "Orbital · <Mac>" / "A session needs your input"; a tap opens
+emulator shows "Orbital" / "A session needs your input"; a tap opens
 the app on the session list.
 
 The `needs_input` channel is silent. The Capacitor plugins cannot create a

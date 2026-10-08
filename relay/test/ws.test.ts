@@ -24,10 +24,10 @@ describe('relay websocket', () => {
     closers.push(() => app.close());
     const mac = generateIdentity();
     const phone = generateIdentity();
-    await store.upsertDevice({ id: deviceId(mac.publicKey), kind: 'mac', name: 'studio' });
-    await store.upsertDevice({ id: deviceId(phone.publicKey), kind: 'phone', name: 'Pixel' });
+    await store.upsertDevice({ id: deviceId(mac.publicKey), kind: 'mac' });
+    await store.upsertDevice({ id: deviceId(phone.publicKey), kind: 'phone' });
     const token = await store.createPairingToken(deviceId(mac.publicKey), Date.now() + 10_000);
-    await store.redeemPairingToken(token, deviceId(phone.publicKey), 'Pixel', 'android', Date.now());
+    await store.redeemPairingToken(token, deviceId(phone.publicKey), Date.now());
     await store.confirmPair(deviceId(mac.publicKey), deviceId(phone.publicKey), Date.now());
     return { store, app, base, mac, phone };
   }
@@ -96,7 +96,7 @@ describe('relay websocket', () => {
     const lateId = deviceId(late.publicKey);
     const m = await connectDevice(base, mac);
     const token = await store.createPairingToken(macId, Date.now() + 10_000);
-    await store.redeemPairingToken(token, lateId, 'Pixel 2', 'android', Date.now());
+    await store.redeemPairingToken(token, lateId, Date.now());
     const touch = store.touch.bind(store);
     let release!: () => void;
     const held = new Promise<void>((r) => { release = r; });

@@ -9,7 +9,8 @@ import { log, short } from './log.js';
 import type { RelayStore } from './store.js';
 import type { WakeHook } from './ws.js';
 
-export type PushPayload = { macName: string; count: number };
+/** A count and nothing else: no device name crosses the relay or the push services (spec 2026-10-08-relay-knows-no-names-design). */
+export type PushPayload = { count: number };
 
 export interface PushSender {
   send(token: string, payload: PushPayload): Promise<void>;
@@ -17,7 +18,6 @@ export interface PushSender {
 
 export class LogPushSender implements PushSender {
   send(token: string, payload: PushPayload): Promise<void> {
-    // Metadata only, like every relay line: no Mac name.
     log(`push not sent (no FCM configured) to ${short(token)}, count ${payload.count}`);
     return Promise.resolve();
   }
@@ -57,15 +57,16 @@ export class WakeTracker {
   }
 }
 
-export function pushText(macName: string, count: number): { title: string; body: string } {
+/** A phone pairs with one Mac, so the title names none: it would tell the user nothing, and tell FCM and APNs a name. */
+export function pushText(count: number): { title: string; body: string } {
   return {
-    title: `Orbital · ${macName}`,
+    title: 'Orbital',
     body: count === 1 ? 'A session needs your input' : `${count} sessions need your input`,
   };
 }
 
 export function wakeHook(store: RelayStore, tracker: WakeTracker, sender: PushSender): WakeHook {
-  return async (from, to, wake) => {
+  return async (_from, to, wake) => {
     let token: string | null = null;
     let count = 0;
     try {
@@ -73,8 +74,7 @@ export function wakeHook(store: RelayStore, tracker: WakeTracker, sender: PushSe
       if (!phone?.pushToken) return;
       token = phone.pushToken;
       count = tracker.add(to, wake);
-      const macName = (await store.device(from))?.name || 'your Mac';
-      await sender.send(token, { macName, count });
+      await sender.send(token, { count });
       log(`push sent to ${short(token)}, count ${count}`);
     } catch (err) {
       log(`push failed to ${token ? short(token) : '?'}, count ${count}: ${err instanceof Error ? err.message : String(err)}`);
@@ -102,7 +102,7 @@ export class FcmPushSender implements PushSender {
   ) {}
 
   async send(token: string, payload: PushPayload): Promise<void> {
-    const { title, body } = pushText(payload.macName, payload.count);
+    const { title, body } = pushText(payload.count);
     const message = JSON.stringify({
       message: {
         token,

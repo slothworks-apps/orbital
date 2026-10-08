@@ -1,7 +1,8 @@
 /**
  * What the relay remembers: who exists, who is paired with whom, which
  * pairing tokens are open, and where to push. Nothing about sessions — that
- * is the whole point (spec 2026-09-30-mobile-remote-design § 2). A pair's
+ * is the whole point (spec 2026-09-30-mobile-remote-design § 2), and no
+ * device names either (spec 2026-10-08-relay-knows-no-names-design). A pair's
  * existence is also cached on each live connection (`Conn.peers`, ws.ts), so
  * routing a frame never waits on this store.
  */
@@ -10,20 +11,18 @@ import { sql } from 'kysely';
 import { asNumber, openRelayDb, type RelayDb } from './db.js';
 
 export type DeviceKind = 'mac' | 'phone';
-export type DeviceRow = {
-  id: string; kind: DeviceKind; name: string; platform: string | null;
-  pushToken: string | null; lastSeenAt: number | null;
-};
+export type DeviceRow = { id: string; kind: DeviceKind; pushToken: string | null; lastSeenAt: number | null };
 
 export interface RelayStore {
-  upsertDevice(d: { id: string; kind: DeviceKind; name?: string; platform?: string }): Promise<void>;
+  upsertDevice(d: { id: string; kind: DeviceKind }): Promise<void>;
   device(id: string): Promise<DeviceRow | null>;
   touch(id: string, now: number): Promise<void>;
   setPushToken(id: string, token: string | null): Promise<void>;
   createPairingToken(mac: string, expiresAt: number): Promise<string>;
   /** Open and unexpired → pending for this phone; anything else → null. */
-  redeemPairingToken(token: string, phone: string, name: string, platform: string, now: number): Promise<{ mac: string } | null>;
-  pending(mac: string, phone: string): Promise<{ name: string; platform: string } | null>;
+  redeemPairingToken(token: string, phone: string, now: number): Promise<{ mac: string } | null>;
+  /** True while this phone's request to this Mac waits for the Mac's answer. */
+  pending(mac: string, phone: string): Promise<boolean>;
   confirmPair(mac: string, phone: string, now: number): Promise<boolean>;
   rejectPair(mac: string, phone: string): Promise<void>;
   /** True when a pair was actually deleted. */
@@ -41,28 +40,20 @@ export interface RelayStore {
 export class KyselyRelayStore implements RelayStore {
   constructor(private readonly db: RelayDb) {}
 
-  async upsertDevice(d: { id: string; kind: DeviceKind; name?: string; platform?: string }): Promise<void> {
-    const name = d.name ?? '';
+  async upsertDevice(d: { id: string; kind: DeviceKind }): Promise<void> {
     await this.db.insertInto('devices')
-      .values({ id: d.id, kind: d.kind, name, platform: d.platform ?? null })
-      .onConflict((oc) => oc.column('id').doUpdateSet((eb) => ({
-        kind: d.kind,
-        // An empty name never overwrites a real one: a reconnecting phone
-        // does not know its name, the pairing did.
-        name: name === '' ? eb.ref('devices.name') : name,
-        platform: d.platform ?? eb.ref('devices.platform'),
-      })))
+      .values({ id: d.id, kind: d.kind })
+      .onConflict((oc) => oc.column('id').doUpdateSet({ kind: d.kind }))
       .execute();
   }
 
   async device(id: string): Promise<DeviceRow | null> {
     const row = await this.db.selectFrom('devices')
-      .select(['id', 'kind', 'name', 'platform', 'push_token', 'last_seen_at'])
+      .select(['id', 'kind', 'push_token', 'last_seen_at'])
       .where('id', '=', id).executeTakeFirst();
     if (!row) return null;
     return {
-      id: row.id, kind: row.kind, name: row.name, platform: row.platform,
-      pushToken: row.push_token, lastSeenAt: asNumber(row.last_seen_at),
+      id: row.id, kind: row.kind, pushToken: row.push_token, lastSeenAt: asNumber(row.last_seen_at),
     };
   }
 
@@ -80,25 +71,24 @@ export class KyselyRelayStore implements RelayStore {
     return token;
   }
 
-  async redeemPairingToken(token: string, phone: string, name: string, platform: string, now: number) {
+  async redeemPairingToken(token: string, phone: string, now: number) {
     const open = await this.db.selectFrom('pairing_tokens').select('mac')
       .where('token', '=', token).where('state', '=', 'open').where('expires_at', '>=', now)
       .executeTakeFirst();
     if (!open) return null;
     // The state check in the UPDATE is what makes a double redeem lose the race.
     const result = await this.db.updateTable('pairing_tokens')
-      .set({ state: 'pending', phone, phone_name: name, phone_platform: platform })
+      .set({ state: 'pending', phone })
       .where('token', '=', token).where('state', '=', 'open')
       .executeTakeFirst();
     return result.numUpdatedRows === 1n ? { mac: open.mac } : null;
   }
 
-  async pending(mac: string, phone: string) {
-    const row = await this.db.selectFrom('pairing_tokens')
-      .select(['phone_name', 'phone_platform'])
+  async pending(mac: string, phone: string): Promise<boolean> {
+    const row = await this.db.selectFrom('pairing_tokens').select('token')
       .where('mac', '=', mac).where('phone', '=', phone).where('state', '=', 'pending')
       .executeTakeFirst();
-    return row ? { name: row.phone_name ?? '', platform: row.phone_platform ?? '' } : null;
+    return row !== undefined;
   }
 
   async confirmPair(mac: string, phone: string, now: number): Promise<boolean> {
