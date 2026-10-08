@@ -4,6 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Changed
+- The sidebar no longer shows a "recent ▾" sort control above History that did nothing; history is listed newest first, as before.
 - Notifications start off on a new install, sound included. Once your first session is on the map, a quiet notice offers to turn on the two that matter most — a session needing your input and a session failing — and asks macOS then; it never comes back after you close it. Existing installs keep their notification settings.
 - Settings → Notifications says when everything is off on purpose, and dims "Only when Orbital is in the background" until a notification above it is on.
 - The Archipelago map theme moved to Settings → Experimental; Planets and Desk are the themes kept up to date. If you used Archipelago, the map shows Planets until you turn it back on there.
