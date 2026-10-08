@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIN_SERVER_VERSION } from '../mobile/version'
 import {
-  back, dismissTopSheet, initialMobileState, isMacAsleep, isPairGone, keepsSelection, mayOpenFromNotice, pairGoneFor, push, pushedTop, reduce,
-  registerSheet, useMobile, type Mismatch, type MobileState, type Pushed,
+  back, dismissTopSheet, initialMobileState, isGated, isMacAsleep, isPairGone, keepsSelection, leaveForeground, lockEnabled,
+  mayOpenFromNotice, openFromNotice, pairGoneFor, push, pushedTop, reduce, registerSheet, returnToForeground, useMobile,
+  type Mismatch, type MobileState, type Pushed,
 } from '../mobile/state'
 
 // `recheck`, `client` and `ready` are all of `clientRef` the module under test reads.
@@ -304,6 +305,54 @@ describe('mayOpenFromNotice', () => {
     expect(mayOpenFromNotice(state({ pairing: null }))).toBe(false)
     expect(mayOpenFromNotice(state({ pairing: PAIRING, unpaired: true }))).toBe(false)
     expect(mayOpenFromNotice(state({ pairing: PAIRING, mismatch: MAC_OLD }))).toBe(false)
+  })
+})
+
+describe('the screen-lock and app-lock gates', () => {
+  const paired = (patch: Partial<MobileState> = {}) => state({ pairing: PAIRING, screen: 'session', sessionId: 's1', ...patch })
+
+  it('applies the app lock only while a Mac is paired', () => {
+    expect(lockEnabled(state({ appLock: true, pairing: PAIRING }))).toBe(true)
+    expect(lockEnabled(state({ appLock: true, pairing: null }))).toBe(false)
+    expect(lockEnabled(state({ appLock: false, pairing: PAIRING }))).toBe(false)
+  })
+
+  it('covers the app on the way out and keeps the screen underneath', () => {
+    const out = leaveForeground(paired(), NOW)
+    expect(out).toEqual({ backgroundedAt: NOW, lock: 'covered' })
+    // A quick return uncovers the same session; nothing about the screen was touched.
+    expect(returnToForeground(paired(out), NOW + 1_000)).toEqual({ backgroundedAt: null, lock: 'open' })
+  })
+
+  it('ignores the trips out of the foreground the system prompt makes', () => {
+    expect(leaveForeground(paired({ authenticating: true }), NOW)).toEqual({})
+    expect(returnToForeground(paired({ authenticating: true, lock: 'locked' }), NOW)).toEqual({})
+  })
+
+  it('counts either gate as standing in front of the app', () => {
+    expect(isGated(state())).toBe(false)
+    expect(isGated(state({ screenLock: true }))).toBe(true)
+    expect(isGated(state({ lock: 'covered' }))).toBe(true)
+  })
+
+  describe('a notice tapped behind a gate', () => {
+    beforeEach(() => useMobile.setState({ ...initialMobileState, pairing: PAIRING, lock: 'locked' }))
+
+    it('waits, and opens once the lock lifts', () => {
+      const open = vi.fn()
+      openFromNotice(open)
+      expect(open).not.toHaveBeenCalled()
+      useMobile.setState({ lock: 'open' })
+      expect(open).toHaveBeenCalledOnce()
+    })
+
+    it('is dropped if the pair is gone by the time the lock lifts', () => {
+      const open = vi.fn()
+      openFromNotice(open)
+      useMobile.setState({ pairing: null, unpaired: true })
+      useMobile.setState({ lock: 'open' })
+      expect(open).not.toHaveBeenCalled()
+    })
   })
 })
 
