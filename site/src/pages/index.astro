@@ -712,6 +712,8 @@ const phones = [
   }
   .phones {
     display: flex;
+    /* Not stretch: the right phone's top margin would make the left one taller. */
+    align-items: flex-start;
     justify-content: center;
     gap: clamp(14px, 3cqw, 32px);
   }

@@ -63,6 +63,9 @@ export const SETTINGS: Record<string, string> = {
   // The new-session dialog opens on a directory, so Launch works at once
   // rather than waiting on a path the visitor has no reason to know.
   default_project_dir: `${HOME}/billing-api`,
+  // The stats button rather than the bar: the demo has no stats to fill the
+  // bar with, and an empty strip in the header reads as broken.
+  header_session_stats: 'button',
 }
 
 interface SessionSpec {
