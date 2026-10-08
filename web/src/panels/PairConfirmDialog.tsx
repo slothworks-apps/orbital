@@ -105,42 +105,38 @@ export function PairConfirmDialog() {
   return (
     <Dialog
       open={pending !== null}
-      size="sm"
+      variant="card"
       eyebrow={eyebrow}
       title="A phone wants to pair"
       // Esc is a rejection, never a dismissal that leaves the request hanging.
       onClose={() => void answer(false)}
-      footer={
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2.5">
-            <Button variant="ghost" size="lg" disabled={busy} onClick={() => void answer(false)}>
-              Reject
-            </Button>
-            <Button variant="primary" size="lg" disabled={busy || !complete} onClick={() => void answer(true)}>
-              Accept
-            </Button>
-          </div>
-          {relayFailed && (
-            <span className="text-[12px] text-[oklch(78%_.13_75_/_.8)]">The relay didn't answer. Try again.</span>
-          )}
-        </div>
-      }
     >
       {request && (
-        <div className="flex flex-col items-center gap-4 text-center">
-          <div className="font-mono text-[11.5px] text-[rgba(160,190,225,.7)]">
-            {request.name} · {request.platform} · via relay
+        <>
+          {/* Canvas 9o: the device in a hairline chip, name bright, the rest muted. */}
+          <div className="flex items-center gap-2 rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] px-3 py-2 font-mono text-xs text-text-bright">
+            {request.name}
+            <span className="text-[rgba(160,190,225,.55)]">· {request.platform} · via relay</span>
           </div>
-          {/* Canvas 9o: the instruction over the boxes, one quiet line under them. */}
           <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.88)]">Type the code shown on the phone.</p>
           {/* Never disabled while an answer is in flight: that would drop the
               focus, and after a wrong code the user types straight on. */}
           <PairingCodeInput value={code} onChange={setCode} onSubmit={() => void answer(true)} autoFocus />
           <div className="min-h-[18px] font-mono text-[11px] text-[rgba(160,190,225,.7)]">
-            {attemptsLeft !== null &&
-              `That code didn’t match · ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left`}
+            {relayFailed
+              ? "The relay didn't answer. Try again."
+              : attemptsLeft !== null &&
+                `That code didn’t match · ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left`}
           </div>
-        </div>
+          <div className="flex w-full gap-2.5">
+            <Button variant="ghost" size="wide" disabled={busy} onClick={() => void answer(false)}>
+              Reject
+            </Button>
+            <Button variant="primary" size="wide" disabled={busy || !complete} onClick={() => void answer(true)}>
+              Accept
+            </Button>
+          </div>
+        </>
       )}
     </Dialog>
   )

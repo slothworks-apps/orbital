@@ -87,6 +87,14 @@ export interface DialogProps {
    */
   surfaceRef?: (element: HTMLElement | null) => void
   /**
+   * `card` (canvas `Feature - Mobile` 9o, the Mac's pairing confirmation):
+   * one centred column — muted eyebrow, title, then the caller's content and
+   * buttons — in a plain-bordered 460px card with no corner brackets, no
+   * bloom and no footer row. `size`, `tone` and the footer props do not
+   * apply to it.
+   */
+  variant?: 'frame' | 'card'
+  /**
    * Paints the armed drop chrome over the frame (canvas 9c-1 / 9e drop state:
    * accent border `.45` over a matching inset ring `.12`). The caller owns the
    * drag itself and dims its own content.
@@ -202,6 +210,7 @@ export function Dialog({
   bodyInset = 'form',
   surfaceRef,
   dropArmed = false,
+  variant = 'frame',
   onClose,
   children,
 }: DialogProps) {
@@ -240,6 +249,30 @@ export function Dialog({
         state === 'exiting' ? EXITING : '',
       ].join(' ')}
     >
+      {variant === 'card' ? (
+        // Canvas 9o: 460px, 28/30/24 padding, 16px radius, a .2 hairline and
+        // a plain drop shadow; every row centred with a 16px gap.
+        <div
+          ref={surfaceRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          data-variant="card"
+          style={{ boxShadow: '0 40px 100px rgba(0,0,0,.7)' }}
+          className={[
+            'relative flex max-h-full w-[460px] max-w-full flex-col items-center gap-4 overflow-y-auto rounded-2xl border border-[rgba(150,205,255,.2)] bg-gradient-to-b from-[rgba(14,20,34,.97)] to-[rgba(8,12,22,.99)] px-[30px] pb-6 pt-7 text-center font-sans text-text-bright',
+            MODAL_TRANSITION,
+            duration,
+            entered ? MODAL_OPEN : MODAL_CLOSED,
+          ].join(' ')}
+        >
+          {eyebrow && (
+            <div className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">{eyebrow}</div>
+          )}
+          <h2 className="text-xl font-bold text-text-bright">{title}</h2>
+          {children}
+        </div>
+      ) : (
       <div
         ref={surfaceRef}
         role="dialog"
@@ -370,6 +403,7 @@ export function Dialog({
           ].join(' ')}
         />
       </div>
+      )}
     </div>
     </EscapeBoundary>,
     document.body,

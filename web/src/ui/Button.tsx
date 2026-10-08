@@ -21,7 +21,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'choice'
     | 'choice-on'
     | 'pill-quiet'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -108,6 +108,8 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   choice: 'h-[34px] px-2 text-[12.5px]',
   // 47c/47d's: the phone's 44px row at 14px.
   'choice-touch': 'h-11 px-2 text-[14px]',
+  // 9o's Reject / Accept: 40px tall at 13.5px, sharing the card's width.
+  wide: 'h-10 flex-1 px-3.5 text-[13.5px]',
 }
 
 export function Button({
