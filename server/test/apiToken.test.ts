@@ -11,7 +11,7 @@ import {
 } from '../src/auth/token.js';
 import { remoteInjectOptions } from '../src/remote/inject.js';
 import { FakePhone } from './remoteFakePhone.js';
-import { startMacAndRelay, until } from './remoteHarness.js';
+import { pairingCode, startMacAndRelay, until } from './remoteHarness.js';
 import { makeTmpDir } from './tmp.js';
 
 const TOKEN = 'test-token-0123456789';
@@ -162,7 +162,8 @@ describe('the token guard and the phone', () => {
     await phone.connect(pair.json().qr);
     await phone.redeem();
     await until(async () => (await api('GET', '/api/remote')).json().pendingPair !== null);
-    const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id });
+    const code = pairingCode((await api('GET', '/api/remote')).json().macId, phone.identity.publicKey);
+    const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code });
     await phone.nextControl('paired');
     await phone.handshake();
     expect((await confirm).statusCode).toBe(200);

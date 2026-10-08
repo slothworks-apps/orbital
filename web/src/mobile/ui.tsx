@@ -180,15 +180,47 @@ export function QuietMark() {
   )
 }
 
-/** A 9h/9i screen: the message centred in the space, the actions pinned at the bottom. */
-export function NoticeScreen({ children, actions }: { children: ReactNode; actions: ReactNode }) {
+/**
+ * The message's inset inside a notice screen: `default` is canvas 9i
+ * (0 28px 40px); `wide` is 9s (0 32px 60px), a shorter message held a
+ * little higher and narrower.
+ */
+const NOTICE_INSETS = {
+  default: 'px-7 pb-10',
+  wide: 'px-8 pb-15',
+} as const
+
+/** A 9h/9i/9s screen: the message centred in the space, the actions pinned at the bottom. */
+export function NoticeScreen({
+  children, actions, inset = 'default',
+}: { children: ReactNode; actions: ReactNode; inset?: keyof typeof NOTICE_INSETS }) {
   return (
     <MobileScreen footer={<div className="flex flex-col gap-2 px-4 pb-1.5 pt-2.5">{actions}</div>}>
-      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-7 pb-10 text-center">
+      <div className={['flex min-h-full flex-col items-center justify-center gap-4 text-center', NOTICE_INSETS[inset]].join(' ')}>
         <QuietMark />
         {children}
       </div>
     </MobileScreen>
+  )
+}
+
+/**
+ * The Orbital mark lit in the accent: a ring with its moon on the rim.
+ * `paired` is 9e's paired step, with the check inside; `lock` is 9t, the
+ * bare mark with a slightly softer glow.
+ */
+export function LitMark({ variant }: { variant: 'paired' | 'lock' }) {
+  return (
+    <span
+      aria-hidden
+      className={[
+        'relative grid h-[72px] w-[72px] place-items-center rounded-full border-2 border-[oklch(85%_.12_205)] text-[26px] text-[oklch(85%_.12_205)]',
+        variant === 'paired' ? 'shadow-[0_0_30px_oklch(85%_.12_205/.4)]' : 'shadow-[0_0_30px_oklch(85%_.12_205/.35)]',
+      ].join(' ')}
+    >
+      {variant === 'paired' && '✓'}
+      <span className="absolute right-0.5 top-0.5 block h-3.5 w-3.5 rounded-full bg-[oklch(85%_.12_205)] shadow-[0_0_12px_oklch(85%_.12_205)]" />
+    </span>
   )
 }
 

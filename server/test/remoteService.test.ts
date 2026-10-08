@@ -16,8 +16,9 @@ import { DeviceStore } from '../src/remote/devices.js';
 import { IDENTITY_FILE } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
 import {
-  BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, RELAY_TOO_OLD_RECHECK_MS, RemoteService, type RemoteServiceOptions,
+  BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, PAIR_CODE_ATTEMPTS, RELAY_TOO_OLD_RECHECK_MS, RemoteService, type RemoteServiceOptions,
 } from '../src/remote/service.js';
+import { pairingCode, wrongCode } from './remoteHarness.js';
 import { makeTmpDir } from './tmp.js';
 
 type Answer = { status: number; body: unknown };
@@ -86,6 +87,9 @@ const phoneId = () => deviceId(generateIdentity().publicKey);
 const request = (phone: string, proof = pairingProof(qrSecret, publicKeyOf(phone)!)) =>
   ({ type: 'pair_request', phone, name: 'iPhone', platform: 'ios', proof });
 const tick = () => new Promise((r) => setTimeout(r, 0));
+/** The code the phone shows for this request: what the user reads off it and types on the Mac. */
+const codeFor = (service: RemoteService, phone: string) =>
+  pairingCode(service.status().macId!, publicKeyOf(phone)!);
 
 describe('RemoteService pairing', () => {
   it('ignores a pair request outside a pairing window', () => {
@@ -123,7 +127,7 @@ describe('RemoteService pairing', () => {
     expect(service.status().pendingPair?.phone).toBe(phone);
     advance(60_000);
     expect(service.status()).toMatchObject({ pendingPair: null, pairing: null });
-    expect(await service.confirmPairing(true, phone)).toBe(false);
+    expect(await service.confirmPairing(true, phone, codeFor(service, phone))).toEqual({ error: 'no_pending' });
     expect(fake.posts.map((p) => p.path)).not.toContain('/pair/confirm');
   });
   it('confirm applies only to the phone the user verified, and pairs it with the desktop settings', async () => {
@@ -131,26 +135,95 @@ describe('RemoteService pairing', () => {
     await service.startPairing();
     const phone = phoneId();
     fake.emit('control', request(phone));
-    expect(await service.confirmPairing(true, phoneId())).toBe(false);
+    expect(await service.confirmPairing(true, phoneId(), codeFor(service, phone))).toEqual({ error: 'no_pending' });
     expect(service.status().pendingPair?.phone).toBe(phone);
 
     const before = hub.subscriberCount('sessions');
-    expect(await service.confirmPairing(true, phone)).toBe(true);
+    expect(await service.confirmPairing(true, phone, codeFor(service, phone))).toEqual({ ok: true });
     await tick();
     expect(service.status().pendingPair).toBeNull();
     expect(devices.get(phone)?.notifications).toEqual(parseNotificationSettings(settings));
     expect(hub.subscriberCount('sessions')).toBe(before + 1);
   });
-  it('a relay failure answers relay_error to pairing and false to confirm', async () => {
+  it('a relay failure answers relay_error to pairing and to confirm', async () => {
     const { service, fake, devices } = build();
     await service.startPairing();
     const phone = phoneId();
     fake.emit('control', request(phone));
     fake.answers['/pair/token'] = { status: 0, body: { error: 'network' } };
     fake.answers['/pair/confirm'] = { status: 0, body: { error: 'network' } };
-    expect(await service.confirmPairing(true, phone)).toBe(false);
+    expect(await service.confirmPairing(true, phone, codeFor(service, phone))).toEqual({ error: 'relay_error' });
     expect(devices.get(phone)).toBeNull();
     expect(await service.startPairing()).toEqual({ error: 'relay_error' });
+  });
+
+  it('the status carries the attempts left, never the code', async () => {
+    const { service, fake, hub } = build();
+    const publish = vi.spyOn(hub, 'publish');
+    await service.startPairing();
+    const phone = phoneId();
+    fake.emit('control', request(phone));
+    const code = codeFor(service, phone);
+    expect(service.status().pendingPair).toEqual({ phone, name: 'iPhone', platform: 'ios', attemptsLeft: PAIR_CODE_ATTEMPTS });
+    expect(JSON.stringify(service.status())).not.toContain(code);
+    expect(publish).toHaveBeenCalledWith('remote', expect.objectContaining({ event: 'pair_request', phone }));
+    expect(JSON.stringify(publish.mock.calls)).not.toContain(code);
+  });
+  it.each(['lower', 'look-alikes', 'dashed'])('the right code pairs however it is spelled (%s)', async (spelling) => {
+    const { service, fake, devices } = build();
+    await service.startPairing();
+    // Generated until the code has a 0 or a 1 for the look-alike spelling to replace.
+    let phone = phoneId();
+    while (spelling === 'look-alikes' && !/[01]/.test(codeFor(service, phone))) phone = phoneId();
+    fake.emit('control', request(phone));
+    const code = codeFor(service, phone);
+    const typed = spelling === 'lower' ? code.toLowerCase()
+      : spelling === 'look-alikes' ? code.replace(/0/g, 'o').replace(/1/g, 'L')
+        : ` ${code.slice(0, 3)}-${code.slice(3)} `;
+    expect(await service.confirmPairing(true, phone, typed)).toEqual({ ok: true });
+    expect(devices.get(phone)).not.toBeNull();
+    expect(fake.posts.find((p) => p.path === '/pair/confirm')?.payload).toEqual({ phone, accept: true });
+  });
+  it('a wrong code counts down without telling the relay; the right one still pairs', async () => {
+    const { service, fake, devices } = build();
+    await service.startPairing();
+    const phone = phoneId();
+    fake.emit('control', request(phone));
+    const code = codeFor(service, phone);
+    expect(await service.confirmPairing(true, phone, wrongCode(code))).toEqual({ error: 'code_mismatch', attemptsLeft: PAIR_CODE_ATTEMPTS - 1 });
+    expect(service.status().pendingPair?.attemptsLeft).toBe(PAIR_CODE_ATTEMPTS - 1);
+    expect(devices.get(phone)).toBeNull();
+    expect(fake.posts.map((p) => p.path)).not.toContain('/pair/confirm');
+    expect(await service.confirmPairing(true, phone, code)).toEqual({ ok: true });
+  });
+  it('the last wrong code rejects on the relay and clears the request; the next one starts afresh', async () => {
+    const { service, fake, devices } = build();
+    await service.startPairing();
+    const phone = phoneId();
+    fake.emit('control', request(phone));
+    const wrong = wrongCode(codeFor(service, phone));
+    for (let left = PAIR_CODE_ATTEMPTS - 1; left > 0; left--) {
+      expect(await service.confirmPairing(true, phone, wrong)).toEqual({ error: 'code_mismatch', attemptsLeft: left });
+    }
+    expect(await service.confirmPairing(true, phone, wrong)).toEqual({ error: 'code_rejected' });
+    expect(fake.posts.filter((p) => p.path === '/pair/confirm').map((p) => p.payload)).toEqual([{ phone, accept: false }]);
+    expect(devices.get(phone)).toBeNull();
+    expect(service.status()).toMatchObject({ pendingPair: null, pairing: null });
+
+    await service.startPairing();
+    const next = phoneId();
+    fake.emit('control', request(next));
+    expect(service.status().pendingPair?.attemptsLeft).toBe(PAIR_CODE_ATTEMPTS);
+  });
+  it('reject needs no code', async () => {
+    const { service, fake, devices } = build();
+    await service.startPairing();
+    const phone = phoneId();
+    fake.emit('control', request(phone));
+    expect(await service.confirmPairing(false, phone)).toEqual({ ok: true });
+    expect(fake.posts.find((p) => p.path === '/pair/confirm')?.payload).toEqual({ phone, accept: false });
+    expect(devices.get(phone)).toBeNull();
+    expect(service.status().pendingPair).toBeNull();
   });
 
   /**
@@ -173,7 +246,7 @@ describe('RemoteService pairing', () => {
     const id = deviceId(phone.publicKey);
     fake.emit('control', request(id));
     const answer = holdConfirm(fake);
-    const confirm = service.confirmPairing(true, id);
+    const confirm = service.confirmPairing(true, id, codeFor(service, id));
 
     const hs = startHandshake(phone, publicKeyOf(service.status().macId!)!, 'initiator');
     fake.emit('data', encodeFrame({ peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
@@ -181,7 +254,7 @@ describe('RemoteService pairing', () => {
     expect(hs.complete(decodeFrame(fake.sent[0])!.body)).not.toBeNull();
 
     answer({ status: 200, body: {} });
-    expect(await confirm).toBe(true);
+    expect(await confirm).toEqual({ ok: true });
     expect(devices.get(id)).not.toBeNull();
     expect(service.status().pendingPair).toBeNull();
   });
@@ -195,13 +268,13 @@ describe('RemoteService pairing', () => {
     await tick();
     const before = hub.subscriberCount('sessions');
     const answer = holdConfirm(fake);
-    const confirm = service.confirmPairing(true, id);
+    const confirm = service.confirmPairing(true, id, codeFor(service, id));
     const hs = startHandshake(phone, publicKeyOf(service.status().macId!)!, 'initiator');
     fake.emit('data', encodeFrame({ peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
     expect(fake.sent).toHaveLength(1);
 
     answer({ status: 0, body: { error: 'network' } });
-    expect(await confirm).toBe(false);
+    expect(await confirm).toEqual({ error: 'relay_error' });
     await tick();
     expect(devices.get(id)).toBeNull();
     expect(hub.subscriberCount('sessions')).toBe(before);

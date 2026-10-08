@@ -1838,8 +1838,25 @@ export interface RemoteStatus {
   macId: string | null
   macName: string
   devices: RemoteDevice[]
-  pendingPair: { phone: string; name: string; platform: string; fingerprint: string } | null
+  /**
+   * A phone asking to pair, and how many wrong codes it may still be sent
+   * before the server rejects it. The code itself stays on the server: the
+   * user types it from the phone (spec 2026-10-06-pairing-code-and-app-lock-design § 1).
+   */
+  pendingPair: { phone: string; name: string; platform: string; attemptsLeft: number } | null
   pairing: { expiresAt: number } | null
   /** Why the last start failed; null while it is fine. */
   error: string | null
 }
+
+/** The refusals `POST /api/remote/pair/confirm` answers with instead of `{ ok: true }`. */
+export type PairConfirmError = 'no_pending' | 'mismatch' | 'code_mismatch' | 'code_rejected' | 'relay_error'
+
+/**
+ * `code_mismatch`: a wrong code, the request still waits with `attemptsLeft`.
+ * `code_rejected`: the last wrong code; the server rejected the request.
+ */
+export type PairConfirmResult =
+  | { ok: true }
+  | { error: Exclude<PairConfirmError, 'code_mismatch'> }
+  | { error: 'code_mismatch'; attemptsLeft: number }

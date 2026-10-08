@@ -3,8 +3,10 @@ import { formatFingerprint } from '@orbital/shared/remote/keys'
 import type { NotificationSettings } from '@orbital/shared/remote/messages'
 import { useOrbital } from '../../store/store'
 import { forgetEverything } from '../forget'
+import { confirmIdentity } from '../lockFlow'
 import { relayHost } from '../format'
 import { setRules as setNotifierRules } from '../notify'
+import { saveAppLock } from '../platform/appLock'
 import { readNotificationsCache, writeNotificationsCache } from '../platform/cache'
 import { useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
@@ -45,7 +47,7 @@ export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; labe
   },
 ]
 
-/** 9f (spec § 5): the Mac, this phone's notification rules, the relay. */
+/** 9f (spec § 5): the Mac, this phone's notification rules, the app lock, the relay. */
 export function SettingsScreen() {
   const pairing = useMobile((s) => s.pairing)
   const macName = useMobile((s) => s.macName)
@@ -167,6 +169,8 @@ export function SettingsScreen() {
         </div>
         <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">Just for this phone. Copied from your Mac when you paired.</p>
 
+        <SecuritySection />
+
         <SectionLabel>ADVANCED</SectionLabel>
         <div className={CARD}>
           <button
@@ -219,5 +223,42 @@ export function SettingsScreen() {
         </div>
       )}
     </MobileScreen>
+  )
+}
+
+/**
+ * 9f's SECURITY group (spec 2026-10-06-pairing-code-and-app-lock-design
+ * § 3): one toggle, named after what the phone authenticates with. Turning
+ * it off asks for that first, so whoever holds an unlocked app cannot
+ * switch it off for later; a failed or cancelled prompt leaves it on.
+ */
+function SecuritySection() {
+  const on = useMobile((s) => s.appLock)
+  const label = useMobile((s) => s.lockLabel)
+  const [saving, setSaving] = useState(false)
+  const title = `Require ${label} to open`
+
+  const change = async (next: boolean) => {
+    setSaving(true)
+    try {
+      if (!next && !(await confirmIdentity())) return
+      await saveAppLock(next)
+      useMobile.setState({ appLock: next })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <SectionLabel>SECURITY</SectionLabel>
+      <div className={CARD}>
+        <div className="flex min-h-15 items-center gap-2.5 py-2 pl-3.5 pr-1.5">
+          <span className="min-w-0 flex-1 text-[14px] font-semibold">{title}</span>
+          <Toggle label={title} checked={on} disabled={saving} onChange={(next) => void change(next)} />
+        </div>
+      </div>
+      <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">Asks again after a minute in the background.</p>
+    </>
   )
 }

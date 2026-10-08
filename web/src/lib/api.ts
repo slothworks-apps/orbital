@@ -39,6 +39,8 @@ import type {
   SessionHarness,
   HarnessEvent,
   HarnessOptions,
+  PairConfirmError,
+  PairConfirmResult,
   RemoteStatus,
   SessionDefaults,
 } from './types'
@@ -1171,18 +1173,24 @@ export const api = {
 
   /**
    * The answer to the pending request. `phone` is the request the dialog
-   * showed; the server refuses any other (409 `mismatch`). 404 means there is
-   * nothing left to answer, 502 that the relay did not take it.
+   * showed; the server refuses any other (409 `mismatch`). An accept carries
+   * the `code` the user typed from the phone, which the server compares: a
+   * wrong one is 422 `code_mismatch` with the attempts left, the last wrong
+   * one 409 `code_rejected`. 404 means there is nothing left to answer, 502
+   * that the relay did not take it.
    */
-  async confirmPairing(
-    accept: boolean,
-    phone: string,
-  ): Promise<{ ok: true } | { error: 'no_pending' | 'mismatch' | 'relay_error' }> {
-    return remoteCall('POST', '/api/remote/pair/confirm', { accept, phone }, {
-      404: ['no_pending'],
-      409: ['mismatch'],
-      502: ['relay_error'],
-    })
+  async confirmPairing(accept: boolean, phone: string, code?: string): Promise<PairConfirmResult> {
+    return remoteCall<{ ok: true }, PairConfirmError>(
+      'POST',
+      '/api/remote/pair/confirm',
+      accept ? { accept, phone, code } : { accept, phone },
+      {
+        404: ['no_pending'],
+        409: ['mismatch', 'code_rejected'],
+        422: ['code_mismatch'],
+        502: ['relay_error'],
+      },
+    ) as Promise<PairConfirmResult>
   },
 
   /** `false` when the phone was already gone (404) — the next status drops its row either way. */
@@ -1223,6 +1231,10 @@ const CLAUDE_DIR_REFUSALS: Partial<Record<number, readonly ClaudeDirRefusal[]>> 
  * A remote route whose listed statuses answer `{ error }` as part of its
  * contract: those come back as values, anything else throws `ApiError`.
  */
+/**
+ * A refusal comes back as its whole JSON body, so one that carries more than
+ * its `error` (422 `code_mismatch` and its `attemptsLeft`) keeps it.
+ */
 async function remoteCall<T, E extends string>(
   method: string,
   url: string,
@@ -1246,7 +1258,7 @@ async function remoteCall<T, E extends string>(
     // A refusal without a JSON body falls through to the ApiError below.
   }
   const refusal = refusals[response.status]?.find((e) => e === parsed.error)
-  if (refusal !== undefined) return { error: refusal }
+  if (refusal !== undefined) return { ...parsed, error: refusal }
   throw new ApiError(text || response.statusText, response.status, url)
 }
 

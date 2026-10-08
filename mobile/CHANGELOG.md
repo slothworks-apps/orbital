@@ -3,7 +3,11 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
 
 ## [Unreleased]
+### Added
+- Orbital asks for Face ID, your fingerprint or your screen lock when you open it, and again after a minute away; you can turn this off in Settings. With it on, the app switcher no longer shows your sessions, and on Android screenshots of the app are blocked.
+- Orbital now needs a screen lock on the phone; without one it asks you to set one, and your pairing stays.
 ### Changed
+- While pairing, the phone tells you to type its code on your Mac.
 - The app has Orbital's own icon on iOS and Android, and Android notifications show Orbital's mark instead of a placeholder.
 - A session that left a dev server or a watcher running on the Mac shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's tasks.
 ### Fixed

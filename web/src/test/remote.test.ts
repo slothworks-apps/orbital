@@ -162,18 +162,31 @@ describe('remote api', () => {
   }
 
   describe('confirmPairing', () => {
-    it('posts accept and phone and answers ok', async () => {
+    it('posts accept, phone and the typed code and answers ok', async () => {
       answer(200, { ok: true })
-      await expect(api.confirmPairing(true, 'phone-1')).resolves.toEqual({ ok: true })
+      await expect(api.confirmPairing(true, 'phone-1', 'K7FQ2M')).resolves.toEqual({ ok: true })
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
       expect(url).toBe('/api/remote/pair/confirm')
       expect(init.method).toBe('POST')
-      expect(JSON.parse(init.body as string)).toEqual({ accept: true, phone: 'phone-1' })
+      expect(JSON.parse(init.body as string)).toEqual({ accept: true, phone: 'phone-1', code: 'K7FQ2M' })
+    })
+
+    it('sends a reject without a code', async () => {
+      answer(200, { ok: true })
+      await api.confirmPairing(false, 'phone-1')
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(JSON.parse(init.body as string)).toEqual({ accept: false, phone: 'phone-1' })
+    })
+
+    it('maps 422 to code_mismatch with the attempts left', async () => {
+      answer(422, { error: 'code_mismatch', attemptsLeft: 2 })
+      await expect(api.confirmPairing(true, 'phone-1', 'AAAAAA')).resolves.toEqual({ error: 'code_mismatch', attemptsLeft: 2 })
     })
 
     it.each([
       [404, 'no_pending'],
       [409, 'mismatch'],
+      [409, 'code_rejected'],
       [502, 'relay_error'],
     ])('maps %i to %s instead of throwing', async (code, error) => {
       answer(code, { error })

@@ -7,7 +7,7 @@ import { useNow } from '../lib/useNow'
 import type { RemoteStatus } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
-import { FingerprintBoxes } from '../ui/FingerprintBoxes'
+import { PAIRING_CODE_LENGTH, PairingCodeInput } from '../ui/PairingCodeInput'
 
 type PendingPair = NonNullable<RemoteStatus['pendingPair']>
 
@@ -17,6 +17,10 @@ type PendingPair = NonNullable<RemoteStatus['pendingPair']>
  * `pendingPair`, wherever the user is. It closes when the status stops
  * carrying the request, never on its own clock, and nothing in it accepts on
  * its own.
+ *
+ * The user types the code the phone shows and the server compares it (spec
+ * 2026-10-06-pairing-code-and-app-lock-design § 1): only the phone that sent
+ * this request shows the code it expects.
  */
 export function PairConfirmDialog() {
   const remote = useOrbital((s) => s.remote)
@@ -30,9 +34,17 @@ export function PairConfirmDialog() {
   const now = useNow(pending !== null)
   const [busy, setBusy] = useState(false)
   const [relayFailed, setRelayFailed] = useState(false)
+  const [code, setCode] = useState('')
+  /** Set by a wrong code: how many more the server takes before it rejects. */
+  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null)
+  const complete = code.length === PAIRING_CODE_LENGTH
 
-  // A different request (or none) starts without the last one's failure.
-  useEffect(() => setRelayFailed(false), [pending?.phone])
+  // A different request (or none) starts empty, without the last one's failure.
+  useEffect(() => {
+    setRelayFailed(false)
+    setCode('')
+    setAttemptsLeft(null)
+  }, [pending?.phone])
 
   // The server publishes nothing when the code runs out; it clears the request
   // inside its next `status()`. So at zero the dialog asks, and closes from the
@@ -56,16 +68,23 @@ export function PairConfirmDialog() {
   }, [timedOut, remote, superseded])
 
   async function answer(accept: boolean) {
-    if (!pending || busy) return
+    if (!pending || busy || (accept && !complete)) return
     const { phone, name } = pending
     setBusy(true)
     setRelayFailed(false)
     try {
-      const res = await api.confirmPairing(accept, phone)
+      const res = accept ? await api.confirmPairing(true, phone, code) : await api.confirmPairing(false, phone)
       if ('ok' in res) {
         useOrbital.setState({ toast: { kind: 'info', message: accept ? `Paired with ${name}` : 'Request rejected' } })
       } else if (res.error === 'relay_error') {
         setRelayFailed(true)
+      } else if (res.error === 'code_mismatch') {
+        // Canvas 9o C: the boxes clear and one quiet line counts what is left.
+        setCode('')
+        setAttemptsLeft(res.attemptsLeft)
+      } else if (res.error === 'code_rejected') {
+        // The server rejected the request and publishes it gone, which closes the dialog.
+        useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected · three codes didn’t match' } })
       } else {
         // `no_pending` / `mismatch`: what the dialog shows is stale. No publish
         // may follow (an expired request is cleared silently), so the status
@@ -86,37 +105,38 @@ export function PairConfirmDialog() {
   return (
     <Dialog
       open={pending !== null}
-      size="sm"
+      variant="card"
       eyebrow={eyebrow}
       title="A phone wants to pair"
       // Esc is a rejection, never a dismissal that leaves the request hanging.
       onClose={() => void answer(false)}
-      footer={
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2.5">
-            <Button variant="ghost" size="lg" disabled={busy} onClick={() => void answer(false)}>
-              Reject
-            </Button>
-            <Button variant="primary" size="lg" disabled={busy} onClick={() => void answer(true)}>
-              Confirm
-            </Button>
-          </div>
-          {relayFailed && (
-            <span className="text-[12px] text-[oklch(78%_.13_75_/_.8)]">The relay didn't answer. Try again.</span>
-          )}
-        </div>
-      }
     >
       {request && (
-        <div className="flex flex-col gap-4">
-          <div className="font-mono text-[11.5px] text-[rgba(160,190,225,.7)]">
-            {request.name} · {request.platform} · via relay
+        <>
+          {/* Canvas 9o: the device in a hairline chip, name bright, the rest muted. */}
+          <div className="flex items-center gap-2 rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] px-3 py-2 font-mono text-xs text-text-bright">
+            {request.name}
+            <span className="text-[rgba(160,190,225,.55)]">· {request.platform} · via relay</span>
           </div>
-          <FingerprintBoxes value={request.fingerprint} />
-          <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)]">
-            Confirm only if your phone shows the same code.
-          </p>
-        </div>
+          <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.88)]">Type the code shown on the phone.</p>
+          {/* Never disabled while an answer is in flight: that would drop the
+              focus, and after a wrong code the user types straight on. */}
+          <PairingCodeInput value={code} onChange={setCode} onSubmit={() => void answer(true)} autoFocus />
+          <div className="min-h-[18px] font-mono text-[11px] text-[rgba(160,190,225,.7)]">
+            {relayFailed
+              ? "The relay didn't answer. Try again."
+              : attemptsLeft !== null &&
+                `That code didn’t match · ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left`}
+          </div>
+          <div className="flex w-full gap-2.5">
+            <Button variant="ghost" size="wide" disabled={busy} onClick={() => void answer(false)}>
+              Reject
+            </Button>
+            <Button variant="primary" size="wide" disabled={busy || !complete} onClick={() => void answer(true)}>
+              Accept
+            </Button>
+          </div>
+        </>
       )}
     </Dialog>
   )

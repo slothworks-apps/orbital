@@ -1,6 +1,7 @@
 import { Preferences } from '@capacitor/preferences'
 import { parsePairing, type Pairing } from './parse'
 
+/** The native shells read its presence too, for the app lock's snapshot cover (`APP_LOCK_KEY`). */
 export const PAIRING_KEY = 'orbital.pairing'
 /** Set when the Mac revoked this phone: 9h shows on every launch until a new pairing (spec § 4). Holds the Mac's name for 9h's copy. */
 export const UNPAIRED_KEY = 'orbital.unpaired'

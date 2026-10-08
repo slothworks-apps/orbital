@@ -10,12 +10,16 @@ import { markSummarized, wireEndedFold } from './endedFold'
 import { PHONE_OUTPUT_TAIL_BYTES, PHONE_SUBAGENT_PAGE, TRANSCRIPT_PAGE_SIZE } from './constants'
 import { installFileOpen } from './files/open'
 import { forgetEverything } from './forget'
+import { lockAtStart } from './lock'
+import { recheckScreenLock } from './lockFlow'
 import { seedNotifications, setActive, setRules, wireNotifications } from './notify'
 import { readNotificationsCache, readSessionsCache } from './platform/cache'
 import { readCachedImage, writeCachedImage } from './platform/imageCache'
+import { loadAppLock } from './platform/appLock'
+import { readDeviceLock } from './platform/deviceLock'
 import { loadPairing, loadUnpaired } from './platform/pairing'
 import { installNotificationChannels, installPushListeners, registerPush } from './platform/push'
-import { dismissTopSheet, openFromNotice, pairGoneFor, useMobile } from './state'
+import { dismissTopSheet, isGated, lockEnabled, openFromNotice, pairGoneFor, useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
@@ -64,8 +68,10 @@ export async function boot(): Promise<void> {
   wireEndedFold()
   await installLifecycle()
 
-  const [pairing, unpaired, cached, rules] = await Promise.all([
-    loadPairing(), loadUnpaired(), readSessionsCache(), readNotificationsCache(),
+  // The device lock is read before the first screen: without a screen lock
+  // 9s stands in front of everything, pairing included.
+  const [pairing, unpaired, cached, rules, appLock, device] = await Promise.all([
+    loadPairing(), loadUnpaired(), readSessionsCache(), readNotificationsCache(), loadAppLock(), readDeviceLock(),
   ])
   if (rules) setRules(rules.value)
   if (cached) {
@@ -77,12 +83,16 @@ export async function boot(): Promise<void> {
     unpaired: unpaired !== null,
     macName: pairing?.macName ?? unpaired?.macName ?? null,
     screen: unpaired ? 'unpaired' : pairing ? 'list' : 'pairing',
+    appLock,
+    screenLock: !device.secure,
+    lockLabel: device.label,
+    lock: lockAtStart(lockEnabled({ appLock, pairing })),
   })
   booted = true
   const open = pendingOpen
   pendingOpen = null
   if (!pairing || unpaired) return
-  // Only a paired phone has sessions to open.
+  // Only a paired phone has sessions to open; behind 9s or 9t the tap waits (`openFromNotice`).
   open?.()
   try {
     await connect(pairing)
@@ -151,9 +161,22 @@ async function installLifecycle(): Promise<void> {
   try {
     await App.addListener('appStateChange', ({ isActive }) => {
       setActive(isActive)
-      if (isActive) void recheckOnForeground()
+      if (!isActive) {
+        // At once, before the system takes the app-switcher snapshot.
+        useMobile.getState().leaveForeground()
+        return
+      }
+      useMobile.getState().returnToForeground()
+      // Checked again on every return: 9s says so, and a lock set meanwhile lifts it.
+      void recheckScreenLock()
+      void recheckOnForeground()
     })
     await App.addListener('backButton', () => {
+      // Behind 9s or 9t nothing underneath may be navigated: back leaves the app.
+      if (isGated(useMobile.getState())) {
+        void App.minimizeApp()
+        return
+      }
       if (dismissTopSheet()) return
       if (useMobile.getState().goBack() === 'exit') void App.minimizeApp()
     })

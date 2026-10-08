@@ -2,7 +2,7 @@
 id: 2026-10-06-pairing-code-and-app-lock-design
 title: Pairing code typed on the Mac, a required screen lock and an app lock on the phone
 type: spec
-status: active
+status: done
 domain: remote
 related:
   - the-phone-may-do-what-the-mac-may
@@ -18,7 +18,7 @@ tags:
 ---
 # Pairing code typed on the Mac, a required screen lock and an app lock
 
-**Status: active**, agreed and drawn 2026-10-06 (§ 5). Not built yet.
+**Status: done**, agreed and drawn 2026-10-06 (§ 5), built 2026-10-08 (§ 8).
 
 ## Problem
 
@@ -172,3 +172,27 @@ The prompt it was drawn from:
   that the status no longer carries the fingerprint.
 - Phone: the pure decision of when to ask (cold start, foreground after the
   grace, a quick return, setting off), with an injected clock.
+
+## 8. As built, 2026-10-08
+
+- The app lock applies only while a Mac is paired; a fresh install has
+  nothing to protect and opens straight to pairing.
+- 9s replaces the whole app (the scanner cannot start behind it); 9t is an
+  overlay, so the screen under it stays mounted and comes back on unlock.
+- A device-lock check that fails counts as secure, so a plugin error cannot
+  trap the user behind 9s. On iOS 9s has no button, only the path to
+  Face ID & Passcode: the plugins that open it use private URLs App Review
+  rejects.
+- The app-switcher snapshot: Android sets `FLAG_SECURE` while the lock is on
+  and a Mac is paired, which also blocks screenshots of the app; iOS draws a
+  native copy of 9t over the window in the background.
+- After the third wrong code the Mac's dialog closes with a toast instead
+  of the canvas's result state; the phone says "Code expired · scan again"
+  as § 1 says, not 9o's "Pairing declined".
+- Plugin: `@aparajita/capacitor-biometric-auth` 10.
+
+Fidelity pass on the desktop against 9o (states A and C) and 9n, and on the
+phone (browser) against 9e step 2 and 9f's SECURITY group: matching after
+9o moved to a card variant of `Dialog`. A wrong code, then the right one
+typed in lower case with a space, paired through a local relay. 9s was seen
+on the Android emulator; 9t and the iOS cover still want a real device.

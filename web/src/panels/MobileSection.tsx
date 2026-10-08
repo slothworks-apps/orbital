@@ -339,8 +339,8 @@ function PairingCode({ remote, kind, check }: { remote: RemoteStatus; kind: Rela
         <div className="flex min-w-0 flex-1 flex-col gap-2 pt-1">
           <div className="text-[13.5px] font-semibold text-text-bright">Scan this with Orbital on your phone</div>
           <div className="text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
-            The phone will see this Mac as <span className="text-text-bright">{remote.macName}</span>. You'll confirm a
-            six-character code here before it connects.
+            The phone will see this Mac as <span className="text-text-bright">{remote.macName}</span>. You'll type the
+            six-character code from the phone here before it connects.
           </div>
           <div className={`mt-1 ${CAPTION}`}>expires in {left.label}</div>
           <div className="h-[3px] w-full max-w-[220px] overflow-hidden rounded-full bg-[rgba(150,205,255,.12)]">

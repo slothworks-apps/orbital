@@ -4,6 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Changed
+- Pairing a phone now asks you to type the code shown on the phone, so someone who saw your QR code cannot pair in your place; three wrong codes reject the request.
 - A session that left a dev server or a watcher running shows as done once its work is finished, instead of working for as long as the server runs; the server stays listed with the session's background tasks, and Orbital no longer puts that session to sleep while it runs.
 ### Fixed
 - A terminal session that asks for input right after it starts, or a session that asks just after Orbital reconnects to its server, now notifies instead of staying silent.
