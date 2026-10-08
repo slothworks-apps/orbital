@@ -52,25 +52,17 @@ release.
 - [[a-revoke-can-slip-between-the-relays-store-read-and-attach]]
 - [[unapproved-mcp-json-servers-start-in-orbital-sessions]]
 
-**A green CI** — releases in Phase 1 start from `main`, so a red or flaky
-suite blocks them.
-
-- [[web-composer-intake-test-fails-on-main]]
-- [[tags-rules-keyboard-test-is-flaky-under-the-full-suite]]
-- [[tagsrules-close-focus-can-be-lost-under-load]]
-
 **First run**
 
 - [[notifications-start-off-with-a-tip]]
 
-**Statuses that went stale** — set them so the backlog reads true:
-[[2026-10-05-mobile-next]] and its spec, [[2026-09-28-context-compaction-design]],
-[[2026-09-30-mobile-remote-design]],
-[[a-reply-is-in-the-transcript-file-but-not-in-the-open-panel]], and the
-rows of [[feature-parity-with-the-claude-code-cli]] that shipped.
+**How it lands** — one branch per item, stacked on this plan's branch and
+merged bottom-up, one squash per pull request, so each fix stays a
+revertable commit on `main`. Every item adds its changelog lines; the
+version bumps come last, in one pull request, so Phase 1 ships them as one
+release. Pull requests of this roadmap carry the `pre-public` label.
 
-**Exit:** every item above is done or consciously moved out, and CI is
-green on `main` several runs in a row.
+**Exit:** every item above is done or consciously moved out.
 
 ## Phase 1 — Builds for testers
 
