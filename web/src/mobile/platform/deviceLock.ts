@@ -25,14 +25,21 @@ async function check(): Promise<CheckBiometryResult | null> {
   }
 }
 
-/**
- * A passcode, PIN, pattern or password is set; biometrics on top are
- * optional. A check that fails says yes: the plugin failing must not shut
- * the user out of the app behind 9s with nothing they can change.
- */
-export async function deviceIsSecure(): Promise<boolean> {
-  if (!native()) return true
-  return (await check())?.deviceIsSecure ?? true
+export interface DeviceLock {
+  /**
+   * A passcode, PIN, pattern or password is set; biometrics on top are
+   * optional. A check that fails says yes: the plugin failing must not shut
+   * the user out of the app behind 9s with nothing they can change.
+   */
+  secure: boolean
+  label: LockLabel
+}
+
+/** Read at boot and on every return to the foreground: a lock or a face may have been set meanwhile. */
+export async function readDeviceLock(): Promise<DeviceLock> {
+  if (!native()) return { secure: true, label: 'screen lock' }
+  const result = await check()
+  return { secure: result?.deviceIsSecure ?? true, label: lockLabelOf(result) }
 }
 
 /** The enrolled biometry the prompt will use; "screen lock" when none is enrolled. */
@@ -50,11 +57,6 @@ export function lockLabelOf(result: Pick<CheckBiometryResult, 'isAvailable' | 'b
     default:
       return 'screen lock'
   }
-}
-
-export async function lockLabel(): Promise<LockLabel> {
-  if (!native()) return 'screen lock'
-  return lockLabelOf(await check())
 }
 
 /**
@@ -88,7 +90,7 @@ export async function authenticate(): Promise<boolean> {
   }
 }
 
-/** MainActivity's own plugin: the one intent Capacitor has no plugin for. Android only. */
+/** The Android shell's own plugin (`SecuritySettingsPlugin`, registered in MainActivity). Android only. */
 const SecuritySettings = registerPlugin<{ open(): Promise<void> }>('SecuritySettings')
 
 /** Whether 9s can take the user to the screen-lock settings; iOS has no such link for an app. */
