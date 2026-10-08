@@ -20,11 +20,15 @@ Small findings the phase 2b task reviews surfaced and deliberately
 deferred. None blocks anything; each names the file to open when it is
 next touched.
 
-- **A refused relay secret on the WebSocket is not rate-limited**
+- ~~**A refused relay secret on the WebSocket is not rate-limited**
   (`relay/src/ws.ts`): the pairing routes count a wrong secret against the
   IP's limit, the socket's `auth` does not, so a short secret could be
   guessed over days. The runbook asks for a long random one; a per-IP
-  throttle of refused `auth` with the same `limited()` would close it.
+  throttle of refused `auth` with the same `limited()` would close it.~~
+  — fixed 2026-10-08: one `RateLimiter` (`relay/src/rateLimit.ts`) on the
+  context; a refused secret counts against it, and a spent IP is closed
+  with `CLOSE_RATE_LIMITED` (a code a device retries on) before the
+  secret is looked at.
 - **`Camera.getPhoto` is deprecated in `@capacitor/camera` 8.x**
   (`web/src/mobile/platform/photo.ts`). The plugin replaces it with
   `takePhoto` and `chooseFromGallery`, which return a `MediaResult` with
@@ -46,27 +50,39 @@ next touched.
 - **A header the Mac refuses early still has every chunk queued**
   (`putBlob`): `too_large` and `busy` answer the header, but the chunks
   are already on the socket. Bandwidth only; the Mac drops orphan chunks.
-- **The notification permission is requested on every boot**
+- ~~**The notification permission is requested on every boot**
   (`web/src/mobile/platform/push.ts`): after one denial Android 13+ shows
   the system prompt once more on the next start. `checkPermissions()`
-  first would ask once.
+  first would ask once.~~ — fixed 2026-10-08: both plugins ask only from
+  `prompt` (`mayAskForNotifications`); Android reports a first denial as
+  `prompt-with-rationale`, so that state is not asked again either. The
+  local notification checks first too, since its `schedule` asks on its own.
 - **Tap listeners have no install guard** (`push.ts`,
   `installPushListeners`): a second `boot()` in a native dev reload would
   add duplicate listeners; `wireNotifications` has the guard, this does not.
-- **A failed `connect()` skips `registerPush()`** (`web/src/mobile/boot.ts`):
+- ~~**A failed `connect()` skips `registerPush()`** (`web/src/mobile/boot.ts`):
   an identity read that throws leaves the token unregistered for that
-  boot; the next boot registers.
+  boot; the next boot registers.~~ — fixed 2026-10-08: registered in a
+  `finally`; `clientRef` keeps the token for the next client.
 - ~~**The banner's title keys on the notifier's copy string**
   (`web/src/mobile/notify.ts`).~~ — **done**: `NEEDS_INPUT_BODY` is
   exported from `shared/src/notifications.ts` and the banner reads it.
-- **The phone's photo pick has no in-flight guard**
+- ~~**The phone's photo pick has no in-flight guard**
   (`web/src/mobile/screens/SessionComposer.tsx`): a second tap while the
   picker is open, or a result arriving after leaving the session, is not
-  handled; the legacy camera flow keeps one saved call.
-- **A 200 MP shot asks the plugin for a full-resolution bitmap**
+  handled; the legacy camera flow keeps one saved call.~~ — fixed
+  2026-10-08: a module-wide in-flight flag, and a result is dropped once
+  the composer is unmounted or another session is open.
+- ~~**A 200 MP shot asks the plugin for a full-resolution bitmap**
   (`platform/photo.ts`) and could hit the plugin's own out-of-memory error
   before the downscale runs; passing `width`/`height` to the plugin would
-  avoid it at the cost of the true `original` size on the chip.
+  avoid it at the cost of the true `original` size on the chip.~~ — fixed
+  2026-10-08: the plugin is asked for `PHOTO_PLUGIN_EDGE` (twice the
+  target: Android's legacy flow scales without filtering, our canvas pass
+  smooths it), and the chip's `original` comes from the plugin's exif
+  (`takenSize`). Android's legacy flow still decodes the full bitmap once
+  before it scales; only `takePhoto`/`chooseFromGallery` (item above) can
+  avoid that.
 - **Per-project model memory misses a typed `~` path** (9d,
   `web/src/mobile/screens/NewSessionScreen.tsx`): the project row holds the
   expanded path, so a typed `~/foo` finds no `lastModel`; tapping a row

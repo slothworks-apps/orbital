@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, type PermissionState } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { FirebaseMessaging } from '@capacitor-firebase/messaging'
 
@@ -14,9 +14,27 @@ export interface LocalNotice {
   sessionId: string | null
 }
 
-/** Posts one system notification now (spec § 6.5); a tap on it opens `sessionId`. */
+/**
+ * Whether the notification permission may be asked for: only when it never
+ * was. Android reports a first denial as `prompt-with-rationale`, not
+ * `denied`, and a request there shows the system prompt a second time. A
+ * refusal stands; the system settings undo it. One rule for both plugins,
+ * which share the one permission: `registerPush` and the post below.
+ */
+export function mayAskForNotifications(state: PermissionState): boolean {
+  return state === 'prompt'
+}
+
+/**
+ * Posts one system notification now (spec § 6.5); a tap on it opens
+ * `sessionId`. The plugin's `schedule` asks for a permission it lacks, so a
+ * refused one is checked first and nothing is posted — otherwise every
+ * notification would ask again.
+ */
 export async function postLocalNotification({ id, title, body, channelId, sound, sessionId }: LocalNotice): Promise<void> {
   try {
+    const { display } = await LocalNotifications.checkPermissions()
+    if (display !== 'granted' && !mayAskForNotifications(display)) return
     await LocalNotifications.schedule({
       notifications: [{
         id, title, body, channelId, extra: { sessionId },

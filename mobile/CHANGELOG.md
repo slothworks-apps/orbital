@@ -6,6 +6,9 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ### Fixed
 - A session that asks for input right after it starts on the Mac in a terminal, or just after the phone reconnects, now notifies instead of staying silent.
 - Starting a session asks before the Mac runs the MCP servers a project's `.mcp.json` names; a server you have not allowed does not start.
+- The app asks for permission to notify only once; after you decline, it no longer asks again on the next start or with each notification.
+- A photo from a very high-resolution camera no longer fails to attach for lack of memory, and a second tap while the camera or gallery is open is ignored.
+- Notifications are set up on every start, also when the connection to the Mac fails at first.
 
 ## [0.6.0] — 2026-10-08
 ### Added

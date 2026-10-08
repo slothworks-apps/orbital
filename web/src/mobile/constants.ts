@@ -21,6 +21,13 @@ export const PHOTO_MAX_EDGE = 1568
 /** JPEG quality of a downscaled photo, as `canvas.toBlob` takes it (spec § 6.2). */
 export const PHOTO_JPEG_QUALITY = 0.85
 /**
+ * The longer edge, in px, the camera plugin hands a photo back at — before
+ * ours brings it to `PHOTO_MAX_EDGE`. Asked of the plugin so a very large
+ * shot never reaches the WebView at full size. Twice the target, because
+ * Android's legacy flow scales without filtering; our canvas pass smooths it.
+ */
+export const PHOTO_PLUGIN_EDGE = PHOTO_MAX_EDGE * 2
+/**
  * How long a file read over `file_get` may go without a chunk before the
  * viewer says COULDN'T LOAD (spec 2026-10-05-mobile-next § 2, canvas
  * 10e). Re-armed by every chunk, so a slow but moving read is never
