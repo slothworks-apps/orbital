@@ -48,8 +48,10 @@ import {
 import {
   classifyChildExit,
   decideNavigation,
+  decideAttach,
   decideStartup,
   decideWindowTarget,
+  desktopOwner,
   needsCliPrompt,
   VITE_URL,
   type HealthInfo,
@@ -76,6 +78,13 @@ const HEALTH_POLL_INTERVAL_MS = 200;
 // The server resolves the login shell's PATH and probes the CLI's version
 // before it listens, which can take seconds on a cold machine.
 const HEALTH_POLL_TIMEOUT_MS = 15_000;
+// How long a server we stop gets to exit before it is killed outright, and
+// again after that before we stop waiting for it. Its shutdown closes the
+// database and every session's CLI, which is quick; this is the bound on a
+// hung one, not the expected time.
+const CHILD_EXIT_TIMEOUT_MS = 5_000;
+// The local API requests main makes itself; the server answers them at once.
+const API_REQUEST_TIMEOUT_MS = 5_000;
 
 // A detached window holds one detail panel, not the map beside it: it opens
 // at the docked panel's own width until a frame is remembered, never shrinks
@@ -320,6 +329,12 @@ function forkServer(): UtilityProcess {
       // The bundle's own default migrations path is relative to its source
       // module, so it is wrong by construction once bundled — always pass this.
       ORBITAL_MIGRATIONS_DIR: migrationsDir,
+      // What the phone's `hello` and the health payload report as this build
+      // (spec 2026-10-07-version-compatibility-design); unset, it says 'dev'.
+      ORBITAL_VERSION: app.getVersion(),
+      // The server stops itself once this process is gone, so a crash leaves
+      // no orphan, and health names it, so a next launch can tell one apart.
+      ORBITAL_PARENT_PID: String(process.pid),
     },
   });
 
@@ -334,7 +349,7 @@ function forkServer(): UtilityProcess {
         return;
       case 'offer-restart':
         child = null;
-        void reportServerDeath(code);
+        reportServerDeath(code).catch(failHard);
         return;
     }
   });
@@ -354,15 +369,76 @@ async function waitForHealth(): Promise<HealthInfo | null> {
   }
 }
 
-/** Kill the current child, if any, and wait for it to actually be gone. */
+/** Resolve when `proc` exits, or false once `ms` has passed without it doing so. */
+function exited(proc: UtilityProcess, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    proc.once('exit', () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
+/**
+ * Kill the current child, if any, and wait for it to actually be gone — but
+ * not forever: one that ignores the polite kill is killed outright, and one
+ * that outlives even that is left behind rather than leaving the app hung
+ * with no window. The fork after it then fails on the port and says so.
+ */
 async function discardChild(): Promise<void> {
   const dying = child;
   child = null; // marks the kill as deliberate for the 'exit' handler
-  if (!dying) return;
-  await new Promise<void>((resolve) => {
-    dying.once('exit', () => resolve());
-    dying.kill();
-  });
+  if (!dying || dying.pid === undefined) return; // never started, or already gone
+  const pid = dying.pid;
+  const gone = exited(dying, CHILD_EXIT_TIMEOUT_MS);
+  dying.kill();
+  if (await gone) return;
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    return; // it went between the two checks
+  }
+  await exited(dying, CHILD_EXIT_TIMEOUT_MS);
+}
+
+/** True when a process with this pid exists, ours to signal or not. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** Poll until nothing answers on the port, or give up after `ms`. */
+async function waitForPortFree(ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if ((await probeHealth(PORT)).kind === 'refused') return true;
+    if (Date.now() >= deadline) return false;
+    await delay(HEALTH_POLL_INTERVAL_MS);
+  }
+}
+
+/**
+ * Stop an orphaned server a crashed copy of this app left behind, so a fresh
+ * one can take the port. Its pid came from its own authenticated health.
+ */
+async function stopOrphan(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    /* already gone, or not ours to signal — the port tells us which */
+  }
+  if (await waitForPortFree(CHILD_EXIT_TIMEOUT_MS)) return true;
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    /* as above */
+  }
+  return waitForPortFree(CHILD_EXIT_TIMEOUT_MS);
 }
 
 /**
@@ -454,6 +530,7 @@ async function promptForCli(): Promise<boolean> {
       method: 'PATCH',
       headers: { 'content-type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ claude_executable_path: picked.filePaths[0] }),
+      signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`the server answered ${res.status}`);
   } catch (err) {
@@ -605,11 +682,17 @@ function sendDetachedChanged(): void {
   win.webContents.send('detached-changed', [...sessionWindows.keys()]);
 }
 
+/** Bring a window forward, out of the Dock if it was minimized there. */
+function bringForward(target: BrowserWindow): void {
+  if (target.isMinimized()) target.restore();
+  target.show();
+  target.focus();
+}
+
 function focusSessionWindow(sessionId: string): void {
   const detached = sessionWindows.get(sessionId);
-  if (!detached) return;
-  detached.show();
-  detached.focus();
+  if (!detached || detached.isDestroyed()) return;
+  bringForward(detached);
 }
 
 /**
@@ -738,18 +821,18 @@ function resizeForSubagent(target: BrowserWindow, message: SubagentPanelMessage)
  * A missing window means a real teardown — a crashed renderer — rather than
  * the ordinary hidden one, so it is rebuilt on the URL startup decided on.
  */
-function showWindow(): void {
-  if (!win) {
+function showWindow(): BrowserWindow | null {
+  if (!win || win.isDestroyed()) {
     // An empty target means startup has not decided a URL yet (a Dock click
     // while a startup dialog is up lands here) — opening now would make
     // exactly the blank window the wrapper spec forbids. Startup will open
     // the window itself once it knows where to point it.
-    if (!windowTargetUrl) return;
+    if (!windowTargetUrl) return null;
     openWindow(windowTargetUrl);
-    return;
+    return win;
   }
-  win.show();
-  win.focus();
+  bringForward(win);
+  return win;
 }
 
 /**
@@ -848,8 +931,7 @@ function startNotifications(): void {
       working.onFrame(frame);
       const d = notifier.onEvent(frame);
       if (!d) return;
-      const target = win;
-      if (!target) return;
+      if (!win || win.isDestroyed()) return;
       // "In the background" means no Orbital window has focus: a focused
       // detached window already shows its session's state, as the map would
       // (spec: 2026-09-23-detached-session-windows-design § "Edge cases").
@@ -868,17 +950,74 @@ function startNotifications(): void {
           focusSessionWindow(click.sessionId);
           return;
         }
-        target.show();
-        target.focus();
-        if (click.select) target.webContents.send('select-session', click.select);
+        // The window the notification was raised over may be gone by the
+        // click (a crashed renderer), so it is looked up now, rebuilt if need
+        // be, and brought back from the Dock if it was minimized.
+        const main = showWindow();
+        if (!main || !click.select) return;
+        const select = click.select;
+        // A rebuilt window has no renderer to hear it yet.
+        if (main.webContents.isLoading()) {
+          main.webContents.once('did-finish-load', () => main.webContents.send('select-session', select));
+        } else {
+          main.webContents.send('select-session', select);
+        }
       });
       n.show();
     },
   });
 }
 
+/**
+ * Something threw where nothing was there to catch it — startup, or a restart
+ * after the server died. Say so and quit, rather than live on in the menu bar
+ * with no window and nothing said.
+ */
+function failHard(err: unknown): void {
+  console.error('Orbital failed:', err);
+  dialog.showErrorBox(
+    'Orbital ran into an error and has to quit',
+    `${err instanceof Error ? err.message : String(err)}\n\nOpen Orbital again to retry.`,
+  );
+  quitConfirmed = true; // nothing is left running that a quit dialog would protect
+  app.quit();
+}
+
 async function start(): Promise<void> {
-  const outcome = await probeHealth(PORT);
+  // With the token when there is one, so the answer says which build the
+  // server is and whether a desktop app forked it — what `decideAttach` reads.
+  // A server too old to say, or one with another token, answers as before.
+  let outcome = await probeHealth(PORT, readApiToken());
+
+  if (outcome.kind === 'orbital') {
+    const owner = desktopOwner(outcome.health);
+    const decision = decideAttach({
+      dev: DEV,
+      appVersion: app.getVersion(),
+      health: outcome.health,
+      parentAlive: owner ? processAlive(owner.parentPid) : false,
+    });
+    if (decision === 'refuse') {
+      const theirs = typeof outcome.health.version === 'string' ? outcome.health.version : 'another version';
+      dialog.showErrorBox(
+        'Another Orbital is running',
+        `A copy of Orbital ${theirs} is already running its server on 127.0.0.1:${PORT}, and this is Orbital ${app.getVersion()}. Quit the other one, then open this one again.`,
+      );
+      app.quit();
+      return;
+    }
+    if (decision === 'replace' && owner) {
+      if (!(await stopOrphan(owner.pid))) {
+        dialog.showErrorBox(
+          'Orbital’s old server would not stop',
+          `A server left behind by an Orbital that is no longer running still holds 127.0.0.1:${PORT} (process ${owner.pid}). Stop it, then open Orbital again.`,
+        );
+        app.quit();
+        return;
+      }
+      outcome = { kind: 'refused' };
+    }
+  }
   let health: HealthInfo = outcome.kind === 'orbital' ? outcome.health : {};
 
   switch (decideStartup(outcome)) {
@@ -912,13 +1051,13 @@ async function start(): Promise<void> {
     }
 
     case 'attach':
-      // Someone else's server. We neither started it nor may kill it (spec § 1).
+      // Someone else's server, which `decideAttach` let through. We neither
+      // started it nor may kill it (spec § 1).
       break;
   }
 
-  // The probes so far went without the token, and the server answered only
-  // what fork-or-attach needs. It is up now, so it has minted the token (a
-  // fork and an attached dev server alike); asked with it, health adds
+  // A server forked just now minted its token only as it started, so the
+  // probe above may have gone without one. Asked with it, health adds
   // `claudeCli`, which the prompt below reads.
   const token = readApiToken();
   if (token) {
@@ -999,7 +1138,7 @@ void app.whenReady().then(() => {
   rebuildMenu();
   loadWindowFrames();
   return start();
-});
+}).catch(failHard);
 
 // The detail panel's detach control, and the renderer's `select` landing on a
 // detached session (spec: 2026-09-23-detached-session-windows-design). The

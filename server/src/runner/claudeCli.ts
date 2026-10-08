@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { accessSync, constants, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { delimiter, join } from 'node:path';
 import { fallbackPathDirs } from '../env/loginPath.js';
@@ -43,23 +44,38 @@ export function sdkBundledCliPath(): string | null {
   }
 }
 
-/** Search PATH dirs then fallbackPathDirs(home) for an existing `claude`. `exists` injected for tests. */
+/**
+ * True when `p` is a regular file this process may execute. Existence alone is
+ * not enough: a directory, or a file without the executable bit, would resolve
+ * as the CLI and fail only when the first session spawns it.
+ */
+export function isExecutableFile(p: string): boolean {
+  try {
+    if (!statSync(p).isFile()) return false;
+    accessSync(p, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Search PATH dirs then fallbackPathDirs(home) for an executable `claude`. `isExecutable` injected for tests. */
 export function findClaudeOnDisk(opts: {
   pathVar: string | undefined;
   home: string;
-  exists: (p: string) => boolean;
+  isExecutable: (p: string) => boolean;
 }): string | null {
   const pathDirs = (opts.pathVar ?? '').split(delimiter).filter(Boolean);
   for (const dir of [...pathDirs, ...fallbackPathDirs(opts.home)]) {
     const candidate = join(dir, 'claude');
-    if (opts.exists(candidate)) return candidate;
+    if (opts.isExecutable(candidate)) return candidate;
   }
   return null;
 }
 
 /**
- * Resolution order (spec § 3): a non-empty settings override wins (missing
- * file on disk → 'missing', never silently ignored); otherwise the bundled
+ * Resolution order (spec § 3): a non-empty settings override wins (anything
+ * but an executable file there → 'missing', never silently ignored); otherwise the bundled
  * SDK binary when available (path stays null — the SDK uses its default);
  * otherwise disk search; otherwise 'missing'.
  */
@@ -68,13 +84,13 @@ export function resolveClaudeCli(opts: {
   bundled: boolean;
   pathVar: string | undefined;
   home: string;
-  exists: (p: string) => boolean;
+  isExecutable: (p: string) => boolean;
 }): ClaudeCliResolution {
   const override = opts.override.trim();
   if (override) {
-    // An override that points at nothing is a mistake worth showing, not a
-    // reason to quietly run a different CLI than the user asked for.
-    return opts.exists(override)
+    // An override that points at nothing runnable is a mistake worth showing,
+    // not a reason to quietly run a different CLI than the user asked for.
+    return opts.isExecutable(override)
       ? { path: override, source: 'settings' }
       : { path: null, source: 'missing' };
   }
