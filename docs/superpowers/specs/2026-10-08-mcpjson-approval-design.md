@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-mcpjson-approval-design
 title: A project's .mcp.json servers run only once the user has approved them
-status: active
+status: done
 type: spec
 domain: sessions
 related:
@@ -196,3 +196,16 @@ is *View file* (§ Clients).
 - Once by hand against the real CLI: the marker-file reproduction from the
   fix doc no longer writes its marker until the server is allowed, and
   `claude` in a terminal does not ask again afterwards.
+
+## Fidelity pass, 2026-10-08
+
+Checked against `Feature - MCP approval.dc.html` on a throwaway server
+with real `.mcp.json` projects: 47b (three servers, the project-file row
+per 2d, the long docker command wrapping) and its chosen state, *View file*
+into the read-only viewer and Escape peeling the viewer, then the question,
+back to the form with every field kept; 47d on the phone over a local
+relay. Chip, well and caption values match the canvas. A real launch with
+all three servers turned down wrote them to `.claude/settings.local.json`
+and the session started without them. Known differences: the phone has no
+*View file* ([[phone-views-an-mcpjson-server-file]]), and the agent's list
+in "Clients" above.
