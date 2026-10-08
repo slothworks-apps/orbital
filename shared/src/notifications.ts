@@ -9,8 +9,10 @@
  *
  * - The server replays nothing on subscribe, but a registry rescan floods
  *   `upsert` frames for sessions that have been sitting in `needs_input` for
- *   hours. So a session's FIRST sighting only ever seeds state — news is a
- *   transition, never a state.
+ *   hours. So a session's first sighting in an upsert seeds state — news is
+ *   a transition, never a state — unless the session was active after this
+ *   notifier started listening, which no replay can be. A status frame is
+ *   only ever sent for a change, so even a first one is a transition.
  * - Nothing ends on a timer any more (spec
  *   2026-09-24-sessions-end-only-by-hand-design): an Orbital session ends when
  *   the user ends it, a terminal session when its CLI exits. An end from a
@@ -101,6 +103,14 @@ function bodyFor(from: string, to: string): string | null {
 export class SessionNotifier {
   private seen = new Map<string, Known>();
   private settings: NotificationSettings = DEFAULT_NOTIFICATION_SETTINGS;
+  /** When this notifier began listening; an upsert active after it is not a replay. */
+  private since: number;
+  private readonly now: () => number;
+
+  constructor(now: () => number = Date.now) {
+    this.now = now;
+    this.since = now();
+  }
 
   /** Feed one parsed frame; returns a notification to show, or null. */
   onEvent(frame: unknown): SessionNotification | null {
@@ -132,6 +142,7 @@ export class SessionNotifier {
   /** Forget everything (called on WS reconnect — the world replays). */
   reset(): void {
     this.seen.clear();
+    this.since = this.now();
   }
 
   private onSessionEvent(frame: Record<string, unknown>): SessionNotification | null {
@@ -147,13 +158,18 @@ export class SessionNotifier {
       const id = str(session.id);
       if (!id) return null;
       const name = str(session.title) ?? this.cwdName(session.cwd);
-      return this.record(id, session.status, name);
+      // A rescan replays sessions that have waited for hours; one whose last
+      // activity is newer than this notifier asked while we were listening.
+      const fresh = typeof session.lastAt === 'number' && session.lastAt >= this.since;
+      return this.record(id, session.status, name, fresh);
     }
 
     if (frame.event === 'status') {
       const id = str(frame.sessionId);
       if (!id) return null;
-      return this.record(id, frame.status, null);
+      // The server sends a status frame only when a status changes, never
+      // as a replay, so even a first sighting is a transition.
+      return this.record(id, frame.status, null, true);
     }
 
     return null;
@@ -167,8 +183,10 @@ export class SessionNotifier {
   /**
    * Fold one status sighting in. `name`, when given, replaces what we knew —
    * a session gets titled after it starts, so the newest upsert wins.
+   * `fresh` says a first sighting happened while this notifier listened, so
+   * a question in it is news rather than a baseline.
    */
-  private record(id: string, rawStatus: unknown, name: string | null): SessionNotification | null {
+  private record(id: string, rawStatus: unknown, name: string | null, fresh: boolean): SessionNotification | null {
     const status = str(rawStatus);
     const known = this.seen.get(id);
 
@@ -177,7 +195,10 @@ export class SessionNotifier {
       // invent a state we would later report a transition away from.
       if (!status || !STATUSES.has(status)) return null;
       this.seen.set(id, { status, name });
-      return null;
+      // Only a question: a first sighting that is already `ended` has no
+      // `working` before it to say it stopped mid-turn.
+      if (!fresh || status !== 'needs_input' || !this.settings.needsInput) return null;
+      return { title: name ?? FALLBACK_TITLE, body: NEEDS_INPUT_BODY, sessionId: id };
     }
 
     if (name) known.name = name;

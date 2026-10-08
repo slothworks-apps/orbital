@@ -28,8 +28,52 @@ describe('SessionNotifier', () => {
       expect(notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'needs_input' }))).toBeNull();
     });
 
-    it('seeds silently from a status frame', () => {
-      expect(notifier.onEvent(status('s1', 'needs_input'))).toBeNull();
+    it('notifies on a status frame for a session it has not met', () => {
+      // A status frame is a live change, never part of a replay: after a
+      // reconnect the first word about a working session can be this one.
+      expect(notifier.onEvent(status('s1', 'needs_input'))).toEqual({
+        title: 'Session',
+        body: 'Needs your input',
+        sessionId: 's1',
+      });
+    });
+
+    it('seeds silently from a status frame that is not a question', () => {
+      expect(notifier.onEvent(status('s1', 'ended'))).toBeNull();
+      expect(notifier.onEvent(status('s2', 'idle'))).toBeNull();
+    });
+
+    describe('an upsert that already asks', () => {
+      let now = 1_000_000;
+      beforeEach(() => {
+        now = 1_000_000;
+        notifier = new SessionNotifier(() => now);
+      });
+
+      it('is news when the session was active after the notifier started', () => {
+        // A terminal session that started and asked between two registry scans.
+        expect(notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'needs_input', lastAt: now + 500 }))).toEqual({
+          title: 'Map',
+          body: 'Needs your input',
+          sessionId: 's1',
+        });
+      });
+
+      it('is a baseline when the session has been waiting since before', () => {
+        expect(notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'needs_input', lastAt: now - 3_600_000 }))).toBeNull();
+      });
+
+      it('counts from the reset after a reconnect', () => {
+        now += 60_000;
+        notifier.reset();
+        expect(notifier.onEvent(upsert({ id: 's1', status: 'needs_input', lastAt: now - 30_000 }))).toBeNull();
+      });
+
+      it('respects the needs-input switch', () => {
+        notifier.setSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, needsInput: false });
+        expect(notifier.onEvent(upsert({ id: 's1', status: 'needs_input', lastAt: now + 500 }))).toBeNull();
+        expect(notifier.onEvent(status('s2', 'needs_input'))).toBeNull();
+      });
     });
 
     it('seeds from an upsert and notifies on the NEXT transition', () => {
@@ -166,13 +210,13 @@ describe('SessionNotifier', () => {
     it('drops a removed session, so its next sighting seeds silently again', () => {
       notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working' }));
       expect(notifier.onEvent({ topic: 'sessions', event: 'remove', sessionId: 's1' })).toBeNull();
-      expect(notifier.onEvent(status('s1', 'needs_input'))).toBeNull();
+      expect(notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'needs_input' }))).toBeNull();
     });
 
     it('reset() empties everything, so the post-reconnect replay is silent', () => {
       notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'working' }));
       notifier.reset();
-      expect(notifier.onEvent(status('s1', 'needs_input'))).toBeNull();
+      expect(notifier.onEvent(upsert({ id: 's1', title: 'Map', status: 'needs_input' }))).toBeNull();
       // and the seed took, so the transition after it still speaks
       notifier.onEvent(status('s1', 'working'));
       expect(notifier.onEvent(status('s1', 'needs_input'))).not.toBeNull();
