@@ -1,7 +1,7 @@
 ---
 id: unapproved-mcp-json-servers-start-in-orbital-sessions
 title: An Orbital session starts a project's .mcp.json servers without the CLI's approval
-status: active
+status: done
 type: fix
 domain: sessions
 related:

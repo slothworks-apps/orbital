@@ -9,6 +9,7 @@ related:
   - mcp-config-is-written-by-the-cli-in-private-scopes
   - 2026-10-01-mcp-servers-in-the-session-design
   - 2026-10-08-release-roadmap
+  - phone-views-an-mcpjson-server-file
 tags:
   - mcp
   - security
@@ -101,7 +102,7 @@ project entry of that directory's `.claude.json`, and
 
 - `server/src/mcp/mcpjson.ts`: `undecidedServers(cwd, claudeDir)` reads
   `.mcp.json` and the four decision sources above, and returns
-  `{ name, command, args }[]` (the command and args as written, for the
+  `{ name, command, args, source, file? }[]` (the command and args as written, for the
   question to show). A missing or unreadable file counts as empty; an
   unreadable `.mcp.json` means no servers. `recordDecisions(cwd,
   { allow, deny })` merges into `.claude/settings.local.json`, creating the
@@ -128,8 +129,13 @@ project entry of that directory's `.claude.json`, and
   `mcpjson_approvals` (project real path, server name, entry hash).
   `recordDecisions` writes a fingerprint for every allowed server and
   deletes it for every denied one; `undecidedServers` counts an allowed
-  server whose entry hash differs from its fingerprint as undecided.
+  server whose entry hash differs from its fingerprint as undecided, also
+  under `enableAllProjectMcpServers: true` (a fingerprint exists only
+  because the user allowed that server through Orbital, and the flag tier
+  still keeps it out). The entry is hashed when the answer is recorded.
 - Both routes go on the phone allowlist (`server/src/remote/allowlist.ts`).
+  `GET /api/mcpjson/file` (§ Clients, *View file*) does not: the phone
+  does not use it yet.
 - ADR [[mcp-config-is-written-by-the-cli-in-private-scopes]] is amended:
   Orbital writes these two keys of `.claude/settings.local.json` itself,
   because the CLI offers no command that does, and nothing else in that
@@ -149,8 +155,10 @@ project entry of that directory's `.claude.json`, and
   this spec disagree, the spec's rules 1–5 win; the canvas's "can be
   switched on later in the MCP dialog" is not built now
   ([[mcpjson-decisions-in-the-mcp-dialog]]).
-- *View file* opens the file in the read-only file viewer, on the desktop
-  and on the phone. There is no session to read it through yet, so it
+- *View file* opens the file in the read-only file viewer on the desktop.
+  The phone shows the row without it for now: its file screen reads
+  through an open session, and there is none yet
+  ([[phone-views-an-mcpjson-server-file]]). There is no session to read it through yet, so it
   reads through `GET /api/mcpjson/file?cwd=<path>&server=<name>`: the one
   file `.mcp.json` names for that server, confined to the project like
   every other read, never an arbitrary path. The viewer is opened by the
@@ -169,7 +177,8 @@ Built for the phone too: the phone starts sessions in projects the same way
 the desktop does, and a tester who starts one from the phone is owed the
 same question. It reaches the phone through the two routes on the
 allowlist and the shared launch path in the store. An older phone that
-does not send `mcpjson` gets rule 1.
+does not send `mcpjson` gets rule 1. The one part left out on the phone
+is *View file* (§ Clients).
 
 ## Testing
 
