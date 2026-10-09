@@ -439,9 +439,10 @@ function groupMessageIds(group: TranscriptGroup): string {
  */
 function findMessageRow(container: HTMLElement, messageId: string): HTMLElement | null {
   let found: HTMLElement | null = null
-  for (const el of container.querySelectorAll<HTMLElement>('[data-message-ids]')) {
+  // `forEach`, not `for…of`: the site's demo build has no DOM.Iterable.
+  container.querySelectorAll<HTMLElement>('[data-message-ids]').forEach((el) => {
     if (el.dataset.messageIds?.split(' ').includes(messageId)) found = el
-  }
+  })
   return found
 }
 
