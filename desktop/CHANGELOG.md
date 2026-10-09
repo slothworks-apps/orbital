@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.26.1] — 2026-10-09
+### Fixed
+- A new version is noticed soon after it is released — when the Mac wakes or you come back to Orbital — instead of after hours or only when you checked by hand.
+
 ## [0.26.0] — 2026-10-09
 ### Added
 - Media: every image and PDF of a session in one place. A small grid icon next to the folder and branch shows the latest ones and opens a gallery (⌘⇧G); a full-size view pages through them with ← →, shows PDFs page by page, and jumps back to the message each one came from. Screenshots from tools are marked and can be hidden.

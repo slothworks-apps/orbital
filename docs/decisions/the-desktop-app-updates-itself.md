@@ -33,8 +33,9 @@ them.
 ## Decision
 
 The desktop app updates itself with `electron-updater`, reading the
-releases of the repository on GitHub. It checks on launch and every few
-hours while running, downloads a newer version in the background — after
+releases of the repository on GitHub. It checks on launch, regularly
+while running, and when the Mac wakes or a window comes back to the front,
+downloads a newer version in the background — after
 asking, unless the user turned on automatic downloads
 ([[2026-10-08-builds-for-testers-design]]) — and
 installs it when the app next quits; the user can also restart into it

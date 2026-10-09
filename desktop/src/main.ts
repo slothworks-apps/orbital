@@ -7,6 +7,7 @@ import {
   Menu,
   nativeImage,
   Notification,
+  powerMonitor,
   screen,
   session,
   shell,
@@ -61,6 +62,7 @@ import {
 } from './lib/startup';
 import {
   checkAnswerMessage,
+  checkIsDue,
   IDLE_SETTLE_MS,
   parseAutoDownload,
   parseSkippedVersion,
@@ -1069,7 +1071,7 @@ function writeSkippedVersion(version: string | null): void {
  * automatically on, on the prompt's Download otherwise, and never for a
  * skipped version. What has been downloaded installs when the app next
  * quits. A failed check is logged and tried again at the next interval,
- * never shown: a tester without an update loses nothing.
+ * wake or focus, never shown: a tester without an update loses nothing.
  */
 function startUpdates(): void {
   const hasAppUpdateYml = existsSync(join(process.resourcesPath, 'app-update.yml'));
@@ -1099,6 +1101,14 @@ function startUpdates(): void {
   });
   void checkForUpdates(false);
   setInterval(() => void checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
+  // The interval stands still while the Mac sleeps, so a release published
+  // overnight would wait for hours of use; waking the Mac and coming back to
+  // a window look sooner.
+  const checkIfDue = () => {
+    if (checkIsDue(updates.view.checkedAt, Date.now())) void checkForUpdates(false);
+  };
+  powerMonitor.on('resume', checkIfDue);
+  app.on('browser-window-focus', checkIfDue);
 }
 
 /**
