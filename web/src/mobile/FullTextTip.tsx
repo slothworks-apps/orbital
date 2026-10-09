@@ -90,5 +90,5 @@ export function FullTextTip({
 
 /** Whether CSS cut the line or anything in it short. */
 function overflows(root: HTMLElement): boolean {
-  return [root, ...root.querySelectorAll<HTMLElement>('*')].some((el) => el.scrollWidth > el.clientWidth + 1)
+  return [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))].some((el) => el.scrollWidth > el.clientWidth + 1)
 }
