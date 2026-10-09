@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { autoDownloadOn, updateCheckLine, updateNoticeContent } from '../lib/appUpdate'
+import type { FoundOutcome } from '../lib/desktop'
 import { initialSection } from '../panels/Settings'
 
 // Canvas `Feature - App update`: the UPDATE kind's six states.
@@ -60,7 +61,9 @@ describe('updateNoticeContent', () => {
 
 describe('updateCheckLine', () => {
   const now = 10 * 24 * 60 * 60 * 1000
-  const base = { checking: false, answer: null, prompt: { phase: 'none' } as const, autoDownload: false, now }
+  const base = { checking: false, answer: null, prompt: { phase: 'none' } as const, now }
+  const found = (outcome: FoundOutcome) =>
+    updateCheckLine({ ...base, checkedAt: now, answer: { kind: 'found', version: '0.26.0', outcome } })
 
   it('says how long ago an empty check was', () => {
     expect(updateCheckLine({ ...base, checkedAt: now - 30_000 })).toBe('Checked just now · up to date')
@@ -70,17 +73,18 @@ describe('updateCheckLine', () => {
     expect(updateCheckLine({ ...base, checkedAt: null })).toBe('Not checked yet')
   })
 
-  it('says what a check found, by the download setting', () => {
-    const answer = { kind: 'found', version: '0.26.0' } as const
-    expect(updateCheckLine({ ...base, checkedAt: now, answer })).toBe('Orbital 0.26.0 found · offered on the map')
-    expect(updateCheckLine({ ...base, checkedAt: now, answer, autoDownload: true })).toBe(
+  it('says what became of the version a check found', () => {
+    expect(found('offered')).toBe('Orbital 0.26.0 found · offered on the map')
+    expect(found('downloading')).toBe(
       'Orbital 0.26.0 found · downloading; the prompt appears on the map when it is ready',
     )
-    // Downloaded by itself, it is on the map now.
+    expect(found('installs-on-quit')).toBe('Orbital 0.26.0 is downloaded · installs when you quit Orbital')
+    expect(found('held')).toBe('Orbital 0.26.0 found · offered after Orbital restarts')
+  })
+
+  it('names a prompt already on the map when this visit has not checked', () => {
     const prompt = { phase: 'ready', version: '0.26.0', workingCount: 0, buttons: 'one' } as const
-    expect(updateCheckLine({ ...base, checkedAt: now, answer, prompt, autoDownload: true })).toBe(
-      'Orbital 0.26.0 found · offered on the map',
-    )
+    expect(updateCheckLine({ ...base, checkedAt: now, prompt })).toBe('Orbital 0.26.0 found · offered on the map')
   })
 
   it('says it is checking, and when a check could not run', () => {

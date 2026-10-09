@@ -66,10 +66,19 @@ export type UpdateAction =
   | 'close'
   | 'ok'
 
+/**
+ * What a check found version-wise, as main's update flow took it
+ * (`FoundOutcome` in `desktop/src/lib/updates.ts`): `offered` on the map now,
+ * `downloading` by itself, `installs-on-quit` (downloaded, its prompt ended),
+ * `held` behind a downloaded version waiting for its restart, `skipped`, or
+ * `none` while restarting.
+ */
+export type FoundOutcome = 'offered' | 'downloading' | 'installs-on-quit' | 'held' | 'skipped' | 'none'
+
 /** What a Check now found; `unsupported` in a build that does not update itself. */
 export type UpdateCheckAnswer =
   | { kind: 'up-to-date' }
-  | { kind: 'found'; version: string }
+  | { kind: 'found'; version: string; outcome: FoundOutcome }
   | { kind: 'error' }
   | { kind: 'unsupported' }
 

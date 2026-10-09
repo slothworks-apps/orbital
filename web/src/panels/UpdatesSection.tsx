@@ -45,7 +45,6 @@ export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<st
     answer,
     prompt: state ?? { phase: 'none' },
     checkedAt: state?.checkedAt ?? null,
-    autoDownload,
     // The line is read when it draws: a check that just landed is "just now".
     now: Math.max(now, state?.checkedAt ?? 0),
   })

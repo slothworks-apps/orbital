@@ -217,11 +217,13 @@ update.dc.html`.
 - Every decision — whether to download, what the prompt shows, when a
   restart may happen — is the pure state machine `UpdateFlow` in
   `desktop/src/lib/updates.ts`, tested with vitest like the rest of
-  `desktop/src/lib`. `main.ts` feeds it electron-updater's events
-  (`update-available`, `download-progress`, `update-downloaded`, a failed
-  `downloadUpdate()`) and the working count, and does what each step says:
-  push the state, start a download, write the skipped version, call
-  `quitAndInstall`.
+  `desktop/src/lib`. `main.ts` feeds it what each check found (from the
+  check's own result, so a launch or interval check running at the same
+  moment as Check now cannot take its version), electron-updater's events
+  (`download-progress`, `update-downloaded`, `error`), a rejected
+  `downloadUpdate()`, and the working count; and it does what each step
+  says: push the state, start a download, write the skipped version, look
+  again once a zero count has settled, call `quitAndInstall`.
 - On every change main pushes `update-state` through the preload
   (`onUpdateState`); the web app asks for it on load with
   `get-update-state` (`getUpdateState`), so a reload keeps the prompt. The
@@ -247,10 +249,19 @@ skipped, and a skipped version must not download even with the setting on.
 - **Off** (default): a check that finds a newer version moves the flow to
   `available`. **Download** starts `downloadUpdate()` and the phase becomes
   `downloading`, with the percent and the size; it goes on into `ready` in
-  the same prompt. A failed download goes back to `available`.
+  the same prompt. A failed download goes back to `available`. Turning the
+  setting on while Available is shown downloads that version, as Download
+  would.
 - **On**: a found version downloads at once and silently — `available` and
   `downloading` are never shown — and the prompt starts at `ready`. A
   failed download stays silent and the next check tries again.
+- `update-downloaded` comes before Squirrel.Mac has staged the zip, and it
+  can still refuse it; `downloadUpdate()` then rejects. From `ready`,
+  `waiting`, `closed` or `restarting` the version goes back to `available`
+  and no longer counts as downloaded. An updater `error` while
+  `restarting` — `quitAndInstall` did not get the app out — does the same,
+  so the prompt never stays restarting; any other `error` is a failed check
+  and changes nothing.
 - **× on Available skips that version.** It is never offered again, not
   even after a restart, unless the user asks with Check now; a newer
   version is offered as usual. The skipped version is kept in
@@ -266,12 +277,15 @@ skipped, and a skipped version must not download even with the setting on.
 
 Settings › Updates' **Check now** and the menu bar's **Orbital → Check for
 Updates…** run the same check through `check-for-updates`
-(`checkForUpdates`), which answers `up-to-date`, `found` with the version,
-`error`, or `unsupported` in a build that does not update itself. A check
+(`checkForUpdates`), which answers `up-to-date`, `error`, `unsupported` in
+a build that does not update itself, or `found` with the version and what
+the flow did with it: `offered` on the map, `downloading` by itself,
+`installs-on-quit` (already downloaded and its prompt ended with OK),
+`held` behind a downloaded version waiting for its restart. A check
 started this way offers a skipped version again and forgets the skip.
-Settings shows the answer on its result line; the menu item shows a quiet
-message box, except when the prompt on the map is the answer (found, with
-the setting off).
+Settings words its result line from that answer; the menu item shows a
+quiet message box, except when the prompt on the map is the answer
+(`offered`).
 
 ### Restarting into it
 
@@ -288,14 +302,25 @@ working end mid-turn and are marked `interrupted`, as on any restart.
 **Restart when sessions finish** moves to `waiting`: main calls
 `quitAndInstall` the first moment no Orbital session is working, a
 session started meanwhile waited for too. **Cancel** goes back to the
-two-button choice. It reads the count from `sessionsFeed`, which it
-already keeps for notifications. Terminal sessions do not count:
-restarting the app does not touch them. The server replays nothing to a
-new subscriber, so after every connect and reconnect main reads
+two-button choice.
+
+The count is `WorkingSessions.busyCount`, folded from `sessionsFeed`, which
+main already keeps for notifications: Orbital sessions that are `working`,
+and those parked mid-turn on a decision — a permission prompt, a question,
+a plan — whose status reads `needs_input` like a session whose turn has
+ended. What tells the two apart is the session snapshot's
+`pendingDecision`, which the server republishes as an upsert when the
+decision parks and when it settles. Terminal sessions do not count:
+restarting the app does not touch them. Answering a decision sends the
+session without it, still `needs_input`, and only then `working`, so the
+count can read zero between two frames; a wait restarts only once the
+zero has held for `IDLE_SETTLE_MS`. The server replays nothing to a new
+subscriber, so after every connect and reconnect main reads
 `GET /api/sessions?source=web` once to learn which sessions were already
-mid-turn; until that read has landed the count is unknown, an unknown
-count never ends the wait, and Ready shows two buttons. The quit guard
-reads the same seeded count.
+mid-turn or parked; until that read has landed the count is unknown, an
+unknown count never ends the wait, and Ready shows two buttons. The quit
+guard reads the same seeded fold, but its own `count` — working sessions
+only.
 
 **× on Ready** shows the receipt (`closed`): the update installs when
 Orbital quits, with **OK**, which ends the prompt for that version.

@@ -1076,8 +1076,6 @@ describe('REST routes', () => {
     expect(after.json().confirm_before_clear).toBe('false');
   });
 
-  // Spec 2026-10-08-notifications-off-by-default-design § 3: any notification
-  // setting changed ends the tip for good; anything else leaves it offered.
   it('seeds Download updates automatically off, and saves it', async () => {
     const read = async () => (await app.inject({ method: 'GET', url: '/api/settings' })).json().update_auto_download;
     expect(await read()).toBe('false');
@@ -1085,6 +1083,8 @@ describe('REST routes', () => {
     expect(await read()).toBe('true');
   });
 
+  // Spec 2026-10-08-notifications-off-by-default-design § 3: any notification
+  // setting changed ends the tip for good; anything else leaves it offered.
   it('PATCH /api/settings ends the notifications tip when a notification row changes', async () => {
     const tip = async () => (await app.inject({ method: 'GET', url: '/api/settings' })).json().notify_tip;
     expect(await tip()).toBe('pending');

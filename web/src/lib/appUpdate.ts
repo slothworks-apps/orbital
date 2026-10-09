@@ -123,15 +123,15 @@ function ago(ms: number): string {
 }
 
 /**
- * Settings › Updates' result line under Check now: what the last check
- * found, the one running now, or when the last one was.
+ * Settings › Updates' result line under Check now: what this visit's check
+ * found and what became of it, the one running now, a prompt already on the
+ * map, or when the last check was.
  */
 export function updateCheckLine({
   checking,
   answer,
   prompt,
   checkedAt,
-  autoDownload,
   now,
 }: {
   checking: boolean
@@ -139,19 +139,27 @@ export function updateCheckLine({
   answer: UpdateCheckAnswer | null
   prompt: UpdatePrompt
   checkedAt: number | null
-  autoDownload: boolean
   now: number
 }): string {
   if (checking) return 'Checking…'
   if (answer?.kind === 'error') return 'Could not check · try again later'
   if (answer?.kind === 'unsupported') return 'This build does not update itself'
-  const found = answer?.kind === 'found' ? answer.version : prompt.phase !== 'none' ? prompt.version : null
-  if (found) {
-    // Downloading by itself shows nothing on the map until it is ready.
-    return autoDownload && prompt.phase === 'none'
-      ? `Orbital ${found} found · downloading; the prompt appears on the map when it is ready`
-      : `Orbital ${found} found · offered on the map`
+  if (answer?.kind === 'found') {
+    const v = answer.version
+    switch (answer.outcome) {
+      case 'downloading':
+        return `Orbital ${v} found · downloading; the prompt appears on the map when it is ready`
+      case 'installs-on-quit':
+        return `Orbital ${v} is downloaded · installs when you quit Orbital`
+      case 'held':
+      case 'skipped':
+        return `Orbital ${v} found · offered after Orbital restarts`
+      case 'offered':
+      case 'none':
+        return `Orbital ${v} found · offered on the map`
+    }
   }
+  if (prompt.phase !== 'none') return `Orbital ${prompt.version} found · offered on the map`
   if (checkedAt === null) return 'Not checked yet'
   const elapsed = Math.max(0, now - checkedAt)
   return elapsed < 60_000 ? 'Checked just now · up to date' : `Checked ${ago(elapsed)} ago · up to date`
