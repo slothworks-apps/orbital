@@ -55,7 +55,7 @@ describe('findPathMatches', () => {
   })
 
   it('never matches known-binary extensions', () => {
-    for (const name of ['a/b.woff2', 'a/b.pdf', 'a/b.zip']) {
+    for (const name of ['a/b.woff2', 'a/b.xlsx', 'a/b.zip']) {
       expect(findPathMatches(`shipped ${name} today`), name).toHaveLength(0)
     }
   })
@@ -211,7 +211,7 @@ describe('codeSpanPath', () => {
 
   it('refuses what the prose matcher refuses', () => {
     expect(codeSpanPath('README.md')).toBeNull()
-    expect(codeSpanPath('a/b.pdf')).toBeNull()
+    expect(codeSpanPath('a/b.zip')).toBeNull()
     expect(codeSpanPath('https://example.com/a.md')).toBeNull()
   })
 })

@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { hasTextExtension, isMediaPath, isPdfPath, isPressablePath, mediaPathsInReply } from '../src/paths.js';
 
 describe('media paths', () => {
-  it('recognises a PDF as media, but never as text or as pressable in the viewer', () => {
+  it('recognises a PDF as media, but never as text, and pressable like an image', () => {
     expect(isPdfPath('out/report.PDF')).toBe(true);
     expect(isMediaPath('out/report.pdf')).toBe(true);
     expect(hasTextExtension('out/report.pdf')).toBe(false);
-    expect(isPressablePath('out/report.pdf')).toBe(false);
+    expect(isPressablePath('out/report.pdf')).toBe(true);
   });
 
   it('never counts code, markdown or other text files as media', () => {

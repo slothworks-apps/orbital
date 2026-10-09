@@ -77,9 +77,9 @@ export function isMediaPath(path: string): boolean {
   return isImagePath(path) || isPdfPath(path);
 }
 
-/** True when a press can open the path — as text in the viewer, or as an image. */
+/** True when a press can open the path — as text in the viewer, or as media (an image or a PDF). */
 export function isPressablePath(path: string): boolean {
-  return hasTextExtension(path) || isImagePath(path);
+  return hasTextExtension(path) || isMediaPath(path);
 }
 
 export interface PathMatch {

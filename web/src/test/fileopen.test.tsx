@@ -24,10 +24,10 @@ afterEach(() => {
 
 describe('the open seam, unconfigured (the desktop)', () => {
   it('a press opens the desktop viewer and never a hook; a non-pressable path stays bare text', () => {
-    render(<MessageView message={assistant('See web/src/App.tsx and out/lighthouse.pdf now.')} />)
+    render(<MessageView message={assistant('See web/src/App.tsx and out/lighthouse.zip now.')} />)
     expect(screen.getAllByRole('button')).toHaveLength(1)
     expect(document.querySelector('[data-path-plain]')).toBeNull()
-    expect(screen.getByText(/out\/lighthouse\.pdf now\./)).toBeTruthy()
+    expect(screen.getByText(/out\/lighthouse\.zip now\./)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'web/src/App.tsx' }))
     expect(useOrbital.getState().ui.fileViewer).toEqual({ path: 'web/src/App.tsx', line: null })
@@ -54,10 +54,10 @@ describe('the open seam, configured (the phone)', () => {
     const open = vi.fn()
     const longPress = vi.fn()
     configureFileOpen({ open, longPress })
-    render(<MessageView message={assistant('The run is out/lighthouse.pdf.')} />)
+    render(<MessageView message={assistant('The run is out/lighthouse.zip.')} />)
 
     const plain = document.querySelector('[data-path-plain]') as HTMLElement
-    expect(plain.textContent).toBe('out/lighthouse.pdf')
+    expect(plain.textContent).toBe('out/lighthouse.zip')
     expect(screen.queryAllByRole('button')).toHaveLength(0)
 
     fireEvent.click(plain)
@@ -67,7 +67,7 @@ describe('the open seam, configured (the phone)', () => {
     act(() => {
       vi.advanceTimersByTime(LONG_PRESS_MS)
     })
-    expect(longPress).toHaveBeenCalledWith('out/lighthouse.pdf')
+    expect(longPress).toHaveBeenCalledWith('out/lighthouse.zip')
   })
 
   it('a long-press on a link copies instead of opening', () => {
@@ -107,8 +107,8 @@ describe('messageImages', () => {
 
 describe('findPathMentions', () => {
   it('finds every path with a file extension, pressable or not', () => {
-    expect(findPathMentions('see out/lighthouse.pdf and web/App.tsx:3').map((m) => [m.path, m.line])).toEqual([
-      ['out/lighthouse.pdf', null],
+    expect(findPathMentions('see out/lighthouse.zip and web/App.tsx:3').map((m) => [m.path, m.line])).toEqual([
+      ['out/lighthouse.zip', null],
       ['web/App.tsx', 3],
     ])
   })
