@@ -17,7 +17,14 @@ function Replies() {
 }
 
 const ids = () => useMapNotices.getState().queue.map((e) => e.id)
-const raise = (toast: Toast | null) => act(() => useOrbital.setState({ toast }))
+function pass(ms: number) {
+  act(() => {
+    vi.advanceTimersByTime(ms)
+  })
+}
+function raise(toast: Toast | null) {
+  act(() => useOrbital.setState({ toast }))
+}
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -57,11 +64,11 @@ describe('what goes by itself', () => {
   it('an info reply goes after its time; a failure stays', () => {
     render(<Replies />)
     raise({ kind: 'info', message: 'Paired with Pixel' })
-    act(() => vi.advanceTimersByTime(FEEDBACK_NOTICE_MS))
+    pass(FEEDBACK_NOTICE_MS)
     expect(useOrbital.getState().toast).toBeNull()
 
     raise({ kind: 'error', message: 'Could not stop the session' })
-    act(() => vi.advanceTimersByTime(FEEDBACK_NOTICE_MS * 3))
+    pass(FEEDBACK_NOTICE_MS * 3)
     expect(useOrbital.getState().toast?.message).toBe('Could not stop the session')
   })
 
@@ -71,22 +78,22 @@ describe('what goes by itself', () => {
     const card = screen.getByRole('status')
 
     fireEvent.pointerEnter(card)
-    act(() => vi.advanceTimersByTime(FEEDBACK_NOTICE_MS * 2))
+    pass(FEEDBACK_NOTICE_MS * 2)
     expect(useOrbital.getState().toast).not.toBeNull()
 
     fireEvent.pointerLeave(card)
-    act(() => vi.advanceTimersByTime(FEEDBACK_NOTICE_MS - 1))
+    pass(FEEDBACK_NOTICE_MS - 1)
     expect(useOrbital.getState().toast).not.toBeNull()
-    act(() => vi.advanceTimersByTime(1))
+    pass(1)
     expect(useOrbital.getState().toast).toBeNull()
   })
 
   it('a newer reply is not taken down by the older one\'s clock', () => {
     render(<Replies />)
     raise({ kind: 'info', message: 'Record copied as Markdown' })
-    act(() => vi.advanceTimersByTime(FEEDBACK_NOTICE_MS - 1))
+    pass(FEEDBACK_NOTICE_MS - 1)
     raise({ kind: 'error', message: 'Could not stop the session' })
-    act(() => vi.advanceTimersByTime(1))
+    pass(1)
     expect(useOrbital.getState().toast?.message).toBe('Could not stop the session')
   })
 })
