@@ -5,7 +5,8 @@ import { DetailPanel } from '../../../web/src/panels/DetailPanel'
 import { useOrbital, type SessionEvent, type SessionsEvent } from '../../../web/src/store/store'
 import { ErrorBoundary } from '../../../web/src/ui/ErrorBoundary'
 import { EscapeBoundary } from '../../../web/src/ui/escapeLayer'
-import { Toasts } from '../../../web/src/ui/Toasts'
+import { useFeedbackNotice } from '../../../web/src/ui/FeedbackNotice'
+import { MapNoticeHost } from '../../../web/src/ui/MapNoticeHost'
 import { COMPOSER_LOCKED } from '../page'
 
 /**
@@ -15,6 +16,7 @@ import { COMPOSER_LOCKED } from '../page'
  * sidebar, no subagent panel: this demo is the panel.
  */
 export function SessionDemo({ id }: { id: string }) {
+  useFeedbackNotice()
   useEffect(
     () => getSocket().subscribe('sessions', (msg: SessionsEvent) => useOrbital.getState().queueSessionsEvent(msg)),
     [],
@@ -34,7 +36,7 @@ export function SessionDemo({ id }: { id: string }) {
             </ErrorBoundary>
           </div>
           <TrafficLights />
-          <Toasts />
+          <MapNoticeHost inWindow />
         </div>
       </EscapeBoundary>
     </ComposerLockContext.Provider>

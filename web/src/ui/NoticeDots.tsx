@@ -3,11 +3,20 @@ import { noticeDots } from '../lib/noticeQueue'
 /**
  * The passive dots above a notice toast (canvas `Feature - Notice toast` 1c
  * DOTS): how many messages are queued, the one showing filled. Nothing for a
- * single message. `map` is the desktop's size (1a: 6 px dots, 8 px apart),
- * `touch` the phone's (2a: 7 px, 9 px apart).
+ * single message; all hollow when a reply covers them (`covered`, 3a). `map`
+ * is the desktop's size (1a: 6 px dots, 8 px apart), `touch` the phone's
+ * (2a: 7 px, 9 px apart).
  */
-export function NoticeDots({ count, size }: { count: number; size: 'map' | 'touch' }) {
-  const { dots, more } = noticeDots(count)
+export function NoticeDots({
+  count,
+  size,
+  covered = false,
+}: {
+  count: number
+  size: 'map' | 'touch'
+  covered?: boolean
+}) {
+  const { dots, more } = noticeDots(count, covered)
   if (dots.length === 0) return null
   const dot = size === 'map' ? 'h-1.5 w-1.5' : 'h-[7px] w-[7px]'
   return (

@@ -65,7 +65,7 @@ describe('notificationRowPatch', () => {
 describe('notice queue', () => {
   const entry = (id: string, kind: NoticeKind, at: number): NoticeEntry => ({ id, kind, at, Body: () => null })
 
-  it('shows by kind first — update › changelog › pairing › usage › tip — then oldest first', () => {
+  it('shows by kind first — feedback › update › changelog › pairing › usage › tip — then oldest first', () => {
     let queue: readonly NoticeEntry[] = []
     queue = enqueueNotice(queue, entry('tip-1', 'tip', 1))
     queue = enqueueNotice(queue, entry('usage', 'usage', 2))
@@ -73,7 +73,8 @@ describe('notice queue', () => {
     queue = enqueueNotice(queue, entry('update', 'update', 3))
     queue = enqueueNotice(queue, entry('changelog', 'changelog', 4))
     queue = enqueueNotice(queue, entry('pairing', 'pairing', 5))
-    expect(queue.map((e) => e.id)).toEqual(['update', 'changelog', 'pairing', 'usage', 'tip-0', 'tip-1'])
+    queue = enqueueNotice(queue, entry('toast', 'feedback', 6))
+    expect(queue.map((e) => e.id)).toEqual(['toast', 'update', 'changelog', 'pairing', 'usage', 'tip-0', 'tip-1'])
   })
 
   it('ignores an id already queued and drops by id', () => {
@@ -92,5 +93,10 @@ describe('notice queue', () => {
     expect(noticeDots(5).dots).toHaveLength(5)
     expect(noticeDots(5).more).toBe(0)
     expect(noticeDots(8)).toEqual({ dots: ['current', 'waiting', 'waiting', 'waiting', 'waiting'], more: 3 })
+  })
+
+  it('draws every dot hollow while a reply covers the notices', () => {
+    expect(noticeDots(3, true)).toEqual({ dots: ['waiting', 'waiting', 'waiting'], more: 0 })
+    expect(noticeDots(1, true)).toEqual({ dots: [], more: 0 })
   })
 })

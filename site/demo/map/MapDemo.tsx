@@ -20,7 +20,8 @@ import {
 } from '../../../web/src/store/store'
 import { ErrorBoundary } from '../../../web/src/ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from '../../../web/src/ui/escapeLayer'
-import { Toasts } from '../../../web/src/ui/Toasts'
+import { useFeedbackNotice } from '../../../web/src/ui/FeedbackNotice'
+import { MapNoticeHost } from '../../../web/src/ui/MapNoticeHost'
 import { COMPOSER_LOCKED } from '../page'
 
 /**
@@ -36,6 +37,7 @@ import { COMPOSER_LOCKED } from '../page'
 export function MapDemo() {
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const dialog = useOrbital((s) => s.ui.dialog)
+  useFeedbackNotice()
 
   useEffect(
     () => getSocket().subscribe('sessions', (msg: SessionsEvent) => useOrbital.getState().queueSessionsEvent(msg)),
@@ -97,7 +99,7 @@ export function MapDemo() {
           <NewSessionDialog open={dialog === 'new'} onClose={closeDialog} />
           <Settings open={dialog === 'settings'} onClose={closeDialog} />
           <ErrorLog open={dialog === 'errors'} onClose={closeDialog} />
-          <Toasts />
+          <MapNoticeHost />
         </div>
       </EscapeBoundary>
     </ComposerLockContext.Provider>

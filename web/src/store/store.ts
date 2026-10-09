@@ -173,9 +173,9 @@ export type RemoteEvent =
 export interface Toast {
   /**
    * `rewind_refused` is the CLI turning down a pending rewind's send (spec
-   * 2026-09-29-rewind-design § Behaviour 8; canvas 27c REFUSAL): the 1g toast
-   * shell with the errors-log red dot, a Details link to the log, and it stays
-   * until dismissed or the next send.
+   * 2026-09-29-rewind-design § Behaviour 8; canvas 27c REFUSAL, drawn now as
+   * `Feature - Notice toast` 3d): the errors-log red dot, a Detail link to the
+   * log, and it stays until dismissed, Detail or the next send.
    */
   kind: 'error' | 'info' | 'rewind_refused'
   message: string
@@ -1028,9 +1028,6 @@ const initialUiState: OrbitalUiState = {
   sidebarCollapsed: false,
 }
 
-/** How long the trash's toast (and its Undo) stays up. Canvas 4a: "Undo 10 s". */
-export const UNDO_TOAST_MS = 10_000
-
 /**
  * The trailing half of `leavingSince`: stamps the session the moment it
  * stops holding a place on the map, and never otherwise. Covers every way
@@ -1578,7 +1575,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         toast: {
           kind: 'rewind_refused',
           message: REWIND_REFUSED_TOAST,
-          action: { label: 'Details', run: () => get().setDialog('errors') },
+          action: { label: 'Detail', run: () => get().setDialog('errors') },
         },
       })
       if (draft !== undefined) get().setComposerDraft(sessionId, draft)
@@ -2197,9 +2194,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
    * dropped) is not ended again: the drop is then just the unpin, and
    * its Undo just the re-pin.
    *
-   * With `undo`, success raises the toast; it expires after `UNDO_TOAST_MS`
-   * (the session itself stays one click away in the sidebar's HISTORY, so the
-   * undo is a convenience, not the only way back).
+   * With `undo`, success raises the toast; it goes by itself like every
+   * info reply (`ui/FeedbackNotice`). The session itself stays one click
+   * away in the sidebar's HISTORY, so the undo is a convenience, not the
+   * only way back.
    */
   async trashSession(id, { undo }) {
     const session = get().sessions[id]
@@ -2251,10 +2249,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       },
     }
     set({ toast })
-    setTimeout(() => {
-      // Only expire OUR toast: something newer showing must stay.
-      if (get().toast === toast) set({ toast: null })
-    }, UNDO_TOAST_MS)
   },
 
   async reopenSession(id, repin) {

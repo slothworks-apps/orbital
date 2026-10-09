@@ -573,11 +573,11 @@ describe('App: WS status banner', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Toasts
+// The reply to an action, in the notice host
 // ---------------------------------------------------------------------------
 
-describe('App: Toasts', () => {
-  it('renders the store toast and dismisses it on click', async () => {
+describe('App: replies', () => {
+  it('shows the store toast at the top of the map and dismisses it on click', async () => {
     await renderApp()
     act(() => {
       useOrbital.setState({ toast: { kind: 'error', message: 'Failed to launch session' } })
@@ -587,8 +587,9 @@ describe('App: Toasts', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }))
 
-    expect(screen.queryByText('Failed to launch session')).not.toBeInTheDocument()
     expect(useOrbital.getState().toast).toBeNull()
+    // It fades out before it leaves.
+    await waitFor(() => expect(screen.queryByText('Failed to launch session')).not.toBeInTheDocument())
   })
 })
 

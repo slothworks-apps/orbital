@@ -31,7 +31,6 @@ import {
   guardGesture,
   headerSessionStats,
   mapStatePills,
-  UNDO_TOAST_MS,
   absorptionFor,
   trashDropFor,
   MAP_LEAVE_GRACE_MS,
@@ -1551,18 +1550,6 @@ describe('trashSession', () => {
     const toast = useOrbital.getState().toast
     expect(toast).toMatchObject({ kind: 'info', message: 'auth refactor ended' })
     expect(toast?.action?.label).toBe('Undo')
-  })
-
-  it('the toast expires on its own after the undo window', async () => {
-    vi.useFakeTimers()
-    try {
-      await useOrbital.getState().trashSession('sd', { undo: true })
-      expect(useOrbital.getState().toast).not.toBeNull()
-      vi.advanceTimersByTime(UNDO_TOAST_MS)
-      expect(useOrbital.getState().toast).toBeNull()
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it('without undo, ends and raises no toast', async () => {
