@@ -4,25 +4,31 @@
 // spec 2026-10-08-builds-for-testers-design → "The release workflow").
 //
 //   node scripts/release-plan.mjs              the plan, also into $GITHUB_OUTPUT
-//   node scripts/release-plan.mjs notes <ver>  that version's section of
-//                                              desktop/CHANGELOG.md, or nothing
+//   node scripts/release-plan.mjs notes <ver> [changelog]
+//                                              that version's section of the
+//                                              changelog (desktop/CHANGELOG.md
+//                                              unless named), or nothing
 //
 // The desktop app has shipped when its GitHub Release `v<version>` is
 // published (a draft is a release whose upload did not finish), the relay
-// when its image is in GHCR, the phone when the tag the workflow writes after
-// both stores took the build exists. A lookup that fails for any other reason
-// than "not there" stops the run: read as "not shipped", a GitHub outage would
-// ship a version again.
+// when its image is in GHCR, the phone's app version when Beam has its bundle
+// (spec 2026-10-09-phone-ota-updates-design → Releasing), the phone's native
+// version when the tag the workflow writes after both stores took the build
+// exists. A lookup that fails for any other reason than "not there" stops the
+// run: read as "not shipped", an outage of GitHub or Beam would ship a version
+// again.
 //
 // Everything above the CLI is pure and takes the lookups as arguments, so
-// scripts/release-plan.test.mjs runs without gh, git or docker.
-/* global URL, console, process */
+// scripts/release-plan.test.mjs runs without gh, git, docker or Beam.
+/* global URL, console, process, fetch */
 import { execFile } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { BEAM_CONFIG, bundleExists, readBeam } from './beam.mjs'
 
 export const DESKTOP_PACKAGE = 'desktop/package.json'
 export const RELAY_PACKAGE = 'relay/package.json'
+export const MOBILE_PACKAGE = 'mobile/package.json'
 export const GRADLE = 'mobile/android/app/build.gradle'
 export const CHANGELOG = 'desktop/CHANGELOG.md'
 export const RELAY_IMAGE = 'orbital-relay'
@@ -57,48 +63,48 @@ export function phoneVersion(gradle) {
 export function readVersions(read) {
   return {
     mac: packageVersion(read(DESKTOP_PACKAGE), DESKTOP_PACKAGE),
+    ota: packageVersion(read(MOBILE_PACKAGE), MOBILE_PACKAGE),
     mobile: phoneVersion(read(GRADLE)),
     relay: packageVersion(read(RELAY_PACKAGE), RELAY_PACKAGE),
   }
 }
 
 // What each version is looked up as: the GitHub Release (and its tag, which
-// electron-updater expects as `v<version>`), the git tag release.yml pushes
-// for the phone, the image reference. GHCR names are lowercase.
+// electron-updater expects as `v<version>`), the bundle version on Beam, the
+// git tag release.yml pushes for the phone's native build, the image
+// reference. GHCR names are lowercase.
 export function names(versions, owner) {
   if (!owner)
     throw new Error('no repository owner (GITHUB_REPOSITORY_OWNER) to name the relay image by')
   return {
     mac: `v${versions.mac}`,
+    ota: versions.ota,
     mobile: `mobile-v${versions.mobile}`,
     relay: `ghcr.io/${owner.toLowerCase()}/${RELAY_IMAGE}:${versions.relay}`,
   }
 }
 
-// Apps that do not ship even with a new version, and why. The phone waits for
-// over-the-air updates (roadmap Phase 3): its first build in testers' hands
-// should already take them. The pull request that builds them removes the
-// entry, and the next run ships the phone's version.
-export const HELD = {
-  mobile: 'waits for over-the-air updates (release roadmap, Phase 3)',
-}
+// Apps that do not ship even with a new version, and why: `<app>: '<reason>'`.
+// Empty now; the phone waited here for over-the-air updates (roadmap Phase 3).
+export const HELD = {}
 
 // `lookups` answer true when the name is there, false when it is not, and
 // throw for anything else; a throw is not caught here.
 export async function plan({ read, owner, lookups, held = HELD }) {
   const versions = readVersions(read)
   const asked = names(versions, owner)
-  const [mac, mobile, relay] = await Promise.all([
+  const [mac, ota, mobile, relay] = await Promise.all([
     lookups.release(asked.mac),
+    lookups.bundle(asked.ota),
     lookups.tag(asked.mobile),
     lookups.image(asked.relay),
   ])
-  const shipped = { mac, mobile, relay }
+  const shipped = { mac, ota, mobile, relay }
   for (const [app, answer] of Object.entries(shipped)) {
     if (typeof answer !== 'boolean')
       throw new Error(`the ${app} lookup answered ${String(answer)}, not true or false`)
   }
-  const ship = { mac: !mac, mobile: !mobile, relay: !relay }
+  const ship = { mac: !mac, ota: !ota, mobile: !mobile, relay: !relay }
   for (const app of Object.keys(held)) ship[app] = false
   return { versions, names: asked, ship, held }
 }
@@ -106,9 +112,11 @@ export async function plan({ read, owner, lookups, held = HELD }) {
 export function outputs(result) {
   return [
     `mac=${result.ship.mac}`,
+    `ota=${result.ship.ota}`,
     `mobile=${result.ship.mobile}`,
     `relay=${result.ship.relay}`,
     `mac-version=${result.versions.mac}`,
+    `ota-version=${result.versions.ota}`,
     `mobile-version=${result.versions.mobile}`,
     `relay-version=${result.versions.relay}`,
   ].join('\n')
@@ -116,8 +124,13 @@ export function outputs(result) {
 
 export function summary(result) {
   const line = (app, label) =>
-    `${label.padEnd(8)}${result.versions[app].padEnd(10)}${result.held?.[app] ? 'held' : result.ship[app] ? 'ship' : 'shipped'}  (${result.held?.[app] ?? result.names[app]})`
-  return [line('mac', 'desktop'), line('mobile', 'phone'), line('relay', 'relay')].join('\n')
+    `${label.padEnd(13)}${result.versions[app].padEnd(10)}${result.held?.[app] ? 'held' : result.ship[app] ? 'ship' : 'shipped'}  (${result.held?.[app] ?? result.names[app]})`
+  return [
+    line('mac', 'desktop'),
+    line('ota', 'phone app'),
+    line('mobile', 'phone shell'),
+    line('relay', 'relay'),
+  ].join('\n')
 }
 
 // The body under `## [<version>]` up to the next `## ` heading, trimmed;
@@ -147,6 +160,11 @@ function run(command, args, notThere) {
 }
 
 export const realLookups = {
+  // Beam's version lookup, behind the app's upload key (scripts/beam.mjs).
+  async bundle(version) {
+    const beam = readBeam(readFileSync(new URL(`../${BEAM_CONFIG}`, import.meta.url), 'utf8'))
+    return bundleExists({ beam, uploadKey: process.env.BEAM_UPLOAD_KEY, version, fetch })
+  },
   async release(tag) {
     const { found, stdout } = await run(
       'gh',
@@ -177,8 +195,8 @@ async function main(argv) {
   const read = (path) => readFileSync(new URL(path, root), 'utf8')
 
   if (argv[0] === 'notes') {
-    if (!argv[1]) throw new Error('usage: release-plan.mjs notes <version>')
-    const notes = changelogSection(read(CHANGELOG), argv[1])
+    if (!argv[1]) throw new Error('usage: release-plan.mjs notes <version> [changelog]')
+    const notes = changelogSection(read(argv[2] ?? CHANGELOG), argv[1])
     if (notes) process.stdout.write(`${notes}\n`)
     return
   }
