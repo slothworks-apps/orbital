@@ -111,6 +111,8 @@ export interface MobileState {
   unpaired: boolean
   pairing: Pairing | null
   macName: string | null
+  /** The Mac's Orbital version from its last hello — what `macSupports` reads. */
+  macVersion: string | null
   /**
    * The open composer's standing intent and the session it belongs to;
    * `seq` grows with every request, so asking twice focuses twice. Cleared
@@ -144,7 +146,7 @@ export interface MobileState {
 export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
-  mismatch: null, unpaired: false, pairing: null, macName: null, composerIntent: null,
+  mismatch: null, unpaired: false, pairing: null, macName: null, macVersion: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }
 
@@ -237,11 +239,11 @@ export function reduce(state: MobileState, event: RemoteClientEvent, now: number
     case 'hello':
       if (!isSupportedServer(event.server)) {
         return {
-          screen: 'mismatch', macName: event.macName,
+          screen: 'mismatch', macName: event.macName, macVersion: event.server,
           mismatch: { cause: 'mac', theirs: event.server, needed: MIN_SERVER_VERSION },
         }
       }
-      return { macName: event.macName, ...leaveMismatch(state) }
+      return { macName: event.macName, macVersion: event.server, ...leaveMismatch(state) }
     case 'bye':
       if (event.reason === 'app_too_old') {
         // The Mac sends its minimum with this reason; a bye without one (`needed` null) still names the cause.

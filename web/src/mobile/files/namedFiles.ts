@@ -18,8 +18,9 @@ import type { FileOutcome } from './fileResolver'
  * A PDF answers at once with an `orbital-pdf:` address naming the file, and
  * the bytes are read only when pdf.js asks the loader for them — a gallery of
  * first pages does not hold every PDF in memory, and `lib/pdf` already keeps
- * what it drew. Any answer but the bytes (a refusal from a Mac that predates
- * PDFs included) is a failure, which the thumbnail draws as not there.
+ * what it drew. Any answer but the bytes is a failure. A Mac too old to serve
+ * PDFs (`macSupports('media')`) is never asked: its thumbnails are left out
+ * (`canShowPath`) and the viewer fails at once to can't-show.
  */
 
 export type ReadNamed = (req: { sessionId: string; path: string; as: FileAs; cwd?: string }) => Promise<FileOutcome>
@@ -108,10 +109,13 @@ export function makeNamedFileResolver(
 export function makePdfLoader(
   read: ReadNamed,
   fetchBytes: PdfBytesLoader = async (url) => (await fetch(url)).arrayBuffer(),
+  macServesPdf: () => boolean = () => true,
 ): PdfBytesLoader {
   return async (url) => {
     const file = parsePdfAddress(url)
     if (!file) return fetchBytes(url)
+    // An older Mac drops `as: 'pdf'` without a word; asking would only wait out the timeout.
+    if (!macServesPdf()) throw new Error('named file unsupported')
     const { bytes } = bytesOf(await read({ ...file, as: 'pdf' }))
     return bytes.slice().buffer
   }

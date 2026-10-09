@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { ChatMessage, MediaItem } from '../lib/types'
 import { isPdfPath, mediaPathsInReply } from '../lib/pathLinks'
-import { canResolveFiles, useMediaSourceUrl } from '../lib/images'
+import { canResolveFile, useMediaSourceUrl } from '../lib/images'
 import { fileOpenHandlers } from '../lib/fileOpen'
 import { usePdfThumbnail } from '../lib/pdf'
 import { useMedia } from '../store/media'
@@ -18,7 +18,7 @@ import { MediaViewer } from './MediaViewer'
  * Only inside a session's own transcript — `ReplyMediaSession` says which —
  * because a named file is read through that session's trees: a subagent's
  * reply in its panel names files the session never did. And only where named
- * files can be resolved at all (`canResolveFiles`).
+ * files can be resolved here (`canResolveFile`).
  */
 export const ReplyMediaSession = createContext<string | null>(null)
 
@@ -33,12 +33,15 @@ const PDF_W_PX = 74
 export function ReplyMedia({ message }: { message: ChatMessage }) {
   const sessionId = useContext(ReplyMediaSession)
   const paths = useMemo(
-    () => (message.role === 'assistant' && message.text && !message.partial ? mediaPathsInReply(message.text) : []),
+    () =>
+      message.role === 'assistant' && message.text && !message.partial
+        ? mediaPathsInReply(message.text).filter(canResolveFile)
+        : [],
     [message.role, message.text, message.partial],
   )
   const items = useMedia((s) => (sessionId ? s.lists[sessionId] : undefined))
   const [open, setOpen] = useState<string | null>(null)
-  if (!sessionId || paths.length === 0 || !canResolveFiles()) return null
+  if (!sessionId || paths.length === 0) return null
   const routed = fileOpenHandlers()
 
   const itemFor = (path: string): MediaItem | undefined =>

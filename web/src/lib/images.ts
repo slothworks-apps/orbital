@@ -27,16 +27,23 @@ export const apiFileImagePath = (sessionId: string, path: string, cwd?: string):
 
 let resolver: ImageResolver = apiImagePath
 let fileResolver: FileResolver | null = apiFileImagePath
+let canShowPath: (path: string) => boolean = () => true
 
 /**
  * Configured by a platform whose bytes do not come from this origin (the
  * phone). `resolvePath` is the named files' half: left out, named files have
  * no source at all, and what draws them by URL — the reply thumbnails — stays
- * away rather than drawing broken images.
+ * away rather than drawing broken images. `canShowPath` narrows it per file:
+ * the phone leaves out what the Mac it talks to cannot serve yet.
  */
-export function configureImages(opts: { resolve: ImageResolver; resolvePath?: FileResolver | null }): void {
+export function configureImages(opts: {
+  resolve: ImageResolver
+  resolvePath?: FileResolver | null
+  canShowPath?: (path: string) => boolean
+}): void {
   resolver = opts.resolve
   fileResolver = opts.resolvePath ?? null
+  canShowPath = opts.canShowPath ?? (() => true)
 }
 
 export function resolveImage(ref: string): string | Promise<string> {
@@ -46,6 +53,11 @@ export function resolveImage(ref: string): string | Promise<string> {
 /** Whether named files can be shown here at all — see `configureImages`. */
 export function canResolveFiles(): boolean {
   return fileResolver !== null
+}
+
+/** Whether this named file can be shown here — see `configureImages`. */
+export function canResolveFile(path: string): boolean {
+  return fileResolver !== null && canShowPath(path)
 }
 
 export function resolveFile(sessionId: string, path: string, cwd?: string): string | Promise<string> {

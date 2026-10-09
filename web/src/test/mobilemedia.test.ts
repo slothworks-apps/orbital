@@ -3,6 +3,7 @@ import type { MediaItem } from '../lib/types'
 import type { FileOutcome } from '../mobile/files/fileResolver'
 import { mediaItemFor, stepMedia } from '../mobile/files/mediaPaging'
 import { makeNamedFileResolver, makePdfLoader, parsePdfAddress, pdfAddress, type ReadNamed } from '../mobile/files/namedFiles'
+import { MAC_FEATURES, macSupports } from '../mobile/version'
 
 function ready(bytes: number[], mediaType: string | null = 'image/png'): FileOutcome {
   return { kind: 'ready', bytes: new Uint8Array(bytes), mediaType, w: null, h: null, readAt: 0, cached: false }
@@ -76,6 +77,22 @@ describe('the phone’s named files', () => {
   it('fails a PDF the Mac refused — an older Mac’s answer included — rather than handing pdf.js nothing', async () => {
     const load = makePdfLoader(async () => ({ kind: 'cant-show', size: null, mediaType: null }))
     await expect(load(pdfAddress({ sessionId: 's', path: 'a.pdf' }))).rejects.toThrow()
+  })
+
+  it('never asks a Mac that does not serve PDFs, which would drop the request and leave it to time out', async () => {
+    const read = vi.fn<ReadNamed>(async () => ready([37, 80, 68, 70], 'application/pdf'))
+    const load = makePdfLoader(read, undefined, () => false)
+    await expect(load(pdfAddress({ sessionId: 's', path: 'a.pdf' }))).rejects.toThrow()
+    expect(read).not.toHaveBeenCalled()
+  })
+})
+
+describe('macSupports', () => {
+  it('holds a feature to the Mac release that serves it, and nothing before the Mac said hello', () => {
+    expect(macSupports('media', MAC_FEATURES.media)).toBe(true)
+    expect(macSupports('media', '0.25.1')).toBe(false)
+    expect(macSupports('media', 'dev')).toBe(true)
+    expect(macSupports('media', null)).toBe(false)
   })
 })
 

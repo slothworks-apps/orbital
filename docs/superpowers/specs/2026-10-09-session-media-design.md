@@ -1,7 +1,7 @@
 ---
 id: 2026-10-09-session-media-design
 title: Session media — every image and PDF of a session, in one place
-status: draft
+status: done
 type: spec
 domain: web
 related:
@@ -215,11 +215,15 @@ How it reaches the phone:
   phone text preview's 512 KB. `ref` items already travel through
   `blob_get`.
 - An older Mac fails `file_get` with `as: 'pdf'` on schema validation and
-  drops the message without an answer (`PhoneSession.receive`), so the
-  phone hears nothing until its wait runs out. The phone treats any non-200
-  answer to `as: 'pdf'`, and a wait that runs out before the first byte, as
-  "can't show this here" (today's 10e state), so a new phone against an old
-  Mac degrades instead of breaking. An old phone never sends `'pdf'`.
+  drops the message without an answer (`PhoneSession.receive`). So the phone
+  never asks it: `MAC_FEATURES.media` names the first Mac that serves media
+  (adr [[a-phone-feature-waits-for-the-mac-that-serves-it]]). Against an
+  older Mac, PDF thumbnails are left out and the PDF viewer fails at once to
+  "can't show this here" (10e). The media route answers 403 there, so the
+  Media row is absent. Images named in a reply still show, through the
+  `as: 'image'` that every supported Mac serves. A non-200 answer, or a
+  wait that runs out before the first byte, still falls back to 10e. An old
+  phone never sends `'pdf'`.
 - The relay is blind to message contents and needs no change. Whether the
   `shared/` schema change still warrants a relay bump is decided when the
   versions are asked about.

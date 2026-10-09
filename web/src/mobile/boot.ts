@@ -2,6 +2,7 @@ import { App } from '@capacitor/app'
 import type { RemoteClientEvent } from '@orbital/shared/remote/client'
 import { configureApi } from '../lib/api'
 import { configureImages } from '../lib/images'
+import { isPdfPath } from '../lib/pathLinks'
 import { configurePdf } from '../lib/pdf'
 import { configureSocket, getSocket } from '../lib/socket'
 import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
@@ -28,6 +29,7 @@ import { clientRef } from './transport/clientRef'
 import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
 import { TunnelSocket } from './transport/tunnelSocket'
+import { macSupports } from './version'
 import { makeTunnelUpload } from './transport/tunnelUpload'
 
 /**
@@ -66,11 +68,13 @@ export async function boot(): Promise<void> {
   configureSocket({ WebSocketImpl: () => new TunnelSocket(clientRef) as unknown as WebSocket })
   // Named files — reply thumbnails, the gallery's agent items, PDFs — come over `file_get`.
   const readNamed: ReadNamed = (req) => readPath({ client: clientRef, cache: fileCache }, req)
+  const macServesPdf = () => macSupports('media', useMobile.getState().macVersion)
   configureImages({
     resolve: makeImageResolver(clientRef, { read: readCachedImage, write: writeCachedImage }),
     resolvePath: makeNamedFileResolver(readNamed),
+    canShowPath: (path) => !isPdfPath(path) || macServesPdf(),
   })
-  configurePdf({ load: makePdfLoader(readNamed) })
+  configurePdf({ load: makePdfLoader(readNamed, undefined, macServesPdf) })
   installFileOpen()
   clientRef.on(onClientEvent)
   wireSocket()
