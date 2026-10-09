@@ -1,0 +1,141 @@
+---
+id: 2026-10-09-one-place-for-messages-design
+title: On the Mac, every message shows in one place, between the panels
+status: draft
+type: spec
+domain: desktop
+related:
+  - 2026-10-08-notifications-off-by-default-design
+  - errors-are-recorded-not-announced
+  - why-orbital
+tags:
+  - notices
+  - toasts
+  - web
+---
+# On the Mac, every message shows in one place, between the panels
+
+## Problem
+
+The Mac shows short messages through two systems that look and behave
+differently:
+
+- **The notice toast** (`ui/MapNoticeHost`, queue `useMapNotices`): messages
+  about the app that wait for the user — a new version, the notifications
+  tip. Top centre of the visible map strip, between the sidebar and an open
+  right panel; one at a time, the rest as dots; nothing goes by itself.
+- **The toast** (`ui/Toasts`, store slice `toast`): the reply to something
+  the user just did — "Paired with …", "Record copied as Markdown",
+  "… ended · Undo", and every request failure (`reportError` and the store's
+  own catches). Bottom centre of the whole window, so with a panel open it
+  sits off the map's centre and can cover the panel; one slot, a newer
+  toast replaces the older; three looks (`info`, `error`, `rewind_refused`);
+  only the Undo toast goes by itself.
+
+To the user these are the same thing — a short message over the map — and
+the differences in place, look and behaviour read as accidents.
+
+## Goal
+
+One place, one look family and one set of rules for every message on the
+Mac, through one queue in code. The phone is out of scope (see below).
+
+## Design
+
+### Where messages come from: unchanged
+
+Code keeps setting `useOrbital.toast` (`error`, `info`, `rewind_refused`)
+as it does today. The phone keeps reading it for the composer line
+(`mobile/composer.ts` `phoneError`). No call site changes.
+
+### A bridge from the toast to the queue
+
+On the Mac, one hook mounted by `App` watches `useOrbital.toast`:
+
+- when a toast appears, it pushes an entry with the fixed id `toast` and the
+  kind `feedback` into `useMapNotices`. The queue therefore holds at most
+  one reply, and a newer reply replaces the one showing rather than
+  queueing behind it;
+- when the toast becomes `null`, it dismisses that entry.
+
+The entry's `Body` renders the current toast from the store, so a
+replacement needs no new entry.
+
+### Replies come first
+
+`NOTICE_KINDS` gains `feedback` at the head:
+`feedback › update › changelog › pairing › usage › tip`. A reply shows at
+once; a notice that was showing steps back into the dots and returns, with
+the existing fade, when the reply ends.
+
+### Closing
+
+- × clears the toast (`clearToast`), which ends the entry.
+- An action that already did its job clears the toast: Undo, as today.
+- Details on an error opens the errors log and leaves the toast up, as
+  today; `rewind_refused` still goes on the next send.
+- Dismissing a reply does not mark an error seen
+  ([[errors-are-recorded-not-announced]]): only the log does.
+
+### What goes by itself
+
+- `info` goes after `FEEDBACK_TOAST_MS`; the countdown pauses while the
+  pointer is over the card. The Undo toast's own timer (`UNDO_TOAST_MS` in
+  the store) is replaced by this rule.
+- `error` and `rewind_refused` stay until ×, until a newer reply replaces
+  them, or (rewind) until the next send. Their record is in the errors log
+  either way.
+- Notices never go by themselves, as before.
+
+`why-orbital.md` rules out "anything that disappears behind your back";
+that is about the state of the work. A reply to the user's own action has
+its record elsewhere — the log, Settings, the sidebar's history — and a
+reply that never goes would hold back the notice under it.
+
+### Removed
+
+`ui/Toasts.tsx` and the bottom toast. `MapNoticeHost` draws every message,
+so every message follows the panels' widths.
+
+### Look
+
+The notice card (`ui/MapNotice`) is too heavy for "Copied". Until Claude
+Design has a feedback variant, the reply uses a provisional compact card in
+the notice card's family: one line, at most one action and ×, the errors
+log's red dot for `error` and `rewind_refused`. A fidelity pass follows the
+artboard. Prompt for `Feature - Notice toast`:
+
+> Add a feedback variant of the notice toast (1a) for the Mac: the reply to
+> something the user just did — "Paired with Pixel 9", "Record copied as
+> Markdown", "Planet X ended · Undo", or an error ("Could not stop the
+> session · Detail"). Same place (top centre of the visible map strip,
+> between the sidebar and an open right panel), same width limit, same
+> glass/hairline family and the same dots above when other notices wait.
+> Constraints: one line of text plus at most one action and ×; an error
+> variant marked only by the errors-log red (oklch(66% .2 25)) dot, no red
+> fill; info variant disappears by itself after a few seconds, error stays
+> until ×; must read as calmer and smaller than the update notice it
+> temporarily covers. Show: info, info with Undo, error with Detail, rewind
+> refused (27c), and the swap back to a waiting update notice with dots.
+
+## Phone
+
+Left out on purpose. The phone has different needs — a small screen, its
+notice pinned above the session list, request failures said on the
+composer's line — and deserves its own design rather than a copy of the
+Mac's. It keeps reading `useOrbital.toast` exactly as today, so this change
+does not reach it. An `idea` records the phone's side.
+
+## Tests
+
+- The queue's order with `feedback` at the head (`lib/noticeQueue`).
+- The bridge: a toast pushes the entry, `null` dismisses it, a newer toast
+  replaces the one showing without a second entry, and only `info` starts
+  the countdown.
+
+Not tested: the card's look.
+
+## Versions
+
+Reaches the desktop only: a line in `desktop/CHANGELOG.md`, and a bump of
+the desktop version asked for when the work is done.
