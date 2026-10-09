@@ -94,8 +94,8 @@ left as it was read then.
 | Feature | Desktop | Phone today | Verdict | Why / cost |
 |---|---|---|---|---|
 | New session | Dialog: dir, mode, model, prompt, tags | 9d: dir, mode, model, prompt, photos | There | Gaps: no custom "Other…" model, no tag, no harness start. |
-| Switch permission mode | `ModeSwitcher` | Label only | Add — later | Routes allowlisted; `ModeCards touch` exists. UI only — [[switch-model-and-mode-from-the-phone]]. |
-| Switch model | `ModelSwitcher` | Label only | Add — later | Same idea, same cost. |
+| Switch permission mode | `ModeSwitcher` | Dot opens the four cards | There | [[2026-10-09-switch-model-and-mode-from-the-phone-design]]. |
+| Switch model | `ModelSwitcher` | Chip opens the catalog, asks first | There | Same spec. |
 | End session | Strip button, `EndDialog` | None | There (0.3.0) | `POST …/end` allowlisted. Sessions end only by hand, so ending from the phone keeps that rule. Goes in the ⋯ sheet. |
 | Clear and start over | Strip button, `ClearDialog` | None | There (0.3.0) | `POST …/clear` allowlisted; the harness "continue" option has to come along. |
 | Reopen an ended session | Yes | A send revives it | There (by sending) | `POST …/reopen` allowlisted if an explicit action is wanted. |

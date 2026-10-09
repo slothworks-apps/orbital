@@ -1,12 +1,13 @@
 ---
 id: switch-model-and-mode-from-the-phone
 title: Switch a session's model and permission mode from the phone
-status: backlog
+status: done
 type: idea
 domain: remote
 related:
   - 2026-10-02-mobile-app-design
   - mobile-follow-ups
+  - 2026-10-09-switch-model-and-mode-from-the-phone-design
 tags:
   - mobile
 ---
@@ -30,3 +31,5 @@ Both routes are already on the phone's allowlist
   ([[2026-10-05-mobile-next-design]]): rename, tag, pin, clear, end.
 
 Once built, give the header chips back their caret and their buttons.
+
+Built 2026-10-09: [[2026-10-09-switch-model-and-mode-from-the-phone-design]].
