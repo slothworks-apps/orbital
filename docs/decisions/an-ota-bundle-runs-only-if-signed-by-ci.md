@@ -44,6 +44,10 @@ SHA-256 instead.
   `capacitor.config.ts` and the signing script refuse anything else.
 - Only a release build's shell has the updater on, and it does not build
   without the public key; every other build switches the plugin off.
+- The shell allows the update and stats URLs to be changed from the bundle
+  (`allowModifyUrl`), for Settings → Send diagnostics. A bundle that points
+  the update URL elsewhere gains nothing: whatever it fetches from there must
+  still open with the public key built into the shell.
 
 ## As built (2026-10-09)
 
