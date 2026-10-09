@@ -165,6 +165,10 @@ account, location, or anything about sessions or the Mac. The same goes
 into Play's Data safety and Apple's privacy details, filled in by the
 maintainer.
 
+As built: the policy separates the update check, which always runs, from
+diagnostics, which are on by default and can be turned off in Settings;
+see As built.
+
 ## The phone
 
 This is a phone feature. The Mac, the server and the relay do not change;
@@ -208,12 +212,20 @@ the web app changes only under `web/src/mobile`.
   on the session list, READY then the AFTER × receipt, the restart frame;
   Settings' footer is `<app> · shell <native>` with the fingerprint on its
   own line. Drafts cross the reload through a one-time localStorage stash.
-- **device_info** goes through native HTTP once per start, with the
-  plugin's install id and its name for the running bundle.
+- **device_info** goes through native HTTP once per start, with diagnostics
+  on, with the plugin's install id and its name for the running bundle.
 - **The plugin reports more than update results.** With `statsUrl` set it
   also sends foreground and background events and the WebView's errors —
   message, stack, page URL — and crash and low-memory exits, with no switch
-  to turn those off short of no stats at all. The privacy policy says so.
+  for those alone. Decided 2026-10-09: all of it, and `device_info`, sits
+  behind **Settings → Send diagnostics**, on by default (Preferences key
+  `orbital.diagnostics`; the row is provisionally under Advanced until
+  Claude Design places it). The shell's config keeps Beam's stats URL and
+  adds `allowModifyUrl` and `persistModifyUrl`; switching it off calls
+  `setStatsUrl('')`, which the plugin stores and loads on the next start
+  before its first report, and every start applies the setting again. The
+  update check, which carries the install id, platform, OS version and both
+  app versions, always runs.
 - **The `ota` job writes the Firebase configs** before the web build: the
   build turns push off for a shell without them (`__MOBILE_PUSH__`).
 

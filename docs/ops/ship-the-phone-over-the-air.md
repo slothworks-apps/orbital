@@ -118,7 +118,9 @@ push off; the CI job writes them first for that reason.
 ## Check it on a device
 
 Debug output: `adb logcat | grep -i capgo` on Android, the Xcode console on
-iOS. Beam's admin shows each install with its model, OS and versions.
+iOS. Beam's admin shows each install with its model, OS and versions — the
+model and the install results only while the phone's Settings → Send
+diagnostics is on, which it is by default.
 
 1. Install the store build. Settings' footer reads `<app> · shell <native>`.
    The install appears in Beam with its model.
@@ -137,11 +139,14 @@ iOS. Beam's admin shows each install with its model, OS and versions.
    committed), run `ota-bundle.mjs` with its private key and an unused
    version, upload. The phone refuses it at the checksum. Delete it in Beam
    and restore the real public key.
-6. **A bundle that never starts rolls back:** a bundle whose `main.tsx`
+6. **Diagnostics off:** Settings → Send diagnostics off. Close and reopen the
+   app: Beam still sees the update checks, but no new stats events and no
+   `device_info` for the install. On again: they come back.
+7. **A bundle that never starts rolls back:** a bundle whose `main.tsx`
    throws before rendering. Restart into it: the app comes back on the
    previous version and Beam records the failed update.
 
-Steps 4–6 reach every tester's phone while they are in Beam, to be refused
+Steps 4, 5 and 7 reach every tester's phone while they are in Beam, to be refused
 or rolled back; do them when nobody relies on the app.
 
 ## Dev builds
