@@ -34,6 +34,9 @@ changed:
   release does, ad-hoc signed and not notarized, so it needs no secrets and
   runs for a fork's pull request too.
 - `build (relay)` builds the relay's Docker image without pushing it.
+- `test (scripts)` runs the root `scripts/` tests (`node --test`), which
+  cover `release-plan.mjs`, the script that decides what `release.yml`
+  ships.
 - `build (mobile)` builds the web bundle the phone app wraps and runs
   `test:bundle` on it, the guard that keeps three.js out of the phone.
 - `docs` runs `atlas validate` when `docs/` changes.
