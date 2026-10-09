@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-10-09
+### Added
+- Change a session's model and permission mode from its header: tap the model or the mode dot. A model switch asks first, as on the Mac, because the next message costs more.
+
 ## [0.9.0] — 2026-10-09
 ### Added
 - Media: every image and PDF of a session, from the session menu — a gallery that hides tool screenshots if you like, and a viewer you swipe through, with PDFs shown page by page and a way back to the message in the chat.
