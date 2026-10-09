@@ -95,6 +95,10 @@ const HEALTH_POLL_TIMEOUT_MS = 15_000;
 const CHILD_EXIT_TIMEOUT_MS = 5_000;
 // The local API requests main makes itself; the server answers them at once.
 const API_REQUEST_TIMEOUT_MS = 5_000;
+// The working-sessions seed after a (re)connect: the largest page
+// `GET /api/sessions` gives, and how soon a failed read is tried again.
+const SEED_SESSIONS_LIMIT = 200;
+const SEED_RETRY_MS = 2_000;
 
 // A detached window holds one detail panel, not the map beside it: it opens
 // at the docked panel's own width until a frame is remembered, never shrinks
@@ -913,6 +917,35 @@ async function loadNotificationSettings(): Promise<void> {
 }
 
 /**
+ * Read which Orbital sessions are already mid-turn, after every (re)connect:
+ * the server replays nothing to a new subscriber, so the frames alone would
+ * miss them (`WorkingSessions`). The same list the web app loads, narrowed to
+ * Orbital's own sessions; a working one is recent, so the first page holds
+ * it. A failed read is retried until it lands or a newer socket makes it
+ * stale — until then the quit guard counts what the frames showed, and a
+ * restart waiting for sessions to finish keeps waiting.
+ */
+async function seedWorkingSessions(): Promise<void> {
+  const token = working.beginSeed();
+  try {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/sessions?source=web&limit=${SEED_SESSIONS_LIMIT}`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+    });
+    if (res.ok) {
+      working.seed(token, await res.json());
+      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+    }
+  } catch {
+    /* server still coming up, or gone: retried below */
+  }
+  if (quitting || working.seeded || working.beginSeed() !== token) return;
+  setTimeout(() => {
+    if (working.beginSeed() === token && !working.seeded) void seedWorkingSessions();
+  }, SEED_RETRY_MS);
+}
+
+/**
  * Watch the server's own WebSocket and turn what the notifier reports into
  * native notifications that jump back to the session (spec § 3).
  *
@@ -935,6 +968,7 @@ function startNotifications(): void {
     onReconnect: () => {
       notifier.reset();
       working.reset();
+      void seedWorkingSessions();
       void loadNotificationSettings();
     },
     onFrame: (frame) => {
@@ -1024,7 +1058,7 @@ function startUpdates(): void {
 function onWorkingFrame(frame: unknown): void {
   if (typeof frame !== 'object' || frame === null) return;
   if ((frame as { topic?: unknown }).topic !== 'sessions') return;
-  applyUpdateStep(updates.setWorkingCount(working.count));
+  applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
 }
 
 /** Tell every Orbital window what changed, and restart when the flow says so. */

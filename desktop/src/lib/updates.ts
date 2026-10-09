@@ -84,12 +84,16 @@ type Phase = UpdateView['phase'];
 /**
  * The restart's state machine. The working count is `WorkingSessions.count`,
  * which already counts only Orbital-run sessions: a terminal session belongs
- * to a CLI in someone's shell, and restarting the app does not touch it.
+ * to a CLI in someone's shell, and restarting the app does not touch it. A
+ * count that is not known yet counts as "not idle": waiting is safe, a
+ * restart over a working session is not.
  */
 export class UpdateFlow {
   private phase: Phase = 'none';
   private version = '';
   private workingCount = 0;
+  /** False until the working count has been seeded, and again after a reconnect. */
+  private countKnown = false;
   /** The version whose prompt was closed; it is not offered again. */
   private dismissedVersion: string | null = null;
 
@@ -110,8 +114,15 @@ export class UpdateFlow {
     return this.step(before !== this.snapshot());
   }
 
-  /** The number of Orbital sessions mid-turn changed (or was re-read). */
-  setWorkingCount(count: number): UpdateStep {
+  /**
+   * The number of Orbital sessions mid-turn changed (or was re-read).
+   * `seeded` is `WorkingSessions.seeded`: while it is false the count may be
+   * short — the socket reconnected and the session list has not been read
+   * yet — so it is not taken, and a zero never ends a wait.
+   */
+  setWorkingCount(count: number, seeded: boolean): UpdateStep {
+    this.countKnown = seeded;
+    if (!seeded) return this.step(false);
     const before = this.snapshot();
     this.workingCount = count;
     const changed = this.phase !== 'none' && before !== this.snapshot();
@@ -127,7 +138,7 @@ export class UpdateFlow {
       case 'restart-now':
         return this.restart();
       case 'restart-when-idle':
-        if (this.workingCount === 0) return this.restart();
+        if (this.countKnown && this.workingCount === 0) return this.restart();
         this.phase = 'waiting';
         break;
       case 'cancel-wait':

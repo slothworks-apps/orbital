@@ -45,13 +45,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * someone's shell, and the server's death does not reach it. Everything comes
  * off the wire, so every frame is read defensively — a shape we did not expect
  * must cost a count, never the main process.
+ *
+ * The server replays nothing to a new subscriber, so frames alone know only
+ * what changed since the socket opened: a session that was already mid-turn
+ * stays unknown until it next moves. So after every (re)connect the fold reads
+ * the session list once (`GET /api/sessions`, as the web app does on load) and
+ * is `seeded` only from then on. Until it is, `count` may be short, and
+ * nothing may treat a zero as "nothing is working".
  */
 export class WorkingSessions {
   private ids = new Set<string>();
+  /** Sessions a frame has spoken for since the last reset; they outrank the list. */
+  private touched = new Set<string>();
+  private generation = 0;
+  private isSeeded = false;
 
-  /** How many orbital-run sessions are mid-turn right now. */
+  /** How many orbital-run sessions are mid-turn right now, as far as known. */
   get count(): number {
     return this.ids.size;
+  }
+
+  /** Whether `count` covers sessions that were working before the socket opened. */
+  get seeded(): boolean {
+    return this.isSeeded;
   }
 
   /** Feed one parsed frame; anything that is not ours is ignored. */
@@ -59,7 +75,7 @@ export class WorkingSessions {
     if (!isRecord(frame) || frame.topic !== 'sessions') return;
 
     if (frame.event === 'remove') {
-      if (typeof frame.sessionId === 'string') this.ids.delete(frame.sessionId);
+      if (typeof frame.sessionId === 'string') this.mark(frame.sessionId, false);
       return;
     }
 
@@ -71,24 +87,63 @@ export class WorkingSessions {
       // guard goes stale: a turn starting and ending is announced only here.
       const id = frame.sessionId;
       if (typeof id !== 'string' || id === '') return;
-      if (frame.status === 'working') this.ids.add(id);
-      else this.ids.delete(id);
+      this.mark(id, frame.status === 'working');
       return;
     }
 
     if (frame.event !== 'upsert') return;
+    // The frame carries the session's current state, so it decides membership
+    // in both directions — a session that stopped working leaves the set here.
     const session = frame.session;
     if (!isRecord(session)) return;
     const id = session.id;
     if (typeof id !== 'string' || id === '') return;
-    // The frame carries the session's current state, so it decides membership
-    // in both directions — a session that stopped working leaves the set here.
-    if (session.source === 'web' && session.status === 'working') this.ids.add(id);
-    else this.ids.delete(id);
+    this.mark(id, isWorkingOrbitalSession(session));
+  }
+
+  /**
+   * Called as the session list is asked for; the answer goes to `seed` with
+   * the token, so a list asked for before a later reset is recognised as
+   * stale and dropped.
+   */
+  beginSeed(): number {
+    return this.generation;
+  }
+
+  /**
+   * Fold in `GET /api/sessions`'s answer. A session a frame has spoken for
+   * since the reset keeps what the frame said: the frame may be newer than
+   * the list, and a change after the list was read always comes as a frame.
+   * A malformed answer leaves the fold unseeded.
+   */
+  seed(token: number, raw: unknown): void {
+    if (token !== this.generation) return;
+    if (!isRecord(raw) || !Array.isArray(raw.sessions)) return;
+    for (const session of raw.sessions) {
+      if (!isRecord(session)) continue;
+      const id = session.id;
+      if (typeof id !== 'string' || id === '' || this.touched.has(id)) continue;
+      if (isWorkingOrbitalSession(session)) this.ids.add(id);
+    }
+    this.isSeeded = true;
   }
 
   /** Forget everything (called on WS reconnect — the world replays). */
   reset(): void {
     this.ids.clear();
+    this.touched.clear();
+    this.generation += 1;
+    this.isSeeded = false;
   }
+
+  private mark(id: string, working: boolean): void {
+    this.touched.add(id);
+    if (working) this.ids.add(id);
+    else this.ids.delete(id);
+  }
+}
+
+/** The one rule, for an upsert and a listed session alike. */
+function isWorkingOrbitalSession(session: Record<string, unknown>): boolean {
+  return session.source === 'web' && session.status === 'working';
 }

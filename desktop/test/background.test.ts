@@ -138,3 +138,70 @@ describe('WorkingSessions', () => {
     expect(working.count).toBe(0);
   });
 });
+
+describe('WorkingSessions seeding', () => {
+  let working: WorkingSessions;
+
+  beforeEach(() => {
+    working = new WorkingSessions();
+  });
+
+  it('is unseeded until the session list has been read', () => {
+    expect(working.seeded).toBe(false);
+    working.onFrame(upsert({ id: 's1', source: 'web', status: 'idle' }));
+    expect(working.seeded).toBe(false);
+  });
+
+  it('counts the working Orbital sessions the list names, and nothing else', () => {
+    const token = working.beginSeed();
+    working.seed(token, {
+      sessions: [
+        { id: 'w', source: 'web', status: 'working' },
+        { id: 'i', source: 'web', status: 'idle' },
+        { id: 't', source: 'terminal', status: 'working' },
+      ],
+    });
+    expect(working.seeded).toBe(true);
+    expect(working.count).toBe(1);
+  });
+
+  it('lets a frame since the reset win over the list, which may be older', () => {
+    const token = working.beginSeed();
+    working.onFrame(statusFrame('w', 'needs_input'));
+    working.onFrame(statusFrame('n', 'working'));
+    working.seed(token, {
+      sessions: [
+        { id: 'w', source: 'web', status: 'working' },
+        { id: 'n', source: 'web', status: 'idle' },
+      ],
+    });
+    expect(working.count).toBe(1);
+  });
+
+  it('ignores a list asked for before the last reset', () => {
+    const stale = working.beginSeed();
+    working.reset();
+    working.seed(stale, { sessions: [{ id: 'w', source: 'web', status: 'working' }] });
+    expect(working.seeded).toBe(false);
+    expect(working.count).toBe(0);
+  });
+
+  it('a reset makes it unseeded again', () => {
+    working.seed(working.beginSeed(), { sessions: [] });
+    working.reset();
+    expect(working.seeded).toBe(false);
+  });
+
+  it('stays unseeded on a malformed list', () => {
+    for (const raw of [null, 'x', {}, { sessions: 'x' }]) {
+      working.seed(working.beginSeed(), raw);
+      expect(working.seeded).toBe(false);
+    }
+  });
+
+  it('skips malformed rows in a well-formed list', () => {
+    working.seed(working.beginSeed(), { sessions: [null, 42, { source: 'web', status: 'working' }] });
+    expect(working.seeded).toBe(true);
+    expect(working.count).toBe(0);
+  });
+});
