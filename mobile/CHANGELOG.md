@@ -3,9 +3,12 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.9.0] — 2026-10-09
 ### Added
 - Media: every image and PDF of a session, from the session menu — a gallery that hides tool screenshots if you like, and a viewer you swipe through, with PDFs shown page by page and a way back to the message in the chat.
 - Images and PDFs the agent names in a reply show as thumbnails under it.
+- With an older Orbital on the Mac, Media and PDF previews stay hidden until the Mac is updated; everything else works as before.
 
 ## [0.8.2] — 2026-10-09
 ### Fixed
