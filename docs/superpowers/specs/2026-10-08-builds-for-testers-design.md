@@ -32,7 +32,8 @@ A pull request that bumps an app's version is merged to `main`, and that
 app reaches testers without anyone touching a Mac:
 
 - **Mac** — a published GitHub Release with the DMG; an installed app
-  downloads the update itself and offers a restart.
+  offers the update, downloads it when asked (or by itself, if the user
+  turned that on) and offers a restart.
 - **iOS** — a build in TestFlight's internal group.
 - **Android** — a build on Play's Internal testing track.
 - **Relay** — a new image in GHCR, tagged with its version and `latest`.
@@ -200,103 +201,127 @@ new. The steps for setting each go into the runbooks `run-the-desktop-app`,
 
 ## The desktop app updates itself
 
-As decided in [[the-desktop-app-updates-itself]]; this is how.
+As decided in [[the-desktop-app-updates-itself]]; this is how. The prompt's
+states, words and look come from Claude Design, `Feature - App
+update.dc.html`.
 
 ### In the main process
 
 - `electron-updater` checks on launch and then every
-  `UPDATE_CHECK_INTERVAL_MS` (a few hours), downloads a newer version in
-  the background, and installs it on the next quit
-  (`autoInstallOnAppQuit`).
+  `UPDATE_CHECK_INTERVAL_MS` (a few hours), and installs what it has
+  downloaded on the next quit (`autoInstallOnAppQuit`).
 - It does not run in a dev build, and not when `app-update.yml` is absent
   from the resources (`dist:local`, `dist:self`).
-- A failed check or download is logged and tried again at the next
-  interval. It is never shown: a tester without an update loses nothing.
-- When the download is complete, and on every change after, main pushes
-  `update-state` through the preload (`onUpdateState`): the phase —
-  `none`, `ready`, `waiting`, `dismissed` or `restarting` — the version and
-  the number of working Orbital sessions. The web app asks for the current
-  state on load with `get-update-state` (`getUpdateState`), so a reload
-  does not lose it. The prompt's buttons go back as `update-action`
-  (`updateAction`): `restart-now`, `restart-when-idle`, `cancel-wait` or
-  `dismiss`.
+- A failed check is logged and tried again at the next interval. It is
+  never shown: a tester without an update loses nothing.
+- Every decision — whether to download, what the prompt shows, when a
+  restart may happen — is the pure state machine `UpdateFlow` in
+  `desktop/src/lib/updates.ts`, tested with vitest like the rest of
+  `desktop/src/lib`. `main.ts` feeds it electron-updater's events
+  (`update-available`, `download-progress`, `update-downloaded`, a failed
+  `downloadUpdate()`) and the working count, and does what each step says:
+  push the state, start a download, write the skipped version, call
+  `quitAndInstall`.
+- On every change main pushes `update-state` through the preload
+  (`onUpdateState`); the web app asks for it on load with
+  `get-update-state` (`getUpdateState`), so a reload keeps the prompt. The
+  state is the phase — `none`, `available`, `downloading`, `ready`,
+  `waiting`, `closed` or `restarting` — with what that phase needs (the
+  version, the size in whole MB and the percent, the working count, Ready's
+  buttons), and `checkedAt`, when a check last completed. The prompt's
+  buttons go back as `update-action` (`updateAction`): `download`, `skip`,
+  `restart-now`, `restart-when-idle`, `cancel-wait`, `close`, `ok`. Only
+  Orbital's own windows are heard or answered.
 
 ### Download: asked first, or automatic
 
-A setting, **Download updates automatically**, off by default. It lives
-with the other settings (`/api/settings`), which main already reads for
-notifications and re-reads on `settings-changed`.
+A setting, **Download updates automatically** (`update_auto_download`),
+off by default. It lives with the other settings (`/api/settings`); main
+reads it before every check and again on `settings-changed`. The phone
+never sees it: the remote allowlist denies `/api/settings`.
 
-- **Off** (default): `autoDownload = false`. A check that finds a newer
-  version moves the flow to `available` with that version; the prompt
-  offers **Download**, which sends `update-action` `download` and main
-  calls `downloadUpdate()`. Closing it dismisses that version; a newer one
-  is offered again.
-- **On**: `autoDownload = true`, the flow goes straight to `ready` when the
-  download completes, as above.
-- While a download runs the phase is `downloading`; a failed download goes
-  back to `available` (off) or stays silent and retries at the next check
-  (on).
-- `autoInstallOnAppQuit` stays on in both modes: what has been downloaded
-  installs on quit.
+electron-updater's own `autoDownload` stays off in both modes: the flow
+says when to download, because only the flow knows which version was
+skipped, and a skipped version must not download even with the setting on.
+
+- **Off** (default): a check that finds a newer version moves the flow to
+  `available`. **Download** starts `downloadUpdate()` and the phase becomes
+  `downloading`, with the percent and the size; it goes on into `ready` in
+  the same prompt. A failed download goes back to `available`.
+- **On**: a found version downloads at once and silently — `available` and
+  `downloading` are never shown — and the prompt starts at `ready`. A
+  failed download stays silent and the next check tries again.
+- **× on Available skips that version.** It is never offered again, not
+  even after a restart, unless the user asks with Check now; a newer
+  version is offered as usual. The skipped version is kept in
+  `<userData>/update-skip.json`, not in the server's settings: it belongs
+  to this app's installer, main is its only reader and writer, and it has
+  to be known at the first check whether the server answers yet or not.
+- A newer version found while a downloaded one is `ready` or `waiting` is
+  held: the restart installs the one downloaded, and the next check offers
+  the newer one. A newer *download* (setting on) replaces a waiting or
+  closed prompt with one for the newer version.
+
+### Check now
+
+Settings › Updates' **Check now** and the menu bar's **Orbital → Check for
+Updates…** run the same check through `check-for-updates`
+(`checkForUpdates`), which answers `up-to-date`, `found` with the version,
+`error`, or `unsupported` in a build that does not update itself. A check
+started this way offers a skipped version again and forgets the skip.
+Settings shows the answer on its result line; the menu item shows a quiet
+message box, except when the prompt on the map is the answer (found, with
+the setting off).
 
 ### Restarting into it
 
-The prompt (below) offers:
+**Ready** fixes its buttons when it appears:
 
-- **Restart now** — `quitAndInstall` at once. Orbital sessions that are
-  working end mid-turn and are marked `interrupted`, as on any restart; when
-  some are working, the button says how many.
-- **Restart when sessions finish** — main remembers the wish and calls
-  `quitAndInstall` the first moment no Orbital session is working. It
-  reads that from `sessionsFeed`, which it already keeps for
-  notifications. Terminal sessions do not count: restarting the app does
-  not touch them. The server replays nothing to a new subscriber, so after
-  every connect and reconnect main reads `GET /api/sessions?source=web`
-  once to learn which sessions were already mid-turn; until that read has
-  landed the count is unknown, and an unknown count never ends the wait.
-  The quit guard reads the same seeded count.
+- no Orbital session working then — one **Restart**, which restarts at
+  once, or waits like the next one if a session started meanwhile;
+- one or more working — **Restart now** and **Restart when sessions
+  finish**, with the number "now" would interrupt. The number updates in
+  place; the buttons stay as they were.
 
-When nothing is working, the prompt shows a single **Restart**. Closing
-the prompt leaves the update to install on quit; it does not come back for
-the same version.
+**Restart now** calls `quitAndInstall` at once; Orbital sessions that are
+working end mid-turn and are marked `interrupted`, as on any restart.
+**Restart when sessions finish** moves to `waiting`: main calls
+`quitAndInstall` the first moment no Orbital session is working, a
+session started meanwhile waited for too. **Cancel** goes back to the
+two-button choice. It reads the count from `sessionsFeed`, which it
+already keeps for notifications. Terminal sessions do not count:
+restarting the app does not touch them. The server replays nothing to a
+new subscriber, so after every connect and reconnect main reads
+`GET /api/sessions?source=web` once to learn which sessions were already
+mid-turn; until that read has landed the count is unknown, an unknown
+count never ends the wait, and Ready shows two buttons. The quit guard
+reads the same seeded count.
 
-The decisions — whether to check, whether a restart may happen now, the
-waiting state and what cancels it — are pure functions in
-`desktop/src/lib/updates.ts`, tested with vitest like the rest of
-`desktop/src/lib`.
+**× on Ready** shows the receipt (`closed`): the update installs when
+Orbital quits, with **OK**, which ends the prompt for that version.
 
-### The prompt's look
+### The prompt
 
-Not designed here. Its look and place come from Claude Design, from this
-prompt, and the build is checked against the canvas:
+It is the notice toast's UPDATE kind (canvas `Feature - Notice toast`),
+the first in its queue order: same shell, same slot at the top centre of
+the map, neutral ink only, fades in and nothing moves after but the
+download line. It replaces the toast's earlier, never-built UPDATE
+message ("A new version is out", Get it on GitHub). One message carries
+the whole update; its states swap their words in place, and only the last
+one — skip, or OK on the receipt — ends it. While it is downloading or
+waiting it keeps the slot, and the messages behind it wait with their
+dots. Downloading and Waiting have no ×. There is no badge anywhere. It
+exists only in the desktop app's main window, where the preload exposes
+the update calls.
 
-> Orbital's desktop app finds new versions of itself. Design a quiet
-> prompt for it, following `docs/why-orbital.md`: no badge, no colour that
-> reads as a state, no sound, nothing that moves after it appears except a
-> download's progress, nothing that covers a session the user is working
-> in. It appears once per version and stays until acted on or closed. It
-> has these states:
->
-> 1. **Available** — a new version exists and has not been downloaded
->    (the default: Orbital asks before downloading). Carries the version
->    and one action, **Download**. Closing it skips that version; a newer
->    one is offered again.
-> 2. **Downloading** — quiet progress, no actions.
-> 3. **Ready** — downloaded. Either one action **Restart** (no Orbital
->    session working) or two, **Restart now** and **Restart when sessions
->    finish**, with the number of working sessions that "now" would
->    interrupt. Closing it says the update installs when Orbital quits.
-> 4. **Waiting** — "when sessions finish" was chosen: it shows that it is
->    waiting and lets the wait be cancelled.
->
-> Settings gains one switch, **Download updates automatically**, off by
-> default; when on, the prompt starts at Ready. Place it where it belongs
-> among the existing settings.
->
-> Look at the existing notice toast (`Feature - Notifications off.dc.html`)
-> and say whether this is a kind of it or something else. Put it in a new
-> file `Feature - App update.dc.html`.
+### Settings › Updates
+
+A tab of its own, last after Shortcuts, desktop only:
+
+- **VERSION** — the installed version with **Check now**, the result line
+  (when it last checked, "Checking…", or what it found), and the release
+  notes of the installed version on GitHub.
+- **DOWNLOADS** — **Download updates automatically**, off by default.
 
 ## The phone
 
@@ -316,8 +341,18 @@ bundle to the phone without a store build is a separate idea
   asks about, and the answer when each is present or missing. The lookups
   themselves (`gh`, `git`, `docker`) are passed in, so the tests do not
   reach the network.
-- `desktop/src/lib/updates.ts`: the restart states — now, waiting, a
-  session starting while waiting, cancelling, nothing working.
+- `desktop/src/lib/updates.ts`: every state and action of `UpdateFlow` —
+  asked first and automatic, the skip and Check now, a failed download,
+  Ready's fixed buttons, waiting (a session starting, cancelling, an
+  unknown count after a reconnect), the receipt, a newer version arriving;
+  the parsers for what crosses IPC and the skip file.
+- `desktop/src/lib/appMenu.ts`: Check for Updates… under About, Quit kept.
+- `web/src/lib/appUpdate.ts`: the prompt's words in each state and
+  Settings' result line. React rendering is not tested; the look is
+  checked against the canvas. `?update-demo`, in a dev server or a build
+  made with `VITE_ORBITAL_UPDATE_DEMO=1`, drives the prompt and the tab in
+  a browser without Electron (`web/src/lib/updateDemo.ts`).
+- The server seeds `update_auto_download` off.
 - The workflow itself is proven by its first real run; nothing replaces
   that.
 

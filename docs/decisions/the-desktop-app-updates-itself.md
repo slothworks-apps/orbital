@@ -12,6 +12,7 @@ related:
   - release-the-dmg-from-github-actions
   - 2026-10-08-release-roadmap
   - 2026-10-07-version-compatibility-design
+  - 2026-10-08-builds-for-testers-design
 ---
 # The desktop app updates itself from GitHub Releases
 
@@ -33,7 +34,9 @@ them.
 
 The desktop app updates itself with `electron-updater`, reading the
 releases of the repository on GitHub. It checks on launch and every few
-hours while running, downloads a newer version in the background, and
+hours while running, downloads a newer version in the background — after
+asking, unless the user turned on automatic downloads
+([[2026-10-08-builds-for-testers-design]]) — and
 installs it when the app next quits; the user can also restart into it
 from a quiet prompt. The DMG is needed only for the first install.
 

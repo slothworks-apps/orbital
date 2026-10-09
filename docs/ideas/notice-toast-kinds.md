@@ -8,6 +8,7 @@ related:
   - 2026-10-08-notifications-off-by-default-design
   - the-desktop-app-updates-itself
   - 2026-10-08-release-roadmap
+  - 2026-10-08-builds-for-testers-design
 tags:
   - notices
   - mobile
@@ -21,10 +22,10 @@ for what is waiting, nothing auto-dismissing, each message seen once — with
 one kind in it: the notifications-off tip. The canvas `Feature - Notice
 toast.dc.html` (1a–1c, 2a–2d) draws four more:
 
-- **Update** — "A new version is out. Your sessions keep running while you
-  update." On the desktop it belongs with [[the-desktop-app-updates-itself]]
-  (roadmap phase 1); on the phone, "a new version is on TestFlight". Drops
-  out unseen once the update is installed.
+- **Update** — on the desktop, built: it is the update prompt of
+  [[2026-10-08-builds-for-testers-design]] (canvas `Feature - App
+  update`), which replaced this sketch's "A new version is out" with
+  states of its own. Left: the phone's "a new version is on TestFlight".
 - **What's new** — after an update, three lines from the changelog and "See
   all changes", which opens a centred dialog (phone: a sheet) with the
   version's New / Changed / Fixed sections and a link to the release notes.
