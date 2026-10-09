@@ -3,7 +3,9 @@ import type { MessageImage } from '../../lib/fileOpen'
 import { formatBytes } from '../../lib/format'
 import { asOfLabel, basename } from '../format'
 import { useMobile } from '../state'
+import type { MediaItem } from '../../lib/types'
 import { CantShow } from './CantShow'
+import { MediaFoot } from './MediaFoot'
 import { ByteBar, CachedChip, GoneBlock, ReservedBox, StateButton, StateText } from './FileStates'
 import { useObjectUrl } from './objectUrl'
 import { useFile, type FileSource } from './useFile'
@@ -66,8 +68,13 @@ function distance(a: Touch, b: Touch): number {
   return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
 }
 
-function ImagePage({
-  sessionId, cwd, item, index, count, caption, onBack, onPage,
+/**
+ * One image of the viewer. `media` is set when it pages through the
+ * session's media (canvas `Feature - Media` 24g): the foot is then the
+ * source line and Show in chat, and no dots — the media can run to hundreds.
+ */
+export function ImagePage({
+  sessionId, cwd, item, index, count, caption, onBack, onPage, media,
 }: {
   sessionId: string
   cwd?: string
@@ -77,6 +84,7 @@ function ImagePage({
   caption: string
   onBack: () => void
   onPage: (delta: number) => void
+  media?: { item: MediaItem; onShowInChat: () => void }
 }) {
   const source = useMemo(() => sourceOf(sessionId, cwd, item), [sessionId, cwd, item])
   const { view, retry, known } = useFile(source)
@@ -306,7 +314,15 @@ function ImagePage({
         )}
       </div>
       <div className="flex-1" />
-      {/* Canvas 10d: the foot — the pages, then the path and the session with its time. */}
+      {media ? (
+        <MediaFoot
+          item={media.item}
+          hint={url ? 'pinch · double-tap' : null}
+          above={shown?.cached ? <div><CachedChip asOf={asOfLabel(shown.readAt, now)} /></div> : null}
+          onShowInChat={media.onShowInChat}
+        />
+      ) : (
+      /* Canvas 10d: the foot — the pages, then the path and the session with its time. */
       <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,rgba(0,0,0,.8),transparent)] px-4 pb-1.5 pt-4">
         {shown?.cached && (
           <div>
@@ -330,6 +346,7 @@ function ImagePage({
           {url && <span>pinch · double-tap</span>}
         </div>
       </div>
+      )}
     </main>
   )
 }

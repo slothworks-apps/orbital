@@ -8,6 +8,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
  */
 export type ImageResolver = (ref: string) => string | Promise<string>
 
+/**
+ * Where the bytes of a file a session's text names come from — an image or a
+ * PDF on disk (spec 2026-10-09-session-media-design § Bytes of named files).
+ * The web answers with `/api/files/image`; a platform that cannot reach that
+ * route by URL configures its own, or none.
+ */
+export type FileResolver = (sessionId: string, path: string, cwd?: string) => string | Promise<string>
+
 export const apiImagePath = (ref: string): string => `/api/images/${ref}`
 
 /** An image on disk that a session's text names by path, read inside that
@@ -18,13 +26,43 @@ export const apiFileImagePath = (sessionId: string, path: string, cwd?: string):
   `/api/files/image?${new URLSearchParams({ session: sessionId, path, ...(cwd ? { cwd } : {}) })}`
 
 let resolver: ImageResolver = apiImagePath
+let fileResolver: FileResolver | null = apiFileImagePath
+let canShowPath: (path: string) => boolean = () => true
 
-export function configureImages(opts: { resolve: ImageResolver }): void {
+/**
+ * Configured by a platform whose bytes do not come from this origin (the
+ * phone). `resolvePath` is the named files' half: left out, named files have
+ * no source at all, and what draws them by URL — the reply thumbnails — stays
+ * away rather than drawing broken images. `canShowPath` narrows it per file:
+ * the phone leaves out what the Mac it talks to cannot serve yet.
+ */
+export function configureImages(opts: {
+  resolve: ImageResolver
+  resolvePath?: FileResolver | null
+  canShowPath?: (path: string) => boolean
+}): void {
   resolver = opts.resolve
+  fileResolver = opts.resolvePath ?? null
+  canShowPath = opts.canShowPath ?? (() => true)
 }
 
 export function resolveImage(ref: string): string | Promise<string> {
   return resolver(ref)
+}
+
+/** Whether named files can be shown here at all — see `configureImages`. */
+export function canResolveFiles(): boolean {
+  return fileResolver !== null
+}
+
+/** Whether this named file can be shown here — see `configureImages`. */
+export function canResolveFile(path: string): boolean {
+  return fileResolver !== null && canShowPath(path)
+}
+
+export function resolveFile(sessionId: string, path: string, cwd?: string): string | Promise<string> {
+  if (!fileResolver) return Promise.reject(new Error('no file resolver configured'))
+  return fileResolver(sessionId, path, cwd)
 }
 
 export interface ImageUrl {
@@ -38,40 +76,63 @@ export interface ImageUrl {
 
 type Settled = { key: string; url: string | null; failed: boolean }
 
-export function useImageUrl(ref: string): ImageUrl {
+/**
+ * A URL from a resolver that may answer at once or later. `key` names what is
+ * being resolved; a new key, or a retry, asks `resolve` again.
+ */
+function useResolvedUrl(key: string, resolve: () => string | Promise<string>): ImageUrl {
   const [attempt, setAttempt] = useState(0)
   const [settled, setSettled] = useState<Settled>({ key: '', url: null, failed: false })
-  const key = `${ref}#${attempt}`
+  const attemptKey = `${key}#${attempt}`
   // Read during render so a synchronous answer (the web's path, a phone's
   // cached blob URL) is on the first paint and nothing flickers.
   const answer = useMemo(() => {
-    const result = resolveImage(ref)
+    const result = resolve()
     if (typeof result === 'string') return { url: result, pending: null }
     // Handled here at once; the effect below reads the same promise.
     void result.catch(() => undefined)
     return { url: null, pending: result }
+    // `key` stands for `resolve`, whose identity changes every render;
     // `attempt` is the retry: a new attempt asks the resolver again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ref, attempt])
+  }, [key, attempt])
 
   useEffect(() => {
     if (!answer.pending) return
     let live = true
     void answer.pending.then(
       (url) => {
-        if (live) setSettled({ key, url, failed: false })
+        if (live) setSettled({ key: attemptKey, url, failed: false })
       },
       () => {
-        if (live) setSettled({ key, url: null, failed: true })
+        if (live) setSettled({ key: attemptKey, url: null, failed: true })
       },
     )
     return () => {
       live = false
     }
-  }, [answer, key])
+  }, [answer, attemptKey])
 
   const retry = useCallback(() => setAttempt((n) => n + 1), [])
   if (answer.url !== null) return { url: answer.url, failed: false, async: false, retry }
-  const mine = settled.key === key
+  const mine = settled.key === attemptKey
   return { url: mine ? settled.url : null, failed: mine && settled.failed, async: true, retry }
+}
+
+export function useImageUrl(ref: string): ImageUrl {
+  return useResolvedUrl(ref, () => resolveImage(ref))
+}
+
+/** Where a media item's bytes live: the image store, or a file a reply named. */
+export interface MediaSource {
+  ref?: string
+  path?: string
+  cwd?: string
+}
+
+/** The URL of a media item's bytes, whichever of the two places they live in. */
+export function useMediaSourceUrl(sessionId: string, source: MediaSource): ImageUrl {
+  const { ref, path, cwd } = source
+  const key = ref !== undefined ? `ref\n${ref}` : `file\n${sessionId}\n${cwd ?? ''}\n${path ?? ''}`
+  return useResolvedUrl(key, () => (ref !== undefined ? resolveImage(ref) : resolveFile(sessionId, path ?? '', cwd)))
 }

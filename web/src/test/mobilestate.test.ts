@@ -34,7 +34,8 @@ describe('reduce', () => {
   it('blocks the app behind 9i on a Mac older than MIN_SERVER_VERSION, naming both versions', () => {
     const next = reduce(state({ screen: 'list' }), { type: 'hello', server: '0.16.0', macName: 'studio' }, NOW)
     expect(next).toEqual({
-      screen: 'mismatch', macName: 'studio', mismatch: { cause: 'mac', theirs: '0.16.0', needed: MIN_SERVER_VERSION },
+      screen: 'mismatch', macName: 'studio', macVersion: '0.16.0',
+      mismatch: { cause: 'mac', theirs: '0.16.0', needed: MIN_SERVER_VERSION },
     })
   })
 
@@ -45,6 +46,8 @@ describe('reduce', () => {
       })
     }
     expect(reduce(state({ screen: 'session' }), { type: 'hello', server: 'dev', macName: 'studio' }, NOW)).not.toHaveProperty('screen')
+    // What the Mac serves beyond the floor is read from the version it said hello with (macSupports).
+    expect(reduce(state({ screen: 'list' }), { type: 'hello', server: '0.26.0', macName: 'studio' }, NOW)).toMatchObject({ macVersion: '0.26.0' })
   })
 
   it('blocks the app on bye protocol, keeping a Mac version it already knew', () => {

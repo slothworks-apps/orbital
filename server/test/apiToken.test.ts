@@ -74,6 +74,13 @@ describe('the token guard', () => {
     expect(wrongCookie.statusCode).toBe(401);
   });
 
+  it('guards a session media list, which names files on disk', async () => {
+    const app = await makeApp();
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/s1/media' })).statusCode).toBe(401);
+    const bearer = await app.inject({ method: 'GET', url: '/api/sessions/s1/media', headers: { authorization: `Bearer ${TOKEN}` } });
+    expect(bearer.statusCode).toBe(404);
+  });
+
   it('refuses a spelling the router decodes into /api', async () => {
     const app = await makeApp();
     expect((await app.inject({ method: 'GET', url: '/%61pi/sessions' })).statusCode).toBe(401);

@@ -9,6 +9,7 @@ import {
 import { PHONE_KNOWS_APP_TOO_OLD } from '@orbital/shared/remote/version';
 import { Hub } from '../src/api/hub.js';
 import { sessions } from '../src/db/schema.js';
+import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { createImageStore } from '../src/images/store.js';
 import { DeviceWatcher } from '../src/remote/deviceWatcher.js';
 import { PHONE_TEXT_PREVIEW_MAX_BYTES, createPhoneFileReader, type PhoneFileReader } from '../src/remote/phoneFiles.js';
@@ -306,7 +307,7 @@ function fileWorld() {
   phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
   let nextId = 1;
   /** One `file_get`; its `blob_meta`, and its bytes reassembled. */
-  const get = (path: string, as: 'image' | 'text', session = 'sf') => {
+  const get = (path: string, as: 'image' | 'text' | 'pdf', session = 'sf') => {
     const id = nextId++;
     phone.send({ t: 'file_get', id, session, path, as });
     const meta = phone.out.find((m) => m.t === 'blob_meta' && m.id === id);
@@ -361,6 +362,27 @@ describe('PhoneSession file_get', () => {
     writeFileSync(join(cwd, 'notes.md'), '# hi');
     expect(get('notes.md', 'image')).toMatchObject({ meta: { status: 415 }, chunks: [] });
   });
+  it('reads a PDF as bytes within the image bounds, under the desktop cap rather than the phone text one', () => {
+    const { cwd, outside, get } = fileWorld();
+    const pdf = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(PHONE_TEXT_PREVIEW_MAX_BYTES + 1)]);
+    writeFileSync(join(cwd, 'report.pdf'), pdf);
+    const res = get('report.pdf', 'pdf');
+    expect(res.meta).toMatchObject({ status: 200, mediaType: 'application/pdf', size: pdf.length });
+    expect(res.bytes.equals(pdf)).toBe(true);
+    writeFileSync(join(outside, 'secret.pdf'), '%PDF-1.4');
+    expect(get(join(outside, 'secret.pdf'), 'pdf')).toMatchObject({ meta: { status: 403 }, chunks: [] });
+    expect(get('ghost.pdf', 'pdf')).toMatchObject({ meta: { status: 404 }, chunks: [] });
+    writeFileSync(join(cwd, 'huge.pdf'), Buffer.alloc(FILE_PREVIEW_MAX_BYTES + 1));
+    expect(get('huge.pdf', 'pdf')).toMatchObject({ meta: { status: 413, size: FILE_PREVIEW_MAX_BYTES + 1 }, chunks: [] });
+  });
+  it('answers 415 when the kind asked for and the file disagree, PDF or image', () => {
+    const { cwd, named, get } = fileWorld();
+    writeFileSync(join(cwd, 'report.pdf'), '%PDF-1.4');
+    expect(get('report.pdf', 'image')).toMatchObject({ meta: { status: 415 }, chunks: [] });
+    expect(get(named, 'pdf')).toMatchObject({ meta: { status: 415 }, chunks: [] });
+    writeFileSync(join(cwd, 'notes.md'), '# hi');
+    expect(get('notes.md', 'pdf')).toMatchObject({ meta: { status: 415 }, chunks: [] });
+  });
   it('sends a large image in chunks, in order', () => {
     const { cwd, get } = fileWorld();
     const png = pngOf(640, 480, BLOB_CHUNK_BYTES * 2 + 5);
@@ -378,7 +400,7 @@ describe('PhoneSession file_get', () => {
       { t: 'file_get', id: 2, session: 'sf', path: `${named}\u0000.txt`, as: 'text' },
       { t: 'file_get', id: 3, session: 'sf', path: `/${'a'.repeat(FILE_PATH_MAX_CHARS)}`, as: 'text' },
       { t: 'file_get', id: 4, session: 'sf', path: named },
-      { t: 'file_get', id: 5, session: 'sf', path: named, as: 'pdf' },
+      { t: 'file_get', id: 5, session: 'sf', path: named, as: 'video' },
       { t: 'file_get', id: 6, session: 'sf', path: '', as: 'text' },
       { t: 'file_get', id: 7, session: 's\tf', path: named, as: 'image' },
     ]) phone.send(bad);

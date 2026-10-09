@@ -132,6 +132,10 @@ shared component it uses). Write the decision into the feature's spec,
 in its own section. When the phone is left out, say why, and if it is
 worth doing later, write an `idea` for it.
 
+A phone feature built on something new on the Mac must also work against
+an older Mac, because the phone updates first. Gate it in `MAC_FEATURES`
+(`mobile/CLAUDE.md` → A feature that needs a newer Mac).
+
 `npm run dev` starts the server and the web app. The README covers run/test commands, billing
 (`ANTHROPIC_API_KEY` is deleted from the server's environment on startup
 unless `ORBITAL_USE_API_KEY=1`) and the `~/.claude` caveats.

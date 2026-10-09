@@ -1,6 +1,7 @@
 import { Banner } from './Banner'
 import { FileScreen } from './screens/FileScreen'
 import { LockScreen } from './screens/LockScreen'
+import { MediaScreen } from './screens/MediaScreen'
 import { MismatchScreen } from './screens/MismatchScreen'
 import { NewSessionScreen } from './screens/NewSessionScreen'
 import { PairingScreen } from './screens/PairingScreen'
@@ -45,6 +46,7 @@ export function MobileApp() {
       {screen === 'session' && <SessionScreen />}
       {screen === 'subagent' && <SubagentScreen />}
       {screen === 'task' && <TaskScreen />}
+      {screen === 'media' && <MediaScreen />}
       {screen === 'file' && <FileScreen />}
       {screen === 'settings' && <SettingsScreen />}
       {screen === 'new' && <NewSessionScreen />}

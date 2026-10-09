@@ -46,12 +46,14 @@ function file(status: number, extra: Partial<FileResult> = {}): FileResult {
 }
 
 describe('fileKindOf', () => {
-  it('routes images to the viewer, text types to the preview, anything else nowhere', () => {
+  it('routes images to the viewer, PDFs to pdf.js, text types to the preview, anything else nowhere', () => {
     expect(fileKindOf('/tmp/login.png')).toBe('image')
     expect(fileKindOf('art/logo.SVG')).toBe('image')
+    expect(fileKindOf('out/lighthouse.pdf')).toBe('pdf')
+    expect(fileKindOf('docs/Spec.PDF')).toBe('pdf')
     expect(fileKindOf('docs/parity/Button.md')).toBe('text')
     expect(fileKindOf('server/log/out.log')).toBe('text')
-    expect(fileKindOf('out/lighthouse.pdf')).toBeNull()
+    expect(fileKindOf('out/report.pdf.txt')).toBe('text')
     expect(fileKindOf('bin/tool')).toBeNull()
   })
 
@@ -188,6 +190,26 @@ describe('the file resolver', () => {
     })
     const d = deps({ getFile })
     expect(await readPath(d, req)).toEqual({ kind: 'failed', received: 40_000 })
+  })
+
+  it('reads any refusal of a PDF as can’t-be-shown — a Mac from before PDFs among them', async () => {
+    const pdf = { ...req, path: 'docs/spec.pdf', as: 'pdf' as const }
+    const refused = deps({ getFile: vi.fn(async () => file(500)) })
+    expect(await readPath(refused, pdf)).toEqual({ kind: 'cant-show', size: null, mediaType: null })
+    // An old Mac drops the request it cannot parse: silence until the wait runs out.
+    const silent = deps({ getFile: vi.fn().mockRejectedValue(new TunnelError('timeout')) })
+    expect(await readPath(silent, pdf)).toMatchObject({ kind: 'cant-show' })
+    // An image keeps 10e's couldn't-load for both.
+    expect(await readPath(deps({ getFile: vi.fn(async () => file(500)) }), req)).toEqual({ kind: 'failed', received: 0 })
+    expect(await readPath(silent, req)).toEqual({ kind: 'failed', received: 0 })
+  })
+
+  it('a PDF that stalls after its first bytes is a dropped transfer, not a refusal', async () => {
+    const getFile = vi.fn(async (_s: string, _p: string, _a: string, opts?: { onProgress?: (n: number, t: number | null) => void }) => {
+      opts?.onProgress?.(1_000, 9_000)
+      throw new TunnelError('timeout')
+    })
+    expect(await readPath(deps({ getFile }), { ...req, path: 'a.pdf', as: 'pdf' })).toEqual({ kind: 'failed', received: 1_000 })
   })
 
   it('sends the cwd the link was written in, and keeps the same path from two trees apart', async () => {

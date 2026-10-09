@@ -2,13 +2,15 @@ import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { ImageRefEntry } from '../lib/types'
 import { formatBytes } from '../lib/format'
-import { Lightbox } from '../ui/Lightbox'
+import { useOrbital } from '../store/store'
+import { MediaViewer } from './MediaViewer'
 import { useImageUrl } from '../lib/images'
 import { fileOpenHandlers, useFileMessage } from '../lib/fileOpen'
 
 /**
  * One transcript image thumbnail (canvas 7a/7b/7d), clicking through to
- * the `Lightbox`. The box is reserved from the stored dimensions so decode
+ * the maximised media view (`MediaViewer`), opened on this image so the
+ * reader can page on through the session's media. The box is reserved from the stored dimensions so decode
  * shifts nothing (7a acceptance); a pruned ref (`onerror`) swaps to the
  * NOT IN CACHE placeholder at the same footprint — housekeeping, not an
  * error, so no retry and nothing to click (7b-B).
@@ -63,22 +65,25 @@ function boxFor(image: ImageRefEntry, variant: ThumbVariant, widthCapPx?: number
 export interface ImageThumbProps {
   image: ImageRefEntry
   variant: ThumbVariant
-  /** Lightbox caption's source label — `pasted image`, or the tool name. */
+  /** The media view's caption when the session's list holds no such image: its source label — `pasted image`, or the tool name. */
   source: string
   /** Two-up rows cap each thumb narrower (7a: 171px). */
   widthCapPx?: number
+  /** The message it sits in, so the media view opens on this very item when the image recurs. */
+  messageId?: string
 }
 
-export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbProps) {
+export function ImageThumb({ image, variant, source, widthCapPx, messageId }: ImageThumbProps) {
   const [missing, setMissing] = useState(false)
   const [open, setOpen] = useState(false)
   const box = boxFor(image, variant, widthCapPx)
   const { url, failed, async: fadeIn, retry } = useImageUrl(image.ref)
   const [loaded, setLoaded] = useState(false)
   // The phone's seam (`lib/fileOpen.ts`): configured, a press opens its own
-  // viewer at this image of this message, and no `Lightbox` is mounted.
+  // viewer at this image of this message, and no `MediaViewer` is mounted.
   const routed = fileOpenHandlers()
   const fileMessage = useFileMessage()
+  const sessionId = useOrbital((s) => s.ui.selectedId)
 
   if (missing) {
     return (
@@ -164,14 +169,15 @@ export function ImageThumb({ image, variant, source, widthCapPx }: ImageThumbPro
           </span>
         )}
       </button>
-      {!routed && <Lightbox
-        open={open}
-        src={url}
-        width={image.w}
-        height={image.h}
-        caption={caption}
-        onClose={() => setOpen(false)}
-      />}
+      {!routed && (
+        <MediaViewer
+          open={open}
+          sessionId={sessionId}
+          target={{ kind: 'ref', ref: image.ref, messageId }}
+          fallbackCaption={caption}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   )
 }

@@ -54,6 +54,8 @@ import { useAttachments } from './useAttachments'
 import { useImageDrop } from './useImageDrop'
 import { promptWithFiles } from '../lib/attachedFiles'
 import { Transcript } from './Transcript'
+import { MediaGallery } from './MediaGallery'
+import { useMedia } from '../store/media'
 import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
@@ -187,6 +189,13 @@ export function DetailPanel({
     movedToWindow ? 0 : PANEL_EXIT_MS
   )
   const session = useOrbital((s) => (id ? s.sessions[id] : undefined))
+  // The body shows Media instead of Transcript (canvas `Feature - Media` 24d)
+  // — for the session it was opened on; another session opens on its transcript.
+  const galleryOpen = useMedia((s) => id != null && s.gallery === id)
+  useEffect(() => {
+    const media = useMedia.getState()
+    if (media.gallery !== null && media.gallery !== id) media.setGallery(null)
+  }, [id])
   const claudeDirMark = useClaudeDirMark(session?.claudeDirId)
   // What the switcher offers is the session's own account's catalog.
   const switcherModels = useClaudeDirModels(session?.claudeDirId)
@@ -764,6 +773,8 @@ export function DetailPanel({
       // outermost element the drag can be over, and the accent border + inset
       // ring below are painted on the same box.
       data-drop-target
+      // The media popover spans this box less its inset (canvas `Feature - Media` 24b).
+      data-media-bound
       data-drop-armed={dropArmed || undefined}
       // Still painted while it slides away, but no longer a live surface.
       inert={(!standalone && presence === 'exiting') || undefined}
@@ -1144,9 +1155,19 @@ export function DetailPanel({
           marker is the only lit thing in the panel. */}
       <div
         data-transcript-dim
-        className={['min-h-0 flex-1', dropArmed ? 'opacity-35' : ''].join(' ')}
+        className={['relative min-h-0 flex-1', dropArmed ? 'opacity-35' : ''].join(' ')}
       >
-        <Transcript sessionId={id} />
+        {/* Media takes over the body (canvas `Feature - Media` 24d). The
+            transcript stays mounted underneath, invisible rather than gone,
+            so going back finds it at the scroll position it was left at. */}
+        <div className={galleryOpen ? 'invisible h-full' : 'h-full'} inert={galleryOpen || undefined}>
+          <Transcript sessionId={id} />
+        </div>
+        {galleryOpen && (
+          <div className="absolute inset-0">
+            <MediaGallery sessionId={id} columns={standalone ? 5 : 3} />
+          </div>
+        )}
       </div>
 
       {/* What a restart cost this session (spec

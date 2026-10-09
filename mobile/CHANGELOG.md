@@ -4,6 +4,12 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-09
+### Added
+- Media: every image and PDF of a session, from the session menu — a gallery that hides tool screenshots if you like, and a viewer you swipe through, with PDFs shown page by page and a way back to the message in the chat.
+- Images and PDFs the agent names in a reply show as thumbnails under it.
+- With an older Orbital on the Mac, Media and PDF previews stay hidden until the Mac is updated; everything else works as before.
+
 ## [0.8.2] — 2026-10-09
 ### Fixed
 - `/compact` and other slash commands sent from the phone run again while a file is open in the editor on your Mac; before, they reached Claude as an ordinary message.

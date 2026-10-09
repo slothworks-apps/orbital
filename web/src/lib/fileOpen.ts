@@ -172,3 +172,14 @@ export const FileCwdContext = createContext<string | undefined>(undefined)
 export function useFileCwd(): string | undefined {
   return useContext(FileCwdContext)
 }
+
+/**
+ * The transcript message a press sits in, on the desktop too — where
+ * `FileMessageContext` is the phone's alone. The media view opens a named
+ * path on the item of this message (spec 2026-10-09-session-media-design).
+ */
+export const MessageIdContext = createContext<string | undefined>(undefined)
+
+export function useMessageId(): string | undefined {
+  return useContext(MessageIdContext)
+}

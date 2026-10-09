@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSessionMedia } from '../../store/media'
 import { SessionMenuSheet } from '../menu/SessionMenuSheet'
 import { SheetPresence } from '../ui'
 import type { SlotProps } from './slot'
@@ -10,6 +11,9 @@ import type { SlotProps } from './slot'
  */
 export function SessionMenuButton({ session, offline }: SlotProps) {
   const [open, setOpen] = useState(false)
+  // The sheet's Media row needs to know whether there is any, before it opens
+  // (canvas 24g, 24h B); a message that brings media asks again.
+  useSessionMedia(session.id, false)
   return (
     <>
       {/* The header's ⋯: plain at rest (9b, 10k), a tinted 44 px square while its sheet is up (10i). */}

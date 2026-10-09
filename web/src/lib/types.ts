@@ -821,6 +821,9 @@ export interface ImageRefEntry {
   bytes: number
 }
 
+/** One image or PDF of a session (`GET /api/sessions/:id/media`) — shared with the server and the phone. */
+export type { MediaItem } from '@orbital/shared/media'
+
 /**
  * Where an attachment came from — the composer's two desktop intakes (spec:
  * 2026-09-20-composer-design § Image intake) and the phone's two photo

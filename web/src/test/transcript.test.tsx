@@ -575,10 +575,10 @@ describe('ToolRow: pressable path', () => {
 
   it('leaves known-binary extensions as plain text', () => {
     const { container } = render(
-      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/docs/spec.pdf' } })} />
+      <ToolRow toolUse={makeToolUse({ id: 't1', toolName: 'Read', toolInput: { file_path: '/docs/spec.zip' } })} />
     )
     expect(container.querySelector('[data-path-button]')).toBeNull()
-    expect(screen.getByRole('button', { name: /Read: \/docs\/spec\.pdf/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Read: \/docs\/spec\.zip/ })).toBeInTheDocument()
   })
 })
 

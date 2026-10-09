@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { FileAs } from '@orbital/shared/remote/messages'
 import { useMobile } from '../state'
 import { clientRef } from '../transport/clientRef'
 import { fileCache, pathKey } from './fileCache'
@@ -7,7 +8,7 @@ import { readPath, readRef, type FileOutcome } from './fileResolver'
 /** One file the file screen shows: a path the transcript named, or an image known by its ref. */
 export type FileSource =
   /** `cwd`: the one the transcript entry naming the path was written in, when there was one. */
-  | { kind: 'path'; sessionId: string; path: string; as: 'image' | 'text'; cwd?: string }
+  | { kind: 'path'; sessionId: string; path: string; as: FileAs; cwd?: string }
   | { kind: 'ref'; ref: string; w: number | null; h: number | null }
 
 export type FileView =

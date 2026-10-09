@@ -36,6 +36,23 @@ The sandbox grows only by directories the agent itself worked in. The
 agent could read them anyway, so showing them to the user discloses nothing
 new.
 
+## A link written from a subdirectory
+
+The recorded `cwd` follows the agent's shell. After `cd e2e` every later
+entry records `<project>/e2e`, yet the agent keeps naming paths from the
+project root (`.planning/shot.png`). Resolved only against `e2e`, such a
+link answers "not found" for a file that exists, and session media shows it
+as gone.
+
+So after the recorded `cwd` the server tries one more directory: the deepest
+of the session's own directories (its working tree, its home, another
+recorded `cwd`) that contains the recorded one, provided it lies inside the
+same git tree. A worktree nested in the main checkout
+(`.claude/worktrees/x`) stops at its own root, so the checkout's copy of a
+file is still never the answer. Outside a git tree nothing is added. The
+directory added is one the session already works in, so the sandbox grows by
+nothing the agent could not read.
+
 ## What was ruled out
 
 - **Trying every tree the session touched until one has the file.** It

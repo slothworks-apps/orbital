@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readLastCwd, WorkingTrees, type TreeRow } from '../src/git/workingTrees.js';
-import { fileSandboxes, readFilePreview, readInSandboxes } from '../src/files/preview.js';
+import { enclosingRoot, fileSandboxes, readFilePreview, readInSandboxes } from '../src/files/preview.js';
 import type { GitLocation } from '../src/git/gitState.js';
 import type { SubagentInfo } from '../src/transcript/subagents.js';
 import { subagentDirOf } from '../src/walkthrough/subagents.js';
@@ -212,5 +212,32 @@ describe('file sandboxes', () => {
     expect(fileSandboxes('/h', '/h', undefined, () => new Set())).toEqual(['/h']);
     const answers: Record<string, { kind: string }> = { '/t': { kind: 'not_found' }, '/h': { kind: 'outside' } };
     expect(readInSandboxes(['/t', '/h'], (dir) => answers[dir])).toEqual({ kind: 'outside' });
+  });
+});
+
+describe('enclosingRoot', () => {
+  // `/repo` is a checkout; `/repo/.claude/worktrees/w` a worktree nested in it.
+  const treeRoot = (dir: string) =>
+    dir.startsWith('/repo/.claude/worktrees/w') ? '/repo/.claude/worktrees/w' : dir.startsWith('/repo') ? '/repo' : null;
+
+  it('falls back from a subdirectory the agent cd-ed into to the session tree around it', () => {
+    expect(enclosingRoot('/repo/e2e', ['/repo', '/home'], treeRoot)).toBe('/repo');
+    expect(fileSandboxes('/repo', '/repo', '/repo/e2e', () => new Set(['/repo/e2e']), treeRoot)).toEqual([
+      '/repo/e2e',
+      '/repo',
+    ]);
+  });
+
+  it('never climbs out of a nested worktree into the checkout that holds it', () => {
+    expect(enclosingRoot('/repo/.claude/worktrees/w/web', ['/repo'], treeRoot)).toBeNull();
+    expect(enclosingRoot('/repo/.claude/worktrees/w/web', ['/repo', '/repo/.claude/worktrees/w'], treeRoot)).toBe(
+      '/repo/.claude/worktrees/w'
+    );
+  });
+
+  it('takes the deepest directory of the session that holds it, and nothing outside a git tree', () => {
+    expect(enclosingRoot('/repo/a/b/c', ['/repo', '/repo/a'], treeRoot)).toBe('/repo/a');
+    expect(enclosingRoot('/repo', ['/repo'], treeRoot)).toBeNull();
+    expect(enclosingRoot('/tmp/x', ['/tmp'], treeRoot)).toBeNull();
   });
 });

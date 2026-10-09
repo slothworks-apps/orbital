@@ -4,6 +4,13 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-10-09
+### Added
+- Media: every image and PDF of a session in one place. A small grid icon next to the folder and branch shows the latest ones and opens a gallery (⌘⇧G); a full-size view pages through them with ← →, shows PDFs page by page, and jumps back to the message each one came from. Screenshots from tools are marked and can be hidden.
+- When the agent names an image or a PDF in a reply, it shows as a thumbnail under the message, like an attachment; a file deleted since says so. PDF paths in replies open too.
+### Fixed
+- A file the agent named after changing into a subfolder of the project now opens instead of showing as not found.
+
 ## [0.25.1] — 2026-10-09
 ### Fixed
 - `/compact` and other slash commands run again while a file is open in your editor; before, they reached Claude as an ordinary message.

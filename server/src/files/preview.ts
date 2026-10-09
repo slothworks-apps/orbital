@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { expandHome } from '../paths.js';
 import { dirStamp, fileStamp } from '../transcript/stampedCache.js';
 import { subagentDirOf } from '../walkthrough/subagents.js';
@@ -257,16 +257,56 @@ export function resolveForSession(cwd: string, rawPath: string, named: NamedChec
  * The directories a file request is confined to, tried in order (adr
  * `a-file-link-resolves-against-the-cwd-it-was-written-in`). A `cwd` the
  * client sent counts only when the session's transcripts recorded it, and
- * then it is the only one: the link was written there, and a file of the
- * same name in another tree is the wrong version. Without one, or with one
+ * then it comes first and the only other is its `enclosingRoot` in the same
+ * git tree: the link was written there, and a file of the same name in another
+ * tree is the wrong version. Without one, or with one
  * the transcripts never named, the tree the session works in now, then its
  * home. `recorded` is asked only when there is a `cwd` to check.
  */
 export function fileSandboxes(
   home: string, workingDir: string, requested: string | undefined, recorded: () => ReadonlySet<string>,
+  treeRoot: (dir: string) => string | null = gitTreeRoot,
 ): string[] {
-  if (requested && recorded().has(requested)) return [requested];
+  if (requested && recorded().has(requested)) {
+    const root = enclosingRoot(requested, [workingDir, home, ...recorded()], treeRoot);
+    return root ? [requested, root] : [requested];
+  }
   return workingDir === home ? [home] : [workingDir, home];
+}
+
+/**
+ * Where a link written from a subdirectory falls back to: the agent ran
+ * `cd e2e` and then named `.planning/shot.png` from the project root. The
+ * deepest of the session's own directories (its working tree, its home, a
+ * recorded cwd) that contains `requested`, as long as it lies within the same
+ * git tree — a worktree nested under the main checkout stops at its own root,
+ * so the checkout's copy of a file is never the answer (adr
+ * `a-file-link-resolves-against-the-cwd-it-was-written-in`). Null outside a
+ * git tree, or when nothing contains it.
+ */
+export function enclosingRoot(
+  requested: string, candidates: Iterable<string>, treeRoot: (dir: string) => string | null,
+): string | null {
+  const tree = treeRoot(requested);
+  if (!tree) return null;
+  let best: string | null = null;
+  for (const dir of candidates) {
+    if (dir === requested || !isWithin(requested, dir) || !(dir === tree || isWithin(dir, tree))) continue;
+    if (!best || dir.length > best.length) best = dir;
+  }
+  return best;
+}
+
+function isWithin(path: string, dir: string): boolean {
+  return path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+}
+
+/** The nearest directory at or above `dir` holding a `.git` (a checkout's directory or a worktree's file). */
+export function gitTreeRoot(dir: string): string | null {
+  for (let at = resolve(dir); ; at = dirname(at)) {
+    if (existsSync(join(at, '.git'))) return at;
+    if (dirname(at) === at) return null;
+  }
 }
 
 /**
@@ -345,9 +385,15 @@ export function readTextFile(
   return { kind: 'ok', bytes, size: bytes.length, mtimeMs: stat.mtimeMs };
 }
 
+/** The content type `readImageFile` serves a PDF as. */
+export const PDF_CONTENT_TYPE = 'application/pdf';
+
 /** Content type per extension for `readImageFile` — the formats an `<img>`
- * shows, matched by the web's `IMAGE_EXTENSIONS` in `pathLinks.ts`. */
+ * shows, matched by `IMAGE_EXTENSIONS` in `@orbital/shared/paths`, and the
+ * PDF the media viewer renders (spec 2026-10-09-session-media-design
+ * § Bytes of named files). */
 export const IMAGE_FILE_CONTENT_TYPES: Record<string, string> = {
+  pdf: PDF_CONTENT_TYPE,
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -367,9 +413,10 @@ export type ImageFileResult =
   | { kind: 'not_image' };
 
 /**
- * Reads an image a prose path names, for the lightbox. Confined exactly like
- * `readFilePreview`, under the same size cap; the extension decides the type
- * because it is all an `<img>` needs and nothing here interprets the bytes.
+ * Reads an image or a PDF a prose path names, for the lightbox. Confined
+ * exactly like `readFilePreview`, under the same size cap
+ * (`FILE_PREVIEW_MAX_BYTES`); the extension decides the type because it is
+ * all an `<img>` or pdf.js needs and nothing here interprets the bytes.
  */
 export function readImageFile(cwd: string, rawPath: string, named: NamedCheck = NAMES_NOTHING): ImageFileResult {
   const confined = resolveForSession(cwd, rawPath, named);

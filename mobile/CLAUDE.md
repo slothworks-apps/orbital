@@ -42,3 +42,15 @@ an unsigned bundle (ADR `an-ota-bundle-runs-only-if-signed-by-ci`). Only a
 build made with `ORBITAL_MOBILE_RELEASE=1` (the root release scripts) turns
 it on, and that build needs `ota-public-key.pem`; every other build
 switches it off.
+
+## A feature that needs a newer Mac
+
+The phone updates over the air and can run ahead of its Mac for days. A
+phone feature that needs something the Mac gained in this change (a new
+route, a new `file_get` kind, a new message) gets a row in `MAC_FEATURES`
+in `web/src/mobile/version.ts`: the first Mac release that serves it.
+Behind `macSupports(...)`, the phone leaves the feature out against an
+older Mac instead of asking. An older Mac drops a tunnel message it cannot
+parse, so asking costs a timeout and a wrong state. Raise
+`MIN_SERVER_VERSION` only for what the whole app cannot work without (ADR
+`a-phone-feature-waits-for-the-mac-that-serves-it`).

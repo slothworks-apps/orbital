@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useOrbital } from '../store/store'
-import { fileOpenHandlers, useFileCwd, useFileMessage, useLongPress } from '../lib/fileOpen'
-import { apiFileImagePath } from '../lib/images'
-import { isImagePath } from '../lib/pathLinks'
-import { Lightbox } from '../ui/Lightbox'
+import { fileOpenHandlers, useFileCwd, useFileMessage, useLongPress, useMessageId } from '../lib/fileOpen'
+import { isMediaPath } from '../lib/pathLinks'
+import { MediaViewer } from './MediaViewer'
 
 /**
  * The pressable file path (spec: 2026-09-19-file-viewer-design § The
@@ -135,17 +134,20 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
   const [hovered, setHovered] = useState(false)
   const [held, setHeld] = useState(false)
   const [receipt, setReceipt] = useState(false)
-  // An image path opens the lightbox in place instead of the text viewer;
-  // it is not a viewer state, so it lives here rather than in the store.
-  const image = isImagePath(path)
-  const [lightboxOpen, setLightboxOpen] = useState(false)
+  // An image or PDF path opens the media view in place instead of the text
+  // viewer, on that item of the session's media (spec
+  // 2026-10-09-session-media-design); it is not a viewer state, so it lives
+  // here rather than in the store.
+  const media = isMediaPath(path)
+  const [mediaOpen, setMediaOpen] = useState(false)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const receiptTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // The phone's seam (`lib/fileOpen.ts`): when configured, a press goes to
-  // its handler instead of the viewer or the lightbox, and a long-press is
+  // its handler instead of the viewer or the media view, and a long-press is
   // its own gesture. Unconfigured, all three are inert.
   const routed = fileOpenHandlers()
   const fileMessage = useFileMessage()
+  const messageId = useMessageId()
   const longPress = useLongPress(routed ? path : null)
 
   // Only while the pointer is over this path, so one listener exists at a
@@ -236,8 +238,8 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
           })
           return
         }
-        if (image) {
-          setLightboxOpen(true)
+        if (media) {
+          setMediaOpen(true)
           return
         }
         if (isOpen) return
@@ -295,19 +297,19 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
     </button>
   )
 
-  if (!image || routed) return button
+  if (!media || routed) return button
   return (
     <>
       {button}
-      {/* The lightbox portals out of the DOM but not out of React's event
-          tree: without this, a click on its backdrop would bubble to the
-          tool row the path sits in and toggle it. */}
+      {/* The view portals out of the DOM but not out of React's event tree:
+          without this, a click on its backdrop would bubble to the tool row
+          the path sits in and toggle it. */}
       <span onClick={(event) => event.stopPropagation()}>
-        <Lightbox
-          open={lightboxOpen}
-          src={selectedId ? apiFileImagePath(selectedId, path, cwd) : null}
-          caption={path}
-          onClose={() => setLightboxOpen(false)}
+        <MediaViewer
+          open={mediaOpen}
+          sessionId={selectedId}
+          target={{ kind: 'path', path, cwd, messageId: fileMessage?.messageId ?? messageId }}
+          onClose={() => setMediaOpen(false)}
         />
       </span>
     </>
